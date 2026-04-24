@@ -23,6 +23,7 @@ def routing_resolve(payload: RouteResolveRequest, request: Request) -> RouteReso
     resolution = services.query_router.resolve_route(
         payload.table_names,
         routing_intent=routing_intent,
+        include_runtime_engine=False,
     )
     if resolution.resolved:
         route = resolution.require_route()

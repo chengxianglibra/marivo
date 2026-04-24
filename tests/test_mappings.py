@@ -14,6 +14,7 @@ from app.engines import EngineService
 from app.mappings import MappingService
 from app.routing import QueryRouter, RoutingResolutionError
 from app.semantic_runtime.errors import SemanticRuntimeNotReadyError
+from app.session import SessionManager
 from app.sources import SourceService
 from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
 from app.storage.sqlite_metadata import SQLiteMetadataStore
@@ -109,6 +110,71 @@ class MappingServiceTests(unittest.TestCase):
         if analytics is not None:
             analytics.close()
         self.temp_dir.cleanup()
+
+    def _seed_trino_route_fixture(
+        self,
+        *,
+        auth: dict[str, object] | None = None,
+    ) -> tuple[dict[str, object], dict[str, object]]:
+        trino_source = self.source_service.register_source(
+            "trino",
+            "Routed Trino Source",
+            authority={
+                "catalog_system": "trino",
+                "connection": {
+                    "host": "localhost",
+                    "catalog": "lakehouse",
+                    "schema": "analytics",
+                },
+            },
+            sync={"mode": "none"},
+            policy={"allow_live_browse": True, "allow_sync": False},
+        )
+        trino_engine = self.engine_service.register_engine(
+            "trino",
+            "Routed Trino Engine",
+            connection={"host": "localhost", "catalog": "lakehouse", "schema": "analytics"},
+            auth=auth,
+        )
+        now = "2026-04-23T00:00:00+00:00"
+        self.metadata.execute(
+            """
+            INSERT INTO source_objects (
+                object_id, source_id, object_type, parent_id, native_name, native_id, fqn,
+                authority_locator_json, properties_json, sync_version, synced_at, created_at, updated_at
+            )
+            VALUES (?, ?, 'table', NULL, ?, NULL, ?, ?, '{}', 'v_seed', ?, ?, ?)
+            """,
+            [
+                "obj_trino_sales_events",
+                trino_source["source_id"],
+                "sales_events",
+                "lakehouse.analytics.sales_events",
+                json.dumps(
+                    {
+                        "catalog": "lakehouse",
+                        "schema": "analytics",
+                        "table": "sales_events",
+                    }
+                ),
+                now,
+                now,
+                now,
+            ],
+        )
+        self.mapping_service.create_mapping(
+            trino_source["source_id"],
+            trino_engine["engine_id"],
+            priority=10,
+            catalog_mappings=[
+                {
+                    "authority_catalog": "lakehouse",
+                    "execution_catalog": "lakehouse",
+                    "default_schema": None,
+                }
+            ],
+        )
+        return trino_source, trino_engine
 
     def test_create_mapping_and_route_table(self) -> None:
         mapping = self.mapping_service.create_mapping(
@@ -954,6 +1020,112 @@ class MappingServiceTests(unittest.TestCase):
         self.assertFalse(candidates[0]["eligible"])
         self.assertTrue(candidates[0]["missing_sources"])
 
+    def test_router_builds_trino_engine_with_session_specific_user(self) -> None:
+        _trino_source, trino_engine = self._seed_trino_route_fixture(
+            auth={"mode": "username_only", "username_source": "session_user"},
+        )
+        session_manager = SessionManager(self.metadata)
+        alice = session_manager.create_session(
+            "Alice route",
+            {},
+            {},
+            {},
+            {"session_user": "alice"},
+        )
+        bob = session_manager.create_session(
+            "Bob route",
+            {},
+            {},
+            {},
+            {"session_user": "bob"},
+        )
+
+        alice_route = self.router.resolve_tables(
+            ["sales_events"],
+            session_id=alice["session_id"],
+        )
+        bob_route = self.router.resolve_tables(
+            ["sales_events"],
+            session_id=bob["session_id"],
+        )
+
+        self.assertEqual(alice_route.engine.user, "alice")
+        self.assertEqual(bob_route.engine.user, "bob")
+        self.assertEqual(
+            alice_route.qualified_names["sales_events"],
+            "lakehouse.analytics.sales_events",
+        )
+
+    def test_router_resolve_tables_stays_fail_closed_without_session_user(self) -> None:
+        self._seed_trino_route_fixture(
+            auth={"mode": "username_only", "username_source": "session_user"},
+        )
+
+        with self.assertRaisesRegex(ValueError, "session_user_missing"):
+            self.router.resolve_tables(["sales_events"])
+
+    def test_metric_execution_context_uses_session_user_during_route_preflight(self) -> None:
+        self._seed_trino_route_fixture(
+            auth={"mode": "username_only", "username_source": "session_user"},
+        )
+        ensure_published_typed_metric(
+            self.metadata,
+            metric_name="trino_session_metric",
+            display_name="Trino Session Metric",
+            measure_type="sum",
+            dimensions=["event_date"],
+        )
+        ensure_published_typed_metric_binding(
+            self.metadata,
+            metric_name="trino_session_metric",
+            carrier_locator="lakehouse.analytics.sales_events",
+            source_object_ref="obj_trino_sales_events",
+            metric_input_target_keys=["measure"],
+        )
+        session = SessionManager(self.metadata).create_session(
+            "Trino metric preflight",
+            {},
+            {},
+            {},
+            {"session_user": "alice"},
+        )
+
+        context = self.service._resolve_metric_execution_context(
+            "metric.trino_session_metric",
+            session_id=session["session_id"],
+        )
+        table_name = self.service._resolve_metric_table(
+            "metric.trino_session_metric",
+            session_id=session["session_id"],
+        )
+
+        self.assertEqual(context.table_name, "lakehouse.analytics.sales_events")
+        self.assertEqual(table_name, "lakehouse.analytics.sales_events")
+
+    def test_metric_execution_context_requires_session_user_when_engine_needs_it(self) -> None:
+        self._seed_trino_route_fixture(
+            auth={"mode": "username_only", "username_source": "session_user"},
+        )
+        ensure_published_typed_metric(
+            self.metadata,
+            metric_name="trino_session_metric_missing_user",
+            display_name="Trino Session Metric Missing User",
+            measure_type="sum",
+            dimensions=["event_date"],
+        )
+        ensure_published_typed_metric_binding(
+            self.metadata,
+            metric_name="trino_session_metric_missing_user",
+            carrier_locator="lakehouse.analytics.sales_events",
+            source_object_ref="obj_trino_sales_events",
+            metric_input_target_keys=["measure"],
+        )
+
+        with self.assertRaisesRegex(ValueError, "session_user_missing"):
+            self.service._resolve_metric_execution_context(
+                "metric.trino_session_metric_missing_user",
+            )
+
     def test_get_engine_info_for_source_returns_none_when_only_engine_is_not_ready(self) -> None:
         self.metadata.execute(
             "UPDATE engines SET connection_json = ? WHERE engine_id = ?",
@@ -1273,6 +1445,72 @@ class MappingApiTests(unittest.TestCase):
         self.assertEqual(
             payload["routing_detail"]["execution_locators"]["watch_events"]["mapping_id"],
             mapping_resp.json()["mapping_id"],
+        )
+
+    def test_routing_resolve_inspects_username_only_trino_without_session(self) -> None:
+        source_resp = self.client.post(
+            "/sources",
+            json={
+                "source_type": "trino",
+                "display_name": "Routing Trino Source",
+                "authority": {
+                    "catalog_system": "trino",
+                    "connection": {
+                        "host": "localhost",
+                        "catalog": "lakehouse",
+                        "schema": "analytics",
+                    },
+                },
+                "sync": {"mode": "none"},
+                "policy": {"allow_live_browse": True, "allow_sync": False},
+            },
+        )
+        engine_resp = self.client.post(
+            "/engines",
+            json={
+                "engine_type": "trino",
+                "display_name": "Routing Trino Engine",
+                "connection": {
+                    "host": "localhost",
+                    "catalog": "lakehouse",
+                    "schema": "analytics",
+                },
+                "auth": {
+                    "mode": "username_only",
+                    "username_source": "session_user",
+                },
+            },
+        )
+        self._insert_source_table(
+            source_resp.json()["source_id"],
+            object_id="obj_sales_events_api",
+            native_name="sales_events",
+            catalog="lakehouse",
+        )
+        mapping_resp = self.client.post(
+            "/mappings",
+            json={
+                "source_id": source_resp.json()["source_id"],
+                "engine_id": engine_resp.json()["engine_id"],
+                "catalog_mappings": [
+                    {
+                        "authority_catalog": "lakehouse",
+                        "execution_catalog": "lakehouse",
+                    }
+                ],
+            },
+        )
+        self.assertEqual(mapping_resp.status_code, 200)
+
+        response = self.client.post("/routing/resolve", json={"table_names": ["sales_events"]})
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["resolved"])
+        self.assertEqual(payload["engine"]["engine_id"], engine_resp.json()["engine_id"])
+        self.assertEqual(
+            payload["qualified_names"],
+            {"sales_events": "lakehouse.analytics.sales_events"},
         )
 
     def test_routing_resolve_returns_structured_failure_payload(self) -> None:

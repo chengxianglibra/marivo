@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 from app.engines import EngineService, _build_analytics_engine
 from app.execution.capabilities import build_engine_capability_profile
 from app.main import create_app
+from app.session import SessionManager
 from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
 from app.storage.sqlite_metadata import SQLiteMetadataStore
 from tests.shared_fixtures import get_seeded_duckdb_path
@@ -204,6 +205,61 @@ class EngineServiceTests(unittest.TestCase):
         from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
 
         self.assertIsInstance(analytics, DuckDBAnalyticsEngine)
+
+    def test_build_trino_engine_uses_session_user_for_username_only_auth(self) -> None:
+        engine = self.service.register_engine(
+            engine_type="trino",
+            display_name="Session Auth Trino",
+            connection={"host": "localhost", "user": "legacy_user"},
+            auth={"mode": "username_only", "username_source": "session_user"},
+        )
+        session = SessionManager(self.metadata).create_session(
+            "Route with session user",
+            {},
+            {},
+            {},
+            {"session_user": "alice", "actor_ref": "agent.alice"},
+        )
+
+        analytics = self.service.build_analytics_engine(
+            engine["engine_id"],
+            session_id=session["session_id"],
+        )
+
+        self.assertEqual(analytics.user, "alice")
+
+    def test_build_trino_engine_uses_fallback_username_when_session_user_missing(self) -> None:
+        engine = self.service.register_engine(
+            engine_type="trino",
+            display_name="Fallback Auth Trino",
+            connection={"host": "localhost", "user": "legacy_user"},
+            auth={
+                "mode": "username_only",
+                "username_source": "session_user",
+                "fallback_username": "svc_marivo",
+            },
+        )
+        session = SessionManager(self.metadata).create_session(
+            "Route without session user", {}, {}, {}
+        )
+
+        analytics = self.service.build_analytics_engine(
+            engine["engine_id"],
+            session_id=session["session_id"],
+        )
+
+        self.assertEqual(analytics.user, "svc_marivo")
+
+    def test_build_trino_engine_does_not_fallback_to_raw_connection_user(self) -> None:
+        engine = self.service.register_engine(
+            engine_type="trino",
+            display_name="No Legacy Fallback Trino",
+            connection={"host": "localhost", "user": "legacy_user"},
+            auth={"mode": "username_only", "username_source": "session_user"},
+        )
+
+        with self.assertRaisesRegex(ValueError, "session_user_missing"):
+            self.service.build_analytics_engine(engine["engine_id"])
 
     def test_validate_engine_reports_invalid_connection(self) -> None:
         engine = self.service.register_engine(

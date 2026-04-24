@@ -579,14 +579,27 @@ class SemanticLayerService:
         """Return the short metric name for display or legacy internals."""
         return _metric_name_from_ref(_coerce_metric_ref(metric_ref))
 
-    def _resolve_metric_table(self, metric_ref: str) -> str | None:
+    def _resolve_metric_table(
+        self,
+        metric_ref: str,
+        *,
+        session_id: str | None = None,
+    ) -> str | None:
         """Resolve an execution-ready table for a metric, if one can be derived."""
         try:
-            return self._resolve_metric_execution_context(metric_ref).table_name
+            return self._resolve_metric_execution_context(
+                metric_ref,
+                session_id=session_id,
+            ).table_name
         except (SemanticRuntimeNotReadyError, ValueError):
             return None
 
-    def _resolve_metric_execution_context(self, metric_ref: str) -> MetricExecutionContext:
+    def _resolve_metric_execution_context(
+        self,
+        metric_ref: str,
+        *,
+        session_id: str | None = None,
+    ) -> MetricExecutionContext:
         metric_ref = _coerce_metric_ref(metric_ref)
         metric_name = _metric_name_from_ref(metric_ref)
         try:
@@ -615,6 +628,7 @@ class SemanticLayerService:
         resolution = self._select_metric_binding_resolution(
             metric_ref,
             required_slots=required_slots,
+            session_id=session_id,
         )
         metric_header = dict(availability.resolved.semantic_object.get("header") or {})
         metric_additivity_constraints = metric_header.get("additivity_constraints")
@@ -633,7 +647,7 @@ class SemanticLayerService:
                 input_field_map=dict(resolution.input_field_map),
                 additivity_constraints=metric_additivity_constraints,
             )
-        candidate_bindings = self._metric_binding_candidates(metric_ref)
+        candidate_bindings = self._metric_binding_candidates(metric_ref, session_id=session_id)
         metric_input_failures = [
             candidate
             for candidate in candidate_bindings
@@ -684,7 +698,12 @@ class SemanticLayerService:
             dependency_refs=availability.dependency_refs,
         )
 
-    def _metric_binding_candidates(self, metric_ref: str) -> list[dict[str, Any]]:
+    def _metric_binding_candidates(
+        self,
+        metric_ref: str,
+        *,
+        session_id: str | None = None,
+    ) -> list[dict[str, Any]]:
         metric_ref = _coerce_metric_ref(metric_ref)
         metric_family = self._metric_family_for_ref(metric_ref)
         required_slots = self._required_metric_input_slots(metric_family) if metric_family else ()
@@ -705,7 +724,7 @@ class SemanticLayerService:
             for carrier in ordered_carriers:
                 source_row = self._resolve_metric_carrier_source_object(carrier)
                 route_resolution = (
-                    self._resolve_metric_binding_route(source_row)
+                    self._resolve_metric_binding_route(session_id, source_row)
                     if source_row is not None
                     else None
                 )
@@ -798,6 +817,7 @@ class SemanticLayerService:
         metric_ref: str,
         *,
         required_slots: tuple[str, ...] = (),
+        session_id: str | None = None,
     ) -> MetricBindingResolution | None:
         metric_ref = _coerce_metric_ref(metric_ref)
         viable_resolutions: list[MetricBindingResolution] = []
@@ -822,7 +842,7 @@ class SemanticLayerService:
             for carrier in carriers:
                 source_row = self._resolve_metric_carrier_source_object(carrier)
                 route_resolution = (
-                    self._resolve_metric_binding_route(source_row)
+                    self._resolve_metric_binding_route(session_id, source_row)
                     if source_row is not None
                     else None
                 )
@@ -910,7 +930,9 @@ class SemanticLayerService:
         return None
 
     def _resolve_metric_binding_route(
-        self, source_object: dict[str, Any]
+        self,
+        session_id: str | None,
+        source_object: dict[str, Any],
     ) -> MetricCarrierRoutePreflight | None:
         query_router = self.routing_runtime.query_router
         if query_router is None:
@@ -930,7 +952,10 @@ class SemanticLayerService:
         )
         if not authority_table_name:
             return None
-        route_resolution = query_router.resolve_route([authority_table_name])
+        route_resolution = query_router.resolve_route(
+            [authority_table_name],
+            session_id=session_id,
+        )
         route_detail = (
             dict(route_resolution.route.routing_detail)
             if route_resolution.route is not None
@@ -1297,7 +1322,10 @@ class SemanticLayerService:
     # ── Engine resolution ─────────────────────────────────────────────
 
     def _resolve_engine(
-        self, table_names: list[str]
+        self,
+        table_names: list[str],
+        *,
+        session_id: str | None = None,
     ) -> tuple[AnalyticsEngine, str, dict[str, str]]:
         """Resolve the analytics engine, its type, and qualified table names.
 
@@ -1305,12 +1333,24 @@ class SemanticLayerService:
         Returns ``(engine, engine_type, qualified_names)`` tuple where
         qualified_names maps native table names to engine-qualified names.
         """
-        resolution = self.routing_runtime.resolve_tables(table_names)
+        resolution = self.routing_runtime.resolve_tables(table_names, session_id=session_id)
         self._routing_feedback_context = (
             resolution.feedback.to_dict() if resolution.feedback is not None else None
         )
         qualified = resolution.route.qualified_names if resolution.route is not None else {}
         return resolution.engine, resolution.engine_type, qualified
+
+    def _resolve_engine_for_session(
+        self,
+        session_id: str,
+        table_names: list[str],
+    ) -> tuple[AnalyticsEngine, str, dict[str, str]]:
+        try:
+            return self._resolve_engine(table_names, session_id=session_id)
+        except TypeError as error:
+            if "unexpected keyword argument 'session_id'" not in str(error):
+                raise
+            return self._resolve_engine(table_names)
 
     def _compile_step_with_feedback(
         self,
@@ -2068,7 +2108,10 @@ class SemanticLayerService:
                 f"Metric '{metric_name}' not found, not published, or missing typed execution metadata"
             )
 
-        engine, engine_type, qualified = self._resolve_engine([resolved.table])
+        engine, engine_type, qualified = self._resolve_engine_for_session(
+            session_id,
+            [resolved.table],
+        )
         self._resolve_windowed_query_time_axis(
             resolved,
             engine_type=engine_type,
@@ -2252,7 +2295,7 @@ class SemanticLayerService:
         step_id = self._new_step_id()
 
         short_name = table_name.split(".")[-1]
-        engine, engine_type, qualified = self._resolve_engine([table_name])
+        engine, engine_type, qualified = self._resolve_engine_for_session(session_id, [table_name])
         qualified_table = qualified.get(table_name, table_name)
 
         row_count_query = self._compile_step_with_feedback(
@@ -2438,7 +2481,7 @@ class SemanticLayerService:
 
         limit = int(params.get("limit", 10))
         short_name = table_name.split(".")[-1]
-        engine, engine_type, qualified = self._resolve_engine([table_name])
+        engine, engine_type, qualified = self._resolve_engine_for_session(session_id, [table_name])
         qualified_table = qualified.get(table_name, table_name)
 
         # Build compiler params with filter/columns passthrough
@@ -2539,7 +2582,7 @@ class SemanticLayerService:
         step_type = "aggregate_query"
         step_id = self._new_step_id()
         short_name = table_name.split(".")[-1]
-        engine, engine_type, qualified = self._resolve_engine([table_name])
+        engine, engine_type, qualified = self._resolve_engine_for_session(session_id, [table_name])
         self._resolve_windowed_query_time_axis(
             resolved,
             engine_type=engine_type,
@@ -2672,7 +2715,10 @@ class SemanticLayerService:
 
         table_name_str = str(table_name)
         short_name = table_name_str.split(".")[-1]
-        engine, engine_type, qualified = self._resolve_engine([table_name_str])
+        engine, engine_type, qualified = self._resolve_engine_for_session(
+            session_id,
+            [table_name_str],
+        )
         qualified_table = qualified.get(table_name_str, table_name_str)
 
         try:

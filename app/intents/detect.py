@@ -137,11 +137,14 @@ def run_detect_intent(
     scope_raw = p.get("scope") or None
 
     # ── Resolve metric ─────────────────────────────────────────────────────────
-    execution_context = svc._resolve_metric_execution_context(metric_ref)
+    execution_context = svc._resolve_metric_execution_context(metric_ref, session_id=session_id)
     table = execution_context.table_name
 
     all_dimensions = svc.resolve_metric_dimensions(metric_ref)
-    engine, engine_type, qualified = svc._resolve_engine([table])
+    engine_resolution = svc._resolve_engine_for_session(session_id, [table])
+    if not isinstance(engine_resolution, tuple) or len(engine_resolution) != 3:
+        engine_resolution = svc._resolve_engine([table])
+    engine, engine_type, qualified = engine_resolution
     metric_sql = svc.resolve_metric_sql_for_execution(
         metric_ref,
         execution_context,
