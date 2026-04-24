@@ -130,7 +130,9 @@ App startup requires `marivo.yaml` metadata config with `metadata.engine=sqlite`
 - `marivo.yaml` is runtime-only. Do not add `sources`, `engines`, `bindings`, or `mappings`
   inventory blocks; source/engine/mapping objects are configured through the HTTP API only.
 - Source-to-engine projection is mapping-only. Do not reintroduce legacy `/bindings` or
-  `binding.namespace` style config or operator-facing contract.
+  `binding.namespace` style config, tables, API routes, test fixtures, or operator-facing
+  contracts. Use `/mappings` and `source_execution_mappings` for authority-to-execution
+  projection.
 - Prefer `tests/shared_fixtures.py` named DuckDB templates for repeated test data. When multiple
   test classes need the same seeded analytics tables, build them once as a deterministic named
   template and copy that template into each temporary db path instead of re-seeding in every
@@ -146,6 +148,9 @@ App startup requires `marivo.yaml` metadata config with `metadata.engine=sqlite`
 - Synced `source_objects.authority_locator` is the primary source-side identity for routing and
   table lookup. Treat `fqn` as a derived display/reference field; for newly synced objects it should
   mirror the authority locator shape (`catalog.schema.table`) instead of execution-side naming.
+- Typed semantic bindings must continue to anchor on source objects and source-side authority
+  locators. Do not store execution-side locators in typed bindings; runtime compile resolves them
+  through ready mappings.
 - Do not rely on SQLite initialization or test helpers to backfill missing `authority_locator`
   from legacy `fqn` values. Marivo does not provide online metadata backfill, migration, or reset
   tooling for old local metadata files; delete and rebuild them into the mapping-only model instead.

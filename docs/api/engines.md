@@ -1,11 +1,14 @@
 # Engines
 
 Engines represent analytics execution backends. In the current runtime, supported engine types are
-`duckdb` and `trino` only. Source-to-engine routing is governed by explicit mappings; see
+`duckdb` and `trino` only. An engine owns runtime execution authority: connection details,
+capabilities, and execution policy. Source-to-engine routing is governed by explicit mappings; see
 [`mappings.md`](mappings.md) for the authority-to-execution projection contract.
 
-This page documents the engine inventory surface only. The public operator-facing source-to-engine
-write/read contract is `/mappings`; `/bindings` is not part of the current external HTTP surface.
+This page documents the engine inventory surface only. `default_namespace` is an engine-local
+fallback and never a source-to-engine projection contract. The public operator-facing
+source-to-engine write/read contract is `/mappings`; no legacy source-engine binding surface is
+part of the current external HTTP API.
 
 `marivo.yaml` does not carry engine inventory. Engines are registered and managed only through the
 HTTP API.
@@ -62,7 +65,9 @@ Registers an analytics engine. The engine type determines which adapter implemen
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `db_path` | string | Path to the `.duckdb` file |
+| `path` | string | Recommended path to the `.duckdb` file |
+| `database` | string | Supported alias for `path` |
+| `db_path` | string | Supported alias for `path` |
 
 **Trino connection parameters:**
 
@@ -111,6 +116,9 @@ The canonical response model is `EngineResponse`. `default_namespace`,
 `intrinsic_capabilities`, `deployment_capabilities`, `policy`, and `mappings` are structured
 sub-objects; `intrinsic_capabilities`, `readiness_status`, and `failure_code` are read-only
 derived fields.
+
+`mappings` is a summary of mapping objects that target this engine. It is not embedded engine
+configuration and does not let an engine carry source authority identity or catalog projection.
 
 `readiness_status` is derived from engine validation. This check is configuration-only in the
 current runtime: it validates engine type, connection shape, `default_namespace`, and the value
