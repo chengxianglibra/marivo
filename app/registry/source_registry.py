@@ -76,10 +76,9 @@ def _normalize_authority(source_type: str, authority: dict[str, Any]) -> dict[st
 
     synthetic_catalog = authority.get("synthetic_catalog")
     if source_type == "duckdb":
-        if synthetic_catalog is None:
-            synthetic_catalog = "main"
-        if synthetic_catalog != "main":
-            raise ValueError("duckdb authority.synthetic_catalog must be 'main'")
+        if not isinstance(synthetic_catalog, str) or not synthetic_catalog.strip():
+            raise ValueError("duckdb authority.synthetic_catalog is required")
+        synthetic_catalog = synthetic_catalog.strip()
     elif synthetic_catalog is not None:
         raise ValueError("synthetic_catalog is only supported for duckdb sources")
 

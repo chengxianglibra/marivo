@@ -552,6 +552,12 @@ def _metadata_template_valid(db_path: Path) -> bool:
                 "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('sessions', 'steps', 'artifacts', 'sources', 'source_objects', 'source_execution_mappings', 'time_bindings')"
             ).fetchall()
         }
+        legacy_tables = {
+            str(row[0])
+            for row in con.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'source_engine_bindings'"
+            ).fetchall()
+        }
         source_columns = {
             str(row[1]) for row in con.execute("PRAGMA table_info(sources)").fetchall()
         }
@@ -594,6 +600,7 @@ def _metadata_template_valid(db_path: Path) -> bool:
             "source_execution_mappings",
             "time_bindings",
         }
+        and not legacy_tables
         and {
             "authority_json",
             "sync_mode",
