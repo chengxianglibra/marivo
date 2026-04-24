@@ -359,3 +359,44 @@ def test_predicate_payload_all_usage_values(usage):
         allowed_usage=[usage],
     )
     assert usage in payload.allowed_usage
+
+
+# =============================================================================
+# PredicateAtom — value domain edge cases (task 7.1)
+# =============================================================================
+
+
+def test_between_with_reversed_bounds_passes_pydantic():
+    """Reversed bounds (lo > hi) pass Pydantic; semantic check is validator-level."""
+    atom = PredicateAtom(target_ref="entity.age", op="between", value=[65, 18])
+    assert atom.value == [65, 18]
+
+
+def test_between_with_mixed_string_number_passes_pydantic():
+    """Mixed-type bounds pass Pydantic; type mismatch caught at narrowing time."""
+    atom = PredicateAtom(target_ref="entity.age", op="between", value=[18, "old"])
+    assert atom.value == [18, "old"]
+
+
+def test_between_with_none_element_passes_pydantic():
+    """None in bounds passes Pydantic; _compare_values returns None at validator."""
+    atom = PredicateAtom(target_ref="entity.age", op="between", value=[18, None])
+    assert atom.value == [18, None]
+
+
+def test_in_with_mixed_types_passes_pydantic():
+    """Mixed-type list passes Pydantic; runtime handles type-incompatible comparisons."""
+    atom = PredicateAtom(target_ref="dimension.country", op="in", value=["CN", 42, True])
+    assert len(atom.value) == 3
+
+
+def test_not_in_with_mixed_types_passes_pydantic():
+    """Mixed-type list in not_in passes Pydantic; runtime handles type checks."""
+    atom = PredicateAtom(target_ref="dimension.status", op="not_in", value=["active", 0, None])
+    assert len(atom.value) == 3
+
+
+def test_between_with_string_bounds_passes_pydantic():
+    """String range bounds are valid in Python; constructs successfully."""
+    atom = PredicateAtom(target_ref="dimension.name", op="between", value=["A", "Z"])
+    assert atom.value == ["A", "Z"]

@@ -913,8 +913,10 @@ def _values_overlap(
         return _compare_values(scope_value, upstream_value, _cmp_map[upstream_op])
 
     if scope_op in _cmp_ops and upstream_op == "eq":
-        # scope gte 18 narrows upstream eq 25 iff 25 >= 18
-        return _compare_values(upstream_value, scope_value, _cmp_map[scope_op])
+        cmp_result = _compare_values(upstream_value, scope_value, _cmp_map[scope_op])
+        if cmp_result is False:
+            return False  # contradiction
+        return None  # compatible but not narrowing (scope is a superset of upstream eq)
 
     # --- cross-operator: eq vs between ---
     if scope_op == "eq" and upstream_op == "between":
@@ -928,10 +930,11 @@ def _values_overlap(
     if scope_op == "between" and upstream_op == "eq":
         if isinstance(scope_value, list) and len(scope_value) == 2:
             try:
-                return bool(scope_value[0] <= upstream_value <= scope_value[1])
+                if not (scope_value[0] <= upstream_value <= scope_value[1]):
+                    return False  # contradiction
             except TypeError:
                 return None
-        return None
+        return None  # compatible but not narrowing (scope is a superset of upstream eq)
 
     # --- cross-operator: in vs comparison ops ---
     if scope_op == "in" and upstream_op in _cmp_ops:
@@ -1020,6 +1023,8 @@ def _ranges_subset(scope_range: Any, upstream_range: Any) -> bool | None:
     try:
         s_lo, s_hi = scope_range[0], scope_range[1]
         u_lo, u_hi = upstream_range[0], upstream_range[1]
+        if s_lo > s_hi or u_lo > u_hi:
+            return None  # reversed bounds → ambiguous
         if s_lo >= u_lo and s_hi <= u_hi:
             return True
         if s_lo > u_hi or s_hi < u_lo:

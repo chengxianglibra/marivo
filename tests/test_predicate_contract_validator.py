@@ -13,9 +13,11 @@ from app.analysis_core.predicate_validator import (
     _check_target_refs_resolvable,
     _check_time_policy,
     _check_usage_context_allowed,
+    _compare_values,
     _contains_dynamic_value,
     _extract_target_refs,
     _resolve_entity_ref_from_alias,
+    _values_overlap,
     validate_predicate_contracts,
 )
 from app.analysis_core.validator import (
@@ -1272,6 +1274,92 @@ class TestCompilerPredicateUsageGate(unittest.TestCase):
         mismatch = [i for i in result.issues if i.code == "COMPILER_PREDICATE_USAGE_MISMATCH"]
         self.assertEqual(len(mismatch), 1)
         self.assertEqual(mismatch[0].details["required_usage"], "carrier_row_filter")
+
+
+# ---------------------------------------------------------------------------
+# Task 7.1 — Expression edge cases
+# ---------------------------------------------------------------------------
+
+
+class TestExpressionEdgeCases(unittest.TestCase):
+    """Verify graceful handling of null/missing/empty expression dicts."""
+
+    def test_null_expression_returns_no_issues(self):
+        contract = {"expression": None}
+        issues = _check_expression_deterministic(contract, "predicate.test")
+        self.assertEqual(issues, [])
+
+    def test_missing_expression_returns_no_issues(self):
+        contract: dict[str, Any] = {}
+        issues = _check_expression_deterministic(contract, "predicate.test")
+        self.assertEqual(issues, [])
+
+    def test_empty_expression_dict_returns_no_issues(self):
+        contract = {"expression": {}}
+        issues = _check_expression_deterministic(contract, "predicate.test")
+        self.assertEqual(issues, [])
+
+
+# ---------------------------------------------------------------------------
+# Task 7.1 — Value domain type mismatch in _values_overlap / _compare_values
+# ---------------------------------------------------------------------------
+
+
+class TestValuesOverlapTypeMismatch(unittest.TestCase):
+    """Verify that type-incompatible operands produce None (fail-closed)."""
+
+    def test_between_string_vs_between_number_unprovable(self):
+        self.assertIsNone(_values_overlap("between", ["A", "Z"], "between", [18, 65]))
+
+    def test_gte_string_vs_gte_number_unprovable(self):
+        self.assertIsNone(_values_overlap("gte", "US", "gte", 18))
+
+    def test_eq_string_vs_eq_number_false(self):
+        self.assertFalse(_values_overlap("eq", "US", "eq", 100))
+
+    def test_between_mixed_types_unprovable(self):
+        self.assertIsNone(_values_overlap("between", [18, "Z"], "between", [10, 65]))
+
+    def test_between_reversed_bounds_vs_valid_range(self):
+        # Reversed bounds [65,18] should not be treated as a valid subset
+        result = _values_overlap("between", [65, 18], "between", [10, 100])
+        self.assertIsNone(result)
+
+    def test_in_string_vs_in_number_disjoint(self):
+        self.assertFalse(_values_overlap("in", ["US"], "in", [100, 200]))
+
+    def test_compare_values_none_a(self):
+        self.assertIsNone(_compare_values(None, 18, ">="))
+
+    def test_compare_values_none_b(self):
+        self.assertIsNone(_compare_values(18, None, ">="))
+
+    def test_compare_values_type_error(self):
+        self.assertIsNone(_compare_values("US", 18, ">="))
+
+
+# ---------------------------------------------------------------------------
+# Task 7.2 — Full usage context mismatch matrix
+# ---------------------------------------------------------------------------
+
+
+class TestUsageMismatchMatrix(unittest.TestCase):
+    """Systematic 4x4 allowed_usage vs required_usage matrix."""
+
+    USAGES = ("metric_qualifier", "carrier_row_filter", "request_scope", "governance_policy")
+
+    def test_full_usage_context_matrix(self):
+        for allowed in self.USAGES:
+            for required in self.USAGES:
+                with self.subTest(allowed_usage=allowed, required_usage=required):
+                    contract = {"allowed_usage": [allowed]}
+                    issues = _check_usage_context_allowed(contract, "predicate.test", required)
+                    if allowed == required:
+                        self.assertEqual(issues, [])
+                    else:
+                        self.assertEqual(len(issues), 1)
+                        self.assertEqual(issues[0].code, "COMPILER_PREDICATE_USAGE_MISMATCH")
+                        self.assertEqual(issues[0].details["required_usage"], required)
 
 
 if __name__ == "__main__":
