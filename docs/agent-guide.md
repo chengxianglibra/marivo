@@ -145,6 +145,9 @@ App startup requires `marivo.yaml` metadata config with `metadata.engine=sqlite`
 - Synced `source_objects.authority_locator` is the primary source-side identity for routing and
   table lookup. Treat `fqn` as a derived display/reference field; for newly synced objects it should
   mirror the authority locator shape (`catalog.schema.table`) instead of execution-side naming.
+- Do not rely on SQLite initialization or test helpers to backfill missing `authority_locator`
+  from legacy `fqn` values. Old metadata files and test fixtures should be reset or rebuilt into the
+  mapping-only model instead.
 - Treat `tests/shared_fixtures.py` metadata template build as a hot path. Keep it on the minimal
   DDL/shape-validation path; do not route it through heavier initializer or migration logic unless
   the contract truly requires that extra work.

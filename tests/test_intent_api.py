@@ -149,8 +149,8 @@ def _seed_default_calendar_source_metadata(db_path: Path) -> None:
         """
         INSERT OR IGNORE INTO source_objects (
             object_id, source_id, object_type, parent_id, native_name, native_id,
-            fqn, properties_json, sync_version, synced_at, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            fqn, authority_locator_json, properties_json, sync_version, synced_at, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [
             "obj_test_calendar_holiday",
@@ -159,7 +159,8 @@ def _seed_default_calendar_source_metadata(db_path: Path) -> None:
             None,
             "cn_public_holiday",
             None,
-            "duckdb.analytics.cn_public_holiday",
+            "main.analytics.cn_public_holiday",
+            json.dumps({"catalog": "main", "schema": "analytics", "table": "cn_public_holiday"}),
             json.dumps({"calendar_version": _CALENDAR_VERSION}),
             "test_sync_v1",
             now,
@@ -292,6 +293,24 @@ def _ensure_source_object(
     fqn: str,
     now: str = "2026-01-01T00:00:00",
 ) -> str:
+    fqn_parts = [part for part in fqn.split(".") if part]
+    source_row = metadata.query_one(
+        "SELECT authority_json FROM sources WHERE source_id = ?", [source_id]
+    )
+    catalog: str | None = None
+    if len(fqn_parts) >= 3:
+        catalog = fqn_parts[-3]
+    elif source_row is not None:
+        authority = json.loads(str(source_row["authority_json"]))
+        if isinstance(authority, dict):
+            synthetic_catalog = authority.get("synthetic_catalog")
+            if isinstance(synthetic_catalog, str) and synthetic_catalog:
+                catalog = synthetic_catalog
+    authority_locator = {
+        "catalog": catalog,
+        "schema": fqn_parts[-2] if len(fqn_parts) >= 2 else None,
+        "table": fqn_parts[-1] if fqn_parts else None,
+    }
     existing = metadata.query_one(
         "SELECT object_id FROM source_objects WHERE source_id = ? AND fqn = ?",
         [source_id, fqn],
@@ -319,20 +338,43 @@ def _ensure_source_object(
                 """
                 INSERT INTO source_objects
                     (object_id, source_id, object_type, native_name, fqn,
-                     properties_json, created_at, updated_at)
-                VALUES (?, ?, 'schema', ?, ?, '{}', ?, ?)
+                     authority_locator_json, properties_json, created_at, updated_at)
+                VALUES (?, ?, 'schema', ?, ?, ?, '{}', ?, ?)
                 """,
-                [parent_id, source_id, schema_name, schema_fqn, now, now],
+                [
+                    parent_id,
+                    source_id,
+                    schema_name,
+                    schema_fqn,
+                    json.dumps(
+                        {
+                            "catalog": authority_locator["catalog"],
+                            "schema": schema_name,
+                            "table": None,
+                        }
+                    ),
+                    now,
+                    now,
+                ],
             )
     object_id = f"obj_{uuid4().hex[:12]}"
     metadata.execute(
         """
         INSERT INTO source_objects
             (object_id, source_id, object_type, parent_id, native_name, fqn,
-             properties_json, created_at, updated_at)
-        VALUES (?, ?, 'table', ?, ?, ?, '{}', ?, ?)
+             authority_locator_json, properties_json, created_at, updated_at)
+        VALUES (?, ?, 'table', ?, ?, ?, ?, '{}', ?, ?)
         """,
-        [object_id, source_id, parent_id, native_name, fqn, now, now],
+        [
+            object_id,
+            source_id,
+            parent_id,
+            native_name,
+            fqn,
+            json.dumps(authority_locator),
+            now,
+            now,
+        ],
     )
     return object_id
 
@@ -549,7 +591,7 @@ class _ObserveIntentTestCase:
                     effective_end="2026-12-31",
                     holiday_source=CalendarSourceBindingConfig(
                         source_name="DuckDB",
-                        table_fqn="duckdb.analytics.cn_public_holiday",
+                        table_fqn="main.analytics.cn_public_holiday",
                         calendar_version=_CALENDAR_VERSION,
                     ),
                 ),

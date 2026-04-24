@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Any
 
 from fastapi.testclient import TestClient
@@ -28,6 +29,74 @@ def _metadata_store_from_client(client: TestClient) -> MetadataStore:
     if metadata_store is None:
         metadata_store = client.app.state.services.metadata_store
     return metadata_store
+
+
+def ensure_active_duckdb_mapping(
+    metadata: MetadataStore,
+    *,
+    source_id: str,
+    now: str,
+    db_path: str | None = None,
+) -> tuple[str, str]:
+    resolved_db_path = db_path
+    if resolved_db_path is None:
+        metadata_path = getattr(metadata, "db_path", None)
+        if metadata_path is not None:
+            path = Path(str(metadata_path))
+            if path.name.endswith(".meta.sqlite"):
+                resolved_db_path = str(
+                    path.with_name(path.name.removesuffix(".meta.sqlite") + ".duckdb")
+                )
+    if resolved_db_path is None:
+        raise AssertionError("DuckDB mapping seed requires an explicit analytics db path")
+
+    suffix = source_id.removeprefix("src_")
+    engine_id = f"eng_{suffix}"
+    mapping_id = f"map_{suffix}"
+    metadata.execute(
+        """
+        INSERT OR IGNORE INTO engines (
+            engine_id, engine_type, display_name, connection_json, default_namespace_json,
+            intrinsic_capabilities_json, deployment_capabilities_json, policy_json,
+            created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            engine_id,
+            "duckdb",
+            f"DuckDB Engine {suffix}",
+            json.dumps({"path": resolved_db_path}),
+            json.dumps({"catalog": None, "schema": None}),
+            json.dumps(
+                {
+                    "materialization_support": "temporary_table",
+                    "performance_class": "embedded",
+                    "federation_support": "none",
+                }
+            ),
+            json.dumps({"supported_step_types": [], "min_staleness_minutes": None}),
+            json.dumps({"allowed_step_types": [], "required_policy_support": []}),
+            now,
+            now,
+        ],
+    )
+    metadata.execute(
+        """
+        INSERT OR IGNORE INTO source_execution_mappings (
+            mapping_id, source_id, engine_id, priority, catalog_mappings_json, status, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, 'active', ?, ?)
+        """,
+        [
+            mapping_id,
+            source_id,
+            engine_id,
+            0,
+            json.dumps([{"authority_catalog": "main", "execution_catalog": "main"}]),
+            now,
+            now,
+        ],
+    )
+    return engine_id, mapping_id
 
 
 def _metric_payload_for_measure_type(metric_name: str, measure_type: str | None) -> dict[str, Any]:
@@ -503,11 +572,6 @@ def _structured_carrier_locator(
     )
     if row is not None:
         return json.loads(str(row["authority_locator_json"]))
-    parts = [part for part in carrier_locator.split(".") if part]
-    if len(parts) == 3:
-        return {"catalog": parts[0], "schema": parts[1], "table": parts[2]}
-    if len(parts) == 2:
-        return {"catalog": None, "schema": parts[0], "table": parts[1]}
     raise AssertionError(f"Unable to derive structured carrier locator from {carrier_locator!r}")
 
 

@@ -34,6 +34,7 @@ from app.service import SemanticLayerService
 from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
 from app.storage.sqlite_metadata import SQLiteMetadataStore
 from tests.semantic_test_helpers import (
+    ensure_active_duckdb_mapping,
     ensure_published_typed_metric,
     ensure_published_typed_metric_binding,
 )
@@ -92,9 +93,18 @@ def _seed_metadata(
     )
     meta.execute(
         "INSERT OR IGNORE INTO source_objects "
-        "(object_id, source_id, object_type, native_name, fqn, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?)",
-        [obj_id, src_id, "table", native_name, table_fqn, now, now],
+        "(object_id, source_id, object_type, native_name, fqn, authority_locator_json, created_at, updated_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        [
+            obj_id,
+            src_id,
+            "table",
+            native_name,
+            table_fqn,
+            json.dumps({"catalog": "main", "schema": "analytics", "table": native_name}),
+            now,
+            now,
+        ],
     )
     ensure_published_typed_metric(
         meta,
@@ -113,6 +123,7 @@ def _seed_metadata(
         binding_role=binding_role,
         metric_input_target_keys=metric_input_target_keys,
     )
+    ensure_active_duckdb_mapping(meta, source_id=src_id, now=now)
     return metric_name
 
 

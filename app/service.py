@@ -58,7 +58,6 @@ from app.semantic_runtime.errors import (
 from app.semantic_runtime.resolution import ResolvedSemanticObject
 from app.session import SessionManager
 from app.source_object_locator import (
-    execution_locator_from_source_fqn,
     normalize_source_object_authority_locator,
     qualify_execution_locator,
 )
@@ -909,7 +908,7 @@ class SemanticLayerService:
     ) -> MetricCarrierRoutePreflight | None:
         query_router = self.routing_runtime.query_router
         if query_router is None:
-            return self._legacy_metric_direct_route(source_object)
+            return None
         authority_locator = normalize_source_object_authority_locator(
             self.metadata,
             source_object,
@@ -946,10 +945,6 @@ class SemanticLayerService:
             for mapping_id in list(route_detail.get("selected_mapping_ids") or [])
             if str(mapping_id).strip()
         ]
-        if route_resolution.route is None:
-            legacy_route = self._legacy_metric_direct_route(source_object)
-            if legacy_route is not None:
-                return legacy_route
         return MetricCarrierRoutePreflight(
             table_name=(
                 self._executable_metric_table_name(
@@ -965,52 +960,6 @@ class SemanticLayerService:
             routing_detail=route_detail,
             readiness_blockers=readiness_blockers,
         )
-
-    def _legacy_metric_direct_route(
-        self, source_object: dict[str, Any]
-    ) -> MetricCarrierRoutePreflight | None:
-        if not self._legacy_metric_direct_execution_allowed(source_object):
-            return None
-        legacy_execution_locator = execution_locator_from_source_fqn(source_object)
-        if legacy_execution_locator is None:
-            return None
-        execution_table_name = qualify_execution_locator(
-            legacy_execution_locator,
-            engine_type=self.routing_runtime.default_engine_type,
-        )
-        return MetricCarrierRoutePreflight(
-            table_name=execution_table_name,
-            mapping_id=None,
-            execution_locator=legacy_execution_locator,
-            routing_detail={
-                "legacy_direct_execution": True,
-                "execution_table_name": execution_table_name,
-            },
-            readiness_blockers=[],
-        )
-
-    def _legacy_metric_direct_execution_allowed(self, source_object: dict[str, Any]) -> bool:
-        source_id = _optional_str(source_object.get("source_id"))
-        if source_id is None:
-            return False
-        source_row = self.metadata.query_one(
-            "SELECT source_type FROM sources WHERE source_id = ?",
-            [source_id],
-        )
-        source_type = _optional_str(source_row["source_type"]) if source_row is not None else None
-        if source_type != self.routing_runtime.default_engine_type:
-            return False
-        query_router = self.routing_runtime.query_router
-        if query_router is None:
-            return True
-        engine_rows = self.metadata.query_rows(
-            "SELECT engine_id FROM engines WHERE status = 'active'"
-        )
-        for row in engine_rows:
-            engine = query_router.engine_service.get_engine(str(row["engine_id"]))
-            if _optional_str(engine.get("readiness_status")) == "ready":
-                return False
-        return True
 
     def _executable_metric_table_name(
         self,
