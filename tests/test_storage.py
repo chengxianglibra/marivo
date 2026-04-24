@@ -71,6 +71,7 @@ class SQLiteMetadataStoreTests(unittest.TestCase):
         column_names = {str(row["name"]) for row in rows}
         self.assertTrue(
             {
+                "execution_identity_json",
                 "raw_filter",
                 "terminal_reason",
                 "ended_at",
@@ -78,6 +79,30 @@ class SQLiteMetadataStoreTests(unittest.TestCase):
                 "updated_at",
             }.issubset(column_names)
         )
+
+    def test_initialize_sets_current_session_execution_identity_default(self) -> None:
+        row = self.store.query_one(
+            """
+            SELECT dflt_value
+            FROM pragma_table_info('sessions')
+            WHERE name = 'execution_identity_json'
+            """
+        )
+
+        self.assertIsNotNone(row)
+        self.assertEqual(row["dflt_value"], "'{}'")
+
+    def test_initialize_sets_current_engine_auth_default(self) -> None:
+        row = self.store.query_one(
+            """
+            SELECT dflt_value
+            FROM pragma_table_info('engines')
+            WHERE name = 'auth_json'
+            """
+        )
+
+        self.assertIsNotNone(row)
+        self.assertEqual(row["dflt_value"], "'{}'")
 
     def test_execute_and_query(self) -> None:
         self.store.execute(

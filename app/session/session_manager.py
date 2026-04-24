@@ -9,12 +9,9 @@ from app.evidence_engine.finding_extractor_registry import default_finding_regis
 from app.storage.evidence_repositories import ActionProposalRepository, AssessmentRepository
 from app.storage.metadata import MetadataStore
 
-# Columns selected for canonical session root reads (Phase 5a).
-_SESSION_SELECT = (
-    "session_id, goal, status, constraints_json, budget_json, policy_json, "
-    "raw_filter, created_at, "
-    "terminal_reason, ended_at, rollover_from_session_id, updated_at"
-)
+# Use SELECT * so session root reads degrade cleanly across fresh-init schema
+# bumps while old metadata files are still readable.
+_SESSION_SELECT = "*"
 
 
 class SessionManager:
