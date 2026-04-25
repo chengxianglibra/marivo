@@ -57,6 +57,11 @@ METADATA_DDL: list[str] = [
         created_at              TEXT NOT NULL DEFAULT (datetime('now'))
     )
     """,
+    "CREATE INDEX IF NOT EXISTS idx_sessions_created ON sessions(created_at DESC, session_id DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_sessions_status_created ON sessions(status, created_at DESC, session_id DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_steps_session_type_created ON steps(session_id, step_type, created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_artifacts_session_step_lifecycle_created ON artifacts(session_id, step_id, lifecycle, created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_artifacts_session_type_created ON artifacts(session_id, artifact_type, created_at DESC)",
     # -- New semantic layer tables --
     """
     CREATE TABLE IF NOT EXISTS sources (
@@ -668,9 +673,12 @@ METADATA_DDL: list[str] = [
     # Typed binding indexes
     "CREATE INDEX IF NOT EXISTS idx_typed_bindings_ref ON typed_bindings(binding_ref)",
     "CREATE INDEX IF NOT EXISTS idx_typed_bindings_status_ref ON typed_bindings(status, binding_ref)",
+    "CREATE INDEX IF NOT EXISTS idx_typed_bindings_bound_status_ref ON typed_bindings(bound_object_ref, status, binding_ref)",
+    "CREATE INDEX IF NOT EXISTS idx_typed_bindings_bound_ref ON typed_bindings(bound_object_ref, binding_ref)",
     "CREATE INDEX IF NOT EXISTS idx_binding_imports_binding ON binding_imports(binding_id)",
     "CREATE INDEX IF NOT EXISTS idx_carrier_bindings_binding ON carrier_bindings(binding_id)",
     "CREATE INDEX IF NOT EXISTS idx_carrier_bindings_key ON carrier_bindings(binding_id, binding_key)",
+    "CREATE INDEX IF NOT EXISTS idx_carrier_bindings_source_object ON carrier_bindings(source_object_ref)",
     "CREATE INDEX IF NOT EXISTS idx_carrier_field_surfaces_carrier ON carrier_field_surfaces(carrier_binding_id)",
     "CREATE INDEX IF NOT EXISTS idx_carrier_time_surfaces_carrier ON carrier_time_surfaces(carrier_binding_id)",
     "CREATE INDEX IF NOT EXISTS idx_field_bindings_binding ON field_bindings(binding_id)",
@@ -757,6 +765,7 @@ METADATA_DDL: list[str] = [
     # Compiler compatibility profile indexes
     "CREATE INDEX IF NOT EXISTS idx_compiler_compatibility_profiles_ref ON compiler_compatibility_profiles(profile_ref)",
     "CREATE INDEX IF NOT EXISTS idx_compiler_compatibility_profiles_subject ON compiler_compatibility_profiles(subject_kind, subject_ref)",
+    "CREATE INDEX IF NOT EXISTS idx_compiler_compatibility_profiles_subject_status_ref ON compiler_compatibility_profiles(subject_kind, subject_ref, status, profile_ref)",
     "CREATE INDEX IF NOT EXISTS idx_compiler_compatibility_profiles_status ON compiler_compatibility_profiles(status)",
     """
     CREATE TABLE IF NOT EXISTS sync_jobs (
@@ -865,6 +874,7 @@ METADATA_DDL: list[str] = [
         completed_at    TEXT
     )
     """,
+    "CREATE INDEX IF NOT EXISTS idx_jobs_session_status_submitted ON jobs(session_id, status, submitted_at DESC)",
     # -- Approval requests --
     """
     CREATE TABLE IF NOT EXISTS approval_requests (
@@ -917,7 +927,10 @@ METADATA_DDL: list[str] = [
     """,
     "CREATE INDEX IF NOT EXISTS idx_findings_session ON findings(session_id)",
     "CREATE INDEX IF NOT EXISTS idx_findings_artifact ON findings(artifact_id)",
+    "CREATE INDEX IF NOT EXISTS idx_findings_artifact_created ON findings(artifact_id, created_at)",
     "CREATE INDEX IF NOT EXISTS idx_findings_session_type ON findings(session_id, finding_type)",
+    "CREATE INDEX IF NOT EXISTS idx_findings_session_created ON findings(session_id, created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_findings_session_type_created ON findings(session_id, finding_type, created_at)",
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_findings_artifact_type_key ON findings(artifact_id, finding_type, canonical_item_key)",
     # -- propositions: judgment-layer canonical objects --
     """
@@ -940,10 +953,16 @@ METADATA_DDL: list[str] = [
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_propositions_session ON propositions(session_id)",
+    "CREATE INDEX IF NOT EXISTS idx_propositions_session_created ON propositions(session_id, created_at)",
     "CREATE INDEX IF NOT EXISTS idx_propositions_session_type ON propositions(session_id, proposition_type)",
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_propositions_session_type_identity ON propositions(session_id, proposition_type, identity_key) WHERE identity_key != ''",
     "CREATE INDEX IF NOT EXISTS idx_source_objects_source_type_fqn ON source_objects(source_id, object_type, fqn)",
     "CREATE INDEX IF NOT EXISTS idx_source_objects_source_fqn ON source_objects(source_id, fqn)",
+    "CREATE INDEX IF NOT EXISTS idx_source_objects_object_type_fqn ON source_objects(object_type, fqn)",
+    "CREATE INDEX IF NOT EXISTS idx_source_objects_fqn ON source_objects(fqn)",
+    "CREATE INDEX IF NOT EXISTS idx_source_objects_native_name ON source_objects(native_name)",
+    "CREATE INDEX IF NOT EXISTS idx_source_objects_parent ON source_objects(parent_id)",
+    "CREATE INDEX IF NOT EXISTS idx_source_objects_source_sync_version ON source_objects(source_id, sync_version)",
     "CREATE INDEX IF NOT EXISTS idx_source_execution_mappings_source_status_priority ON source_execution_mappings(source_id, status, priority DESC, created_at)",
     "CREATE INDEX IF NOT EXISTS idx_source_execution_mappings_engine_status_priority ON source_execution_mappings(engine_id, status, priority DESC, created_at)",
     # -- assessments: immutable evaluation snapshots --
@@ -969,6 +988,7 @@ METADATA_DDL: list[str] = [
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_assessments_session ON assessments(session_id)",
+    "CREATE INDEX IF NOT EXISTS idx_assessments_session_created ON assessments(session_id, created_at)",
     "CREATE INDEX IF NOT EXISTS idx_assessments_proposition ON assessments(proposition_id)",
     "CREATE INDEX IF NOT EXISTS idx_assessments_proposition_seq ON assessments(proposition_id, snapshot_seq)",
     # -- evidence_gaps: missing-evidence tracking per proposition --
@@ -992,8 +1012,10 @@ METADATA_DDL: list[str] = [
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_evidence_gaps_session ON evidence_gaps(session_id)",
+    "CREATE INDEX IF NOT EXISTS idx_evidence_gaps_session_status_created ON evidence_gaps(session_id, status, created_at)",
     "CREATE INDEX IF NOT EXISTS idx_evidence_gaps_proposition ON evidence_gaps(proposition_id)",
     "CREATE INDEX IF NOT EXISTS idx_evidence_gaps_proposition_status ON evidence_gaps(proposition_id, status)",
+    "CREATE INDEX IF NOT EXISTS idx_evidence_gaps_proposition_status_created ON evidence_gaps(proposition_id, status, created_at)",
     # -- inference_records: rule-process records per assessment snapshot --
     """
     CREATE TABLE IF NOT EXISTS inference_records (
@@ -1017,7 +1039,9 @@ METADATA_DDL: list[str] = [
     """,
     "CREATE INDEX IF NOT EXISTS idx_inference_records_session ON inference_records(session_id)",
     "CREATE INDEX IF NOT EXISTS idx_inference_records_proposition ON inference_records(proposition_id)",
+    "CREATE INDEX IF NOT EXISTS idx_inference_records_proposition_created ON inference_records(proposition_id, created_at)",
     "CREATE INDEX IF NOT EXISTS idx_inference_records_assessment ON inference_records(assessment_id)",
+    "CREATE INDEX IF NOT EXISTS idx_inference_records_assessment_created ON inference_records(assessment_id, created_at)",
     # -- action_proposals: planning shortcut snapshots --
     """
     CREATE TABLE IF NOT EXISTS action_proposals (
@@ -1039,7 +1063,9 @@ METADATA_DDL: list[str] = [
     """,
     "CREATE INDEX IF NOT EXISTS idx_action_proposals_session ON action_proposals(session_id)",
     "CREATE INDEX IF NOT EXISTS idx_action_proposals_session_kind ON action_proposals(session_id, action_kind)",
+    "CREATE INDEX IF NOT EXISTS idx_action_proposals_session_kind_rank_created ON action_proposals(session_id, action_kind, priority_rank, created_at, action_proposal_id)",
     "CREATE INDEX IF NOT EXISTS idx_action_proposals_session_rank ON action_proposals(session_id, priority_rank)",
+    "CREATE INDEX IF NOT EXISTS idx_action_proposals_session_rank_created ON action_proposals(session_id, priority_rank, created_at, action_proposal_id)",
     # -- proposition_seed_finding_refs: junction table for finding → proposition seed lookups --
     # Invariant (Phase 4a-3): seed refs are creation-time only; runtime evidence membership
     # (supporting / opposing findings) lives exclusively in assessment snapshots, never here.
