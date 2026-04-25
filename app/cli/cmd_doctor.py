@@ -46,7 +46,7 @@ def handle(args: argparse.Namespace) -> dict[str, Any]:
 
     # Remaining checks need a valid workspace root
     workspace_root: Path | None = None
-    if check["status"] == "ok":
+    if check["ok"]:
         from app.cli._workspace import resolve_workspace_root as _resolve
 
         workspace_root = _resolve(getattr(args, "workspace_root", None))
@@ -84,8 +84,8 @@ def handle(args: argparse.Namespace) -> dict[str, Any]:
         elif code == EXIT_RUNTIME_NOT_RUNNING:
             runtime_failure = True
 
-    all_ok = all(c["status"] == "ok" for c in checks)
-    summary = f"{sum(c['status'] == 'ok' for c in checks)}/{len(checks)} checks passed"
+    all_ok = all(c["ok"] for c in checks)
+    summary = f"{sum(c['ok'] for c in checks)}/{len(checks)} checks passed"
     if runtime_failure and not config_failure and not workspace_failure:
         summary = f"{summary}; runtime not running"
     elif config_failure:
@@ -120,10 +120,12 @@ def _check_workspace_root(explicit_root: str | None) -> tuple[dict[str, Any], in
         from app.cli._workspace import resolve_workspace_root
 
         root = resolve_workspace_root(explicit_root)
-        return {"name": "workspace_root", "status": "ok", "path": str(root)}, EXIT_SUCCESS
+        return _check(
+            "workspace_root", "ok", f"{root} is an absolute directory", path=root
+        ), EXIT_SUCCESS
     except Exception as e:
         return (
-            {"name": "workspace_root", "status": "failed", "message": str(e)},
+            _check("workspace_root", "failed", str(e)),
             EXIT_WORKSPACE_ROOT_UNAVAILABLE,
         )
 
@@ -133,17 +135,15 @@ def _check_dot_marivo(workspace_root: Path) -> tuple[dict[str, Any], int]:
     dot_marivo = dot_marivo_path(workspace_root)
     if not dot_marivo.is_dir():
         return {
-            "name": "dot_marivo_dir",
-            "status": "failed",
-            "message": f"{dot_marivo} does not exist",
+            **_check("dot_marivo_dir", "failed", f"{dot_marivo} does not exist"),
         }, EXIT_CONFIG_INVALID
     if not os.access(dot_marivo, os.W_OK):
         return {
-            "name": "dot_marivo_dir",
-            "status": "failed",
-            "message": f"{dot_marivo} is not writable",
+            **_check("dot_marivo_dir", "failed", f"{dot_marivo} is not writable"),
         }, EXIT_CONFIG_INVALID
-    return {"name": "dot_marivo_dir", "status": "ok", "path": str(dot_marivo)}, EXIT_SUCCESS
+    return _check(
+        "dot_marivo_dir", "ok", f"{dot_marivo} exists and is writable", path=dot_marivo
+    ), EXIT_SUCCESS
 
 
 def _check_config_file(workspace_root: Path) -> tuple[dict[str, Any], int, MarivoConfig | None]:
@@ -151,7 +151,7 @@ def _check_config_file(workspace_root: Path) -> tuple[dict[str, Any], int, Mariv
     config_path = bootstrap_config_path(workspace_root)
     if not config_path.is_file():
         return (
-            {"name": "config_file", "status": "failed", "message": f"{config_path} does not exist"},
+            _check("config_file", "failed", f"{config_path} does not exist"),
             EXIT_CONFIG_INVALID,
             None,
         )
@@ -161,12 +161,16 @@ def _check_config_file(workspace_root: Path) -> tuple[dict[str, Any], int, Mariv
         config = MarivoConfig.model_validate(raw)
     except Exception as e:
         return (
-            {"name": "config_file", "status": "failed", "message": str(e)},
+            _check("config_file", "failed", str(e)),
             EXIT_CONFIG_INVALID,
             None,
         )
 
-    return {"name": "config_file", "status": "ok", "path": str(config_path)}, EXIT_SUCCESS, config
+    return (
+        _check("config_file", "ok", f"{config_path} is valid", path=config_path),
+        EXIT_SUCCESS,
+        config,
+    )
 
 
 def _check_metadata_store(
@@ -175,29 +179,26 @@ def _check_metadata_store(
     """Check 4: metadata store is accessible."""
     if config is None or config.metadata is None:
         return (
-            {"name": "metadata_store", "status": "failed", "message": "metadata config missing"},
+            _check("metadata_store", "failed", "metadata config missing"),
             EXIT_CONFIG_INVALID,
         )
     meta_path = resolve_metadata_path(bootstrap_config_path(workspace_root), config.metadata.path)
     if not meta_path.exists():
         return (
-            {
-                "name": "metadata_store",
-                "status": "warning",
-                "message": f"{meta_path} does not exist (will be created on first start)",
-            },
+            _check(
+                "metadata_store",
+                "warning",
+                f"{meta_path} does not exist (will be created on first start)",
+                path=meta_path,
+            ),
             EXIT_SUCCESS,
         )
     if not os.access(meta_path, os.R_OK):
         return (
-            {
-                "name": "metadata_store",
-                "status": "failed",
-                "message": f"{meta_path} is not readable",
-            },
+            _check("metadata_store", "failed", f"{meta_path} is not readable", path=meta_path),
             EXIT_CONFIG_INVALID,
         )
-    return {"name": "metadata_store", "status": "ok", "path": str(meta_path)}, EXIT_SUCCESS
+    return _check("metadata_store", "ok", f"{meta_path} is readable", path=meta_path), EXIT_SUCCESS
 
 
 def _check_runtime_manifest(
@@ -208,11 +209,9 @@ def _check_runtime_manifest(
 
     if not manifest_path.is_file():
         return (
-            {
-                "name": "runtime_manifest",
-                "status": "not_found",
-                "message": "No runtime manifest found",
-            },
+            _check(
+                "runtime_manifest", "not_found", "No runtime manifest found", path=manifest_path
+            ),
             EXIT_RUNTIME_NOT_RUNNING,
             None,
         )
@@ -222,15 +221,14 @@ def _check_runtime_manifest(
         validate_manifest_schema(data, str(manifest_path))
     except Exception as e:
         return (
-            {"name": "runtime_manifest", "status": "failed", "message": str(e)},
+            _check("runtime_manifest", "failed", str(e), path=manifest_path),
             EXIT_CONFIG_INVALID,
             None,
         )
 
     return (
         {
-            "name": "runtime_manifest",
-            "status": "ok",
+            **_check("runtime_manifest", "ok", f"{manifest_path} is valid", path=manifest_path),
             "pid": data["pid"],
             "base_url": data["base_url"],
         },
@@ -242,11 +240,7 @@ def _check_runtime_manifest(
 def _check_runtime_health(manifest_data: dict[str, Any] | None) -> tuple[dict[str, Any], int]:
     """Check 6: runtime PID alive and /health OK."""
     if manifest_data is None:
-        return {
-            "name": "runtime_health",
-            "status": "skipped",
-            "message": "No valid manifest",
-        }, EXIT_RUNTIME_NOT_RUNNING
+        return _check("runtime_health", "skipped", "No valid manifest"), EXIT_RUNTIME_NOT_RUNNING
 
     pid: int = manifest_data["pid"]
     base_url: str = manifest_data["base_url"]
@@ -255,41 +249,48 @@ def _check_runtime_health(manifest_data: dict[str, Any] | None) -> tuple[dict[st
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
-        return {
-            "name": "runtime_health",
-            "status": "failed",
-            "message": f"Process {pid} is not running",
-        }, EXIT_RUNTIME_NOT_RUNNING
+        return _check(
+            "runtime_health", "failed", f"Process {pid} is not running"
+        ), EXIT_RUNTIME_NOT_RUNNING
     except PermissionError:
         pass  # Process exists but owned by different user
     except OSError:
-        return {
-            "name": "runtime_health",
-            "status": "failed",
-            "message": f"Process {pid} check failed",
-        }, EXIT_RUNTIME_NOT_RUNNING
+        return _check(
+            "runtime_health", "failed", f"Process {pid} check failed"
+        ), EXIT_RUNTIME_NOT_RUNNING
 
     # Health check
     try:
         resp = httpx.get(f"{base_url}/health", timeout=2.0)
         if resp.status_code == 200 and resp.json().get("status") == "ok":
             return {
-                "name": "runtime_health",
-                "status": "ok",
+                **_check("runtime_health", "ok", f"{base_url}/health returned ok"),
                 "pid": pid,
                 "base_url": base_url,
             }, EXIT_SUCCESS
         return (
-            {
-                "name": "runtime_health",
-                "status": "failed",
-                "message": f"Health check returned non-ok at {base_url}",
-            },
+            _check("runtime_health", "failed", f"Health check returned non-ok at {base_url}"),
             EXIT_RUNTIME_NOT_RUNNING,
         )
     except Exception as e:
-        return {
-            "name": "runtime_health",
-            "status": "failed",
-            "message": str(e),
-        }, EXIT_RUNTIME_NOT_RUNNING
+        return _check("runtime_health", "failed", str(e)), EXIT_RUNTIME_NOT_RUNNING
+
+
+def _check(
+    name: str,
+    status: str,
+    detail: str,
+    *,
+    path: Path | None = None,
+) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "name": name,
+        "status": status,
+        "ok": status in {"ok", "warning"},
+        "detail": detail,
+    }
+    if path is not None:
+        result["path"] = str(path)
+    if status != "ok":
+        result["message"] = detail
+    return result

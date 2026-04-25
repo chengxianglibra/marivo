@@ -132,6 +132,11 @@ def _handle_stop(args: argparse.Namespace) -> dict[str, Any]:
     pid_path = pid_file_path(workspace_root)
     force: bool = getattr(args, "force", False)
     timeout_ms: int = getattr(args, "timeout_ms", 5000)
+    if timeout_ms <= 0:
+        raise CliError(
+            EXIT_INVALID_USAGE,
+            "--timeout-ms must be greater than 0",
+        )
 
     try:
         data = read_manifest(manifest_path)
