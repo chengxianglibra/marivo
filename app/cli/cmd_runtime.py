@@ -106,6 +106,9 @@ def _handle_status(args: argparse.Namespace) -> dict[str, Any]:
                 "status": "unhealthy",
                 "pid": pid,
                 "base_url": base_url,
+                "workspace_root": data["workspace_root"],
+                "config_path": data["config_path"],
+                "metadata_path": data["metadata_path"],
             },
         )
 
@@ -219,7 +222,7 @@ def _check_health(base_url: str) -> bool:
         if resp.status_code == 200:
             body = resp.json()
             return str(body.get("status")) == "ok"
-    except httpx.HTTPError:
+    except (httpx.HTTPError, ValueError):
         pass
     return False
 
