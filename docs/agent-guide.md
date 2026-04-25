@@ -32,10 +32,12 @@ make format
 - Tests and shared fixture details live in [`.agents/skills/marivo-test-fixtures/SKILL.md`](../.agents/skills/marivo-test-fixtures/SKILL.md); use that skill when changing tests, fixtures, DuckDB templates, or metadata templates.
 - Claude review instructions live in [`.agents/skills/claude-review/SKILL.md`](../.agents/skills/claude-review/SKILL.md); use that skill instead of duplicating review recipes here.
 - Commit attribution rules live in [`.agents/skills/commit-attribution/SKILL.md`](../.agents/skills/commit-attribution/SKILL.md); use that skill when drafting or editing commit messages.
+- Frontend commands live under `frontend/`; use `npm run typecheck`, `npm run lint`, `npm run test`, `npm run build`, and `npm run test:browser` from that directory for UI work.
 
 ## Repository Boundaries
 
 - Marivo is HTTP-only; do not assume any MCP layer exists.
+- The UI is an independent `frontend/` React app. Do not restore FastAPI-hosted `/ui` or `/admin` surfaces.
 - Prefer typed analysis steps over exposing raw SQL as the external contract.
 - Keep factual extraction deterministic; use models for explanation, not evidence structure.
 - `marivo.yaml` is runtime-only. Do not add `sources`, `engines`, `bindings`, or `mappings` inventory blocks; source, engine, and mapping objects are configured through the HTTP API only.
