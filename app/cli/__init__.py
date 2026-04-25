@@ -107,6 +107,8 @@ def _format_text_result(result: dict[str, Any]) -> str:
         )
     if result.get("status") == "running" and "base_url" in result and "pid" in result:
         return f"Marivo local runtime running at {result['base_url']} (pid {result['pid']})"
+    if result.get("status") == "stopped" and "pid" in result:
+        return f"Stopped Marivo local runtime (pid {result['pid']})"
     if result.get("status") in {"stopped", "already_stopped"}:
         return "No local runtime running"
 

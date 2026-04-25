@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import signal
 import stat
 import tempfile
 import unittest
@@ -12,6 +13,7 @@ from app.api.app_factory import create_app
 from app.cli import _format_text_result
 from app.cli._exitcodes import (
     EXIT_CONFIG_INVALID,
+    EXIT_FAILURE,
     EXIT_HEALTH_CHECK_FAILED,
     EXIT_INVALID_USAGE,
     EXIT_RUNTIME_NOT_RUNNING,
@@ -19,6 +21,7 @@ from app.cli._exitcodes import (
 )
 from app.cli._manifest import RuntimeManifest
 from app.cli._output import CliError
+from app.cli.cmd_doctor import handle as doctor_handle
 from app.cli.cmd_init_local import BOOTSTRAP_CONFIG_YAML
 from app.cli.cmd_init_local import handle as init_local_handle
 from app.cli.cmd_runtime import handle as runtime_handle
@@ -350,6 +353,293 @@ class LocalCliContractTests(unittest.TestCase):
             assert json_data is not None
             self.assertEqual(json_data["status"], "unhealthy")
 
+    def test_runtime_stop_without_manifest_reports_already_stopped(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            resolved_root = Path(tmp).resolve()
+            with self.assertRaises(CliError) as exc:
+                runtime_handle(
+                    argparse.Namespace(
+                        runtime_command="stop",
+                        workspace_root=tmp,
+                        force=False,
+                        timeout_ms=5000,
+                        format="json",
+                    )
+                )
+
+            self.assertEqual(exc.exception.exit_code, EXIT_RUNTIME_NOT_RUNNING)
+            self.assertEqual(
+                exc.exception.json_data,
+                {
+                    "status": "already_stopped",
+                    "workspace_root": str(resolved_root),
+                },
+            )
+
+    def test_runtime_stop_cleans_stale_manifest_and_pid_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace_root = Path(tmp).resolve()
+            dot_marivo = workspace_root / ".marivo"
+            run_dir = dot_marivo / "run"
+            run_dir.mkdir(parents=True)
+            manifest_path = dot_marivo / "runtime.json"
+            pid_path = run_dir / "marivo.pid"
+            RuntimeManifest(
+                workspace_root=str(workspace_root),
+                host="127.0.0.1",
+                port=49152,
+                pid=43210,
+                config_path=str(dot_marivo / "marivo.yaml"),
+                metadata_path=str(dot_marivo / "metadata.sqlite"),
+            ).write_atomic(manifest_path)
+            pid_path.write_text("43210\n")
+
+            with patch("app.cli.cmd_runtime.os.kill", side_effect=ProcessLookupError):
+                result = runtime_handle(
+                    argparse.Namespace(
+                        runtime_command="stop",
+                        workspace_root=tmp,
+                        force=False,
+                        timeout_ms=5000,
+                        format="json",
+                    )
+                )
+
+            self.assertEqual(result["status"], "already_stopped")
+            self.assertFalse(manifest_path.exists())
+            self.assertFalse(pid_path.exists())
+
+    def test_runtime_stop_sends_sigterm_and_cleans_runtime_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace_root = Path(tmp).resolve()
+            dot_marivo = workspace_root / ".marivo"
+            run_dir = dot_marivo / "run"
+            run_dir.mkdir(parents=True)
+            manifest_path = dot_marivo / "runtime.json"
+            pid_path = run_dir / "marivo.pid"
+            RuntimeManifest(
+                workspace_root=str(workspace_root),
+                host="127.0.0.1",
+                port=49152,
+                pid=43210,
+                config_path=str(dot_marivo / "marivo.yaml"),
+                metadata_path=str(dot_marivo / "metadata.sqlite"),
+            ).write_atomic(manifest_path)
+            pid_path.write_text("43210\n")
+
+            with (
+                patch(
+                    "app.cli.cmd_runtime.os.kill",
+                    side_effect=[None, None, ProcessLookupError],
+                ) as kill,
+                patch("app.cli.cmd_runtime.time.sleep"),
+            ):
+                result = runtime_handle(
+                    argparse.Namespace(
+                        runtime_command="stop",
+                        workspace_root=tmp,
+                        force=False,
+                        timeout_ms=5000,
+                        format="json",
+                    )
+                )
+
+            self.assertEqual(result["status"], "stopped")
+            self.assertEqual(result["pid"], 43210)
+            self.assertEqual(kill.call_args_list[1].args, (43210, signal.SIGTERM))
+            self.assertFalse(manifest_path.exists())
+            self.assertFalse(pid_path.exists())
+
+    def test_runtime_stop_reports_timeout_without_force(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace_root = Path(tmp).resolve()
+            dot_marivo = workspace_root / ".marivo"
+            dot_marivo.mkdir()
+            manifest_path = dot_marivo / "runtime.json"
+            RuntimeManifest(
+                workspace_root=str(workspace_root),
+                host="127.0.0.1",
+                port=49152,
+                pid=43210,
+                config_path=str(dot_marivo / "marivo.yaml"),
+                metadata_path=str(dot_marivo / "metadata.sqlite"),
+            ).write_atomic(manifest_path)
+
+            with (
+                patch("app.cli.cmd_runtime.os.kill"),
+                patch("app.cli.cmd_runtime.time.monotonic", side_effect=[0.0, 0.0, 1.0]),
+                patch("app.cli.cmd_runtime.time.sleep"),
+                self.assertRaises(CliError) as exc,
+            ):
+                runtime_handle(
+                    argparse.Namespace(
+                        runtime_command="stop",
+                        workspace_root=tmp,
+                        force=False,
+                        timeout_ms=1,
+                        format="json",
+                    )
+                )
+
+            self.assertEqual(exc.exception.exit_code, EXIT_FAILURE)
+            self.assertTrue(manifest_path.exists())
+            json_data = exc.exception.json_data
+            assert json_data is not None
+            self.assertEqual(json_data["status"], "stop_failed")
+
+    def test_runtime_stop_permission_denied_is_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace_root = Path(tmp).resolve()
+            dot_marivo = workspace_root / ".marivo"
+            dot_marivo.mkdir()
+            RuntimeManifest(
+                workspace_root=str(workspace_root),
+                host="127.0.0.1",
+                port=49152,
+                pid=43210,
+                config_path=str(dot_marivo / "marivo.yaml"),
+                metadata_path=str(dot_marivo / "metadata.sqlite"),
+            ).write_atomic(dot_marivo / "runtime.json")
+
+            with (
+                patch(
+                    "app.cli.cmd_runtime.os.kill",
+                    side_effect=[None, PermissionError],
+                ),
+                self.assertRaises(CliError) as exc,
+            ):
+                runtime_handle(
+                    argparse.Namespace(
+                        runtime_command="stop",
+                        workspace_root=tmp,
+                        force=False,
+                        timeout_ms=5000,
+                        format="json",
+                    )
+                )
+
+            self.assertEqual(exc.exception.exit_code, EXIT_FAILURE)
+            self.assertIn("Permission denied", exc.exception.message)
+
+    def test_runtime_stop_force_sends_sigkill_after_timeout(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace_root = Path(tmp).resolve()
+            dot_marivo = workspace_root / ".marivo"
+            run_dir = dot_marivo / "run"
+            run_dir.mkdir(parents=True)
+            manifest_path = dot_marivo / "runtime.json"
+            pid_path = run_dir / "marivo.pid"
+            RuntimeManifest(
+                workspace_root=str(workspace_root),
+                host="127.0.0.1",
+                port=49152,
+                pid=43210,
+                config_path=str(dot_marivo / "marivo.yaml"),
+                metadata_path=str(dot_marivo / "metadata.sqlite"),
+            ).write_atomic(manifest_path)
+            pid_path.write_text("43210\n")
+
+            with (
+                patch("app.cli.cmd_runtime.os.kill") as kill,
+                patch("app.cli.cmd_runtime.time.monotonic", side_effect=[0.0, 0.0, 1.0]),
+                patch("app.cli.cmd_runtime.time.sleep"),
+            ):
+                result = runtime_handle(
+                    argparse.Namespace(
+                        runtime_command="stop",
+                        workspace_root=tmp,
+                        force=True,
+                        timeout_ms=1,
+                        format="json",
+                    )
+                )
+
+            self.assertEqual(result["status"], "stopped")
+            self.assertEqual(result["signal"], "SIGKILL")
+            self.assertEqual(kill.call_args_list[-1].args, (43210, signal.SIGKILL))
+            self.assertFalse(manifest_path.exists())
+            self.assertFalse(pid_path.exists())
+
+    def test_runtime_stop_rejects_invalid_timeout(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(CliError) as exc:
+                runtime_handle(
+                    argparse.Namespace(
+                        runtime_command="stop",
+                        workspace_root=tmp,
+                        force=False,
+                        timeout_ms=0,
+                        format="json",
+                    )
+                )
+
+            self.assertEqual(exc.exception.exit_code, EXIT_INVALID_USAGE)
+
+    def test_doctor_reports_runtime_not_running_without_mutating_workspace(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace_root = Path(tmp).resolve()
+            init_local_handle(argparse.Namespace(workspace_root=tmp, format="json"))
+            before_paths = sorted(p.relative_to(workspace_root) for p in workspace_root.rglob("*"))
+
+            with self.assertRaises(CliError) as exc:
+                doctor_handle(argparse.Namespace(workspace_root=tmp, format="json"))
+
+            after_paths = sorted(p.relative_to(workspace_root) for p in workspace_root.rglob("*"))
+            self.assertEqual(before_paths, after_paths)
+            self.assertEqual(exc.exception.exit_code, EXIT_RUNTIME_NOT_RUNNING)
+            json_data = exc.exception.json_data
+            assert json_data is not None
+            self.assertFalse(json_data["ok"])
+            checks = {check["name"]: check for check in json_data["checks"]}
+            self.assertFalse(checks["runtime_manifest"]["ok"])
+            self.assertEqual(checks["runtime_manifest"]["status"], "not_found")
+            self.assertEqual(checks["runtime_health"]["status"], "skipped")
+            self.assertIn("runtime not running", json_data["summary"])
+
+    def test_doctor_reports_all_checks_ok_for_healthy_runtime(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace_root = Path(tmp).resolve()
+            init_local_handle(argparse.Namespace(workspace_root=tmp, format="json"))
+            dot_marivo = workspace_root / ".marivo"
+            (dot_marivo / "metadata.sqlite").write_text("")
+            RuntimeManifest(
+                workspace_root=str(workspace_root),
+                host="127.0.0.1",
+                port=49152,
+                pid=43210,
+                config_path=str(dot_marivo / "marivo.yaml"),
+                metadata_path=str(dot_marivo / "metadata.sqlite"),
+            ).write_atomic(dot_marivo / "runtime.json")
+
+            with (
+                patch("app.cli.cmd_doctor.os.kill"),
+                patch(
+                    "app.cli.cmd_doctor.httpx.get",
+                    return_value=_HealthResponse(200, {"status": "ok"}),
+                ),
+            ):
+                result = doctor_handle(argparse.Namespace(workspace_root=tmp, format="json"))
+
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["summary"], "6/6 checks passed")
+            self.assertTrue(all(check["ok"] for check in result["checks"]))
+
+    def test_doctor_invalid_manifest_is_configuration_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace_root = Path(tmp).resolve()
+            init_local_handle(argparse.Namespace(workspace_root=tmp, format="json"))
+            dot_marivo = workspace_root / ".marivo"
+            (dot_marivo / "runtime.json").write_text("{}")
+
+            with self.assertRaises(CliError) as exc:
+                doctor_handle(argparse.Namespace(workspace_root=tmp, format="json"))
+
+            self.assertEqual(exc.exception.exit_code, EXIT_CONFIG_INVALID)
+            json_data = exc.exception.json_data
+            assert json_data is not None
+            checks = {check["name"]: check for check in json_data["checks"]}
+            self.assertEqual(checks["runtime_manifest"]["status"], "failed")
+
     def test_cli_text_output_for_local_runtime_commands(self) -> None:
         self.assertEqual(
             _format_text_result(
@@ -374,6 +664,10 @@ class LocalCliContractTests(unittest.TestCase):
         self.assertEqual(
             _format_text_result({"status": "stopped", "workspace_root": "/tmp/workspace"}),
             "No local runtime running",
+        )
+        self.assertEqual(
+            _format_text_result({"status": "stopped", "pid": 43210}),
+            "Stopped Marivo local runtime (pid 43210)",
         )
 
 
