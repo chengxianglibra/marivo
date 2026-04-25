@@ -4,7 +4,12 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
-from marivo_mcp.config import MarivoMcpConfig, MarivoMcpConfigError, load_config_from_env
+from marivo_mcp.config import (
+    MarivoMcpConfig,
+    MarivoMcpConfigError,
+    TargetResolutionError,
+    load_config_from_env,
+)
 from marivo_mcp.http_client import MarivoHttpClient
 from marivo_mcp.target_resolution import resolve_target
 
@@ -153,10 +158,21 @@ def summarize_results(result: SmokeRunResult | list[SmokeCheckResult]) -> dict[s
 def main() -> None:
     try:
         config = load_config_from_env()
+        summary = summarize_results(run_live_smoke(config))
     except MarivoMcpConfigError as error:
+        if isinstance(error, TargetResolutionError):
+            payload = {
+                "ok": False,
+                "error": {
+                    "code": error.code,
+                    "message": error.message,
+                    "detail": error.detail,
+                    "guidance": error.guidance,
+                },
+            }
+            print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+            raise SystemExit(1) from error
         raise SystemExit(str(error)) from error
-
-    summary = summarize_results(run_live_smoke(config))
     print(json.dumps(summary, indent=2))
     if not summary["ok"]:
         raise SystemExit(1)
