@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from importlib import import_module
 from typing import Any
 
 from app.storage.analytics import AnalyticsEngine
@@ -38,9 +39,7 @@ class TrinoAnalyticsEngine(AnalyticsEngine):
         self.legacy_prepared_statements = legacy_prepared_statements
 
     def _connect(self) -> Any:
-        from trino.dbapi import connect
-
-        connect_fn: Callable[..., Any] = connect
+        connect_fn: Callable[..., Any] = import_module("trino.dbapi").connect
         _reserved_prefixes = ("x-trino-",)
         safe_headers: dict[str, str] | None = None
         if self.http_headers:
@@ -60,9 +59,10 @@ class TrinoAnalyticsEngine(AnalyticsEngine):
             "request_timeout": self.request_timeout,
         }
         if self.password is not None:
-            from trino.auth import BasicAuthentication
-
-            kwargs["auth"] = BasicAuthentication(self.user, self.password)
+            basic_authentication: Callable[[str, str], Any] = import_module(
+                "trino.auth"
+            ).BasicAuthentication
+            kwargs["auth"] = basic_authentication(self.user, self.password)
         if self.client_tags is not None:
             kwargs["client_tags"] = self.client_tags
         if self.source is not None:
