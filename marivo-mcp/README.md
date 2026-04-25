@@ -99,6 +99,18 @@ marivo-mcp init --mode local --print-config
 marivo-mcp init --mode remote --base-url http://127.0.0.1:8000 --api-token "$MARIVO_API_TOKEN" --print-config
 ```
 
+Generate a Codex TOML snippet or write the repo-local Codex config:
+
+```bash
+marivo-mcp init --client codex --print-config
+marivo-mcp init --client codex --write
+```
+
+`--write --client codex` updates `.codex/config.toml` in the current working
+directory by replacing only `[mcp_servers.marivo]`. Other Codex settings and
+other MCP server registrations are preserved. Use `--config-path` to write a
+specific Codex config file.
+
 Local auto-managed `stdio` MCP:
 
 ```json
@@ -133,6 +145,14 @@ Remote explicit `stdio` MCP:
     }
   }
 }
+```
+
+Codex `stdio` MCP:
+
+```toml
+[mcp_servers.marivo]
+command = "marivo-mcp"
+env = { MARIVO_MODE = "local", MARIVO_WORKSPACE_ROOT = "/absolute/path/to/workspace" }
 ```
 
 Streamable HTTP MCP (`streamable-http`, sometimes called `http-stream`):
