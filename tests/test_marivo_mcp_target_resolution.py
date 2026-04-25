@@ -23,6 +23,9 @@ TargetResolutionError = config_module.TargetResolutionError
 inspect_runtime_manifest = target_resolution_module.inspect_runtime_manifest
 resolve_target = target_resolution_module.resolve_target
 build_init_config = init_cli_module.build_init_config
+init_main = init_cli_module.main
+render_client_config = init_cli_module.render_client_config
+write_client_config = init_cli_module.write_client_config
 
 
 class _FakeServerSettings:
@@ -523,12 +526,24 @@ def test_mcp_init_remote_print_config() -> None:
     )
 
     assert output["target_kind"] == "remote"
+    assert output["mcpServers"] == {
+        "marivo": {
+            "command": "marivo-mcp",
+            "env": {
+                "MARIVO_MODE": "remote",
+                "MARIVO_BASE_URL": "http://marivo.test",
+            },
+        }
+    }
     assert output["mcp_server"] == {
         "command": "marivo-mcp",
         "env": {
             "MARIVO_MODE": "remote",
             "MARIVO_BASE_URL": "http://marivo.test",
         },
+    }
+    assert json.loads(render_client_config(output, client="generic")) == {
+        "mcpServers": output["mcpServers"]
     }
 
 
@@ -563,6 +578,15 @@ def test_mcp_init_local_print_config(tmp_path: Path) -> None:
     )
 
     assert output["target_kind"] == "local"
+    assert output["mcpServers"] == {
+        "marivo": {
+            "command": "marivo-mcp",
+            "env": {
+                "MARIVO_MODE": "local",
+                "MARIVO_WORKSPACE_ROOT": str(workspace_root),
+            },
+        }
+    }
     assert output["mcp_server"] == {
         "command": "marivo-mcp",
         "env": {
@@ -611,7 +635,154 @@ def test_mcp_init_rejects_unsupported_client() -> None:
             mode="remote",
             base_url="http://marivo.test",
             workspace_root=None,
-            client="codex",
+            client="unknown",
         )
 
     assert exc_info.value.code == "mcp_init_client_unsupported"
+
+
+def test_mcp_init_codex_print_config(tmp_path: Path) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    output = build_init_config(
+        mode="local",
+        base_url=None,
+        workspace_root=str(workspace_root),
+        client="codex",
+        server_name="marivo",
+    )
+
+    assert render_client_config(output, client="codex") == (
+        "[mcp_servers.marivo]\n"
+        'command = "marivo-mcp"\n'
+        f'env = {{ MARIVO_MODE = "local", MARIVO_WORKSPACE_ROOT = "{workspace_root}" }}\n'
+    )
+
+
+def test_mcp_init_codex_quotes_non_ascii_server_name(tmp_path: Path) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    output = build_init_config(
+        mode="local",
+        base_url=None,
+        workspace_root=str(workspace_root),
+        client="codex",
+        server_name="服务",
+    )
+
+    assert render_client_config(output, client="codex") == (
+        '[mcp_servers."服务"]\n'
+        'command = "marivo-mcp"\n'
+        f'env = {{ MARIVO_MODE = "local", MARIVO_WORKSPACE_ROOT = "{workspace_root}" }}\n'
+    )
+
+
+def test_mcp_init_codex_write_creates_project_config(tmp_path: Path) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    config_path = tmp_path / ".codex" / "config.toml"
+    output = build_init_config(
+        mode="local",
+        base_url=None,
+        workspace_root=str(workspace_root),
+        client="codex",
+    )
+
+    written_path = write_client_config(
+        output,
+        client="codex",
+        config_path=str(config_path),
+    )
+
+    assert written_path == str(config_path)
+    assert config_path.read_text() == (
+        "[mcp_servers.marivo]\n"
+        'command = "marivo-mcp"\n'
+        f'env = {{ MARIVO_MODE = "local", MARIVO_WORKSPACE_ROOT = "{workspace_root}" }}\n'
+    )
+
+
+def test_mcp_init_codex_write_replaces_existing_server_and_preserves_others(
+    tmp_path: Path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    config_path = tmp_path / ".codex" / "config.toml"
+    config_path.parent.mkdir()
+    config_path.write_text(
+        'model = "gpt-5.5"\n\n'
+        "[mcp_servers.marivo]\n"
+        'command = "/old/marivo-mcp"\n'
+        'env = { MARIVO_BASE_URL = "http://old.test" }\n\n'
+        "[mcp_servers.other]\n"
+        'command = "other-mcp"\n'
+    )
+    output = build_init_config(
+        mode="local",
+        base_url=None,
+        workspace_root=str(workspace_root),
+        client="codex",
+    )
+
+    write_client_config(output, client="codex", config_path=str(config_path))
+
+    assert config_path.read_text() == (
+        'model = "gpt-5.5"\n\n'
+        "[mcp_servers.marivo]\n"
+        'command = "marivo-mcp"\n'
+        f'env = {{ MARIVO_MODE = "local", MARIVO_WORKSPACE_ROOT = "{workspace_root}" }}\n'
+        "[mcp_servers.other]\n"
+        'command = "other-mcp"\n'
+    )
+
+
+def test_mcp_init_generic_write_is_unsupported(tmp_path: Path) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    output = build_init_config(
+        mode="local",
+        base_url=None,
+        workspace_root=str(workspace_root),
+        client="generic",
+    )
+
+    with pytest.raises(TargetResolutionError) as exc_info:
+        write_client_config(output, client="generic", config_path=str(tmp_path / "config.json"))
+
+    assert exc_info.value.code == "mcp_init_client_unsupported"
+
+
+def test_mcp_init_generic_write_cli_falls_back_to_print_config(
+    tmp_path: Path,
+    capsys: Any,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    init_main(
+        [
+            "--mode",
+            "local",
+            "--workspace-root",
+            str(workspace_root),
+            "--client",
+            "generic",
+            "--write",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert "printing config instead" in captured.err
+    assert json.loads(captured.out) == {
+        "mcpServers": {
+            "marivo": {
+                "command": "marivo-mcp",
+                "env": {
+                    "MARIVO_MODE": "local",
+                    "MARIVO_WORKSPACE_ROOT": str(workspace_root),
+                },
+            }
+        }
+    }

@@ -520,14 +520,19 @@ marivo-mcp init --base-url http://team-marivo:8000 --api-token $MARIVO_API_TOKEN
 对于支持已知客户端配置写入的场景，还应支持：
 
 ```bash
-marivo-mcp init --client generic --write
 marivo-mcp init --client codex --write
 ```
+
+`generic` 客户端只定义可复制的 JSON 输出，不做自动写入；`codex` 客户端写入
+Codex TOML 配置，默认只更新当前工作目录下 `.codex/config.toml` 的
+`[mcp_servers.marivo]` block，保留其他配置。
 
 对于不支持自动写入的场景，应至少支持：
 
 ```bash
 marivo-mcp init --print-config
+marivo-mcp init --client generic --print-config
+marivo-mcp init --client codex --print-config
 ```
 
 以输出最终 MCP 配置片段。
