@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 from marivo_mcp.config import MarivoMcpConfig, MarivoMcpConfigError, load_config_from_env
+from marivo_mcp.http_client import ResolvingMarivoHttpClient
 from marivo_mcp.resources import register_resources
 from marivo_mcp.sdk import FastMcpServer, MarivoMcpDependencyError, load_fastmcp
+from marivo_mcp.target_resolution import resolve_target
 from marivo_mcp.tools import register_tools
 
 
 def build_server() -> FastMcpServer:
     """Build the standalone stdio MCP application."""
-    config = load_config_from_env()
+    config = _resolve_startup_config(load_config_from_env())
     return build_server_with_config(config)
 
 
@@ -24,15 +26,19 @@ def build_server_with_config(config: object) -> FastMcpServer:
     )
     server.settings.host = typed_config.http.host
     server.settings.port = typed_config.http.port
-    register_tools(server, typed_config)
-    register_resources(server, typed_config)
+    if _should_defer_target_resolution(typed_config):
+        register_tools(server, typed_config, client_factory=ResolvingMarivoHttpClient)
+        register_resources(server, typed_config, client_factory=ResolvingMarivoHttpClient)
+    else:
+        register_tools(server, typed_config)
+        register_resources(server, typed_config)
     return server
 
 
 def main() -> None:
     """Entrypoint for the standalone marivo-mcp subprocess."""
     try:
-        config = load_config_from_env()
+        config = _resolve_startup_config(load_config_from_env())
         if config.transport == "streamable-http":
             _run_streamable_http(config)
             return
@@ -44,7 +50,7 @@ def main() -> None:
 def main_http() -> None:
     """Entrypoint for the standalone marivo-mcp Streamable HTTP subprocess."""
     try:
-        config = load_config_from_env()
+        config = resolve_target(load_config_from_env()).config
         _run_streamable_http(config)
     except (MarivoMcpConfigError, MarivoMcpDependencyError) as error:
         raise SystemExit(str(error)) from error
@@ -64,3 +70,13 @@ def _coerce_config(config: object) -> MarivoMcpConfig:
     if not isinstance(config, MarivoMcpConfig):
         raise TypeError("Expected MarivoMcpConfig.")
     return config
+
+
+def _resolve_startup_config(config: MarivoMcpConfig) -> MarivoMcpConfig:
+    if _should_defer_target_resolution(config):
+        return config
+    return resolve_target(config).config
+
+
+def _should_defer_target_resolution(config: MarivoMcpConfig) -> bool:
+    return config.transport == "stdio" and config.mode != "remote" and config.base_url is None

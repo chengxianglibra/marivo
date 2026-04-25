@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable
 from json import JSONDecodeError
 from typing import Any, Literal
 
 import httpx
 
-from marivo_mcp.config import MarivoMcpConfig
+from marivo_mcp.config import MarivoMcpConfig, TargetResolutionError
 from marivo_mcp.models import ToolEnvelope, ToolError, ToolMeta
+from marivo_mcp.target_resolution import resolve_target
 
 _RETRYABLE_STATUS_CODES = {502, 503, 504}
 _TIMEOUT_STATUS_CODE = 504
@@ -43,6 +45,13 @@ class MarivoHttpClient:
         *,
         transport: httpx.BaseTransport | None = None,
     ) -> None:
+        if config.base_url is None:
+            raise TargetResolutionError(
+                code="remote_target_required",
+                message="远程模式需要提供 Marivo 服务地址",
+                detail={},
+                guidance="请设置 MARIVO_BASE_URL",
+            )
         headers = {"Accept": "application/json"}
         if config.api_token:
             headers["Authorization"] = f"Bearer {config.api_token}"
@@ -323,3 +332,68 @@ class MarivoHttpClient:
         if isinstance(detail, list) and detail:
             return "Validation failed. Use detail[*].loc to repair the failing field path."
         return "Validation failed. Inspect the canonical Marivo error body for remediation."
+
+
+class ResolvingMarivoHttpClient(MarivoHttpClient):
+    """HTTP client facade that resolves local/auto targets on first use."""
+
+    def __init__(
+        self,
+        config: MarivoMcpConfig,
+        *,
+        workspace_roots_provider: Callable[[], Iterable[str]] | None = None,
+        client_factory: Callable[[MarivoMcpConfig], MarivoHttpClient] = MarivoHttpClient,
+    ) -> None:
+        self._base_config = config
+        self._workspace_roots_provider = workspace_roots_provider or (lambda: ())
+        self._client_factory = client_factory
+        self._resolved_http_client: MarivoHttpClient | None = None
+
+    def close(self) -> None:
+        if self._resolved_http_client is not None:
+            self._resolved_http_client.close()
+
+    def request_envelope(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: (
+            dict[str, str | int | float | bool | None | list[str | int | float | bool | None]]
+            | None
+        ) = None,
+        json_body: object | None = None,
+    ) -> ToolEnvelope:
+        return self._resolved_client().request_envelope(
+            method,
+            path,
+            params=params,
+            json_body=json_body,
+        )
+
+    def request_canonical(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: (
+            dict[str, str | int | float | bool | None | list[str | int | float | bool | None]]
+            | None
+        ) = None,
+        json_body: object | None = None,
+    ) -> object | None:
+        return self._resolved_client().request_canonical(
+            method,
+            path,
+            params=params,
+            json_body=json_body,
+        )
+
+    def _resolved_client(self) -> MarivoHttpClient:
+        if self._resolved_http_client is None:
+            resolution = resolve_target(
+                self._base_config,
+                workspace_roots=self._workspace_roots_provider(),
+            )
+            self._resolved_http_client = self._client_factory(resolution.config)
+        return self._resolved_http_client
