@@ -13,10 +13,29 @@ from fastapi.testclient import TestClient
 from app.engines import EngineService, _build_analytics_engine
 from app.execution.capabilities import build_engine_capability_profile
 from app.main import create_app
+from app.observability import JSONFormatter
 from app.session import SessionManager
 from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
 from app.storage.sqlite_metadata import SQLiteMetadataStore
 from tests.shared_fixtures import get_seeded_duckdb_path
+
+
+class _FakeAnalyticsEngine:
+    def __init__(self) -> None:
+        self.queries: list[tuple[str, list[object] | None]] = []
+
+    def initialize(self) -> None:
+        return None
+
+    def query_rows(self, sql: str, params: list[object] | None = None) -> list[dict[str, object]]:
+        self.queries.append((sql, params))
+        return []
+
+    def table_exists(self, table_name: str) -> bool:
+        return True
+
+    def table_row_count(self, table_name: str) -> int:
+        return 0
 
 
 class EngineServiceTests(unittest.TestCase):
@@ -206,6 +225,36 @@ class EngineServiceTests(unittest.TestCase):
 
         self.assertIsInstance(analytics, DuckDBAnalyticsEngine)
 
+    def test_build_duckdb_engine_ignores_session_execution_identity(self) -> None:
+        duckdb_path = Path(self.temp_dir.name) / "build_test_ignore_session.duckdb"
+        engine = self.service.register_engine(
+            engine_type="duckdb",
+            display_name="Ignore Session DuckDB",
+            connection={"path": str(duckdb_path), "user": "legacy_user"},
+        )
+        session = SessionManager(self.metadata).create_session(
+            "DuckDB ignores session execution identity",
+            {},
+            {},
+            {},
+            {"session_user": "alice", "actor_ref": "agent.alice"},
+        )
+
+        resolved_connection = self.service.resolve_runtime_connection(
+            engine,
+            session_id=session["session_id"],
+        )
+        analytics = self.service.build_analytics_engine(
+            engine["engine_id"],
+            session_id=session["session_id"],
+        )
+
+        self.assertEqual(
+            resolved_connection,
+            {"path": str(duckdb_path), "user": "legacy_user"},
+        )
+        self.assertIsInstance(analytics, DuckDBAnalyticsEngine)
+
     def test_build_trino_engine_uses_session_user_for_username_only_auth(self) -> None:
         engine = self.service.register_engine(
             engine_type="trino",
@@ -227,6 +276,65 @@ class EngineServiceTests(unittest.TestCase):
         )
 
         self.assertEqual(analytics.user, "alice")
+
+    def test_build_trino_engine_logs_execution_auth_resolution(self) -> None:
+        engine = self.service.register_engine(
+            engine_type="trino",
+            display_name="Logged Session Auth Trino",
+            connection={"host": "localhost", "user": "legacy_user"},
+            auth={"mode": "username_only", "username_source": "session_user"},
+        )
+        session = SessionManager(self.metadata).create_session(
+            "Route with logged session user",
+            {},
+            {},
+            {},
+            {"session_user": "alice", "actor_ref": "agent.alice"},
+        )
+
+        fake_engine = _FakeAnalyticsEngine()
+        with patch("app.registry.engine_registry.build_analytics_engine", return_value=fake_engine):
+            analytics = self.service.build_analytics_engine(
+                engine["engine_id"],
+                session_id=session["session_id"],
+            )
+            with self.assertLogs("marivo.execution_auth", level="INFO") as captured:
+                analytics.query_rows("SELECT 1")
+
+        payload = json.loads(JSONFormatter().format(captured.records[0]))
+        self.assertEqual(payload["message"], "execution_auth_resolved")
+        self.assertEqual(payload["session_id"], session["session_id"])
+        self.assertEqual(payload["engine_id"], engine["engine_id"])
+        self.assertEqual(payload["session_user"], "alice")
+        self.assertEqual(payload["actor_ref"], "agent.alice")
+        self.assertEqual(fake_engine.queries, [("SELECT 1", None)])
+
+    def test_build_trino_engine_does_not_log_execution_auth_until_runtime_use(self) -> None:
+        engine = self.service.register_engine(
+            engine_type="trino",
+            display_name="Deferred Audit Trino",
+            connection={"host": "localhost", "user": "legacy_user"},
+            auth={"mode": "username_only", "username_source": "session_user"},
+        )
+        session = SessionManager(self.metadata).create_session(
+            "Route with deferred audit",
+            {},
+            {},
+            {},
+            {"session_user": "alice", "actor_ref": "agent.alice"},
+        )
+
+        with (
+            patch(
+                "app.registry.engine_registry.build_analytics_engine",
+                return_value=_FakeAnalyticsEngine(),
+            ),
+            self.assertNoLogs("marivo.execution_auth", level="INFO"),
+        ):
+            self.service.build_analytics_engine(
+                engine["engine_id"],
+                session_id=session["session_id"],
+            )
 
     def test_build_trino_engine_uses_fallback_username_when_session_user_missing(self) -> None:
         engine = self.service.register_engine(
@@ -260,6 +368,38 @@ class EngineServiceTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "session_user_missing"):
             self.service.build_analytics_engine(engine["engine_id"])
+
+    def test_build_trino_engine_logs_preflight_failure_when_session_user_missing(self) -> None:
+        engine = self.service.register_engine(
+            engine_type="trino",
+            display_name="Logged Missing Session User Trino",
+            connection={"host": "localhost", "user": "legacy_user"},
+            auth={"mode": "username_only", "username_source": "session_user"},
+        )
+        session = SessionManager(self.metadata).create_session(
+            "Route missing session user but with actor",
+            {},
+            {},
+            {},
+            {"actor_ref": "agent.alice"},
+        )
+
+        with (
+            self.assertLogs("marivo.execution_auth", level="WARNING") as captured,
+            self.assertRaisesRegex(ValueError, "session_user_missing"),
+        ):
+            self.service.build_analytics_engine(
+                engine["engine_id"],
+                session_id=session["session_id"],
+            )
+
+        payload = json.loads(JSONFormatter().format(captured.records[0]))
+        self.assertEqual(payload["message"], "execution_auth_preflight_failed")
+        self.assertEqual(payload["session_id"], session["session_id"])
+        self.assertEqual(payload["engine_id"], engine["engine_id"])
+        self.assertIsNone(payload["session_user"])
+        self.assertEqual(payload["actor_ref"], "agent.alice")
+        self.assertEqual(payload["failure_code"], "session_user_missing")
 
     def test_validate_engine_reports_invalid_connection(self) -> None:
         engine = self.service.register_engine(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass
 from typing import Any
 from uuid import uuid4
@@ -14,6 +15,8 @@ from app.registry.factories import build_analytics_engine, validate_engine_type
 from app.session import SessionManager
 from app.storage.analytics import AnalyticsEngine
 from app.storage.metadata import MetadataStore
+
+logger = logging.getLogger("marivo.execution_auth")
 
 
 @dataclass(slots=True)
@@ -29,6 +32,46 @@ class EngineValidationResult:
             "readiness_status": self.readiness_status,
             "failure_code": self.failure_code,
         }
+
+
+@dataclass(slots=True)
+class RuntimeConnectionResolution:
+    connection: dict[str, Any]
+    auth_audit_payload: dict[str, Any] | None = None
+
+
+class ExecutionAuthLoggingEngine(AnalyticsEngine):
+    """Emit execution-auth success audit only when the engine is actually used."""
+
+    def __init__(self, inner: AnalyticsEngine, auth_audit_payload: dict[str, Any]) -> None:
+        self._inner = inner
+        self._auth_audit_payload = dict(auth_audit_payload)
+        self._logged = False
+
+    def _log_once(self) -> None:
+        if self._logged:
+            return
+        logger.info("execution_auth_resolved", extra=self._auth_audit_payload)
+        self._logged = True
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._inner, name)
+
+    def initialize(self) -> None:
+        self._log_once()
+        self._inner.initialize()
+
+    def query_rows(self, sql: str, params: list[Any] | None = None) -> list[dict[str, Any]]:
+        self._log_once()
+        return self._inner.query_rows(sql, params)
+
+    def table_exists(self, table_name: str) -> bool:
+        self._log_once()
+        return self._inner.table_exists(table_name)
+
+    def table_row_count(self, table_name: str) -> int:
+        self._log_once()
+        return self._inner.table_row_count(table_name)
 
 
 def _build_intrinsic_capabilities(engine_type: str) -> dict[str, Any]:
@@ -265,8 +308,11 @@ class EngineRegistry:
         session_id: str | None = None,
     ) -> AnalyticsEngine:
         engine = self.get_engine(engine_id)
-        connection = self.resolve_runtime_connection(engine, session_id=session_id)
-        return build_analytics_engine(engine["engine_type"], connection)
+        resolution = self._resolve_runtime_connection(engine, session_id=session_id)
+        runtime_engine = build_analytics_engine(engine["engine_type"], resolution.connection)
+        if resolution.auth_audit_payload is None:
+            return runtime_engine
+        return ExecutionAuthLoggingEngine(runtime_engine, resolution.auth_audit_payload)
 
     def resolve_runtime_connection(
         self,
@@ -274,25 +320,55 @@ class EngineRegistry:
         *,
         session_id: str | None = None,
     ) -> dict[str, Any]:
+        return self._resolve_runtime_connection(engine, session_id=session_id).connection
+
+    def _resolve_runtime_connection(
+        self,
+        engine: dict[str, Any],
+        *,
+        session_id: str | None = None,
+    ) -> RuntimeConnectionResolution:
         connection = dict(engine.get("connection") or {})
+        engine_type = str(engine.get("engine_type") or "")
         auth = dict(engine.get("auth") or {})
-        if auth.get("mode") != "username_only":
-            return connection
-        if engine.get("engine_type") != "trino":
-            return connection
+        if auth.get("mode") != "username_only" or engine_type != "trino":
+            return RuntimeConnectionResolution(connection=connection)
 
         execution_identity = (
             self.session_manager.get_execution_identity(session_id)
             if session_id is not None
             else {}
         )
-        username = self._resolve_runtime_username(
-            auth=auth,
-            execution_identity=execution_identity,
-        )
+        try:
+            username = self._resolve_runtime_username(
+                auth=auth,
+                execution_identity=execution_identity,
+            )
+        except ValueError as error:
+            error_message = str(error)
+            if error_message.startswith("session_user_missing:"):
+                logger.warning(
+                    "execution_auth_preflight_failed",
+                    extra={
+                        "session_id": session_id,
+                        "engine_id": engine.get("engine_id"),
+                        "session_user": execution_identity.get("session_user"),
+                        "actor_ref": execution_identity.get("actor_ref"),
+                        "failure_code": "session_user_missing",
+                    },
+                )
+            raise
         resolved = dict(connection)
         resolved["user"] = username
-        return resolved
+        return RuntimeConnectionResolution(
+            connection=resolved,
+            auth_audit_payload={
+                "session_id": session_id,
+                "engine_id": engine.get("engine_id"),
+                "session_user": username,
+                "actor_ref": execution_identity.get("actor_ref"),
+            },
+        )
 
     def _resolve_runtime_username(
         self,

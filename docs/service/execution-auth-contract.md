@@ -222,6 +222,8 @@ DuckDB 不消费 session 用户信息。
 - `auth.fallback_username = null`
 
 即使 session 携带了 `execution_identity.session_user`，DuckDB 运行时也忽略它，也不应因此报错。
+当前实现也显式保持这一点：DuckDB runtime path 不读取 `execution_identity`，不会把
+`session_user` 注入 connection，也不会产出 execution-auth 审计事件。
 
 ### 3. Typed intent 输入边界
 
@@ -357,34 +359,44 @@ runtime 结果：
 - Agent B 对应的 Trino connection `user = "bob"`
 - 这只是 session 级用户名注入，不代表系统完成了用户认证
 
-## 与当前实现的关系
+## 已落地运行时行为
 
-当前实现中的：
+当前实现中，execution auth runtime 已按以下约束收敛：
 
-- `connection.user`
-- `connection.password`
-- `connection.http_headers`
-
-仍然是混合形态。
-
-若按本文设计收敛，建议方向是：
-
-- `connection.user` 不再由 engine 静态写死，而是优先从 session `execution_identity.session_user` 注入
-- `password`、`http_headers` 不作为当前 contract 的一部分继续扩展
-- session 级用户信息只出现一次，不在 intent payload 重复出现
-- Trino runtime 只能通过统一 resolver 获得最终 `user`
+- Trino runtime 通过统一 resolver 生成最终 `user`，不再回退到未声明来源的
+  `connection.user`
+- `session_user_missing` 在 runtime preflight 阶段暴露，调用方继续收到 plain
+  `detail` / `ValueError` 文本
+- route preflight、metric execution context 与直接 build engine 共用同一失败面
 - DuckDB runtime 不读取 `session_user`，也不会因 session 携带该字段报错
+- session 级用户信息只在 `POST /sessions` 冻结一次，不在 intent payload 重复出现
 
 ## 审计契约
 
-Marivo 至少应审计以下字段：
+本轮 execution auth 只要求最小结构化日志审计，不新增 HTTP 读面，也不新增 metrics label。
 
+成功事件：
+
+- `message = "execution_auth_resolved"`
 - `session_id`
 - `engine_id`
-- `source_id` / `mapping_id`
-- `execution_identity.session_user`
-- `execution_identity.actor_ref`
-- `executed_at`
+- `session_user`
+- `actor_ref`
+
+该事件只应在 runtime 实际触达 execution engine 时记录，例如 `initialize`、`query_rows`、
+`table_exists`、`table_row_count` 等操作；仅构建 engine 或 routing preflight 不应记成功审计。
+
+失败事件：
+
+- `message = "execution_auth_preflight_failed"`
+- `session_id`
+- `engine_id`
+- `session_user`
+- `actor_ref`
+- `failure_code`
+
+其中 `executed_at` 直接复用结构化日志事件本身的 `timestamp`，本轮不要求稳定输出
+`source_id` / `mapping_id`。
 
 Marivo 应明确区分：
 
