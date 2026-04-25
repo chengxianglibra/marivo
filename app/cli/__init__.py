@@ -100,6 +100,16 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def _format_text_result(result: dict[str, Any]) -> str:
     """Format a result dict as human-readable text."""
+    if result.get("status") == "serving" and "base_url" in result and "workspace_root" in result:
+        return (
+            f"Marivo local runtime serving on {result['base_url']} "
+            f"(workspace: {result['workspace_root']})"
+        )
+    if result.get("status") == "running" and "base_url" in result and "pid" in result:
+        return f"Marivo local runtime running at {result['base_url']} (pid {result['pid']})"
+    if result.get("status") in {"stopped", "already_stopped"}:
+        return "No local runtime running"
+
     lines: list[str] = []
     _flatten_dict(result, lines, indent=0)
     return "\n".join(lines)

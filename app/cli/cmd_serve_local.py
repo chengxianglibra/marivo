@@ -14,7 +14,9 @@ import httpx
 
 from app.cli._exitcodes import (
     EXIT_CONFIG_INVALID,
+    EXIT_FAILURE,
     EXIT_HEALTH_CHECK_FAILED,
+    EXIT_INVALID_USAGE,
     EXIT_PORT_UNAVAILABLE,
 )
 from app.cli._manifest import RuntimeManifest
@@ -112,22 +114,34 @@ def handle(args: argparse.Namespace) -> dict[str, Any]:
 
     log_file_path = logs_dir / "marivo.log"
     with log_file_path.open("a", encoding="utf-8") as log_file:
-        proc = subprocess.Popen(
-            [
-                sys.executable,
-                "-m",
-                "uvicorn",
-                "app.main:app",
-                "--host",
-                host,
-                "--port",
-                str(actual_port),
-            ],
-            env=env,
-            stdout=log_file,
-            stderr=subprocess.STDOUT,
-            start_new_session=True,
-        )
+        try:
+            proc = subprocess.Popen(
+                [
+                    sys.executable,
+                    "-m",
+                    "uvicorn",
+                    "app.main:app",
+                    "--host",
+                    host,
+                    "--port",
+                    str(actual_port),
+                ],
+                env=env,
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
+        except OSError as e:
+            raise CliError(
+                EXIT_FAILURE,
+                f"Failed to start local Marivo daemon: {e}",
+                json_data={
+                    "error": {
+                        "code": EXIT_FAILURE,
+                        "message": f"Failed to start local Marivo daemon: {e}",
+                    }
+                },
+            ) from e
 
         # Poll /health until success or timeout
         base_url = f"http://{host}:{actual_port}"
@@ -193,23 +207,78 @@ def handle(args: argparse.Namespace) -> dict[str, Any]:
 
 def _resolve_host(cli_host: str | None) -> str:
     if cli_host is not None:
-        return cli_host
-    env_val = os.getenv("MARIVO_LOCAL_HOST")
-    return env_val if env_val else "127.0.0.1"
+        host = cli_host
+    else:
+        env_val = os.getenv("MARIVO_LOCAL_HOST")
+        host = env_val if env_val else "127.0.0.1"
+    if not host.strip():
+        raise CliError(
+            EXIT_INVALID_USAGE,
+            "Local runtime host must be non-empty.",
+            json_data={
+                "error": {
+                    "code": EXIT_INVALID_USAGE,
+                    "message": "Local runtime host must be non-empty.",
+                }
+            },
+        )
+    return host
 
 
 def _resolve_port(cli_port: int | None) -> int:
     if cli_port is not None:
-        return cli_port
-    env_val = os.getenv("MARIVO_LOCAL_PORT")
-    return int(env_val) if env_val else 0
+        port = cli_port
+    else:
+        env_val = os.getenv("MARIVO_LOCAL_PORT")
+        port = _parse_int_env("MARIVO_LOCAL_PORT", env_val) if env_val else 0
+    if port < 0 or port > 65535:
+        raise CliError(
+            EXIT_INVALID_USAGE,
+            f"Local runtime port must be between 0 and 65535: {port}",
+            json_data={
+                "error": {
+                    "code": EXIT_INVALID_USAGE,
+                    "message": f"Local runtime port must be between 0 and 65535: {port}",
+                }
+            },
+        )
+    return port
 
 
 def _resolve_start_timeout(cli_timeout: int | None) -> int:
     if cli_timeout is not None:
-        return cli_timeout
-    env_val = os.getenv("MARIVO_START_TIMEOUT_MS")
-    return int(env_val) if env_val else 15000
+        timeout_ms = cli_timeout
+    else:
+        env_val = os.getenv("MARIVO_START_TIMEOUT_MS")
+        timeout_ms = _parse_int_env("MARIVO_START_TIMEOUT_MS", env_val) if env_val else 15000
+    if timeout_ms <= 0:
+        raise CliError(
+            EXIT_INVALID_USAGE,
+            f"Local runtime start timeout must be positive: {timeout_ms}",
+            json_data={
+                "error": {
+                    "code": EXIT_INVALID_USAGE,
+                    "message": f"Local runtime start timeout must be positive: {timeout_ms}",
+                }
+            },
+        )
+    return timeout_ms
+
+
+def _parse_int_env(name: str, value: str | None) -> int:
+    try:
+        return int(value) if value is not None else 0
+    except ValueError as e:
+        raise CliError(
+            EXIT_INVALID_USAGE,
+            f"{name} must be an integer: {value}",
+            json_data={
+                "error": {
+                    "code": EXIT_INVALID_USAGE,
+                    "message": f"{name} must be an integer: {value}",
+                }
+            },
+        ) from e
 
 
 def _discover_port(host: str, port: int) -> int:
