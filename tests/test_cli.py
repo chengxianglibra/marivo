@@ -1,13 +1,20 @@
 from __future__ import annotations
 
 import argparse
+import stat
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from app.api.app_factory import create_app
-from app.cli._exitcodes import EXIT_CONFIG_INVALID, EXIT_RUNTIME_NOT_RUNNING
+from app.cli._exitcodes import (
+    EXIT_CONFIG_INVALID,
+    EXIT_RUNTIME_NOT_RUNNING,
+    EXIT_WORKSPACE_ROOT_UNAVAILABLE,
+)
 from app.cli._output import CliError
+from app.cli.cmd_init_local import BOOTSTRAP_CONFIG_YAML
 from app.cli.cmd_init_local import handle as init_local_handle
 from app.cli.cmd_runtime import handle as runtime_handle
 from app.cli.cmd_serve_local import handle as serve_local_handle
@@ -31,10 +38,55 @@ class LocalCliContractTests(unittest.TestCase):
             result = init_local_handle(argparse.Namespace(workspace_root=tmp, format="json"))
 
             self.assertEqual(result["status"], "initialized")
+            self.assertEqual(result["workspace_root"], str(resolved_root))
+            self.assertEqual(
+                result["config_path"],
+                str(resolved_root / ".marivo" / "marivo.yaml"),
+            )
             self.assertEqual(
                 result["metadata_path"],
                 str(resolved_root / ".marivo" / "metadata.sqlite"),
             )
+
+    def test_init_local_creates_only_bootstrap_config(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace_root = Path(tmp).resolve()
+
+            init_local_handle(argparse.Namespace(workspace_root=tmp, format="json"))
+
+            dot_marivo = workspace_root / ".marivo"
+            config_path = dot_marivo / "marivo.yaml"
+            self.assertTrue(dot_marivo.is_dir())
+            self.assertEqual(config_path.read_text(), BOOTSTRAP_CONFIG_YAML)
+            self.assertEqual(stat.S_IMODE(config_path.stat().st_mode), 0o644)
+            self.assertFalse((dot_marivo / "metadata.sqlite").exists())
+            self.assertFalse((dot_marivo / "runtime.json").exists())
+            self.assertFalse((dot_marivo / "logs").exists())
+            self.assertFalse((dot_marivo / "run").exists())
+
+    def test_init_local_is_idempotent_and_does_not_overwrite_existing_config(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace_root = Path(tmp).resolve()
+            dot_marivo = workspace_root / ".marivo"
+            dot_marivo.mkdir()
+            config_path = dot_marivo / "marivo.yaml"
+            custom_config = "metadata:\n  engine: sqlite\n  path: custom.sqlite\n"
+            config_path.write_text(custom_config)
+
+            result = init_local_handle(argparse.Namespace(workspace_root=tmp, format="json"))
+
+            self.assertEqual(result["status"], "already_initialized")
+            self.assertEqual(config_path.read_text(), custom_config)
+
+    def test_init_local_maps_workspace_write_failures_to_workspace_exit_code(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with (
+                patch("pathlib.Path.mkdir", side_effect=OSError("permission denied")),
+                self.assertRaises(CliError) as exc,
+            ):
+                init_local_handle(argparse.Namespace(workspace_root=tmp, format="json"))
+
+            self.assertEqual(exc.exception.exit_code, EXIT_WORKSPACE_ROOT_UNAVAILABLE)
 
     def test_runtime_status_without_manifest_reports_stopped(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

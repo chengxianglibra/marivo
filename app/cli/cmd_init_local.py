@@ -6,6 +6,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+from app.cli._exitcodes import EXIT_WORKSPACE_ROOT_UNAVAILABLE
+from app.cli._output import CliError
 from app.cli._workspace import (
     bootstrap_config_path,
     dot_marivo_path,
@@ -40,19 +42,25 @@ def handle(args: argparse.Namespace) -> dict[str, Any]:
     dot_marivo = dot_marivo_path(workspace_root)
     config_path = bootstrap_config_path(workspace_root)
 
-    # Create .marivo/ directory (idempotent)
-    dot_marivo.mkdir(parents=True, exist_ok=True)
+    try:
+        # Create .marivo/ directory (idempotent)
+        dot_marivo.mkdir(parents=True, exist_ok=True)
 
-    # Write bootstrap config only if it doesn't exist (idempotent, never overwrites)
-    if config_path.is_file():
-        return {
-            "status": "already_initialized",
-            "workspace_root": str(workspace_root),
-            "config_path": str(config_path),
-            "metadata_path": str(metadata_db_path(workspace_root)),
-        }
+        # Write bootstrap config only if it doesn't exist (idempotent, never overwrites)
+        if config_path.is_file():
+            return {
+                "status": "already_initialized",
+                "workspace_root": str(workspace_root),
+                "config_path": str(config_path),
+                "metadata_path": str(metadata_db_path(workspace_root)),
+            }
 
-    _write_atomic(config_path, BOOTSTRAP_CONFIG_YAML)
+        _write_atomic(config_path, BOOTSTRAP_CONFIG_YAML)
+    except OSError as e:
+        raise CliError(
+            EXIT_WORKSPACE_ROOT_UNAVAILABLE,
+            f"Workspace root is not writable for local initialization: {workspace_root}",
+        ) from e
 
     return {
         "status": "initialized",
@@ -68,6 +76,7 @@ def _write_atomic(path: Path, content: str) -> None:
     try:
         tmp_path.write_text(content)
         os.replace(str(tmp_path), str(path))
+        os.chmod(path, 0o644)
     except BaseException:
         with contextlib.suppress(OSError):
             tmp_path.unlink()
