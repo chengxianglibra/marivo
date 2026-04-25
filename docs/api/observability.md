@@ -145,3 +145,46 @@ The execution log includes the rendered SQL text plus execution metadata such as
 - `source_tables`
 - `execution_mode`
 - `execution_purpose`
+
+### Execution Auth Logging
+
+When a Trino engine uses `auth.mode = "username_only"`, Marivo emits execution-auth structured logs
+when runtime actually touches the engine. Building a runtime engine object for routing/preflight
+alone does not emit the success event.
+
+Success event:
+
+```json
+{
+  "timestamp": "2024-01-15T10:05:00+00:00",
+  "level": "INFO",
+  "logger": "marivo.execution_auth",
+  "message": "execution_auth_resolved",
+  "session_id": "sess_...",
+  "engine_id": "eng_...",
+  "session_user": "alice",
+  "actor_ref": "agent.alice"
+}
+```
+
+Failure event:
+
+```json
+{
+  "timestamp": "2024-01-15T10:05:00+00:00",
+  "level": "WARNING",
+  "logger": "marivo.execution_auth",
+  "message": "execution_auth_preflight_failed",
+  "session_id": "sess_...",
+  "engine_id": "eng_...",
+  "session_user": null,
+  "actor_ref": "agent.alice",
+  "failure_code": "session_user_missing"
+}
+```
+
+Notes:
+
+- these events are emitted only for Trino `username_only` runtime resolution
+- DuckDB ignores session execution identity and does not emit execution-auth audit events
+- `timestamp` is the audit event time; there is no separate `executed_at` field in this v1 surface
