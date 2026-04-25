@@ -9,6 +9,7 @@ Stateful sessions, semantic discovery, typed analysis steps, deterministic evide
 - **Readiness signal**: 5-dimensional readiness + suggested_action + live_claims after each typed analysis step
 - **Causal checkers**: deterministic inference-level upgrades
 - **Dual-backend**: SQLite (metadata) + DuckDB (analytics)
+- **Independent UI**: React console in `frontend/` for HTTP API operations, semantic readiness, and evidence review
 
 ## Quick Start
 
@@ -22,6 +23,21 @@ uvicorn app.main:app --reload
 
 Marivo only supports fresh-init for local metadata SQLite. If the metadata schema changes, delete
 the old metadata file and let the service rebuild it from the current schema.
+
+## Frontend Console
+
+The independent UI lives in `frontend/`. It is an HTTP-only human console, not a restored FastAPI
+`/ui` or `/admin` surface.
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Set `VITE_MARIVO_USE_MOCKS=false` and `VITE_MARIVO_API_BASE_URL=http://localhost:8000` to connect it
+to a live Marivo service. See [`frontend/README.md`](frontend/README.md) for scripts, OpenAPI type
+generation, tests, and v1 boundaries.
 
 ## Configuration
 
