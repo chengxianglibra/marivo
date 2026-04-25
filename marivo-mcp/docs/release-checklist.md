@@ -44,20 +44,54 @@ This covers:
 
 ## 3. Optional Live Smoke
 
-Run only when a reachable Marivo HTTP service is available:
+Run the path that matches the release target. The smoke command resolves the
+Marivo target first, then runs the same minimal HTTP workflow against the
+resolved endpoint.
+
+Remote explicit `stdio` MCP, with a reachable Marivo HTTP service:
 
 ```bash
 cd marivo-mcp
-MARIVO_BASE_URL=http://127.0.0.1:8000 .venv/bin/marivo-mcp-smoke
+MARIVO_MODE=remote \
+MARIVO_BASE_URL=http://127.0.0.1:8000 \
+.venv/bin/marivo-mcp-smoke
+```
+
+Remote explicit Streamable HTTP MCP:
+
+```bash
+cd marivo-mcp
+MARIVO_MODE=remote \
+MARIVO_BASE_URL=http://127.0.0.1:8000 \
+.venv/bin/marivo-mcp-http
+
+MARIVO_MODE=remote \
+MARIVO_BASE_URL=http://127.0.0.1:8000 \
+.venv/bin/marivo-mcp-smoke
+```
+
+Local auto-managed `stdio` MCP:
+
+```bash
+cd marivo-mcp
+MARIVO_MODE=local \
+MARIVO_WORKSPACE_ROOT=/absolute/path/to/workspace \
+.venv/bin/marivo-mcp-smoke
 ```
 
 Expect the smoke output to confirm:
 
+- resolved target kind and base URL
+- workspace root and runtime state for local auto-managed mode
 - service connectivity
 - OpenAPI discovery
 - session creation
 - session-state read
 - validation error wrapping
+
+For local auto-managed releases, also confirm that `.marivo/runtime.json` is
+created or reused in the workspace and that a missing or invalid
+`MARIVO_WORKSPACE_ROOT` fails closed with `workspace_root_required`.
 
 ## 4. Documentation Sync
 

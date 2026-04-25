@@ -6,6 +6,7 @@ from typing import Any
 
 from marivo_mcp.config import MarivoMcpConfig, MarivoMcpConfigError, load_config_from_env
 from marivo_mcp.http_client import MarivoHttpClient
+from marivo_mcp.target_resolution import resolve_target
 
 
 @dataclass(frozen=True)
@@ -18,9 +19,20 @@ class SmokeCheckResult:
     message: str
 
 
-def run_live_smoke(config: MarivoMcpConfig) -> list[SmokeCheckResult]:
-    """Run a minimal live smoke path against a real Marivo HTTP service."""
-    client = MarivoHttpClient(config)
+@dataclass(frozen=True)
+class SmokeRunResult:
+    target_kind: str
+    base_url: str
+    workspace_root: str | None
+    manifest_path: str | None
+    runtime_state: str
+    checks: list[SmokeCheckResult]
+
+
+def run_live_smoke(config: MarivoMcpConfig) -> SmokeRunResult:
+    """Resolve the target and run a minimal live smoke path against Marivo HTTP."""
+    resolution = resolve_target(config)
+    client = MarivoHttpClient(resolution.config)
     try:
         health = client.request_envelope("GET", "/health")
         openapi = client.request_envelope("GET", "/openapi/index")
@@ -101,17 +113,40 @@ def run_live_smoke(config: MarivoMcpConfig) -> list[SmokeCheckResult]:
             )
         results.append(validation_result)
 
-        return results
+        return SmokeRunResult(
+            target_kind=resolution.target_kind,
+            base_url=resolution.base_url,
+            workspace_root=resolution.workspace_root,
+            manifest_path=None
+            if resolution.manifest_path is None
+            else str(resolution.manifest_path),
+            runtime_state=resolution.runtime_state,
+            checks=results,
+        )
     finally:
         client.close()
 
 
-def summarize_results(results: list[SmokeCheckResult]) -> dict[str, Any]:
-    failed = [result for result in results if not result.ok]
+def summarize_results(result: SmokeRunResult | list[SmokeCheckResult]) -> dict[str, Any]:
+    if isinstance(result, SmokeRunResult):
+        checks = result.checks
+        target_summary: dict[str, Any] = {
+            "target_kind": result.target_kind,
+            "base_url": result.base_url,
+            "workspace_root": result.workspace_root,
+            "manifest_path": result.manifest_path,
+            "runtime_state": result.runtime_state,
+        }
+    else:
+        checks = result
+        target_summary = {}
+
+    failed = [check for check in checks if not check.ok]
     return {
         "ok": len(failed) == 0,
-        "checks": [result.__dict__ for result in results],
-        "failed_checks": [result.name for result in failed],
+        **target_summary,
+        "checks": [check.__dict__ for check in checks],
+        "failed_checks": [check.name for check in failed],
     }
 
 

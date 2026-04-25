@@ -238,15 +238,44 @@ Run the offline MCP regression checks from the repository root:
   tests/test_marivo_mcp_smoke.py
 ```
 
-Optional live smoke against a running Marivo HTTP service:
+Optional live smoke through target resolution. The smoke command first resolves
+the Marivo target, then runs the same minimal HTTP workflow against the
+resolved endpoint.
+
+Remote explicit `stdio` MCP:
 
 ```bash
 cd marivo-mcp
-MARIVO_BASE_URL=http://127.0.0.1:8000 .venv/bin/marivo-mcp-smoke
+MARIVO_MODE=remote \
+MARIVO_BASE_URL=http://127.0.0.1:8000 \
+.venv/bin/marivo-mcp-smoke
+```
+
+Remote explicit Streamable HTTP MCP:
+
+```bash
+cd marivo-mcp
+MARIVO_MODE=remote \
+MARIVO_BASE_URL=http://127.0.0.1:8000 \
+.venv/bin/marivo-mcp-http
+
+MARIVO_MODE=remote \
+MARIVO_BASE_URL=http://127.0.0.1:8000 \
+.venv/bin/marivo-mcp-smoke
+```
+
+Local auto-managed `stdio` MCP:
+
+```bash
+cd marivo-mcp
+MARIVO_MODE=local \
+MARIVO_WORKSPACE_ROOT=/absolute/path/to/workspace \
+.venv/bin/marivo-mcp-smoke
 ```
 
 The live smoke checks:
 
+- target resolution metadata in the summary
 - configuration loading
 - `GET /health`
 - `GET /openapi/index`
