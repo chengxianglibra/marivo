@@ -13,6 +13,7 @@ from urllib.parse import unquote, urlparse
 import httpx
 
 from marivo_mcp.config import MarivoMcpConfig, TargetResolutionError
+from marivo_mcp.diagnostics import emit_diagnostic
 
 TargetKind = Literal["remote", "local"]
 RuntimeState = Literal[
@@ -90,6 +91,7 @@ def resolve_target(
     command_runner: CommandRunner | None = None,
 ) -> TargetResolution:
     """Resolve the Marivo HTTP target from adapter config."""
+    _validate_timeout_contract(config)
     if config.mode == "remote" or (config.mode == "auto" and config.base_url is not None):
         return _resolve_remote(config, health_checker=health_checker)
     return _resolve_local(
@@ -156,6 +158,7 @@ def _resolve_remote(
     if not resolved_health_checker(
         config.base_url, config.healthcheck_timeout_ms, config.api_token
     ):
+        emit_diagnostic("remote_unreachable", base_url=config.base_url)
         raise TargetResolutionError(
             code="remote_target_unreachable",
             message=f"无法连接到远程 Marivo 服务：{config.base_url}",
@@ -167,11 +170,13 @@ def _resolve_remote(
             guidance="请检查地址是否正确、服务是否运行",
         )
 
-    return TargetResolution(
+    resolution = TargetResolution(
         target_kind="remote",
         base_url=config.base_url,
         config=config,
     )
+    emit_diagnostic("target_resolved", target_kind="remote", base_url=config.base_url)
+    return resolution
 
 
 def _resolve_local(
@@ -183,11 +188,13 @@ def _resolve_local(
     pid_checker: PidChecker | None,
     command_runner: CommandRunner | None,
 ) -> TargetResolution:
+    _emit_local_config_warnings(config)
     workspace_root = _resolve_workspace_root(
         config,
         workspace_roots=workspace_roots,
         cwd=cwd,
     )
+    emit_diagnostic("workspace_root_resolved", workspace_root=workspace_root)
     if config.transport == "streamable-http":
         _check_http_local_guard(workspace_root)
 
@@ -197,6 +204,13 @@ def _resolve_local(
         health_checker=health_checker,
         pid_checker=pid_checker,
     )
+    if status.state == "manifest_valid_healthy" and status.manifest is not None:
+        emit_diagnostic(
+            "manifest_reused",
+            workspace_root=workspace_root,
+            manifest_path=str(status.manifest_path),
+            base_url=status.manifest.base_url,
+        )
     if status.state in {"no_manifest", "manifest_stale_pid_dead"}:
         status = _start_local_runtime(
             config,
@@ -229,6 +243,14 @@ def _resolve_local(
             "workspace_root": workspace_root,
         }
     )
+    emit_diagnostic(
+        "target_resolved",
+        target_kind="local",
+        base_url=status.manifest.base_url,
+        workspace_root=workspace_root,
+        manifest_path=str(status.manifest_path),
+        runtime_state=status.state,
+    )
     return TargetResolution(
         target_kind="local",
         base_url=status.manifest.base_url,
@@ -260,12 +282,15 @@ def _start_local_runtime(
         "--format",
         "json",
     ]
+    emit_diagnostic("local_start_attempted", workspace_root=workspace_root, command=command)
     result = _run_marivo_command(
         command,
         timeout_ms=config.start_timeout_ms,
         command_runner=command_runner,
     )
     if result.returncode != 0:
+        if result.returncode == 3:
+            _raise_workspace_root_required(["MARIVO_WORKSPACE_ROOT", "cwd"])
         _raise_local_runtime_start_failed(
             workspace_root,
             timeout_ms=config.start_timeout_ms,
@@ -324,11 +349,10 @@ def _run_marivo_command(
     timeout_ms: int,
     command_runner: CommandRunner | None,
 ) -> subprocess.CompletedProcess[str]:
-    if command_runner is not None:
-        return command_runner(args, timeout_ms)
-
     executable = shutil.which("marivo") or "marivo"
     try:
+        if command_runner is not None:
+            return command_runner(args, timeout_ms)
         return subprocess.run(
             [executable, *args],
             capture_output=True,
@@ -341,7 +365,7 @@ def _run_marivo_command(
             _workspace_root_from_command(args),
             timeout_ms=timeout_ms,
             exit_code=None,
-            health_checked=False,
+            health_checked=args[:1] == ["serve-local"],
         )
     except OSError:
         _raise_local_runtime_start_failed(
@@ -366,6 +390,13 @@ def _raise_local_runtime_start_failed(
     exit_code: int | None,
     health_checked: bool,
 ) -> NoReturn:
+    emit_diagnostic(
+        "local_start_failed",
+        workspace_root=workspace_root,
+        timeout_ms=timeout_ms,
+        exit_code=exit_code,
+        health_checked=health_checked,
+    )
     raise TargetResolutionError(
         code="local_runtime_start_failed",
         message="本地 Marivo 启动失败",
@@ -377,6 +408,50 @@ def _raise_local_runtime_start_failed(
         },
         guidance="请运行 marivo doctor 诊断本地环境",
     )
+
+
+def _raise_workspace_root_required(tried_sources: list[str]) -> NoReturn:
+    raise TargetResolutionError(
+        code="workspace_root_required",
+        message="本地模式需要工作区目录",
+        detail={"tried_sources": tried_sources},
+        guidance="请设置 MARIVO_WORKSPACE_ROOT 或在项目目录中启动",
+    )
+
+
+def _raise_config_invalid(message: str, detail: dict[str, Any]) -> NoReturn:
+    raise TargetResolutionError(
+        code="config_invalid",
+        message=message,
+        detail=detail,
+        guidance="请检查 marivo-mcp 目标解析配置",
+    )
+
+
+def _validate_timeout_contract(config: MarivoMcpConfig) -> None:
+    if config.start_timeout_ms <= config.healthcheck_timeout_ms:
+        _raise_config_invalid(
+            "MARIVO_START_TIMEOUT_MS must be greater than MARIVO_HEALTHCHECK_TIMEOUT_MS",
+            {
+                "start_timeout_ms": config.start_timeout_ms,
+                "healthcheck_timeout_ms": config.healthcheck_timeout_ms,
+            },
+        )
+
+
+def _emit_local_config_warnings(config: MarivoMcpConfig) -> None:
+    if config.mode != "local":
+        return
+    if config.base_url is not None:
+        emit_diagnostic(
+            "config_warning",
+            warning="MARIVO_BASE_URL is set but mode=local; base_url will be ignored",
+        )
+    if config.api_token is not None:
+        emit_diagnostic(
+            "config_warning",
+            warning="MARIVO_API_TOKEN is set but mode=local; api_token will be ignored",
+        )
 
 
 def _resolve_workspace_root(

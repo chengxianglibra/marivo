@@ -15,12 +15,14 @@ sys.path.insert(0, str(MARIVO_MCP_SRC))
 config_module = import_module("marivo_mcp.config")
 target_resolution_module = import_module("marivo_mcp.target_resolution")
 server_module = import_module("marivo_mcp.server")
+init_cli_module = import_module("marivo_mcp.init_cli")
 
 HttpTransportConfig = config_module.HttpTransportConfig
 MarivoMcpConfig = config_module.MarivoMcpConfig
 TargetResolutionError = config_module.TargetResolutionError
 inspect_runtime_manifest = target_resolution_module.inspect_runtime_manifest
 resolve_target = target_resolution_module.resolve_target
+build_init_config = init_cli_module.build_init_config
 
 
 class _FakeServerSettings:
@@ -265,6 +267,110 @@ def test_manifest_missing_starts_local_runtime(tmp_path: Path) -> None:
     ]
 
 
+def test_serve_local_workspace_exit_maps_to_workspace_required(tmp_path: Path) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    def command_runner(args: list[str], timeout_ms: int) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(args, 3, stdout="", stderr="")
+
+    with pytest.raises(TargetResolutionError) as exc_info:
+        resolve_target(
+            _build_config(mode="local", workspace_root=str(workspace_root)),
+            health_checker=lambda _base_url, _timeout_ms, _api_token: True,
+            pid_checker=lambda _pid: True,
+            command_runner=command_runner,
+        )
+
+    assert exc_info.value.code == "workspace_root_required"
+
+
+def test_serve_local_failure_reports_structured_start_failure(tmp_path: Path) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    def command_runner(args: list[str], timeout_ms: int) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(args, 6, stdout="", stderr="")
+
+    with pytest.raises(TargetResolutionError) as exc_info:
+        resolve_target(
+            _build_config(mode="local", workspace_root=str(workspace_root)),
+            health_checker=lambda _base_url, _timeout_ms, _api_token: True,
+            pid_checker=lambda _pid: True,
+            command_runner=command_runner,
+        )
+
+    error = exc_info.value
+    assert error.code == "local_runtime_start_failed"
+    assert error.detail == {
+        "workspace_root": str(workspace_root),
+        "timeout_ms": 15000,
+        "exit_code": 6,
+        "health_checked": False,
+    }
+
+
+def test_serve_local_timeout_reports_health_checked_start_failure(tmp_path: Path) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    def command_runner(args: list[str], timeout_ms: int) -> subprocess.CompletedProcess[str]:
+        raise subprocess.TimeoutExpired(cmd=args, timeout=timeout_ms / 1000)
+
+    with pytest.raises(TargetResolutionError) as exc_info:
+        resolve_target(
+            _build_config(mode="local", workspace_root=str(workspace_root)),
+            health_checker=lambda _base_url, _timeout_ms, _api_token: True,
+            pid_checker=lambda _pid: True,
+            command_runner=command_runner,
+        )
+
+    error = exc_info.value
+    assert error.code == "local_runtime_start_failed"
+    assert error.detail["exit_code"] is None
+    assert error.detail["health_checked"] is True
+
+
+def test_start_timeout_must_exceed_healthcheck_timeout() -> None:
+    with pytest.raises(TargetResolutionError) as exc_info:
+        resolve_target(
+            _build_config(
+                mode="remote",
+                base_url="http://marivo.test",
+                start_timeout_ms=2000,
+                healthcheck_timeout_ms=2000,
+            ),
+            health_checker=lambda _base_url, _timeout_ms, _api_token: True,
+        )
+
+    assert exc_info.value.code == "config_invalid"
+    assert exc_info.value.detail == {
+        "start_timeout_ms": 2000,
+        "healthcheck_timeout_ms": 2000,
+    }
+
+
+def test_local_mode_ignored_remote_fields_emit_warnings(tmp_path: Path, capsys: Any) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    _write_manifest(workspace_root)
+
+    resolve_target(
+        _build_config(
+            mode="local",
+            base_url="http://ignored.test",
+            api_token="ignored-token",
+            workspace_root=str(workspace_root),
+        ),
+        health_checker=lambda _base_url, _timeout_ms, _api_token: True,
+        pid_checker=lambda _pid: True,
+    )
+
+    captured = capsys.readouterr()
+    assert "MARIVO_BASE_URL is set but mode=local" in captured.err
+    assert "MARIVO_API_TOKEN is set but mode=local" in captured.err
+
+
 def test_manifest_unhealthy_runtime_is_restarted(tmp_path: Path) -> None:
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
@@ -406,3 +512,106 @@ def test_manifest_health_failure_is_stale_unhealthy(tmp_path: Path) -> None:
     )
 
     assert status.state == "manifest_stale_unhealthy"
+
+
+def test_mcp_init_remote_print_config() -> None:
+    output = build_init_config(
+        mode="remote",
+        base_url="http://marivo.test",
+        workspace_root=None,
+        client="generic",
+    )
+
+    assert output["target_kind"] == "remote"
+    assert output["mcp_server"] == {
+        "command": "marivo-mcp",
+        "env": {
+            "MARIVO_MODE": "remote",
+            "MARIVO_BASE_URL": "http://marivo.test",
+        },
+    }
+
+
+def test_mcp_init_remote_preserves_api_token() -> None:
+    output = build_init_config(
+        mode="remote",
+        base_url="http://marivo.test",
+        api_token="secret-token",
+        workspace_root=None,
+        client="generic",
+    )
+
+    assert output["mcp_server"] == {
+        "command": "marivo-mcp",
+        "env": {
+            "MARIVO_MODE": "remote",
+            "MARIVO_BASE_URL": "http://marivo.test",
+            "MARIVO_API_TOKEN": "secret-token",
+        },
+    }
+
+
+def test_mcp_init_local_print_config(tmp_path: Path) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    output = build_init_config(
+        mode="local",
+        base_url=None,
+        workspace_root=str(workspace_root),
+        client="generic",
+    )
+
+    assert output["target_kind"] == "local"
+    assert output["mcp_server"] == {
+        "command": "marivo-mcp",
+        "env": {
+            "MARIVO_MODE": "local",
+            "MARIVO_WORKSPACE_ROOT": str(workspace_root),
+        },
+    }
+
+
+def test_mcp_init_local_defaults_to_cwd_workspace(tmp_path: Path) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    output = build_init_config(
+        mode="local",
+        base_url=None,
+        workspace_root=None,
+        client="generic",
+        cwd=str(workspace_root),
+    )
+
+    assert output["mcp_server"] == {
+        "command": "marivo-mcp",
+        "env": {
+            "MARIVO_MODE": "local",
+            "MARIVO_WORKSPACE_ROOT": str(workspace_root),
+        },
+    }
+
+
+def test_mcp_init_local_requires_workspace_root(monkeypatch: Any) -> None:
+    monkeypatch.setattr(init_cli_module.os, "getcwd", lambda: "/does/not/exist")
+
+    with pytest.raises(TargetResolutionError) as exc_info:
+        build_init_config(mode="local", base_url=None, workspace_root=None, client="generic")
+
+    assert exc_info.value.code == "workspace_root_required"
+    assert exc_info.value.detail == {
+        "tried_sources": ["--workspace-root", "MARIVO_WORKSPACE_ROOT", "cwd"]
+    }
+
+
+def test_mcp_init_rejects_unsupported_client() -> None:
+    with pytest.raises(TargetResolutionError) as exc_info:
+        build_init_config(
+            mode="remote",
+            base_url="http://marivo.test",
+            workspace_root=None,
+            client="codex",
+        )
+
+    assert exc_info.value.code == "mcp_init_client_unsupported"
