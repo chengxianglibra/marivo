@@ -10,6 +10,7 @@ from typing import Literal, NoReturn
 from marivo_mcp.config import MarivoMcpConfigError, TargetResolutionError
 
 SupportedClient = Literal["generic", "codex"]
+SupportedTransport = Literal["stdio", "streamable-http"]
 
 _SUPPORTED_CLIENTS: tuple[SupportedClient, ...] = ("generic", "codex")
 
@@ -24,6 +25,10 @@ def main(argv: list[str] | None = None) -> None:
             workspace_root=args.workspace_root,
             client=args.client,
             server_name=args.server_name,
+            transport=args.transport,
+            http_host=args.http_host,
+            http_port=args.http_port,
+            http_path=args.http_path,
         )
     except TargetResolutionError as error:
         _print_target_error(error)
@@ -54,7 +59,11 @@ def build_init_config(
     api_token: str | None = None,
     cwd: str | None = None,
     server_name: str = "marivo",
-    command: str = "marivo-mcp",
+    command: str | None = None,
+    transport: SupportedTransport = "stdio",
+    http_host: str = "127.0.0.1",
+    http_port: int = 8000,
+    http_path: str = "/mcp",
 ) -> dict[str, object]:
     if client not in _SUPPORTED_CLIENTS:
         raise TargetResolutionError(
@@ -63,13 +72,27 @@ def build_init_config(
             detail={"client": client, "supported": list(_SUPPORTED_CLIENTS)},
             guidance="请使用 --print-config 手动配置",
         )
+    if transport not in ("stdio", "streamable-http"):
+        raise TargetResolutionError(
+            code="config_invalid",
+            message=f"Unsupported MCP transport: {transport}",
+            detail={"transport": transport, "supported": ["stdio", "streamable-http"]},
+            guidance="请使用 stdio 或 streamable-http",
+        )
     normalized_server_name = _normalize_server_name(server_name)
+    normalized_http_host = _normalize_http_host(http_host)
+    normalized_http_port = _normalize_http_port(http_port)
+    normalized_http_path = _normalize_http_path(http_path)
 
     normalized_base_url = _normalize_optional(base_url)
     normalized_api_token = _normalize_optional(api_token)
     if normalized_api_token is None:
         normalized_api_token = _normalize_optional(os.environ.get("MARIVO_API_TOKEN"))
-    normalized_workspace_root = _resolve_workspace_root(workspace_root, cwd=cwd)
+    normalized_workspace_root = _resolve_workspace_root(
+        workspace_root,
+        cwd=cwd,
+        allow_cwd=transport == "stdio",
+    )
     resolved_mode: Literal["remote", "local"]
     if mode == "remote" or (mode == "auto" and normalized_base_url is not None):
         resolved_mode = "remote"
@@ -89,26 +112,65 @@ def build_init_config(
             env["MARIVO_API_TOKEN"] = normalized_api_token
     else:
         if normalized_workspace_root is None:
+            detail: dict[str, object] = {
+                "tried_sources": _workspace_tried_sources(transport),
+            }
+            if transport == "streamable-http":
+                detail["transport"] = transport
             raise TargetResolutionError(
                 code="workspace_root_required",
                 message="本地模式需要工作区目录",
-                detail={"tried_sources": ["--workspace-root", "MARIVO_WORKSPACE_ROOT", "cwd"]},
-                guidance="请设置 MARIVO_WORKSPACE_ROOT 或在项目目录中启动",
+                detail=detail,
+                guidance=_workspace_guidance(transport),
             )
         env = {"MARIVO_MODE": "local", "MARIVO_WORKSPACE_ROOT": normalized_workspace_root}
+
+    resolved_command = command
+    if resolved_command is None:
+        resolved_command = "marivo-mcp-http" if transport == "streamable-http" else "marivo-mcp"
+
+    if transport == "streamable-http":
+        env = {
+            **env,
+            "MARIVO_MCP_TRANSPORT": "streamable-http",
+            "MARIVO_MCP_HOST": normalized_http_host,
+            "MARIVO_MCP_PORT": str(normalized_http_port),
+            "MARIVO_MCP_STREAMABLE_HTTP_PATH": normalized_http_path,
+        }
+        client_url = _http_client_url(
+            host=normalized_http_host,
+            port=normalized_http_port,
+            path=normalized_http_path,
+        )
+        return {
+            "client": client,
+            "server_name": normalized_server_name,
+            "target_kind": resolved_mode,
+            "transport": transport,
+            "mcpServers": {
+                normalized_server_name: {
+                    "url": client_url,
+                }
+            },
+            "mcp_server": {
+                "command": resolved_command,
+                "env": env,
+            },
+        }
 
     return {
         "client": client,
         "server_name": normalized_server_name,
         "target_kind": resolved_mode,
+        "transport": transport,
         "mcpServers": {
             normalized_server_name: {
-                "command": command,
+                "command": resolved_command,
                 "env": env,
             }
         },
         "mcp_server": {
-            "command": command,
+            "command": resolved_command,
             "env": env,
         },
     }
@@ -158,6 +220,10 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--workspace-root", default=None)
     parser.add_argument("--client", default="generic")
     parser.add_argument("--server-name", default="marivo")
+    parser.add_argument("--transport", choices=["stdio", "streamable-http"], default="stdio")
+    parser.add_argument("--http-host", default="127.0.0.1")
+    parser.add_argument("--http-port", type=int, default=8000)
+    parser.add_argument("--http-path", default="/mcp")
     parser.add_argument("--config-path", default=None)
     parser.add_argument("--print-config", action="store_true", help="Print generated config")
     parser.add_argument(
@@ -197,17 +263,35 @@ def _normalize_server_name(value: str) -> str:
     return stripped
 
 
-def _resolve_workspace_root(value: str | None, *, cwd: str | None) -> str | None:
-    for candidate in (
+def _resolve_workspace_root(
+    value: str | None,
+    *,
+    cwd: str | None,
+    allow_cwd: bool,
+) -> str | None:
+    candidates = [
         _normalize_optional(value),
         _normalize_optional(os.environ.get("MARIVO_WORKSPACE_ROOT")),
-        _normalize_optional(cwd),
-        _getcwd(),
-    ):
+    ]
+    if allow_cwd:
+        candidates.extend([_normalize_optional(cwd), _getcwd()])
+    for candidate in candidates:
         resolved = _valid_workspace_root(candidate)
         if resolved is not None:
             return resolved
     return None
+
+
+def _workspace_tried_sources(transport: SupportedTransport) -> list[str]:
+    if transport == "streamable-http":
+        return ["--workspace-root", "MARIVO_WORKSPACE_ROOT"]
+    return ["--workspace-root", "MARIVO_WORKSPACE_ROOT", "cwd"]
+
+
+def _workspace_guidance(transport: SupportedTransport) -> str:
+    if transport == "streamable-http":
+        return "HTTP MCP 本地自动托管需要显式设置 MARIVO_WORKSPACE_ROOT"
+    return "请设置 MARIVO_WORKSPACE_ROOT 或在项目目录中启动"
 
 
 def _valid_workspace_root(value: str | None) -> str | None:
@@ -244,6 +328,11 @@ def _render_codex_toml(config: dict[str, object]) -> str:
     server = mcp_servers[server_name]
     if not isinstance(server, dict):
         raise TypeError("Expected MCP server config to be a dict.")
+    if "url" in server:
+        url = server["url"]
+        if not isinstance(url, str):
+            raise TypeError("Invalid MCP server URL.")
+        return f"[mcp_servers.{_toml_key(server_name)}]\nurl = {_toml_string(url)}\n"
     command = server["command"]
     env = server["env"]
     if not isinstance(command, str) or not isinstance(env, dict):
@@ -287,3 +376,57 @@ def _toml_key(value: str) -> str:
 
 def _toml_string(value: str) -> str:
     return json.dumps(value, ensure_ascii=False)
+
+
+def _normalize_http_host(value: str) -> str:
+    stripped = value.strip()
+    if not stripped:
+        raise TargetResolutionError(
+            code="config_invalid",
+            message="HTTP MCP host must not be empty",
+            detail={"http_host": value},
+            guidance="请提供非空 --http-host",
+        )
+    return stripped
+
+
+def _normalize_http_port(value: int) -> int:
+    if value <= 0 or value > 65535:
+        raise TargetResolutionError(
+            code="config_invalid",
+            message="HTTP MCP port must be between 1 and 65535",
+            detail={"http_port": value},
+            guidance="请提供有效 --http-port",
+        )
+    return value
+
+
+def _normalize_http_path(value: str) -> str:
+    stripped = value.strip()
+    if not stripped:
+        raise TargetResolutionError(
+            code="config_invalid",
+            message="HTTP MCP path must not be empty",
+            detail={"http_path": value},
+            guidance="请提供非空 --http-path",
+        )
+    if not stripped.startswith("/"):
+        stripped = f"/{stripped}"
+    return stripped
+
+
+def _http_client_url(*, host: str, port: int, path: str) -> str:
+    client_host = _http_client_host(host)
+    return f"http://{client_host}:{port}{path}"
+
+
+def _http_client_host(host: str) -> str:
+    if host == "0.0.0.0":
+        return "127.0.0.1"
+    if host == "::":
+        return "[::1]"
+    if host.startswith("[") and host.endswith("]"):
+        return host
+    if ":" in host:
+        return f"[{host}]"
+    return host

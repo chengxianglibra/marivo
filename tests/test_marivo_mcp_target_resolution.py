@@ -168,6 +168,25 @@ def test_stdio_local_server_defers_target_resolution_until_request(monkeypatch: 
     assert "health_check" in server.tools
 
 
+def test_http_entrypoint_forces_streamable_http_transport(monkeypatch: Any) -> None:
+    seen: dict[str, Any] = {}
+
+    def fake_resolve_target(config: Any) -> Any:
+        seen["transport"] = config.transport
+        return type("Resolution", (), {"config": config})()
+
+    monkeypatch.setattr(server_module, "load_config_from_env", lambda: _build_config())
+    monkeypatch.setattr(server_module, "resolve_target", fake_resolve_target)
+    monkeypatch.setattr(
+        server_module, "_run_streamable_http", lambda config: seen.update(run=config)
+    )
+
+    server_module.main_http()
+
+    assert seen["transport"] == "streamable-http"
+    assert seen["run"].transport == "streamable-http"
+
+
 def test_local_mode_resolves_workspace_from_roots_and_reuses_healthy_manifest(
     tmp_path: Path,
 ) -> None:
@@ -208,6 +227,21 @@ def test_auto_without_base_url_uses_cwd_workspace(tmp_path: Path) -> None:
     assert resolution.workspace_root == str(workspace_root)
 
 
+def test_http_auto_with_base_url_uses_remote_without_workspace() -> None:
+    resolution = resolve_target(
+        _build_config(
+            mode="auto",
+            base_url="http://marivo.test",
+            transport="streamable-http",
+        ),
+        cwd="/",
+        health_checker=lambda _base_url, _timeout_ms, _api_token: True,
+    )
+
+    assert resolution.target_kind == "remote"
+    assert resolution.workspace_root is None
+
+
 def test_local_mode_requires_valid_workspace_root(tmp_path: Path) -> None:
     invalid_file = tmp_path / "not-a-dir"
     invalid_file.write_text("")
@@ -222,6 +256,64 @@ def test_local_mode_requires_valid_workspace_root(tmp_path: Path) -> None:
     error = exc_info.value
     assert error.code == "workspace_root_required"
     assert error.detail == {"tried_sources": ["MARIVO_WORKSPACE_ROOT", "mcp_roots", "cwd"]}
+
+
+def test_http_local_requires_explicit_workspace_root(tmp_path: Path) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    with pytest.raises(TargetResolutionError) as exc_info:
+        resolve_target(
+            _build_config(mode="local", transport="streamable-http"),
+            cwd=str(workspace_root),
+        )
+
+    error = exc_info.value
+    assert error.code == "workspace_root_required"
+    assert error.detail == {
+        "tried_sources": ["MARIVO_WORKSPACE_ROOT"],
+        "transport": "streamable-http",
+    }
+
+
+def test_http_local_guard_rejects_system_workspace_root() -> None:
+    with pytest.raises(TargetResolutionError) as exc_info:
+        resolve_target(
+            _build_config(
+                mode="local",
+                transport="streamable-http",
+                workspace_root="/",
+            ),
+            cwd="/not/used",
+        )
+
+    error = exc_info.value
+    assert error.code == "workspace_root_required"
+    assert error.detail["reason"] == "system_workspace_root"
+    assert error.detail["workspace_root"] == "/"
+
+
+def test_http_local_guard_rejects_missing_serve_local(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    monkeypatch.setattr(target_resolution_module.shutil, "which", lambda _name: None)
+
+    with pytest.raises(TargetResolutionError) as exc_info:
+        resolve_target(
+            _build_config(
+                mode="local",
+                transport="streamable-http",
+                workspace_root=str(workspace_root),
+            ),
+        )
+
+    error = exc_info.value
+    assert error.code == "local_runtime_start_failed"
+    assert error.detail["reason"] == "serve_local_not_found"
+    assert error.detail["workspace_root"] == str(workspace_root)
 
 
 def test_manifest_missing_starts_local_runtime(tmp_path: Path) -> None:
@@ -547,6 +639,87 @@ def test_mcp_init_remote_print_config() -> None:
     }
 
 
+def test_mcp_init_http_remote_prints_client_url_and_server_env() -> None:
+    output = build_init_config(
+        mode="remote",
+        base_url="http://marivo.test",
+        api_token="secret-token",
+        workspace_root=None,
+        client="generic",
+        transport="streamable-http",
+        http_host="0.0.0.0",
+        http_port=9000,
+        http_path="mcp",
+    )
+
+    assert output["target_kind"] == "remote"
+    assert output["transport"] == "streamable-http"
+    assert output["mcpServers"] == {
+        "marivo": {
+            "url": "http://127.0.0.1:9000/mcp",
+        }
+    }
+    assert output["mcp_server"] == {
+        "command": "marivo-mcp-http",
+        "env": {
+            "MARIVO_MODE": "remote",
+            "MARIVO_BASE_URL": "http://marivo.test",
+            "MARIVO_API_TOKEN": "secret-token",
+            "MARIVO_MCP_TRANSPORT": "streamable-http",
+            "MARIVO_MCP_HOST": "0.0.0.0",
+            "MARIVO_MCP_PORT": "9000",
+            "MARIVO_MCP_STREAMABLE_HTTP_PATH": "/mcp",
+        },
+    }
+    assert json.loads(render_client_config(output, client="generic")) == {
+        "mcpServers": output["mcpServers"]
+    }
+
+
+def test_mcp_init_http_remote_brackets_ipv6_client_host() -> None:
+    output = build_init_config(
+        mode="remote",
+        base_url="http://marivo.test",
+        workspace_root=None,
+        client="generic",
+        transport="streamable-http",
+        http_host="::1",
+        http_port=9000,
+    )
+
+    assert output["mcpServers"] == {
+        "marivo": {
+            "url": "http://[::1]:9000/mcp",
+        }
+    }
+
+
+def test_mcp_init_http_local_requires_explicit_workspace_root(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    monkeypatch.delenv("MARIVO_WORKSPACE_ROOT", raising=False)
+
+    with pytest.raises(TargetResolutionError) as exc_info:
+        build_init_config(
+            mode="local",
+            base_url=None,
+            workspace_root=None,
+            client="generic",
+            transport="streamable-http",
+            cwd=str(workspace_root),
+        )
+
+    error = exc_info.value
+    assert error.code == "workspace_root_required"
+    assert error.detail == {
+        "tried_sources": ["--workspace-root", "MARIVO_WORKSPACE_ROOT"],
+        "transport": "streamable-http",
+    }
+
+
 def test_mcp_init_remote_preserves_api_token() -> None:
     output = build_init_config(
         mode="remote",
@@ -657,6 +830,22 @@ def test_mcp_init_codex_print_config(tmp_path: Path) -> None:
         "[mcp_servers.marivo]\n"
         'command = "marivo-mcp"\n'
         f'env = {{ MARIVO_MODE = "local", MARIVO_WORKSPACE_ROOT = "{workspace_root}" }}\n'
+    )
+
+
+def test_mcp_init_codex_http_print_config() -> None:
+    output = build_init_config(
+        mode="remote",
+        base_url="http://marivo.test",
+        workspace_root=None,
+        client="codex",
+        server_name="marivo",
+        transport="streamable-http",
+        http_port=9000,
+    )
+
+    assert render_client_config(output, client="codex") == (
+        '[mcp_servers.marivo]\nurl = "http://127.0.0.1:9000/mcp"\n'
     )
 
 

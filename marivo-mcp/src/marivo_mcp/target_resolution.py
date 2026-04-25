@@ -466,6 +466,18 @@ def _resolve_workspace_root(
         resolved = _valid_workspace_root(config.workspace_root)
         if resolved is not None:
             return resolved
+    if config.transport == "streamable-http":
+        if not tried_sources:
+            tried_sources.append("MARIVO_WORKSPACE_ROOT")
+        raise TargetResolutionError(
+            code="workspace_root_required",
+            message="本地模式需要工作区目录",
+            detail={
+                "tried_sources": tried_sources,
+                "transport": config.transport,
+            },
+            guidance="HTTP MCP 本地自动托管需要显式设置 MARIVO_WORKSPACE_ROOT",
+        )
 
     if config.transport == "stdio":
         tried_sources.append("mcp_roots")
@@ -518,8 +530,13 @@ def _check_http_local_guard(workspace_root: str) -> None:
         raise TargetResolutionError(
             code="workspace_root_required",
             message="本地模式需要工作区目录",
-            detail={"tried_sources": ["MARIVO_WORKSPACE_ROOT", "cwd"]},
-            guidance="请设置 MARIVO_WORKSPACE_ROOT 或在项目目录中启动",
+            detail={
+                "tried_sources": ["MARIVO_WORKSPACE_ROOT"],
+                "reason": "system_workspace_root",
+                "workspace_root": workspace_root,
+                "transport": "streamable-http",
+            },
+            guidance="HTTP MCP 本地自动托管需要显式设置 MARIVO_WORKSPACE_ROOT",
         )
 
     dot_marivo = Path(workspace_root) / ".marivo"
@@ -530,6 +547,7 @@ def _check_http_local_guard(workspace_root: str) -> None:
             message="本地 Marivo 启动失败",
             detail={
                 "workspace_root": workspace_root,
+                "reason": "workspace_not_writable",
                 "timeout_ms": 0,
                 "exit_code": None,
                 "health_checked": False,
@@ -543,6 +561,7 @@ def _check_http_local_guard(workspace_root: str) -> None:
             message="本地 Marivo 启动失败",
             detail={
                 "workspace_root": workspace_root,
+                "reason": "serve_local_not_found",
                 "timeout_ms": 0,
                 "exit_code": None,
                 "health_checked": False,

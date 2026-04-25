@@ -20,7 +20,7 @@ Co-Authored-By: AGENT_NAME:MODEL_VERSION [TOOL1] [TOOL2] ...
 Field rules:
 
 - `AGENT_NAME`: the actual agent or client that assisted, such as `Codex CLI`, `Codex`, or `Claude Code`.
-- `MODEL_VERSION`: the actual model identifier used; if the exact version is unknown, use only a confirmed product/model name and do not invent precision.
+- `MODEL_VERSION`: the model identifier from the **runtime environment** — specifically the value reported by `"You are powered by the model <ID>"` in the system context. Do NOT substitute a Claude model-family reference (e.g. `claude-sonnet-4-6`) when the runtime model is different (e.g. `glm-5.1`). Use the actual running model ID verbatim; if it is a non-Claude model, use its real name (e.g. `glm-5.1`, `gpt-5.4`). If the exact version is truly unknown, use only a confirmed product/model name and do not invent precision.
 - `[TOOL]`: substantive tool categories used for the contribution, such as `[Edit]`, `[Bash]`, `[Search]`, `[Review]`, or `[Browser]`.
 
 ## Placement and format
@@ -45,5 +45,5 @@ fix: tighten semantic binding checks
 
 Reject bindings that reference execution-side locators.
 
-Co-Authored-By: Claude Code:claude-sonnet-4-6 [Edit] [Bash] [Review]
+Co-Authored-By: Claude Code:glm-5.1 [Edit] [Bash] [Review]
 ```

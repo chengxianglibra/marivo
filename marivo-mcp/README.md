@@ -97,6 +97,7 @@ Generate a minimal config snippet:
 ```bash
 marivo-mcp init --mode local --print-config
 marivo-mcp init --mode remote --base-url http://127.0.0.1:8000 --api-token "$MARIVO_API_TOKEN" --print-config
+marivo-mcp init --transport streamable-http --mode remote --base-url http://127.0.0.1:8000 --print-config
 ```
 
 Generate a Codex TOML snippet or write the repo-local Codex config:
@@ -155,12 +156,15 @@ command = "marivo-mcp"
 env = { MARIVO_MODE = "local", MARIVO_WORKSPACE_ROOT = "/absolute/path/to/workspace" }
 ```
 
-Streamable HTTP MCP (`streamable-http`, sometimes called `http-stream`):
+Streamable HTTP MCP (`streamable-http`, sometimes called `http-stream`) is
+primarily for remote explicit Marivo connections. The HTTP MCP server is a
+separate process; the client points at that process by URL.
 
 1. Start the MCP HTTP server:
 
 ```bash
 cd marivo-mcp
+MARIVO_MODE=remote \
 MARIVO_BASE_URL=http://127.0.0.1:8000 \
 .venv/bin/marivo-mcp-http
 ```
@@ -181,6 +185,19 @@ If you need a different bind host, port, or path, set
 `MARIVO_MCP_HOST`, `MARIVO_MCP_PORT`, and `MARIVO_MCP_STREAMABLE_HTTP_PATH`
 before starting the HTTP transport.
 
+Local auto-managed HTTP MCP is guarded. Because Streamable HTTP does not carry
+client workspace metadata, local HTTP mode requires an explicit workspace root:
+
+```bash
+MARIVO_MODE=local \
+MARIVO_WORKSPACE_ROOT=/absolute/path/to/workspace \
+.venv/bin/marivo-mcp-http
+```
+
+Startup fails instead of silently using an arbitrary cwd when the workspace root
+is missing, points at a system directory, is not writable, or `marivo
+serve-local` is not available.
+
 ## Run
 
 ```bash
@@ -193,12 +210,13 @@ installed, startup fails with an explicit dependency error.
 Run the Streamable HTTP transport:
 
 ```bash
-MARIVO_BASE_URL=http://127.0.0.1:8000 marivo-mcp-http
+MARIVO_MODE=remote MARIVO_BASE_URL=http://127.0.0.1:8000 marivo-mcp-http
 ```
 
 Or select it via the shared entrypoint:
 
 ```bash
+MARIVO_MODE=remote \
 MARIVO_BASE_URL=http://127.0.0.1:8000 \
 MARIVO_MCP_TRANSPORT=streamable-http \
 marivo-mcp

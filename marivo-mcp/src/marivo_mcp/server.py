@@ -64,7 +64,8 @@ def main() -> None:
 def main_http() -> None:
     """Entrypoint for the standalone marivo-mcp Streamable HTTP subprocess."""
     try:
-        config = resolve_target(load_config_from_env()).config
+        raw_config = load_config_from_env().model_copy(update={"transport": "streamable-http"})
+        config = resolve_target(raw_config).config
         _run_streamable_http(config)
     except (MarivoMcpConfigError, MarivoMcpDependencyError) as error:
         if isinstance(error, MarivoMcpConfigError) and hasattr(error, "code"):
