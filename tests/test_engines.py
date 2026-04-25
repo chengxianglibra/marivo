@@ -277,6 +277,55 @@ class EngineServiceTests(unittest.TestCase):
 
         self.assertEqual(analytics.user, "alice")
 
+    def test_build_trino_engine_passes_session_user_to_builder_connection(self) -> None:
+        engine = self.service.register_engine(
+            engine_type="trino",
+            display_name="Builder Session Auth Trino",
+            connection={"host": "localhost", "user": "legacy_user"},
+            auth={
+                "mode": "username_only",
+                "username_source": "session_user",
+                "fallback_username": "svc_marivo",
+            },
+        )
+        session_manager = SessionManager(self.metadata)
+        alice = session_manager.create_session(
+            "Builder route with alice",
+            {},
+            {},
+            {},
+            {"session_user": "alice"},
+        )
+        bob = session_manager.create_session(
+            "Builder route with bob",
+            {},
+            {},
+            {},
+            {"session_user": "bob"},
+        )
+
+        with patch(
+            "app.registry.engine_registry.build_analytics_engine",
+            return_value=_FakeAnalyticsEngine(),
+        ) as mock_builder:
+            self.service.build_analytics_engine(engine["engine_id"], session_id=alice["session_id"])
+            self.service.build_analytics_engine(engine["engine_id"], session_id=bob["session_id"])
+
+        runtime_calls = [
+            call.args
+            for call in mock_builder.call_args_list
+            if call.args[1].get("user") in {"alice", "bob"}
+        ]
+        self.assertEqual(len(runtime_calls), 2)
+        alice_engine_type, alice_connection = runtime_calls[0]
+        bob_engine_type, bob_connection = runtime_calls[1]
+        self.assertEqual(alice_engine_type, "trino")
+        self.assertEqual(bob_engine_type, "trino")
+        self.assertEqual(alice_connection["user"], "alice")
+        self.assertEqual(bob_connection["user"], "bob")
+        self.assertEqual(alice_connection["host"], "localhost")
+        self.assertEqual(bob_connection["host"], "localhost")
+
     def test_build_trino_engine_prefers_session_user_over_fallback_username(self) -> None:
         engine = self.service.register_engine(
             engine_type="trino",
@@ -328,6 +377,85 @@ class EngineServiceTests(unittest.TestCase):
         )
 
         self.assertEqual(resolved_connection["user"], "svc_marivo")
+
+    def test_docs_example_trino_session_user_prefers_session_over_fallback(self) -> None:
+        engine = self.service.register_engine(
+            engine_type="trino",
+            display_name="Docs Example Session User Trino",
+            connection={"host": "trino.example.com", "user": "legacy_user"},
+            auth={
+                "mode": "username_only",
+                "username_source": "session_user",
+                "fallback_username": "marivo",
+            },
+        )
+        session = SessionManager(self.metadata).create_session(
+            "Docs example: Trino from session user",
+            {},
+            {},
+            {},
+            {"session_user": "alice", "actor_ref": "agent.alice"},
+        )
+
+        resolved_connection = self.service.resolve_runtime_connection(
+            engine,
+            session_id=session["session_id"],
+        )
+
+        self.assertEqual(resolved_connection["user"], "alice")
+
+    def test_docs_example_trino_fixed_fallback_ignores_session_user(self) -> None:
+        engine = self.service.register_engine(
+            engine_type="trino",
+            display_name="Docs Example Fixed Trino",
+            connection={"host": "trino.example.com", "user": "legacy_user"},
+            auth={
+                "mode": "username_only",
+                "username_source": "fixed",
+                "fallback_username": "marivo",
+            },
+        )
+        session = SessionManager(self.metadata).create_session(
+            "Docs example: Trino fixed fallback",
+            {},
+            {},
+            {},
+            {"session_user": "alice", "actor_ref": "agent.alice"},
+        )
+
+        resolved_connection = self.service.resolve_runtime_connection(
+            engine,
+            session_id=session["session_id"],
+        )
+
+        self.assertEqual(resolved_connection["user"], "marivo")
+
+    def test_docs_example_duckdb_ignores_session_user(self) -> None:
+        duckdb_path = Path(self.temp_dir.name) / "docs_example_duckdb_ignore.duckdb"
+        engine = self.service.register_engine(
+            engine_type="duckdb",
+            display_name="Docs Example DuckDB Ignore",
+            connection={"path": str(duckdb_path)},
+        )
+        session = SessionManager(self.metadata).create_session(
+            "Docs example: DuckDB ignores session user",
+            {},
+            {},
+            {},
+            {"session_user": "alice", "actor_ref": "agent.alice"},
+        )
+
+        resolved_connection = self.service.resolve_runtime_connection(
+            engine,
+            session_id=session["session_id"],
+        )
+        analytics = self.service.build_analytics_engine(
+            engine["engine_id"],
+            session_id=session["session_id"],
+        )
+
+        self.assertNotIn("user", resolved_connection)
+        self.assertIsInstance(analytics, DuckDBAnalyticsEngine)
 
     def test_build_trino_engine_logs_execution_auth_resolution(self) -> None:
         engine = self.service.register_engine(
@@ -633,6 +761,7 @@ class EngineServiceTests(unittest.TestCase):
         self.assertEqual(engine["engine_type"], "duckdb")
         self.assertEqual(engine["display_name"], "Legacy DuckDB")
         self.assertEqual(engine["auth"], {"mode": "none"})
+        self.assertEqual(legacy_service.list_engines()[0]["auth"], {"mode": "none"})
 
 
 class EngineAPITests(unittest.TestCase):

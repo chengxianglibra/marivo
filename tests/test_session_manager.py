@@ -335,6 +335,10 @@ class SessionManagerTests(unittest.TestCase):
         self.assertEqual(session["execution_identity"], {})
         self.assertEqual(execution_identity, {})
         self.assertEqual(session["lifecycle"]["status"], "open")
+        listed = legacy_manager.list_sessions()["items"]
+        self.assertEqual(len(listed), 1)
+        self.assertEqual(listed[0]["session_id"], "sess_legacy")
+        self.assertEqual(listed[0]["execution_identity"], {})
 
 
 if __name__ == "__main__":
