@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import signal
 import stat
 import tempfile
@@ -94,6 +95,33 @@ class LocalCliContractTests(unittest.TestCase):
 
             self.assertEqual(result["status"], "already_initialized")
             self.assertEqual(config_path.read_text(), custom_config)
+
+    def test_init_local_resolves_relative_workspace_root_to_canonical_paths(self) -> None:
+        original_cwd = Path.cwd()
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_root = Path(tmp).resolve()
+            workspace_root = tmp_root / "workspace"
+            workspace_root.mkdir()
+
+            try:
+                os.chdir(tmp_root)
+                result = init_local_handle(
+                    argparse.Namespace(workspace_root="workspace", format="json")
+                )
+            finally:
+                os.chdir(original_cwd)
+
+            self.assertEqual(result["status"], "initialized")
+            self.assertEqual(result["workspace_root"], str(workspace_root))
+            self.assertEqual(
+                result["config_path"],
+                str(workspace_root / ".marivo" / "marivo.yaml"),
+            )
+            self.assertEqual(
+                result["metadata_path"],
+                str(workspace_root / ".marivo" / "metadata.sqlite"),
+            )
+            self.assertFalse((workspace_root / ".marivo" / ".marivo").exists())
 
     def test_init_local_maps_workspace_write_failures_to_workspace_exit_code(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -408,6 +436,24 @@ class LocalCliContractTests(unittest.TestCase):
             self.assertEqual(result["status"], "already_stopped")
             self.assertFalse(manifest_path.exists())
             self.assertFalse(pid_path.exists())
+
+            with self.assertRaises(CliError) as exc:
+                runtime_handle(
+                    argparse.Namespace(
+                        runtime_command="status",
+                        workspace_root=tmp,
+                        format="json",
+                    )
+                )
+
+            self.assertEqual(exc.exception.exit_code, EXIT_RUNTIME_NOT_RUNNING)
+            self.assertEqual(
+                exc.exception.json_data,
+                {
+                    "status": "stopped",
+                    "workspace_root": str(workspace_root),
+                },
+            )
 
     def test_runtime_stop_sends_sigterm_and_cleans_runtime_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

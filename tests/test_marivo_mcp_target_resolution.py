@@ -242,6 +242,31 @@ def test_http_auto_with_base_url_uses_remote_without_workspace() -> None:
     assert resolution.workspace_root is None
 
 
+def test_auto_with_base_url_uses_remote_and_never_starts_local(tmp_path: Path) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    commands: list[list[str]] = []
+
+    def command_runner(args: list[str], timeout_ms: int) -> subprocess.CompletedProcess[str]:
+        commands.append(args)
+        raise AssertionError("auto remote resolution must not invoke local runtime commands")
+
+    resolution = resolve_target(
+        _build_config(
+            mode="auto",
+            base_url="http://marivo.test",
+            workspace_root=str(workspace_root),
+        ),
+        health_checker=lambda _base_url, _timeout_ms, _api_token: True,
+        command_runner=command_runner,
+    )
+
+    assert resolution.target_kind == "remote"
+    assert resolution.base_url == "http://marivo.test"
+    assert resolution.workspace_root is None
+    assert commands == []
+
+
 def test_local_mode_requires_valid_workspace_root(tmp_path: Path) -> None:
     invalid_file = tmp_path / "not-a-dir"
     invalid_file.write_text("")

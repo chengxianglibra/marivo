@@ -53,6 +53,30 @@ def test_load_config_allows_missing_base_url_for_target_resolution() -> None:
     assert config.base_url is None
 
 
+def test_load_config_remote_mode_defers_missing_base_url_to_resolver() -> None:
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        monkeypatch.setenv("MARIVO_MODE", "remote")
+        monkeypatch.delenv("MARIVO_BASE_URL", raising=False)
+
+        config = load_config_from_env()
+
+    assert config.mode == "remote"
+    assert config.base_url is None
+
+
+def test_load_config_auto_mode_with_base_url_is_remote_candidate() -> None:
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        monkeypatch.setenv("MARIVO_MODE", "auto")
+        monkeypatch.setenv("MARIVO_BASE_URL", "http://marivo.test")
+        monkeypatch.setenv("MARIVO_API_TOKEN", "secret-token")
+
+        config = load_config_from_env()
+
+    assert config.mode == "auto"
+    assert config.base_url == "http://marivo.test"
+    assert config.api_token == "secret-token"
+
+
 def test_load_config_reads_target_resolution_options() -> None:
     with pytest.MonkeyPatch.context() as monkeypatch:
         monkeypatch.setenv("MARIVO_MODE", "local")
