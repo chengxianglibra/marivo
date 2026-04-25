@@ -4,7 +4,9 @@ Use this before cutting or handing off a releasable `marivo-mcp` build.
 
 ## 1. Configuration
 
-- `MARIVO_BASE_URL` points at the target Marivo HTTP service.
+- `MARIVO_MODE` is set intentionally, or `auto` behavior is acceptable.
+- For remote explicit connection, `MARIVO_BASE_URL` points at the target Marivo HTTP service.
+- For local auto-managed connection, `MARIVO_WORKSPACE_ROOT` points at the workspace root.
 - Optional auth is configured through `MARIVO_API_TOKEN` when required.
 - Transport settings match the intended deployment mode:
   - `MARIVO_MCP_TRANSPORT`

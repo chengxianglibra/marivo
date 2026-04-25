@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import sys
+
 from marivo_mcp.config import MarivoMcpConfig, MarivoMcpConfigError, load_config_from_env
+from marivo_mcp.diagnostics import emit_diagnostic
 from marivo_mcp.http_client import ResolvingMarivoHttpClient
+from marivo_mcp.init_cli import main as init_main
 from marivo_mcp.resources import register_resources
 from marivo_mcp.sdk import FastMcpServer, MarivoMcpDependencyError, load_fastmcp
 from marivo_mcp.target_resolution import resolve_target
@@ -37,6 +41,9 @@ def build_server_with_config(config: object) -> FastMcpServer:
 
 def main() -> None:
     """Entrypoint for the standalone marivo-mcp subprocess."""
+    if len(sys.argv) > 1 and sys.argv[1] == "init":
+        init_main(sys.argv[2:])
+        return
     try:
         config = _resolve_startup_config(load_config_from_env())
         if config.transport == "streamable-http":
@@ -44,6 +51,13 @@ def main() -> None:
             return
         _run_stdio(config)
     except (MarivoMcpConfigError, MarivoMcpDependencyError) as error:
+        if isinstance(error, MarivoMcpConfigError) and hasattr(error, "code"):
+            emit_diagnostic(
+                "startup_failed",
+                code=getattr(error, "code", None),
+                detail=getattr(error, "detail", None),
+                guidance=getattr(error, "guidance", None),
+            )
         raise SystemExit(str(error)) from error
 
 
@@ -53,6 +67,13 @@ def main_http() -> None:
         config = resolve_target(load_config_from_env()).config
         _run_streamable_http(config)
     except (MarivoMcpConfigError, MarivoMcpDependencyError) as error:
+        if isinstance(error, MarivoMcpConfigError) and hasattr(error, "code"):
+            emit_diagnostic(
+                "startup_failed",
+                code=getattr(error, "code", None),
+                detail=getattr(error, "detail", None),
+                guidance=getattr(error, "guidance", None),
+            )
         raise SystemExit(str(error)) from error
 
 

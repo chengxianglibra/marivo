@@ -51,10 +51,16 @@ consistency checks.
 
 The server reads these environment variables:
 
-- `MARIVO_BASE_URL` (required)
+- `MARIVO_MODE` (optional, default `auto`; `remote` requires `MARIVO_BASE_URL`)
+- `MARIVO_BASE_URL` (optional; when present in `auto`, selects remote explicit connection)
 - `MARIVO_API_TOKEN` (optional)
+- `MARIVO_WORKSPACE_ROOT` (optional for local auto-managed `stdio`; required for local HTTP MCP)
+- `MARIVO_LOCAL_HOST` (optional, default `127.0.0.1`)
+- `MARIVO_LOCAL_PORT` (optional, default `0`)
+- `MARIVO_START_TIMEOUT_MS` (optional, default `15000`)
+- `MARIVO_HEALTHCHECK_TIMEOUT_MS` (optional, default `2000`)
 - `MARIVO_MCP_TRANSPORT` (optional, default `stdio`)
-- `MARIVO_TIMEOUT_MS` (optional, default `10000`)
+- `MARIVO_TIMEOUT_MS` (optional, default `600000`)
 - `MARIVO_OPENAPI_CACHE_TTL_SEC` (optional, default `300`)
 - `MARIVO_DEFAULT_SOURCE_ID` (optional)
 - `MARIVO_MCP_HOST` (optional, default `127.0.0.1`)
@@ -63,8 +69,9 @@ The server reads these environment variables:
 - `MARIVO_MCP_STATELESS_HTTP` (optional, default `true`)
 - `MARIVO_MCP_JSON_RESPONSE` (optional, default `true`)
 
-Missing or invalid required configuration fails at startup with a clear error.
-No implicit fallback base URL is used.
+Remote explicit connection failures never fall back to a local runtime. Local
+auto-managed mode requires a workspace root and resolves the endpoint from
+`.marivo/runtime.json`.
 
 ## Install
 
@@ -85,7 +92,14 @@ environment as the MCP adapter.
 After installing the package, you can register Marivo with an MCP client in one
 of two ways.
 
-Local `stdio` MCP:
+Generate a minimal config snippet:
+
+```bash
+marivo-mcp init --mode local --print-config
+marivo-mcp init --mode remote --base-url http://127.0.0.1:8000 --api-token "$MARIVO_API_TOKEN" --print-config
+```
+
+Local auto-managed `stdio` MCP:
 
 ```json
 {
@@ -93,15 +107,33 @@ Local `stdio` MCP:
     "marivo": {
       "command": "/absolute/path/to/marivo/marivo-mcp/.venv/bin/marivo-mcp",
       "env": {
-        "MARIVO_BASE_URL": "http://127.0.0.1:8000"
+        "MARIVO_MODE": "local",
+        "MARIVO_WORKSPACE_ROOT": "/absolute/path/to/workspace"
       }
     }
   }
 }
 ```
 
-This starts `marivo-mcp` as a local subprocess and uses the default `stdio`
-transport.
+This starts `marivo-mcp` as a local subprocess using `stdio`. The adapter
+reuses a healthy workspace runtime when `.marivo/runtime.json` is valid, or
+starts one through `marivo serve-local`.
+
+Remote explicit `stdio` MCP:
+
+```json
+{
+  "mcpServers": {
+    "marivo": {
+      "command": "/absolute/path/to/marivo/marivo-mcp/.venv/bin/marivo-mcp",
+      "env": {
+        "MARIVO_MODE": "remote",
+        "MARIVO_BASE_URL": "http://127.0.0.1:8000"
+      }
+    }
+  }
+}
+```
 
 Streamable HTTP MCP (`streamable-http`, sometimes called `http-stream`):
 
