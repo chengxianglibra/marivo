@@ -187,6 +187,33 @@ def test_http_entrypoint_forces_streamable_http_transport(monkeypatch: Any) -> N
     assert seen["run"].transport == "streamable-http"
 
 
+def test_http_entrypoint_remote_unreachable_fails_closed(monkeypatch: Any) -> None:
+    def fake_resolve_target(config: Any) -> Any:
+        assert config.transport == "streamable-http"
+        raise TargetResolutionError(
+            code="remote_target_unreachable",
+            message="无法连接到远程 Marivo 服务：http://marivo.test",
+            detail={"base_url": "http://marivo.test"},
+            guidance="请检查地址是否正确、服务是否运行",
+        )
+
+    def fail_run_streamable_http(_config: Any) -> None:
+        raise AssertionError("remote target failure must not start HTTP MCP transport")
+
+    monkeypatch.setattr(
+        server_module,
+        "load_config_from_env",
+        lambda: _build_config(mode="remote", base_url="http://marivo.test"),
+    )
+    monkeypatch.setattr(server_module, "resolve_target", fake_resolve_target)
+    monkeypatch.setattr(server_module, "_run_streamable_http", fail_run_streamable_http)
+
+    with pytest.raises(SystemExit) as exc_info:
+        server_module.main_http()
+
+    assert "无法连接到远程 Marivo 服务：http://marivo.test" in str(exc_info.value)
+
+
 def test_local_mode_resolves_workspace_from_roots_and_reuses_healthy_manifest(
     tmp_path: Path,
 ) -> None:
@@ -794,6 +821,62 @@ def test_mcp_init_local_print_config(tmp_path: Path) -> None:
     }
 
 
+def test_mcp_init_cli_print_config_remote_base_url(capsys: Any) -> None:
+    init_main(
+        [
+            "--mode",
+            "remote",
+            "--base-url",
+            "http://marivo.test",
+            "--print-config",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    assert json.loads(captured.out) == {
+        "mcpServers": {
+            "marivo": {
+                "command": "marivo-mcp",
+                "env": {
+                    "MARIVO_MODE": "remote",
+                    "MARIVO_BASE_URL": "http://marivo.test",
+                },
+            }
+        }
+    }
+
+
+def test_mcp_init_cli_print_config_defaults_to_local_workspace(
+    tmp_path: Path,
+    capsys: Any,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    init_main(
+        [
+            "--workspace-root",
+            str(workspace_root),
+            "--print-config",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    assert json.loads(captured.out) == {
+        "mcpServers": {
+            "marivo": {
+                "command": "marivo-mcp",
+                "env": {
+                    "MARIVO_MODE": "local",
+                    "MARIVO_WORKSPACE_ROOT": str(workspace_root),
+                },
+            }
+        }
+    }
+
+
 def test_mcp_init_local_defaults_to_cwd_workspace(tmp_path: Path) -> None:
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
@@ -911,6 +994,38 @@ def test_mcp_init_codex_write_creates_project_config(tmp_path: Path) -> None:
     )
 
     assert written_path == str(config_path)
+    assert config_path.read_text() == (
+        "[mcp_servers.marivo]\n"
+        'command = "marivo-mcp"\n'
+        f'env = {{ MARIVO_MODE = "local", MARIVO_WORKSPACE_ROOT = "{workspace_root}" }}\n'
+    )
+
+
+def test_mcp_init_codex_write_cli_creates_project_config(
+    tmp_path: Path,
+    capsys: Any,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    config_path = tmp_path / ".codex" / "config.toml"
+
+    init_main(
+        [
+            "--mode",
+            "local",
+            "--workspace-root",
+            str(workspace_root),
+            "--client",
+            "codex",
+            "--write",
+            "--config-path",
+            str(config_path),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    assert captured.out == f"Wrote marivo MCP config to {config_path}\n"
     assert config_path.read_text() == (
         "[mcp_servers.marivo]\n"
         'command = "marivo-mcp"\n'

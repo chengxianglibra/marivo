@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 from importlib import import_module
 from pathlib import Path
@@ -7,6 +8,7 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 import httpx
+import pytest
 
 MARIVO_MCP_SRC = Path(__file__).resolve().parents[1] / "marivo-mcp" / "src"
 sys.path.insert(0, str(MARIVO_MCP_SRC))
@@ -18,6 +20,7 @@ smoke_module = import_module("marivo_mcp.smoke")
 MarivoMcpConfig = config_module.MarivoMcpConfig
 HttpTransportConfig = config_module.HttpTransportConfig
 MarivoHttpClient = http_client_module.MarivoHttpClient
+TargetResolutionError = config_module.TargetResolutionError
 run_live_smoke = smoke_module.run_live_smoke
 summarize_results = smoke_module.summarize_results
 
@@ -227,3 +230,40 @@ def test_live_smoke_reports_local_auto_managed_target_metadata() -> None:
     assert summary["workspace_root"] == workspace_root
     assert summary["manifest_path"] == manifest_path
     assert summary["runtime_state"] == "manifest_valid_healthy"
+
+
+def test_smoke_cli_reports_target_resolution_error_as_json(
+    capsys: Any,
+) -> None:
+    smoke_module_any = cast("Any", smoke_module)
+    original_load_config_from_env = smoke_module_any.load_config_from_env
+    original_resolve_target = smoke_module_any.resolve_target
+
+    def fail_resolve_target(_config: Any) -> Any:
+        raise TargetResolutionError(
+            code="remote_target_unreachable",
+            message="无法连接到远程 Marivo 服务：http://marivo.test",
+            detail={"base_url": "http://marivo.test"},
+            guidance="请检查地址是否正确、服务是否运行",
+        )
+
+    smoke_module_any.load_config_from_env = lambda: _build_config(mode="remote")
+    smoke_module_any.resolve_target = fail_resolve_target
+    try:
+        with pytest.raises(SystemExit) as exc_info:
+            smoke_module.main()
+    finally:
+        smoke_module_any.load_config_from_env = original_load_config_from_env
+        smoke_module_any.resolve_target = original_resolve_target
+
+    captured = capsys.readouterr()
+    assert exc_info.value.code == 1
+    assert json.loads(captured.out) == {
+        "ok": False,
+        "error": {
+            "code": "remote_target_unreachable",
+            "message": "无法连接到远程 Marivo 服务：http://marivo.test",
+            "detail": {"base_url": "http://marivo.test"},
+            "guidance": "请检查地址是否正确、服务是否运行",
+        },
+    }
