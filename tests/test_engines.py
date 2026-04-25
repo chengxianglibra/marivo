@@ -277,6 +277,58 @@ class EngineServiceTests(unittest.TestCase):
 
         self.assertEqual(analytics.user, "alice")
 
+    def test_build_trino_engine_prefers_session_user_over_fallback_username(self) -> None:
+        engine = self.service.register_engine(
+            engine_type="trino",
+            display_name="Session Auth Trino With Fallback",
+            connection={"host": "localhost", "user": "legacy_user"},
+            auth={
+                "mode": "username_only",
+                "username_source": "session_user",
+                "fallback_username": "svc_marivo",
+            },
+        )
+        session = SessionManager(self.metadata).create_session(
+            "Route with session user preferred over fallback",
+            {},
+            {},
+            {},
+            {"session_user": "alice", "actor_ref": "agent.alice"},
+        )
+
+        resolved_connection = self.service.resolve_runtime_connection(
+            engine,
+            session_id=session["session_id"],
+        )
+
+        self.assertEqual(resolved_connection["user"], "alice")
+
+    def test_build_trino_engine_uses_fixed_fallback_username(self) -> None:
+        engine = self.service.register_engine(
+            engine_type="trino",
+            display_name="Fixed Auth Trino",
+            connection={"host": "localhost", "user": "legacy_user"},
+            auth={
+                "mode": "username_only",
+                "username_source": "fixed",
+                "fallback_username": "svc_marivo",
+            },
+        )
+        session = SessionManager(self.metadata).create_session(
+            "Route with fixed auth user",
+            {},
+            {},
+            {},
+            {"session_user": "alice", "actor_ref": "agent.alice"},
+        )
+
+        resolved_connection = self.service.resolve_runtime_connection(
+            engine,
+            session_id=session["session_id"],
+        )
+
+        self.assertEqual(resolved_connection["user"], "svc_marivo")
+
     def test_build_trino_engine_logs_execution_auth_resolution(self) -> None:
         engine = self.service.register_engine(
             engine_type="trino",
@@ -664,6 +716,7 @@ class EngineAPITests(unittest.TestCase):
             },
         )
         self.assertEqual(resp.status_code, 200)
+        engine_id = resp.json()["engine_id"]
         self.assertEqual(
             resp.json()["auth"],
             {
@@ -672,6 +725,19 @@ class EngineAPITests(unittest.TestCase):
                 "fallback_username": "marivo",
             },
         )
+
+        detail = self.client.get(f"/engines/{engine_id}")
+        self.assertEqual(detail.status_code, 200)
+        self.assertEqual(detail.json()["auth"], resp.json()["auth"])
+
+        listed = self.client.get("/engines")
+        self.assertEqual(listed.status_code, 200)
+        listed_auth = {
+            engine["engine_id"]: engine["auth"]
+            for engine in listed.json()
+            if engine["engine_id"] == engine_id
+        }
+        self.assertEqual(listed_auth, {engine_id: resp.json()["auth"]})
 
     def test_post_engine_trims_fallback_username(self) -> None:
         resp = self.client.post(

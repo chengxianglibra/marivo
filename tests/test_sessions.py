@@ -133,6 +133,14 @@ class SessionAPITests(unittest.TestCase):
             {"session_user": "alice", "actor_ref": "agent.alice"},
         )
 
+        listed = self.client.get(f"/sessions?session_id={session_id}")
+        self.assertEqual(listed.status_code, 200)
+        self.assertEqual(len(listed.json()["items"]), 1)
+        self.assertEqual(
+            listed.json()["items"][0]["execution_identity"],
+            {"session_user": "alice", "actor_ref": "agent.alice"},
+        )
+
     def test_create_session_trims_execution_identity_fields(self) -> None:
         create_resp = self.client.post(
             "/sessions",
