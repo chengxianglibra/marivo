@@ -56,7 +56,7 @@ function SourcesTab({ onInspect }: { onInspect: (row: EntityRow) => void }) {
   return (
     <Space direction="vertical" size="middle" className="full-width">
       <Typography.Paragraph type="secondary">
-        Source inventory 来自 HTTP API。sync selections 用结构化表格表达，不要求手写 JSON。
+        Source inventory comes from the HTTP API. Sync selections are represented as structured tables instead of handwritten JSON.
       </Typography.Paragraph>
       <ObjectTable rows={sources.data} kind="source" onInspect={onInspect} />
     </Space>
@@ -68,7 +68,7 @@ function EnginesTab({ onInspect }: { onInspect: (row: EntityRow) => void }) {
   return (
     <Space direction="vertical" size="middle" className="full-width">
       <Typography.Paragraph type="secondary">
-        Engine readiness 是配置校验，不暗示 UI 执行在线 SELECT 1 探测。DuckDB 忽略 session execution identity；Trino 可使用 username_only。
+        Engine readiness is configuration validation. It does not imply that the UI ran an online SELECT 1 probe. DuckDB ignores session execution identity; Trino can use username_only.
       </Typography.Paragraph>
       <ObjectTable rows={engines.data} kind="engine" onInspect={onInspect} />
     </Space>
@@ -80,7 +80,7 @@ function MappingsTab({ onInspect }: { onInspect: (row: EntityRow) => void }) {
   return (
     <Space direction="vertical" size="middle" className="full-width">
       <Typography.Paragraph type="secondary">
-        Mapping 缺失以 coverage summary 和 failure_code 展示；`mapping_incomplete`、`mapping_inactive_dependency` 优先指向可修复 blocker。
+        Mapping gaps are shown through coverage summaries and failure codes. `mapping_incomplete` and `mapping_inactive_dependency` point to actionable blockers first.
       </Typography.Paragraph>
       <ObjectTable rows={mappings.data} kind="mapping" onInspect={onInspect} />
     </Space>
@@ -136,7 +136,7 @@ function GovernanceTab() {
   const groupedRules = useMemo(() => rules.data ?? [], [rules.data]);
   return (
     <Space direction="vertical" size="middle" className="full-width">
-      <Typography.Paragraph type="secondary">Governance 是约束与排障页面，不展示为分析结论页。</Typography.Paragraph>
+      <Typography.Paragraph type="secondary">Governance is a constraints and troubleshooting page, not an analysis conclusion page.</Typography.Paragraph>
       <Card size="small" title="Policies">
         <Table
           rowKey={(row) => row.policy_id ?? row.name}
@@ -207,7 +207,7 @@ export function OperationsPage() {
     <Space direction="vertical" size="large" className="page">
       <SectionHeader
         title="Operations"
-        description="管理员围绕 source、engine、mapping、routing、governance、jobs 和 runtime 排障。"
+        description="Operations workflows for sources, engines, mappings, routing, governance, jobs, and runtime diagnostics."
       />
       <Tabs
         items={[

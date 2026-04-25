@@ -13,10 +13,9 @@ test("administrator can inspect a mapping blocker and route resolution", async (
   ).toBeVisible();
 });
 
-test("analyst can read proposition context", async ({ page }) => {
+test("can read proposition context", async ({ page }) => {
   await page.goto("/");
-  await page.getByTestId("role-view-select").click();
-  await page.getByTitle("分析人员").click();
+  await page.getByRole("menuitem", { name: "Analysis" }).click();
   await page.getByRole("tab", { name: "Proposition Detail" }).click();
   await expect(page.getByText("Latest Assessment")).toBeVisible();
   await expect(page.getByText("Relevant Findings")).toBeVisible();

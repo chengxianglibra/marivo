@@ -18,7 +18,7 @@ describe("status rendering", () => {
         }}
       />,
     );
-    expect(screen.getByText("当前 blocker: mapping_incomplete")).toBeInTheDocument();
+    expect(screen.getByText("Current blocker: mapping_incomplete")).toBeInTheDocument();
     expect(screen.getByText("add catalog mapping")).toBeInTheDocument();
   });
 });

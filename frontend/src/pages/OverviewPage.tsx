@@ -21,7 +21,7 @@ export function OverviewPage() {
     <Space direction="vertical" size="large" className="page">
       <SectionHeader
         title="Operations Overview"
-        description="管理员默认首页，优先展示 readiness、failure_code、routing blocker 与最近失败。"
+        description="Default operations home focused on readiness, failure codes, routing blockers, and recent failures."
       />
       <Alert
         showIcon
@@ -86,7 +86,7 @@ export function OverviewPage() {
                 },
                 {
                   title: "Next blocker",
-                  render: (_, row) => (row.blocking_requirements as string[] | undefined)?.[0] ?? "查看详情",
+                  render: (_, row) => (row.blocking_requirements as string[] | undefined)?.[0] ?? "Inspect details",
                 },
               ]}
             />

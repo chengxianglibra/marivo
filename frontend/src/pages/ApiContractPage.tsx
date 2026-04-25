@@ -32,13 +32,13 @@ export function ApiContractPage() {
     <Space direction="vertical" size="large" className="page">
       <SectionHeader
         title="API Contract"
-        description="前端只消费 Marivo HTTP API 与 OpenAPI 暴露的能力，缺口进入 backlog，不在前端伪造持久化或 readiness。"
+        description="The frontend only consumes capabilities exposed by the Marivo HTTP API and OpenAPI. Missing capabilities go to the backlog instead of being faked in frontend state."
       />
       <Alert
         type="info"
         showIcon
         message="OpenAPI constrained client"
-        description="`npm run openapi:types` 从 MARIVO_OPENAPI_URL 生成 TypeScript 类型；运行时请求必须经过统一 apiClient 和 hooks。"
+        description="`npm run openapi:types` generates TypeScript types from MARIVO_OPENAPI_URL. Runtime requests must go through the shared apiClient and hooks."
       />
       <Card size="small" title="OpenAPI Index">
         <Table

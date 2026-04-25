@@ -39,7 +39,7 @@ export const sources = [
     synced_object_count: 0,
     related_mappings_count: 0,
     updated_at: "2026-04-25T09:00:00+08:00",
-    blocking_requirements: ["配置 sync selections", "触发 source sync"],
+    blocking_requirements: ["Configure sync selections", "Trigger source sync"],
   },
 ];
 
@@ -66,7 +66,7 @@ export const engines = [
     auth: { mode: "username_only", username_source: "session_user" },
     related_mappings_count: 0,
     updated_at: "2026-04-24T21:10:00+08:00",
-    blocking_requirements: ["修复 connection.host", "确认 default_namespace"],
+    blocking_requirements: ["Fix connection.host", "Confirm default_namespace"],
   },
 ];
 
@@ -159,7 +159,7 @@ export const semantic: Record<string, JsonRecord[]> = {
       lifecycle_status: "active",
       readiness_status: "not_ready",
       failure_code: "binding_missing_time",
-      blocking_requirements: ["绑定 time grain", "确认 source object readiness"],
+      blocking_requirements: ["Bind a time grain", "Confirm source object readiness"],
       dependency_refs: ["binding.sales_orders"],
       capabilities: ["observe", "compare"],
     },
@@ -207,7 +207,7 @@ export const semantic: Record<string, JsonRecord[]> = {
 export const sessions = [
   {
     session_id: "sess_growth_review",
-    goal: "解释 GMV 同比下滑原因",
+    goal: "Explain why GMV declined year over year",
     lifecycle_status: "open",
     status: "open",
     execution_identity: { session_user: "analyst.li" },
@@ -218,7 +218,7 @@ export const sessions = [
   },
   {
     session_id: "sess_capacity_check",
-    goal: "检查 Trino 查询延迟异常",
+    goal: "Investigate abnormal Trino query latency",
     lifecycle_status: "terminated",
     status: "closed",
     active_proposition_count: 1,
@@ -248,7 +248,7 @@ export const sessionState = {
       severity: "P1",
       blocking: true,
       related_proposition_id: "prop_gmv_decline",
-      requirement_summary: "需要渠道维度的转化率对比证据。",
+      requirement_summary: "Channel-level conversion rate comparison evidence is required.",
       satisfiable_by: "observe metric.conversion_rate by dimension.channel",
       status: "open",
     },
@@ -276,7 +276,7 @@ export const propositionContext = {
   latest_assessment: {
     status: "partially_supported",
     confidence: "medium",
-    summary: "证据支持转化率下降方向，但渠道拆分仍缺失。",
+    summary: "The evidence supports a conversion-rate decline, but the channel breakdown is still missing.",
   },
   blocking_gaps: sessionState.gaps,
   non_blocking_gaps: [],

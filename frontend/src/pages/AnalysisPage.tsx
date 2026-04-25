@@ -171,7 +171,7 @@ function EvidenceInspector({ payload }: { payload?: unknown }) {
   return (
     <Space direction="vertical" size="middle" className="full-width">
       <Typography.Paragraph type="secondary">
-        Artifact 与 finding 明确区分；SQL 如存在只能作为折叠 provenance 细节，而不是证据结论。
+        Artifacts and findings are distinct. SQL, when present, is folded provenance detail rather than an evidence conclusion.
       </Typography.Paragraph>
       <JsonPreview payload={payload ?? { artifact_identity: "select proposition context first" }} />
     </Space>
@@ -186,7 +186,7 @@ export function AnalysisPage() {
     <Space direction="vertical" size="large" className="page">
       <SectionHeader
         title="Analysis"
-        description="分析人员以 session state 与 proposition context 阅读证据闭包，runtime status 只作为诊断侧栏。"
+        description="Read evidence closures through session state and proposition context. Runtime status remains diagnostic context only."
         action={
           <Space wrap>
             <Input
