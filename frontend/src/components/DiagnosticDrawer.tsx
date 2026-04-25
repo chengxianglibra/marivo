@@ -16,7 +16,7 @@ export function DiagnosticDrawer({
     <Drawer title={title} open={open} onClose={onClose} width={560}>
       <Space direction="vertical" size="middle" className="full-width">
         <Typography.Paragraph type="secondary">
-          诊断抽屉展示 API 摘要、request id、failure_code、blocker 和 runtime detail。主页面仍保留任务摘要。
+          The diagnostic drawer shows API summaries, request ids, failure codes, blockers, and runtime details. The main page keeps the task-oriented summary.
         </Typography.Paragraph>
         <CopyJsonButton payload={payload} />
         <JsonPreview payload={payload} />

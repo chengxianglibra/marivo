@@ -41,10 +41,10 @@ export function BlockerPanel({ record }: { record?: EntityRow | JsonRecord | nul
   if (!record) return null;
 
   const message = record.failure_code
-    ? `当前 blocker: ${String(record.failure_code)}`
+    ? `Current blocker: ${String(record.failure_code)}`
     : record.readiness_status && record.readiness_status !== "ready"
-      ? `当前 readiness: ${String(record.readiness_status)}`
-      : "当前对象 ready。";
+      ? `Current readiness: ${String(record.readiness_status)}`
+      : "This object is ready.";
 
   return (
     <Alert
@@ -59,7 +59,7 @@ export function BlockerPanel({ record }: { record?: EntityRow | JsonRecord | nul
             ))}
           </ul>
         ) : (
-          "没有服务端返回的 blocking requirements。"
+          "The server did not return blocking requirements."
         )
       }
     />
@@ -91,8 +91,8 @@ export function ReadOnlyNotice() {
     <Alert
       type="info"
       showIcon
-      message="只读诊断面"
-      description="此页面解释运行状态、Jobs 和 readiness blocker，不提供 raw SQL 主入口，也不暴露 Jobs submit / cancel / retry。"
+      message="Read-only diagnostics"
+      description="This page explains runtime status, Jobs, and readiness blockers. It does not provide a primary raw SQL entry point or expose Jobs submit, cancel, or retry controls."
     />
   );
 }
@@ -102,8 +102,8 @@ export function SecurityBoundaryNotice() {
     <Alert
       type="warning"
       showIcon
-      message="v1 角色不是安全边界"
-      description="角色切换只影响导航优先级和信息架构。当前 Marivo API 未提供真实认证 / RBAC，服务端权限隔离需要等待后续契约。"
+      message="v1 roles are not a security boundary"
+      description="Role views only affect navigation priority and information architecture. The current Marivo API does not provide real authentication or RBAC; server-side isolation requires a future contract."
     />
   );
 }

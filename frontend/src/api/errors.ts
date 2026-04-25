@@ -25,38 +25,38 @@ export function classifyError(status: number | undefined, detail: unknown): ApiE
 export function normalizeThrownError(error: unknown): ApiErrorShape {
   if (error instanceof ApiError) return error.shape;
   if (error instanceof DOMException && error.name === "AbortError") {
-    return { kind: "timeout", message: "请求超时，Marivo HTTP API 没有在预期时间内响应。" };
+    return { kind: "timeout", message: "The request timed out before the Marivo HTTP API responded." };
   }
   if (error instanceof TypeError) {
     return {
       kind: "network",
-      message: "无法连接 Marivo HTTP API。请检查 API base URL、服务状态或 dev proxy。",
+      message: "Unable to connect to the Marivo HTTP API. Check the API base URL, service status, or dev proxy.",
       detail: error.message,
     };
   }
   if (error instanceof Error) {
     return { kind: "unknown", message: error.message };
   }
-  return { kind: "unknown", message: "未知错误", detail: error };
+  return { kind: "unknown", message: "Unknown error", detail: error };
 }
 
 export function errorActionText(kind: ApiErrorShape["kind"]): string {
   switch (kind) {
     case "network":
-      return "检查 VITE_MARIVO_API_BASE_URL 或后端服务。";
+      return "Check VITE_MARIVO_API_BASE_URL or the backend service.";
     case "timeout":
-      return "刷新页面，或检查后端是否正在处理长请求。";
+      return "Refresh the page or check whether the backend is processing a long request.";
     case "validation":
-      return "检查表单输入和 API contract。";
+      return "Check the form input and API contract.";
     case "not_ready":
-      return "进入 readiness blocker 面板查看缺失依赖。";
+      return "Open the readiness blocker panel to inspect missing dependencies.";
     case "runtime_blocked":
-      return "查看 runtime status 和 Jobs 只读诊断。";
+      return "Review runtime status and the read-only Jobs diagnostics.";
     case "permission_placeholder":
-      return "v1 无真实 RBAC；服务端返回权限类错误时仅展示诊断。";
+      return "v1 has no real RBAC; permission-like server errors are shown as diagnostics only.";
     case "http":
-      return "查看诊断抽屉中的 HTTP 状态和 detail。";
+      return "Review HTTP status and detail in the diagnostic drawer.";
     default:
-      return "打开诊断抽屉查看原始错误。";
+      return "Open the diagnostic drawer to inspect the raw error.";
   }
 }

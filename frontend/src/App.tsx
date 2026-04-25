@@ -1,4 +1,4 @@
-import { Button, Layout, Menu, Select, Space, Tag, Tooltip, Typography } from "antd";
+import { Button, Layout, Menu, Space, Tag, Tooltip, Typography } from "antd";
 import type { MenuProps } from "antd";
 import type { ReactNode } from "react";
 import { useMemo, useState } from "react";
@@ -12,7 +12,7 @@ import {
   PanelLeftOpen,
   ShieldCheck,
 } from "lucide-react";
-import type { PageKey, RoleKey } from "./api/types";
+import type { PageKey } from "./api/types";
 import { AnalysisPage } from "./pages/AnalysisPage";
 import { ApiContractPage } from "./pages/ApiContractPage";
 import { OperationsPage } from "./pages/OperationsPage";
@@ -22,37 +22,24 @@ import { apiConfig } from "./api/config";
 
 const { Header, Sider, Content } = Layout;
 
-const roleOptions: Array<{ value: RoleKey; label: string; defaultPage: PageKey }> = [
-  { value: "admin", label: "管理员", defaultPage: "overview" },
-  { value: "semantic", label: "业务专家", defaultPage: "semantic" },
-  { value: "analyst", label: "分析人员", defaultPage: "analysis" },
-];
-
-const pageMeta: Record<PageKey, { label: string; icon: ReactNode; role: RoleKey | "shared" }> = {
-  overview: { label: "Overview", icon: <LayoutDashboard size={18} />, role: "admin" },
-  operations: { label: "Operations", icon: <DatabaseZap size={18} />, role: "admin" },
-  semantic: { label: "Semantic Layer", icon: <BookOpenCheck size={18} />, role: "semantic" },
-  analysis: { label: "Analysis", icon: <Activity size={18} />, role: "analyst" },
-  "api-contract": { label: "API Contract", icon: <FileJson size={18} />, role: "shared" },
+const pageMeta: Record<PageKey, { label: string; icon: ReactNode }> = {
+  overview: { label: "Overview", icon: <LayoutDashboard size={18} /> },
+  operations: { label: "Operations", icon: <DatabaseZap size={18} /> },
+  semantic: { label: "Semantic Layer", icon: <BookOpenCheck size={18} /> },
+  analysis: { label: "Analysis", icon: <Activity size={18} /> },
+  "api-contract": { label: "API Contract", icon: <FileJson size={18} /> },
 };
 
-function roleWeight(role: RoleKey, page: PageKey): number {
-  const pageRole = pageMeta[page].role;
-  if (pageRole === role) return 0;
-  if (pageRole === "shared") return 1;
-  return 2;
-}
+const pageOrder: PageKey[] = ["overview", "operations", "semantic", "analysis", "api-contract"];
 
-function useMenuItems(role: RoleKey): MenuProps["items"] {
+function useMenuItems(): MenuProps["items"] {
   return useMemo(() => {
-    return (Object.keys(pageMeta) as PageKey[])
-      .sort((a, b) => roleWeight(role, a) - roleWeight(role, b))
-      .map((key) => ({
-        key,
-        icon: pageMeta[key].icon,
-        label: pageMeta[key].label,
-      }));
-  }, [role]);
+    return pageOrder.map((key) => ({
+      key,
+      icon: pageMeta[key].icon,
+      label: pageMeta[key].label,
+    }));
+  }, []);
 }
 
 function renderPage(page: PageKey) {
@@ -71,10 +58,9 @@ function renderPage(page: PageKey) {
 }
 
 export default function App() {
-  const [role, setRole] = useState<RoleKey>("admin");
   const [page, setPage] = useState<PageKey>("overview");
   const [collapsed, setCollapsed] = useState(false);
-  const menuItems = useMenuItems(role);
+  const menuItems = useMenuItems();
 
   return (
     <Layout className="app-frame">
@@ -106,17 +92,6 @@ export default function App() {
                 onClick={() => setCollapsed((value) => !value)}
               />
             </Tooltip>
-            <Select
-              aria-label="role view"
-              data-testid="role-view-select"
-              value={role}
-              style={{ width: 150 }}
-              options={roleOptions}
-              onChange={(nextRole) => {
-                setRole(nextRole);
-                setPage(roleOptions.find((option) => option.value === nextRole)?.defaultPage ?? "overview");
-              }}
-            />
             <Tag color={apiConfig.useMocks ? "warning" : "success"}>
               {apiConfig.useMocks ? "mock fixtures" : "live HTTP API"}
             </Tag>

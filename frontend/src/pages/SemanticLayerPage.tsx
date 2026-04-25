@@ -71,7 +71,7 @@ function ReadinessQueue({ onInspect }: { onInspect: (kind: (typeof semanticKinds
   return (
     <Space direction="vertical" size="middle" className="full-width">
       <Typography.Paragraph type="secondary">
-        队列回答“为什么 not_ready / stale”和“下一步修什么”，优先展示 blocking requirements、dependency refs 与 capability 缺口。
+        The queue answers why an object is not_ready or stale and what to fix next, prioritizing blocking requirements, dependency refs, and capability gaps.
       </Typography.Paragraph>
       {semanticKinds.map((kind) => (
         <ReadinessQueueSection key={kind.key} kind={kind} onInspect={onInspect} />
@@ -106,7 +106,7 @@ function ReadinessQueueSection({
               }
               description={
                 ((row.blocking_requirements as string[] | undefined) ?? []).join(" / ") ||
-                "服务端未返回 blocking requirements。"
+                "The server did not return blocking requirements."
               }
             />
           </List.Item>
@@ -121,7 +121,7 @@ function SourceObjectBrowser() {
   return (
     <Space direction="vertical" size="middle" className="full-width">
       <Typography.Paragraph type="secondary">
-        Source Object Browser 先从已同步 source 摘要进入。真实 column/table metadata 依赖 sources object 详情 API。
+        Source Object Browser starts from synced source summaries. Real column and table metadata depends on the source object detail API.
       </Typography.Paragraph>
       <Table
         rowKey={(row) => row.source_id}
@@ -144,7 +144,7 @@ function BindingWizard() {
   return (
     <Space direction="vertical" size="middle" className="full-width">
       <Typography.Paragraph type="secondary">
-        Binding Wizard v1 只构造 typed contract preview。提交和持久化必须走 HTTP typed semantic API，不伪造后端状态。
+        Binding Wizard v1 only builds a typed contract preview. Submission and persistence must go through the HTTP typed semantic API and must not fake backend state.
       </Typography.Paragraph>
       <Form layout="vertical" onFinish={(values) => setPreview(values)}>
         <Form.Item label="Carrier source object" name="carrier_source_object_ref" rules={[{ required: true }]}>
@@ -204,7 +204,7 @@ function DetailDrawer({
               </Button>
             </Space>
             <Typography.Paragraph type="secondary" className="top-gap">
-              Validate 不表示持久状态切换；Activate 后也继续展示 readiness_status。
+              Validate is check-only and does not persist lifecycle changes. Activate still keeps readiness_status visible.
             </Typography.Paragraph>
           </Card>
           {action.data ? <JsonPreview payload={action.data} /> : null}
@@ -230,7 +230,7 @@ export function SemanticLayerPage() {
     <Space direction="vertical" size="large" className="page">
       <SectionHeader
         title="Semantic Layer"
-        description="业务专家围绕 lifecycle、readiness、blocking requirements、dependency refs 与 capabilities 修复语义对象。"
+        description="Modeling workflows for lifecycle, readiness, blocking requirements, dependency refs, and capabilities."
       />
       <Tabs items={tabItems} />
       <DetailDrawer selected={selected} onClose={() => setSelected(null)} />
