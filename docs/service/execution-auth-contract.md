@@ -405,6 +405,107 @@ Marivo 应明确区分：
 - `actor_ref`
   Marivo 自身视角下的调用者 / agent 标识
 
+## Operator 示例与排障
+
+### 1. Trino 使用 session 用户
+
+适用场景：同一个 Trino engine 需要按不同 analysis session 注入不同连接用户名。
+
+注册 engine 时配置：
+
+```json
+{
+  "engine_type": "trino",
+  "display_name": "Production Trino",
+  "connection": {
+    "host": "trino.example.com",
+    "port": 8443,
+    "http_scheme": "https",
+    "catalog": "iceberg",
+    "schema": "analytics"
+  },
+  "auth": {
+    "mode": "username_only",
+    "username_source": "session_user",
+    "fallback_username": "marivo"
+  }
+}
+```
+
+创建 session 时传入：
+
+```json
+{
+  "goal": "Investigate the week-over-week watch time decline",
+  "execution_identity": {
+    "session_user": "alice",
+    "actor_ref": "agent.alice"
+  }
+}
+```
+
+运行时结果：
+
+- Trino connection `user` 使用 `"alice"`
+- 若 session 未提供 `session_user`，则使用 `"marivo"`
+- `actor_ref` 只用于 Marivo 审计，不是认证字段
+
+### 2. Trino 使用固定 fallback 用户
+
+适用场景：operator 不希望调用方按 session 切换 Trino username，只允许固定运行用户。
+
+注册 engine 时配置：
+
+```json
+{
+  "engine_type": "trino",
+  "display_name": "Shared Trino",
+  "connection": {
+    "host": "trino.example.com",
+    "catalog": "iceberg",
+    "schema": "analytics"
+  },
+  "auth": {
+    "mode": "username_only",
+    "username_source": "fixed",
+    "fallback_username": "marivo"
+  }
+}
+```
+
+即使 session 传入 `execution_identity.session_user = "alice"`，运行时 Trino connection
+`user` 仍使用 `"marivo"`。
+
+### 3. DuckDB 不配置用户注入
+
+DuckDB engine 应保持：
+
+```json
+{
+  "engine_type": "duckdb",
+  "display_name": "Local DuckDB",
+  "connection": {
+    "path": "/data/analytics.duckdb"
+  },
+  "auth": {
+    "mode": "none"
+  }
+}
+```
+
+即使 session 携带 `execution_identity.session_user`，DuckDB runtime 也不会读取、注入或因该字段失败。
+
+### 常见排障
+
+| 现象 | 可能原因 | 处理方式 |
+| --- | --- | --- |
+| 返回或日志中出现 `session_user_missing` | Trino engine 配置为 `auth.mode=username_only` 且 `username_source=session_user`，但 session 没有 `execution_identity.session_user`，engine 也没有 `fallback_username` | 创建 session 时传 `execution_identity.session_user`，或为 engine 配置 `fallback_username` |
+| 注册 DuckDB engine 时报 `engine_auth_unsupported` | DuckDB 配置了 `auth.mode=username_only` | DuckDB 只配置 `auth.mode=none` |
+| 注册 engine 时报 `engine_auth_invalid` | `auth` 字段组合不合法，例如 `username_source=fixed` 但缺少 `fallback_username` | 按 `mode` / `username_source` 规则补齐或删除字段 |
+| session create 时报 `session_execution_identity_invalid` | `session_user` 或 `actor_ref` 是空白字符串，或 `execution_identity` 含未知字段 | 传非空字符串，或省略对应字段 |
+
+当前 HTTP API 仍可能以 plain `detail` 暴露上述错误文本；本 contract 只冻结稳定错误码与触发条件，不要求本轮改造成全局结构化错误响应。
+
 ## 结论
 
 对当前 Marivo 的约束而言，execution auth 设计应继续简化为：

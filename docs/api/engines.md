@@ -60,7 +60,7 @@ Registers an analytics engine. The engine type determines which adapter implemen
 | `engine_type` | string | yes | `"duckdb"` or `"trino"` |
 | `display_name` | string | yes | Human-readable name |
 | `connection` | object | no | Engine-specific connection parameters (default: `{}`) |
-| `auth` | object | no | Minimal execution auth contract. Defaults to `{ "mode": "none" }`. |
+| `auth` | object | no | Minimal execution auth contract for runtime username injection. Defaults to `{ "mode": "none" }`. |
 | `default_namespace` | object \| null | no | Engine-local default catalog/schema fallback |
 | `deployment_capabilities` | object | no | Deployment-scoped capability overrides. Omit fields you are not overriding so built-in engine defaults remain intact. |
 | `policy` | object | no | Operator control-plane restrictions |
@@ -69,9 +69,16 @@ Registers an analytics engine. The engine type determines which adapter implemen
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `mode` | string | `"none"` or `"username_only"` |
-| `username_source` | string | Optional username source when `mode = "username_only"`; currently `"session_user"` or `"fixed"` |
-| `fallback_username` | string | Optional fallback username when runtime session user is absent |
+| `mode` | string | `"none"` means the engine ignores session execution user data; `"username_only"` means runtime must resolve a Trino `user` value from `auth` plus the session `execution_identity` |
+| `username_source` | string | Required when `mode = "username_only"`; `"session_user"` prefers `execution_identity.session_user`, while `"fixed"` always uses `fallback_username` |
+| `fallback_username` | string | Optional fallback username for `username_source = "session_user"`; required fixed username for `username_source = "fixed"` |
+
+Auth support matrix:
+
+| Engine type | Supported auth modes | Notes |
+|-------------|----------------------|-------|
+| `duckdb` | `none` | DuckDB does not consume `execution_identity.session_user`; session user data is ignored rather than injected |
+| `trino` | `none`, `username_only` | `username_only` resolves the Trino connection `user` from the session user or configured fallback |
 
 Validation rules:
 
@@ -96,11 +103,21 @@ Validation rules:
 |-------|------|-------------|
 | `host` | string | Trino coordinator hostname |
 | `port` | integer | Port (default: `8080`) |
-| `user` | string | Trino user |
+| `user` | string | Low-level Trino connection parameter. For the target username-injection contract, configure `auth.mode = "username_only"` and pass the per-analysis user through `POST /sessions` `execution_identity.session_user` instead of treating static `connection.user` as the external contract. |
 | `catalog` | string | Default catalog |
 | `schema` | string | Default schema |
 | `http_scheme` | string | `"http"` or `"https"` (default: `"http"`) |
 | `session_properties` | object | Optional Trino session properties |
+
+When `auth.mode = "username_only"` and `username_source = "session_user"`, runtime resolves the
+final Trino `user` in this order:
+
+1. `execution_identity.session_user` from the analysis session.
+2. `auth.fallback_username`, when configured.
+3. Fail with `session_user_missing` if neither value is available.
+
+Typed intent request bodies do not accept a `session_user` override; create a new session when the
+analysis needs a different execution user.
 
 ### Response
 

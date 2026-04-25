@@ -89,6 +89,8 @@ Wire invariants fixed by this contract:
 
 - `goal.question` is descriptive task context, not canonical identity
 - `execution_identity` freezes optional session-level execution user context; omit it or use `{}` when no runtime username should be recorded
+- `execution_identity.session_user` is the username Marivo may inject into a username-aware execution engine such as Trino
+- `execution_identity.actor_ref` is Marivo audit context for the calling agent or actor; it is not an authentication credential and does not participate in Trino authorization
 - `governance.policy_refs` defines the immutable governance boundary for the session
 - `governance.budget` and `governance.warnings` are mutable while the session is open
 - `lifecycle.status` is one of `open`, `closed`, or `aborted`
@@ -126,12 +128,15 @@ Request rules:
 - `goal` is required
 - `execution_identity` may be omitted; omitted or empty values persist and read back as `{}`
 - `execution_identity.session_user` and `execution_identity.actor_ref` are optional session-level metadata fields
+- `execution_identity.session_user` is frozen at session creation and is the only HTTP input for the per-analysis execution username
+- typed intent payloads must not include `session_user`, and they cannot override the session's frozen execution user
 - when provided, `execution_identity.session_user` and `execution_identity.actor_ref` are trimmed before persistence; blank-after-trim values are rejected
 - session root request bodies must not define `scope`, `time_scope`, `focus`, `constraints`, `raw_filter`, or other step-level execution controls
 
 Response:
 
 - returns `201 Created` with the canonical `AnalysisSession` payload
+- echoes the normalized `execution_identity`; if omitted or empty, the response contains `execution_identity: {}`
 - the created session always starts as:
   - `lifecycle.status = "open"`
   - `lifecycle.terminal_reason = null`
@@ -170,6 +175,7 @@ This endpoint is the root read baseline for:
 
 - descriptive task context
 - optional execution identity reflection via `execution_identity`
+- normalized `execution_identity.session_user` and `execution_identity.actor_ref` values as frozen at session creation
 - compatibility-only session scope reflection via `scope.constraints`; execution does not read session-level filters
 - governance boundary
 - lifecycle state
@@ -243,6 +249,7 @@ Response shape:
 List rules:
 
 - `items` contains canonical `AnalysisSession` payloads
+- each item includes the same `execution_identity` shape as `GET /sessions/{session_id}`; omitted values appear as `{}`
 - `next_page_token` is transport-only and not part of canonical session identity
 - `status` filters use root lifecycle semantics only; clients must not use read-surface concepts such as `active`, `latest`, or `ready`
 - `session_id` filters apply prefix matching against canonical session identifiers
