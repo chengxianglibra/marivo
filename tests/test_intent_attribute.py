@@ -256,7 +256,7 @@ class AttributeRunnerServiceTests(unittest.TestCase):
     not_truncated_bundle = _LazyBundle(
         "not_truncated", dimensions=["channel"], decomposition_limit=10
     )
-    deduplicated_bundle = _LazyBundle("dedup", dimensions=["channel", "channel", "region"])
+    deduplicated_bundle = _LazyBundle("two_dim", dimensions=["channel", "region"])
     limit_three_bundle = _LazyBundle("limit_three", dimensions=["channel"], decomposition_limit=3)
 
     @classmethod
@@ -711,8 +711,97 @@ class AttributeRunnerServiceTests(unittest.TestCase):
 
     def test_deduplicated_dimensions(self) -> None:
         """Duplicate dimensions should be deduplicated; bundle.dimensions is deduped list."""
-        self.assertEqual(self.deduplicated_bundle["dimensions"], ["channel", "region"])
-        self.assertEqual(len(self.deduplicated_bundle["drivers"]), 2)
+        from types import SimpleNamespace
+
+        svc = MagicMock()
+        svc.normalize_intent_metric_ref.side_effect = lambda metric: f"metric.{metric}"
+        svc.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
+        svc.semantic_repository.resolve_metric.return_value = SimpleNamespace(
+            additivity_constraints={"dimension_policy": "all", "time_axis_policy": "additive"},
+            primary_time_ref="time.event_date",
+            sample_kind="numeric",
+        )
+        svc._new_step_id.return_value = "step_attr_dedup"
+        svc._insert_artifact.return_value = "art_attr_dedup"
+        svc._insert_step.return_value = None
+
+        observe_results = [
+            {
+                "step_ref": {"session_id": "sess_attr_dedup", "step_id": "step_obs_left"},
+                "artifact_id": "art_obs_left",
+                "observation_type": "scalar",
+                "time_scope": {"kind": "range", "start": _CURRENT_START, "end": _CURRENT_END},
+            },
+            {
+                "step_ref": {"session_id": "sess_attr_dedup", "step_id": "step_obs_right"},
+                "artifact_id": "art_obs_right",
+                "observation_type": "scalar",
+                "time_scope": {"kind": "range", "start": _BASELINE_START, "end": _BASELINE_END},
+            },
+        ]
+        compare_result = {
+            "step_ref": {"session_id": "sess_attr_dedup", "step_id": "step_compare"},
+            "artifact_id": "art_compare",
+            "left_value": 2.0,
+            "right_value": 1.0,
+            "absolute_delta": 1.0,
+            "relative_delta": 1.0,
+            "direction": "increase",
+            "comparability": {"status": "comparable", "issues": []},
+        }
+
+        def _decompose_result(svc, session_id, params):
+            dimension = params["dimension"]
+            return {
+                "step_ref": {"session_id": session_id, "step_id": f"step_decompose_{dimension}"},
+                "artifact_id": f"art_decompose_{dimension}",
+                "attribution": {"status": "attributable", "issues": []},
+                "rows": [
+                    {
+                        "key": "A",
+                        "absolute_contribution": 1.0,
+                        "contribution_share": 1.0,
+                    }
+                ],
+                "scope_absolute_delta": 1.0,
+                "unexplained_absolute_delta": 0.0,
+                "unexplained_share": 0.0,
+                "unexplained_reason": None,
+            }
+
+        with (
+            patch("app.intents.attribute.run_observe_intent", side_effect=observe_results),
+            patch("app.intents.attribute.run_compare_intent", return_value=compare_result),
+            patch("app.intents.attribute.run_decompose_intent", side_effect=_decompose_result),
+        ):
+            bundle = run_attribute_intent(
+                svc,
+                "sess_attr_dedup",
+                {
+                    "metric": _METRIC,
+                    "left": {
+                        "time_scope": {
+                            "kind": "range",
+                            "start": _CURRENT_START,
+                            "end": _CURRENT_END,
+                        }
+                    },
+                    "right": {
+                        "time_scope": {
+                            "kind": "range",
+                            "start": _BASELINE_START,
+                            "end": _BASELINE_END,
+                        }
+                    },
+                    "dimensions": ["channel", "channel", "region"],
+                },
+            )
+
+        self.assertEqual(bundle["dimensions"], ["channel", "region"])
+        self.assertEqual(
+            [driver["dimension"] for driver in bundle["drivers"]],
+            ["channel", "region"],
+        )
 
     def test_independent_left_right_scope(self) -> None:
         """Independent left.scope and right.scope are wired to the correct observe calls."""

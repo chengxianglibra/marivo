@@ -163,6 +163,27 @@ class DiagnoseRunnerServiceTests(unittest.TestCase):
         _seed_metadata(cls.metadata)
 
         cls.service = build_semantic_layer_service(cls.metadata, cls.analytics)
+        cls.full_session_id = cls.service.create_session("diag full test", {}, {}, {})["session_id"]
+        cls.full_bundle = cls.service.run_intent(
+            cls.full_session_id,
+            "diagnose",
+            {
+                "metric": _METRIC,
+                "time_scope": {
+                    "mode": "single_window",
+                    "grain": "day",
+                    "current": {"start": _SCAN_START, "end": _SCAN_END},
+                },
+                "candidate_dimensions": ["channel"],
+                "followup_limit": 1,
+                "decomposition_limit": 5,
+                "sensitivity": "balanced",
+            },
+        )
+        step_rows = cls.metadata.query_rows(
+            "SELECT step_type FROM steps WHERE session_id = ?", [cls.full_session_id]
+        )
+        cls.full_step_types = [row["step_type"] for row in step_rows]
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -200,10 +221,7 @@ class DiagnoseRunnerServiceTests(unittest.TestCase):
 
     def test_full_expansion_creates_all_steps(self) -> None:
         """diagnose with 1 dimension + 1 candidate creates detect+obs×2+compare+decompose+diagnose."""
-        sid = self._make_session()
-        self._diagnose(sid, candidate_dimensions=["channel"], followup_limit=1)
-        rows = self.metadata.query_rows("SELECT step_type FROM steps WHERE session_id = ?", [sid])
-        step_types = [r["step_type"] for r in rows]
+        step_types = self.full_step_types
         self.assertEqual(step_types.count("detect"), 1)
         self.assertEqual(step_types.count("observe"), 2)
         self.assertEqual(step_types.count("compare"), 1)
@@ -213,20 +231,17 @@ class DiagnoseRunnerServiceTests(unittest.TestCase):
 
     def test_detect_summary_ref_points_to_detect_step(self) -> None:
         """detect_summary.detect_ref.step_id matches the detect step in the DB."""
-        sid = self._make_session()
-        bundle = self._diagnose(sid)
-        detect_step_id = bundle["detect_summary"]["detect_ref"]["step_id"]
+        detect_step_id = self.full_bundle["detect_summary"]["detect_ref"]["step_id"]
         rows = self.metadata.query_rows(
             "SELECT step_type FROM steps WHERE session_id = ? AND step_id = ?",
-            [sid, detect_step_id],
+            [self.full_session_id, detect_step_id],
         )
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["step_type"], "detect")
 
     def test_diagnoses_current_baseline_refs_point_to_observe_steps(self) -> None:
         """diagnoses[0].current_ref and baseline_ref each point to an observe step."""
-        sid = self._make_session()
-        bundle = self._diagnose(sid)
+        bundle = self.full_bundle
         self.assertGreater(len(bundle["diagnoses"]), 0, "Expected at least one followed candidate")
         cand_result = bundle["diagnoses"][0]
         current_ref = cand_result["current_ref"]
@@ -237,16 +252,14 @@ class DiagnoseRunnerServiceTests(unittest.TestCase):
         for ref, label in ((current_ref, "current"), (baseline_ref, "baseline")):
             rows = self.metadata.query_rows(
                 "SELECT step_type FROM steps WHERE session_id = ? AND step_id = ?",
-                [sid, ref["step_id"]],
+                [self.full_session_id, ref["step_id"]],
             )
             self.assertEqual(len(rows), 1, f"{label}_ref step not found in DB")
             self.assertEqual(rows[0]["step_type"], "observe", f"{label}_ref should be observe step")
 
     def test_validation_status_diagnosable_on_clean_data(self) -> None:
         """validation.status is 'diagnosable' when detect and follow-up succeed."""
-        sid = self._make_session()
-        bundle = self._diagnose(sid)
-        self.assertEqual(bundle["validation"]["status"], "diagnosable")
+        self.assertEqual(self.full_bundle["validation"]["status"], "diagnosable")
 
     def test_empty_detect_produces_committed_bundle_with_no_diagnoses(self) -> None:
         """High sensitivity threshold → no candidates → diagnoses=[], still a valid bundle."""
@@ -298,8 +311,7 @@ class DiagnoseRunnerServiceTests(unittest.TestCase):
 
     def test_baseline_derivation_correct_for_single_day_candidate(self) -> None:
         """baseline_window = previous adjacent equal-length day for a 1-day candidate."""
-        sid = self._make_session()
-        bundle = self._diagnose(sid)
+        bundle = self.full_bundle
         self.assertGreater(len(bundle["diagnoses"]), 0)
         cand = bundle["diagnoses"][0]
         derivation = cand["baseline_derivation"]
@@ -312,23 +324,7 @@ class DiagnoseRunnerServiceTests(unittest.TestCase):
 
     def test_only_followup_limit_candidates_followed(self) -> None:
         """Only followup_limit candidates are followed even if more candidates exist."""
-        sid = self._make_session()
-        # Use aggressive sensitivity to potentially get more candidates, but cap followup at 1
-        bundle = self.service.run_intent(
-            sid,
-            "diagnose",
-            {
-                "metric": _METRIC,
-                "time_scope": {
-                    "mode": "single_window",
-                    "grain": "day",
-                    "current": {"start": _SCAN_START, "end": _SCAN_END},
-                },
-                "candidate_dimensions": ["channel"],
-                "followup_limit": 1,
-                "sensitivity": "aggressive",  # threshold 1.5, may find more candidates
-            },
-        )
+        bundle = self.full_bundle
         self.assertLessEqual(
             len(bundle["diagnoses"]),
             1,
@@ -337,24 +333,7 @@ class DiagnoseRunnerServiceTests(unittest.TestCase):
 
     def test_truncated_flag_when_detect_returns_more_than_followup_limit(self) -> None:
         """detect_summary.truncated=True when returned_candidate_count > followup_limit."""
-        # Ensure detect returns candidates and followup_limit is smaller
-        sid = self._make_session()
-        # Aggressive sensitivity may find more candidates; followup_limit=0 is invalid but 1 ok
-        bundle = self.service.run_intent(
-            sid,
-            "diagnose",
-            {
-                "metric": _METRIC,
-                "time_scope": {
-                    "mode": "single_window",
-                    "grain": "day",
-                    "current": {"start": _SCAN_START, "end": _SCAN_END},
-                },
-                "candidate_dimensions": ["channel"],
-                "sensitivity": "aggressive",
-                "followup_limit": 1,
-            },
-        )
+        bundle = self.full_bundle
         returned = bundle["detect_summary"]["returned_candidate_count"]
         followed = bundle["detect_summary"]["followed_candidate_count"]
         # truncated iff returned > followup_limit
@@ -374,23 +353,18 @@ class DiagnoseRunnerServiceTests(unittest.TestCase):
 
     def test_diagnosed_status_on_clean_candidate(self) -> None:
         """diagnoses[0].status = 'diagnosed' when compare is 'comparable'."""
-        sid = self._make_session()
-        bundle = self._diagnose(sid)
+        bundle = self.full_bundle
         self.assertGreater(len(bundle["diagnoses"]), 0)
         cand = bundle["diagnoses"][0]
         self.assertEqual(cand["status"], "diagnosed")
 
     def test_result_type_is_diagnosis_bundle(self) -> None:
         """result_type field is 'diagnosis_bundle'."""
-        sid = self._make_session()
-        bundle = self._diagnose(sid)
-        self.assertEqual(bundle["result_type"], "diagnosis_bundle")
+        self.assertEqual(self.full_bundle["result_type"], "diagnosis_bundle")
 
     def test_artifact_id_persisted_and_retrievable(self) -> None:
         """Bundle artifact_id can be resolved from the metadata store."""
-        sid = self._make_session()
-        bundle = self._diagnose(sid)
-        artifact_id = bundle["artifact_id"]
+        artifact_id = self.full_bundle["artifact_id"]
         self.assertIsNotNone(artifact_id)
         rows = self.metadata.query_rows(
             "SELECT artifact_id FROM artifacts WHERE artifact_id = ?",
@@ -578,6 +552,36 @@ class DiagnoseValidationBoundaryTests(unittest.TestCase):
         _seed_metadata(metadata)
 
         cls.service = build_semantic_layer_service(metadata, analytics)
+        cls.dedup_split_bundle = cls.service.run_intent(
+            cls.service.create_session("val dedup split test", {}, {}, {})["session_id"],
+            "diagnose",
+            {
+                "metric": _METRIC,
+                "time_scope": {
+                    "mode": "single_window",
+                    "grain": "day",
+                    "current": {"start": _SCAN_START, "end": _SCAN_END},
+                },
+                "candidate_dimensions": ["channel", "channel"],
+                "detect_split_by": "channel",
+                "followup_limit": 1,
+            },
+        )
+        cls.truncated_driver_bundle = cls.service.run_intent(
+            cls.service.create_session("val truncation test", {}, {}, {})["session_id"],
+            "diagnose",
+            {
+                "metric": _METRIC,
+                "time_scope": {
+                    "mode": "single_window",
+                    "grain": "day",
+                    "current": {"start": _SCAN_START, "end": _SCAN_END},
+                },
+                "candidate_dimensions": ["channel"],
+                "decomposition_limit": 1,
+                "followup_limit": 1,
+            },
+        )
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -685,12 +689,7 @@ class DiagnoseValidationBoundaryTests(unittest.TestCase):
 
     def test_duplicate_candidate_dimensions_deduped_to_single_driver_set(self) -> None:
         """candidate_dimensions=['channel','channel'] → only one driver set per candidate."""
-        sid = self._make_session()
-        bundle = self.service.run_intent(
-            sid,
-            "diagnose",
-            self._base_params(candidate_dimensions=["channel", "channel"], followup_limit=1),
-        )
+        bundle = self.dedup_split_bundle
         self.assertEqual(bundle["candidate_dimensions"], ["channel"])
         if bundle["diagnoses"]:
             drivers = bundle["diagnoses"][0]["drivers"]
@@ -701,26 +700,11 @@ class DiagnoseValidationBoundaryTests(unittest.TestCase):
 
     def test_detect_split_by_propagated_to_bundle(self) -> None:
         """detect_split_by='channel' is reflected in the returned bundle."""
-        sid = self._make_session()
-        bundle = self.service.run_intent(
-            sid,
-            "diagnose",
-            self._base_params(detect_split_by="channel", followup_limit=1),
-        )
-        self.assertEqual(bundle["detect_split_by"], "channel")
+        self.assertEqual(self.dedup_split_bundle["detect_split_by"], "channel")
 
     def test_truncation_does_not_emit_decompose_issue(self) -> None:
         """Truncated driver rows must not add a decompose_needs_attention issue."""
-        sid = self._make_session()
-        bundle = self.service.run_intent(
-            sid,
-            "diagnose",
-            self._base_params(
-                candidate_dimensions=["channel"],
-                decomposition_limit=1,
-                followup_limit=1,
-            ),
-        )
+        bundle = self.truncated_driver_bundle
         self.assertGreater(len(bundle["diagnoses"]), 0)
         driver = bundle["diagnoses"][0]["drivers"][0]
         self.assertTrue(driver["is_truncated"])

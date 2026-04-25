@@ -1048,23 +1048,7 @@ class SemanticServiceSupport:
         return base
 
     def _dependent_refs_for_ref(self, ref: str) -> list[str]:
-        dependents: list[str] = []
-        seen: set[str] = set()
-        for (
-            object_kind,
-            candidate_ref,
-            candidate,
-        ) in self._iter_semantic_objects_for_dependency_scan():
-            if candidate_ref == ref:
-                continue
-            dependency_refs = self._dependency_refs_for_object(
-                object_kind=object_kind, obj=candidate
-            )
-            if ref not in dependency_refs or candidate_ref in seen:
-                continue
-            seen.add(candidate_ref)
-            dependents.append(candidate_ref)
-        return dependents
+        return _SemanticListContext(self).dependent_refs_for(ref)
 
     def _iter_semantic_objects_for_dependency_scan(
         self,
