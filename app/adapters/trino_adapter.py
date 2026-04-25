@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from decimal import Decimal
+from importlib import import_module
 from typing import Any
 
 from app.adapters.base import (
@@ -46,9 +47,7 @@ class TrinoCatalogAdapter(CatalogAdapter):
         self._request_timeout = request_timeout
 
     def _connect(self) -> Any:
-        from trino.dbapi import connect
-
-        connect_fn: Callable[..., Any] = connect
+        connect_fn: Callable[..., Any] = import_module("trino.dbapi").connect
         # Filter out Trino reserved headers to avoid conflicts with
         # parameters (client_tags, source) that the client sets internally.
         _reserved_prefixes = ("x-trino-",)
@@ -70,9 +69,10 @@ class TrinoCatalogAdapter(CatalogAdapter):
             "request_timeout": self._request_timeout,
         }
         if self._password is not None:
-            from trino.auth import BasicAuthentication
-
-            kwargs["auth"] = BasicAuthentication(self._user, self._password)
+            basic_authentication: Callable[[str, str], Any] = import_module(
+                "trino.auth"
+            ).BasicAuthentication
+            kwargs["auth"] = basic_authentication(self._user, self._password)
         if self._client_tags is not None:
             kwargs["client_tags"] = self._client_tags
         if self._source is not None:
