@@ -4,6 +4,8 @@
 
 Marivo 仍然保持 HTTP-only。`marivo-mcp` 是对规范 HTTP API 的客户端适配层；`marivo skill` 是 agent 侧的使用守则与决策辅助层。两者配合使用，但职责必须严格分离。
 
+运行时目标解析的权威说明见 [`agent-runtime-target-resolution.md`](./agent-runtime-target-resolution.md)。Skill 只引用该边界，不复写 `MARIVO_MODE`、`runtime.json`、`doctor` 或 transport 的字段级契约。
+
 ## 背景
 
 仅有 `marivo-mcp` 时，agent 已经可以调用 Marivo 的能力，但仍然容易出现以下问题：
@@ -73,7 +75,8 @@ User request
 - MCP transport 与 server 形态
 - `auto|remote|local` 目标解析
 - 环境变量与运行时配置加载
-- 本地 runtime 发现、启动、健康检查与错误报告
+- 本地 runtime 发现、启动、健康检查、`runtime.json` 复用与错误报告
+- 调用 `marivo core` 的运行时管理命令，例如 `serve-local`、`runtime status`、`runtime stop` 与 `doctor`
 - MCP tool 与 resource 暴露
 - MCP 参数到 HTTP 请求的规范映射
 - 认证、超时、日志与统一错误 envelope
@@ -93,7 +96,9 @@ User request
 - 提供完整 payload 字段表
 - 发明 MCP-only 业务抽象
 - 直接读写 metadata SQLite
-- 管理 `runtime.json`、daemon 或端口绑定
+- 管理 `runtime.json`、daemon、端口绑定或 workspace guard
+- 判断本地自动托管和远程显式连接的目标解析结果
+- 包装 `marivo doctor`、`runtime status` 或其他 operator 命令
 - 替代 README、OpenAPI、inventory、HTTP 契约文档
 
 一句话划分：
@@ -318,11 +323,13 @@ Skill 应遵守以下写作规则：
 
 - `marivo-mcp` README 定义安装、运行、MCP transport、工具暴露和环境变量
 - skill 不承载运行时安装说明
+- 本地自动托管、远程显式连接和 HTTP MCP guard 属于 `marivo-mcp` README 与 service runtime 文档；skill 只提醒 agent 在连接失败时转向 infrastructure troubleshooting，而不推断或修复目标解析状态
 
 ### 与 service 设计文档的边界
 
 - service 文档定义系统设计与运行时模型
 - skill 文档定义 agent 使用策略
+- runtime target resolution 文档定义连接与监督边界；skill 只能链接它，不能把 `auto|remote|local` 写成 agent 调用策略
 
 ### 与具体 prompt 的边界
 
@@ -343,7 +350,19 @@ Skill 应遵守以下写作规则：
 - 如果变化影响“先读 state 还是 context”“何时 terminate”“何时选 `observe` vs `detect`”，应更新 skill
 - 如果变化只是新增一个 HTTP 字段、错误码或 transport 细节，通常只更新 API/MCP 文档
 - 如果变化会改变 agent 对 readiness、routing、governance 的排查顺序，应更新对应主题 reference，而不是把所有细节塞回 `SKILL.md`
+- 如果变化只影响本地 runtime 启动、远程目标解析、HTTP MCP workspace guard 或 `doctor` 输出，应更新 `marivo-mcp` README、runtime service docs 或 operator troubleshooting，而不是更新 skill
 - 如果某个 guardrail 同时出现在多个 references 中，应指定一个主文档持有，其他文档只保留短链接或一句边界提示
+
+## Runtime Target Resolution Read Next
+
+当 agent 需要判断连接失败、目标解析、workspace guard 或本地运行时状态时，skill 应把问题路由到 infrastructure troubleshooting，并按以下顺序引用下层文档：
+
+- [`agent-runtime-target-resolution.md`](./agent-runtime-target-resolution.md)：本地自动托管 / 远程显式连接的总体模型
+- [`agent-runtime-target-resolution-troubleshooting.zh.md`](./agent-runtime-target-resolution-troubleshooting.zh.md)：用户与 operator 的最小排障路径
+- [`agent-runtime-target-resolution-error-taxonomy.zh.md`](./agent-runtime-target-resolution-error-taxonomy.zh.md)：结构化错误码与修复建议
+- [`../../marivo-mcp/README.md`](../../marivo-mcp/README.md)：安装、注册、transport 与环境变量
+
+这些文档负责回答“当前连接到哪里、为什么失败、如何修复”。Skill 负责回答“连接成功后，agent 应该如何选择 Marivo surface 并消费 evidence”。
 
 ## 验收标准
 

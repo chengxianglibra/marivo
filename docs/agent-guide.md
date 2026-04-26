@@ -40,6 +40,7 @@ make format
 - The UI is an independent `frontend/` React app. Do not restore FastAPI-hosted `/ui` or `/admin` surfaces.
 - Prefer typed analysis steps over exposing raw SQL as the external contract.
 - Keep factual extraction deterministic; use models for explanation, not evidence structure.
+- `marivo-mcp` is the agent-facing connector and runtime supervisor for MCP clients. Keep target resolution, local runtime startup, `runtime.json`, `doctor`, and transport details in `marivo-mcp` docs or service runtime docs; do not duplicate them in skills or HTTP API docs.
 - `marivo.yaml` is runtime-only. Do not add `sources`, `engines`, `bindings`, or `mappings` inventory blocks; source, engine, and mapping objects are configured through the HTTP API only.
 - Source-to-engine projection is mapping-only. Do not reintroduce legacy `/bindings`, `binding.namespace` style config, tables, API routes, test fixtures, or operator-facing contracts.
 - Synced `source_objects.authority_locator` is the primary source-side identity for routing and table lookup; treat `fqn` as a derived display/reference field.
@@ -54,6 +55,7 @@ make format
 - `docs/semantic/`: entity, dimension, metric, process, and semantic compiler schemas.
 - `docs/service/`: service runtime and operator design notes.
 - Keep MCP implementation details in `marivo-mcp/README.md` and `marivo_mcp.inventory`, not here.
+- Agent runtime target resolution is summarized in [`docs/service/agent-runtime-target-resolution.md`](service/agent-runtime-target-resolution.md); operator troubleshooting lives in [`docs/service/agent-runtime-target-resolution-troubleshooting.zh.md`](service/agent-runtime-target-resolution-troubleshooting.zh.md).
 
 ## What Not To Add Here
 

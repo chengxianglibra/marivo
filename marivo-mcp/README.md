@@ -89,12 +89,20 @@ environment as the MCP adapter.
 
 ## Client Setup
 
-After installing the package, you can register Marivo with an MCP client in one
-of two ways.
+After installing the package in the MCP server host environment, register
+Marivo with an MCP client through one of three supported paths:
+
+- local auto-managed `stdio`
+- remote explicit `stdio`
+- remote explicit Streamable HTTP
+
+`marivo-mcp` is the MCP server process. It connects to Marivo through the
+canonical HTTP API; the agent does not connect to Marivo directly.
 
 Generate a minimal config snippet:
 
 ```bash
+marivo-mcp init --print-config
 marivo-mcp init --mode local --print-config
 marivo-mcp init --mode remote --base-url http://127.0.0.1:8000 --api-token "$MARIVO_API_TOKEN" --print-config
 marivo-mcp init --transport streamable-http --mode remote --base-url http://127.0.0.1:8000 --print-config
@@ -156,9 +164,9 @@ command = "marivo-mcp"
 env = { MARIVO_MODE = "local", MARIVO_WORKSPACE_ROOT = "/absolute/path/to/workspace" }
 ```
 
-Streamable HTTP MCP (`streamable-http`, sometimes called `http-stream`) is
-primarily for remote explicit Marivo connections. The HTTP MCP server is a
-separate process; the client points at that process by URL.
+Remote explicit Streamable HTTP MCP (`streamable-http`, sometimes called
+`http-stream`) is the default HTTP transport release path. The HTTP MCP server
+is a separate process; the client points at that process by URL.
 
 1. Start the MCP HTTP server:
 
@@ -201,11 +209,13 @@ serve-local` is not available.
 ## Run
 
 ```bash
-MARIVO_BASE_URL=http://127.0.0.1:8000 marivo-mcp
+MARIVO_MODE=local MARIVO_WORKSPACE_ROOT=/absolute/path/to/workspace marivo-mcp
+MARIVO_MODE=remote MARIVO_BASE_URL=http://127.0.0.1:8000 marivo-mcp
 ```
 
-The entrypoint starts a local `stdio` MCP server. If the Python MCP SDK is not
-installed, startup fails with an explicit dependency error.
+The entrypoint starts a `stdio` MCP server. If the Python MCP SDK is not
+installed, startup fails with an explicit dependency error. Remote explicit
+connection failures fail closed and never fall back to a local runtime.
 
 Run the Streamable HTTP transport:
 
@@ -232,6 +242,7 @@ Run the offline MCP regression checks from the repository root:
 ```bash
 .venv/bin/pytest \
   tests/test_marivo_mcp_config.py \
+  tests/test_marivo_mcp_target_resolution.py \
   tests/test_marivo_mcp_transport.py \
   tests/test_marivo_mcp_resources.py \
   tests/test_marivo_mcp_inventory.py \

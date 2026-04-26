@@ -14,12 +14,29 @@ Stateful sessions, semantic discovery, typed analysis steps, deterministic evide
 ## Quick Start
 
 ```bash
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e .
-uvicorn app.main:app --reload
+python3 -m venv .venv
+.venv/bin/pip install -e .
+.venv/bin/marivo init-local --workspace-root .
+.venv/bin/marivo serve-local --workspace-root .
 ```
 
-`marivo.yaml` must declare the metadata SQLite file path.
+`marivo init-local` creates `.marivo/marivo.yaml` and the local metadata layout.
+`marivo serve-local` starts the canonical HTTP service, waits for `/health`, and
+writes `.marivo/runtime.json` for reuse by local agents.
+
+Useful local runtime checks:
+
+```bash
+.venv/bin/marivo runtime status --workspace-root .
+.venv/bin/marivo doctor --workspace-root .
+.venv/bin/marivo runtime stop --workspace-root .
+```
+
+For direct service development, use the explicit service entrypoint:
+
+```bash
+.venv/bin/marivo serve --config marivo.yaml
+```
 
 Marivo only supports fresh-init for local metadata SQLite. If the metadata schema changes, delete
 the old metadata file and let the service rebuild it from the current schema.
@@ -56,8 +73,31 @@ governance:
 
 ```
 
-Copy to `marivo.yaml` or set `MARIVO_CONFIG`. Source, engine, and mapping inventory is managed via
-the HTTP API, not YAML config.
+`marivo init-local` writes the local workspace config automatically. For custom service
+configuration, copy this shape to `marivo.yaml` or set `MARIVO_CONFIG`. Source,
+engine, and mapping inventory is managed via the HTTP API, not YAML config.
+
+## Agent Setup
+
+Marivo remains HTTP-only. The optional MCP adapter in `marivo-mcp/` is a
+client-side adapter over the canonical HTTP API.
+
+Generate a local auto-managed MCP client config:
+
+```bash
+cd marivo-mcp
+.venv/bin/marivo-mcp init --workspace-root /absolute/path/to/workspace --print-config
+```
+
+Generate a remote explicit config:
+
+```bash
+cd marivo-mcp
+.venv/bin/marivo-mcp init --mode remote --base-url http://127.0.0.1:8000 --print-config
+```
+
+See `marivo-mcp/README.md` for Codex config writing, Streamable HTTP transport,
+workspace-root guards, and remote failure behavior.
 
 ## Example
 
@@ -103,8 +143,10 @@ curl -s http://127.0.0.1:8000/sessions/<id>/state | python3 -m json.tool
 HTTP → FastAPI → Services → Analysis Core + Evidence Engine + Storage
 ```
 
-An external MCP adapter scaffold now lives in `marivo-mcp/`. It is a separate
-subproject and does not change Marivo's HTTP-only product boundary.
+An external MCP adapter lives in `marivo-mcp/`. It is a separate subproject and
+does not change Marivo's HTTP-only product boundary. Local MCP startup resolves
+or starts the HTTP runtime through `marivo serve-local`; remote MCP startup uses
+an explicit `MARIVO_BASE_URL` and never falls back to local runtime.
 
 - **Services**: SemanticLayerService, SourceService, EngineService, BindingService, QueryRouter, SemanticService, GovernanceService, JobService
 - **Analysis core**: IR, compiler, executor, primitives, composites
