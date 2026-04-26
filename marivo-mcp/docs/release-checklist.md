@@ -6,6 +6,8 @@ Use this before cutting or handing off a releasable `marivo-mcp` build.
 
 - `MARIVO_MODE` is set intentionally, or `auto` behavior is acceptable.
 - For remote explicit connection, `MARIVO_BASE_URL` points at the target Marivo HTTP service.
+- Remote explicit connection must fail closed when the target is unreachable;
+  it must not start or reuse a local runtime.
 - For local auto-managed connection, `MARIVO_WORKSPACE_ROOT` points at the workspace root.
 - For Streamable HTTP MCP, remote explicit connection is the default release path:
   `MARIVO_MODE=remote` and `MARIVO_BASE_URL` must be set for the HTTP server process.
@@ -26,6 +28,7 @@ Run from the repository root:
 ```bash
 .venv/bin/pytest \
   tests/test_marivo_mcp_config.py \
+  tests/test_marivo_mcp_target_resolution.py \
   tests/test_marivo_mcp_transport.py \
   tests/test_marivo_mcp_resources.py \
   tests/test_marivo_mcp_inventory.py \
@@ -35,6 +38,8 @@ Run from the repository root:
 This covers:
 
 - config loading
+- remote unreachable fail-closed behavior
+- local runtime manifest reuse, bootstrap, and restart decisions
 - HTTP entrypoint transport resolution and workspace guard behavior
 - tool and resource registration
 - executable inventory drift checks
@@ -79,6 +84,24 @@ MARIVO_WORKSPACE_ROOT=/absolute/path/to/workspace \
 .venv/bin/marivo-mcp-smoke
 ```
 
+Fail-closed checks:
+
+```bash
+cd marivo-mcp
+MARIVO_MODE=remote \
+MARIVO_BASE_URL=http://127.0.0.1:9 \
+.venv/bin/marivo-mcp-smoke
+
+env -u MARIVO_WORKSPACE_ROOT \
+  MARIVO_MODE=local \
+  .venv/bin/marivo-mcp-http
+```
+
+The first command should fail with `remote_target_unreachable` and must not
+create or reuse a local runtime. The second command should fail with
+`workspace_root_required` because Streamable HTTP local mode requires an
+explicit workspace root.
+
 Expect the smoke output to confirm:
 
 - resolved target kind and base URL
@@ -90,8 +113,9 @@ Expect the smoke output to confirm:
 - validation error wrapping
 
 For local auto-managed releases, also confirm that `.marivo/runtime.json` is
-created or reused in the workspace and that a missing or invalid
-`MARIVO_WORKSPACE_ROOT` fails closed with `workspace_root_required`.
+created or reused in the workspace, `marivo runtime status` reports the same
+endpoint, `marivo doctor` returns actionable runtime checks, and a missing or
+invalid `MARIVO_WORKSPACE_ROOT` fails closed with `workspace_root_required`.
 
 ## 4. Documentation Sync
 
@@ -100,6 +124,9 @@ created or reused in the workspace and that a missing or invalid
 - Root `README.md` still reflects Marivo's typed-intent and state/context model.
 - `docs/agent-guide.md` still points implementers at the MCP README and inventory
   instead of duplicating implementation details.
+- `docs/service/agent-runtime-target-resolution-troubleshooting.zh.md` still
+  matches the implemented local runtime, remote fail-closed, and HTTP MCP guard
+  behavior.
 
 ## 5. Known-Limitations Review
 
