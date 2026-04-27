@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
+from app.storage.schema import METADATA_SCHEMA_MARKER_TABLE, metadata_schema_marker_row
 from app.storage.sqlite_metadata import SQLiteMetadataStore
 from tests import shared_fixtures
 
@@ -23,6 +24,22 @@ class SQLiteMetadataStoreTests(unittest.TestCase):
         row = self.store.query_one("SELECT COUNT(*) AS cnt FROM sessions")
         self.assertIsNotNone(row)
         self.assertEqual(row["cnt"], 0)
+
+        marker = self.store.query_one(
+            """
+            SELECT COUNT(*) AS cnt
+            FROM sqlite_master
+            WHERE type = 'table' AND name = ?
+            """,
+            [METADATA_SCHEMA_MARKER_TABLE],
+        )
+        self.assertIsNotNone(marker)
+        self.assertEqual(marker["cnt"], 1)
+
+        marker_row = self.store.query_one(
+            "SELECT backend, schema_version, ddl_fingerprint FROM metadata_schema_marker"
+        )
+        self.assertEqual(marker_row, metadata_schema_marker_row("sqlite"))
 
     def test_initialize_does_not_create_legacy_source_engine_bindings_table(self) -> None:
         row = self.store.query_one(

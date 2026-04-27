@@ -479,7 +479,7 @@ _LOCK_FILE = _template_lock_path("default")
 # In-process flags: skip lock on repeated calls within the same worker.
 _TEMPLATE_READY: set[str] = set()
 
-_METADATA_TEMPLATE_VERSION = "sqlite_metadata_v10_time_surface_refs"
+_METADATA_TEMPLATE_VERSION = "sqlite_metadata_v11_marker_time_surface_refs"
 _METADATA_TEMPLATE = Path(f"/tmp/marivo_test_{_METADATA_TEMPLATE_VERSION}.sqlite")
 _METADATA_LOCK = Path(f"/tmp/marivo_test_{_METADATA_TEMPLATE_VERSION}.lock")
 _METADATA_READY = False
@@ -529,13 +529,22 @@ def get_named_seeded_duckdb_path(dest: Path, template_name: str) -> Path:
 
 
 def _build_metadata_template(db_path: Path) -> None:
-    from app.storage.schema import METADATA_DDL
+    from app.storage.schema import METADATA_DDL, metadata_schema_marker_row
 
     db_path.parent.mkdir(parents=True, exist_ok=True)
     con = sqlite3.connect(str(db_path))
     try:
         for ddl in METADATA_DDL:
             con.execute(ddl)
+        marker = metadata_schema_marker_row("sqlite")
+        con.execute(
+            """
+            INSERT OR IGNORE INTO metadata_schema_marker (
+                backend, schema_version, ddl_fingerprint
+            ) VALUES (?, ?, ?)
+            """,
+            [marker["backend"], marker["schema_version"], marker["ddl_fingerprint"]],
+        )
         con.commit()
     finally:
         con.close()
@@ -549,7 +558,7 @@ def _metadata_template_valid(db_path: Path) -> bool:
         tables = {
             str(row[0])
             for row in con.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('sessions', 'steps', 'artifacts', 'sources', 'source_objects', 'source_execution_mappings', 'time_bindings')"
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('sessions', 'steps', 'artifacts', 'sources', 'source_objects', 'source_execution_mappings', 'time_bindings', 'metadata_schema_marker')"
             ).fetchall()
         }
         legacy_tables = {
@@ -594,6 +603,12 @@ def _metadata_template_valid(db_path: Path) -> bool:
             "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'time_bindings'"
         ).fetchone()
         time_bindings_sql = str(time_bindings_sql_row[0] if time_bindings_sql_row else "")
+        marker_rows = {
+            str(row[0])
+            for row in con.execute(
+                "SELECT backend FROM metadata_schema_marker WHERE backend = 'sqlite'"
+            ).fetchall()
+        }
     finally:
         con.close()
     return (
@@ -606,6 +621,7 @@ def _metadata_template_valid(db_path: Path) -> bool:
             "source_objects",
             "source_execution_mappings",
             "time_bindings",
+            "metadata_schema_marker",
         }
         and not legacy_tables
         and {
@@ -665,6 +681,7 @@ def _metadata_template_valid(db_path: Path) -> bool:
         and "substr(timestamp_surface_ref, 1, 6) = 'field.'" not in time_bindings_sql
         and "substr(date_surface_ref, 1, 6) = 'field.'" not in time_bindings_sql
         and "substr(hour_surface_ref, 1, 6) = 'field.'" not in time_bindings_sql
+        and marker_rows == {"sqlite"}
     )
 
 
