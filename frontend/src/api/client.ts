@@ -1,6 +1,6 @@
 import { apiConfig } from "./config";
 import { ApiError, classifyError } from "./errors";
-import { mockGet, mockPost } from "../fixtures/mockApi";
+import { mockDelete, mockGet, mockPost, mockPut } from "../fixtures/mockApi";
 import type { JsonRecord } from "./types";
 
 interface RequestOptions {
@@ -26,6 +26,8 @@ async function request<T>(method: string, path: string, options: RequestOptions 
   if (apiConfig.useMocks) {
     if (method === "GET") return mockGet(path, options.query) as T;
     if (method === "POST") return mockPost(path, options.body) as T;
+    if (method === "PUT") return mockPut(path, options.body) as T;
+    if (method === "DELETE") return mockDelete(path) as T;
   }
 
   const controller = new AbortController();

@@ -165,6 +165,11 @@ class ObservabilityAPITests(unittest.TestCase):
         data = resp.json()
         self.assertIn("request_count", data)
 
+    def test_health_reports_status_only(self) -> None:
+        resp = self.client.get("/health")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json(), {"status": "ok"})
+
     def test_metrics_endpoint_prometheus(self) -> None:
         self.client.get("/health")
         resp = self.client.get("/metrics?format=prometheus")

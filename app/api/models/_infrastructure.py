@@ -288,6 +288,17 @@ class EngineRegisterRequest(BaseModel):
         return self
 
 
+class EngineUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    display_name: str | None = None
+    connection: dict[str, Any] | None = None
+    auth: EngineAuthPayload | None = None
+    default_namespace: EngineDefaultNamespacePayload | None = None
+    deployment_capabilities: EngineDeploymentCapabilitiesPayload | None = None
+    policy: EnginePolicyPayload | None = None
+
+
 class EngineDefaultNamespaceResponse(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
@@ -542,6 +553,13 @@ class MappingDeleteResponse(BaseModel):
     mapping_id: str = Field(description="Deleted mapping identifier.")
 
 
+class EngineDeleteResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["deleted"] = Field(description="Deletion status.")
+    engine_id: str = Field(description="Deleted engine identifier.")
+
+
 def _validate_unique_authority_catalogs(
     catalog_mappings: list[MappingCatalogEntryPayload],
 ) -> None:
@@ -559,6 +577,7 @@ EngineResponse.model_rebuild()
 SourceRegisterRequest.model_rebuild()
 SourceUpdateRequest.model_rebuild()
 EngineRegisterRequest.model_rebuild()
+EngineUpdateRequest.model_rebuild()
 
 
 # =============================================================================

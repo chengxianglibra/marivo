@@ -9,8 +9,8 @@ router = APIRouter()
 
 @router.get("/health")
 def health(request: Request) -> dict[str, str]:
-    services = get_services(request)
-    return {"status": "ok", "db_path": str(services.resolved_path)}
+    get_services(request)
+    return {"status": "ok"}
 
 
 @router.get("/catalog")

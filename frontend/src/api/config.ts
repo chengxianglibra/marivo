@@ -9,6 +9,10 @@ export const queryKeys = {
   metrics: ["metrics"] as const,
   openapiIndex: ["openapi", "index"] as const,
   sources: ["sources"] as const,
+  sourceSyncSelections: (sourceId?: string) => ["sources", sourceId, "sync", "selections"] as const,
+  sourceCatalogSchemas: (sourceId?: string) => ["sources", sourceId, "catalog", "schemas"] as const,
+  sourceCatalogTables: (sourceId?: string, schema?: string) =>
+    ["sources", sourceId, "catalog", "tables", schema] as const,
   engines: ["engines"] as const,
   mappings: ["mappings"] as const,
   jobs: (filters?: Record<string, string | undefined>) => ["jobs", filters ?? {}] as const,

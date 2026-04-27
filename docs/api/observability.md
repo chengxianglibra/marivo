@@ -21,15 +21,13 @@ Returns the current health status of the Marivo service. Used by load balancers,
 
 ```json
 {
-  "status": "ok",
-  "db_path": "/data/analytics.duckdb"
+  "status": "ok"
 }
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `status` | string | `"ok"` when the service is healthy |
-| `db_path` | string | Path to the configured analytics database |
 
 HTTP status codes:
 
