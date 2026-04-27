@@ -95,6 +95,17 @@ def handle(args: argparse.Namespace) -> dict[str, Any]:
                 }
             },
         )
+    if config.metadata.engine != "sqlite" or config.metadata.path is None:
+        raise CliError(
+            EXIT_CONFIG_INVALID,
+            f"serve-local requires sqlite metadata configuration: {config_path}",
+            json_data={
+                "error": {
+                    "code": EXIT_CONFIG_INVALID,
+                    "message": ("serve-local requires metadata.engine=sqlite and metadata.path"),
+                }
+            },
+        )
 
     resolved_metadata_path = resolve_metadata_path(config_path, config.metadata.path)
 

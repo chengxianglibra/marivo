@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import re
 import unittest
 
@@ -108,10 +107,6 @@ class MySQLMetadataDDLTests(unittest.TestCase):
             if column_types.get(table, {}).get(column) in {"TEXT", "LONGTEXT"}
         ]
         self.assertEqual(offenders, [])
-
-    @unittest.skipUnless(os.environ.get("MARIVO_TEST_MYSQL_DSN"), "MySQL DSN not configured")
-    def test_mysql_ddl_executes_when_integration_dsn_is_configured(self) -> None:
-        self.skipTest("Real MySQLMetadataStore and driver wiring are task 4.x scope")
 
 
 if __name__ == "__main__":
