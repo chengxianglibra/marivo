@@ -10,11 +10,12 @@ interface RequestOptions {
 }
 
 function buildUrl(path: string, query?: RequestOptions["query"]): string {
-  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
-  const url =
-    apiConfig.baseUrl.startsWith("http") || apiConfig.baseUrl.startsWith("/")
-      ? new URL(normalizedPath, apiConfig.baseUrl.endsWith("/") ? apiConfig.baseUrl : `${apiConfig.baseUrl}/`)
-      : new URL(normalizedPath, window.location.origin);
+  const normalizedPath = path.replace(/^\/+/, "");
+  const basePath = apiConfig.baseUrl.startsWith("/") ? apiConfig.baseUrl : `/${apiConfig.baseUrl}`;
+  const baseUrl = apiConfig.baseUrl.startsWith("http")
+    ? apiConfig.baseUrl
+    : new URL(basePath, window.location.origin).toString();
+  const url = new URL(normalizedPath, baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`);
   for (const [key, value] of Object.entries(query ?? {})) {
     if (value !== undefined && value !== "") url.searchParams.set(key, String(value));
   }

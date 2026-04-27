@@ -1,6 +1,7 @@
 import { Alert, Card, List, Space, Table, Tag, Typography } from "antd";
 import { useOpenApiIndex } from "../api/hooks";
 import { SectionHeader } from "../components/StatusBadge";
+import { operationLabel } from "./apiContractRows";
 
 const dependencies = [
   {
@@ -27,7 +28,7 @@ const dependencies = [
 
 export function ApiContractPage() {
   const openapi = useOpenApiIndex();
-  const paths = (openapi.data?.paths ?? []) as Array<{ path: string; operations?: string[] }>;
+  const paths = (openapi.data?.paths ?? []) as Array<{ path: string; operations?: unknown[] }>;
   return (
     <Space direction="vertical" size="large" className="page">
       <SectionHeader
@@ -51,8 +52,8 @@ export function ApiContractPage() {
               title: "Operations",
               render: (_, row) => (
                 <Space wrap>
-                  {(row.operations ?? []).map((op) => (
-                    <Tag key={op}>{op}</Tag>
+                  {(row.operations ?? []).map((op, index) => (
+                    <Tag key={`${row.path}:${index}:${operationLabel(op)}`}>{operationLabel(op)}</Tag>
                   ))}
                 </Space>
               ),

@@ -52,9 +52,9 @@ npm install
 npm run dev
 ```
 
-Set `VITE_MARIVO_USE_MOCKS=false` and `VITE_MARIVO_API_BASE_URL=http://localhost:8000` to connect it
-to a live Marivo service. See [`frontend/README.md`](frontend/README.md) for scripts, OpenAPI type
-generation, tests, and v1 boundaries.
+Set `VITE_MARIVO_USE_MOCKS=false` and keep `VITE_MARIVO_API_BASE_URL=/api` to connect it to a live
+Marivo service through the Vite dev proxy. See [`frontend/README.md`](frontend/README.md) for
+scripts, OpenAPI type generation, tests, and v1 boundaries.
 
 ## Configuration
 

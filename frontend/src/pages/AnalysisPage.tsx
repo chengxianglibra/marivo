@@ -14,6 +14,7 @@ import { EvidenceClosure } from "../components/EvidenceClosure";
 import { TaskEmpty } from "../components/EmptyState";
 import { RuntimeStatusWidget } from "../components/RuntimeStatusWidget";
 import { JsonPreview, ReadOnlyNotice, SectionHeader, StatusBadge } from "../components/StatusBadge";
+import { sessionGoalText, sessionLifecycleStatus } from "./analysisRows";
 
 function SessionInbox({ onOpen }: { onOpen: (sessionId: string) => void }) {
   const [filters, setFilters] = useState<{ status?: string; session_id?: string }>({});
@@ -37,8 +38,8 @@ function SessionInbox({ onOpen }: { onOpen: (sessionId: string) => void }) {
         locale={{ emptyText: <TaskEmpty kind="session" /> }}
         columns={[
           { title: "session_id", dataIndex: "session_id" },
-          { title: "Goal", dataIndex: "goal" },
-          { title: "Lifecycle", render: (_, row) => <StatusBadge value={row.lifecycle_status ?? row.status} /> },
+          { title: "Goal", render: (_, row) => sessionGoalText(row) },
+          { title: "Lifecycle", render: (_, row) => <StatusBadge value={sessionLifecycleStatus(row)} /> },
           { title: "User", render: (_, row) => row.execution_identity?.session_user ?? "-" },
           { title: "Propositions", dataIndex: "active_proposition_count" },
           { title: "Blocking Gaps", dataIndex: "blocking_gap_count" },

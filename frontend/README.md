@@ -27,7 +27,7 @@ By default `VITE_MARIVO_USE_MOCKS=true`, so the console can render without a run
 To connect to a real service:
 
 ```bash
-VITE_MARIVO_USE_MOCKS=false VITE_MARIVO_API_BASE_URL=http://localhost:8000 npm run dev
+VITE_MARIVO_USE_MOCKS=false VITE_MARIVO_API_BASE_URL=/api npm run dev
 ```
 
 ## Scripts
@@ -58,7 +58,7 @@ so the UI can build before a Marivo service is available.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `VITE_MARIVO_API_BASE_URL` | `/api` | HTTP API base URL or Vite proxy prefix |
+| `VITE_MARIVO_API_BASE_URL` | `/api` | HTTP API base URL or Vite proxy prefix. Use `/api` for local dev so Vite proxies requests to Marivo without requiring service-side CORS. |
 | `VITE_MARIVO_USE_MOCKS` | `true` | Use deterministic local fixtures instead of network requests |
 | `VITE_MARIVO_REQUEST_TIMEOUT_MS` | `15000` | HTTP request timeout |
 

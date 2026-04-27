@@ -49,6 +49,7 @@ frontend/test-results/
 frontend/playwright-report/
 frontend/node_modules/
 frontend/*.tsbuildinfo
+frontend/.env.local
 
 # Config (contains local paths/credentials)
 marivo.yaml
