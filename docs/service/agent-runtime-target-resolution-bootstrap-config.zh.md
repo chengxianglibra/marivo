@@ -21,13 +21,15 @@ observability:
 
 此内容与 workspace-layout 契约（§文件 1）和 cli-contract 契约（§命令 3）中已冻结的最小配置完全一致。本文为该内容提供集中化的理由与约束说明。
 
+注意：本文只定义本地 bootstrap 默认配置。生产级共享 metadata backend 的 MySQL Fresh-init v1 边界见 [`mysql-metadata-fresh-init-v1.zh.md`](./mysql-metadata-fresh-init-v1.zh.md)；MySQL metadata 不改变本地 bootstrap 默认使用 SQLite，也不改变 source/engine/mapping 通过 HTTP API 管理的边界。
+
 ## 字段选入理由
 
 ### `metadata.engine: sqlite`
 
 - **选入理由**：`app_factory.py` 的 `_resolve_storage()` 在无外部 `metadata_store` 注入时，必须从 `MarivoConfig.metadata` 读取 `engine` 和 `path`。缺少 `metadata` 块将触发 `RuntimeError("Marivo config must define metadata.engine=sqlite and metadata.path when metadata_store is not provided")`。
 - **省略后果**：本地启动必定失败。
-- **值约束**：`Literal["sqlite"]`——v1 仅支持 SQLite 作为 metadata 存储引擎。
+- **值约束**：当前本地 bootstrap 固定写出 `sqlite`。后续 MySQL metadata Fresh-init v1 是生产级共享 metadata store 路径，不改变 `init-local` / `serve-local` 的默认写出值。
 
 ### `metadata.path: .marivo/metadata.sqlite`
 
@@ -73,7 +75,7 @@ observability:
 bootstrap 生成的 `marivo.yaml` 必须满足以下约束：
 
 1. **Pydantic 校验**：必须通过 `MarivoConfig.model_validate()` 校验，且 `extra="forbid"` 确保无多余字段。
-2. **`metadata.engine`**：仅接受字面量 `"sqlite"`（`Literal["sqlite"]`）。
+2. **`metadata.engine`**：本地 bootstrap 仅写出字面量 `"sqlite"`；该约束描述 bootstrap 默认内容，不代表后续生产 MySQL metadata contract 已完成运行时代码实现。
 3. **`metadata.path`**：必须为相对路径，解析基准为配置文件所在目录（`<workspace_root>/.marivo/`）。
 4. **YAML 合法性**：必须为合法 YAML 文档。
 

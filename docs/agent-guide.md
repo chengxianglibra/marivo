@@ -42,6 +42,7 @@ make format
 - Keep factual extraction deterministic; use models for explanation, not evidence structure.
 - `marivo-mcp` is the agent-facing connector and runtime supervisor for MCP clients. Keep target resolution, local runtime startup, `runtime.json`, `doctor`, and transport details in `marivo-mcp` docs or service runtime docs; do not duplicate them in skills or HTTP API docs.
 - `marivo.yaml` is runtime-only. Do not add `sources`, `engines`, `bindings`, or `mappings` inventory blocks; source, engine, and mapping objects are configured through the HTTP API only.
+- Metadata backend selection is control-plane storage only. Do not treat MySQL metadata as a source adapter or execution engine; MySQL metadata v1 is Fresh-init only.
 - Source-to-engine projection is mapping-only. Do not reintroduce legacy `/bindings`, `binding.namespace` style config, tables, API routes, test fixtures, or operator-facing contracts.
 - Synced `source_objects.authority_locator` is the primary source-side identity for routing and table lookup; treat `fqn` as a derived display/reference field.
 - Synced table objects should carry table-level metadata only; column metadata belongs on child `column` source objects.
