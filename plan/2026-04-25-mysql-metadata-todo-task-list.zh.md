@@ -241,42 +241,42 @@
 
 ## 六、测试与验证
 
-- [ ] 任务 6.1：保留 SQLite storage/config 回归测试
+- [x] 任务 6.1：保留 SQLite storage/config 回归测试
   - 交付物：现有测试更新
   - 命令：`make test TESTS='tests/test_storage.py tests/test_config.py'`
   - 验收标准：SQLite 初始化、模板校验、配置加载、app startup 现有行为不回归
 
-- [ ] 任务 6.2：新增 MySQL 集成测试开关
+- [x] 任务 6.2：新增 MySQL 集成测试开关
   - 交付物：pytest marker / env loader
   - 规则：未配置 MySQL DSN 时 skip；配置存在时创建隔离测试 database/schema
   - 验收标准：默认 `make test` 不依赖本机 MySQL；CI 可按需启用 MySQL suite
 
-- [ ] 任务 6.3：覆盖 MySQL initialize 与 schema shape
+- [x] 任务 6.3：覆盖 MySQL initialize 与 schema shape
   - 交付物：MySQL storage tests
   - 范围：表、主键、外键、唯一索引、schema marker、unknown non-empty schema fail closed
   - 验收标准：MySQL 空库能完整初始化；非空未知库拒绝启动
 
-- [ ] 任务 6.4：覆盖 MySQL DML 语义
+- [x] 任务 6.4：覆盖 MySQL DML 语义
   - 交付物：MySQL repository tests
   - 范围：query row shape、execute_many、ignore insert、upsert、FK cascade、unique constraint
   - 验收标准：MySQL 行为与 SQLite 对外 contract 一致
 
-- [ ] 任务 6.5：覆盖事务 rollback
+- [x] 任务 6.5：覆盖事务 rollback
   - 交付物：失败注入测试
   - 范围：artifact commit、canonical downstream 关键写路径
   - 验收标准：异常后 MySQL 不残留半提交行；SQLite 现有事务行为不回归
 
-- [ ] 任务 6.6：覆盖 MySQL app startup
+- [x] 任务 6.6：覆盖 MySQL app startup
   - 交付物：配置驱动 app factory 测试
   - 范围：`metadata.engine=mysql` 配置解析、store 构造、initialize、基础 session API
   - 验收标准：使用 MySQL 空库启动后可完成 session create 与基础读面
 
-- [ ] 任务 6.7：新增 SQLite 专用 SQL 静态扫描
+- [x] 任务 6.7：新增 SQLite 专用 SQL 静态扫描
   - 交付物：测试或 lint helper
   - 检查项：共享 runtime/repository 代码不得新增 `INSERT OR IGNORE`、`ON CONFLICT`、`datetime('now')`、`PRAGMA`、`sqlite_master`
   - 验收标准：允许列表仅包含 SQLite store、SQLite schema tests、SQLite template validator、明确注释的 SQLite-only 文件
 
-- [ ] 任务 6.8：补齐 typecheck/lint 验证
+- [x] 任务 6.8：补齐 typecheck/lint 验证
   - 交付物：最终验证记录
   - 命令：`make typecheck`、`make lint`
   - 验收标准：新增 store、config、tests 类型与 lint 均通过

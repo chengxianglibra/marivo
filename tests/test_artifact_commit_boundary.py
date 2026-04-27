@@ -57,6 +57,26 @@ def _make_store() -> SQLiteMetadataStore:
     return store
 
 
+class _FailFindingInsertSQLiteStore(SQLiteMetadataStore):
+    def execute_sql(self, con: Any, sql: str, params: list[Any] | None = None) -> Any:
+        if "INTO findings" in sql:
+            raise RuntimeError("injected finding insert failure")
+        return super().execute_sql(con, sql, params)
+
+
+def _make_failing_finding_store() -> _FailFindingInsertSQLiteStore:
+    tmp = tempfile.mkdtemp()
+    store = _FailFindingInsertSQLiteStore(Path(tmp) / "meta.sqlite")
+    store.initialize()
+    store.execute(
+        "INSERT INTO sessions "
+        "(session_id, goal, constraints_json, budget_json, policy_json, status) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        [_SESSION_ID, "commit boundary test", "{}", "{}", "{}", "open"],
+    )
+    return store
+
+
 def _make_svc(store: SQLiteMetadataStore) -> SemanticLayerService:
     mock_analytics = MagicMock(spec=AnalyticsEngine)
     return SemanticLayerService(store, mock_analytics)
@@ -339,6 +359,47 @@ class TestExtractionSuccess(unittest.TestCase):
         expected_key, _ = make_item_identity("value")
         expected_id = make_finding_id(artifact_id, "observation", expected_key)
         self.assertEqual(rows[0]["finding_id"], expected_id)
+
+
+class TestTransactionRollbackAfterArtifactStage(unittest.TestCase):
+    def setUp(self) -> None:
+        self.store = _make_failing_finding_store()
+        self.svc = _make_svc(self.store)
+        self.registry = FindingExtractorRegistry()
+        self.registry.register(_ObserveSuccessExtractor())
+
+    def test_finding_insert_failure_rolls_back_staged_artifact(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "injected finding insert failure"):
+            self.svc._commit_artifact_with_extraction(
+                _SESSION_ID,
+                _STEP_ID,
+                "observation_artifact",
+                "obs_test",
+                {"observation_type": "scalar"},
+                _registry=self.registry,
+            )
+
+        self.assertEqual(
+            self.store.query_one(
+                "SELECT COUNT(*) AS cnt FROM artifacts WHERE session_id = ?",
+                [_SESSION_ID],
+            ),
+            {"cnt": 0},
+        )
+        self.assertEqual(
+            self.store.query_one(
+                "SELECT COUNT(*) AS cnt FROM findings WHERE session_id = ?",
+                [_SESSION_ID],
+            ),
+            {"cnt": 0},
+        )
+        self.assertEqual(
+            self.store.query_one(
+                "SELECT COUNT(*) AS cnt FROM propositions WHERE session_id = ?",
+                [_SESSION_ID],
+            ),
+            {"cnt": 0},
+        )
 
 
 # ---------------------------------------------------------------------------
