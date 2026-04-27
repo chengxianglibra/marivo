@@ -288,22 +288,22 @@
   - 关键内容：metadata 后端选择、SQLite 本地默认、MySQL 生产路径、禁止直接写 metadata DB 的边界
   - 验收标准：agent 不会把 MySQL metadata 误当 execution engine 或 source adapter
 
-- [ ] 任务 7.2：更新配置示例
+- [x] 任务 7.2：更新配置示例
   - 交付物：`marivo.example.yaml` 或相关 quickstart
   - 范围：SQLite 示例、MySQL 示例、敏感字段推荐通过环境变量或 secret 注入
   - 验收标准：示例可被配置模型解析，且不包含真实密码
 
-- [ ] 任务 7.3：更新 API/运行文档
+- [x] 任务 7.3：更新 API/运行文档
   - 交付物：metadata runtime docs
   - 关键内容：`metadata.engine` 可选值、MySQL fresh-init 流程、失败面、重建策略
   - 验收标准：operator 能按文档创建空库、配置 Marivo、启动并验证 `/health`
 
-- [ ] 任务 7.4：补充 MySQL 权限与备份建议
+- [x] 任务 7.4：补充 MySQL 权限与备份建议
   - 交付物：operator runbook
   - 最小内容：建库、建用户、授权、备份、恢复、连接池 sizing、常见错误排查
   - 验收标准：生产部署前置条件清晰，不依赖开发者阅读源码
 
-- [ ] 任务 7.5：记录 non-goals 与后续扩展入口
+- [x] 任务 7.5：记录 non-goals 与后续扩展入口
   - 交付物：decision record
   - 范围：迁移工具、online migration、PostgreSQL、schema migration framework
   - 验收标准：后续需求不会被误认为已在 v1 中承诺
