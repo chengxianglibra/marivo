@@ -83,6 +83,16 @@ def _build_intrinsic_capabilities(engine_type: str) -> dict[str, Any]:
     }
 
 
+def _load_json_object(value: Any, default: dict[str, Any]) -> dict[str, Any]:
+    if value is None:
+        return dict(default)
+    try:
+        payload = json.loads(str(value))
+    except (TypeError, ValueError):
+        return dict(default)
+    return payload if isinstance(payload, dict) else dict(default)
+
+
 def _normalize_default_namespace(
     engine_type: str,
     connection: dict[str, Any],
@@ -571,8 +581,7 @@ class EngineRegistry:
                 parsed_auth = auth_payload
         auth = _normalize_stored_auth(parsed_auth)
 
-        raw_default_namespace = json.loads(str(row["default_namespace_json"]))
-        default_namespace = raw_default_namespace if isinstance(raw_default_namespace, dict) else {}
+        default_namespace = _load_json_object(row.get("default_namespace_json"), {})
         catalog = default_namespace.get("catalog")
         schema = default_namespace.get("schema")
         normalized_default_namespace = {
@@ -580,22 +589,16 @@ class EngineRegistry:
             "schema": schema if isinstance(schema, str) or schema is None else None,
         }
 
-        raw_intrinsic_capabilities = json.loads(str(row["intrinsic_capabilities_json"]))
-        intrinsic_capabilities = (
-            raw_intrinsic_capabilities
-            if isinstance(raw_intrinsic_capabilities, dict)
-            else _build_intrinsic_capabilities(engine_type)
+        intrinsic_capabilities = _load_json_object(
+            row.get("intrinsic_capabilities_json"),
+            _build_intrinsic_capabilities(engine_type),
         )
         for key, value in _build_intrinsic_capabilities(engine_type).items():
             intrinsic_capabilities.setdefault(key, value)
 
-        raw_deployment_capabilities = json.loads(str(row["deployment_capabilities_json"]))
-        deployment_capabilities = (
-            raw_deployment_capabilities if isinstance(raw_deployment_capabilities, dict) else {}
-        )
+        deployment_capabilities = _load_json_object(row.get("deployment_capabilities_json"), {})
 
-        raw_policy = json.loads(str(row["policy_json"]))
-        policy = _normalize_policy(raw_policy if isinstance(raw_policy, dict) else None)
+        policy = _normalize_policy(_load_json_object(row.get("policy_json"), {}))
         engine = {
             "engine_id": row["engine_id"],
             "engine_type": engine_type,

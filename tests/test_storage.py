@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -103,6 +104,236 @@ class SQLiteMetadataStoreTests(unittest.TestCase):
 
         self.assertIsNotNone(row)
         self.assertEqual(row["dflt_value"], "'{}'")
+
+    def test_initialize_adds_current_engine_columns_to_legacy_table(self) -> None:
+        legacy_path = Path(self.temp_dir.name) / "legacy_engine_schema.sqlite"
+        con = sqlite3.connect(legacy_path)
+        try:
+            con.execute(
+                """
+                CREATE TABLE engines (
+                    engine_id TEXT PRIMARY KEY,
+                    engine_type TEXT NOT NULL,
+                    display_name TEXT NOT NULL,
+                    connection_json TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'active',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            con.commit()
+        finally:
+            con.close()
+
+        legacy_store = SQLiteMetadataStore(legacy_path)
+        legacy_store.initialize()
+
+        rows = legacy_store.query_rows("PRAGMA table_info(engines)")
+        column_names = {str(row["name"]) for row in rows}
+        self.assertTrue(
+            {
+                "auth_json",
+                "default_namespace_json",
+                "intrinsic_capabilities_json",
+                "deployment_capabilities_json",
+                "policy_json",
+            }.issubset(column_names)
+        )
+
+    def test_initialize_rebuilds_tables_that_reference_legacy_sources(self) -> None:
+        legacy_path = Path(self.temp_dir.name) / "legacy_source_fk.sqlite"
+        con = sqlite3.connect(legacy_path)
+        try:
+            con.executescript(
+                """
+                CREATE TABLE sources (
+                    source_id TEXT PRIMARY KEY,
+                    source_type TEXT NOT NULL,
+                    display_name TEXT NOT NULL,
+                    authority_json TEXT NOT NULL,
+                    sync_mode TEXT NOT NULL DEFAULT 'selected',
+                    intrinsic_capabilities_json TEXT NOT NULL DEFAULT '{}',
+                    policy_json TEXT NOT NULL DEFAULT '{}',
+                    status TEXT NOT NULL DEFAULT 'active',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE TABLE sources__legacy (
+                    source_id TEXT PRIMARY KEY,
+                    source_type TEXT NOT NULL,
+                    display_name TEXT NOT NULL,
+                    connection_json TEXT NOT NULL,
+                    capabilities_json TEXT NOT NULL,
+                    sync_mode TEXT NOT NULL DEFAULT 'all',
+                    status TEXT NOT NULL DEFAULT 'active',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE TABLE engines (
+                    engine_id TEXT PRIMARY KEY,
+                    engine_type TEXT NOT NULL,
+                    display_name TEXT NOT NULL,
+                    connection_json TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'active',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE TABLE source_objects (
+                    object_id TEXT PRIMARY KEY,
+                    source_id TEXT NOT NULL REFERENCES sources__legacy(source_id),
+                    object_type TEXT NOT NULL,
+                    parent_id TEXT,
+                    native_name TEXT NOT NULL,
+                    native_id TEXT,
+                    fqn TEXT NOT NULL,
+                    properties_json TEXT NOT NULL DEFAULT '{}',
+                    sync_version TEXT,
+                    synced_at TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE TABLE source_execution_mappings (
+                    mapping_id TEXT PRIMARY KEY,
+                    source_id TEXT NOT NULL REFERENCES sources__legacy(source_id),
+                    engine_id TEXT NOT NULL REFERENCES engines(engine_id),
+                    priority INTEGER NOT NULL DEFAULT 0,
+                    catalog_mappings_json TEXT NOT NULL DEFAULT '[]',
+                    status TEXT NOT NULL DEFAULT 'active',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    UNIQUE(source_id, engine_id)
+                );
+                CREATE TABLE sync_jobs (
+                    job_id TEXT PRIMARY KEY,
+                    source_id TEXT NOT NULL REFERENCES sources__legacy(source_id),
+                    job_type TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    started_at TEXT,
+                    finished_at TEXT,
+                    objects_synced INTEGER DEFAULT 0,
+                    error_message TEXT,
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE sync_selections (
+                    selection_id TEXT PRIMARY KEY,
+                    source_id TEXT NOT NULL REFERENCES sources__legacy(source_id),
+                    schema_name TEXT NOT NULL,
+                    table_name TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    UNIQUE(source_id, schema_name, table_name)
+                );
+                CREATE TABLE source_engine_bindings (
+                    binding_id TEXT PRIMARY KEY,
+                    source_id TEXT NOT NULL REFERENCES sources__legacy(source_id),
+                    engine_id TEXT NOT NULL REFERENCES engines(engine_id),
+                    priority INTEGER NOT NULL DEFAULT 0,
+                    namespace_json TEXT NOT NULL DEFAULT '{}',
+                    status TEXT NOT NULL DEFAULT 'active',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    UNIQUE(source_id, engine_id)
+                );
+                """
+            )
+            con.execute(
+                """
+                INSERT INTO sources (
+                    source_id, source_type, display_name, authority_json,
+                    intrinsic_capabilities_json, policy_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "src_current",
+                    "duckdb",
+                    "Current Source",
+                    "{}",
+                    "{}",
+                    "{}",
+                    "2026-04-27T00:00:00Z",
+                    "2026-04-27T00:00:00Z",
+                ),
+            )
+            con.executemany(
+                """
+                INSERT INTO sources__legacy (
+                    source_id, source_type, display_name, connection_json,
+                    capabilities_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        "src_current",
+                        "duckdb",
+                        "Legacy Current",
+                        "{}",
+                        "{}",
+                        "2026-04-27T00:00:00Z",
+                        "2026-04-27T00:00:00Z",
+                    ),
+                    (
+                        "src_orphan",
+                        "duckdb",
+                        "Legacy Orphan",
+                        "{}",
+                        "{}",
+                        "2026-04-27T00:00:00Z",
+                        "2026-04-27T00:00:00Z",
+                    ),
+                ],
+            )
+            con.execute(
+                """
+                INSERT INTO sync_selections (
+                    selection_id, source_id, schema_name, table_name, created_at
+                ) VALUES (?, ?, ?, ?, ?), (?, ?, ?, ?, ?)
+                """,
+                (
+                    "sel_current",
+                    "src_current",
+                    "analytics",
+                    "watch_events",
+                    "2026-04-27T00:00:00Z",
+                    "sel_orphan",
+                    "src_orphan",
+                    "analytics",
+                    "orphan_events",
+                    "2026-04-27T00:00:00Z",
+                ),
+            )
+            con.commit()
+        finally:
+            con.close()
+
+        legacy_store = SQLiteMetadataStore(legacy_path)
+        legacy_store.initialize()
+
+        legacy_rows = legacy_store.query_rows(
+            """
+            SELECT name
+            FROM sqlite_master
+            WHERE type = 'table' AND (name LIKE '%legacy%' OR sql LIKE '%__legacy%')
+            """
+        )
+        self.assertEqual(legacy_rows, [])
+        selection_fks = legacy_store.query_rows("PRAGMA foreign_key_list(sync_selections)")
+        self.assertEqual({str(row["table"]) for row in selection_fks}, {"sources"})
+        selections = legacy_store.query_rows("SELECT * FROM sync_selections")
+        self.assertEqual([row["selection_id"] for row in selections], ["sel_current"])
+        legacy_store.execute(
+            """
+            INSERT INTO sync_selections (
+                selection_id, source_id, schema_name, table_name, created_at
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            [
+                "sel_new",
+                "src_current",
+                "analytics",
+                "player_qoe",
+                "2026-04-27T00:00:00Z",
+            ],
+        )
 
     def test_execute_and_query(self) -> None:
         self.store.execute(

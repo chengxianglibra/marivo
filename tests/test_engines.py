@@ -827,6 +827,67 @@ class EngineServiceTests(unittest.TestCase):
         self.assertEqual(engine["auth"], {"mode": "none"})
         self.assertEqual(legacy_service.list_engines()[0]["auth"], {"mode": "none"})
 
+    def test_get_engine_degrades_on_legacy_row_without_current_engine_columns(self) -> None:
+        legacy_path = Path(self.temp_dir.name) / "legacy_minimal_engines.meta.sqlite"
+        con = sqlite3.connect(legacy_path)
+        try:
+            con.execute(
+                """
+                CREATE TABLE engines (
+                    engine_id TEXT PRIMARY KEY,
+                    engine_type TEXT NOT NULL,
+                    display_name TEXT NOT NULL,
+                    connection_json TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'active',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            con.execute(
+                """
+                CREATE TABLE source_execution_mappings (
+                    mapping_id TEXT PRIMARY KEY,
+                    source_id TEXT NOT NULL,
+                    engine_id TEXT NOT NULL,
+                    priority INTEGER NOT NULL DEFAULT 0,
+                    catalog_mappings_json TEXT NOT NULL DEFAULT '[]',
+                    status TEXT NOT NULL DEFAULT 'active',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            con.execute(
+                """
+                INSERT INTO engines (
+                    engine_id, engine_type, display_name, connection_json,
+                    status, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "eng_legacy_minimal",
+                    "duckdb",
+                    "Legacy Minimal DuckDB",
+                    json.dumps({"path": "/tmp/legacy-minimal.duckdb"}),
+                    "active",
+                    "2026-04-24T00:00:00Z",
+                    "2026-04-24T00:00:00Z",
+                ),
+            )
+            con.commit()
+        finally:
+            con.close()
+
+        legacy_service = EngineService(SQLiteMetadataStore(legacy_path))
+        engine = legacy_service.get_engine("eng_legacy_minimal")
+
+        self.assertEqual(engine["engine_id"], "eng_legacy_minimal")
+        self.assertEqual(engine["auth"], {"mode": "none"})
+        self.assertEqual(engine["default_namespace"], {"catalog": None, "schema": None})
+        self.assertEqual(engine["deployment_capabilities"], {})
+        self.assertEqual(legacy_service.list_engines()[0]["engine_id"], "eng_legacy_minimal")
+
 
 class EngineAPITests(unittest.TestCase):
     """Integration tests for engine endpoints via TestClient."""
