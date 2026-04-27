@@ -464,6 +464,8 @@ GET /sources/{source_id}/objects
 ```
 
 Returns synced objects from the local metadata store. These are snapshots taken during the last sync.
+Table objects expose table-level metadata only. Column metadata is exposed through child
+`object_type: "column"` objects instead of being duplicated in `table.properties.columns`.
 
 ### Query Parameters
 
@@ -490,6 +492,7 @@ Returns synced objects from the local metadata store. These are snapshots taken 
     },
     "properties": {
       "row_count": 15234891,
+      "column_count": 42,
       "partition_columns": ["event_date"],
       "time_capabilities": {
         "analysis_time": {

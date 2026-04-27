@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Iterable
 from typing import Any
 
@@ -1236,7 +1235,7 @@ def _binding_time_binding_blockers(
         physical_name = _carrier_surface_physical_name(carrier, timestamp_surface_ref)
         if physical_name is None:
             continue
-        column_type = _source_object_column_type(source_object, physical_name)
+        column_type = context.load_source_column_type(source_object, physical_name)
         if timestamp_format == "native":
             if column_type is None:
                 blockers.append(
@@ -1494,24 +1493,6 @@ def _carrier_surface_physical_name(
     for field_surface in carrier_binding.get("field_surfaces") or []:
         if str(field_surface.get("surface_ref") or "") == surface_ref:
             return _optional_str(field_surface.get("physical_name"))
-    return None
-
-
-def _source_object_column_type(source_object: dict[str, Any], physical_name: str) -> str | None:
-    raw_properties = source_object.get("properties_json")
-    properties: dict[str, Any] = {}
-    if isinstance(raw_properties, str) and raw_properties:
-        try:
-            decoded = json.loads(raw_properties)
-        except json.JSONDecodeError:
-            decoded = {}
-        if isinstance(decoded, dict):
-            properties = decoded
-    elif isinstance(raw_properties, dict):
-        properties = raw_properties
-    for column in properties.get("columns") or []:
-        if str(column.get("name") or "") == physical_name:
-            return _optional_str(column.get("type"))
     return None
 
 

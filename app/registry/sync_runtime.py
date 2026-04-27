@@ -245,6 +245,7 @@ class RegistrySyncEngine:
         catalog = authority_locator.get("catalog")
         schema = authority_locator.get("schema")
         table = authority_locator.get("table")
+        adapter_properties = self._sync_properties(obj)
         existing = self.metadata.query_one(
             """
             SELECT object_id, properties_json
@@ -279,9 +280,11 @@ class RegistrySyncEngine:
             object_id: str = str(existing["object_id"])
             # Preserve user-owned keys (anything not supplied by the adapter)
             existing_props = json.loads(existing["properties_json"] or "{}")
-            adapter_keys = set(obj.properties.keys())
-            merged_props = dict(obj.properties)
+            adapter_keys = set(adapter_properties.keys())
+            merged_props = dict(adapter_properties)
             for k, v in existing_props.items():
+                if k == "columns" and obj.object_type == "table":
+                    continue
                 if k not in adapter_keys:
                     merged_props[k] = v
             self.metadata.execute(
@@ -323,7 +326,7 @@ class RegistrySyncEngine:
                 obj.native_id,
                 fqn,
                 locator_json,
-                json.dumps(obj.properties, default=str),
+                json.dumps(adapter_properties, default=str),
                 sync_version,
                 now,
                 now,
@@ -331,6 +334,13 @@ class RegistrySyncEngine:
             ],
         )
         return object_id
+
+    @staticmethod
+    def _sync_properties(obj: PhysicalObject) -> dict[str, Any]:
+        properties = dict(obj.properties)
+        if obj.object_type == "table":
+            properties.pop("columns", None)
+        return properties
 
     def _build_authority_locator(
         self,

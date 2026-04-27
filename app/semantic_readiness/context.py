@@ -39,6 +39,7 @@ DependencyResultLoader = Callable[[str], ReadinessResult | None]
 SubjectBindingsLoader = Callable[[str], list[dict[str, Any]]]
 BindingImportsLoader = Callable[[str], list[dict[str, Any]]]
 CarrierSourceObjectLoader = Callable[[dict[str, Any]], dict[str, Any] | None]
+SourceColumnTypeLoader = Callable[[dict[str, Any], str], str | None]
 ProfilesLoader = Callable[[str, str], list[dict[str, Any]]]
 PreviouslyReadyLoader = Callable[[ReadinessObjectSnapshot], bool]
 
@@ -107,6 +108,7 @@ class ReadinessEvaluationContext:
     subject_bindings_loader: SubjectBindingsLoader | None = None
     binding_imports_loader: BindingImportsLoader | None = None
     carrier_source_object_loader: CarrierSourceObjectLoader | None = None
+    source_column_type_loader: SourceColumnTypeLoader | None = None
     profiles_loader: ProfilesLoader | None = None
     previously_ready_loader: PreviouslyReadyLoader | None = None
 
@@ -134,6 +136,13 @@ class ReadinessEvaluationContext:
         if self.carrier_source_object_loader is not None:
             return self.carrier_source_object_loader(carrier_binding)
         return self._default_carrier_source_object_loader(carrier_binding)
+
+    def load_source_column_type(
+        self, source_object: dict[str, Any], physical_name: str
+    ) -> str | None:
+        if self.source_column_type_loader is not None:
+            return self.source_column_type_loader(source_object, physical_name)
+        return self._default_source_column_type_loader(source_object, physical_name)
 
     def load_profiles(self, subject_kind: str, subject_ref: str) -> list[dict[str, Any]]:
         if self.profiles_loader is not None:
@@ -248,6 +257,36 @@ class ReadinessEvaluationContext:
             ):
                 return source_object
         return None
+
+    def _default_source_column_type_loader(
+        self, source_object: dict[str, Any], physical_name: str
+    ) -> str | None:
+        if self.metadata is None:
+            return None
+        object_id = source_object.get("object_id")
+        if not isinstance(object_id, str) or not object_id:
+            return None
+        row = self.metadata.query_one(
+            """
+            SELECT properties_json
+            FROM source_objects
+            WHERE parent_id = ? AND object_type = 'column' AND native_name = ?
+            """,
+            [object_id, physical_name],
+        )
+        if row is None:
+            return None
+        try:
+            properties = json.loads(str(row["properties_json"] or "{}"))
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(properties, dict):
+            return None
+        value = properties.get("data_type")
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
 
     def _default_profiles_loader(self, subject_kind: str, subject_ref: str) -> list[dict[str, Any]]:
         if self.metadata is None:

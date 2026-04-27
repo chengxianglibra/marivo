@@ -44,6 +44,7 @@ make format
 - `marivo.yaml` is runtime-only. Do not add `sources`, `engines`, `bindings`, or `mappings` inventory blocks; source, engine, and mapping objects are configured through the HTTP API only.
 - Source-to-engine projection is mapping-only. Do not reintroduce legacy `/bindings`, `binding.namespace` style config, tables, API routes, test fixtures, or operator-facing contracts.
 - Synced `source_objects.authority_locator` is the primary source-side identity for routing and table lookup; treat `fqn` as a derived display/reference field.
+- Synced table objects should carry table-level metadata only; column metadata belongs on child `column` source objects.
 - Typed semantic bindings must anchor on source objects and source-side authority locators; runtime compile resolves them through ready mappings.
 - Prefer API/service/registry validation over SQLite triggers for request-level business invariants.
 - After behavior changes, update the shared guide only when the rule is repository-wide; update affected API, semantic, service, analysis, or UI docs as appropriate.
