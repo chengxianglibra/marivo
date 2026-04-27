@@ -91,6 +91,70 @@ class EngineServiceTests(unittest.TestCase):
         self.assertEqual(fetched["readiness_status"], "ready")
         self.assertIsNone(fetched["failure_code"])
 
+    def test_update_engine_keeps_type_and_refreshes_contract(self) -> None:
+        engine = self.service.register_engine(
+            engine_type="trino",
+            display_name="Update Test Engine",
+            connection={"host": "localhost", "catalog": "hive", "schema": "default"},
+        )
+
+        updated = self.service.update_engine(
+            engine["engine_id"],
+            display_name="Updated Trino",
+            connection={"host": "trino.local", "catalog": "lake", "schema": "analytics"},
+            auth={
+                "mode": "username_only",
+                "username_source": "fixed",
+                "fallback_username": "service_user",
+            },
+            default_namespace={"catalog": "lake", "schema": "analytics"},
+            deployment_capabilities={"supported_step_types": ["observe"]},
+            policy={"allowed_step_types": ["observe"], "required_policy_support": ["row_filter"]},
+        )
+
+        self.assertEqual(updated["engine_type"], "trino")
+        self.assertEqual(updated["display_name"], "Updated Trino")
+        self.assertEqual(updated["connection"]["host"], "trino.local")
+        self.assertEqual(
+            updated["auth"],
+            {
+                "mode": "username_only",
+                "username_source": "fixed",
+                "fallback_username": "service_user",
+            },
+        )
+        self.assertEqual(updated["default_namespace"], {"catalog": "lake", "schema": "analytics"})
+        self.assertEqual(updated["deployment_capabilities"], {"supported_step_types": ["observe"]})
+        self.assertEqual(
+            updated["policy"],
+            {"allowed_step_types": ["observe"], "required_policy_support": ["row_filter"]},
+        )
+
+    def test_update_duckdb_engine_rejects_username_auth(self) -> None:
+        engine = self.service.register_engine(
+            engine_type="duckdb",
+            display_name="DuckDB Auth Reject",
+            connection={"path": "/tmp/test.duckdb"},
+        )
+
+        with self.assertRaisesRegex(ValueError, "duckdb only supports auth.mode='none'"):
+            self.service.update_engine(
+                engine["engine_id"],
+                auth={"mode": "username_only", "username_source": "session_user"},
+            )
+
+    def test_delete_engine_removes_engine(self) -> None:
+        engine = self.service.register_engine(
+            engine_type="duckdb",
+            display_name="Delete Test Engine",
+            connection={"path": "/tmp/delete-test.duckdb"},
+        )
+
+        self.service.delete_engine(engine["engine_id"])
+
+        with self.assertRaisesRegex(KeyError, "Unknown engine"):
+            self.service.get_engine(engine["engine_id"])
+
     def test_register_engine_persists_auth_contract(self) -> None:
         engine = self.service.register_engine(
             engine_type="trino",
@@ -824,6 +888,126 @@ class EngineAPITests(unittest.TestCase):
         self.assertEqual(resp.json()["readiness_status"], "ready")
         self.assertIsNone(resp.json()["failure_code"])
         self.assertEqual(resp.json()["mappings"], [])
+
+    def test_put_engine_updates_mutable_contract(self) -> None:
+        created = self.client.post(
+            "/engines",
+            json={
+                "engine_type": "trino",
+                "display_name": "API Mutable Trino",
+                "connection": {"host": "localhost", "catalog": "hive", "schema": "default"},
+            },
+        )
+        self.assertEqual(created.status_code, 200)
+        engine_id = created.json()["engine_id"]
+
+        resp = self.client.put(
+            f"/engines/{engine_id}",
+            json={
+                "display_name": "API Updated Trino",
+                "connection": {"host": "trino.local", "catalog": "lake", "schema": "analytics"},
+                "auth": {
+                    "mode": "username_only",
+                    "username_source": "fixed",
+                    "fallback_username": "svc_trino",
+                },
+                "default_namespace": {"catalog": "lake", "schema": "analytics"},
+                "deployment_capabilities": {"supported_step_types": ["observe"]},
+                "policy": {
+                    "allowed_step_types": ["observe"],
+                    "required_policy_support": ["row_filter"],
+                },
+            },
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        payload = resp.json()
+        self.assertEqual(payload["engine_id"], engine_id)
+        self.assertEqual(payload["engine_type"], "trino")
+        self.assertEqual(payload["display_name"], "API Updated Trino")
+        self.assertEqual(payload["connection"]["host"], "trino.local")
+        self.assertEqual(
+            payload["auth"],
+            {
+                "mode": "username_only",
+                "username_source": "fixed",
+                "fallback_username": "svc_trino",
+            },
+        )
+        self.assertEqual(payload["default_namespace"], {"catalog": "lake", "schema": "analytics"})
+
+    def test_put_engine_preserves_not_found_and_validation_errors(self) -> None:
+        not_found = self.client.put(
+            "/engines/eng_missing",
+            json={"display_name": "Missing"},
+        )
+        self.assertEqual(not_found.status_code, 404)
+
+        created = self.client.post(
+            "/engines",
+            json={
+                "engine_type": "duckdb",
+                "display_name": "API DuckDB Auth Reject",
+                "connection": {"path": "/tmp/reject.duckdb"},
+            },
+        )
+        self.assertEqual(created.status_code, 200)
+        invalid = self.client.put(
+            f"/engines/{created.json()['engine_id']}",
+            json={"auth": {"mode": "username_only", "username_source": "session_user"}},
+        )
+        self.assertEqual(invalid.status_code, 400)
+
+    def test_delete_engine_preserves_dependency_conflict(self) -> None:
+        source = self.client.post(
+            "/sources",
+            json={
+                "source_type": "duckdb",
+                "display_name": "API Delete Dependency Source",
+                "authority": {
+                    "catalog_system": "duckdb",
+                    "connection": {"path": "/tmp/delete-dependency.duckdb"},
+                    "synthetic_catalog": "main",
+                },
+            },
+        )
+        self.assertEqual(source.status_code, 200)
+        engine = self.client.post(
+            "/engines",
+            json={
+                "engine_type": "duckdb",
+                "display_name": "API Delete Dependency Engine",
+                "connection": {"path": "/tmp/delete-dependency.duckdb"},
+            },
+        )
+        self.assertEqual(engine.status_code, 200)
+        mapping = self.client.post(
+            "/mappings",
+            json={
+                "source_id": source.json()["source_id"],
+                "engine_id": engine.json()["engine_id"],
+                "catalog_mappings": [
+                    {
+                        "authority_catalog": "main",
+                        "execution_catalog": "main",
+                        "default_schema": None,
+                    }
+                ],
+            },
+        )
+        self.assertEqual(mapping.status_code, 200)
+
+        conflict = self.client.delete(f"/engines/{engine.json()['engine_id']}")
+
+        self.assertEqual(conflict.status_code, 409)
+        self.assertIn(mapping.json()["mapping_id"], conflict.json()["detail"]["dependencies"])
+
+        self.client.delete(f"/mappings/{mapping.json()['mapping_id']}")
+        deleted = self.client.delete(f"/engines/{engine.json()['engine_id']}")
+        self.assertEqual(deleted.status_code, 200)
+        self.assertEqual(
+            deleted.json(), {"status": "deleted", "engine_id": engine.json()["engine_id"]}
+        )
 
     def test_post_engine_with_username_only_auth(self) -> None:
         resp = self.client.post(

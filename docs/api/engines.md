@@ -20,6 +20,8 @@ HTTP API.
 | `POST` | `/engines` | Register an engine |
 | `GET` | `/engines` | List engines |
 | `GET` | `/engines/{engine_id}` | Get an engine |
+| `PUT` | `/engines/{engine_id}` | Update an engine |
+| `DELETE` | `/engines/{engine_id}` | Delete an engine |
 
 ---
 
@@ -199,6 +201,88 @@ Returns `EngineResponse`.
 The detail surface includes a `mappings` array summarizing the mappings that currently target the
 engine. Each entry exposes `mapping_id`, `source_id`, `status`, `readiness_status`,
 `failure_code`, and the mapping's `catalog_mappings`.
+
+---
+
+## Update Engine
+
+```
+PUT /engines/{engine_id}
+```
+
+Updates mutable engine inventory fields. `engine_type` is immutable after creation; register a new
+engine when the execution adapter type changes.
+
+### Request Body
+
+All fields are optional; only provided fields are updated.
+
+```json
+{
+  "display_name": "Updated Trino Engine",
+  "connection": {
+    "host": "trino.example.internal",
+    "port": 8080,
+    "catalog": "hive",
+    "schema": "analytics"
+  },
+  "auth": {
+    "mode": "username_only",
+    "username_source": "session_user",
+    "fallback_username": "marivo"
+  },
+  "default_namespace": {
+    "catalog": "hive",
+    "schema": "analytics"
+  },
+  "deployment_capabilities": {
+    "supported_step_types": ["observe", "compare"]
+  },
+  "policy": {
+    "allowed_step_types": ["observe", "compare"],
+    "required_policy_support": []
+  }
+}
+```
+
+The same auth, connection, default namespace, deployment capabilities, and policy validation rules
+used by `POST /engines` apply to update requests. Updating the connection may also refresh the
+derived default namespace when no explicit `default_namespace` is provided.
+
+### Response
+
+Returns the updated `EngineResponse`.
+
+---
+
+## Delete Engine
+
+```
+DELETE /engines/{engine_id}
+```
+
+Deletes an engine only when no source-to-engine mappings depend on it. If mappings still target the
+engine, the API returns `409 Conflict` with dependency identifiers.
+
+### Response
+
+```json
+{
+  "status": "deleted",
+  "engine_id": "eng_a1b2c3d4e5f6"
+}
+```
+
+### Dependency Conflict
+
+```json
+{
+  "detail": {
+    "message": "Cannot delete engine: 1 mapping(s) depend on it",
+    "dependencies": ["map_a1b2c3d4e5f6"]
+  }
+}
+```
 
 ---
 

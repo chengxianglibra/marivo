@@ -301,6 +301,82 @@ class EngineRegistry:
         )
         return self.get_engine(str(existing["engine_id"]))
 
+    def update_engine(
+        self,
+        engine_id: str,
+        *,
+        display_name: str | None = None,
+        connection: dict[str, Any] | None = None,
+        auth: dict[str, Any] | None = None,
+        default_namespace: dict[str, Any] | None = None,
+        deployment_capabilities: dict[str, Any] | None = None,
+        policy: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        current = self.get_engine(engine_id)
+        engine_type = str(current["engine_type"])
+        next_connection = current["connection"] if connection is None else connection
+        updates: list[str] = []
+        params: list[Any] = []
+
+        if display_name is not None:
+            updates.append("display_name = ?")
+            params.append(display_name)
+        if connection is not None:
+            updates.append("connection_json = ?")
+            params.append(json.dumps(next_connection))
+        if auth is not None:
+            normalized_auth = _normalize_auth(auth)
+            if engine_type == "duckdb" and normalized_auth["mode"] != "none":
+                raise ValueError("engine_auth_unsupported: duckdb only supports auth.mode='none'")
+            updates.append("auth_json = ?")
+            params.append(json.dumps(normalized_auth))
+        if default_namespace is not None or connection is not None:
+            next_default_namespace = (
+                current["default_namespace"] if default_namespace is None else default_namespace
+            )
+            updates.append("default_namespace_json = ?")
+            params.append(
+                json.dumps(
+                    _normalize_default_namespace(
+                        engine_type,
+                        next_connection,
+                        next_default_namespace,
+                    )
+                )
+            )
+        if deployment_capabilities is not None:
+            updates.append("deployment_capabilities_json = ?")
+            params.append(json.dumps(_normalize_deployment_capabilities(deployment_capabilities)))
+        if policy is not None:
+            updates.append("policy_json = ?")
+            params.append(json.dumps(_normalize_policy(policy)))
+
+        if not updates:
+            return current
+
+        params.extend([now_iso(), engine_id])
+        self.metadata.execute(
+            f"UPDATE engines SET {', '.join(updates)}, updated_at = ? WHERE engine_id = ?",
+            params,
+        )
+        return self.get_engine(engine_id)
+
+    def delete_engine(self, engine_id: str) -> None:
+        self.get_engine(engine_id)
+        mappings = self.metadata.query_rows(
+            "SELECT mapping_id, source_id FROM source_execution_mappings WHERE engine_id = ?",
+            [engine_id],
+        )
+        if mappings:
+            refs = [str(row["mapping_id"]) for row in mappings]
+            from app.registry.source_registry import DependencyError
+
+            raise DependencyError(
+                f"Cannot delete engine: {len(mappings)} mapping(s) depend on it",
+                dependencies=refs,
+            )
+        self.metadata.execute("DELETE FROM engines WHERE engine_id = ?", [engine_id])
+
     def build_analytics_engine(
         self,
         engine_id: str,

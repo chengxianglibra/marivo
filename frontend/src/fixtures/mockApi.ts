@@ -15,9 +15,28 @@ import {
   sessions,
   sources,
 } from "./mockData";
+import type { JsonRecord } from "../api/types";
 
 function stripQuery(path: string): string {
   return path.split("?")[0] ?? path;
+}
+
+function idFor(kind: "source" | "engine" | "mapping"): string {
+  return `${kind.slice(0, 3)}_${Math.random().toString(16).slice(2, 10)}`;
+}
+
+function now(): string {
+  return new Date().toISOString();
+}
+
+function readiness(payload: JsonRecord): JsonRecord {
+  return {
+    status: "active",
+    readiness_status: "ready",
+    failure_code: null,
+    updated_at: now(),
+    ...payload,
+  };
 }
 
 export function mockGet(path: string, query?: Record<string, unknown>): unknown {
@@ -26,6 +45,31 @@ export function mockGet(path: string, query?: Record<string, unknown>): unknown 
   if (clean === "/metrics") return metrics;
   if (clean === "/openapi/index") return openapiIndex;
   if (clean === "/sources") return sources;
+  const selectionMatch = clean.match(/^\/sources\/([^/]+)\/sync\/selections$/);
+  if (selectionMatch) {
+    if (selectionMatch[1] === "src_sales_duckdb") {
+      return [
+        {
+          selection_id: "sel_sales_orders",
+          source_id: selectionMatch[1],
+          schema_name: "analytics",
+          table_name: "orders",
+        },
+      ];
+    }
+    return [];
+  }
+  const schemaMatch = clean.match(/^\/sources\/([^/]+)\/catalog\/schemas$/);
+  if (schemaMatch) {
+    return [{ schema_name: "analytics" }, { schema_name: "iceberg_inf" }];
+  }
+  const tableMatch = clean.match(/^\/sources\/([^/]+)\/catalog\/tables$/);
+  if (tableMatch) {
+    const schema = String(query?.schema ?? "");
+    return schema === "iceberg_inf"
+      ? [{ table_name: "public_holiday_events" }, { table_name: "v_ott_user_profile_wide" }]
+      : [{ table_name: "orders" }, { table_name: "watch_events" }];
+  }
   if (clean === "/engines") return engines;
   if (clean === "/mappings") return mappings;
   if (clean === "/jobs") {
@@ -51,6 +95,71 @@ export function mockGet(path: string, query?: Record<string, unknown>): unknown 
 }
 
 export function mockPost(path: string, body: unknown): unknown {
+  const sourceSyncMatch = path.match(/^\/sources\/([^/]+)\/sync$/);
+  if (sourceSyncMatch) {
+    const source = sources.find((item) => item.source_id === sourceSyncMatch[1]);
+    if (source) {
+      source.synced_object_count = Math.max(Number(source.synced_object_count ?? 0), 2);
+      source.readiness_status = "ready";
+      source.failure_code = null;
+      source.updated_at = now();
+    }
+    return { job_id: `job_sync_${Math.random().toString(16).slice(2, 8)}`, source_id: sourceSyncMatch[1], status: "succeeded" };
+  }
+  const selectionMatch = path.match(/^\/sources\/([^/]+)\/sync\/selections$/);
+  if (selectionMatch) {
+    return ((body as { selections?: JsonRecord[] })?.selections ?? []).map((selection, index) => ({
+      selection_id: `sel_${index + 1}`,
+      source_id: selectionMatch[1],
+      ...selection,
+    }));
+  }
+  if (path === "/sources") {
+    const payload = body as Record<string, unknown>;
+    const source = readiness({
+      source_id: idFor("source"),
+      display_name: payload.display_name,
+      source_type: payload.source_type,
+      authority: payload.authority,
+      sync: payload.sync ?? { mode: "selected" },
+      policy: payload.policy ?? { allow_live_browse: true, allow_sync: true },
+      mappings: [],
+      created_at: now(),
+    });
+    (sources as JsonRecord[]).push(source);
+    return source;
+  }
+  if (path === "/engines") {
+    const payload = body as Record<string, unknown>;
+    const engine = readiness({
+      engine_id: idFor("engine"),
+      display_name: payload.display_name,
+      engine_type: payload.engine_type,
+      connection: payload.connection ?? {},
+      auth: payload.auth ?? { mode: "none" },
+      default_namespace: payload.default_namespace ?? { catalog: null, schema: null },
+      deployment_capabilities: payload.deployment_capabilities ?? {},
+      policy: payload.policy ?? { allowed_step_types: [], required_policy_support: [] },
+      mappings: [],
+      created_at: now(),
+    });
+    (engines as JsonRecord[]).push(engine);
+    return engine;
+  }
+  if (path === "/mappings") {
+    const payload = body as Record<string, unknown>;
+    const mapping = readiness({
+      mapping_id: idFor("mapping"),
+      source_id: payload.source_id,
+      engine_id: payload.engine_id,
+      priority: payload.priority ?? 0,
+      catalog_mappings: payload.catalog_mappings ?? [],
+      status: payload.status ?? "active",
+      created_at: now(),
+    });
+    (mappings as JsonRecord[]).push(mapping);
+    return mapping;
+  }
   if (path === "/routing/resolve") {
     const tableNames = ((body as { table_names?: string[] })?.table_names ?? []).filter(Boolean);
     const unresolved = tableNames.some((tableName) => tableName.includes("missing") || tableName.includes("lake"));
@@ -82,4 +191,55 @@ export function mockPost(path: string, body: unknown): unknown {
   if (path.endsWith("/activate")) return { status: "active", readiness_status: "not_ready" };
   if (path.endsWith("/deprecate")) return { status: "deprecated", readiness_status: "not_ready" };
   return { status: "ok" };
+}
+
+export function mockPut(path: string, body: unknown): unknown {
+  const payload = body as Record<string, unknown>;
+  const sourceMatch = path.match(/^\/sources\/([^/]+)$/);
+  if (sourceMatch) {
+    const index = sources.findIndex((source) => source.source_id === sourceMatch[1]);
+    if (index >= 0) {
+      (sources as JsonRecord[])[index] = readiness({ ...sources[index], ...payload });
+      return sources[index];
+    }
+  }
+  const engineMatch = path.match(/^\/engines\/([^/]+)$/);
+  if (engineMatch) {
+    const index = engines.findIndex((engine) => engine.engine_id === engineMatch[1]);
+    if (index >= 0) {
+      (engines as JsonRecord[])[index] = readiness({ ...engines[index], ...payload });
+      return engines[index];
+    }
+  }
+  const mappingMatch = path.match(/^\/mappings\/([^/]+)$/);
+  if (mappingMatch) {
+    const index = mappings.findIndex((mapping) => mapping.mapping_id === mappingMatch[1]);
+    if (index >= 0) {
+      (mappings as JsonRecord[])[index] = readiness({ ...mappings[index], ...payload });
+      return mappings[index];
+    }
+  }
+  return { status: "not_found" };
+}
+
+export function mockDelete(path: string): unknown {
+  const sourceMatch = path.match(/^\/sources\/([^/]+)$/);
+  if (sourceMatch) {
+    const index = sources.findIndex((source) => source.source_id === sourceMatch[1]);
+    if (index >= 0) sources.splice(index, 1);
+    return { status: "deleted", source_id: sourceMatch[1] };
+  }
+  const engineMatch = path.match(/^\/engines\/([^/]+)$/);
+  if (engineMatch) {
+    const index = engines.findIndex((engine) => engine.engine_id === engineMatch[1]);
+    if (index >= 0) engines.splice(index, 1);
+    return { status: "deleted", engine_id: engineMatch[1] };
+  }
+  const mappingMatch = path.match(/^\/mappings\/([^/]+)$/);
+  if (mappingMatch) {
+    const index = mappings.findIndex((mapping) => mapping.mapping_id === mappingMatch[1]);
+    if (index >= 0) mappings.splice(index, 1);
+    return { status: "deleted", mapping_id: mappingMatch[1] };
+  }
+  return { status: "not_found" };
 }

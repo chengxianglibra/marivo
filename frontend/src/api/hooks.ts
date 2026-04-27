@@ -48,6 +48,79 @@ export function useSources() {
   });
 }
 
+export function useCreateSource() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: JsonRecord) => apiClient.post<JsonRecord>("/sources", payload),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.sources }),
+  });
+}
+
+export function useUpdateSource() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ sourceId, payload }: { sourceId: string; payload: JsonRecord }) =>
+      apiClient.put<JsonRecord>(`/sources/${sourceId}`, payload),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.sources }),
+  });
+}
+
+export function useDeleteSource() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (sourceId: string) => apiClient.delete<JsonRecord>(`/sources/${sourceId}`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.sources }),
+  });
+}
+
+export function useSyncSource() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (sourceId: string) => apiClient.post<JsonRecord>(`/sources/${sourceId}/sync`),
+    onSuccess: (_, sourceId) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.sources });
+      queryClient.invalidateQueries({ queryKey: ["jobs"] });
+      queryClient.invalidateQueries({ queryKey: ["sources", sourceId, "objects"] });
+    },
+  });
+}
+
+export function useSourceSyncSelections(sourceId?: string, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.sourceSyncSelections(sourceId),
+    enabled: Boolean(sourceId) && enabled,
+    queryFn: async () => unwrapList(await apiClient.get(`/sources/${sourceId}/sync/selections`)),
+  });
+}
+
+export function useSetSourceSyncSelections() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ sourceId, selections }: { sourceId: string; selections: JsonRecord[] }) =>
+      apiClient.post<JsonRecord[]>(`/sources/${sourceId}/sync/selections`, { selections }),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.sources });
+      queryClient.invalidateQueries({ queryKey: queryKeys.sourceSyncSelections(variables.sourceId) });
+    },
+  });
+}
+
+export function useSourceCatalogSchemas(sourceId?: string, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.sourceCatalogSchemas(sourceId),
+    enabled: Boolean(sourceId) && enabled,
+    queryFn: async () => unwrapList(await apiClient.get(`/sources/${sourceId}/catalog/schemas`)),
+  });
+}
+
+export function useSourceCatalogTables(sourceId?: string, schema?: string, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.sourceCatalogTables(sourceId, schema),
+    enabled: Boolean(sourceId && schema) && enabled,
+    queryFn: async () => unwrapList(await apiClient.get(`/sources/${sourceId}/catalog/tables`, { schema })),
+  });
+}
+
 export function useEngines() {
   return useQuery({
     queryKey: queryKeys.engines,
@@ -55,10 +128,66 @@ export function useEngines() {
   });
 }
 
+export function useCreateEngine() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: JsonRecord) => apiClient.post<JsonRecord>("/engines", payload),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.engines }),
+  });
+}
+
+export function useUpdateEngine() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ engineId, payload }: { engineId: string; payload: JsonRecord }) =>
+      apiClient.put<JsonRecord>(`/engines/${engineId}`, payload),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.engines }),
+  });
+}
+
+export function useDeleteEngine() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (engineId: string) => apiClient.delete<JsonRecord>(`/engines/${engineId}`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.engines }),
+  });
+}
+
 export function useMappings() {
   return useQuery({
     queryKey: queryKeys.mappings,
     queryFn: async () => unwrapList(await apiClient.get("/mappings")),
+  });
+}
+
+function invalidateMappingSurfaces(queryClient: ReturnType<typeof useQueryClient>) {
+  queryClient.invalidateQueries({ queryKey: queryKeys.mappings });
+  queryClient.invalidateQueries({ queryKey: queryKeys.sources });
+  queryClient.invalidateQueries({ queryKey: queryKeys.engines });
+}
+
+export function useCreateMapping() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: JsonRecord) => apiClient.post<JsonRecord>("/mappings", payload),
+    onSuccess: () => invalidateMappingSurfaces(queryClient),
+  });
+}
+
+export function useUpdateMapping() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ mappingId, payload }: { mappingId: string; payload: JsonRecord }) =>
+      apiClient.put<JsonRecord>(`/mappings/${mappingId}`, payload),
+    onSuccess: () => invalidateMappingSurfaces(queryClient),
+  });
+}
+
+export function useDeleteMapping() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (mappingId: string) => apiClient.delete<JsonRecord>(`/mappings/${mappingId}`),
+    onSuccess: () => invalidateMappingSurfaces(queryClient),
   });
 }
 
