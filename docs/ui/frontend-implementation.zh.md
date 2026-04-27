@@ -18,6 +18,7 @@
 - `frontend/src/api/`：API base URL、统一 HTTP client、错误归一化、TanStack Query hooks、OpenAPI 类型生成占位。
 - `frontend/src/components/`：readiness / failure、runtime、evidence closure、empty state、diagnostic drawer 等共享组件。
 - `frontend/src/fixtures/`：mock API 数据，覆盖 ready / not_ready source、mapping blocker、semantic stale、session gaps、proposition evidence、runtime failure、empty jobs 等闭环。
+- Operations / Sources 已接入 `GET /sources/{source_id}/objects`，可在 source 行内打开 Synced Objects 抽屉查看 sync 后落入本地 metadata store 的表对象、authority locator、列数和原始 payload。
 - `frontend/src/pages/`：Overview、Operations、Semantic Layer、Analysis、API Contract 页面。
 - `frontend/tests/e2e/`：Playwright 关键流程。
 

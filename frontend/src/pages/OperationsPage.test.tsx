@@ -2,9 +2,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { ConfigProvider } from "antd";
 import { describe, expect, it } from "vitest";
+import { apiConfig } from "../api/config";
 import { OperationsPage } from "./OperationsPage";
 
 function renderOperations() {
+  apiConfig.useMocks = true;
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
@@ -44,6 +46,17 @@ describe("operations inventory CRUD", () => {
     renderOperations();
 
     expect(await screen.findByRole("button", { name: /Manage Selections/i })).toBeInTheDocument();
+  });
+
+  it("opens the synced source objects drawer", async () => {
+    renderOperations();
+
+    const objectButtons = await screen.findAllByRole("button", { name: /Synced Objects/i });
+    fireEvent.click(objectButtons[0]);
+
+    expect(await screen.findByText("Synced Source Objects")).toBeInTheDocument();
+    expect(await screen.findByText("sales.analytics.orders")).toBeInTheDocument();
+    expect(screen.getByText("sales.analytics.revenue_daily")).toBeInTheDocument();
   });
 
   it("opens mapping drawer with catalog row controls", async () => {
