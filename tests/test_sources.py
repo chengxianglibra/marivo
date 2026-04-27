@@ -33,9 +33,8 @@ class SourceRegistryTests(unittest.TestCase):
         cls.db_path = Path(cls.temp_dir.name) / "test_sources.duckdb"
         cls.meta_path = Path(cls.temp_dir.name) / "test_sources.meta.sqlite"
         get_seeded_duckdb_path(cls.db_path)
-        cls.client = TestClient(
-            create_app(cls.db_path, metadata_store=SQLiteMetadataStore(cls.meta_path))
-        )
+        cls.metadata_store = SQLiteMetadataStore(cls.meta_path)
+        cls.client = TestClient(create_app(cls.db_path, metadata_store=cls.metadata_store))
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -785,6 +784,81 @@ class SyncModeTests(unittest.TestCase):
         self.assertNotIn("execution_catalog", tables[0])
         self.assertNotIn("mapping_id", tables[0])
         self.assertNotIn("execution_catalog", tables[0]["authority_locator"])
+
+    def test_selective_sync_keeps_columns_as_child_objects_not_table_properties(self) -> None:
+        from unittest.mock import MagicMock, patch
+
+        from app.adapters.base import CatalogCapabilities, PhysicalObject
+
+        resp = self.client.post(
+            "/sources",
+            json=build_duckdb_source_payload(str(self.db_path), "No Table Columns Redundancy Test"),
+        )
+        self.assertEqual(resp.status_code, 200)
+        source_id = resp.json()["source_id"]
+        self.client.post(
+            f"/sources/{source_id}/sync/selections",
+            json={"selections": [{"schema_name": "analytics", "table_name": "watch_events"}]},
+        )
+
+        mock_adapter = MagicMock()
+        mock_adapter.get_table_detail.return_value = PhysicalObject(
+            native_name="watch_events",
+            native_id=None,
+            object_type="table",
+            parent_path="analytics",
+            properties={
+                "columns": [{"name": "event_time", "type": "timestamp"}],
+                "column_count": 2,
+                "table_type": "BASE TABLE",
+            },
+        )
+        mock_adapter.list_columns.return_value = [
+            PhysicalObject(
+                native_name="event_time",
+                native_id=None,
+                object_type="column",
+                parent_path="analytics.watch_events",
+                properties={"data_type": "timestamp", "nullable": True, "comment": ""},
+            ),
+            PhysicalObject(
+                native_name="user_id",
+                native_id=None,
+                object_type="column",
+                parent_path="analytics.watch_events",
+                properties={"data_type": "varchar", "nullable": False, "comment": "user"},
+            ),
+        ]
+        mock_adapter.capabilities.return_value = CatalogCapabilities(supports_partitions=False)
+        with patch("app.registry.source_registry.build_catalog_adapter", return_value=mock_adapter):
+            sync_resp = self.client.post(f"/sources/{source_id}/sync")
+
+        self.assertEqual(sync_resp.status_code, 200)
+        table_resp = self.client.get(f"/sources/{source_id}/objects", params={"type": "table"})
+        table_obj = table_resp.json()[0]
+        self.assertNotIn("columns", table_obj["properties"])
+        self.assertEqual(table_obj["properties"]["column_count"], 2)
+        self.assertEqual(table_obj["properties"]["table_type"], "BASE TABLE")
+
+        column_resp = self.client.get(f"/sources/{source_id}/objects", params={"type": "column"})
+        columns = {obj["native_name"]: obj["properties"] for obj in column_resp.json()}
+        self.assertEqual(columns["event_time"]["data_type"], "timestamp")
+        self.assertFalse(columns["user_id"]["nullable"])
+        self.assertEqual(columns["user_id"]["comment"], "user")
+
+        stale_properties = dict(table_obj["properties"])
+        stale_properties["columns"] = [{"name": "stale", "type": "varchar"}]
+        self.client.app.state.metadata_store.execute(
+            "UPDATE source_objects SET properties_json = ? WHERE object_id = ?",
+            [json.dumps(stale_properties), table_obj["object_id"]],
+        )
+
+        with patch("app.registry.source_registry.build_catalog_adapter", return_value=mock_adapter):
+            resync_resp = self.client.post(f"/sources/{source_id}/sync")
+
+        self.assertEqual(resync_resp.status_code, 200)
+        table_resp = self.client.get(f"/sources/{source_id}/objects/{table_obj['object_id']}")
+        self.assertNotIn("columns", table_resp.json()["properties"])
 
 
 class TrinoCatalogAdapterTests(unittest.TestCase):

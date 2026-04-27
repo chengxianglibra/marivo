@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import json
+import tempfile
 import unittest
+from pathlib import Path
 from typing import Any
 
 from app.semantic_readiness import (
@@ -11,6 +14,7 @@ from app.semantic_readiness import (
     build_default_registry,
     build_snapshot,
 )
+from app.storage.sqlite_metadata import SQLiteMetadataStore
 
 
 class SemanticReadinessRegistryTests(unittest.TestCase):
@@ -70,6 +74,96 @@ class ReadinessEvaluationContextTests(unittest.TestCase):
         self.assertEqual(calls, [])
         self.assertIsNone(context.load_dependency_snapshot("entity.account"))
         self.assertEqual(calls, ["snapshot:entity.account"])
+
+    def test_context_loads_source_column_type_from_child_column_object(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            metadata = SQLiteMetadataStore(Path(temp_dir) / "metadata.sqlite")
+            metadata.initialize()
+            metadata.execute(
+                """
+                INSERT INTO sources (
+                    source_id, source_type, display_name, authority_json, sync_mode,
+                    intrinsic_capabilities_json, policy_json, status, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    "src_123",
+                    "duckdb",
+                    "Readiness Source",
+                    "{}",
+                    "selected",
+                    "{}",
+                    "{}",
+                    "active",
+                    "2026-01-01T00:00:00+00:00",
+                    "2026-01-01T00:00:00+00:00",
+                ],
+            )
+            metadata.execute(
+                """
+                INSERT INTO source_objects (
+                    object_id, source_id, object_type, parent_id, native_name, native_id, fqn,
+                    authority_locator_json, properties_json, sync_version, synced_at,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    "obj_table",
+                    "src_123",
+                    "table",
+                    None,
+                    "metric_fact",
+                    None,
+                    "main.warehouse.metric_fact",
+                    json.dumps({"catalog": "main", "schema": "warehouse", "table": "metric_fact"}),
+                    json.dumps({"column_count": 1}),
+                    "v_test",
+                    "2026-01-01T00:00:00+00:00",
+                    "2026-01-01T00:00:00+00:00",
+                    "2026-01-01T00:00:00+00:00",
+                ],
+            )
+            metadata.execute(
+                """
+                INSERT INTO source_objects (
+                    object_id, source_id, object_type, parent_id, native_name, native_id, fqn,
+                    authority_locator_json, properties_json, sync_version, synced_at,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    "obj_column",
+                    "src_123",
+                    "column",
+                    "obj_table",
+                    "create_time",
+                    None,
+                    "main.warehouse.metric_fact.create_time",
+                    json.dumps({"catalog": "main", "schema": "warehouse", "table": "metric_fact"}),
+                    json.dumps({"data_type": "timestamp"}),
+                    "v_test",
+                    "2026-01-01T00:00:00+00:00",
+                    "2026-01-01T00:00:00+00:00",
+                    "2026-01-01T00:00:00+00:00",
+                ],
+            )
+
+            context = ReadinessEvaluationContext(
+                snapshot=build_snapshot(
+                    object_kind="binding",
+                    object_id="bind_123",
+                    ref="binding.metric_fact",
+                    status="published",
+                    revision=1,
+                    semantic_object={"header": {"binding_ref": "binding.metric_fact"}},
+                ),
+                metadata=metadata,
+            )
+
+            self.assertEqual(
+                context.load_source_column_type({"object_id": "obj_table"}, "create_time"),
+                "timestamp",
+            )
 
 
 class EntityReadinessEvaluatorTests(unittest.TestCase):
@@ -1507,10 +1601,8 @@ class BindingReadinessEvaluatorTests(unittest.TestCase):
                     ],
                 }
             ],
-            carrier_source_object_loader=lambda _carrier: {
-                "object_id": "src_123",
-                "properties_json": '{"columns":[{"name":"create_time","type":"varchar"}]}',
-            },
+            carrier_source_object_loader=lambda _carrier: {"object_id": "src_123"},
+            source_column_type_loader=lambda _source_object, _physical_name: "varchar",
         )
 
         self.assertEqual(result.readiness_status, "not_ready")
@@ -1593,10 +1685,8 @@ class BindingReadinessEvaluatorTests(unittest.TestCase):
                     ],
                 }
             ],
-            carrier_source_object_loader=lambda _carrier: {
-                "object_id": "src_123",
-                "properties_json": '{"columns":[{"name":"create_time","type":"varchar"}]}',
-            },
+            carrier_source_object_loader=lambda _carrier: {"object_id": "src_123"},
+            source_column_type_loader=lambda _source_object, _physical_name: "varchar",
         )
 
         self.assertEqual(result.readiness_status, "ready")
@@ -1635,10 +1725,8 @@ class BindingReadinessEvaluatorTests(unittest.TestCase):
                     ],
                 }
             ],
-            carrier_source_object_loader=lambda _carrier: {
-                "object_id": "src_123",
-                "properties_json": '{"columns":[{"name":"create_time","type":"varchar"}]}',
-            },
+            carrier_source_object_loader=lambda _carrier: {"object_id": "src_123"},
+            source_column_type_loader=lambda _source_object, _physical_name: "varchar",
         )
 
         self.assertEqual(result.readiness_status, "ready")
@@ -1676,10 +1764,8 @@ class BindingReadinessEvaluatorTests(unittest.TestCase):
                     ],
                 }
             ],
-            carrier_source_object_loader=lambda _carrier: {
-                "object_id": "src_123",
-                "properties_json": '{"columns":[{"name":"create_time","type":"varchar"}]}',
-            },
+            carrier_source_object_loader=lambda _carrier: {"object_id": "src_123"},
+            source_column_type_loader=lambda _source_object, _physical_name: "varchar",
         )
 
         self.assertEqual(result.readiness_status, "not_ready")
@@ -1696,6 +1782,7 @@ class BindingReadinessEvaluatorTests(unittest.TestCase):
         time_bindings: list[dict[str, object]] | None = None,
         carrier_bindings: list[dict[str, object]] | None = None,
         carrier_source_object_loader=None,
+        source_column_type_loader=None,
     ):
         snapshot = build_snapshot(
             object_kind="binding",
@@ -1743,6 +1830,7 @@ class BindingReadinessEvaluatorTests(unittest.TestCase):
             ),
             carrier_source_object_loader=carrier_source_object_loader
             or (lambda _carrier: {"object_id": "src_123"}),
+            source_column_type_loader=source_column_type_loader,
         )
         return self.registry.evaluator_for("binding").evaluate(context)
 
