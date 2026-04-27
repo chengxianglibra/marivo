@@ -6,7 +6,7 @@ Covers acceptance criteria:
 - Extractor raises → no artifact row written, exception re-raised, no findings written
 - validate_for_commit raises FamilyEmptyError → no artifact row written
 - validate_for_commit raises ValueError (count mismatch) → no artifact row written
-- Finding INSERT OR IGNORE idempotency (same finding_id replay is silently ignored)
+- Finding idempotency (same finding_id replay is silently ignored)
 - observe family allows empty committed finding set (D4 allow-empty)
 - compare family rejects empty committed finding set (D4 non-empty required)
 """
@@ -507,7 +507,7 @@ class TestCountMismatchNoArtifact(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Test: finding INSERT OR IGNORE idempotency (replay safety)
+# Test: finding idempotency (replay safety)
 # ---------------------------------------------------------------------------
 
 
@@ -548,7 +548,7 @@ class TestFindingIdempotency(unittest.TestCase):
                 "schema_version": rows[0]["schema_version"],
             }
         )
-        # Still exactly 1 finding (INSERT OR IGNORE)
+        # Still exactly 1 finding after idempotent replay.
         after = self.store.query_rows("SELECT * FROM findings WHERE artifact_id = ?", [artifact_id])
         self.assertEqual(len(after), 1)
 

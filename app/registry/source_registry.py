@@ -59,6 +59,13 @@ def _build_intrinsic_capabilities(source_type: str) -> dict[str, Any]:
     }
 
 
+def _loads_stored_json(raw: Any) -> Any:
+    try:
+        return json.loads(str(raw))
+    except (TypeError, ValueError):
+        return None
+
+
 def _normalize_authority(source_type: str, authority: dict[str, Any]) -> dict[str, Any]:
     catalog_system = str(authority.get("catalog_system", source_type))
     if catalog_system != source_type:
@@ -526,7 +533,8 @@ class SourceRegistry:
 
     def _row_to_source(self, row: dict[str, Any], *, include_mappings: bool) -> dict[str, Any]:
         source_type = str(row["source_type"])
-        raw_authority = json.loads(str(row["authority_json"]))
+        raw_authority = _loads_stored_json(row["authority_json"])
+        authority_invalid = not isinstance(raw_authority, dict)
         authority = raw_authority if isinstance(raw_authority, dict) else {}
         raw_connection = authority.get("connection")
         connection = raw_connection if isinstance(raw_connection, dict) else {}
@@ -534,17 +542,19 @@ class SourceRegistry:
         if synthetic_catalog is not None and not isinstance(synthetic_catalog, str):
             synthetic_catalog = None
 
-        raw_intrinsic_capabilities = json.loads(str(row["intrinsic_capabilities_json"]))
+        raw_intrinsic_capabilities = _loads_stored_json(row["intrinsic_capabilities_json"])
+        intrinsic_capabilities_invalid = not isinstance(raw_intrinsic_capabilities, dict)
         intrinsic_capabilities = (
             raw_intrinsic_capabilities
-            if isinstance(raw_intrinsic_capabilities, dict)
+            if not intrinsic_capabilities_invalid
             else _build_intrinsic_capabilities(source_type)
         )
         if "supports_partitions" not in intrinsic_capabilities:
             intrinsic_capabilities["supports_partitions"] = False
 
-        raw_policy = json.loads(str(row["policy_json"]))
-        policy = _normalize_policy(raw_policy if isinstance(raw_policy, dict) else None)
+        raw_policy = _loads_stored_json(row["policy_json"])
+        policy_invalid = not isinstance(raw_policy, dict)
+        policy = _normalize_policy(raw_policy if not policy_invalid else None)
         source = {
             "source_id": row["source_id"],
             "source_type": source_type,
@@ -564,7 +574,26 @@ class SourceRegistry:
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }
-        validation = self.evaluate_source(source)
+        if authority_invalid:
+            validation = SourceValidationResult(
+                is_valid=False,
+                readiness_status="not_ready",
+                failure_code="source_invalid_authority",
+            )
+        elif intrinsic_capabilities_invalid:
+            validation = SourceValidationResult(
+                is_valid=False,
+                readiness_status="not_ready",
+                failure_code="source_invalid_capabilities",
+            )
+        elif policy_invalid:
+            validation = SourceValidationResult(
+                is_valid=False,
+                readiness_status="not_ready",
+                failure_code="source_invalid_policy",
+            )
+        else:
+            validation = self.evaluate_source(source)
         source["readiness_status"] = validation.readiness_status
         source["failure_code"] = validation.failure_code
         return source

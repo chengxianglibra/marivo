@@ -1299,6 +1299,92 @@ class EngineAPITests(unittest.TestCase):
         self.assertEqual(listed_engine["readiness_status"], "not_ready")
         self.assertEqual(listed_engine["failure_code"], "engine_invalid_connection")
 
+    def test_engine_api_degrades_malformed_stored_connection_json(self) -> None:
+        resp = self.client.post(
+            "/engines",
+            json={
+                "engine_type": "trino",
+                "display_name": "Bad Stored Engine JSON",
+                "connection": {"host": "localhost"},
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        engine_id = resp.json()["engine_id"]
+        metadata = self.client.app.state.metadata_store
+        metadata.execute(
+            "UPDATE engines SET connection_json = ? WHERE engine_id = ?",
+            ["{bad-json", engine_id],
+        )
+
+        detail = self.client.get(f"/engines/{engine_id}")
+        self.assertEqual(detail.status_code, 200)
+        self.assertEqual(detail.json()["connection"], {})
+        self.assertEqual(detail.json()["readiness_status"], "not_ready")
+        self.assertEqual(detail.json()["failure_code"], "engine_invalid_connection")
+
+        listed = self.client.get("/engines")
+        self.assertEqual(listed.status_code, 200)
+        listed_engine = next(item for item in listed.json() if item["engine_id"] == engine_id)
+        self.assertEqual(listed_engine["connection"], {})
+        self.assertEqual(listed_engine["readiness_status"], "not_ready")
+        self.assertEqual(listed_engine["failure_code"], "engine_invalid_connection")
+
+    def test_engine_api_degrades_malformed_stored_policy_json(self) -> None:
+        resp = self.client.post(
+            "/engines",
+            json={
+                "engine_type": "trino",
+                "display_name": "Bad Stored Engine Policy",
+                "connection": {"host": "localhost"},
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        engine_id = resp.json()["engine_id"]
+        metadata = self.client.app.state.metadata_store
+        metadata.execute(
+            "UPDATE engines SET policy_json = ? WHERE engine_id = ?",
+            ["{bad-json", engine_id],
+        )
+
+        detail = self.client.get(f"/engines/{engine_id}")
+        self.assertEqual(detail.status_code, 200)
+        self.assertEqual(detail.json()["readiness_status"], "not_ready")
+        self.assertEqual(detail.json()["failure_code"], "engine_invalid_policy")
+
+        listed = self.client.get("/engines")
+        self.assertEqual(listed.status_code, 200)
+        listed_engine = next(item for item in listed.json() if item["engine_id"] == engine_id)
+        self.assertEqual(listed_engine["readiness_status"], "not_ready")
+        self.assertEqual(listed_engine["failure_code"], "engine_invalid_policy")
+
+    def test_engine_api_degrades_malformed_stored_deployment_capabilities_json(self) -> None:
+        resp = self.client.post(
+            "/engines",
+            json={
+                "engine_type": "trino",
+                "display_name": "Bad Stored Engine Capabilities",
+                "connection": {"host": "localhost"},
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        engine_id = resp.json()["engine_id"]
+        metadata = self.client.app.state.metadata_store
+        metadata.execute(
+            "UPDATE engines SET deployment_capabilities_json = ? WHERE engine_id = ?",
+            ["{bad-json", engine_id],
+        )
+
+        detail = self.client.get(f"/engines/{engine_id}")
+        self.assertEqual(detail.status_code, 200)
+        self.assertEqual(detail.json()["readiness_status"], "not_ready")
+        self.assertEqual(detail.json()["failure_code"], "engine_invalid_deployment_capabilities")
+
+        listed = self.client.get("/engines")
+        self.assertEqual(listed.status_code, 200)
+        listed_engine = next(item for item in listed.json() if item["engine_id"] == engine_id)
+        self.assertEqual(listed_engine["readiness_status"], "not_ready")
+        self.assertEqual(listed_engine["failure_code"], "engine_invalid_deployment_capabilities")
+
     def test_engine_api_degrades_malformed_stored_auth_json(self) -> None:
         resp = self.client.post(
             "/engines",

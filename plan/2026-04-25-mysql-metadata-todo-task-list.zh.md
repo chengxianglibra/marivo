@@ -209,32 +209,32 @@
 
 ## 五、Repository SQL 改造
 
-- [ ] 任务 5.1：改造 session close/update SQL
+- [x] 任务 5.1：改造 session close/update SQL
   - 交付物：`SessionManager` 更新时间写法
   - 范围：`ended_at`、`updated_at` 等字段
   - 验收标准：SQLite/MySQL 下关闭 session 均能写入稳定时间，不再直接使用 `datetime('now')`
 
-- [ ] 任务 5.2：改造 step metadata upsert
+- [x] 任务 5.2：改造 step metadata upsert
   - 交付物：`StepMetadataRepository.upsert` 方言化
   - 范围：`ON CONFLICT(step_id) DO UPDATE` 替换为后端无关 helper
   - 验收标准：同一 `step_id` 重复 upsert 后只有一行，payload 与 `updated_at` 被更新
 
-- [ ] 任务 5.3：改造 finding/proposition idempotent insert
+- [x] 任务 5.3：改造 finding/proposition idempotent insert
   - 交付物：evidence repositories 方言化
   - 范围：`FindingRepository`、`PropositionRepository`、seed refs 等 `INSERT OR IGNORE` 路径
   - 验收标准：重复 materialization 不产生重复行，不因唯一键冲突失败
 
-- [ ] 任务 5.4：改造 artifact commit 事务
+- [x] 任务 5.4：改造 artifact commit 事务
   - 交付物：artifact staged -> findings -> committed 事务路径收敛
   - 关键内容：多语句事务不依赖 SQLite connection 细节；失败时 rollback
   - 验收标准：任一 finding 插入失败时 artifact 不进入 committed，也不残留半写入 findings
 
-- [ ] 任务 5.5：改造测试 seed helper 中的共享 SQL
+- [x] 任务 5.5：改造测试 seed helper 中的共享 SQL
   - 交付物：测试 helper 或 repository seed API
   - 范围：`tests/semantic_test_helpers.py`、intent test seed 中的 `INSERT OR IGNORE`
   - 验收标准：用于 MySQL 集成测试的 seed 逻辑不依赖 SQLite 语法
 
-- [ ] 任务 5.6：保留 degraded-read 行为
+- [x] 任务 5.6：保留 degraded-read 行为
   - 交付物：read serializer 回归测试
   - 范围：旧行缺少可选 JSON、坏 JSON、not_ready degraded read
   - 验收标准：MySQL 接入不把既有 degraded-read 语义扩大为 500，除非当前代码已定义为硬失败

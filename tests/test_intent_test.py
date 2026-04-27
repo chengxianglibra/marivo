@@ -39,6 +39,7 @@ from tests.semantic_test_helpers import (
     ensure_active_duckdb_mapping,
     ensure_published_typed_metric,
     ensure_published_typed_metric_binding,
+    seed_duckdb_source_object,
 )
 from tests.shared_fixtures import get_named_seeded_duckdb_path
 
@@ -137,43 +138,14 @@ def _seed_metric(
     met_id = f"met_test{suffix}"
     map_id = f"map_test{suffix}"
 
-    meta.execute(
-        "INSERT OR IGNORE INTO sources "
-        "(source_id, source_type, display_name, authority_json, sync_mode, "
-        "intrinsic_capabilities_json, policy_json, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        [
-            src_id,
-            "duckdb",
-            f"Test Source {suffix}",
-            json.dumps(
-                {
-                    "catalog_system": "duckdb",
-                    "connection": {},
-                    "synthetic_catalog": "main",
-                }
-            ),
-            "selected",
-            json.dumps({"supports_partitions": False}),
-            json.dumps({"allow_live_browse": True, "allow_sync": True}),
-            now,
-            now,
-        ],
-    )
-    meta.execute(
-        "INSERT OR IGNORE INTO source_objects "
-        "(object_id, source_id, object_type, native_name, fqn, authority_locator_json, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        [
-            obj_id,
-            src_id,
-            "table",
-            native_name,
-            table_fqn,
-            json.dumps({"catalog": "main", "schema": "analytics", "table": native_name}),
-            now,
-            now,
-        ],
+    seed_duckdb_source_object(
+        meta,
+        source_id=src_id,
+        object_id=obj_id,
+        display_name=f"Test Source {suffix}",
+        table_name=native_name,
+        table_fqn=table_fqn,
+        now=now,
     )
     ensure_published_typed_metric(
         meta,

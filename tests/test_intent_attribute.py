@@ -25,7 +25,6 @@ Covers:
 
 from __future__ import annotations
 
-import json
 import tempfile
 import unittest
 from datetime import UTC, datetime
@@ -45,6 +44,7 @@ from tests.semantic_test_helpers import (
     ensure_active_duckdb_mapping,
     ensure_published_typed_metric,
     ensure_published_typed_metric_binding,
+    seed_duckdb_source_object,
 )
 from tests.shared_fixtures import get_named_seeded_duckdb_path
 
@@ -129,43 +129,14 @@ def _seed_metadata(meta: SQLiteMetadataStore) -> str:
     met_id = "met_attrtest01"
     map_id = "map_attrtest01"
 
-    meta.execute(
-        "INSERT OR IGNORE INTO sources "
-        "(source_id, source_type, display_name, authority_json, sync_mode, "
-        "intrinsic_capabilities_json, policy_json, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        [
-            src_id,
-            "duckdb",
-            "Attr Test Source",
-            json.dumps(
-                {
-                    "catalog_system": "duckdb",
-                    "connection": {},
-                    "synthetic_catalog": "main",
-                }
-            ),
-            "selected",
-            json.dumps({"supports_partitions": False}),
-            json.dumps({"allow_live_browse": True, "allow_sync": True}),
-            now,
-            now,
-        ],
-    )
-    meta.execute(
-        "INSERT OR IGNORE INTO source_objects "
-        "(object_id, source_id, object_type, native_name, fqn, authority_locator_json, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        [
-            obj_id,
-            src_id,
-            "table",
-            "attr_events",
-            "analytics.attr_events",
-            json.dumps({"catalog": "main", "schema": "analytics", "table": "attr_events"}),
-            now,
-            now,
-        ],
+    seed_duckdb_source_object(
+        meta,
+        source_id=src_id,
+        object_id=obj_id,
+        display_name="Attr Test Source",
+        table_name="attr_events",
+        table_fqn="analytics.attr_events",
+        now=now,
     )
     ensure_published_typed_metric(
         meta,
