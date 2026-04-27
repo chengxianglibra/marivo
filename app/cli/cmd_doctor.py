@@ -182,6 +182,15 @@ def _check_metadata_store(
             _check("metadata_store", "failed", "metadata config missing"),
             EXIT_CONFIG_INVALID,
         )
+    if config.metadata.engine != "sqlite" or config.metadata.path is None:
+        return (
+            _check(
+                "metadata_store",
+                "failed",
+                "local doctor requires metadata.engine=sqlite and metadata.path",
+            ),
+            EXIT_CONFIG_INVALID,
+        )
     meta_path = resolve_metadata_path(bootstrap_config_path(workspace_root), config.metadata.path)
     if not meta_path.exists():
         return (

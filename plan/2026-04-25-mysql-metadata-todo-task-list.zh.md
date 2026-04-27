@@ -177,32 +177,32 @@
 
 ## 四、MySQLMetadataStore 与配置接入
 
-- [ ] 任务 4.1：实现 `MySQLMetadataStore`
+- [x] 任务 4.1：实现 `MySQLMetadataStore`
   - 交付物：metadata store 类
   - 最小接口：`initialize/connect/execute/execute_many/query_rows/query_one`
   - 验收标准：返回 row shape 与 SQLite 一致，`query_one` 空结果返回 `None`
 
-- [ ] 任务 4.2：实现连接池与连接参数
+- [x] 任务 4.2：实现连接池与连接参数
   - 交付物：connection factory / pool 配置
   - 最小参数：host、port、database、user、password、connect_timeout、pool_size、ssl
   - 验收标准：连接失败、认证失败、超时失败均有明确错误；密码不进入日志
 
-- [ ] 任务 4.3：实现事务 rollback 语义
+- [x] 任务 4.3：实现事务 rollback 语义
   - 交付物：`connect()` context manager 行为收敛
   - 规则：正常路径由调用方或 store helper commit；异常路径自动 rollback 并关闭/归还连接
   - 验收标准：artifact staged insert 后模拟 finding 写入失败，MySQL 中不残留 staged artifact
 
-- [ ] 任务 4.4：扩展 metadata config model
+- [x] 任务 4.4：扩展 metadata config model
   - 交付物：`MetadataConfig` 变更
   - 范围：`engine: sqlite|mysql`；SQLite 保持 `path`；MySQL 支持 DSN 或显式连接字段
   - 验收标准：非法组合在配置加载阶段失败，例如 `engine=mysql` 但缺少 database/user
 
-- [ ] 任务 4.5：改造 app storage resolution
+- [x] 任务 4.5：改造 app storage resolution
   - 交付物：`app_factory` metadata store 构造逻辑
   - 规则：显式 `metadata_store` 优先；未注入时按 `metadata.engine` 构造 SQLite/MySQL；`db_path` programmatic carveout 保持 SQLite meta 文件行为
   - 验收标准：现有 SQLite 启动测试不回归，MySQL 配置可启动并初始化 metadata store
 
-- [ ] 任务 4.6：脱敏配置与错误输出
+- [x] 任务 4.6：脱敏配置与错误输出
   - 交付物：logging/error redaction helper
   - 范围：DSN、password、SSL secret、环境变量中的敏感字段
   - 验收标准：失败日志和 API error detail 不包含明文密码

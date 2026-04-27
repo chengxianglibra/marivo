@@ -37,6 +37,91 @@ class LoadConfigTests(unittest.TestCase):
         self.assertEqual(cfg.metadata.engine, "sqlite")
         self.assertEqual(cfg.metadata.path, "data/marivo.meta.sqlite")
 
+    def test_load_mysql_metadata_config_from_explicit_fields(self) -> None:
+        with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
+            f.write(
+                "metadata:\n"
+                "  engine: mysql\n"
+                "  host: db.example\n"
+                "  port: 3307\n"
+                "  database: marivo\n"
+                "  user: marivo\n"
+                "  password: secret\n"
+                "  connect_timeout: 7\n"
+                "  pool_size: 3\n"
+                "  ssl: true\n"
+            )
+            f.flush()
+            cfg = load_config(Path(f.name))
+
+        assert cfg.metadata is not None
+        mysql_config = cfg.metadata.mysql_connection_config()
+        self.assertEqual(cfg.metadata.engine, "mysql")
+        self.assertEqual(mysql_config["host"], "db.example")
+        self.assertEqual(mysql_config["port"], 3307)
+        self.assertEqual(mysql_config["database"], "marivo")
+        self.assertEqual(mysql_config["user"], "marivo")
+        self.assertEqual(mysql_config["password"], "secret")
+        self.assertEqual(mysql_config["connect_timeout"], 7)
+        self.assertEqual(mysql_config["pool_size"], 3)
+        self.assertTrue(mysql_config["ssl"])
+
+    def test_load_mysql_metadata_config_from_dsn(self) -> None:
+        with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
+            f.write(
+                "metadata:\n"
+                "  engine: mysql\n"
+                "  dsn: mysql+pymysql://marivo:secret@db.example:3307/marivo"
+                "?connect_timeout=8&pool_size=2&ssl=true\n"
+            )
+            f.flush()
+            cfg = load_config(Path(f.name))
+
+        assert cfg.metadata is not None
+        mysql_config = cfg.metadata.mysql_connection_config()
+        self.assertEqual(mysql_config["host"], "db.example")
+        self.assertEqual(mysql_config["port"], 3307)
+        self.assertEqual(mysql_config["database"], "marivo")
+        self.assertEqual(mysql_config["user"], "marivo")
+        self.assertEqual(mysql_config["password"], "secret")
+        self.assertEqual(mysql_config["connect_timeout"], 8)
+        self.assertEqual(mysql_config["pool_size"], 2)
+        self.assertTrue(mysql_config["ssl"])
+
+    def test_load_rejects_invalid_metadata_combinations(self) -> None:
+        cases = [
+            "metadata:\n  engine: sqlite\n",
+            "metadata:\n  engine: sqlite\n  path: meta.sqlite\n  host: db.example\n",
+            "metadata:\n  engine: mysql\n  host: db.example\n  database: marivo\n",
+            "metadata:\n  engine: mysql\n  path: meta.sqlite\n  dsn: mysql://u:p@db/marivo\n",
+        ]
+        for raw_yaml in cases:
+            with (
+                self.subTest(raw_yaml=raw_yaml),
+                tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f,
+            ):
+                f.write(raw_yaml)
+                f.flush()
+                with self.assertRaises(Exception):
+                    load_config(Path(f.name))
+
+    def test_load_config_validation_error_redacts_mysql_secrets(self) -> None:
+        with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
+            f.write(
+                "metadata:\n"
+                "  engine: mysql\n"
+                "  path: meta.sqlite\n"
+                "  dsn: mysql://marivo:secret@db.example/marivo\n"
+                "  password: secret\n"
+            )
+            f.flush()
+
+            with self.assertRaises(Exception) as ctx:
+                load_config(Path(f.name))
+
+        self.assertNotIn("secret", str(ctx.exception))
+        self.assertIn("***", str(ctx.exception))
+
     def test_load_valid_yaml(self) -> None:
         with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
             f.write(runtime_config_yaml())
@@ -261,7 +346,7 @@ class StartupWithConfigTests(unittest.TestCase):
 
             with self.assertRaisesRegex(
                 RuntimeError,
-                "Marivo config must define metadata.engine=sqlite and metadata.path",
+                r"Marivo config must define metadata.engine=sqlite\|mysql",
             ):
                 create_app(
                     db_path=Path(tmp) / "test.duckdb",

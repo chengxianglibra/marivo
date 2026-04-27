@@ -3,10 +3,13 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
+from urllib.parse import parse_qsl, unquote, urlparse
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from app.redaction import redact_mapping, redact_sensitive_text
 
 logger = logging.getLogger(__name__)
 
@@ -48,8 +51,71 @@ class ObservabilityConfig(BaseModel):
 class MetadataConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    engine: Literal["sqlite"]
-    path: str
+    engine: Literal["sqlite", "mysql"]
+    path: str | None = None
+    dsn: str | None = None
+    host: str | None = None
+    port: int = 3306
+    database: str | None = None
+    user: str | None = None
+    password: str | None = None
+    connect_timeout: int = 10
+    pool_size: int = 5
+    ssl: dict[str, Any] | bool | None = None
+
+    @model_validator(mode="after")
+    def validate_backend_fields(self) -> MetadataConfig:
+        if self.engine == "sqlite":
+            if self.path is None or not self.path.strip():
+                raise ValueError("metadata.path is required when metadata.engine=sqlite")
+            forbidden = {
+                "dsn": self.dsn,
+                "host": self.host,
+                "database": self.database,
+                "user": self.user,
+                "password": self.password,
+                "ssl": self.ssl,
+            }
+            provided = [name for name, value in forbidden.items() if value not in (None, "")]
+            if provided:
+                raise ValueError(
+                    "metadata.engine=sqlite does not accept MySQL fields: "
+                    + ", ".join(sorted(provided))
+                )
+            return self
+
+        if self.connect_timeout <= 0:
+            raise ValueError("metadata.connect_timeout must be positive")
+        if self.pool_size <= 0:
+            raise ValueError("metadata.pool_size must be positive")
+        if self.path is not None and self.path.strip():
+            raise ValueError("metadata.engine=mysql does not accept sqlite path")
+
+        normalized = self.mysql_connection_config()
+        missing = [key for key in ("host", "database", "user") if normalized.get(key) in (None, "")]
+        if missing:
+            raise ValueError(
+                "metadata.engine=mysql requires dsn or explicit fields: " + ", ".join(missing)
+            )
+        return self
+
+    def mysql_connection_config(self) -> dict[str, Any]:
+        """Return normalized MySQL connection fields without mutating the model."""
+
+        config: dict[str, Any] = {
+            "host": self.host,
+            "port": self.port,
+            "database": self.database,
+            "user": self.user,
+            "password": self.password,
+            "connect_timeout": self.connect_timeout,
+            "pool_size": self.pool_size,
+            "ssl": self.ssl,
+            "dsn": self.dsn,
+        }
+        if self.dsn:
+            config.update(_parse_mysql_dsn(self.dsn))
+        return config
 
 
 class CalendarSourceBindingConfig(BaseModel):
@@ -120,6 +186,28 @@ def resolve_metadata_path(config_path: Path, configured_path: str) -> Path:
     return config_path.parent / metadata_path
 
 
+def _parse_mysql_dsn(dsn: str) -> dict[str, Any]:
+    parsed = urlparse(dsn)
+    if parsed.scheme not in {"mysql", "mysql+pymysql"}:
+        raise ValueError("metadata.dsn must use mysql:// or mysql+pymysql://")
+    database = parsed.path.lstrip("/") or None
+    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    result: dict[str, Any] = {
+        "host": parsed.hostname,
+        "port": parsed.port or 3306,
+        "database": unquote(database) if database is not None else None,
+        "user": unquote(parsed.username) if parsed.username is not None else None,
+        "password": unquote(parsed.password) if parsed.password is not None else None,
+    }
+    if "connect_timeout" in query:
+        result["connect_timeout"] = int(query["connect_timeout"])
+    if "pool_size" in query:
+        result["pool_size"] = int(query["pool_size"])
+    if "ssl" in query:
+        result["ssl"] = query["ssl"].lower() in {"1", "true", "yes", "on"}
+    return result
+
+
 def load_config(path: Path | None = None) -> MarivoConfig:
     """Load and validate the Marivo YAML config file.
 
@@ -138,4 +226,10 @@ def load_config(path: Path | None = None) -> MarivoConfig:
         return MarivoConfig()
 
     raw = yaml.safe_load(path.read_text()) or {}
-    return MarivoConfig.model_validate(raw)
+    try:
+        return MarivoConfig.model_validate(raw)
+    except Exception as exc:
+        safe_input: object = redact_mapping(raw) if isinstance(raw, dict) else raw
+        raise ValueError(
+            f"Invalid Marivo config at {path}: {redact_sensitive_text(exc)}; input={safe_input}"
+        ) from exc

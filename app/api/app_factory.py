@@ -32,6 +32,7 @@ from app.sources import SourceService
 from app.storage.analytics import AnalyticsEngine
 from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
 from app.storage.metadata import MetadataStore
+from app.storage.mysql_metadata import MySQLMetadataStore
 from app.storage.repositories import JobRepository
 from app.storage.sqlite_metadata import SQLiteMetadataStore
 from app.sync import SyncEngine
@@ -56,12 +57,31 @@ def _resolve_storage(
         metadata_config = config.metadata
         if db_path is not None and not config_path_explicit:
             metadata_store = SQLiteMetadataStore(Path(resolved_path).with_suffix(".meta.sqlite"))
-        elif metadata_config is not None and metadata_config.path.strip():
+        elif metadata_config is not None and metadata_config.engine == "sqlite":
+            if metadata_config.path is None:
+                raise RuntimeError("Marivo config metadata.path is required for sqlite metadata")
             metadata_path = resolve_metadata_path(config_path, metadata_config.path)
             metadata_store = SQLiteMetadataStore(metadata_path)
+        elif metadata_config is not None and metadata_config.engine == "mysql":
+            mysql_config = metadata_config.mysql_connection_config()
+            metadata_store = MySQLMetadataStore(
+                host=str(mysql_config["host"]),
+                port=int(mysql_config["port"]),
+                database=str(mysql_config["database"]),
+                user=str(mysql_config["user"]),
+                password=(
+                    str(mysql_config["password"])
+                    if mysql_config.get("password") is not None
+                    else None
+                ),
+                connect_timeout=int(mysql_config["connect_timeout"]),
+                pool_size=int(mysql_config["pool_size"]),
+                ssl=mysql_config.get("ssl"),
+                dsn=metadata_config.dsn,
+            )
         else:
             raise RuntimeError(
-                "Marivo config must define metadata.engine=sqlite and metadata.path when "
+                "Marivo config must define metadata.engine=sqlite|mysql when "
                 "metadata_store is not provided"
             )
     if analytics_engine is None:
