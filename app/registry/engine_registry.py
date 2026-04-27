@@ -575,8 +575,11 @@ class EngineRegistry:
                 parsed_auth = auth_payload
         auth = _normalize_stored_auth(parsed_auth)
 
-        raw_default_namespace = _loads_stored_json(row["default_namespace_json"])
-        default_namespace_invalid = not isinstance(raw_default_namespace, dict)
+        raw_default_namespace_json = row.get("default_namespace_json")
+        raw_default_namespace = _loads_stored_json(raw_default_namespace_json)
+        default_namespace_invalid = raw_default_namespace_json is not None and not isinstance(
+            raw_default_namespace, dict
+        )
         default_namespace = raw_default_namespace if isinstance(raw_default_namespace, dict) else {}
         catalog = default_namespace.get("catalog")
         schema = default_namespace.get("schema")
@@ -585,24 +588,33 @@ class EngineRegistry:
             "schema": schema if isinstance(schema, str) or schema is None else None,
         }
 
-        raw_intrinsic_capabilities = _loads_stored_json(row["intrinsic_capabilities_json"])
-        intrinsic_capabilities_invalid = not isinstance(raw_intrinsic_capabilities, dict)
+        raw_intrinsic_capabilities_json = row.get("intrinsic_capabilities_json")
+        raw_intrinsic_capabilities = _loads_stored_json(raw_intrinsic_capabilities_json)
+        intrinsic_capabilities_invalid = (
+            raw_intrinsic_capabilities_json is not None
+            and not isinstance(raw_intrinsic_capabilities, dict)
+        )
         intrinsic_capabilities = (
             raw_intrinsic_capabilities
-            if not intrinsic_capabilities_invalid
+            if isinstance(raw_intrinsic_capabilities, dict)
             else _build_intrinsic_capabilities(engine_type)
         )
         for key, value in _build_intrinsic_capabilities(engine_type).items():
             intrinsic_capabilities.setdefault(key, value)
 
-        raw_deployment_capabilities = _loads_stored_json(row["deployment_capabilities_json"])
-        deployment_capabilities_invalid = not isinstance(raw_deployment_capabilities, dict)
+        raw_deployment_capabilities_json = row.get("deployment_capabilities_json")
+        raw_deployment_capabilities = _loads_stored_json(raw_deployment_capabilities_json)
+        deployment_capabilities_invalid = (
+            raw_deployment_capabilities_json is not None
+            and not isinstance(raw_deployment_capabilities, dict)
+        )
         deployment_capabilities = (
-            raw_deployment_capabilities if not deployment_capabilities_invalid else {}
+            raw_deployment_capabilities if isinstance(raw_deployment_capabilities, dict) else {}
         )
 
-        raw_policy = _loads_stored_json(row["policy_json"])
-        policy_invalid = not isinstance(raw_policy, dict)
+        raw_policy_json = row.get("policy_json")
+        raw_policy = _loads_stored_json(raw_policy_json)
+        policy_invalid = raw_policy_json is not None and not isinstance(raw_policy, dict)
         policy = _normalize_policy(raw_policy if not policy_invalid else None)
         engine = {
             "engine_id": row["engine_id"],
