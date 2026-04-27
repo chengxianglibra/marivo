@@ -1,39 +1,46 @@
-# Marivo configuration file
-# Copy to marivo.yaml (or set MARIVO_CONFIG env var) to activate.
+# Marivo runtime configuration file.
+# Copy to marivo.yaml, or set MARIVO_CONFIG to this file.
 #
-# Sources listed here are auto-registered and synced on app startup.
-# Engines listed here are auto-registered on app startup.
-# Registration is idempotent — restarting the app won't create duplicates.
+# Source, engine, and mapping inventory is managed through the HTTP API.
+# Do not add sources, engines, bindings, or mappings to this file.
 
-sources:
-  # Local demo catalog (ships with Marivo, no external dependencies)
-  - name: "Local Demo"
-    type: duckdb
-    connection: {}
+metadata:
+  # Local development default.
+  engine: sqlite
+  path: .marivo/metadata.sqlite
 
-engines:
-  - name: "Local DuckDB"
-    type: duckdb
-    connection:
-      path: data/mvp.duckdb
+# Production shared metadata store example.
+# MySQL metadata stores Marivo control-plane state only; it is not a source
+# adapter and not an execution engine. Render secrets into this file from your
+# deployment secret manager, or use a DSN supplied by the runtime environment.
+#
+# metadata:
+#   engine: mysql
+#   dsn: mysql+pymysql://marivo:${MARIVO_METADATA_PASSWORD}@mysql.internal:3306/marivo_metadata?connect_timeout=10&pool_size=5&ssl=true
+#
+# Equivalent explicit-field form:
+#
+# metadata:
+#   engine: mysql
+#   host: mysql.internal
+#   port: 3306
+#   database: marivo_metadata
+#   user: marivo
+#   password: ${MARIVO_METADATA_PASSWORD}
+#   connect_timeout: 10
+#   pool_size: 5
+#   ssl: true
 
-  # Trino example
-  # - name: "Trino Prod"
-  #   type: trino
-  #   connection:
-  #     host: trino.internal
-  #     port: 8080
-  #     user: marivo
-  #     catalog: hive
-  #     schema: default
+observability:
+  log_level: INFO
+  metrics_enabled: true
 
-bindings:
-  - source: "Local Demo"
-    engine: "Local DuckDB"
-    priority: 10
-    namespace: {}
+governance:
+  enabled: true
 
 # Optional compiler-owned calendar snapshot registry for calendar alignment.
+# Calendar source bindings must reference sources registered through the HTTP API.
+#
 # calendar:
 #   default_region_code: "CN"
 #   snapshots:
