@@ -165,12 +165,12 @@ class SessionManager:
                 f"Session {session_id!r} is already in a terminal state (status={row['status']!r})."
             )
         self.metadata.execute(
-            """
+            f"""
             UPDATE sessions
             SET status = 'closed',
                 terminal_reason = ?,
-                ended_at = datetime('now'),
-                updated_at = datetime('now')
+                ended_at = {self.metadata.dialect.now_sql()},
+                updated_at = {self.metadata.dialect.now_sql()}
             WHERE session_id = ?
             """,
             [terminal_reason, session_id],

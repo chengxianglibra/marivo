@@ -20,19 +20,13 @@ class StepMetadataRepository:
         semantic_snapshot: dict[str, Any],
     ) -> None:
         payload = json.dumps(semantic_snapshot)
-        self.metadata.execute(
-            """
-            INSERT INTO step_metadata (
-                step_id,
-                metadata_kind,
-                semantic_snapshot_json
-            ) VALUES (?, ?, ?)
-            ON CONFLICT(step_id) DO UPDATE SET
-                metadata_kind = excluded.metadata_kind,
-                semantic_snapshot_json = excluded.semantic_snapshot_json,
-                updated_at = datetime('now')
-            """,
+        self.metadata.upsert_by_key(
+            "step_metadata",
+            ["step_id", "metadata_kind", "semantic_snapshot_json"],
             [step_id, metadata_kind, payload],
+            ["step_id"],
+            ["metadata_kind", "semantic_snapshot_json"],
+            updated_at_column="updated_at",
         )
 
     def get(self, step_id: str) -> dict[str, Any] | None:

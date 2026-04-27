@@ -3538,7 +3538,7 @@ class SemanticLayerService:
            c. Call validate_for_commit(family, result).
               Raises ValueError (count mismatch) or FamilyEmptyError (empty not allowed)
               — no DB write happens.
-           d. In a single DB transaction: INSERT artifact (staged) + INSERT OR IGNORE
+           d. In a single DB transaction: INSERT artifact (staged) + idempotent finding insert
               each finding + UPDATE artifact lifecycle to 'committed'.  Either all three
               succeed together or none do.
         4. Return artifact_id.
@@ -3576,7 +3576,8 @@ class SemanticLayerService:
 
         # All writes in a single transaction: artifact row + findings + lifecycle flip.
         with self.metadata.connect() as con:
-            con.execute(
+            self.metadata.execute_sql(
+                con,
                 """
                 INSERT INTO artifacts
                     (artifact_id, session_id, step_id, artifact_type, name,
@@ -3594,15 +3595,25 @@ class SemanticLayerService:
                 ],
             )
             for f in result["findings"]:
-                con.execute(
-                    """
-                    INSERT OR IGNORE INTO findings (
-                        finding_id, session_id, artifact_id, step_ref_json,
-                        finding_type, canonical_item_key, subject_json,
-                        observed_window_json, quality_json, provenance_json,
-                        payload_json, schema_version
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
+                self.metadata.execute_sql(
+                    con,
+                    self.metadata.insert_ignore_sql(
+                        "findings",
+                        [
+                            "finding_id",
+                            "session_id",
+                            "artifact_id",
+                            "step_ref_json",
+                            "finding_type",
+                            "canonical_item_key",
+                            "subject_json",
+                            "observed_window_json",
+                            "quality_json",
+                            "provenance_json",
+                            "payload_json",
+                            "schema_version",
+                        ],
+                    ),
                     [
                         f["finding_id"],
                         session_id,
@@ -3620,7 +3631,8 @@ class SemanticLayerService:
                         "v1",
                     ],
                 )
-            con.execute(
+            self.metadata.execute_sql(
+                con,
                 "UPDATE artifacts SET lifecycle = 'committed' WHERE artifact_id = ?",
                 [artifact_id],
             )

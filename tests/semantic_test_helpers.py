@@ -82,14 +82,20 @@ def ensure_active_duckdb_mapping(
     suffix = source_id.removeprefix("src_")
     engine_id = f"eng_{suffix}"
     mapping_id = f"map_{suffix}"
-    metadata.execute(
-        """
-        INSERT OR IGNORE INTO engines (
-            engine_id, engine_type, display_name, connection_json, default_namespace_json,
-            intrinsic_capabilities_json, deployment_capabilities_json, policy_json,
-            created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
+    metadata.insert_ignore(
+        "engines",
+        [
+            "engine_id",
+            "engine_type",
+            "display_name",
+            "connection_json",
+            "default_namespace_json",
+            "intrinsic_capabilities_json",
+            "deployment_capabilities_json",
+            "policy_json",
+            "created_at",
+            "updated_at",
+        ],
         [
             engine_id,
             "duckdb",
@@ -109,18 +115,25 @@ def ensure_active_duckdb_mapping(
             now,
         ],
     )
-    metadata.execute(
-        """
-        INSERT OR IGNORE INTO source_execution_mappings (
-            mapping_id, source_id, engine_id, priority, catalog_mappings_json, status, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, 'active', ?, ?)
-        """,
+    metadata.insert_ignore(
+        "source_execution_mappings",
+        [
+            "mapping_id",
+            "source_id",
+            "engine_id",
+            "priority",
+            "catalog_mappings_json",
+            "status",
+            "created_at",
+            "updated_at",
+        ],
         [
             mapping_id,
             source_id,
             engine_id,
             0,
             json.dumps([{"authority_catalog": "main", "execution_catalog": "main"}]),
+            "active",
             now,
             now,
         ],
@@ -326,9 +339,9 @@ def patch_typed_entity_properties(
     existing = json.loads(current["properties_json"] or "{}") if current is not None else {}
     merged = {**existing, **properties_patch}
     metadata_store.execute(
-        """
+        f"""
         UPDATE semantic_entity_contracts
-        SET properties_json = ?, revision = revision + 1, updated_at = datetime('now')
+        SET properties_json = ?, revision = revision + 1, updated_at = {metadata_store.dialect.now_sql()}
         WHERE entity_contract_id = ?
         """,
         [json.dumps(merged), entity_contract_id],

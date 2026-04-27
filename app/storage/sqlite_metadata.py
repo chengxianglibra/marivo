@@ -6,6 +6,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
+from app.storage.dialect import SQLITE_METADATA_DIALECT, MetadataDialect
 from app.storage.metadata import MetadataStore
 from app.storage.schema import METADATA_DDL
 
@@ -22,6 +23,7 @@ class SQLiteMetadataStore(MetadataStore):
     """SQLite-backed metadata store for tests and local development."""
 
     db_path: Path
+    dialect: MetadataDialect = SQLITE_METADATA_DIALECT
 
     def __init__(self, db_path: str | Path) -> None:
         if str(db_path) == ":memory:":
@@ -243,17 +245,17 @@ class SQLiteMetadataStore(MetadataStore):
 
     def execute(self, sql: str, params: list[Any] | None = None) -> None:
         with self.connect() as con:
-            con.execute(sql, params or [])
+            self.execute_sql(con, sql, params)
             con.commit()
 
     def execute_many(self, sql: str, rows: list[tuple[Any, ...]]) -> None:
         with self.connect() as con:
-            con.executemany(sql, rows)
+            con.executemany(self.dialect.compile_sql(sql), rows)
             con.commit()
 
     def query_rows(self, sql: str, params: list[Any] | None = None) -> list[dict[str, Any]]:
         with self.connect() as con:
-            cursor = con.execute(sql, params or [])
+            cursor = self.execute_sql(con, sql, params)
             columns = [desc[0] for desc in cursor.description]
             return [dict(zip(columns, row, strict=False)) for row in cursor.fetchall()]
 

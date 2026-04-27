@@ -12,7 +12,7 @@ Design conventions (matching ``repositories.py``):
   ``json.dumps()``-serialized strings.
 - ``get()`` / ``list_*()`` return dicts with JSON columns
   ``json.loads()``-deserialized back to Python objects.
-- ``FindingRepository.create()`` is idempotent (INSERT OR IGNORE) because
+- ``FindingRepository.create()`` is idempotent because
   the ``findings`` table has a UNIQUE index on
   ``(artifact_id, finding_type, canonical_item_key)``.
 - ``PropositionRepository.create()`` requires an ``identity_key`` field for
@@ -106,7 +106,7 @@ class FindingRepository:
 
     ``create()`` is idempotent: the ``findings`` table has a
     UNIQUE constraint on ``(artifact_id, finding_type, canonical_item_key)``,
-    so inserting the same finding twice is silently ignored (INSERT OR IGNORE).
+    so inserting the same finding twice is silently ignored.
     """
 
     def __init__(self, metadata: MetadataStore) -> None:
@@ -114,23 +114,22 @@ class FindingRepository:
 
     def create(self, finding: dict[str, Any]) -> None:
         """Persist *finding* to the store (idempotent on finding_id and item key)."""
-        self.metadata.execute(
-            """
-            INSERT OR IGNORE INTO findings (
-                finding_id,
-                session_id,
-                artifact_id,
-                step_ref_json,
-                finding_type,
-                canonical_item_key,
-                subject_json,
-                observed_window_json,
-                quality_json,
-                provenance_json,
-                payload_json,
-                schema_version
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
+        self.metadata.insert_ignore(
+            "findings",
+            [
+                "finding_id",
+                "session_id",
+                "artifact_id",
+                "step_ref_json",
+                "finding_type",
+                "canonical_item_key",
+                "subject_json",
+                "observed_window_json",
+                "quality_json",
+                "provenance_json",
+                "payload_json",
+                "schema_version",
+            ],
             [
                 finding["finding_id"],
                 finding["session_id"],
@@ -260,22 +259,21 @@ class PropositionRepository:
         self.metadata = metadata
 
     def create(self, proposition: dict[str, Any]) -> None:
-        self.metadata.execute(
-            """
-            INSERT OR IGNORE INTO propositions (
-                proposition_id,
-                session_id,
-                proposition_type,
-                subject_json,
-                origin_json,
-                assessment_anchor_json,
-                lineage_json,
-                seed_finding_refs_json,
-                payload_json,
-                schema_version,
-                identity_key
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
+        self.metadata.insert_ignore(
+            "propositions",
+            [
+                "proposition_id",
+                "session_id",
+                "proposition_type",
+                "subject_json",
+                "origin_json",
+                "assessment_anchor_json",
+                "lineage_json",
+                "seed_finding_refs_json",
+                "payload_json",
+                "schema_version",
+                "identity_key",
+            ],
             [
                 proposition["proposition_id"],
                 proposition["session_id"],
@@ -361,12 +359,9 @@ class PropositionRepository:
         See the schema comment in ``schema.py`` for the two-surface design.
         """
         for ref in refs:
-            self.metadata.execute(
-                """
-                INSERT OR IGNORE INTO proposition_seed_finding_refs
-                    (proposition_id, finding_id, role)
-                VALUES (?, ?, ?)
-                """,
+            self.metadata.insert_ignore(
+                "proposition_seed_finding_refs",
+                ["proposition_id", "finding_id", "role"],
                 [proposition_id, ref["finding_id"], ref.get("role", "primary")],
             )
 
@@ -416,7 +411,8 @@ class PropositionRepository:
         against *assessment_id* before calling this method.
         """
         with self.metadata.connect() as con:
-            cursor = con.execute(
+            cursor = self.metadata.execute_sql(
+                con,
                 """
                 UPDATE propositions
                 SET externally_visible_assessment_id = ?
