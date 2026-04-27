@@ -15,6 +15,17 @@ ALLOWED_APP_FILES = {
     Path("app/storage/sqlite_metadata.py"),
 }
 
+ALLOWED_TEST_FILES = {
+    Path("tests/shared_fixtures.py"),
+    Path("tests/test_canonical_refs.py"),
+    Path("tests/test_mysql_metadata_ddl.py"),
+    Path("tests/test_semantic_schema.py"),
+    Path("tests/test_semantic_service.py"),
+    Path("tests/test_static_sql_boundaries.py"),
+    Path("tests/test_storage.py"),
+    Path("tests/test_typed_bindings.py"),
+}
+
 
 def test_shared_app_code_does_not_use_sqlite_specific_sql() -> None:
     root = Path(__file__).resolve().parents[1]
@@ -50,5 +61,20 @@ def test_intent_seed_paths_do_not_use_sqlite_idempotent_insert() -> None:
         for path in checked_files
         if "INSERT OR IGNORE" in (root / path).read_text(encoding="utf-8")
     ]
+
+    assert offenders == []
+
+
+def test_non_sqlite_specific_tests_do_not_use_sqlite_specific_sql() -> None:
+    root = Path(__file__).resolve().parents[1]
+    offenders: list[str] = []
+    for path in sorted((root / "tests").rglob("*.py")):
+        relative = path.relative_to(root)
+        if relative in ALLOWED_TEST_FILES:
+            continue
+        text = path.read_text(encoding="utf-8")
+        for pattern in FORBIDDEN_PATTERNS:
+            if pattern in text:
+                offenders.append(f"{relative}: {pattern}")
 
     assert offenders == []
