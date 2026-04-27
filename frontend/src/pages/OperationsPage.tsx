@@ -32,6 +32,7 @@ import {
   useRoutingResolve,
   useSetSourceSyncSelections,
   useSources,
+  useSourceObjects,
   useSourceCatalogSchemas,
   useSourceCatalogTables,
   useSourceSyncSelections,
@@ -87,6 +88,11 @@ function splitCsv(value: string | undefined): string[] {
     .filter(Boolean);
 }
 
+function sourceObjectLocator(row: EntityRow, key: "catalog" | "schema" | "table" | "column"): string {
+  const locator = row.authority_locator as JsonRecord | undefined;
+  return String(locator?.[key] ?? row[key] ?? "-");
+}
+
 function apiErrorMessage(error: unknown): string {
   if (error && typeof error === "object" && "message" in error) {
     return String((error as { message?: unknown }).message);
@@ -102,6 +108,7 @@ function ObjectTable({
   onDelete,
   onSync,
   onSelections,
+  onObjects,
   deleting,
   syncing,
 }: {
@@ -112,6 +119,7 @@ function ObjectTable({
   onDelete: (row: EntityRow) => void;
   onSync?: (row: EntityRow) => void;
   onSelections?: (row: EntityRow) => void;
+  onObjects?: (row: EntityRow) => void;
   deleting?: boolean;
   syncing?: boolean;
 }) {
@@ -140,6 +148,7 @@ function ObjectTable({
                     Sync
                   </Button>
                   <Button onClick={() => onSelections?.(row)}>Selections</Button>
+                  <Button onClick={() => onObjects?.(row)}>Synced Objects</Button>
                 </>
               ) : null}
               <Button onClick={() => onInspect(row)}>Details</Button>
@@ -160,6 +169,50 @@ function ObjectTable({
         },
       ]}
     />
+  );
+}
+
+function SourceObjectsDrawer({
+  row,
+  open,
+  onClose,
+}: {
+  row?: EntityRow;
+  open: boolean;
+  onClose: () => void;
+}) {
+  const sourceId = row?.source_id ? String(row.source_id) : undefined;
+  const objects = useSourceObjects(sourceId, open);
+
+  return (
+    <Drawer title="Synced Source Objects" open={open} onClose={onClose} width={920}>
+      <Space direction="vertical" size="middle" className="full-width">
+        <Descriptions bordered size="small" column={2}>
+          <Descriptions.Item label="Source">{row?.display_name ?? row?.source_id}</Descriptions.Item>
+          <Descriptions.Item label="Synced objects">{row?.synced_object_count ?? objects.data?.length ?? 0}</Descriptions.Item>
+        </Descriptions>
+        <Table
+          rowKey={(object) => String(object.object_id ?? object.fqn ?? JSON.stringify(object))}
+          size="small"
+          loading={objects.isFetching}
+          dataSource={objects.data}
+          locale={{ emptyText: <TaskEmpty kind="sourceObject" /> }}
+          expandable={{ expandedRowRender: (object) => <JsonPreview payload={object} /> }}
+          columns={[
+            { title: "Type", dataIndex: "object_type" },
+            { title: "FQN", render: (_, object) => object.fqn ?? object.name ?? "-" },
+            { title: "Catalog", render: (_, object) => sourceObjectLocator(object, "catalog") },
+            { title: "Schema", render: (_, object) => sourceObjectLocator(object, "schema") },
+            { title: "Table", render: (_, object) => sourceObjectLocator(object, "table") },
+            {
+              title: "Columns",
+              render: (_, object) => object.properties?.column_count ?? object.columns?.length ?? "-",
+            },
+            { title: "Synced", dataIndex: "synced_at" },
+          ]}
+        />
+      </Space>
+    </Drawer>
   );
 }
 
@@ -654,6 +707,7 @@ function SourcesTab({ onInspect, onEdit }: { onInspect: (row: EntityRow) => void
   const deleteSource = useDeleteSource();
   const syncSource = useSyncSource();
   const [selectionSource, setSelectionSource] = useState<EntityRow>();
+  const [objectSource, setObjectSource] = useState<EntityRow>();
   return (
     <Space direction="vertical" size="middle" className="full-width">
       <Typography.Paragraph type="secondary">
@@ -682,6 +736,7 @@ function SourcesTab({ onInspect, onEdit }: { onInspect: (row: EntityRow) => void
           })
         }
         onSelections={setSelectionSource}
+        onObjects={setObjectSource}
         onDelete={(row) => deleteSource.mutate(String(row.source_id), { onError: (error) => message.error(apiErrorMessage(error)) })}
         deleting={deleteSource.isPending}
         syncing={syncSource.isPending}
@@ -690,6 +745,11 @@ function SourcesTab({ onInspect, onEdit }: { onInspect: (row: EntityRow) => void
         row={selectionSource}
         open={Boolean(selectionSource)}
         onClose={() => setSelectionSource(undefined)}
+      />
+      <SourceObjectsDrawer
+        row={objectSource}
+        open={Boolean(objectSource)}
+        onClose={() => setObjectSource(undefined)}
       />
     </Space>
   );

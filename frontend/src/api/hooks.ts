@@ -48,6 +48,14 @@ export function useSources() {
   });
 }
 
+export function useSourceObjects(sourceId?: string, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.sourceObjects(sourceId),
+    enabled: Boolean(sourceId) && enabled,
+    queryFn: async () => unwrapList(await apiClient.get(`/sources/${sourceId}/objects`)),
+  });
+}
+
 export function useCreateSource() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -80,7 +88,7 @@ export function useSyncSource() {
     onSuccess: (_, sourceId) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.sources });
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
-      queryClient.invalidateQueries({ queryKey: ["sources", sourceId, "objects"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.sourceObjects(sourceId) });
     },
   });
 }

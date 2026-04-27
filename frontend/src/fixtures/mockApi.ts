@@ -13,6 +13,7 @@ import {
   semantic,
   sessionState,
   sessions,
+  sourceObjects,
   sources,
 } from "./mockData";
 import type { JsonRecord } from "../api/types";
@@ -45,6 +46,8 @@ export function mockGet(path: string, query?: Record<string, unknown>): unknown 
   if (clean === "/metrics") return metrics;
   if (clean === "/openapi/index") return openapiIndex;
   if (clean === "/sources") return sources;
+  const objectsMatch = clean.match(/^\/sources\/([^/]+)\/objects$/);
+  if (objectsMatch) return sourceObjects[objectsMatch[1]] ?? [];
   const selectionMatch = clean.match(/^\/sources\/([^/]+)\/sync\/selections$/);
   if (selectionMatch) {
     if (selectionMatch[1] === "src_sales_duckdb") {
@@ -103,6 +106,21 @@ export function mockPost(path: string, body: unknown): unknown {
       source.readiness_status = "ready";
       source.failure_code = null;
       source.updated_at = now();
+      if (!sourceObjects[sourceSyncMatch[1]]?.length) {
+        sourceObjects[sourceSyncMatch[1]] = [
+          {
+            object_id: `obj_${sourceSyncMatch[1]}_analytics_orders`,
+            source_id: sourceSyncMatch[1],
+            object_type: "table",
+            name: "orders",
+            fqn: "main.analytics.orders",
+            authority_locator: { catalog: "main", schema: "analytics", table: "orders" },
+            properties: { column_count: 8 },
+            sync_version: `v_${Math.random().toString(16).slice(2, 8)}`,
+            synced_at: now(),
+          },
+        ];
+      }
     }
     return { job_id: `job_sync_${Math.random().toString(16).slice(2, 8)}`, source_id: sourceSyncMatch[1], status: "succeeded" };
   }

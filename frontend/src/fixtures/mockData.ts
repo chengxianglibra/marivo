@@ -43,6 +43,34 @@ export const sources = [
   },
 ];
 
+export const sourceObjects: Record<string, JsonRecord[]> = {
+  src_sales_duckdb: [
+    {
+      object_id: "obj_sales_orders",
+      source_id: "src_sales_duckdb",
+      object_type: "table",
+      name: "orders",
+      fqn: "sales.analytics.orders",
+      authority_locator: { catalog: "sales", schema: "analytics", table: "orders" },
+      properties: { column_count: 12, table_type: "BASE TABLE" },
+      sync_version: "v_sales_20260425",
+      synced_at: "2026-04-25T10:12:00+08:00",
+    },
+    {
+      object_id: "obj_sales_revenue_daily",
+      source_id: "src_sales_duckdb",
+      object_type: "table",
+      name: "revenue_daily",
+      fqn: "sales.analytics.revenue_daily",
+      authority_locator: { catalog: "sales", schema: "analytics", table: "revenue_daily" },
+      properties: { column_count: 9, table_type: "BASE TABLE" },
+      sync_version: "v_sales_20260425",
+      synced_at: "2026-04-25T10:12:00+08:00",
+    },
+  ],
+  src_lake_trino: [],
+};
+
 export const engines = [
   {
     engine_id: "eng_duckdb_runtime",
