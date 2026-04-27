@@ -79,13 +79,12 @@ auto-managed mode requires a workspace root and resolves the endpoint from
 cd marivo-mcp
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -e ..
 pip install -e .
 ```
 
-`marivo-mcp` reuses Marivo's canonical Pydantic request models for typed intent
-tool schemas. Keep the repository root package importable in the same
-environment as the MCP adapter.
+`marivo-mcp` is installed as an independent adapter package. Remote explicit
+mode only requires the adapter environment and a reachable Marivo HTTP service;
+it must not rely on `PYTHONPATH` pointing at the Marivo repository root.
 
 ## Client Setup
 
