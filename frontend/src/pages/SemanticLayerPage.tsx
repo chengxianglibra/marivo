@@ -5,21 +5,94 @@ import type { EntityRow, JsonRecord } from "../api/types";
 import { TaskEmpty } from "../components/EmptyState";
 import { BlockerPanel, InlineState, JsonPreview, SectionHeader, StatusBadge } from "../components/StatusBadge";
 
+function firstText(...values: unknown[]): string | undefined {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value;
+  }
+  return undefined;
+}
+
+function semanticHeader(row: EntityRow): JsonRecord {
+  return row.header && typeof row.header === "object" ? (row.header as JsonRecord) : {};
+}
+
 function semanticId(row: EntityRow): string {
+  const header = semanticHeader(row);
   return (
-    row.entity_id ??
-    row.metric_id ??
-    row.process_contract_id ??
-    row.dimension_contract_id ??
-    row.time_contract_id ??
-    row.enum_set_contract_id ??
-    row.predicate_contract_id ??
-    row.binding_id ??
-    row.profile_id ??
-    row.id ??
-    row.name ??
-    JSON.stringify(row)
+    firstText(
+      row.entity_id,
+      header.entity_ref,
+      row.entity_contract_id,
+      row.metric_id,
+      header.metric_ref,
+      row.metric_contract_id,
+      row.process_contract_id,
+      header.process_ref,
+      row.dimension_contract_id,
+      header.dimension_ref,
+      row.time_contract_id,
+      header.time_ref,
+      row.enum_set_contract_id,
+      header.enum_set_ref,
+      row.predicate_contract_id,
+      header.predicate_ref,
+      row.binding_id,
+      row.binding_contract_id,
+      header.binding_ref,
+      row.profile_id,
+      header.profile_ref,
+      row.id,
+      row.name,
+    ) ?? JSON.stringify(row)
   );
+}
+
+function semanticName(row: EntityRow): string {
+  const header = semanticHeader(row);
+  return firstText(row.name, row.display_name, header.display_name, header.name) ?? "-";
+}
+
+function formatSemanticValue(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "";
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) return value.map(formatSemanticValue).filter(Boolean).join(", ");
+  if (typeof value === "object") {
+    return Object.entries(value as JsonRecord)
+      .map(([key, entry]) => {
+        const formatted = formatSemanticValue(entry);
+        return formatted ? `${key}: ${formatted}` : key;
+      })
+      .join(", ");
+  }
+  return String(value);
+}
+
+function formatSemanticList(value: unknown, separator = ", ", fallback = "-"): string {
+  const formatted = Array.isArray(value)
+    ? value.map(formatSemanticValue).filter(Boolean).join(separator)
+    : formatSemanticValue(value);
+  return formatted || fallback;
+}
+
+function formatCapabilities(value: unknown): string {
+  if (Array.isArray(value)) return formatSemanticList(value);
+  if (value && typeof value === "object") {
+    const formatted = Object.entries(value as JsonRecord)
+      .flatMap(([key, entry]) => {
+        if (entry === true) return [key];
+        if (entry === false || entry === null || entry === undefined || typeof entry === "object") return [];
+        return [`${key}: ${formatSemanticValue(entry)}`];
+      })
+      .join(", ");
+    return formatted || "-";
+  }
+  return formatSemanticList(value);
+}
+
+function semanticCollectionCount(value: unknown): number {
+  if (Array.isArray(value)) return value.length;
+  if (value && typeof value === "object") return Object.keys(value).length;
+  return value ? 1 : 0;
 }
 
 function InventoryTable({
@@ -38,16 +111,16 @@ function InventoryTable({
       locale={{ emptyText: <TaskEmpty kind="semantic" /> }}
       columns={[
         { title: "Ref", render: (_, row) => semanticId(row) },
-        { title: "Name", render: (_, row) => row.name ?? row.display_name ?? "-" },
+        { title: "Name", render: (_, row) => semanticName(row) },
         { title: "Lifecycle", render: (_, row) => <StatusBadge value={row.lifecycle_status ?? row.status} /> },
         { title: "Readiness", render: (_, row) => <InlineState readiness={row.readiness_status} failure={row.failure_code} /> },
         {
           title: "Dependencies",
-          render: (_, row) => ((row.dependency_refs as string[] | undefined) ?? []).length,
+          render: (_, row) => semanticCollectionCount(row.dependency_refs),
         },
         {
           title: "Capabilities",
-          render: (_, row) => ((row.capabilities as string[] | undefined) ?? []).join(", ") || "-",
+          render: (_, row) => formatCapabilities(row.capabilities),
         },
         { title: "Inspect", render: (_, row) => <Button onClick={() => onInspect(kind, row)}>Details</Button> },
       ]}
@@ -104,10 +177,11 @@ function ReadinessQueueSection({
                   <InlineState readiness={row.readiness_status} failure={row.failure_code} />
                 </Space>
               }
-              description={
-                ((row.blocking_requirements as string[] | undefined) ?? []).join(" / ") ||
-                "The server did not return blocking requirements."
-              }
+              description={formatSemanticList(
+                row.blocking_requirements,
+                " / ",
+                "The server did not return blocking requirements.",
+              )}
             />
           </List.Item>
         )}
