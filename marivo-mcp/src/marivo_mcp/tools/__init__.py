@@ -3,12 +3,11 @@ from __future__ import annotations
 import base64
 from collections.abc import Callable
 from copy import deepcopy
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, BeforeValidator, Field
+from pydantic import BaseModel, BeforeValidator, Field, field_validator, model_validator
 from pydantic_core import PydanticCustomError
 
-from app.api.models.intents import ObserveScope
 from marivo_mcp.config import MarivoMcpConfig
 from marivo_mcp.http_client import MarivoHttpClient
 from marivo_mcp.openapi_cache import OpenApiResponseCache
@@ -77,6 +76,42 @@ type McpStructuredObject = Annotated[
     JsonObject,
     BeforeValidator(_reject_json_string),
 ]
+
+
+class ObserveScope(BaseModel):
+    """Non-time population scope accepted by typed intent MCP tools."""
+
+    constraints: dict[str, Any] | None = Field(
+        default=None,
+        description="Scalar equality constraints on semantic dimensions.",
+    )
+    predicate: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "DEPRECATED: Use predicate_ref instead. Structured non-time predicate AST. "
+            "Must not contain time conditions."
+        ),
+    )
+    predicate_ref: str | None = Field(
+        default=None,
+        description=(
+            "Reference to a governed predicate (predicate.*) declaring request_scope usage. "
+            "Mutually exclusive with predicate."
+        ),
+    )
+
+    @field_validator("predicate_ref")
+    @classmethod
+    def _validate_predicate_ref_prefix(cls, value: str | None) -> str | None:
+        if value is not None and not value.startswith("predicate."):
+            raise ValueError("predicate_ref must start with 'predicate.'")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_mutual_exclusion(self) -> ObserveScope:
+        if self.predicate is not None and self.predicate_ref is not None:
+            raise ValueError("predicate and predicate_ref are mutually exclusive")
+        return self
 
 
 def _tool_metadata(

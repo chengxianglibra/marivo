@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import subprocess
 import sys
 from importlib import import_module
 from pathlib import Path
@@ -23,6 +25,25 @@ get_surface_spec = inventory_module.get_surface_spec
 get_tier_specs = inventory_module.get_tier_specs
 register_resources = resources_module.register_resources
 register_tools = tools_module.register_tools
+
+
+def test_mcp_tools_import_without_marivo_app_package(tmp_path: Path) -> None:
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(MARIVO_MCP_SRC)
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import marivo_mcp.tools; import marivo_mcp.server",
+        ],
+        cwd=tmp_path,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
 
 
 class _FakeServerSettings:
