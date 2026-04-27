@@ -367,6 +367,8 @@ observability:
 
 数据源与执行引擎注册仍然需要显式完成，但运行时启动路径不应要求用户在 agent 连接之前手工编写本地文件。
 
+该默认配置只覆盖本地自动托管路径。生产级共享 metadata store 的 MySQL Fresh-init v1 边界见 [`mysql-metadata-fresh-init-v1.zh.md`](./mysql-metadata-fresh-init-v1.zh.md)；MySQL metadata 是 control-plane 存储选择，不是 source adapter 或 execution engine。
+
 ## 用户接入流程
 
 以下内容描述当前 v1 中，用户如何在自己的 agent 运行环境中安装并注册 `marivo-mcp`。
