@@ -145,32 +145,32 @@
 
 ## 三、DDL 与 Schema Bootstrap
 
-- [ ] 任务 3.1：拆分方言感知 metadata DDL
+- [x] 任务 3.1：拆分方言感知 metadata DDL
   - 交付物：SQLite DDL 与 MySQL DDL 生成/选择机制
   - 关键内容：保留 SQLite 现有 fresh-init 行为，同时为 MySQL 输出独立可执行 DDL
   - 验收标准：`SQLiteMetadataStore.initialize()` 与 `MySQLMetadataStore.initialize()` 不共享不可执行的裸 SQL 字符串
 
-- [ ] 任务 3.2：修正 MySQL 主键与索引列类型
+- [x] 任务 3.2：修正 MySQL 主键与索引列类型
   - 交付物：MySQL DDL contract
   - 范围：所有 `TEXT PRIMARY KEY`、唯一索引列、外键列改为可索引 `VARCHAR(n)` 或明确长度类型
   - 验收标准：MySQL InnoDB 可成功创建所有表、主键、唯一索引、外键，不依赖 prefix index 兜底
 
-- [ ] 任务 3.3：修正 MySQL timestamp default
+- [x] 任务 3.3：修正 MySQL timestamp default
   - 交付物：MySQL 时间字段 DDL
   - 范围：`created_at/updated_at/ended_at` 等字段默认值和更新写法
   - 验收标准：MySQL 空库初始化不出现 `datetime('now')` 语法错误，写入后时间字段非空且格式稳定
 
-- [ ] 任务 3.4：校验 MySQL check/constraint 策略
+- [x] 任务 3.4：校验 MySQL check/constraint 策略
   - 交付物：constraint decision note
   - 关键内容：MySQL 8.0.16+ 可依赖 `CHECK`；跨版本风险由启动前版本检查兜住
   - 验收标准：低版本 MySQL 不进入运行态；支持版本中关键 `CHECK`、FK、unique 行为有集成测试覆盖
 
-- [ ] 任务 3.5：实现 MySQL 空库检测
+- [x] 任务 3.5：实现 MySQL 空库检测
   - 交付物：bootstrap preflight
   - 规则：目标 database 为空或只包含允许的 metadata bootstrap 标记时可初始化；存在未知业务表时失败
   - 验收标准：不会误把已有非 Marivo schema 当成可迁移目标，也不会自动删除未知表
 
-- [ ] 任务 3.6：建立 schema version/shape 记录
+- [x] 任务 3.6：建立 schema version/shape 记录
   - 交付物：metadata schema marker 表或等价记录
   - 最小字段：backend、schema_version、created_at、ddl_fingerprint
   - 验收标准：启动时能区分当前 fresh-init schema 与未知/过期 schema，并给出明确错误

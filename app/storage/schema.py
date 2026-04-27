@@ -1,8 +1,14 @@
-"""DDL definitions for the Marivo metadata store.
+"""DDL definitions for the Marivo metadata store."""
 
-All SQL uses dialect-neutral types (TEXT timestamps, no DuckDB-specific casts)
-so the same DDL works across SQLite, MySQL, and PostgreSQL.
-"""
+from __future__ import annotations
+
+import hashlib
+import re
+from dataclasses import dataclass
+from typing import Any, Literal
+
+METADATA_SCHEMA_VERSION = "metadata.fresh_init.v1"
+METADATA_SCHEMA_MARKER_TABLE = "metadata_schema_marker"
 
 METADATA_DDL: list[str] = [
     # -- Existing control-plane tables --
@@ -1088,4 +1094,292 @@ METADATA_DDL: list[str] = [
     """,
     "CREATE INDEX IF NOT EXISTS idx_prop_seed_refs_proposition ON proposition_seed_finding_refs(proposition_id)",
     "CREATE INDEX IF NOT EXISTS idx_prop_seed_refs_finding ON proposition_seed_finding_refs(finding_id)",
+    """
+    CREATE TABLE IF NOT EXISTS metadata_schema_marker (
+        backend         TEXT NOT NULL PRIMARY KEY CHECK (backend IN ('sqlite', 'mysql')),
+        schema_version  TEXT NOT NULL,
+        created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+        ddl_fingerprint TEXT NOT NULL
+    )
+    """,
 ]
+
+MetadataBackend = Literal["sqlite", "mysql"]
+MetadataSchemaState = Literal["empty", "current", "invalid"]
+
+
+@dataclass(frozen=True)
+class MetadataSchemaCheck:
+    state: MetadataSchemaState
+    reason: str
+
+
+def metadata_ddl_for_backend(backend: MetadataBackend) -> list[str]:
+    """Return executable metadata DDL for a backend."""
+
+    if backend == "sqlite":
+        return list(METADATA_DDL)
+    if backend == "mysql":
+        return list(MYSQL_METADATA_DDL)
+    raise ValueError(f"Unsupported metadata backend: {backend}")
+
+
+def metadata_ddl_fingerprint(backend: MetadataBackend) -> str:
+    ddl = "\n".join(_normalize_ddl(stmt) for stmt in metadata_ddl_for_backend(backend))
+    return hashlib.sha256(ddl.encode("utf-8")).hexdigest()
+
+
+def metadata_schema_marker_row(backend: MetadataBackend) -> dict[str, str]:
+    return {
+        "backend": backend,
+        "schema_version": METADATA_SCHEMA_VERSION,
+        "ddl_fingerprint": metadata_ddl_fingerprint(backend),
+    }
+
+
+def expected_metadata_tables(backend: MetadataBackend) -> set[str]:
+    return {
+        table
+        for stmt in metadata_ddl_for_backend(backend)
+        if (table := _table_name(stmt)) is not None
+    }
+
+
+def evaluate_metadata_schema_state(
+    backend: MetadataBackend,
+    table_names: set[str],
+    marker_row: dict[str, Any] | None,
+) -> MetadataSchemaCheck:
+    """Classify a fresh-init metadata schema without mutating it."""
+
+    expected_tables = expected_metadata_tables(backend)
+    if not table_names:
+        return MetadataSchemaCheck("empty", "schema is empty")
+
+    unknown_tables = table_names - expected_tables
+    if unknown_tables:
+        return MetadataSchemaCheck(
+            "invalid", f"unknown tables: {', '.join(sorted(unknown_tables))}"
+        )
+
+    if METADATA_SCHEMA_MARKER_TABLE not in table_names:
+        return MetadataSchemaCheck("invalid", "metadata schema marker table is missing")
+
+    missing_tables = expected_tables - table_names
+    if missing_tables:
+        return MetadataSchemaCheck(
+            "invalid", f"missing tables: {', '.join(sorted(missing_tables))}"
+        )
+
+    if marker_row is None:
+        return MetadataSchemaCheck("invalid", "metadata schema marker row is missing")
+
+    expected_marker = metadata_schema_marker_row(backend)
+    for key, expected_value in expected_marker.items():
+        if marker_row.get(key) != expected_value:
+            return MetadataSchemaCheck("invalid", f"metadata schema marker {key} mismatch")
+
+    return MetadataSchemaCheck("current", "metadata schema matches current fresh-init contract")
+
+
+def _normalize_ddl(sql: str) -> str:
+    return re.sub(r"\s+", " ", sql.strip()).lower()
+
+
+def _table_name(sql: str) -> str | None:
+    match = re.match(r"\s*CREATE TABLE IF NOT EXISTS\s+([a-zA-Z_][a-zA-Z0-9_]*)", sql)
+    return match.group(1) if match else None
+
+
+def _mysql_metadata_ddl() -> list[str]:
+    ddl: list[str] = []
+    foreign_keys: list[str] = []
+    indexed_columns = _mysql_indexed_columns()
+    for statement in METADATA_DDL:
+        stripped = statement.strip()
+        if stripped.startswith("CREATE TRIGGER"):
+            continue
+        if stripped.startswith("CREATE TABLE"):
+            table_name = _table_name(stripped)
+            table_sql, table_foreign_keys = _mysql_table_ddl(
+                stripped,
+                indexed_columns.get(table_name or "", set()),
+            )
+            ddl.append(table_sql)
+            foreign_keys.extend(table_foreign_keys)
+        elif "WHERE identity_key != ''" in stripped:
+            ddl.append(
+                "CREATE UNIQUE INDEX idx_propositions_session_type_identity "
+                "ON propositions(session_id, proposition_type, identity_key_unique)"
+            )
+        elif stripped.startswith("CREATE INDEX") or stripped.startswith("CREATE UNIQUE INDEX"):
+            ddl.append(stripped.replace(" IF NOT EXISTS", ""))
+        else:
+            ddl.append(stripped)
+    ddl.extend(foreign_keys)
+    return ddl
+
+
+def _mysql_table_ddl(sql: str, indexed_columns: set[str]) -> tuple[str, list[str]]:
+    lines = sql.splitlines()
+    converted: list[str] = []
+    foreign_keys: list[str] = []
+    table_name = _table_name(sql)
+    for line in lines:
+        converted_lines, line_foreign_keys = _mysql_table_line(
+            line,
+            table_name or "",
+            indexed_columns,
+        )
+        converted.extend(converted_lines)
+        foreign_keys.extend(line_foreign_keys)
+    table_sql = "\n".join(converted)
+    table_sql = table_sql.replace("DEFAULT (datetime('now'))", "DEFAULT CURRENT_TIMESTAMP")
+    table_sql = table_sql.replace(
+        "INTEGER PRIMARY KEY AUTOINCREMENT",
+        "BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY",
+    )
+    table_sql = re.sub(r"\bINTEGER\b", "INT", table_sql)
+    table_sql = re.sub(r"\bREAL\b", "DOUBLE", table_sql)
+    table_sql = re.sub(r"\bsubstr\(", "SUBSTR(", table_sql)
+    return (
+        f"{table_sql}\nENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        foreign_keys,
+    )
+
+
+def _mysql_table_line(
+    line: str, table_name: str, indexed_columns: set[str]
+) -> tuple[list[str], list[str]]:
+    stripped = line.strip()
+    column_match = re.match(r"([a-zA-Z_][a-zA-Z0-9_]*)\s+TEXT\b(.*)", stripped)
+    if column_match is None:
+        return [line], []
+
+    column_name, suffix = column_match.groups()
+    foreign_keys: list[str] = []
+    reference_match = re.search(
+        r"\s+REFERENCES\s+([a-zA-Z_][a-zA-Z0-9_]*)\(([^)]+)\)(\s+ON DELETE CASCADE)?",
+        suffix,
+    )
+    if reference_match is not None:
+        ref_table, ref_column, on_delete = reference_match.groups()
+        constraint_name = f"fk_{table_name}_{column_name}"
+        foreign_key = (
+            f"ALTER TABLE {table_name} ADD CONSTRAINT {constraint_name} "
+            f"FOREIGN KEY ({column_name}) "
+            f"REFERENCES {ref_table}({ref_column})"
+        )
+        if on_delete:
+            foreign_key = f"{foreign_key}{on_delete}"
+        foreign_keys.append(foreign_key)
+        suffix = f"{suffix[: reference_match.start()]}{suffix[reference_match.end() :]}"
+
+    mysql_type = _mysql_text_type(column_name, suffix, indexed_columns)
+    leading = line[: len(line) - len(line.lstrip())]
+    converted = f"{leading}{column_name:<31} {mysql_type}{suffix}"
+    if column_name == "identity_key":
+        comma = "," if stripped.endswith(",") else ""
+        generated = (
+            f"{leading}identity_key_unique             VARCHAR(191) "
+            f"GENERATED ALWAYS AS (NULLIF(identity_key, '')) STORED{comma}"
+        )
+        return [converted, generated], foreign_keys
+    return [converted], foreign_keys
+
+
+def _mysql_text_type(column_name: str, suffix: str, indexed_columns: set[str]) -> str:
+    if "PRIMARY KEY" in suffix or "REFERENCES" in suffix or "UNIQUE" in suffix:
+        return "VARCHAR(191)"
+    if column_name.endswith("_json") or column_name in {
+        "content_json",
+        "definition_json",
+        "payload_json",
+        "detail_json",
+        "result_json",
+        "steps_json",
+        "connection_json",
+        "auth_json",
+    }:
+        return "LONGTEXT"
+    if column_name.endswith("_id") or column_name.endswith("_ref") or column_name.endswith("_key"):
+        return "VARCHAR(191)"
+    if column_name in {
+        "created_at",
+        "updated_at",
+        "ended_at",
+        "submitted_at",
+        "started_at",
+        "completed_at",
+        "finished_at",
+        "decided_at",
+        "synced_at",
+        "resolved_at",
+        "invalidated_at",
+    }:
+        return "DATETIME(6)"
+    if column_name in indexed_columns:
+        return "VARCHAR(191)"
+    if column_name in {
+        "status",
+        "source_type",
+        "object_type",
+        "engine_type",
+        "job_type",
+        "step_type",
+        "artifact_type",
+        "finding_type",
+        "proposition_type",
+        "assessment_type",
+        "action_kind",
+        "fqn",
+        "lifecycle",
+        "native_name",
+        "schema_version",
+        "sync_version",
+        "backend",
+        "ddl_fingerprint",
+    }:
+        return "VARCHAR(191)"
+    return "TEXT"
+
+
+def _mysql_indexed_columns() -> dict[str, set[str]]:
+    indexed_columns: dict[str, set[str]] = {}
+    current_table: str | None = None
+    for statement in METADATA_DDL:
+        stripped = statement.strip()
+        table_name = _table_name(stripped)
+        if table_name is not None:
+            current_table = table_name
+            indexed_columns.setdefault(current_table, set())
+            for line in stripped.splitlines():
+                line_stripped = line.strip()
+                for prefix in ("UNIQUE", "PRIMARY KEY"):
+                    if re.match(rf"{prefix}\s*\(", line_stripped):
+                        indexed_columns[current_table].update(
+                            _column_list(
+                                line_stripped[
+                                    line_stripped.find("(") + 1 : line_stripped.rfind(")")
+                                ]
+                            )
+                        )
+            continue
+
+        index_match = re.match(
+            r"CREATE (?:UNIQUE )?INDEX IF NOT EXISTS \w+ ON ([a-zA-Z_][a-zA-Z0-9_]*)\((.*?)\)",
+            stripped,
+            re.S,
+        )
+        if index_match is not None:
+            indexed_columns.setdefault(index_match.group(1), set()).update(
+                _column_list(index_match.group(2))
+            )
+    return indexed_columns
+
+
+def _column_list(columns_sql: str) -> list[str]:
+    return [part.strip().split()[0] for part in columns_sql.split(",") if part.strip()]
+
+
+MYSQL_METADATA_DDL: list[str] = _mysql_metadata_ddl()

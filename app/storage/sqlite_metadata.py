@@ -8,7 +8,7 @@ from typing import Any
 
 from app.storage.dialect import SQLITE_METADATA_DIALECT, MetadataDialect
 from app.storage.metadata import MetadataStore
-from app.storage.schema import METADATA_DDL
+from app.storage.schema import metadata_ddl_for_backend, metadata_schema_marker_row
 
 _ENGINE_SCHEMA_COLUMNS: tuple[tuple[str, str], ...] = (
     ("auth_json", "TEXT NOT NULL DEFAULT '{}'"),
@@ -35,11 +35,17 @@ class SQLiteMetadataStore(MetadataStore):
     def initialize(self) -> None:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as con:
-            for ddl in METADATA_DDL:
+            for ddl in metadata_ddl_for_backend("sqlite"):
                 con.execute(ddl)
             self._upgrade_legacy_schema(con)
-            for ddl in METADATA_DDL:
-                con.execute(ddl)
+            marker = metadata_schema_marker_row("sqlite")
+            con.execute(
+                self.dialect.insert_ignore_sql(
+                    "metadata_schema_marker",
+                    ["backend", "schema_version", "ddl_fingerprint"],
+                ),
+                [marker["backend"], marker["schema_version"], marker["ddl_fingerprint"]],
+            )
             con.commit()
 
     def _upgrade_legacy_schema(self, con: sqlite3.Connection) -> None:
