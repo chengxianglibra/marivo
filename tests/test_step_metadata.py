@@ -14,6 +14,7 @@ from app.service import SemanticLayerService
 from tests.semantic_test_helpers import (
     ensure_published_typed_metric,
     ensure_published_typed_metric_binding,
+    seed_duckdb_source_object,
 )
 from tests.shared_fixtures import get_seeded_duckdb_path
 
@@ -45,43 +46,14 @@ class StepMetadataPersistenceTests(unittest.TestCase):
         cls.service = cast("Any", app.state.service)
         cls.metadata = cls.service.metadata
         now = datetime.now(UTC).isoformat()
-        cls.metadata.execute(
-            "INSERT OR IGNORE INTO sources "
-            "(source_id, source_type, display_name, authority_json, sync_mode, "
-            "intrinsic_capabilities_json, policy_json, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            [
-                "src_step_metadata",
-                "duckdb",
-                "Step Metadata Source",
-                json.dumps(
-                    {
-                        "catalog_system": "duckdb",
-                        "connection": {},
-                        "synthetic_catalog": "main",
-                    }
-                ),
-                "selected",
-                json.dumps({"supports_partitions": False}),
-                json.dumps({"allow_live_browse": True, "allow_sync": True}),
-                now,
-                now,
-            ],
-        )
-        cls.metadata.execute(
-            "INSERT OR IGNORE INTO source_objects "
-            "(object_id, source_id, object_type, native_name, fqn, authority_locator_json, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            [
-                "obj_step_metadata",
-                "src_step_metadata",
-                "table",
-                "watch_events",
-                "analytics.watch_events",
-                json.dumps({"catalog": "main", "schema": "analytics", "table": "watch_events"}),
-                now,
-                now,
-            ],
+        seed_duckdb_source_object(
+            cls.metadata,
+            source_id="src_step_metadata",
+            object_id="obj_step_metadata",
+            display_name="Step Metadata Source",
+            table_name="watch_events",
+            table_fqn="analytics.watch_events",
+            now=now,
         )
         ensure_published_typed_metric(
             cls.metadata,

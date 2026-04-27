@@ -44,6 +44,93 @@ def build_semantic_layer_service(
     return service
 
 
+def seed_duckdb_source_object(
+    metadata: MetadataStore,
+    *,
+    source_id: str,
+    object_id: str,
+    display_name: str,
+    table_name: str,
+    table_fqn: str,
+    now: str,
+    connection: dict[str, Any] | None = None,
+    authority_locator: dict[str, Any] | None = None,
+    properties: dict[str, Any] | None = None,
+    sync_version: str | None = None,
+    synced_at: str | None = None,
+    status: str = "active",
+) -> None:
+    """Seed a DuckDB source/table pair through backend-neutral metadata helpers."""
+    metadata.insert_ignore(
+        "sources",
+        [
+            "source_id",
+            "source_type",
+            "display_name",
+            "authority_json",
+            "sync_mode",
+            "intrinsic_capabilities_json",
+            "policy_json",
+            "status",
+            "created_at",
+            "updated_at",
+        ],
+        [
+            source_id,
+            "duckdb",
+            display_name,
+            json.dumps(
+                {
+                    "catalog_system": "duckdb",
+                    "connection": connection or {},
+                    "synthetic_catalog": "main",
+                }
+            ),
+            "selected",
+            json.dumps({"supports_partitions": False}),
+            json.dumps({"allow_live_browse": True, "allow_sync": True}),
+            status,
+            now,
+            now,
+        ],
+    )
+    metadata.insert_ignore(
+        "source_objects",
+        [
+            "object_id",
+            "source_id",
+            "object_type",
+            "parent_id",
+            "native_name",
+            "native_id",
+            "fqn",
+            "authority_locator_json",
+            "properties_json",
+            "sync_version",
+            "synced_at",
+            "created_at",
+            "updated_at",
+        ],
+        [
+            object_id,
+            source_id,
+            "table",
+            None,
+            table_name,
+            None,
+            table_fqn,
+            json.dumps(
+                authority_locator or {"catalog": "main", "schema": "analytics", "table": table_name}
+            ),
+            json.dumps(properties or {}),
+            sync_version,
+            synced_at,
+            now,
+            now,
+        ],
+    )
+
+
 def ensure_active_duckdb_mapping(
     metadata: MetadataStore,
     *,

@@ -14,6 +14,7 @@ from app.analysis_core.compiler import compile_step
 from app.analysis_core.ir import AnalysisStepIR
 from app.evidence_engine.ref_boundary import assert_no_canonical_refs_in_semantic_payload
 from app.main import create_app
+from tests.semantic_test_helpers import seed_duckdb_source_object
 from tests.shared_fixtures import get_seeded_duckdb_path
 
 
@@ -56,47 +57,14 @@ class TypedSemanticEndToEndTests(unittest.TestCase):
         now = datetime.now(UTC).isoformat()
         cls.val_events_object_id = "obj_typed_semantic_e2e"
         cls.val_events_fqn = "analytics.val_events"
-        cls.metadata.execute(
-            """
-            INSERT OR IGNORE INTO sources (
-                source_id, source_type, display_name, authority_json, sync_mode,
-                intrinsic_capabilities_json, policy_json, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            [
-                "src_typed_semantic_e2e",
-                "duckdb",
-                "Typed Semantic E2E Source",
-                json.dumps(
-                    {
-                        "catalog_system": "duckdb",
-                        "connection": {},
-                        "synthetic_catalog": "main",
-                    }
-                ),
-                "selected",
-                json.dumps({"supports_partitions": False}),
-                json.dumps({"allow_live_browse": True, "allow_sync": True}),
-                now,
-                now,
-            ],
-        )
-        cls.metadata.execute(
-            """
-            INSERT OR IGNORE INTO source_objects (
-                object_id, source_id, object_type, native_name, fqn, authority_locator_json, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            [
-                cls.val_events_object_id,
-                "src_typed_semantic_e2e",
-                "table",
-                "val_events",
-                cls.val_events_fqn,
-                json.dumps({"catalog": "main", "schema": "analytics", "table": "val_events"}),
-                now,
-                now,
-            ],
+        seed_duckdb_source_object(
+            cls.metadata,
+            source_id="src_typed_semantic_e2e",
+            object_id=cls.val_events_object_id,
+            display_name="Typed Semantic E2E Source",
+            table_name="val_events",
+            table_fqn=cls.val_events_fqn,
+            now=now,
         )
 
     @classmethod

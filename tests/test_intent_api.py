@@ -44,6 +44,7 @@ from tests.semantic_test_helpers import (
     ensure_published_typed_time,
     publish_typed_entity,
     publish_typed_metric,
+    seed_duckdb_source_object,
 )
 from tests.shared_fixtures import get_named_seeded_duckdb_path, get_seeded_duckdb_path
 
@@ -119,54 +120,19 @@ def _seed_default_calendar_source_metadata(db_path: Path) -> None:
     metadata = SQLiteMetadataStore(db_path.with_suffix(".meta.sqlite"))
     metadata.initialize()
     now = "2026-04-18T00:00:00+00:00"
-    metadata.execute(
-        """
-        INSERT OR IGNORE INTO sources (
-            source_id, source_type, display_name, authority_json,
-            sync_mode, intrinsic_capabilities_json, policy_json, status, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        [
-            "src_test_calendar_duckdb",
-            "duckdb",
-            "DuckDB",
-            json.dumps(
-                {
-                    "catalog_system": "duckdb",
-                    "connection": {"path": str(db_path)},
-                    "synthetic_catalog": "main",
-                }
-            ),
-            "selected",
-            json.dumps({"supports_partitions": False}),
-            json.dumps({"allow_live_browse": True, "allow_sync": True}),
-            "active",
-            now,
-            now,
-        ],
-    )
-    metadata.execute(
-        """
-        INSERT OR IGNORE INTO source_objects (
-            object_id, source_id, object_type, parent_id, native_name, native_id,
-            fqn, authority_locator_json, properties_json, sync_version, synced_at, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        [
-            "obj_test_calendar_holiday",
-            "src_test_calendar_duckdb",
-            "table",
-            None,
-            "cn_public_holiday",
-            None,
-            "main.analytics.cn_public_holiday",
-            json.dumps({"catalog": "main", "schema": "analytics", "table": "cn_public_holiday"}),
-            json.dumps({"calendar_version": _CALENDAR_VERSION}),
-            "test_sync_v1",
-            now,
-            now,
-            now,
-        ],
+    seed_duckdb_source_object(
+        metadata,
+        source_id="src_test_calendar_duckdb",
+        object_id="obj_test_calendar_holiday",
+        display_name="DuckDB",
+        table_name="cn_public_holiday",
+        table_fqn="main.analytics.cn_public_holiday",
+        now=now,
+        connection={"path": str(db_path)},
+        authority_locator={"catalog": "main", "schema": "analytics", "table": "cn_public_holiday"},
+        properties={"calendar_version": _CALENDAR_VERSION},
+        sync_version="test_sync_v1",
+        synced_at=now,
     )
 
 

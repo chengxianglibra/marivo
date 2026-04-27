@@ -83,14 +83,11 @@ def _build_intrinsic_capabilities(engine_type: str) -> dict[str, Any]:
     }
 
 
-def _load_json_object(value: Any, default: dict[str, Any]) -> dict[str, Any]:
-    if value is None:
-        return dict(default)
+def _loads_stored_json(raw: Any) -> Any:
     try:
-        payload = json.loads(str(value))
+        return json.loads(str(raw))
     except (TypeError, ValueError):
-        return dict(default)
-    return payload if isinstance(payload, dict) else dict(default)
+        return None
 
 
 def _normalize_default_namespace(
@@ -567,21 +564,20 @@ class EngineRegistry:
 
     def _row_to_engine(self, row: dict[str, Any], *, include_mappings: bool) -> dict[str, Any]:
         engine_type = str(row["engine_type"])
-        raw_connection = json.loads(str(row["connection_json"]))
+        raw_connection = _loads_stored_json(row["connection_json"])
         connection = raw_connection if isinstance(raw_connection, dict) else {}
 
         raw_auth = row.get("auth_json")
         parsed_auth: dict[str, Any] | None = None
         if raw_auth:
-            try:
-                auth_payload = json.loads(str(raw_auth))
-            except (TypeError, ValueError):
-                auth_payload = None
+            auth_payload = _loads_stored_json(raw_auth)
             if isinstance(auth_payload, dict):
                 parsed_auth = auth_payload
         auth = _normalize_stored_auth(parsed_auth)
 
-        default_namespace = _load_json_object(row.get("default_namespace_json"), {})
+        raw_default_namespace = _loads_stored_json(row["default_namespace_json"])
+        default_namespace_invalid = not isinstance(raw_default_namespace, dict)
+        default_namespace = raw_default_namespace if isinstance(raw_default_namespace, dict) else {}
         catalog = default_namespace.get("catalog")
         schema = default_namespace.get("schema")
         normalized_default_namespace = {
@@ -589,16 +585,25 @@ class EngineRegistry:
             "schema": schema if isinstance(schema, str) or schema is None else None,
         }
 
-        intrinsic_capabilities = _load_json_object(
-            row.get("intrinsic_capabilities_json"),
-            _build_intrinsic_capabilities(engine_type),
+        raw_intrinsic_capabilities = _loads_stored_json(row["intrinsic_capabilities_json"])
+        intrinsic_capabilities_invalid = not isinstance(raw_intrinsic_capabilities, dict)
+        intrinsic_capabilities = (
+            raw_intrinsic_capabilities
+            if not intrinsic_capabilities_invalid
+            else _build_intrinsic_capabilities(engine_type)
         )
         for key, value in _build_intrinsic_capabilities(engine_type).items():
             intrinsic_capabilities.setdefault(key, value)
 
-        deployment_capabilities = _load_json_object(row.get("deployment_capabilities_json"), {})
+        raw_deployment_capabilities = _loads_stored_json(row["deployment_capabilities_json"])
+        deployment_capabilities_invalid = not isinstance(raw_deployment_capabilities, dict)
+        deployment_capabilities = (
+            raw_deployment_capabilities if not deployment_capabilities_invalid else {}
+        )
 
-        policy = _normalize_policy(_load_json_object(row.get("policy_json"), {}))
+        raw_policy = _loads_stored_json(row["policy_json"])
+        policy_invalid = not isinstance(raw_policy, dict)
+        policy = _normalize_policy(raw_policy if not policy_invalid else None)
         engine = {
             "engine_id": row["engine_id"],
             "engine_type": engine_type,
@@ -616,7 +621,26 @@ class EngineRegistry:
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }
-        validation = self.evaluate_engine(engine)
+        if default_namespace_invalid:
+            validation = EngineValidationResult(
+                is_valid=False,
+                readiness_status="not_ready",
+                failure_code="engine_invalid_namespace",
+            )
+        elif intrinsic_capabilities_invalid or deployment_capabilities_invalid:
+            validation = EngineValidationResult(
+                is_valid=False,
+                readiness_status="not_ready",
+                failure_code="engine_invalid_deployment_capabilities",
+            )
+        elif policy_invalid:
+            validation = EngineValidationResult(
+                is_valid=False,
+                readiness_status="not_ready",
+                failure_code="engine_invalid_policy",
+            )
+        else:
+            validation = self.evaluate_engine(engine)
         engine["readiness_status"] = validation.readiness_status
         engine["failure_code"] = validation.failure_code
         return engine

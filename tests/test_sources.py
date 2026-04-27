@@ -228,6 +228,79 @@ class SourceRegistryTests(unittest.TestCase):
         self.assertEqual(listed_source["readiness_status"], "not_ready")
         self.assertEqual(listed_source["failure_code"], "source_invalid_connection")
 
+    def test_source_api_degrades_malformed_stored_authority_json(self) -> None:
+        resp = self.client.post(
+            "/sources",
+            json=build_duckdb_source_payload(str(self.db_path), "Bad Stored Source JSON"),
+        )
+        source_id = resp.json()["source_id"]
+        metadata = self.client.app.state.metadata_store
+        metadata.execute(
+            """
+            UPDATE sources
+            SET authority_json = ?
+            WHERE source_id = ?
+            """,
+            ["{bad-json", source_id],
+        )
+
+        detail = self.client.get(f"/sources/{source_id}")
+        self.assertEqual(detail.status_code, 200)
+        self.assertEqual(detail.json()["readiness_status"], "not_ready")
+        self.assertEqual(detail.json()["failure_code"], "source_invalid_authority")
+
+        listed = self.client.get("/sources")
+        self.assertEqual(listed.status_code, 200)
+        listed_source = next(item for item in listed.json() if item["source_id"] == source_id)
+        self.assertEqual(listed_source["readiness_status"], "not_ready")
+        self.assertEqual(listed_source["failure_code"], "source_invalid_authority")
+
+    def test_source_api_degrades_malformed_stored_policy_json(self) -> None:
+        resp = self.client.post(
+            "/sources",
+            json=build_duckdb_source_payload(str(self.db_path), "Bad Stored Source Policy"),
+        )
+        source_id = resp.json()["source_id"]
+        metadata = self.client.app.state.metadata_store
+        metadata.execute(
+            "UPDATE sources SET policy_json = ? WHERE source_id = ?",
+            ["{bad-json", source_id],
+        )
+
+        detail = self.client.get(f"/sources/{source_id}")
+        self.assertEqual(detail.status_code, 200)
+        self.assertEqual(detail.json()["readiness_status"], "not_ready")
+        self.assertEqual(detail.json()["failure_code"], "source_invalid_policy")
+
+        listed = self.client.get("/sources")
+        self.assertEqual(listed.status_code, 200)
+        listed_source = next(item for item in listed.json() if item["source_id"] == source_id)
+        self.assertEqual(listed_source["readiness_status"], "not_ready")
+        self.assertEqual(listed_source["failure_code"], "source_invalid_policy")
+
+    def test_source_api_degrades_malformed_stored_capabilities_json(self) -> None:
+        resp = self.client.post(
+            "/sources",
+            json=build_duckdb_source_payload(str(self.db_path), "Bad Stored Source Capabilities"),
+        )
+        source_id = resp.json()["source_id"]
+        metadata = self.client.app.state.metadata_store
+        metadata.execute(
+            "UPDATE sources SET intrinsic_capabilities_json = ? WHERE source_id = ?",
+            ["{bad-json", source_id],
+        )
+
+        detail = self.client.get(f"/sources/{source_id}")
+        self.assertEqual(detail.status_code, 200)
+        self.assertEqual(detail.json()["readiness_status"], "not_ready")
+        self.assertEqual(detail.json()["failure_code"], "source_invalid_capabilities")
+
+        listed = self.client.get("/sources")
+        self.assertEqual(listed.status_code, 200)
+        listed_source = next(item for item in listed.json() if item["source_id"] == source_id)
+        self.assertEqual(listed_source["readiness_status"], "not_ready")
+        self.assertEqual(listed_source["failure_code"], "source_invalid_capabilities")
+
     def test_get_source_404(self) -> None:
         resp = self.client.get("/sources/nonexistent")
         self.assertEqual(resp.status_code, 404)

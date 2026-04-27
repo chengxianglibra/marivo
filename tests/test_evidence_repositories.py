@@ -215,7 +215,7 @@ class TestFindingRepository(unittest.TestCase):
         self.assertIsNone(result)
 
     def test_create_idempotent_same_finding_id(self) -> None:
-        """Re-inserting the same finding_id must be a silent no-op (INSERT OR IGNORE)."""
+        """Re-inserting the same finding_id must be a silent no-op."""
         f = _make_finding()
         self.repo.create(f)
         # Change payload — second insert should be ignored
@@ -377,7 +377,7 @@ class TestPropositionRepository(unittest.TestCase):
         """UNIQUE partial index must prevent two propositions with the same
         (session_id, proposition_type, identity_key) when identity_key != ''."""
         self.repo.create(self._make_prop("prop_001", identity_key="k_unique"))
-        # Second create with different proposition_id but same identity_key — INSERT OR IGNORE
+        # Second create with different proposition_id but same identity_key is ignored.
         self.repo.create(self._make_prop("prop_002", identity_key="k_unique"))
         # Only the first should survive
         all_props = self.repo.list_by_session("sess_001")
