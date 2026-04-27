@@ -1214,8 +1214,18 @@ class SemanticServiceSupport:
         *,
         code: str = "semantic_validation_error",
         category: str = "validation",
+        field_path: str | None = None,
+        remediation: dict[str, Any] | None = None,
+        examples: list[dict[str, Any]] | None = None,
     ) -> SemanticValidationError:
-        return SemanticValidationError(message, code=code, category=category)
+        return SemanticValidationError(
+            message,
+            code=code,
+            category=category,
+            field_path=field_path,
+            remediation=remediation,
+            examples=examples,
+        )
 
     def _state_error(
         self,
@@ -2220,15 +2230,31 @@ class SemanticServiceSupport:
         if target_kind == "metric_input":
             if not semantic_ref.startswith("metric_input."):
                 raise self._validation_error(
-                    f"metric_input semantic_ref must use 'metric_input.' prefix, got: {semantic_ref}"
+                    f"metric_input semantic_ref must use 'metric_input.' prefix, got: {semantic_ref}",
+                    code="metric_input_semantic_ref_prefix_invalid",
+                    field_path="interface_contract.field_bindings[].semantic_ref",
+                    remediation={
+                        "example_patch": {
+                            "target": {"target_kind": "metric_input", "target_key": "numerator"},
+                            "semantic_ref": "metric_input.numerator",
+                        }
+                    },
                 )
             if not target_key:
-                raise self._validation_error("metric_input target_key must not be empty")
+                raise self._validation_error(
+                    "metric_input target_key must not be empty",
+                    code="metric_input_target_key_invalid",
+                    field_path="interface_contract.field_bindings[].target.target_key",
+                    remediation={"target_key": "numerator"},
+                )
             if target_key.startswith("metric_input."):
                 raise self._validation_error(
                     "metric_input target_key must be the metric family slot name "
                     "(for example count_target, measure, numerator, denominator), "
-                    f"not a semantic ref: {target_key}"
+                    f"not a semantic ref: {target_key}",
+                    code="metric_input_target_key_invalid",
+                    field_path="interface_contract.field_bindings[].target.target_key",
+                    remediation={"target_key": "numerator"},
                 )
             return
 
@@ -2245,11 +2271,11 @@ class SemanticServiceSupport:
         self,
         time_binding: dict[str, Any],
         *,
-        carrier_field_surfaces: dict[str, set[str]],
+        carrier_time_surfaces: dict[str, set[str]],
         require_published_refs: bool,
     ) -> None:
         carrier_binding_key = str(time_binding.get("carrier_binding_key") or "")
-        if carrier_binding_key not in carrier_field_surfaces:
+        if carrier_binding_key not in carrier_time_surfaces:
             raise self._validation_error(
                 f"Unknown carrier_binding_key in time binding: {carrier_binding_key}"
             )
@@ -2290,7 +2316,7 @@ class SemanticServiceSupport:
                 "time_binding timezone_strategy must be 'session_consistent_naive' when provided"
             )
 
-        surface_refs = carrier_field_surfaces[carrier_binding_key]
+        surface_refs = carrier_time_surfaces[carrier_binding_key]
 
         def ensure_surface_exists(label: str, surface_ref: str | None) -> None:
             if surface_ref is None:
@@ -2398,11 +2424,106 @@ class SemanticServiceSupport:
                     f"{dimension_ref} requires {requirement}"
                 )
 
+    def _binding_source_keys(self, carrier_bindings: list[dict[str, Any]]) -> set[str]:
+        keys: set[str] = set()
+        for carrier in carrier_bindings:
+            source_object = self._resolve_binding_source_object(carrier, require_resolution=False)
+            if source_object is not None:
+                for key in ("object_id", "fqn", "native_name"):
+                    value = _optional_str(source_object.get(key))
+                    if value is not None:
+                        keys.add(value)
+            source_object_ref = _optional_str(carrier.get("source_object_ref"))
+            if source_object_ref is not None:
+                keys.add(source_object_ref)
+            locator_ref = _carrier_locator_ref(carrier.get("carrier_locator"))
+            if locator_ref is not None:
+                keys.add(locator_ref)
+        return keys
+
+    @staticmethod
+    def _matches_required_prefix(value: str | None, prefixes: list[Any]) -> bool:
+        if value is None:
+            return False
+        normalized_prefixes = [str(prefix).strip() for prefix in prefixes if str(prefix).strip()]
+        return not normalized_prefixes or any(
+            value.startswith(prefix) for prefix in normalized_prefixes
+        )
+
+    def _binding_target_exists_effective(
+        self,
+        *,
+        local_bindings: list[dict[str, Any]],
+        imports: list[dict[str, Any]],
+        carrier_bindings: list[dict[str, Any]],
+        target_kind: str,
+        target_key: str | None,
+        semantic_ref: str | None,
+    ) -> bool:
+        if binding_contract_target_exists(
+            local_bindings,
+            target_kind=target_kind,
+            target_key=target_key,
+            semantic_ref=semantic_ref,
+        ):
+            return True
+        if target_kind == "metric_input":
+            return False
+        local_source_keys = self._binding_source_keys(carrier_bindings)
+        candidates: list[str] = []
+        for binding_import in imports:
+            imported_binding_ref = _optional_str(binding_import.get("binding_ref"))
+            if imported_binding_ref is None:
+                continue
+            imported_binding = self._get_typed_binding_by_ref(imported_binding_ref)
+            if imported_binding is None or imported_binding.get("status") != "published":
+                continue
+            imported_contract = dict(imported_binding.get("interface_contract") or {})
+            imported_source_keys = self._binding_source_keys(
+                list(imported_contract.get("carrier_bindings") or [])
+            )
+            if (
+                local_source_keys
+                and imported_source_keys
+                and not local_source_keys.intersection(imported_source_keys)
+            ):
+                continue
+            prefixes = list(binding_import.get("required_ref_prefixes") or [])
+            imported_bindings = list(imported_contract.get("field_bindings") or []) + list(
+                imported_contract.get("time_bindings") or []
+            )
+            for imported_target in imported_bindings:
+                target = dict(imported_target.get("target") or {})
+                imported_kind = str(target.get("target_kind") or "")
+                imported_key = str(target.get("target_key") or "")
+                imported_ref = _optional_str(imported_target.get("semantic_ref"))
+                if imported_kind != target_kind:
+                    continue
+                if target_key is not None and imported_key != target_key:
+                    continue
+                if semantic_ref is not None and imported_ref != semantic_ref:
+                    continue
+                if not (
+                    self._matches_required_prefix(imported_ref, prefixes)
+                    or self._matches_required_prefix(imported_key, prefixes)
+                ):
+                    continue
+                candidates.append(imported_binding_ref)
+        if len(set(candidates)) > 1:
+            raise self._validation_error(
+                f"Binding has ambiguous imported {target_kind} coverage for {target_key}",
+                code="binding_imported_target_coverage_ambiguous",
+                field_path="interface_contract.imports",
+                remediation={"candidate_binding_refs": sorted(set(candidates))},
+            )
+        return bool(candidates)
+
     def _validate_binding_scope_compatibility(
         self,
         *,
         binding_scope: str,
         bound_object: dict[str, Any],
+        imports: list[dict[str, Any]],
         field_bindings: list[dict[str, Any]],
         time_bindings: list[dict[str, Any]],
         carrier_bindings: list[dict[str, Any]],
@@ -2421,7 +2542,14 @@ class SemanticServiceSupport:
             unexpected = target_kinds - allowed_target_kinds
             if unexpected:
                 raise self._validation_error(
-                    f"Entity binding cannot use target kinds: {sorted(unexpected)}"
+                    f"Entity binding cannot use target kinds: {sorted(unexpected)}",
+                    code="binding_target_kind_not_allowed_for_scope",
+                    field_path="interface_contract.field_bindings[].target.target_kind",
+                    remediation={
+                        "binding_scope": binding_scope,
+                        "allowed_target_kinds": sorted(allowed_target_kinds),
+                        "invalid_target_kinds": sorted(unexpected),
+                    },
                 )
             for key_ref in interface_contract["identity"]["key_refs"]:
                 if not binding_contract_target_exists(
@@ -2474,7 +2602,14 @@ class SemanticServiceSupport:
             unexpected = target_kinds - allowed_target_kinds
             if unexpected:
                 raise self._validation_error(
-                    f"Process binding cannot use target kinds: {sorted(unexpected)}"
+                    f"Process binding cannot use target kinds: {sorted(unexpected)}",
+                    code="binding_target_kind_not_allowed_for_scope",
+                    field_path="interface_contract.field_bindings[].target.target_kind",
+                    remediation={
+                        "binding_scope": binding_scope,
+                        "allowed_target_kinds": sorted(allowed_target_kinds),
+                        "invalid_target_kinds": sorted(unexpected),
+                    },
                 )
             if not any(
                 field_binding["target"]["target_kind"] == "population_subject"
@@ -2535,24 +2670,45 @@ class SemanticServiceSupport:
             unexpected = target_kinds - allowed_target_kinds
             if unexpected:
                 raise self._validation_error(
-                    f"Metric binding cannot use target kinds: {sorted(unexpected)}"
+                    f"Metric binding cannot use target kinds: {sorted(unexpected)}",
+                    code="binding_target_kind_not_allowed_for_scope",
+                    field_path="interface_contract.field_bindings[].target.target_kind",
+                    remediation={
+                        "binding_scope": binding_scope,
+                        "allowed_target_kinds": sorted(allowed_target_kinds),
+                        "invalid_target_kinds": sorted(unexpected),
+                    },
                 )
-            if header.get("population_subject_ref") is not None and not any(
-                field_binding["target"]["target_kind"] == "population_subject"
-                for field_binding in field_bindings
+            population_subject_ref = header.get("population_subject_ref")
+            if population_subject_ref is not None and not self._binding_target_exists_effective(
+                local_bindings=time_target_bindings,
+                imports=imports,
+                carrier_bindings=carrier_bindings,
+                target_kind="population_subject",
+                target_key=None,
+                semantic_ref=None,
             ):
                 raise self._validation_error(
                     "Metric binding must map population_subject when the metric declares "
                     "population_subject_ref"
                 )
             primary_time_ref = header.get("primary_time_ref")
-            if primary_time_ref is not None and not binding_contract_target_exists(
-                time_target_bindings,
+            if primary_time_ref is not None and not self._binding_target_exists_effective(
+                local_bindings=time_target_bindings,
+                imports=imports,
+                carrier_bindings=carrier_bindings,
                 target_kind="primary_time",
+                target_key=primary_time_ref,
                 semantic_ref=primary_time_ref,
             ):
                 raise self._validation_error(
-                    f"Metric binding must map primary_time_ref '{primary_time_ref}'"
+                    f"Metric binding must map primary_time_ref '{primary_time_ref}'",
+                    code="binding_primary_time_missing",
+                    field_path="interface_contract.time_bindings",
+                    remediation={
+                        "required_target": "primary_time",
+                        "semantic_ref": primary_time_ref,
+                    },
                 )
             metric_input_keys = {
                 field_binding["target"]["target_key"]
@@ -2562,22 +2718,49 @@ class SemanticServiceSupport:
             required_metric_input_keys = set(self._required_metric_binding_slots(header, payload))
             if required_metric_input_keys and not metric_input_keys:
                 raise self._validation_error(
-                    "Metric binding must map at least one metric_input target"
+                    "Metric binding must map at least one metric_input target",
+                    code="binding_required_metric_input_missing",
+                    field_path="interface_contract.field_bindings",
+                    remediation={
+                        "required_metric_input_target_keys": sorted(required_metric_input_keys),
+                        "example_patch": {
+                            "target": {"target_kind": "metric_input", "target_key": "measure"},
+                            "semantic_ref": "metric_input.measure",
+                        },
+                    },
                 )
             unexpected_metric_input_keys = metric_input_keys - required_metric_input_keys
             if unexpected_metric_input_keys:
                 raise self._validation_error(
                     "Metric binding uses unsupported metric_input target_key values for "
                     f"{header['metric_family']}: {sorted(unexpected_metric_input_keys)}. "
-                    f"Expected subset of {sorted(required_metric_input_keys)}."
+                    f"Expected subset of {sorted(required_metric_input_keys)}.",
+                    code="metric_input_target_key_invalid",
+                    field_path="interface_contract.field_bindings[].target.target_key",
+                    remediation={
+                        "allowed_target_keys": sorted(required_metric_input_keys),
+                        "invalid_target_keys": sorted(unexpected_metric_input_keys),
+                    },
                 )
             if header["metric_family"] == "rate_metric" and not required_metric_input_keys.issubset(
                 metric_input_keys
             ):
                 missing_metric_input_keys = sorted(required_metric_input_keys - metric_input_keys)
                 raise self._validation_error(
-                    "rate_metric binding must map both 'numerator' and 'denominator' "
-                    f"metric_input targets; missing {missing_metric_input_keys}"
+                    f"{header['metric_family']} binding must map both 'numerator' and "
+                    f"'denominator' metric_input targets; missing {missing_metric_input_keys}",
+                    code="binding_required_metric_input_missing",
+                    field_path="interface_contract.field_bindings",
+                    remediation={
+                        "missing_target_keys": missing_metric_input_keys,
+                        "example_patch": [
+                            {
+                                "target": {"target_kind": "metric_input", "target_key": key},
+                                "semantic_ref": f"metric_input.{key}",
+                            }
+                            for key in missing_metric_input_keys
+                        ],
+                    },
                 )
             if header["metric_family"] == "survival_metric" and primary_time_ref is None:
                 raise self._validation_error(
@@ -2707,7 +2890,7 @@ class SemanticServiceSupport:
         for time_binding in time_bindings:
             self._validate_time_binding_target(
                 time_binding,
-                carrier_field_surfaces=carrier_field_surfaces,
+                carrier_time_surfaces=carrier_time_surfaces,
                 require_published_refs=require_published_dependencies,
             )
             target = dict(time_binding.get("target") or {})
@@ -2796,6 +2979,7 @@ class SemanticServiceSupport:
         self._validate_binding_scope_compatibility(
             binding_scope=binding_scope,
             bound_object=bound_object,
+            imports=imports,
             field_bindings=field_bindings,
             time_bindings=time_bindings,
             carrier_bindings=carrier_bindings,

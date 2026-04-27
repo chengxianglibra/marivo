@@ -198,6 +198,12 @@ class TimeAxisMetadataProviderTests(unittest.TestCase):
                                 {"surface_ref": "field.event_date", "physical_name": "event_date"},
                                 {"surface_ref": "field.log_date", "physical_name": "event_date"},
                             ],
+                            "time_surfaces": [
+                                {
+                                    "surface_ref": "time_surface.event_date",
+                                    "physical_name": "event_date",
+                                }
+                            ],
                         }
                     ],
                     "field_bindings": [
@@ -220,7 +226,7 @@ class TimeAxisMetadataProviderTests(unittest.TestCase):
                             },
                             "semantic_ref": cls.primary_time_ref,
                             "resolution_kind": "date_column",
-                            "date_surface_ref": "field.event_date",
+                            "date_surface_ref": "time_surface.event_date",
                         }
                     ],
                 },
@@ -256,6 +262,16 @@ class TimeAxisMetadataProviderTests(unittest.TestCase):
                                     "physical_name": "play_duration_seconds",
                                 },
                             ],
+                            "time_surfaces": [
+                                {
+                                    "surface_ref": "time_surface.log_date",
+                                    "physical_name": "event_date",
+                                },
+                                {
+                                    "surface_ref": "time_surface.log_hour",
+                                    "physical_name": "event_hour",
+                                },
+                            ],
                         }
                     ],
                     "field_bindings": [
@@ -275,9 +291,9 @@ class TimeAxisMetadataProviderTests(unittest.TestCase):
                             },
                             "semantic_ref": cls.primary_time_ref,
                             "resolution_kind": "date_hour_columns",
-                            "date_surface_ref": "field.log_date",
+                            "date_surface_ref": "time_surface.log_date",
                             "date_format": "yyyymmdd",
-                            "hour_surface_ref": "field.log_hour",
+                            "hour_surface_ref": "time_surface.log_hour",
                             "hour_format": "hh",
                             "timezone_strategy": "session_consistent_naive",
                         },
@@ -289,9 +305,9 @@ class TimeAxisMetadataProviderTests(unittest.TestCase):
                             },
                             "semantic_ref": "time.partition_time",
                             "resolution_kind": "date_hour_columns",
-                            "date_surface_ref": "field.log_date",
+                            "date_surface_ref": "time_surface.log_date",
                             "date_format": "yyyymmdd",
-                            "hour_surface_ref": "field.log_hour",
+                            "hour_surface_ref": "time_surface.log_hour",
                             "hour_format": "hh",
                         },
                     ],

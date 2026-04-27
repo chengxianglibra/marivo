@@ -650,14 +650,17 @@ def ensure_published_typed_metric_binding(
         {"surface_ref": "field.event_date", "physical_name": "event_date"},
         {"surface_ref": f"field.{surface_name}", "physical_name": surface_name},
     ]
-    field_bindings = [
+    time_surfaces = [{"surface_ref": "time_surface.event_date", "physical_name": "event_date"}]
+    time_bindings = [
         {
             "carrier_binding_key": "primary",
             "target": {"target_kind": "primary_time", "target_key": _DEFAULT_TYPED_TIME_REF},
             "semantic_ref": _DEFAULT_TYPED_TIME_REF,
-            "surface_ref": "field.event_date",
+            "resolution_kind": "date_column",
+            "date_surface_ref": "time_surface.event_date",
         }
     ]
+    field_bindings = []
     metric_input_keys: list[str]
     if metric_input_target_keys is not None:
         metric_input_keys = [str(target_key) for target_key in metric_input_target_keys]
@@ -714,9 +717,11 @@ def ensure_published_typed_metric_binding(
                                 "carrier_locator": structured_locator,
                                 "binding_role": binding_role,
                                 "field_surfaces": field_surfaces,
+                                "time_surfaces": time_surfaces,
                             }
                         ],
                         "field_bindings": field_bindings,
+                        "time_bindings": time_bindings,
                     },
                 }
             )

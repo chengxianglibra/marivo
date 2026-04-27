@@ -43,15 +43,15 @@ def list_sources(request: Request) -> list[SourceResponse]:
 @router.get("/sources/{source_id}", response_model=SourceResponse)
 def get_source(source_id: str, request: Request) -> SourceResponse:
     try:
-        return SourceResponse.model_validate(get_services(request).source_service.get_source(source_id))
+        return SourceResponse.model_validate(
+            get_services(request).source_service.get_source(source_id)
+        )
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
 
 
 @router.put("/sources/{source_id}", response_model=SourceResponse)
-def update_source(
-    source_id: str, payload: SourceUpdateRequest, request: Request
-) -> SourceResponse:
+def update_source(source_id: str, payload: SourceUpdateRequest, request: Request) -> SourceResponse:
     try:
         return SourceResponse.model_validate(
             get_services(request).source_service.update_source(

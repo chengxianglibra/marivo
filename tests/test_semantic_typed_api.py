@@ -664,6 +664,16 @@ class SemanticTypedApiTests(unittest.TestCase):
                                 {"surface_ref": "field.log_date", "physical_name": "log_date"},
                                 {"surface_ref": "field.log_hour", "physical_name": "log_hour"},
                             ],
+                            "time_surfaces": [
+                                {
+                                    "surface_ref": "time_surface.log_date",
+                                    "physical_name": "log_date",
+                                },
+                                {
+                                    "surface_ref": "time_surface.log_hour",
+                                    "physical_name": "log_hour",
+                                },
+                            ],
                         }
                     ],
                     "field_bindings": [
@@ -686,9 +696,9 @@ class SemanticTypedApiTests(unittest.TestCase):
                             },
                             "semantic_ref": "time.api_time_binding",
                             "resolution_kind": "date_hour_columns",
-                            "date_surface_ref": "field.log_date",
+                            "date_surface_ref": "time_surface.log_date",
                             "date_format": "yyyymmdd",
-                            "hour_surface_ref": "field.log_hour",
+                            "hour_surface_ref": "time_surface.log_hour",
                             "hour_format": "hh",
                             "timezone_strategy": "session_consistent_naive",
                         }
@@ -775,6 +785,12 @@ class SemanticTypedApiTests(unittest.TestCase):
                                     "physical_name": "create_time",
                                 },
                             ],
+                            "time_surfaces": [
+                                {
+                                    "surface_ref": "time_surface.create_time",
+                                    "physical_name": "create_time",
+                                }
+                            ],
                         }
                     ],
                     "field_bindings": [
@@ -797,7 +813,7 @@ class SemanticTypedApiTests(unittest.TestCase):
                             },
                             "semantic_ref": "time.api_timestamp_binding",
                             "resolution_kind": "timestamp_column",
-                            "timestamp_surface_ref": "field.create_time",
+                            "timestamp_surface_ref": "time_surface.create_time",
                             "timestamp_format": "%Y%m%d %H:%M:%S",
                         }
                     ],
@@ -867,7 +883,7 @@ class SemanticTypedApiTests(unittest.TestCase):
             },
         )
         self.assertEqual(resp.status_code, 422, resp.text)
-        self.assertIn("surface_ref does not exist", resp.json()["detail"])
+        self.assertIn("surface_ref does not exist", resp.json()["detail"]["message"])
 
     def test_entity_binding_requires_identity_time_and_descriptor_targets(self) -> None:
         suffix = uuid4().hex[:8]
@@ -929,7 +945,7 @@ class SemanticTypedApiTests(unittest.TestCase):
             },
         )
         self.assertEqual(resp.status_code, 422, resp.text)
-        self.assertIn("stable descriptor", resp.json()["detail"])
+        self.assertIn("stable descriptor", resp.json()["detail"]["message"])
 
     def test_experiment_process_binding_requires_process_context_and_join_relations(self) -> None:
         time_resp = self.client.post(
@@ -1030,7 +1046,7 @@ class SemanticTypedApiTests(unittest.TestCase):
             },
         )
         self.assertEqual(missing_context_resp.status_code, 422, missing_context_resp.text)
-        self.assertIn("process_context", missing_context_resp.json()["detail"])
+        self.assertIn("process_context", missing_context_resp.json()["detail"]["message"])
 
         missing_join_resp = self.client.post(
             "/semantic/bindings",
@@ -1112,7 +1128,7 @@ class SemanticTypedApiTests(unittest.TestCase):
             },
         )
         self.assertEqual(missing_join_resp.status_code, 422, missing_join_resp.text)
-        self.assertIn("join_relations", missing_join_resp.json()["detail"])
+        self.assertIn("join_relations", missing_join_resp.json()["detail"]["message"])
 
     def test_rate_metric_binding_requires_numerator_and_denominator(self) -> None:
         entity_resp = self.client.post(
@@ -1217,7 +1233,7 @@ class SemanticTypedApiTests(unittest.TestCase):
             },
         )
         self.assertEqual(resp.status_code, 422, resp.text)
-        self.assertIn("numerator' and 'denominator", resp.json()["detail"])
+        self.assertIn("numerator' and 'denominator", resp.json()["detail"]["message"])
 
     @pytest.mark.slow
     def test_binding_publish_requires_published_dependencies_and_grounding(self) -> None:
@@ -1707,7 +1723,9 @@ class SemanticTypedApiTests(unittest.TestCase):
         ]:
             resp = self.client.put(path, json={"description": "Should fail after publish"})
             self.assertEqual(resp.status_code, 422, resp.text)
-            self.assertIn("cannot activate from status=published", resp.json()["detail"])
+            detail = resp.json()["detail"]
+            message = detail["message"] if isinstance(detail, dict) else detail
+            self.assertIn("cannot activate from status=published", message)
 
         for path in [
             f"/semantic/time/{time_contract_id}/publish",
@@ -2677,3 +2695,45 @@ class SemanticTypedApiTests(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 422, resp.text)
         self.assertIn("value_type", resp.json()["detail"])
+
+    def test_semantic_batch_dry_run_returns_per_item_diagnostics(self) -> None:
+        resp = self.client.post(
+            "/semantic/batch",
+            json={
+                "mode": "dry_run",
+                "lifecycle": "create_only",
+                "continue_on_error": True,
+                "items": [
+                    {
+                        "op_key": "bad_time",
+                        "kind": "time",
+                        "action": "create",
+                        "payload": {},
+                    },
+                    {
+                        "op_key": "time.batch_event_date",
+                        "kind": "time",
+                        "action": "create",
+                        "payload": {
+                            "header": {
+                                "time_ref": "time.batch_event_date",
+                                "display_name": "Batch Event Date",
+                                "semantic_roles": ["measurement"],
+                                "time_contract_version": "time.v1",
+                            }
+                        },
+                    },
+                ],
+            },
+        )
+
+        self.assertEqual(resp.status_code, 200, resp.text)
+        payload = resp.json()
+        self.assertFalse(payload["ok"])
+        self.assertEqual(
+            payload["summary"], {"total": 2, "succeeded": 1, "failed": 1, "skipped": 0}
+        )
+        self.assertEqual(payload["items"][0]["status"], "failed")
+        self.assertEqual(payload["items"][0]["error"]["code"], "request_validation_error")
+        self.assertEqual(payload["items"][1]["status"], "succeeded")
+        self.assertTrue(payload["items"][1]["result"]["would_create"])

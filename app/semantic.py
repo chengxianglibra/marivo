@@ -39,10 +39,16 @@ class SemanticServiceValueError(ValueError):
         *,
         code: str | None = None,
         category: str | None = None,
+        field_path: str | None = None,
+        remediation: dict[str, Any] | None = None,
+        examples: list[dict[str, Any]] | None = None,
     ) -> None:
         super().__init__(message)
         self.code = code
         self.category = category
+        self.field_path = field_path
+        self.remediation = remediation
+        self.examples = examples
 
 
 class SemanticService:
@@ -64,12 +70,18 @@ class SemanticService:
                 str(error),
                 code=error.code,
                 category=error.category,
+                field_path=getattr(error, "field_path", None),
+                remediation=getattr(error, "remediation", None),
+                examples=getattr(error, "examples", None),
             ) from error
         except SemanticServiceError as error:
             raise SemanticServiceValueError(
                 str(error),
                 code=error.code,
                 category=error.category,
+                field_path=getattr(error, "field_path", None),
+                remediation=getattr(error, "remediation", None),
+                examples=getattr(error, "examples", None),
             ) from error
 
     @staticmethod

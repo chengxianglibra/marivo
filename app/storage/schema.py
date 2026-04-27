@@ -613,15 +613,15 @@ METADATA_DDL: list[str] = [
             resolution_kind IN ('timestamp_column', 'date_column', 'date_hour_columns')
         ),
         timestamp_surface_ref TEXT CHECK (
-            timestamp_surface_ref IS NULL OR substr(timestamp_surface_ref, 1, 6) = 'field.'
+            timestamp_surface_ref IS NULL OR substr(timestamp_surface_ref, 1, 13) = 'time_surface.'
         ),
         timestamp_format    TEXT,
         date_surface_ref   TEXT CHECK (
-            date_surface_ref IS NULL OR substr(date_surface_ref, 1, 6) = 'field.'
+            date_surface_ref IS NULL OR substr(date_surface_ref, 1, 13) = 'time_surface.'
         ),
         date_format        TEXT,
         hour_surface_ref   TEXT CHECK (
-            hour_surface_ref IS NULL OR substr(hour_surface_ref, 1, 6) = 'field.'
+            hour_surface_ref IS NULL OR substr(hour_surface_ref, 1, 13) = 'time_surface.'
         ),
         hour_format        TEXT,
         timezone_strategy  TEXT CHECK (

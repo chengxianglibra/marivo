@@ -561,7 +561,7 @@ class TimeBindingsTableTests(TypedBindingDDLTests):
             "context_ref": None,
             "semantic_ref": "time.event_time",
             "resolution_kind": "timestamp_column",
-            "timestamp_surface_ref": "field.event_time",
+            "timestamp_surface_ref": "time_surface.event_time",
             "timestamp_format": None,
             "date_surface_ref": None,
             "date_format": None,

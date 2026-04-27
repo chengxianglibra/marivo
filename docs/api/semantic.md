@@ -365,11 +365,26 @@ Validation notes:
 - Metric bindings must map family slot names through `target.target_kind = "metric_input"`.
   Valid `target.target_key` values are `count_target`, `measure`, `numerator`, `denominator`,
   `value_component`, and `score_source` depending on the metric family.
+- Binding target kinds are scope-specific:
+  `entity` allows `identity_key`, `primary_time`, `stable_descriptor`;
+  `metric` allows `population_subject`, `primary_time`, `metric_input`;
+  `process_object` allows `population_subject`, `primary_time`, `analysis_window_anchor`,
+  `process_context`.
+- For `target_kind = "metric_input"`, `target.target_key` is the slot name and
+  `semantic_ref` must use `metric_input.<slot_or_name>`.
+- `time_bindings` now reference `time_surface.*` entries from the same carrier's
+  `time_surfaces`; they no longer reference `field_surfaces`.
+- Binding create/detail responses expose coverage preview in `capabilities.required_targets`,
+  `covered_targets`, `missing_required_targets`, `imported_covered_targets`, and
+  `covers_required_targets`.
 - Metric bindings do not add a `dimension` target kind. Imported `dimension.*` consumption stays
   on the existing binding payload and is resolved through compiler/runtime bridge logic.
 - A metric may consume imported entity stable descriptors by declaring `imports` against the
   matching published entity binding. In the first bridge stage, only imported
   `stable_descriptor -> dimension.*` public contract targets are eligible.
+- Metric bindings may also use published same-source imports to satisfy non-metric-input target
+  coverage such as `primary_time` when `required_ref_prefixes` explicitly matches the imported
+  target ref. `metric_input` slots never propagate and must be declared locally.
 - Grouped semantic requests such as `observe(..., dimensions=["dimension.cluster"])` only work when
   each requested `dimension.*` is already consumable by the metric, either from the metric's own
   exported dimension set or from an imported entity binding bridge.
@@ -573,6 +588,9 @@ Create a typed binding against the synced source object:
           {"surface_ref": "field.user_id", "physical_name": "user_id"},
           {"surface_ref": "field.event_date", "physical_name": "event_date"},
           {"surface_ref": "field.country", "physical_name": "country"}
+        ],
+        "time_surfaces": [
+          {"surface_ref": "time_surface.event_date", "physical_name": "event_date"}
         ]
       }
     ],
@@ -585,20 +603,66 @@ Create a typed binding against the synced source object:
       },
       {
         "carrier_binding_key": "primary",
-        "target": {"target_kind": "primary_time", "target_key": "time.event_date"},
-        "semantic_ref": "time.event_date",
-        "surface_ref": "field.event_date"
-      },
-      {
-        "carrier_binding_key": "primary",
         "target": {"target_kind": "metric_input", "target_key": "count_target"},
         "semantic_ref": "metric_input.active_users",
         "surface_ref": "field.user_id"
+      }
+    ],
+    "time_bindings": [
+      {
+        "carrier_binding_key": "primary",
+        "target": {"target_kind": "primary_time", "target_key": "time.event_date"},
+        "semantic_ref": "time.event_date",
+        "resolution_kind": "date_column",
+        "date_surface_ref": "time_surface.event_date"
       }
     ]
   }
 }
 ```
+
+Average/rate metric bindings must declare both local metric input slots:
+
+```json
+{
+  "field_bindings": [
+    {
+      "carrier_binding_key": "primary",
+      "target": {"target_kind": "metric_input", "target_key": "numerator"},
+      "semantic_ref": "metric_input.numerator",
+      "surface_ref": "field.elapsed_seconds"
+    },
+    {
+      "carrier_binding_key": "primary",
+      "target": {"target_kind": "metric_input", "target_key": "denominator"},
+      "semantic_ref": "metric_input.denominator",
+      "surface_ref": "field.session_count"
+    }
+  ]
+}
+```
+
+## Batch semantic authoring
+
+`POST /semantic/batch` accepts ordered semantic authoring operations for `time`, `dimension`,
+`entity`, `metric`, and `binding`.
+
+```json
+{
+  "mode": "dry_run",
+  "lifecycle": "create_only",
+  "continue_on_error": true,
+  "items": [
+    {"op_key": "time.event_date", "kind": "time", "action": "create", "payload": {}},
+    {"op_key": "binding.dau", "kind": "binding", "action": "create", "payload": {}}
+  ]
+}
+```
+
+Batch v1 runs in submitted order. `dry_run` validates request and service contracts without
+writing metadata. `apply` creates objects and can optionally validate/activate the objects it just
+created. `publish` is accepted as an alias for `activate`. Batch v1 is not transactional and does
+not plan a DAG.
 
 Publish in dependency order:
 

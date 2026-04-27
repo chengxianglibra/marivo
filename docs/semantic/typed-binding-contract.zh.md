@@ -512,9 +512,34 @@ class TimeBindingSpec(TypedDict):
   - 自定义 strftime 风格格式串：例如 `%Y%m%d %H:%M:%S`
 - `date_column` 只能提供 `date_surface_ref`
 - `date_hour_columns` 必须同时提供 `date_surface_ref` 与 `hour_surface_ref`
-- `*_surface_ref` 必须引用当前 carrier 已声明的 `field_surfaces`
+- `*_surface_ref` 必须引用当前 carrier 已声明的 `time_surfaces`，ref 前缀必须是
+  `time_surface.*`
 - `semantic_ref` 必须是 `time.*`
 - `timezone_strategy` 在 Phase 1 仅支持 `session_consistent_naive`
+
+### Scope-specific target kind 矩阵
+
+| binding_scope | allowed target_kind |
+| --- | --- |
+| `entity` | `identity_key`, `primary_time`, `stable_descriptor` |
+| `metric` | `population_subject`, `primary_time`, `metric_input` |
+| `process_object` | `population_subject`, `primary_time`, `analysis_window_anchor`, `process_context` |
+
+`metric_input` 的 `target.target_key` 是 metric family slot name，不是 semantic ref。
+`semantic_ref` 必须使用 `metric_input.<slot_or_name>`。
+
+### Imported target coverage
+
+`imports.required_ref_prefixes` 参与有限的 required target coverage propagation：
+
+- imported binding 必须是 `published`，并且 carrier resolve 到同一个 source object。
+- `identity_key`、`primary_time`、`stable_descriptor` 可从 entity binding 传播到 metric binding。
+- `population_subject` 可从 entity / process binding 传播到 metric binding，但必须语义 ref 匹配。
+- `metric_input` 不传播，metric binding 必须本地声明。
+- 多个 import 同时提供同一个 required target 时，返回 ambiguity blocker，不静默选择。
+
+Binding detail/create readiness capabilities 暴露 `required_targets`、`covered_targets`、
+`missing_required_targets`、`imported_covered_targets` 与 `covers_required_targets`。
 
 运行时约定：
 

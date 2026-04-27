@@ -186,7 +186,8 @@ def _create_metric_binding(
         {"surface_ref": "field.event_date", "physical_name": "event_date"},
         {"surface_ref": f"field.{surface_name}", "physical_name": surface_name},
     ]
-    field_bindings = [
+    time_surfaces = [{"surface_ref": "time_surface.event_date", "physical_name": "event_date"}]
+    time_bindings = [
         {
             "carrier_binding_key": "primary",
             "target": {
@@ -194,9 +195,11 @@ def _create_metric_binding(
                 "target_key": "time.event_date",
             },
             "semantic_ref": "time.event_date",
-            "surface_ref": "field.event_date",
+            "resolution_kind": "date_column",
+            "date_surface_ref": "time_surface.event_date",
         }
     ]
+    field_bindings = []
     for target_key in metric_input_keys:
         field_bindings.append(
             {
@@ -228,9 +231,11 @@ def _create_metric_binding(
                         "carrier_locator": carrier_locator,
                         "binding_role": binding_role,
                         "field_surfaces": field_surfaces,
+                        "time_surfaces": time_surfaces,
                     }
                 ],
                 "field_bindings": field_bindings,
+                "time_bindings": time_bindings,
             },
         },
     )
@@ -1129,6 +1134,12 @@ class _SemanticObserveIntentEndpointMixin:
                                     "physical_name": "cluster",
                                 },
                             ],
+                            "time_surfaces": [
+                                {
+                                    "surface_ref": "time_surface.event_date",
+                                    "physical_name": "event_date",
+                                }
+                            ],
                         }
                     ],
                     "field_bindings": [
@@ -1144,21 +1155,24 @@ class _SemanticObserveIntentEndpointMixin:
                         {
                             "carrier_binding_key": "primary",
                             "target": {
-                                "target_kind": "primary_time",
-                                "target_key": "time.event_date",
-                            },
-                            "semantic_ref": "time.event_date",
-                            "surface_ref": "field.event_date",
-                        },
-                        {
-                            "carrier_binding_key": "primary",
-                            "target": {
                                 "target_kind": "stable_descriptor",
                                 "target_key": "dimension.cluster",
                             },
                             "semantic_ref": "dimension.cluster",
                             "surface_ref": "field.cluster",
                         },
+                    ],
+                    "time_bindings": [
+                        {
+                            "carrier_binding_key": "primary",
+                            "target": {
+                                "target_kind": "primary_time",
+                                "target_key": "time.event_date",
+                            },
+                            "semantic_ref": "time.event_date",
+                            "resolution_kind": "date_column",
+                            "date_surface_ref": "time_surface.event_date",
+                        }
                     ],
                 },
             },
@@ -1213,6 +1227,12 @@ class _SemanticObserveIntentEndpointMixin:
                                         "physical_name": "cluster",
                                     },
                                 ],
+                                "time_surfaces": [
+                                    {
+                                        "surface_ref": "time_surface.event_date",
+                                        "physical_name": "event_date",
+                                    }
+                                ],
                             }
                         ],
                         "field_bindings": [
@@ -1228,21 +1248,24 @@ class _SemanticObserveIntentEndpointMixin:
                             {
                                 "carrier_binding_key": "primary",
                                 "target": {
-                                    "target_kind": "primary_time",
-                                    "target_key": "time.event_date",
-                                },
-                                "semantic_ref": "time.event_date",
-                                "surface_ref": "field.event_date",
-                            },
-                            {
-                                "carrier_binding_key": "primary",
-                                "target": {
                                     "target_kind": "stable_descriptor",
                                     "target_key": "dimension.cluster",
                                 },
                                 "semantic_ref": "dimension.cluster",
                                 "surface_ref": "field.cluster_alt",
                             },
+                        ],
+                        "time_bindings": [
+                            {
+                                "carrier_binding_key": "primary",
+                                "target": {
+                                    "target_kind": "primary_time",
+                                    "target_key": "time.event_date",
+                                },
+                                "semantic_ref": "time.event_date",
+                                "resolution_kind": "date_column",
+                                "date_surface_ref": "time_surface.event_date",
+                            }
                         ],
                     },
                 },
@@ -1296,18 +1319,15 @@ class _SemanticObserveIntentEndpointMixin:
                                     "physical_name": "value",
                                 },
                             ],
+                            "time_surfaces": [
+                                {
+                                    "surface_ref": "time_surface.event_date",
+                                    "physical_name": "event_date",
+                                }
+                            ],
                         }
                     ],
                     "field_bindings": [
-                        {
-                            "carrier_binding_key": "primary",
-                            "target": {
-                                "target_kind": "primary_time",
-                                "target_key": "time.event_date",
-                            },
-                            "semantic_ref": "time.event_date",
-                            "surface_ref": "field.event_date",
-                        },
                         {
                             "carrier_binding_key": "primary",
                             "target": {
@@ -1326,6 +1346,18 @@ class _SemanticObserveIntentEndpointMixin:
                             "semantic_ref": "metric_input.measure",
                             "surface_ref": "field.value",
                         },
+                    ],
+                    "time_bindings": [
+                        {
+                            "carrier_binding_key": "primary",
+                            "target": {
+                                "target_kind": "primary_time",
+                                "target_key": "time.event_date",
+                            },
+                            "semantic_ref": "time.event_date",
+                            "resolution_kind": "date_column",
+                            "date_surface_ref": "time_surface.event_date",
+                        }
                     ],
                 },
             },
