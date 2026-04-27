@@ -468,7 +468,7 @@ class TimeReadinessEvaluator:
             str(role) for role in header.get("semantic_roles") or [] if str(role).strip()
         ]
         blockers: list[BlockingRequirementPayload] = []
-        capabilities = {
+        capabilities: dict[str, Any] = {
             "semantic_roles": semantic_roles,
             "supports_business_anchor": "business_anchor" in semantic_roles,
             "supports_measurement": "measurement" in semantic_roles,
@@ -507,7 +507,7 @@ class EnumReadinessEvaluator:
         header = dict(snapshot.semantic_object.get("header") or {})
         versions = list(snapshot.semantic_object.get("versions") or [])
         blockers: list[BlockingRequirementPayload] = []
-        capabilities = {
+        capabilities: dict[str, Any] = {
             "value_type": header.get("value_type"),
             "version_count": len(versions),
             "has_governed_values": True,
@@ -555,13 +555,17 @@ class BindingReadinessEvaluator:
         blockers: list[BlockingRequirementPayload] = []
         carrier_bindings = list(interface_contract.get("carrier_bindings") or [])
         field_bindings = list(interface_contract.get("field_bindings") or [])
-        capabilities = {
+        capabilities: dict[str, Any] = {
             "binding_scope": binding_scope,
             "has_imports": bool(interface_contract.get("imports")),
             "carrier_count": len(carrier_bindings),
             "field_binding_count": len(field_bindings),
             "resolves_synced_source": bool(carrier_bindings),
             "covers_required_targets": False,
+            "required_targets": [],
+            "covered_targets": [],
+            "missing_required_targets": [],
+            "imported_covered_targets": [],
         }
 
         if not header.get("binding_ref") or binding_scope is None or bound_object_ref is None:
@@ -572,6 +576,17 @@ class BindingReadinessEvaluator:
                     subject_ref=snapshot.ref,
                 )
             )
+
+        required_targets = _required_binding_targets(context, binding_scope, bound_object_ref)
+        if required_targets is not None:
+            coverage = _effective_binding_target_coverage(
+                context=context,
+                binding_ref=str(header.get("binding_ref") or snapshot.ref),
+                interface_contract=interface_contract,
+                required_targets=required_targets,
+                subject_ref=snapshot.ref,
+            )
+            capabilities.update(coverage["capabilities"])
 
         if lifecycle_status == "active":
             if bound_object_ref is not None:
@@ -642,7 +657,6 @@ class BindingReadinessEvaluator:
                             dependency_ref=str(field_binding.get("carrier_binding_key") or ""),
                         )
                     )
-            required_targets = _required_binding_targets(context, binding_scope, bound_object_ref)
             if required_targets is None:
                 blockers.append(
                     _blocker(
@@ -652,13 +666,8 @@ class BindingReadinessEvaluator:
                     )
                 )
             else:
-                coverage_blockers = _binding_target_coverage_blockers(
-                    bindings=field_bindings + list(interface_contract.get("time_bindings") or []),
-                    required_targets=required_targets,
-                    subject_ref=snapshot.ref,
-                )
-                blockers.extend(coverage_blockers)
-                capabilities["covers_required_targets"] = not coverage_blockers
+                blockers.extend(coverage["blockers"])
+                capabilities.update(coverage["capabilities"])
 
         readiness_status = (
             _classify_active_readiness(
@@ -1209,6 +1218,199 @@ def _binding_target_coverage_blockers(
     return blockers
 
 
+def _target_payload(target_kind: str, target_key: str, semantic_ref: str | None) -> dict[str, Any]:
+    payload: dict[str, Any] = {"target_kind": target_kind, "target_key": target_key}
+    if semantic_ref is not None:
+        payload["semantic_ref"] = semantic_ref
+    return payload
+
+
+def _binding_target_payload(binding: dict[str, Any]) -> dict[str, Any]:
+    target = dict(binding.get("target") or {})
+    payload = {
+        "target_kind": str(target.get("target_kind") or ""),
+        "target_key": str(target.get("target_key") or ""),
+        "semantic_ref": _optional_str(binding.get("semantic_ref")),
+    }
+    return {key: value for key, value in payload.items() if value is not None}
+
+
+def _binding_source_keys(
+    context: ReadinessEvaluationContext,
+    carrier_bindings: list[dict[str, Any]],
+) -> set[str]:
+    keys: set[str] = set()
+    for carrier in carrier_bindings:
+        source_object = context.load_carrier_source_object(carrier)
+        if source_object is not None:
+            for key in ("object_id", "fqn", "native_name"):
+                value = _optional_str(source_object.get(key))
+                if value is not None:
+                    keys.add(value)
+        source_object_ref = _optional_str(carrier.get("source_object_ref"))
+        if source_object_ref is not None:
+            keys.add(source_object_ref)
+        locator = carrier.get("carrier_locator")
+        if isinstance(locator, str):
+            locator_ref = _optional_str(locator)
+        elif isinstance(locator, dict):
+            locator_ref = ".".join(
+                part
+                for part in [
+                    _optional_str(locator.get("catalog")),
+                    _optional_str(locator.get("schema")),
+                    _optional_str(locator.get("table")),
+                ]
+                if part is not None
+            )
+        else:
+            locator_ref = None
+        if locator_ref:
+            keys.add(locator_ref)
+    return keys
+
+
+def _ref_matches_prefixes(ref: str | None, prefixes: list[Any]) -> bool:
+    if ref is None:
+        return False
+    normalized_prefixes = [str(prefix).strip() for prefix in prefixes if str(prefix).strip()]
+    return not normalized_prefixes or any(ref.startswith(prefix) for prefix in normalized_prefixes)
+
+
+def _effective_binding_target_coverage(
+    *,
+    context: ReadinessEvaluationContext,
+    binding_ref: str,
+    interface_contract: dict[str, Any],
+    required_targets: list[tuple[str, str, str | None]],
+    subject_ref: str,
+) -> dict[str, Any]:
+    local_bindings = list(interface_contract.get("field_bindings") or []) + list(
+        interface_contract.get("time_bindings") or []
+    )
+    required_payloads = [
+        _target_payload(target_kind, target_key, semantic_ref)
+        for target_kind, target_key, semantic_ref in required_targets
+    ]
+    covered_targets: list[dict[str, Any]] = []
+    imported_covered_targets: list[dict[str, Any]] = []
+    missing_targets: list[dict[str, Any]] = []
+    blockers: list[BlockingRequirementPayload] = []
+    imported_candidates: dict[tuple[str, str, str | None], list[dict[str, Any]]] = {}
+
+    local_source_keys = _binding_source_keys(
+        context, list(interface_contract.get("carrier_bindings") or [])
+    )
+    imports = list(interface_contract.get("imports") or context.load_binding_imports(binding_ref))
+    for binding_import in imports:
+        imported_binding_ref = _optional_str(
+            binding_import.get("binding_ref") or binding_import.get("imported_binding_ref")
+        )
+        if imported_binding_ref is None:
+            continue
+        imported_snapshot = context.load_dependency_snapshot(imported_binding_ref)
+        if (
+            imported_snapshot is None
+            or derive_lifecycle_status(imported_snapshot.status) != "active"
+        ):
+            continue
+        imported_contract = dict(imported_snapshot.semantic_object.get("interface_contract") or {})
+        imported_source_keys = _binding_source_keys(
+            context, list(imported_contract.get("carrier_bindings") or [])
+        )
+        if (
+            local_source_keys
+            and imported_source_keys
+            and not local_source_keys.intersection(imported_source_keys)
+        ):
+            continue
+        prefixes = list(binding_import.get("required_ref_prefixes") or [])
+        imported_bindings = list(imported_contract.get("field_bindings") or []) + list(
+            imported_contract.get("time_bindings") or []
+        )
+        for imported_binding in imported_bindings:
+            target = dict(imported_binding.get("target") or {})
+            target_kind = str(target.get("target_kind") or "")
+            if target_kind == "metric_input":
+                continue
+            target_key = str(target.get("target_key") or "")
+            semantic_ref = _optional_str(imported_binding.get("semantic_ref"))
+            if not (
+                _ref_matches_prefixes(semantic_ref, prefixes)
+                or _ref_matches_prefixes(target_key, prefixes)
+            ):
+                continue
+            candidate = _binding_target_payload(imported_binding)
+            candidate["binding_ref"] = imported_binding_ref
+            for required in required_targets:
+                required_kind, required_key, required_ref = required
+                if target_kind != required_kind:
+                    continue
+                if target_key != required_key:
+                    continue
+                if required_ref is not None and semantic_ref != required_ref:
+                    continue
+                imported_candidates.setdefault(required, []).append(candidate)
+
+    for required in required_targets:
+        target_kind, target_key, semantic_ref = required
+        required_payload = _target_payload(target_kind, target_key, semantic_ref)
+        if binding_contract_target_exists(
+            local_bindings,
+            target_kind=target_kind,
+            target_key=target_key,
+            semantic_ref=semantic_ref,
+        ):
+            covered_targets.append(required_payload)
+            continue
+        candidates = imported_candidates.get(required, [])
+        if len(candidates) == 1:
+            imported_payload = dict(required_payload)
+            imported_payload["source"] = "import"
+            imported_payload["binding_ref"] = candidates[0]["binding_ref"]
+            covered_targets.append(imported_payload)
+            imported_covered_targets.append(imported_payload)
+            continue
+        if len(candidates) > 1:
+            blockers.append(
+                _blocker(
+                    code="BINDING_TARGET_COVERAGE_AMBIGUOUS",
+                    message=(
+                        f"Binding has ambiguous imported {target_kind} coverage for {target_key}."
+                    ),
+                    subject_ref=subject_ref,
+                    details={
+                        "required_target": required_payload,
+                        "candidates": candidates,
+                    },
+                )
+            )
+            continue
+        missing_targets.append(required_payload)
+        blockers.append(
+            _blocker(
+                code="BINDING_TARGET_COVERAGE_MISSING",
+                message=f"Binding is missing required {target_kind} coverage for {target_key}.",
+                subject_ref=subject_ref,
+                details={"missing_required_targets": [required_payload]},
+            )
+        )
+
+    return {
+        "capabilities": {
+            "required_targets": required_payloads,
+            "covered_targets": covered_targets,
+            "missing_required_targets": missing_targets,
+            "imported_covered_targets": imported_covered_targets,
+            "covers_required_targets": not missing_targets
+            and not any(
+                blocker.code == "BINDING_TARGET_COVERAGE_AMBIGUOUS" for blocker in blockers
+            ),
+        },
+        "blockers": blockers,
+    }
+
+
 def _binding_time_binding_blockers(
     *,
     subject_ref: str,
@@ -1490,9 +1692,9 @@ def _carrier_surface_physical_name(
     carrier_binding: dict[str, Any],
     surface_ref: str,
 ) -> str | None:
-    for field_surface in carrier_binding.get("field_surfaces") or []:
-        if str(field_surface.get("surface_ref") or "") == surface_ref:
-            return _optional_str(field_surface.get("physical_name"))
+    for time_surface in carrier_binding.get("time_surfaces") or []:
+        if str(time_surface.get("surface_ref") or "") == surface_ref:
+            return _optional_str(time_surface.get("physical_name"))
     return None
 
 

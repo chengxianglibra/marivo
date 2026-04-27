@@ -304,7 +304,6 @@ class TimeAxisMetadataProvider:
     ) -> dict[str, Any] | None:
         interface_contract = dict(binding.get("interface_contract") or {})
         carrier_bindings = list(interface_contract.get("carrier_bindings") or [])
-        field_bindings = list(interface_contract.get("field_bindings") or [])
         time_bindings = list(interface_contract.get("time_bindings") or [])
         carrier_surfaces = self._carrier_surface_map(carrier_bindings)
 
@@ -313,12 +312,6 @@ class TimeAxisMetadataProvider:
             carrier_surfaces=carrier_surfaces,
             primary_time_ref=primary_time_ref,
         )
-        if analysis_caps is None:
-            analysis_caps = self._analysis_caps_from_field_bindings(
-                field_bindings,
-                carrier_surfaces=carrier_surfaces,
-                primary_time_ref=primary_time_ref,
-            )
         if analysis_caps is None:
             return None
 
@@ -345,9 +338,9 @@ class TimeAxisMetadataProvider:
             binding_key = _optional_str(carrier.get("binding_key"))
             if binding_key is None:
                 continue
-            for field_surface in carrier.get("field_surfaces") or []:
-                surface_ref = _optional_str(field_surface.get("surface_ref"))
-                physical_name = _optional_str(field_surface.get("physical_name"))
+            for time_surface in carrier.get("time_surfaces") or []:
+                surface_ref = _optional_str(time_surface.get("surface_ref"))
+                physical_name = _optional_str(time_surface.get("physical_name"))
                 if surface_ref is None or physical_name is None:
                     continue
                 surfaces[(binding_key, surface_ref)] = physical_name
@@ -374,43 +367,6 @@ class TimeAxisMetadataProvider:
         if not matches:
             return None
         return self._caps_from_time_binding(matches[0], carrier_surfaces=carrier_surfaces)
-
-    def _analysis_caps_from_field_bindings(
-        self,
-        field_bindings: list[dict[str, Any]],
-        *,
-        carrier_surfaces: dict[tuple[str, str], str],
-        primary_time_ref: str | None,
-    ) -> dict[str, Any] | None:
-        if primary_time_ref is None:
-            return None
-        matches = [
-            field_binding
-            for field_binding in field_bindings
-            if _optional_str(field_binding.get("semantic_ref")) == primary_time_ref
-            and _optional_str((field_binding.get("target") or {}).get("target_kind"))
-            == "primary_time"
-        ]
-        if len(matches) > 1:
-            raise ValueError(f"Ambiguous legacy field binding for {primary_time_ref}")
-        if not matches:
-            return None
-        binding = matches[0]
-        carrier_binding_key = _optional_str(binding.get("carrier_binding_key"))
-        surface_ref = _optional_str(binding.get("surface_ref"))
-        if carrier_binding_key is None or surface_ref is None:
-            return None
-        physical_name = carrier_surfaces.get((carrier_binding_key, surface_ref))
-        if physical_name is None:
-            return None
-        if _looks_like_day_column_name(physical_name):
-            return normalize_time_capabilities(
-                {
-                    "analysis_time": {"fallback_date_column": physical_name},
-                    "partition_time": {"date_column": physical_name},
-                }
-            )
-        return normalize_time_capabilities({"analysis_time": {"timestamp_column": physical_name}})
 
     def _partition_caps_from_time_bindings(
         self,
@@ -786,7 +742,3 @@ def _decode_properties_json(raw: Any) -> dict[str, Any]:
 
 def _optional_str(value: Any) -> str | None:
     return optional_str(value)
-
-
-def _looks_like_day_column_name(column: str) -> bool:
-    return column in {"log_date", "event_date", "dt", "date", "day"}

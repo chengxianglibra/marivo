@@ -46,6 +46,11 @@ make format
 - Synced `source_objects.authority_locator` is the primary source-side identity for routing and table lookup; treat `fqn` as a derived display/reference field.
 - Synced table objects should carry table-level metadata only; column metadata belongs on child `column` source objects.
 - Typed semantic bindings must anchor on source objects and source-side authority locators; runtime compile resolves them through ready mappings.
+- For semantic layer authoring, prefer `POST /semantic/batch` dry-run when creating multiple
+  time/dimension/entity/metric/binding objects. Inspect binding
+  `capabilities.missing_required_targets` before attempting activation.
+- Time bindings reference `time_surface.*` entries, not `field.*`; metric input bindings must use
+  family slot names such as `measure`, `count_target`, `numerator`, and `denominator`.
 - Prefer API/service/registry validation over SQLite triggers for request-level business invariants.
 - After behavior changes, update the shared guide only when the rule is repository-wide; update affected API, semantic, service, analysis, or UI docs as appropriate.
 

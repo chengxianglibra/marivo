@@ -103,6 +103,10 @@ Common typed semantic `422` patterns:
 | binding uses a short `carrier_locator` such as `schema.table` | use the resolved synced source object's full FQN in `carrier_locator` |
 | binding uses `target_kind=measure` | use `target_kind=metric_input`; `measure.*` is a metric payload ref, not a binding target kind |
 | metric binding uses `target_key=metric_input.count_target` | use only the slot name in `target_key`, such as `count_target`, `measure`, `numerator`, or `denominator` |
+| binding uses a target kind outside its scope | use the binding scope matrix: `entity` supports identity/time/descriptor targets, `metric` supports subject/time/metric input, `process_object` supports subject/time/window/process context |
+| time binding references `field.*` | declare `carrier_bindings[*].time_surfaces[]` and reference `time_surface.*` from `timestamp_surface_ref`, `date_surface_ref`, or `hour_surface_ref` |
+
+Semantic service validation errors use the same guided envelope shape as request validation where possible. The `detail` object includes `message`, `code`, `category`, optional `field_path`, and nested `guidance` with docs/schema/contract links plus remediation examples.
 
 ## Step Submission Semantic Context
 

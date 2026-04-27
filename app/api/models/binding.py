@@ -288,7 +288,7 @@ class TimeBindingSpec(BaseModel):
         description="How the semantic time is physically represented."
     )
     timestamp_surface_ref: str | None = Field(
-        default=None, description="Field surface for timestamp_column resolution."
+        default=None, description="Time surface for timestamp_column resolution (time_surface.*)."
     )
     timestamp_format: str | None = Field(
         default=None,
@@ -299,13 +299,14 @@ class TimeBindingSpec(BaseModel):
         ),
     )
     date_surface_ref: str | None = Field(
-        default=None, description="Field surface for date_column/date_hour_columns resolution."
+        default=None,
+        description="Time surface for date_column/date_hour_columns resolution (time_surface.*).",
     )
     date_format: str | None = Field(
         default=None, description="Optional date encoding (for example yyyymmdd)."
     )
     hour_surface_ref: str | None = Field(
-        default=None, description="Field surface for date_hour_columns resolution."
+        default=None, description="Time surface for date_hour_columns resolution (time_surface.*)."
     )
     hour_format: str | None = Field(
         default=None, description="Optional hour encoding (for example hh or int)."
@@ -320,7 +321,7 @@ class TimeBindingSpec(BaseModel):
     def validate_surface_ref_prefix_or_none(cls, v: str | None) -> str | None:
         if v is None:
             return None
-        return validate_ref_prefix(v, "field", "surface_ref")
+        return validate_ref_prefix(v, "time_surface", "surface_ref")
 
     @model_validator(mode="after")
     def validate_resolution_shape(self) -> TimeBindingSpec:

@@ -253,6 +253,22 @@ class AdditivityConstraints(TypedDict):
 | `default_predicate_refs` | list of string | no | 所有 measurement component 共享的默认过滤语义引用；必须引用声明 `metric_qualifier` usage 的 `predicate.*`；不替代 component qualifier lineage |
 | `metric_contract_version` | string | yes | 合同版本 |
 
+### Binding required input slots
+
+Metric binding 使用 `target_kind = "metric_input"` 将物理字段映射到 metric family slot。
+`target.target_key` 必须是下表中的 slot name；`semantic_ref` 使用
+`metric_input.<slot_or_name>`。
+
+| metric_family | required metric_input target_key |
+| --- | --- |
+| `count_metric` | `count_target` |
+| `sum_metric` | `measure` |
+| `rate_metric` | `numerator`, `denominator` |
+| `average_metric` | `numerator`, `denominator` |
+| `distribution_metric` | `value_component` |
+| `score_metric` | `score_source` |
+| `survival_metric` | none |
+
 ### 设计说明
 
 几个字段需要特别强调：

@@ -456,6 +456,7 @@ _SCHEMA_NAME_BY_ROUTE: dict[tuple[str, str], str] = {
     ("POST", "/semantic/process-objects"): "ProcessObjectCreateRequest",
     ("PUT", "/semantic/process-objects/{process_contract_id}"): "ProcessObjectUpdateRequest",
     ("POST", "/semantic/bindings"): "TypedBindingCreateRequest",
+    ("POST", "/semantic/batch"): "SemanticBatchRequest",
     ("PUT", "/semantic/bindings/{binding_id}"): "TypedBindingUpdateRequest",
     ("POST", "/compiler/compatibility-profiles"): "CompatibilityProfileCreateRequest",
     ("PUT", "/compiler/compatibility-profiles/{profile_id}"): "CompatibilityProfileUpdateRequest",
@@ -535,6 +536,59 @@ def build_validation_error_payload(
         "error": {
             "code": "request_validation_error",
             "message": "Request validation failed. Use the guided example and contract links.",
+        },
+        "guidance": guidance,
+    }
+
+
+def build_service_validation_error_payload(
+    request: Request | None,
+    *,
+    message: str,
+    code: str,
+    category: str | None,
+    field_path: str | None = None,
+    remediation: dict[str, Any] | None = None,
+    examples: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Build the shared guided payload for semantic service validation errors."""
+
+    if request is not None:
+        route_path = _normalize_route_path(request)
+        method = request.method.upper()
+        path_fragment_url = (
+            f"/openapi/paths/{_encode_openapi_path(route_path)}"
+            f"?operation={method.lower()}&expand=request,schemas&depth=6"
+        )
+        schema_name = _SCHEMA_NAME_BY_ROUTE.get((method, route_path))
+        route_examples = _GUIDED_EXAMPLES.get((method, route_path))
+        docs_url = _docs_url_for_path(route_path)
+    else:
+        path_fragment_url = "/openapi/paths"
+        schema_name = None
+        route_examples = None
+        docs_url = "docs/api/semantic.md"
+
+    guidance: dict[str, Any] = {
+        "docs_url": docs_url,
+        "contract_url": path_fragment_url,
+        "examples": examples if examples is not None else route_examples or [],
+        "remediation": remediation or {},
+    }
+    if schema_name is not None:
+        guidance["schema_url"] = f"/openapi/schemas/{schema_name}?depth=6"
+    else:
+        guidance["schema_url"] = "/openapi/schemas"
+    return {
+        "message": message,
+        "code": code,
+        "category": category or "validation",
+        "field_path": field_path,
+        "error": {
+            "code": code,
+            "message": message,
+            "category": category or "validation",
+            "field_path": field_path,
         },
         "guidance": guidance,
     }

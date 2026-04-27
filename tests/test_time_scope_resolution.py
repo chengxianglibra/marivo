@@ -747,6 +747,12 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
                                     "physical_name": "cluster",
                                 },
                             ],
+                            "time_surfaces": [
+                                {
+                                    "surface_ref": "time_surface.event_date",
+                                    "physical_name": "event_date",
+                                }
+                            ],
                         }
                     ],
                     "field_bindings": [
@@ -762,21 +768,24 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
                         {
                             "carrier_binding_key": "primary",
                             "target": {
-                                "target_kind": "primary_time",
-                                "target_key": "time.event_date",
-                            },
-                            "semantic_ref": "time.event_date",
-                            "surface_ref": "field.event_date",
-                        },
-                        {
-                            "carrier_binding_key": "primary",
-                            "target": {
                                 "target_kind": "stable_descriptor",
                                 "target_key": "dimension.cluster",
                             },
                             "semantic_ref": "dimension.cluster",
                             "surface_ref": "field.cluster",
                         },
+                    ],
+                    "time_bindings": [
+                        {
+                            "carrier_binding_key": "primary",
+                            "target": {
+                                "target_kind": "primary_time",
+                                "target_key": "time.event_date",
+                            },
+                            "semantic_ref": "time.event_date",
+                            "resolution_kind": "date_column",
+                            "date_surface_ref": "time_surface.event_date",
+                        }
                     ],
                 },
             },
@@ -827,18 +836,15 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
                                     "physical_name": "platform",
                                 },
                             ],
+                            "time_surfaces": [
+                                {
+                                    "surface_ref": "time_surface.event_date",
+                                    "physical_name": "event_date",
+                                }
+                            ],
                         }
                     ],
                     "field_bindings": [
-                        {
-                            "carrier_binding_key": "primary",
-                            "target": {
-                                "target_kind": "primary_time",
-                                "target_key": "time.event_date",
-                            },
-                            "semantic_ref": "time.event_date",
-                            "surface_ref": "field.event_date",
-                        },
                         {
                             "carrier_binding_key": "primary",
                             "target": {
@@ -848,6 +854,18 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
                             "semantic_ref": "metric_input.count_target",
                             "surface_ref": "field.value",
                         },
+                    ],
+                    "time_bindings": [
+                        {
+                            "carrier_binding_key": "primary",
+                            "target": {
+                                "target_kind": "primary_time",
+                                "target_key": "time.event_date",
+                            },
+                            "semantic_ref": "time.event_date",
+                            "resolution_kind": "date_column",
+                            "date_surface_ref": "time_surface.event_date",
+                        }
                     ],
                 },
             },

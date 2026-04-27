@@ -4,8 +4,10 @@ from collections.abc import Callable
 from typing import Any
 
 from fastapi import APIRouter, Body, HTTPException, Query, Request
+from pydantic import BaseModel, ValidationError
 
 from app.api.deps import get_services
+from app.api.errors import build_service_validation_error_payload, sanitize_validation_errors
 from app.api.models import (
     CompatibilityProfileCreateRequest,
     CompatibilityProfileResponse,
@@ -22,6 +24,8 @@ from app.api.models import (
     ProcessObjectCreateRequest,
     ProcessObjectResponse,
     ProcessObjectUpdateRequest,
+    SemanticBatchRequest,
+    SemanticBatchResponse,
     SemanticValidateActionResponse,
     TimeCreateRequest,
     TimeResponse,
@@ -40,9 +44,125 @@ from app.api.models import (
 router = APIRouter()
 
 
+_CREATE_MODEL_BY_BATCH_KIND: dict[str, type[BaseModel]] = {
+    "time": TimeCreateRequest,
+    "dimension": DimensionCreateRequest,
+    "entity": TypedEntityCreateRequest,
+    "metric": TypedMetricCreateRequest,
+    "binding": TypedBindingCreateRequest,
+}
+
+
+def _merge_batch_defaults(
+    payload: dict[str, Any],
+    request: SemanticBatchRequest,
+) -> dict[str, Any]:
+    if request.defaults is None:
+        return payload
+    expanded = dict(payload)
+    contract = dict(expanded.get("interface_contract") or {})
+    carrier_refs = list(contract.pop("carrier_binding_refs", []) or [])
+    time_refs = list(contract.pop("time_binding_refs", []) or [])
+    if carrier_refs:
+        local_keys = {
+            str(item.get("binding_key") or "")
+            for item in list(contract.get("carrier_bindings") or [])
+            if isinstance(item, dict)
+        }
+        carriers = list(contract.get("carrier_bindings") or [])
+        for ref in carrier_refs:
+            default = request.defaults.carrier_bindings.get(str(ref))
+            if default is None:
+                raise ValueError(f"Unknown carrier binding default: {ref}")
+            binding_key = str(default.get("binding_key") or "")
+            if binding_key in local_keys:
+                raise ValueError(
+                    f"carrier binding default conflicts with local binding_key: {binding_key}"
+                )
+            local_keys.add(binding_key)
+            carriers.append(dict(default))
+        contract["carrier_bindings"] = carriers
+    if time_refs:
+        local_time_keys = {
+            (
+                str(item.get("carrier_binding_key") or ""),
+                str((item.get("target") or {}).get("target_kind") or ""),
+                str(item.get("semantic_ref") or ""),
+            )
+            for item in list(contract.get("time_bindings") or [])
+            if isinstance(item, dict)
+        }
+        time_bindings = list(contract.get("time_bindings") or [])
+        for ref in time_refs:
+            default = request.defaults.time_bindings.get(str(ref))
+            if default is None:
+                raise ValueError(f"Unknown time binding default: {ref}")
+            key = (
+                str(default.get("carrier_binding_key") or ""),
+                str((default.get("target") or {}).get("target_kind") or ""),
+                str(default.get("semantic_ref") or ""),
+            )
+            if key in local_time_keys:
+                raise ValueError(f"time binding default conflicts with local target: {ref}")
+            local_time_keys.add(key)
+            time_bindings.append(dict(default))
+        contract["time_bindings"] = time_bindings
+    if contract:
+        expanded["interface_contract"] = contract
+    return expanded
+
+
+def _coverage_from_result(result: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not result:
+        return None
+    capabilities = result.get("capabilities")
+    if not isinstance(capabilities, dict):
+        return None
+    keys = {
+        "required_targets",
+        "covered_targets",
+        "missing_required_targets",
+        "imported_covered_targets",
+        "covers_required_targets",
+    }
+    coverage = {key: capabilities[key] for key in keys if key in capabilities}
+    return coverage or None
+
+
+def _batch_error_payload(
+    message: str,
+    code: str = "semantic_batch_item_failed",
+    *,
+    remediation: dict[str, Any] | None = None,
+    examples: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    payload = build_service_validation_error_payload(
+        request=None,
+        message=message,
+        code=code,
+        category="validation",
+        remediation=remediation,
+        examples=examples,
+    )
+    return {"error": payload["error"], "guidance": payload["guidance"]}
+
+
+def _created_id(kind: str, result: dict[str, Any]) -> str | None:
+    id_fields = {
+        "time": "time_contract_id",
+        "dimension": "dimension_contract_id",
+        "entity": "entity_contract_id",
+        "metric": "metric_contract_id",
+        "binding": "binding_id",
+    }
+    value = result.get(id_fields[kind])
+    return str(value) if value is not None else None
+
+
 def _run_route_action(
     action: Callable[[], dict[str, Any]],
     *,
+    request: Request | None = None,
     value_error_status: int = 422,
     structured_value_error: bool = False,
 ) -> dict[str, Any]:
@@ -56,13 +176,204 @@ def _run_route_action(
         if structured_value_error and isinstance(error_code, str):
             raise HTTPException(
                 status_code=value_error_status,
-                detail={
-                    "message": str(error),
-                    "code": error_code,
-                    "category": error_category,
-                },
+                detail=build_service_validation_error_payload(
+                    request=request,
+                    message=str(error),
+                    code=error_code,
+                    category=error_category,
+                    field_path=getattr(error, "field_path", None),
+                    remediation=getattr(error, "remediation", None),
+                    examples=getattr(error, "examples", None),
+                ),
             ) from error
         raise HTTPException(status_code=value_error_status, detail=str(error)) from error
+
+
+@router.post("/semantic/batch", response_model=SemanticBatchResponse)
+def semantic_batch(request: Request, payload: SemanticBatchRequest = Body(...)) -> dict[str, Any]:
+    semantic_service = get_services(request).semantic_service
+    items: list[dict[str, Any]] = []
+    created_ids: dict[str, str] = {}
+    summary = {"total": len(payload.items), "succeeded": 0, "failed": 0, "skipped": 0}
+    stop_after_error = False
+
+    def create_item(kind: str, item_payload: dict[str, Any]) -> dict[str, Any]:
+        if kind == "time":
+            return semantic_service.create_time_semantic(
+                TimeCreateRequest.model_validate(item_payload)
+            )
+        if kind == "dimension":
+            return semantic_service.create_dimension(
+                DimensionCreateRequest.model_validate(item_payload)
+            )
+        if kind == "entity":
+            return semantic_service.create_typed_entity(
+                TypedEntityCreateRequest.model_validate(item_payload)
+            )
+        if kind == "metric":
+            return semantic_service.create_typed_metric(
+                TypedMetricCreateRequest.model_validate(item_payload)
+            )
+        if kind == "binding":
+            return semantic_service.create_typed_binding(
+                TypedBindingCreateRequest.model_validate(item_payload)
+            )
+        raise ValueError(f"Unsupported batch kind: {kind}")
+
+    def validate_item(kind: str, object_id: str) -> dict[str, Any]:
+        if kind == "time":
+            return semantic_service.validate_time_semantic(object_id)
+        if kind == "dimension":
+            return semantic_service.validate_dimension(object_id)
+        if kind == "entity":
+            return semantic_service.validate_typed_entity(object_id)
+        if kind == "metric":
+            return semantic_service.validate_typed_metric(object_id)
+        if kind == "binding":
+            return semantic_service.validate_typed_binding(object_id)
+        raise ValueError(f"Unsupported batch kind: {kind}")
+
+    def activate_item(kind: str, object_id: str) -> dict[str, Any]:
+        if kind == "time":
+            return semantic_service.activate_time_semantic(object_id)
+        if kind == "dimension":
+            return semantic_service.activate_dimension(object_id)
+        if kind == "entity":
+            return semantic_service.activate_typed_entity(object_id)
+        if kind == "metric":
+            return semantic_service.activate_typed_metric(object_id)
+        if kind == "binding":
+            return semantic_service.activate_typed_binding(object_id)
+        raise ValueError(f"Unsupported batch kind: {kind}")
+
+    for item in payload.items:
+        if stop_after_error:
+            summary["skipped"] += 1
+            items.append(
+                {
+                    "op_key": item.op_key,
+                    "kind": item.kind,
+                    "action": item.action,
+                    "status": "skipped",
+                    "result": None,
+                    "error": {
+                        "code": "semantic_batch_skipped",
+                        "message": "Skipped after previous error.",
+                    },
+                    "guidance": None,
+                    "coverage": None,
+                }
+            )
+            continue
+        try:
+            item_payload = _merge_batch_defaults(dict(item.payload), payload)
+            model = _CREATE_MODEL_BY_BATCH_KIND[item.kind]
+            result: dict[str, Any] | None = None
+            if item.action == "create":
+                model.model_validate(item_payload)
+                if payload.mode == "dry_run":
+                    if item.kind == "binding":
+                        parsed_binding = TypedBindingCreateRequest.model_validate(item_payload)
+                        binding_ref = parsed_binding.header.binding_ref
+                        binding_scope = parsed_binding.header.binding_scope
+                        bound_object_ref = parsed_binding.header.bound_object_ref
+                        interface_contract = parsed_binding.interface_contract.model_dump(
+                            mode="json"
+                        )
+
+                        def validate_binding_payload(
+                            binding_ref: str = binding_ref,
+                            binding_scope: str = binding_scope,
+                            bound_object_ref: str = bound_object_ref,
+                            interface_contract: dict[str, Any] = interface_contract,
+                        ) -> None:
+                            semantic_service.bindings._validate_typed_binding_contract(
+                                binding_ref=binding_ref,
+                                binding_scope=binding_scope,
+                                bound_object_ref=bound_object_ref,
+                                interface_contract=interface_contract,
+                                require_published_dependencies=False,
+                            )
+
+                        semantic_service._invoke(validate_binding_payload)
+                    result = {"would_create": True, "payload": item_payload}
+                else:
+                    result = create_item(item.kind, item_payload)
+                    object_id = _created_id(item.kind, result)
+                    if object_id is not None:
+                        created_ids[item.op_key] = object_id
+                    if payload.lifecycle in {"create_and_validate", "create_validate_activate"}:
+                        result = validate_item(item.kind, object_id or item.op_key)
+                    if payload.lifecycle == "create_validate_activate":
+                        result = activate_item(item.kind, object_id or item.op_key)
+            else:
+                object_id = str(
+                    item_payload.get("id")
+                    or item_payload.get("object_id")
+                    or created_ids.get(item.op_key)
+                    or item.op_key
+                )
+                if payload.mode == "dry_run":
+                    result = {"would_run": item.action, "object_id": object_id}
+                elif item.action == "validate":
+                    result = validate_item(item.kind, object_id)
+                else:
+                    result = activate_item(item.kind, object_id)
+            summary["succeeded"] += 1
+            items.append(
+                {
+                    "op_key": item.op_key,
+                    "kind": item.kind,
+                    "action": item.action,
+                    "status": "succeeded",
+                    "result": result,
+                    "error": None,
+                    "guidance": None,
+                    "coverage": _coverage_from_result(result),
+                }
+            )
+        except ValidationError as error:
+            summary["failed"] += 1
+            detail = sanitize_validation_errors(error)
+            err = _batch_error_payload(
+                "Batch item request validation failed.", "request_validation_error"
+            )
+            err["error"]["detail"] = detail
+            items.append(
+                {
+                    "op_key": item.op_key,
+                    "kind": item.kind,
+                    "action": item.action,
+                    "status": "failed",
+                    "result": None,
+                    "error": err["error"],
+                    "guidance": err["guidance"],
+                    "coverage": None,
+                }
+            )
+            stop_after_error = not payload.continue_on_error
+        except (KeyError, ValueError) as error:
+            summary["failed"] += 1
+            err = _batch_error_payload(
+                str(error),
+                str(getattr(error, "code", None) or "semantic_batch_item_failed"),
+                remediation=getattr(error, "remediation", None),
+                examples=getattr(error, "examples", None),
+            )
+            items.append(
+                {
+                    "op_key": item.op_key,
+                    "kind": item.kind,
+                    "action": item.action,
+                    "status": "failed",
+                    "result": None,
+                    "error": err["error"],
+                    "guidance": err["guidance"],
+                    "coverage": None,
+                }
+            )
+            stop_after_error = not payload.continue_on_error
+    return {"ok": summary["failed"] == 0, "mode": payload.mode, "summary": summary, "items": items}
 
 
 @router.post("/semantic/entities", response_model=TypedEntityResponse)
@@ -688,7 +999,11 @@ def create_typed_binding(
     request: Request, payload: TypedBindingCreateRequest = Body(...)
 ) -> dict[str, Any]:
     semantic_service = get_services(request).semantic_service
-    return _run_route_action(lambda: semantic_service.create_typed_binding(payload))
+    return _run_route_action(
+        lambda: semantic_service.create_typed_binding(payload),
+        request=request,
+        structured_value_error=True,
+    )
 
 
 @router.get("/semantic/bindings")
@@ -725,7 +1040,11 @@ def update_typed_binding(
     payload: TypedBindingUpdateRequest = Body(...),
 ) -> dict[str, Any]:
     semantic_service = get_services(request).semantic_service
-    return _run_route_action(lambda: semantic_service.update_typed_binding(binding_id, payload))
+    return _run_route_action(
+        lambda: semantic_service.update_typed_binding(binding_id, payload),
+        request=request,
+        structured_value_error=True,
+    )
 
 
 @router.post("/semantic/bindings/{binding_id}/publish")

@@ -1589,7 +1589,7 @@ class BindingReadinessEvaluatorTests(unittest.TestCase):
                     "target": {"target_kind": "primary_time", "target_key": "time.event_date"},
                     "semantic_ref": "time.event_date",
                     "resolution_kind": "timestamp_column",
-                    "timestamp_surface_ref": "field.create_time",
+                    "timestamp_surface_ref": "time_surface.create_time",
                 }
             ],
             carrier_bindings=[
@@ -1631,7 +1631,7 @@ class BindingReadinessEvaluatorTests(unittest.TestCase):
                     "target": {"target_kind": "primary_time", "target_key": "time.event_date"},
                     "semantic_ref": "time.event_date",
                     "resolution_kind": "timestamp_column",
-                    "timestamp_surface_ref": "field.create_time",
+                    "timestamp_surface_ref": "time_surface.create_time",
                 }
             ],
             carrier_bindings=[
@@ -1672,7 +1672,7 @@ class BindingReadinessEvaluatorTests(unittest.TestCase):
                     "target": {"target_kind": "primary_time", "target_key": "time.event_date"},
                     "semantic_ref": "time.event_date",
                     "resolution_kind": "timestamp_column",
-                    "timestamp_surface_ref": "field.create_time",
+                    "timestamp_surface_ref": "time_surface.create_time",
                     "timestamp_format": "iso8601_t_naive",
                 }
             ],
@@ -1712,7 +1712,7 @@ class BindingReadinessEvaluatorTests(unittest.TestCase):
                     "target": {"target_kind": "primary_time", "target_key": "time.event_date"},
                     "semantic_ref": "time.event_date",
                     "resolution_kind": "timestamp_column",
-                    "timestamp_surface_ref": "field.create_time",
+                    "timestamp_surface_ref": "time_surface.create_time",
                     "timestamp_format": "%Y%m%d %H:%M:%S",
                 }
             ],
@@ -1751,7 +1751,7 @@ class BindingReadinessEvaluatorTests(unittest.TestCase):
                     "target": {"target_kind": "primary_time", "target_key": "time.event_date"},
                     "semantic_ref": "time.event_date",
                     "resolution_kind": "timestamp_column",
-                    "timestamp_surface_ref": "field.create_time",
+                    "timestamp_surface_ref": "time_surface.create_time",
                     "timestamp_format": "%Y-%m-%d %z",
                 }
             ],
@@ -1784,6 +1784,20 @@ class BindingReadinessEvaluatorTests(unittest.TestCase):
         carrier_source_object_loader=None,
         source_column_type_loader=None,
     ):
+        if carrier_bindings is not None:
+            carrier_bindings = [
+                {
+                    **carrier,
+                    "time_surfaces": carrier.get("time_surfaces")
+                    or [
+                        {
+                            "surface_ref": "time_surface.create_time",
+                            "physical_name": "create_time",
+                        }
+                    ],
+                }
+                for carrier in carrier_bindings
+            ]
         snapshot = build_snapshot(
             object_kind="binding",
             object_id="bind_123",

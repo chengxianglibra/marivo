@@ -479,7 +479,7 @@ _LOCK_FILE = _template_lock_path("default")
 # In-process flags: skip lock on repeated calls within the same worker.
 _TEMPLATE_READY: set[str] = set()
 
-_METADATA_TEMPLATE_VERSION = "sqlite_metadata_v9"
+_METADATA_TEMPLATE_VERSION = "sqlite_metadata_v10_time_surface_refs"
 _METADATA_TEMPLATE = Path(f"/tmp/marivo_test_{_METADATA_TEMPLATE_VERSION}.sqlite")
 _METADATA_LOCK = Path(f"/tmp/marivo_test_{_METADATA_TEMPLATE_VERSION}.lock")
 _METADATA_READY = False
@@ -590,6 +590,10 @@ def _metadata_template_valid(db_path: Path) -> bool:
         field_binding_columns = {
             str(row[1]) for row in con.execute("PRAGMA table_info(field_bindings)").fetchall()
         }
+        time_bindings_sql_row = con.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'time_bindings'"
+        ).fetchone()
+        time_bindings_sql = str(time_bindings_sql_row[0] if time_bindings_sql_row else "")
     finally:
         con.close()
     return (
@@ -657,6 +661,10 @@ def _metadata_template_valid(db_path: Path) -> bool:
             "semantic_ref",
             "surface_ref",
         }.issubset(field_binding_columns)
+        and "time_surface." in time_bindings_sql
+        and "substr(timestamp_surface_ref, 1, 6) = 'field.'" not in time_bindings_sql
+        and "substr(date_surface_ref, 1, 6) = 'field.'" not in time_bindings_sql
+        and "substr(hour_surface_ref, 1, 6) = 'field.'" not in time_bindings_sql
     )
 
 

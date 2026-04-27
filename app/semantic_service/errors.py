@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 
 class SemanticServiceError(Exception):
     """Base error for semantic service submodules."""
@@ -10,10 +12,16 @@ class SemanticServiceError(Exception):
         *,
         code: str | None = None,
         category: str | None = None,
+        field_path: str | None = None,
+        remediation: dict[str, Any] | None = None,
+        examples: list[dict[str, Any]] | None = None,
     ) -> None:
         super().__init__(message)
         self.code = code
         self.category = category
+        self.field_path = field_path
+        self.remediation = remediation
+        self.examples = examples
 
 
 class SemanticNotFoundError(SemanticServiceError):

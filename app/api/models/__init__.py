@@ -322,6 +322,12 @@ from .process_object import (
     SessionContractPayload,
     StepGapSpec,
 )
+from .semantic_batch import (
+    SemanticBatchItem,
+    SemanticBatchItemResponse,
+    SemanticBatchRequest,
+    SemanticBatchResponse,
+)
 
 # Session models
 from .session import (
@@ -535,6 +541,10 @@ __all__ = [  # noqa: RUF022
     "Scope",
     "ScoreMetricPayload",
     "SemanticRef",
+    "SemanticBatchItem",
+    "SemanticBatchItemResponse",
+    "SemanticBatchRequest",
+    "SemanticBatchResponse",
     "SemanticValidateActionResponse",
     "SemanticValidationSummary",
     "SemanticRole",
