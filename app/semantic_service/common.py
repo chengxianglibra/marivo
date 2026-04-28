@@ -899,6 +899,35 @@ class SemanticServiceSupport:
     def _list_context(self) -> _SemanticListContext:
         return _SemanticListContext(self)
 
+    def list_grains(self) -> dict[str, Any]:
+        rows = self.metadata.query_rows(
+            """
+            SELECT observation_grain_ref AS grain_ref,
+                   'metric_observation' AS source_kind,
+                   metric_ref AS source_ref,
+                   status
+            FROM semantic_metric_contracts
+            UNION ALL
+            SELECT emitted_grain_ref AS grain_ref,
+                   'process_emitted' AS source_kind,
+                   process_ref AS source_ref,
+                   status
+            FROM semantic_process_objects
+            WHERE emitted_grain_ref IS NOT NULL
+            UNION ALL
+            SELECT cb.grain_ref AS grain_ref,
+                   'carrier_binding' AS source_kind,
+                   tb.binding_ref AS source_ref,
+                   tb.status AS status
+            FROM carrier_bindings cb
+            JOIN typed_bindings tb ON tb.binding_id = cb.binding_id
+            WHERE cb.grain_ref IS NOT NULL
+            ORDER BY grain_ref, source_kind, source_ref
+            """
+        )
+        items = [dict(row) for row in rows if row["grain_ref"]]
+        return {"items": items, "total": len(items)}
+
     def _evaluate_readiness(
         self,
         *,
@@ -2234,10 +2263,12 @@ class SemanticServiceSupport:
                     code="metric_input_semantic_ref_prefix_invalid",
                     field_path="interface_contract.field_bindings[].semantic_ref",
                     remediation={
+                        "expected": "metric_input.<target_key>",
+                        "got": semantic_ref,
                         "example_patch": {
                             "target": {"target_kind": "metric_input", "target_key": "numerator"},
                             "semantic_ref": "metric_input.numerator",
-                        }
+                        },
                     },
                 )
             if not target_key:

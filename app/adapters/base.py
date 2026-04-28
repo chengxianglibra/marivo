@@ -6,6 +6,7 @@ from typing import Any
 
 MAX_PREVIEW_ROWS = 1000
 DEFAULT_PREVIEW_ROWS = 100
+PreviewFilters = dict[str, str | int | float | bool | None]
 
 
 @dataclass
@@ -74,6 +75,7 @@ class CatalogAdapter(ABC):
         table_name: str,
         limit: int = DEFAULT_PREVIEW_ROWS,
         columns: list[str] | None = None,
+        filters: PreviewFilters | None = None,
     ) -> PreviewResult:
         """Preview sample rows from a table.
 
@@ -82,6 +84,7 @@ class CatalogAdapter(ABC):
             table_name: Table to preview
             limit: Maximum rows to return (capped at MAX_PREVIEW_ROWS)
             columns: Optional list of column names to select; None = all columns
+            filters: Optional equality filters keyed by column name
 
         Returns:
             PreviewResult with columns metadata and sample rows

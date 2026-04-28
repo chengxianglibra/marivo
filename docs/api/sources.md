@@ -427,6 +427,7 @@ especially for determining timestamp formats and column data types.
 | `table` | string | yes | Table name |
 | `limit` | integer | no | Max rows to return (default 100, max 1000) |
 | `columns` | string | no | Comma-separated column names to select |
+| `filters` | string | no | JSON object or array of `{column,value}` equality filters. Column names must exist on the table; values must be scalar. Raw SQL predicates are rejected. |
 
 ### Response
 
@@ -446,14 +447,15 @@ especially for determining timestamp formats and column data types.
   "row_count": 2,
   "truncated": false,
   "limit_requested": 100,
-  "limit_applied": 100
+  "limit_applied": 100,
+  "filters_applied": {"event_state": "FAILED"}
 }
 ```
 
 ### Error Responses
 
 - **404**: Source or table not found
-- **400**: Invalid column names or limit value
+- **400**: Invalid column names, filter columns, filter shape, or limit value
 
 ---
 

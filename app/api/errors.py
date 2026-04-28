@@ -347,11 +347,24 @@ _GUIDED_EXAMPLES: dict[tuple[str, str], list[dict[str, Any]]] = {
                             "binding_role": "primary",
                             "field_surfaces": [
                                 {"surface_ref": "field.user_id", "physical_name": "user_id"},
-                                {"surface_ref": "field.event_date", "physical_name": "event_date"},
+                            ],
+                            "time_surfaces": [
+                                {
+                                    "surface_ref": "time_surface.event_date",
+                                    "physical_name": "event_date",
+                                }
                             ],
                         }
                     ],
                     "field_bindings": [
+                        {
+                            "carrier_binding_key": "primary",
+                            "target": {"target_kind": "metric_input", "target_key": "count_target"},
+                            "semantic_ref": "metric_input.active_users",
+                            "surface_ref": "field.user_id",
+                        },
+                    ],
+                    "time_bindings": [
                         {
                             "carrier_binding_key": "primary",
                             "target": {
@@ -359,14 +372,10 @@ _GUIDED_EXAMPLES: dict[tuple[str, str], list[dict[str, Any]]] = {
                                 "target_key": "time.watch_event_date",
                             },
                             "semantic_ref": "time.watch_event_date",
-                            "surface_ref": "field.event_date",
-                        },
-                        {
-                            "carrier_binding_key": "primary",
-                            "target": {"target_kind": "metric_input", "target_key": "count_target"},
-                            "semantic_ref": "metric_input.active_users",
-                            "surface_ref": "field.user_id",
-                        },
+                            "resolution_kind": "date_column",
+                            "date_surface_ref": "time_surface.event_date",
+                            "date_format": "yyyy-mm-dd",
+                        }
                     ],
                 },
             },
@@ -527,6 +536,21 @@ def build_validation_error_payload(
     examples = _GUIDED_EXAMPLES.get((method, route_path))
     if examples is not None:
         guidance["examples"] = examples
+    if (method, route_path) == ("POST", "/semantic/bindings"):
+        guidance["field_name_hints"] = [
+            {
+                "expected": "carrier_bindings[].time_surfaces[].surface_ref",
+                "common_mistake": "time_surface_ref",
+            },
+            {
+                "expected": "time_bindings[].date_surface_ref / timestamp_surface_ref / hour_surface_ref",
+                "common_mistake": "surface_ref inside time_bindings",
+            },
+            {
+                "expected": "field_bindings[].semantic_ref = metric_input.<slot>",
+                "common_mistake": "metric.<name> for metric_input targets",
+            },
+        ]
     guidance["next_action"] = (
         "Start with guidance.examples, then inspect guidance.schema_url for the exact request model, "
         "and use guidance.contract_url when nested refs or route-scoped rules are unclear."
@@ -579,6 +603,21 @@ def build_service_validation_error_payload(
         guidance["schema_url"] = f"/openapi/schemas/{schema_name}?depth=6"
     else:
         guidance["schema_url"] = "/openapi/schemas"
+    if request is not None and (method, route_path) == ("POST", "/semantic/bindings"):
+        guidance["field_name_hints"] = [
+            {
+                "expected": "carrier_bindings[].time_surfaces[].surface_ref",
+                "common_mistake": "time_surface_ref",
+            },
+            {
+                "expected": "time_bindings[].date_surface_ref / timestamp_surface_ref / hour_surface_ref",
+                "common_mistake": "surface_ref inside time_bindings",
+            },
+            {
+                "expected": "field_bindings[].semantic_ref = metric_input.<slot>",
+                "common_mistake": "metric.<name> for metric_input targets",
+            },
+        ]
     return {
         "message": message,
         "code": code,

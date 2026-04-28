@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import uuid4
 
-from app.adapters.base import MAX_PREVIEW_ROWS, CatalogAdapter
+from app.adapters.base import MAX_PREVIEW_ROWS, CatalogAdapter, PreviewFilters
 from app.registry.common import now_iso
 from app.registry.factories import build_catalog_adapter, validate_source_type
 from app.storage.metadata import MetadataStore
@@ -446,6 +446,7 @@ class SourceRegistry:
         table_name: str,
         limit: int = 100,
         columns: list[str] | None = None,
+        filters: PreviewFilters | None = None,
     ) -> dict[str, Any]:
         adapter = self.get_adapter(source_id)
         result = adapter.preview_table(
@@ -453,6 +454,7 @@ class SourceRegistry:
             table_name=table_name,
             limit=limit,
             columns=columns,
+            filters=filters,
         )
         return {
             "source_id": source_id,
@@ -464,6 +466,7 @@ class SourceRegistry:
             "truncated": result.truncated,
             "limit_requested": limit,
             "limit_applied": min(limit, MAX_PREVIEW_ROWS),
+            "filters_applied": filters or {},
         }
 
     def evaluate_source(self, source: dict[str, Any]) -> SourceValidationResult:

@@ -47,11 +47,16 @@ make format
 - Synced `source_objects.authority_locator` is the primary source-side identity for routing and table lookup; treat `fqn` as a derived display/reference field.
 - Synced table objects should carry table-level metadata only; column metadata belongs on child `column` source objects.
 - Typed semantic bindings must anchor on source objects and source-side authority locators; runtime compile resolves them through ready mappings.
-- For semantic layer authoring, prefer `POST /semantic/batch` dry-run when creating multiple
-  time/dimension/entity/metric/binding objects. Inspect binding
-  `capabilities.missing_required_targets` before attempting activation.
-- Time bindings reference `time_surface.*` entries, not `field.*`; metric input bindings must use
-  family slot names such as `measure`, `count_target`, `numerator`, and `denominator`.
+- For semantic layer authoring, prefer `POST /semantic/batch` dry-run/apply when creating multiple
+  time/dimension/entity/metric/binding objects. Use batch `defaults` for shared carriers/time
+  bindings, and inspect final metric readiness after bindings activate.
+- Time surface declarations use `surface_ref`; time binding references use
+  `timestamp_surface_ref`, `date_surface_ref`, or `hour_surface_ref`. Metric input bindings must use
+  `semantic_ref=metric_input.<slot>` with family slot names such as `measure`, `count_target`,
+  `numerator`, and `denominator`.
+- `observation_grain_ref` is explicit metric identity, not an auto-created object. Use
+  `GET /semantic/grains` to inspect grain refs already present in metric headers, process objects,
+  and carrier bindings.
 - Prefer API/service/registry validation over SQLite triggers for request-level business invariants.
 - After behavior changes, update the shared guide only when the rule is repository-wide; update affected API, semantic, service, analysis, or UI docs as appropriate.
 

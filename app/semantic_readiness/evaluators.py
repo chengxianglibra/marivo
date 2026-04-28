@@ -1507,14 +1507,23 @@ def _evaluate_subject_bindings(
     snapshot = context.snapshot
     blockers: list[BlockingRequirementPayload] = []
     trace: list[ReadinessTraceItem] = []
-    bindings = [
+    subject_bindings = [
         binding
         for binding in context.load_subject_bindings(snapshot.ref)
         if str(binding.get("binding_scope") or "") == expected_scope
         and str(binding.get("bound_object_ref") or "") == snapshot.ref
-        and derive_lifecycle_status(str(binding.get("status") or "draft")) == "active"
+    ]
+    bindings = [
+        binding
+        for binding in subject_bindings
+        if derive_lifecycle_status(str(binding.get("status") or "draft")) == "active"
     ]
     if not bindings:
+        inactive_binding_refs = [
+            str(binding.get("binding_ref") or "")
+            for binding in subject_bindings
+            if str(binding.get("binding_ref") or "")
+        ]
         blocker_details: dict[str, Any] = {
             "required_binding_scope": expected_scope,
             "bound_object_ref": snapshot.ref,
@@ -1524,10 +1533,17 @@ def _evaluate_subject_bindings(
             ],
         }
         if expected_scope == "metric":
-            blocker_details["remediation"] = {
-                "tool": "create_binding",
-                "message": "Create a typed binding with header.binding_scope='metric' for this metric.",
-            }
+            if inactive_binding_refs:
+                blocker_details["remediation"] = {
+                    "tool": "activate_binding",
+                    "binding_refs": inactive_binding_refs,
+                    "message": f"Activate binding {inactive_binding_refs[0]} before checking metric readiness.",
+                }
+            else:
+                blocker_details["remediation"] = {
+                    "tool": "create_binding",
+                    "message": "Create a typed binding with header.binding_scope='metric' for this metric.",
+                }
         blockers.append(
             _blocker(
                 code=missing_binding_code,

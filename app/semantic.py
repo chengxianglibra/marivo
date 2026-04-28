@@ -60,6 +60,9 @@ class SemanticService:
         self.bindings = TypedBindingService(metadata)
         self.compatibility_profiles = CompatibilityProfileService(metadata)
 
+    def list_grains(self) -> dict[str, Any]:
+        return self._invoke(lambda: self.typed_objects.list_grains())
+
     def _invoke(self, action: Callable[[], ActionResultT]) -> ActionResultT:
         try:
             return action()

@@ -47,9 +47,31 @@ router = APIRouter()
 _CREATE_MODEL_BY_BATCH_KIND: dict[str, type[BaseModel]] = {
     "time": TimeCreateRequest,
     "dimension": DimensionCreateRequest,
+    "enum_set": EnumSetCreateRequest,
     "entity": TypedEntityCreateRequest,
+    "process_object": ProcessObjectCreateRequest,
     "metric": TypedMetricCreateRequest,
     "binding": TypedBindingCreateRequest,
+}
+
+_BATCH_CREATE_ORDER = {
+    "time": 0,
+    "dimension": 1,
+    "enum_set": 2,
+    "entity": 3,
+    "process_object": 4,
+    "metric": 5,
+    "binding": 6,
+}
+
+_BATCH_ACTIVATE_ORDER = {
+    "time": 0,
+    "dimension": 1,
+    "enum_set": 2,
+    "entity": 3,
+    "process_object": 4,
+    "metric": 5,
+    "binding": 6,
 }
 
 
@@ -151,7 +173,9 @@ def _created_id(kind: str, result: dict[str, Any]) -> str | None:
     id_fields = {
         "time": "time_contract_id",
         "dimension": "dimension_contract_id",
+        "enum_set": "enum_set_contract_id",
         "entity": "entity_contract_id",
+        "process_object": "process_contract_id",
         "metric": "metric_contract_id",
         "binding": "binding_id",
     }
@@ -206,9 +230,17 @@ def semantic_batch(request: Request, payload: SemanticBatchRequest = Body(...)) 
             return semantic_service.create_dimension(
                 DimensionCreateRequest.model_validate(item_payload)
             )
+        if kind == "enum_set":
+            return semantic_service.create_enum_set(
+                EnumSetCreateRequest.model_validate(item_payload)
+            )
         if kind == "entity":
             return semantic_service.create_typed_entity(
                 TypedEntityCreateRequest.model_validate(item_payload)
+            )
+        if kind == "process_object":
+            return semantic_service.create_process_object(
+                ProcessObjectCreateRequest.model_validate(item_payload)
             )
         if kind == "metric":
             return semantic_service.create_typed_metric(
@@ -225,8 +257,12 @@ def semantic_batch(request: Request, payload: SemanticBatchRequest = Body(...)) 
             return semantic_service.validate_time_semantic(object_id)
         if kind == "dimension":
             return semantic_service.validate_dimension(object_id)
+        if kind == "enum_set":
+            return semantic_service.validate_enum_set(object_id)
         if kind == "entity":
             return semantic_service.validate_typed_entity(object_id)
+        if kind == "process_object":
+            return semantic_service.validate_process_object(object_id)
         if kind == "metric":
             return semantic_service.validate_typed_metric(object_id)
         if kind == "binding":
@@ -238,13 +274,232 @@ def semantic_batch(request: Request, payload: SemanticBatchRequest = Body(...)) 
             return semantic_service.activate_time_semantic(object_id)
         if kind == "dimension":
             return semantic_service.activate_dimension(object_id)
+        if kind == "enum_set":
+            return semantic_service.activate_enum_set(object_id)
         if kind == "entity":
             return semantic_service.activate_typed_entity(object_id)
+        if kind == "process_object":
+            return semantic_service.activate_process_object(object_id)
         if kind == "metric":
             return semantic_service.activate_typed_metric(object_id)
         if kind == "binding":
             return semantic_service.activate_typed_binding(object_id)
         raise ValueError(f"Unsupported batch kind: {kind}")
+
+    if (
+        payload.mode == "apply"
+        and payload.lifecycle == "create_validate_activate"
+        and all(item.action == "create" for item in payload.items)
+    ):
+        records: list[dict[str, Any]] = []
+        ordered_items = sorted(
+            enumerate(payload.items), key=lambda pair: (_BATCH_CREATE_ORDER[pair[1].kind], pair[0])
+        )
+        for index, item in ordered_items:
+            if stop_after_error:
+                summary["skipped"] += 1
+                items.append(
+                    {
+                        "op_key": item.op_key,
+                        "kind": item.kind,
+                        "action": item.action,
+                        "status": "skipped",
+                        "result": None,
+                        "error": {
+                            "code": "semantic_batch_skipped",
+                            "message": "Skipped after previous error.",
+                        },
+                        "guidance": None,
+                        "coverage": None,
+                    }
+                )
+                continue
+            try:
+                item_payload = _merge_batch_defaults(dict(item.payload), payload)
+                _CREATE_MODEL_BY_BATCH_KIND[item.kind].model_validate(item_payload)
+                created = create_item(item.kind, item_payload)
+                object_id = _created_id(item.kind, created)
+                if object_id is not None:
+                    created_ids[item.op_key] = object_id
+                records.append(
+                    {
+                        "item": item,
+                        "index": index,
+                        "object_id": object_id or item.op_key,
+                        "create_result": created,
+                    }
+                )
+            except ValidationError as error:
+                summary["failed"] += 1
+                detail = sanitize_validation_errors(error)
+                err = _batch_error_payload(
+                    "Batch item request validation failed.", "request_validation_error"
+                )
+                err["error"]["detail"] = detail
+                items.append(
+                    {
+                        "op_key": item.op_key,
+                        "kind": item.kind,
+                        "action": item.action,
+                        "status": "failed",
+                        "result": None,
+                        "error": err["error"],
+                        "guidance": err["guidance"],
+                        "coverage": None,
+                    }
+                )
+                stop_after_error = not payload.continue_on_error
+            except (KeyError, ValueError) as error:
+                summary["failed"] += 1
+                err = _batch_error_payload(
+                    str(error),
+                    str(getattr(error, "code", None) or "semantic_batch_item_failed"),
+                    remediation=getattr(error, "remediation", None),
+                    examples=getattr(error, "examples", None),
+                )
+                items.append(
+                    {
+                        "op_key": item.op_key,
+                        "kind": item.kind,
+                        "action": item.action,
+                        "status": "failed",
+                        "result": None,
+                        "error": err["error"],
+                        "guidance": err["guidance"],
+                        "coverage": None,
+                    }
+                )
+                stop_after_error = not payload.continue_on_error
+
+        readiness_counts: dict[str, int] = {}
+        deferred_metric_records: list[dict[str, Any]] = []
+        for record in sorted(
+            records,
+            key=lambda item_record: (
+                _BATCH_ACTIVATE_ORDER[item_record["item"].kind],
+                item_record["index"],
+            ),
+        ):
+            item = record["item"]
+            try:
+                validate_item(item.kind, record["object_id"])
+                activation_result = activate_item(item.kind, record["object_id"])
+                if item.kind == "metric":
+                    deferred_metric_records.append(record)
+                    continue
+                readiness = activation_result.get("readiness_status")
+                if isinstance(readiness, str):
+                    readiness_counts[readiness] = readiness_counts.get(readiness, 0) + 1
+                summary["succeeded"] += 1
+                items.append(
+                    {
+                        "op_key": item.op_key,
+                        "kind": item.kind,
+                        "action": item.action,
+                        "status": "succeeded",
+                        "result": activation_result,
+                        "error": None,
+                        "guidance": None,
+                        "coverage": _coverage_from_result(activation_result),
+                    }
+                )
+            except (KeyError, ValueError) as error:
+                summary["failed"] += 1
+                err = _batch_error_payload(
+                    str(error),
+                    str(getattr(error, "code", None) or "semantic_batch_item_failed"),
+                    remediation=getattr(error, "remediation", None),
+                    examples=getattr(error, "examples", None),
+                )
+                items.append(
+                    {
+                        "op_key": item.op_key,
+                        "kind": item.kind,
+                        "action": item.action,
+                        "status": "failed",
+                        "result": None,
+                        "error": err["error"],
+                        "guidance": err["guidance"],
+                        "coverage": None,
+                    }
+                )
+                if not payload.continue_on_error:
+                    break
+        final_metrics: list[dict[str, Any]] = []
+        for record in deferred_metric_records:
+            item = record["item"]
+            try:
+                final = validate_item("metric", record["object_id"])
+            except (KeyError, ValueError) as error:
+                summary["failed"] += 1
+                err = _batch_error_payload(
+                    str(error),
+                    str(getattr(error, "code", None) or "semantic_batch_item_failed"),
+                    remediation=getattr(error, "remediation", None),
+                    examples=getattr(error, "examples", None),
+                )
+                items.append(
+                    {
+                        "op_key": item.op_key,
+                        "kind": item.kind,
+                        "action": item.action,
+                        "status": "failed",
+                        "result": None,
+                        "error": err["error"],
+                        "guidance": err["guidance"],
+                        "coverage": None,
+                    }
+                )
+                if not payload.continue_on_error:
+                    break
+                continue
+            final_object = final.get("semantic_object") if isinstance(final, dict) else None
+            if not isinstance(final_object, dict):
+                final_object = final
+            readiness = final_object.get("readiness_status")
+            if isinstance(readiness, str):
+                readiness_counts[readiness] = readiness_counts.get(readiness, 0) + 1
+            summary["succeeded"] += 1
+            items.append(
+                {
+                    "op_key": item.op_key,
+                    "kind": item.kind,
+                    "action": item.action,
+                    "status": "succeeded",
+                    "result": final_object,
+                    "error": None,
+                    "guidance": None,
+                    "coverage": _coverage_from_result(final_object),
+                }
+            )
+            final_metrics.append(
+                {
+                    "op_key": item.op_key,
+                    "object_id": record["object_id"],
+                    "readiness_status": final_object.get("readiness_status"),
+                    "blocking_requirements": final_object.get("blocking_requirements", []),
+                }
+            )
+        return {
+            "ok": summary["failed"] == 0,
+            "mode": payload.mode,
+            "summary": summary,
+            "items": items,
+            "readiness_summary": {
+                "counts": readiness_counts,
+                "final_metrics": final_metrics,
+                "activation_order": [
+                    record["item"].op_key
+                    for record in sorted(
+                        records,
+                        key=lambda item_record: (
+                            _BATCH_ACTIVATE_ORDER[item_record["item"].kind],
+                            item_record["index"],
+                        ),
+                    )
+                ],
+            },
+        }
 
     for item in payload.items:
         if stop_after_error:
@@ -268,7 +523,7 @@ def semantic_batch(request: Request, payload: SemanticBatchRequest = Body(...)) 
         try:
             item_payload = _merge_batch_defaults(dict(item.payload), payload)
             model = _CREATE_MODEL_BY_BATCH_KIND[item.kind]
-            result: dict[str, Any] | None = None
+            item_result: dict[str, Any] | None = None
             if item.action == "create":
                 model.model_validate(item_payload)
                 if payload.mode == "dry_run":
@@ -296,16 +551,16 @@ def semantic_batch(request: Request, payload: SemanticBatchRequest = Body(...)) 
                             )
 
                         semantic_service._invoke(validate_binding_payload)
-                    result = {"would_create": True, "payload": item_payload}
+                    item_result = {"would_create": True, "payload": item_payload}
                 else:
-                    result = create_item(item.kind, item_payload)
-                    object_id = _created_id(item.kind, result)
+                    item_result = create_item(item.kind, item_payload)
+                    object_id = _created_id(item.kind, item_result)
                     if object_id is not None:
                         created_ids[item.op_key] = object_id
                     if payload.lifecycle in {"create_and_validate", "create_validate_activate"}:
-                        result = validate_item(item.kind, object_id or item.op_key)
+                        item_result = validate_item(item.kind, object_id or item.op_key)
                     if payload.lifecycle == "create_validate_activate":
-                        result = activate_item(item.kind, object_id or item.op_key)
+                        item_result = activate_item(item.kind, object_id or item.op_key)
             else:
                 object_id = str(
                     item_payload.get("id")
@@ -314,11 +569,11 @@ def semantic_batch(request: Request, payload: SemanticBatchRequest = Body(...)) 
                     or item.op_key
                 )
                 if payload.mode == "dry_run":
-                    result = {"would_run": item.action, "object_id": object_id}
+                    item_result = {"would_run": item.action, "object_id": object_id}
                 elif item.action == "validate":
-                    result = validate_item(item.kind, object_id)
+                    item_result = validate_item(item.kind, object_id)
                 else:
-                    result = activate_item(item.kind, object_id)
+                    item_result = activate_item(item.kind, object_id)
             summary["succeeded"] += 1
             items.append(
                 {
@@ -326,10 +581,10 @@ def semantic_batch(request: Request, payload: SemanticBatchRequest = Body(...)) 
                     "kind": item.kind,
                     "action": item.action,
                     "status": "succeeded",
-                    "result": result,
+                    "result": item_result,
                     "error": None,
                     "guidance": None,
-                    "coverage": _coverage_from_result(result),
+                    "coverage": _coverage_from_result(item_result),
                 }
             )
         except ValidationError as error:
@@ -374,6 +629,12 @@ def semantic_batch(request: Request, payload: SemanticBatchRequest = Body(...)) 
             )
             stop_after_error = not payload.continue_on_error
     return {"ok": summary["failed"] == 0, "mode": payload.mode, "summary": summary, "items": items}
+
+
+@router.get("/semantic/grains")
+def list_grains(request: Request) -> dict[str, Any]:
+    """List grain refs observed in metric headers, process objects, and carrier bindings."""
+    return get_services(request).semantic_service.list_grains()
 
 
 @router.post("/semantic/entities", response_model=TypedEntityResponse)

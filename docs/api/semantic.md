@@ -659,10 +659,16 @@ Average/rate metric bindings must declare both local metric input slots:
 }
 ```
 
-Batch v1 runs in submitted order. `dry_run` validates request and service contracts without
-writing metadata. `apply` creates objects and can optionally validate/activate the objects it just
-created. `publish` is accepted as an alias for `activate`. Batch v1 is not transactional and does
-not plan a DAG.
+Batch validates request and service contracts item-by-item. `dry_run` does not write metadata.
+`apply` creates objects and can optionally validate/activate the objects it just created. `publish`
+is accepted as an alias for `activate`. For `create_validate_activate`, create operations are
+internally ordered by dependency class and the response includes `readiness_summary` so callers can
+inspect final metric readiness after related bindings activate. Batch is not transactional.
+
+Use `defaults.carrier_bindings` and `defaults.time_bindings` to avoid repeating the same physical
+carrier/time mapping across many metric bindings. A binding item can reference those defaults from
+`interface_contract.carrier_binding_refs` and `interface_contract.time_binding_refs`, while declaring
+only its local `field_bindings`.
 
 Publish in dependency order:
 
@@ -672,6 +678,14 @@ Publish in dependency order:
 4. `entity.user`
 5. `metric.daily_active_users`
 6. `binding.user_events_primary`
+
+```
+GET /semantic/grains
+```
+
+Returns grain refs already observed in metric headers, process objects, and carrier bindings. Grain
+refs are explicit semantic identity inputs such as `observation_grain_ref`; they are not auto-created
+governance objects.
 
 List responses are always wrapped:
 
