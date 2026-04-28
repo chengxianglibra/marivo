@@ -9,9 +9,11 @@ from typing import Any, ClassVar, cast
 
 from app.analysis_core.compiler import CompiledQuery
 from app.api.app_factory import create_app
+from app.api.models.metric import MetricRevisionCreateRequest
 from app.evidence_engine.ref_boundary import assert_no_canonical_refs_in_semantic_payload
 from app.service import SemanticLayerService
 from tests.semantic_test_helpers import (
+    ensure_active_duckdb_mapping,
     ensure_published_typed_metric,
     ensure_published_typed_metric_binding,
     seed_duckdb_source_object,
@@ -35,6 +37,7 @@ def _make_metadata_only_service() -> SemanticLayerService:
 class StepMetadataPersistenceTests(unittest.TestCase):
     temp_dir: ClassVar[tempfile.TemporaryDirectory[str]]
     service: ClassVar[Any]
+    semantic_service: ClassVar[Any]
     metadata: ClassVar[Any]
 
     @classmethod
@@ -44,6 +47,7 @@ class StepMetadataPersistenceTests(unittest.TestCase):
         get_seeded_duckdb_path(db_path)
         app = create_app(db_path)
         cls.service = cast("Any", app.state.service)
+        cls.semantic_service = cast("Any", app.state.semantic_service)
         cls.metadata = cls.service.metadata
         now = datetime.now(UTC).isoformat()
         seed_duckdb_source_object(
@@ -54,6 +58,12 @@ class StepMetadataPersistenceTests(unittest.TestCase):
             table_name="watch_events",
             table_fqn="analytics.watch_events",
             now=now,
+        )
+        ensure_active_duckdb_mapping(
+            cls.metadata,
+            source_id="src_step_metadata",
+            now=now,
+            db_path=str(db_path),
         )
         ensure_published_typed_metric(
             cls.metadata,
@@ -68,6 +78,18 @@ class StepMetadataPersistenceTests(unittest.TestCase):
             metric_name="dau",
             carrier_locator="analytics.watch_events",
             source_object_ref="obj_step_metadata",
+        )
+        ensure_published_typed_metric(
+            cls.metadata,
+            metric_name="revision_snapshot_dau",
+            display_name="Revision Snapshot DAU",
+        )
+        ensure_published_typed_metric_binding(
+            cls.metadata,
+            metric_name="revision_snapshot_dau",
+            carrier_locator="analytics.watch_events",
+            source_object_ref="obj_step_metadata",
+            surface_name="user_id",
         )
 
     @classmethod
@@ -211,6 +233,51 @@ class StepMetadataPersistenceTests(unittest.TestCase):
             "cn_public_holiday_2026_v1",
         )
         self.assertGreaterEqual(len(snapshot["compile_context"]["ir_plan_ids"]), 1)
+
+    def test_step_metadata_semantic_snapshot_freezes_metric_revision_after_activation(
+        self,
+    ) -> None:
+        metric_ref = "metric.revision_snapshot_dau"
+        session = self.service.create_session("step metadata revision freeze test", {}, {}, {})
+        result = self.service.run_intent(
+            session["session_id"],
+            "observe",
+            {
+                "metric": metric_ref,
+                "time_scope": {
+                    "kind": "range",
+                    "start": "2024-01-01",
+                    "end": "2024-01-08",
+                },
+            },
+        )
+        step_id = result["step_ref"]["step_id"]
+        current = self.semantic_service.read_typed_metric(metric_ref)
+        replacement = {
+            "header": current["header"],
+            "payload": current["payload"],
+        }
+        revision = self.semantic_service.create_metric_revision(
+            metric_ref,
+            MetricRevisionCreateRequest.model_validate(
+                {
+                    "base_revision": 1,
+                    "change_summary": "Create equivalent revision for snapshot regression",
+                    "replacement": replacement,
+                }
+            ),
+        )
+        self.assertEqual(revision["revision"], 2)
+        self.semantic_service.activate_metric_revision(metric_ref, 2)
+
+        step_metadata = self.service._step_metadata_repo.get(step_id)
+        self.assertIsNotNone(step_metadata)
+        assert step_metadata is not None
+        snapshot = step_metadata["semantic_snapshot"]
+        resolved = snapshot["resolved_refs"][metric_ref]
+        self.assertEqual(resolved["ref"], metric_ref)
+        self.assertEqual(resolved["revision"], 1)
+        self.assertIn("object_id", resolved)
 
     def test_build_step_semantic_metadata_omits_calendar_policy_binding_without_alignment(
         self,

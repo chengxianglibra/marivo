@@ -7,6 +7,7 @@ from uuid import uuid4
 from app.analysis_core.calendar_policy import list_calendar_policy_catalog_entries
 from app.api.models.compatibility_profile import (
     CompatibilityProfileCreateRequest,
+    CompatibilityProfileRevalidateRequest,
     CompatibilityProfileUpdateRequest,
 )
 
@@ -182,6 +183,44 @@ class CompatibilityProfileService(SemanticServiceSupport):
             ),
         )
         return self.get_compatibility_profile(profile_id)
+
+    def revalidate_compatibility_profile(
+        self, profile_id_or_ref: str, payload: CompatibilityProfileRevalidateRequest
+    ) -> dict[str, Any]:
+        self._reject_builtin_calendar_policy_action(profile_id_or_ref, action="revalidate")
+        current = self.read_compatibility_profile(profile_id_or_ref)
+        self._validate_profile_subject_ref(
+            current["subject_kind"],
+            current["subject_ref"],
+            require_published=True,
+        )
+        active_subject_revision = self._published_profile_subject_revision(
+            current["subject_kind"],
+            current["subject_ref"],
+        )
+        subject_revision = payload.subject_revision
+        if subject_revision is None:
+            subject_revision = active_subject_revision
+        elif not self._profile_subject_revision_exists(
+            current["subject_kind"],
+            current["subject_ref"],
+            subject_revision,
+        ):
+            raise self._compatibility_error(
+                "Compatibility profile subject_revision must reference an existing subject revision.",
+                code="profile_subject_revision_unknown",
+            )
+        self.metadata.execute(
+            """
+            UPDATE compiler_compatibility_profiles
+            SET subject_revision = ?,
+                revision = revision + 1,
+                updated_at = ?
+            WHERE profile_id = ?
+            """,
+            [subject_revision, now_iso(), current["profile_id"]],
+        )
+        return self.get_compatibility_profile(current["profile_id"])
 
     def activate_compatibility_profile(self, profile_id: str) -> dict[str, Any]:
         self._reject_builtin_calendar_policy_action(profile_id, action="activate")

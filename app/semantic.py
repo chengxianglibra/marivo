@@ -3,9 +3,14 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any, TypeVar
 
-from app.api.models.binding import TypedBindingCreateRequest, TypedBindingUpdateRequest
+from app.api.models.binding import (
+    BindingDeriveRevisionRequest,
+    TypedBindingCreateRequest,
+    TypedBindingUpdateRequest,
+)
 from app.api.models.compatibility_profile import (
     CompatibilityProfileCreateRequest,
+    CompatibilityProfileRevalidateRequest,
     CompatibilityProfileUpdateRequest,
 )
 from app.api.models.dimension import DimensionCreateRequest, DimensionUpdateRequest
@@ -494,6 +499,13 @@ class SemanticService:
     ) -> dict[str, Any]:
         return self._invoke(lambda: self.bindings.update_typed_binding(binding_id, payload))
 
+    def derive_binding_revision(
+        self, binding_identifier: str, payload: BindingDeriveRevisionRequest
+    ) -> dict[str, Any]:
+        return self._invoke(
+            lambda: self.bindings.derive_binding_revision(binding_identifier, payload)
+        )
+
     def publish_typed_binding(self, binding_id: str) -> dict[str, Any]:
         return self._invoke(lambda: self.bindings.publish_typed_binding(binding_id))
 
@@ -557,6 +569,15 @@ class SemanticService:
         return self._validate_action_response(
             self._invoke(
                 lambda: self.compatibility_profiles.validate_compatibility_profile(profile_id)
+            )
+        )
+
+    def revalidate_compatibility_profile(
+        self, profile_id_or_ref: str, payload: CompatibilityProfileRevalidateRequest
+    ) -> dict[str, Any]:
+        return self._invoke(
+            lambda: self.compatibility_profiles.revalidate_compatibility_profile(
+                profile_id_or_ref, payload
             )
         )
 

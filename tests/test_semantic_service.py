@@ -297,7 +297,7 @@ class SemanticServiceFacadeTests(unittest.TestCase):
                 {
                     "base_revision": 1,
                     "change_summary": "Fix unit label",
-                    "compatibility": "compatible",
+                    "expected_change_scope": "display_metadata",
                     "replacement": replacement_payload,
                 }
             ),

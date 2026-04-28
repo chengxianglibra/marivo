@@ -57,6 +57,12 @@ make format
 - For semantic layer authoring, prefer `POST /semantic/batch` dry-run/apply when creating multiple
   time/dimension/entity/metric/binding objects. Use batch `defaults` for shared carriers/time
   bindings, and inspect final metric readiness after bindings activate.
+- For semantic object maintenance, create new refs only for new stable identities; same-identity
+  changes use revision endpoints.
+- Agents must not declare semantic revision compatibility as fact; submit optional guardrails and
+  consume server `classified_compatibility` plus `required_actions`.
+- For binding/profile drift, prefer server-guided derive/revalidate flows over copying full
+  grounding JSON.
 - Time surface declarations use `surface_ref`; time binding references use
   `timestamp_surface_ref`, `date_surface_ref`, or `hour_surface_ref`. Metric input bindings must use
   `semantic_ref=metric_input.<slot>` with family slot names such as `measure`, `count_target`,

@@ -1235,6 +1235,175 @@ class SemanticTypedApiTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 422, resp.text)
         self.assertIn("numerator' and 'denominator", resp.json()["detail"]["message"])
 
+    def test_derive_binding_revision_adds_metric_input_coverage(self) -> None:
+        suffix = uuid4().hex[:8]
+        entity_resp = self.client.post(
+            "/semantic/entities",
+            json={
+                "header": {
+                    "entity_ref": f"entity.derive_binding_{suffix}",
+                    "display_name": "Derive Binding Entity",
+                    "entity_contract_version": "entity.v4",
+                },
+                "interface_contract": {
+                    "identity": {
+                        "key_refs": ["key.user_id"],
+                        "uniqueness_scope": "global",
+                        "id_stability": "stable",
+                    }
+                },
+            },
+        )
+        self.assertEqual(entity_resp.status_code, 200, entity_resp.text)
+        entity_id = entity_resp.json()["entity_contract_id"]
+        publish_entity_resp = self.client.post(f"/semantic/entities/{entity_id}/publish")
+        self.assertEqual(publish_entity_resp.status_code, 200, publish_entity_resp.text)
+
+        metric_resp = self.client.post(
+            "/semantic/metrics",
+            json={
+                "header": {
+                    "metric_ref": f"metric.derive_binding_rate_{suffix}",
+                    "display_name": "Derive Binding Rate",
+                    "metric_family": "rate_metric",
+                    "observed_entity_ref": entity_resp.json()["header"]["entity_ref"],
+                    "observation_grain_ref": "grain.user",
+                    "sample_kind": "rate",
+                    "value_semantics": "ratio",
+                    "additivity_constraints": {
+                        "dimension_policy": "none",
+                        "time_axis_policy": "non_additive",
+                    },
+                    "metric_contract_version": "metric.v1",
+                },
+                "payload": {
+                    "metric_family": "rate_metric",
+                    "numerator": {
+                        "name": "converted",
+                        "semantics": "converted users",
+                        "aggregation": "count_distinct",
+                    },
+                    "denominator": {
+                        "name": "eligible",
+                        "semantics": "eligible users",
+                        "aggregation": "count_distinct",
+                    },
+                },
+            },
+        )
+        self.assertEqual(metric_resp.status_code, 200, metric_resp.text)
+        metric_id = metric_resp.json()["metric_contract_id"]
+        metric_ref = metric_resp.json()["header"]["metric_ref"]
+        publish_metric_resp = self.client.post(f"/semantic/metrics/{metric_id}/publish")
+        self.assertEqual(publish_metric_resp.status_code, 200, publish_metric_resp.text)
+
+        binding_ref = f"binding.derive_binding_rate_{suffix}"
+        create_resp = self.client.post(
+            "/semantic/bindings",
+            json={
+                "header": {
+                    "binding_ref": binding_ref,
+                    "binding_scope": "metric",
+                    "bound_object_ref": metric_ref,
+                    "binding_contract_version": "binding.v1",
+                },
+                "interface_contract": {
+                    "carrier_bindings": [
+                        {
+                            "binding_key": "metric_fact",
+                            "carrier_kind": "table",
+                            "carrier_locator": "warehouse.derive_binding_rate",
+                            "binding_role": "primary",
+                            "field_surfaces": [
+                                {"surface_ref": "field.user_id", "physical_name": "user_id"},
+                                {
+                                    "surface_ref": "field.numerator",
+                                    "physical_name": "numerator",
+                                },
+                                {
+                                    "surface_ref": "field.denominator",
+                                    "physical_name": "denominator",
+                                },
+                            ],
+                        }
+                    ],
+                    "field_bindings": [
+                        {
+                            "carrier_binding_key": "metric_fact",
+                            "target": {
+                                "target_kind": "population_subject",
+                                "target_key": "key.user_id",
+                            },
+                            "semantic_ref": "key.user_id",
+                            "surface_ref": "field.user_id",
+                        },
+                        {
+                            "carrier_binding_key": "metric_fact",
+                            "target": {
+                                "target_kind": "metric_input",
+                                "target_key": "numerator",
+                            },
+                            "semantic_ref": "metric_input.numerator",
+                            "surface_ref": "field.numerator",
+                        },
+                        {
+                            "carrier_binding_key": "metric_fact",
+                            "target": {
+                                "target_kind": "metric_input",
+                                "target_key": "denominator",
+                            },
+                            "semantic_ref": "metric_input.denominator",
+                            "surface_ref": "field.denominator",
+                        },
+                    ],
+                },
+            },
+        )
+        self.assertEqual(create_resp.status_code, 200, create_resp.text)
+        binding_id = create_resp.json()["binding_id"]
+        # Simulate the pre-derived base revision that Task 1-4 classify as needing
+        # add_binding_coverage; public create already blocks incomplete rate bindings.
+        self._metadata().execute(
+            "DELETE FROM field_bindings WHERE binding_id = ? AND semantic_ref = ?",
+            [binding_id, "metric_input.denominator"],
+        )
+        # Publish validation is intentionally bypassed here because this test covers
+        # the derive API's revision copy/coverage behavior from that incomplete base.
+        self._metadata().execute(
+            "UPDATE typed_bindings SET status = 'published' WHERE binding_id = ?",
+            [binding_id],
+        )
+
+        derive_resp = self.client.post(
+            f"/semantic/bindings/{binding_ref}/revisions/derive",
+            json={
+                "base_revision": 1,
+                "source_action_id": "action.add_denominator_binding",
+                "target_metric_ref": metric_ref,
+                "target_metric_revision": 1,
+                "reuse_sections": ["carrier", "time", "imports", "satisfied_field_coverage"],
+                "coverage_additions": [
+                    {
+                        "coverage_target": "metric_input.denominator",
+                        "field_ref": "field.denominator",
+                    }
+                ],
+            },
+        )
+
+        self.assertEqual(derive_resp.status_code, 200, derive_resp.text)
+        payload = derive_resp.json()
+        self.assertEqual(payload["revision"], 2)
+        self.assertEqual(payload["status"], "draft")
+        self.assertEqual(payload["header"]["binding_ref"], binding_ref)
+        self.assertNotEqual(payload["binding_id"], binding_id)
+        self.assertTrue(
+            any(
+                field_binding["semantic_ref"] == "metric_input.denominator"
+                for field_binding in payload["interface_contract"]["field_bindings"]
+            )
+        )
+
     @pytest.mark.slow
     def test_binding_publish_requires_published_dependencies_and_grounding(self) -> None:
         time_resp = self.client.post(
@@ -2655,6 +2824,112 @@ class SemanticTypedApiTests(unittest.TestCase):
         )
         self.assertEqual(profile_list_active_resp.status_code, 422, profile_list_active_resp.text)
         self.assertIn("Unsupported status filter", profile_list_active_resp.text)
+
+    def test_revalidate_compatibility_profile_updates_subject_revision(self) -> None:
+        suffix = uuid4().hex[:8]
+        entity_resp = self.client.post(
+            "/semantic/entities",
+            json={
+                "header": {
+                    "entity_ref": f"entity.profile_revalidate_{suffix}",
+                    "display_name": "Profile Revalidate Entity",
+                    "entity_contract_version": "entity.v4",
+                },
+                "interface_contract": {
+                    "identity": {
+                        "key_refs": [f"key.profile_revalidate_id_{suffix}"],
+                        "uniqueness_scope": "global",
+                        "id_stability": "stable",
+                    }
+                },
+            },
+        )
+        self.assertEqual(entity_resp.status_code, 200, entity_resp.text)
+        entity_id = entity_resp.json()["entity_contract_id"]
+        publish_entity_resp = self.client.post(f"/semantic/entities/{entity_id}/publish")
+        self.assertEqual(publish_entity_resp.status_code, 200, publish_entity_resp.text)
+
+        metric_ref = f"metric.profile_revalidate_{suffix}"
+        metric_payload = {
+            "header": {
+                "metric_ref": metric_ref,
+                "display_name": "Profile Revalidate Metric",
+                "metric_family": "count_metric",
+                "observed_entity_ref": entity_resp.json()["header"]["entity_ref"],
+                "observation_grain_ref": "grain.account",
+                "sample_kind": "numeric",
+                "value_semantics": "count",
+                "additivity_constraints": {
+                    "dimension_policy": "all",
+                    "time_axis_policy": "additive",
+                },
+                "metric_contract_version": "metric.v1",
+            },
+            "payload": {
+                "metric_family": "count_metric",
+                "count_target": {
+                    "name": "rows",
+                    "semantics": "row count",
+                    "aggregation": "count",
+                },
+            },
+        }
+        metric_resp = self.client.post("/semantic/metrics", json=metric_payload)
+        self.assertEqual(metric_resp.status_code, 200, metric_resp.text)
+        metric_id = metric_resp.json()["metric_contract_id"]
+        publish_metric_resp = self.client.post(f"/semantic/metrics/{metric_id}/publish")
+        self.assertEqual(publish_metric_resp.status_code, 200, publish_metric_resp.text)
+
+        profile_ref = f"compiler_profile.profile_revalidate_{suffix}"
+        profile_resp = self.client.post(
+            "/compiler/compatibility-profiles",
+            json={
+                "profile_ref": profile_ref,
+                "profile_kind": "requirement",
+                "subject_kind": "metric",
+                "subject_ref": metric_ref,
+                "requirement": {"entity_refs": [entity_resp.json()["header"]["entity_ref"]]},
+            },
+        )
+        self.assertEqual(profile_resp.status_code, 200, profile_resp.text)
+        profile_id = profile_resp.json()["profile_id"]
+        publish_profile_resp = self.client.post(
+            f"/compiler/compatibility-profiles/{profile_id}/publish"
+        )
+        self.assertEqual(publish_profile_resp.status_code, 200, publish_profile_resp.text)
+        self.assertEqual(publish_profile_resp.json()["subject_revision"], 1)
+
+        revision_payload = json.loads(json.dumps(metric_payload))
+        revision_payload["header"]["display_name"] = "Profile Revalidate Metric V2"
+        create_revision_resp = self.client.post(
+            f"/semantic/metrics/{metric_ref}/revisions",
+            json={
+                "base_revision": 1,
+                "change_summary": "Update display name",
+                "expected_change_scope": "display_metadata",
+                "replacement": revision_payload,
+            },
+        )
+        self.assertEqual(create_revision_resp.status_code, 200, create_revision_resp.text)
+        self.assertEqual(create_revision_resp.json()["revision"], 2)
+        self.assertEqual(create_revision_resp.json()["classified_compatibility"], "compatible")
+
+        activate_revision_resp = self.client.post(
+            f"/semantic/metrics/{metric_ref}/revisions/2/activate"
+        )
+        self.assertEqual(activate_revision_resp.status_code, 200, activate_revision_resp.text)
+
+        stale_profile_resp = self.client.get(f"/compiler/compatibility-profiles/{profile_ref}")
+        self.assertEqual(stale_profile_resp.status_code, 200, stale_profile_resp.text)
+        self.assertEqual(stale_profile_resp.json()["subject_revision"], 1)
+
+        revalidate_resp = self.client.post(
+            f"/compiler/compatibility-profiles/{profile_ref}/revalidate",
+            json={"subject_revision": 2},
+        )
+        self.assertEqual(revalidate_resp.status_code, 200, revalidate_resp.text)
+        self.assertEqual(revalidate_resp.json()["subject_revision"], 2)
+        self.assertEqual(revalidate_resp.json()["readiness_status"], "ready")
 
     def test_enum_set_update_rejects_raw_value_type_mismatch(self) -> None:
         """Updating enum set versions must reject raw_values that don't match

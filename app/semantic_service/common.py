@@ -14,6 +14,12 @@ from app.semantic_readiness import (
     SemanticReadinessService,
     binding_contract_target_exists,
 )
+from app.semantic_revision.dependency_plan import (
+    metric_revision_affected_dependents,
+    metric_revision_dependency_actions,
+)
+from app.semantic_revision.metric_diff import classify_metric_revision
+from app.semantic_revision.types import RequiredAction, RevisionClassificationResult
 from app.semantic_runtime.semantic_metadata import (
     entity_runtime_metadata,
     metric_runtime_metadata,
@@ -88,6 +94,27 @@ def _carrier_locator_ref(value: Any) -> str | None:
         if part is not None
     )
     return normalized or None
+
+
+def _required_input_refs(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    refs: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        input_ref: Any
+        if isinstance(item, dict):
+            input_ref = item.get("input_ref") or item.get("coverage_target")
+        else:
+            input_ref = item
+        if input_ref is None:
+            continue
+        normalized = str(input_ref).strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        refs.append(normalized)
+    return refs
 
 
 def _locator_matches_source_object(
@@ -286,7 +313,13 @@ class _SemanticListContext:
         if self._bindings_by_id is not None:
             return
         binding_rows = self._service.metadata.query_rows(
-            "SELECT * FROM typed_bindings ORDER BY binding_ref"
+            """
+            SELECT *
+            FROM typed_bindings
+            ORDER BY binding_ref,
+                     CASE WHEN status = 'published' THEN 0 ELSE 1 END,
+                     revision DESC
+            """
         )
         binding_ids = [str(row["binding_id"]) for row in binding_rows]
         imports_by_binding = self._group_rows_by_binding_id(
@@ -372,8 +405,10 @@ class _SemanticListContext:
                 policy_rows=policies_by_binding.get(binding_id, []),
             )
             bindings_by_id[binding_id] = contract
-            bindings_by_ref[str(row["binding_ref"])] = contract
-            bindings_by_subject[str(row["bound_object_ref"])].append(contract)
+            binding_ref = str(row["binding_ref"])
+            if binding_ref not in bindings_by_ref:
+                bindings_by_ref[binding_ref] = contract
+                bindings_by_subject[str(row["bound_object_ref"])].append(contract)
         for binding_id in binding_ids:
             bindings_by_id.setdefault(binding_id, {})
         self._bindings_by_id = bindings_by_id
@@ -589,8 +624,8 @@ class _SemanticListContext:
 
     def _add_binding_snapshots(self, snapshots: dict[str, ReadinessObjectSnapshot]) -> None:
         self._ensure_bindings()
-        assert self._bindings_by_id is not None
-        for binding in self._bindings_by_id.values():
+        assert self._bindings_by_ref is not None
+        for binding in self._bindings_by_ref.values():
             if not binding:
                 continue
             self._add_snapshot(
@@ -907,6 +942,319 @@ class SemanticServiceSupport:
 
     def _list_context(self) -> _SemanticListContext:
         return _SemanticListContext(self)
+
+    def _metric_contract_from_row(self, row: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "header": {
+                "metric_ref": row["metric_ref"],
+                "display_name": row["display_name"],
+                "description": row["description"],
+                "metric_family": row["metric_family"],
+                "population_subject_ref": row["population_subject_ref"],
+                "observed_entity_ref": row["observed_entity_ref"],
+                "observation_grain_ref": row["observation_grain_ref"],
+                "sample_kind": row["sample_kind"],
+                "value_semantics": row["value_semantics"],
+                "aggregation_scope": row["aggregation_scope"],
+                "primary_time_ref": row["primary_time_ref"],
+                "additivity_constraints": json.loads(row["additivity_constraints_json"] or "null"),
+                "default_predicate_refs": json.loads(row["default_predicate_refs_json"] or "[]")
+                or None,
+                "metric_contract_version": row["metric_contract_version"],
+            },
+            "payload": json.loads(row["family_payload_json"]),
+        }
+
+    def _metric_revision_classification_from_row(
+        self, row: dict[str, Any]
+    ) -> RevisionClassificationResult:
+        base_revision = row["base_revision"]
+        if base_revision is None:
+            return classify_metric_revision(
+                self._metric_contract_from_row(row),
+                self._metric_contract_from_row(row),
+            )
+        base_row = self.metadata.query_one(
+            """
+            SELECT *
+            FROM semantic_metric_contracts
+            WHERE metric_ref = ? AND revision = ?
+            """,
+            [row["metric_ref"], base_revision],
+        )
+        if base_row is None:
+            return classify_metric_revision(
+                self._metric_contract_from_row(row),
+                self._metric_contract_from_row(row),
+            )
+        classification = classify_metric_revision(
+            self._metric_contract_from_row(dict(base_row)),
+            self._metric_contract_from_row(row),
+        )
+        return self._with_metric_revision_dependency_plan(row, classification)
+
+    def _with_metric_revision_dependency_plan(
+        self,
+        row: dict[str, Any],
+        classification: RevisionClassificationResult,
+    ) -> RevisionClassificationResult:
+        if classification.classified_compatibility == "compatible":
+            return classification
+
+        return self._with_metric_revision_dependency_plan_for_contract(
+            metric_ref=str(row["metric_ref"]),
+            metric_revision=int(row["revision"]),
+            metric_created_at=str(row["created_at"]),
+            metric_payload=json.loads(row["family_payload_json"]),
+            classification=classification,
+        )
+
+    def _with_metric_revision_dependency_plan_for_contract(
+        self,
+        *,
+        metric_ref: str,
+        metric_revision: int,
+        metric_payload: dict[str, Any],
+        classification: RevisionClassificationResult,
+        metric_created_at: str | None = None,
+    ) -> RevisionClassificationResult:
+        if classification.classified_compatibility == "compatible":
+            return classification
+
+        published_bindings = self._published_metric_bindings(metric_ref)
+        published_profiles = self._published_metric_profiles(metric_ref)
+        binding_refs = [str(binding["binding_ref"]) for binding in published_bindings]
+        profile_refs = [str(profile["profile_ref"]) for profile in published_profiles]
+        missing_inputs_by_binding = self._missing_metric_input_refs_by_binding(
+            metric_payload=metric_payload,
+            published_bindings=published_bindings,
+        )
+        actions = metric_revision_dependency_actions(
+            metric_ref=metric_ref,
+            metric_revision=metric_revision,
+            classification=classification.classified_compatibility,
+            binding_refs=binding_refs,
+            profile_refs=profile_refs,
+            missing_metric_inputs_by_binding=missing_inputs_by_binding,
+        )
+        actions = self._resolve_metric_revision_required_actions(
+            metric_revision=metric_revision,
+            metric_created_at=metric_created_at,
+            actions=actions,
+        )
+        if not actions:
+            return classification
+        return RevisionClassificationResult(
+            classified_compatibility=classification.classified_compatibility,
+            diff_summary=classification.diff_summary,
+            affected_dependents=metric_revision_affected_dependents(binding_refs, profile_refs),
+            required_actions=actions,
+        )
+
+    def _published_metric_bindings(self, metric_ref: str) -> list[dict[str, Any]]:
+        return self.metadata.query_rows(
+            """
+            SELECT tb.*
+            FROM typed_bindings tb
+            JOIN (
+                SELECT binding_ref, MAX(revision) AS revision
+                FROM typed_bindings
+                WHERE bound_object_ref = ?
+                  AND binding_scope = 'metric'
+                  AND status = 'published'
+                GROUP BY binding_ref
+            ) latest
+              ON latest.binding_ref = tb.binding_ref
+             AND latest.revision = tb.revision
+            WHERE tb.bound_object_ref = ?
+              AND tb.binding_scope = 'metric'
+              AND tb.status = 'published'
+            ORDER BY tb.binding_ref
+            """,
+            [metric_ref, metric_ref],
+        )
+
+    def _published_metric_profiles(self, metric_ref: str) -> list[dict[str, Any]]:
+        return self.metadata.query_rows(
+            """
+            SELECT *
+            FROM compiler_compatibility_profiles
+            WHERE subject_ref = ?
+              AND subject_kind = 'metric'
+              AND status = 'published'
+            ORDER BY profile_ref
+            """,
+            [metric_ref],
+        )
+
+    def _missing_metric_input_refs_by_binding(
+        self,
+        *,
+        metric_payload: dict[str, Any],
+        published_bindings: list[dict[str, Any]],
+    ) -> dict[str, list[str]]:
+        required_inputs = _required_input_refs(metric_payload.get("required_inputs"))
+        if not required_inputs:
+            return {}
+        missing_by_binding: dict[str, list[str]] = {}
+        for binding in published_bindings:
+            binding_ref = str(binding["binding_ref"])
+            rows = self.metadata.query_rows(
+                """
+                SELECT semantic_ref
+                FROM field_bindings
+                WHERE binding_id = ? AND target_kind = 'metric_input'
+                """,
+                [binding["binding_id"]],
+            )
+            covered_inputs = {str(field["semantic_ref"]) for field in rows}
+            missing = [
+                input_ref for input_ref in required_inputs if input_ref not in covered_inputs
+            ]
+            if missing:
+                missing_by_binding[binding_ref] = missing
+        return missing_by_binding
+
+    def _resolve_metric_revision_required_actions(
+        self,
+        *,
+        metric_revision: int,
+        metric_created_at: str | None,
+        actions: list[RequiredAction],
+    ) -> list[RequiredAction]:
+        if metric_created_at is None:
+            return actions
+        resolved_actions: list[RequiredAction] = []
+        for action in actions:
+            if action.action in {"derive_revision", "add_binding_coverage"}:
+                resolved_actions.append(
+                    self._resolve_metric_revision_binding_action(
+                        metric_revision=metric_revision,
+                        metric_created_at=metric_created_at,
+                        action=action,
+                    )
+                )
+                continue
+            if action.action == "reuse_after_revalidate":
+                resolved_actions.append(
+                    self._resolve_metric_revision_profile_action(
+                        metric_revision=metric_revision,
+                        metric_created_at=metric_created_at,
+                        action=action,
+                    )
+                )
+                continue
+            resolved_actions.append(action)
+        return resolved_actions
+
+    def _resolve_metric_revision_binding_action(
+        self,
+        *,
+        metric_revision: int,
+        metric_created_at: str,
+        action: RequiredAction,
+    ) -> RequiredAction:
+        binding = self.metadata.query_one(
+            """
+            SELECT *
+            FROM typed_bindings
+            WHERE binding_ref = ? AND status = 'published'
+            ORDER BY revision DESC
+            """,
+            [action.target_ref],
+        )
+        if binding is None or not self._row_changed_after(binding, metric_created_at):
+            return action
+
+        evidence: dict[str, object] = {
+            "binding_id": str(binding["binding_id"]),
+            "binding_ref": str(binding["binding_ref"]),
+            "binding_revision": int(binding["revision"]),
+            "metric_revision": metric_revision,
+        }
+        if action.action == "add_binding_coverage":
+            expected = action.completion_criteria.get("expected")
+            coverage_target = (
+                str(expected.get("coverage_target"))
+                if isinstance(expected, dict) and expected.get("coverage_target")
+                else None
+            )
+            if coverage_target is None:
+                return action
+            coverage = self.metadata.query_one(
+                """
+                SELECT semantic_ref
+                FROM field_bindings
+                WHERE binding_id = ? AND target_kind = 'metric_input' AND semantic_ref = ?
+                """,
+                [binding["binding_id"], coverage_target],
+            )
+            if coverage is None:
+                return action
+            evidence["coverage_target"] = coverage_target
+
+        return self._mark_required_action_satisfied(
+            action,
+            target_revision=int(binding["revision"]),
+            evidence=evidence,
+        )
+
+    def _resolve_metric_revision_profile_action(
+        self,
+        *,
+        metric_revision: int,
+        metric_created_at: str,
+        action: RequiredAction,
+    ) -> RequiredAction:
+        profile = self.metadata.query_one(
+            """
+            SELECT *
+            FROM compiler_compatibility_profiles
+            WHERE profile_ref = ? AND status = 'published'
+            """,
+            [action.target_ref],
+        )
+        if profile is None or not self._row_changed_after(profile, metric_created_at):
+            return action
+        if int(profile["subject_revision"] or 0) != metric_revision:
+            return action
+        evidence = {
+            "profile_id": str(profile["profile_id"]),
+            "profile_ref": str(profile["profile_ref"]),
+            "profile_revision": int(profile["revision"]),
+            "subject_revision": metric_revision,
+        }
+        return self._mark_required_action_satisfied(
+            action,
+            target_revision=int(profile["revision"]),
+            evidence=evidence,
+        )
+
+    def _mark_required_action_satisfied(
+        self,
+        action: RequiredAction,
+        *,
+        target_revision: int,
+        evidence: dict[str, object],
+    ) -> RequiredAction:
+        completion_criteria = dict(action.completion_criteria)
+        completion_criteria["observed"] = evidence
+        return RequiredAction(
+            action_id=action.action_id,
+            action=action.action,
+            target_ref=action.target_ref,
+            target_revision=target_revision,
+            depends_on=action.depends_on,
+            blocking=action.blocking,
+            action_status="satisfied",
+            completion_criteria=completion_criteria,
+            validation_evidence=evidence,
+            reason=action.reason,
+        )
+
+    def _row_changed_after(self, row: dict[str, Any], timestamp: str) -> bool:
+        changed_at = str(row["updated_at"] or row["created_at"] or "")
+        return changed_at >= timestamp
 
     def list_grains(self) -> dict[str, Any]:
         rows = self.metadata.query_rows(
@@ -2132,7 +2480,12 @@ class SemanticServiceSupport:
 
     def _get_typed_binding_by_ref(self, binding_ref: str) -> dict[str, Any] | None:
         row = self.metadata.query_one(
-            "SELECT * FROM typed_bindings WHERE binding_ref = ?",
+            """
+            SELECT *
+            FROM typed_bindings
+            WHERE binding_ref = ?
+            ORDER BY CASE WHEN status = 'published' THEN 0 ELSE 1 END, revision DESC
+            """,
             [binding_ref],
         )
         return None if row is None else self._row_to_typed_binding(row)
@@ -2143,6 +2496,7 @@ class SemanticServiceSupport:
             SELECT binding_id
             FROM typed_bindings
             WHERE binding_ref = ? AND status = 'published'
+            ORDER BY revision DESC
             """,
             [binding_ref],
         )
@@ -3100,11 +3454,17 @@ class SemanticServiceSupport:
                 """,
             ),
             "binding": (
-                "SELECT binding_id FROM typed_bindings WHERE binding_ref = ?",
+                """
+                SELECT binding_id
+                FROM typed_bindings
+                WHERE binding_ref = ?
+                ORDER BY CASE WHEN status = 'published' THEN 0 ELSE 1 END, revision DESC
+                """,
                 """
                 SELECT binding_id
                 FROM typed_bindings
                 WHERE binding_ref = ? AND status = 'published'
+                ORDER BY revision DESC
                 """,
             ),
         }
@@ -3143,6 +3503,7 @@ class SemanticServiceSupport:
                 SELECT revision
                 FROM typed_bindings
                 WHERE binding_ref = ? AND status = 'published'
+                ORDER BY revision DESC
                 """,
                 "binding",
             ),
@@ -3158,6 +3519,37 @@ class SemanticServiceSupport:
                 code="profile_subject_not_published",
             )
         return int(row["revision"])
+
+    def _profile_subject_revision_exists(
+        self, subject_kind: str, subject_ref: str, subject_revision: int
+    ) -> bool:
+        lookup = {
+            "metric": (
+                """
+                SELECT metric_contract_id
+                FROM semantic_metric_contracts
+                WHERE metric_ref = ? AND revision = ?
+                """
+            ),
+            "process": (
+                """
+                SELECT process_contract_id
+                FROM semantic_process_objects
+                WHERE process_ref = ? AND revision = ?
+                """
+            ),
+            "binding": (
+                """
+                SELECT binding_id
+                FROM typed_bindings
+                WHERE binding_ref = ? AND revision = ?
+                """
+            ),
+        }
+        sql = lookup.get(subject_kind)
+        if sql is None:
+            raise self._validation_error(f"Unsupported subject_kind: {subject_kind}")
+        return self.metadata.query_one(sql, [subject_ref, subject_revision]) is not None
 
     def _replace_entity_key_refs(self, entity_contract_id: str, key_refs: list[str]) -> None:
         self.metadata.execute(
@@ -3564,35 +3956,26 @@ class SemanticServiceSupport:
         include_dependents: bool = True,
         list_context: _SemanticListContext | None = None,
     ) -> dict[str, Any]:
+        metric_contract = self._metric_contract_from_row(row)
+        classification = self._metric_revision_classification_from_row(row)
         metric = {
             "metric_contract_id": row["metric_contract_id"],
-            "header": {
-                "metric_ref": row["metric_ref"],
-                "display_name": row["display_name"],
-                "description": row["description"],
-                "metric_family": row["metric_family"],
-                "population_subject_ref": row["population_subject_ref"],
-                "observed_entity_ref": row["observed_entity_ref"],
-                "observation_grain_ref": row["observation_grain_ref"],
-                "sample_kind": row["sample_kind"],
-                "value_semantics": row["value_semantics"],
-                "aggregation_scope": row["aggregation_scope"],
-                "primary_time_ref": row["primary_time_ref"],
-                "additivity_constraints": json.loads(row["additivity_constraints_json"] or "null"),
-                "default_predicate_refs": json.loads(row["default_predicate_refs_json"] or "[]")
-                or None,
-                "metric_contract_version": row["metric_contract_version"],
-            },
+            "header": metric_contract["header"],
             "status": row["status"],
             "revision": row["revision"],
             "base_revision": row["base_revision"],
             "change_summary": row["change_summary"],
-            "revision_compatibility": row["revision_compatibility"],
+            "revision_compatibility": classification.classified_compatibility,
+            "classified_compatibility": classification.classified_compatibility,
+            "diff_summary": [entry.to_json() for entry in classification.diff_summary],
+            "affected_dependents": classification.affected_dependents,
+            "required_actions": [action.to_json() for action in classification.required_actions],
+            "can_activate_now": classification.can_activate_now,
             "is_latest_active": bool(row["is_latest_active"]),
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
             # Readiness evaluation needs the full metric family contract even for list rows.
-            "payload": json.loads(row["family_payload_json"]),
+            "payload": metric_contract["payload"],
         }
         if mode == "detail":
             metric["revision_history"] = self._metric_revision_history(str(row["metric_ref"]))
@@ -3613,29 +3996,37 @@ class SemanticServiceSupport:
     def _metric_revision_history(self, metric_ref: str) -> list[dict[str, object]]:
         rows = self.metadata.query_rows(
             """
-            SELECT metric_contract_id, status, revision, base_revision,
-                   change_summary, revision_compatibility, is_latest_active,
-                   created_at, updated_at
+            SELECT *
             FROM semantic_metric_contracts
             WHERE metric_ref = ?
             ORDER BY revision
             """,
             [metric_ref],
         )
-        return [
-            {
-                "metric_contract_id": row["metric_contract_id"],
-                "status": row["status"],
-                "revision": row["revision"],
-                "base_revision": row["base_revision"],
-                "change_summary": row["change_summary"],
-                "revision_compatibility": row["revision_compatibility"],
-                "is_latest_active": bool(row["is_latest_active"]),
-                "created_at": row["created_at"],
-                "updated_at": row["updated_at"],
-            }
-            for row in rows
-        ]
+        history: list[dict[str, object]] = []
+        for row in rows:
+            classification = self._metric_revision_classification_from_row(row)
+            history.append(
+                {
+                    "metric_contract_id": row["metric_contract_id"],
+                    "status": row["status"],
+                    "revision": row["revision"],
+                    "base_revision": row["base_revision"],
+                    "change_summary": row["change_summary"],
+                    "revision_compatibility": classification.classified_compatibility,
+                    "classified_compatibility": classification.classified_compatibility,
+                    "diff_summary": [entry.to_json() for entry in classification.diff_summary],
+                    "affected_dependents": classification.affected_dependents,
+                    "required_actions": [
+                        action.to_json() for action in classification.required_actions
+                    ],
+                    "can_activate_now": classification.can_activate_now,
+                    "is_latest_active": bool(row["is_latest_active"]),
+                    "created_at": row["created_at"],
+                    "updated_at": row["updated_at"],
+                }
+            )
+        return history
 
     def _row_to_process_object(
         self,

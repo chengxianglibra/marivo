@@ -330,11 +330,15 @@ class SemanticMetricRouteTests(unittest.TestCase):
             json={
                 "base_revision": 1,
                 "change_summary": "Fix unit label",
-                "compatibility": "compatible",
+                "expected_change_scope": "display_metadata",
                 "replacement": replacement,
             },
         )
         self.assertEqual(revision_resp.status_code, 200, revision_resp.text)
+        self.assertEqual(revision_resp.json()["classified_compatibility"], "compatible")
+        self.assertNotIn("compatibility", revision_resp.json())
+        self.assertEqual(revision_resp.json()["required_actions"], [])
+        self.assertIs(revision_resp.json()["can_activate_now"], True)
         self.assertEqual(revision_resp.json()["revision"], 2)
         self.assertEqual(revision_resp.json()["status"], "draft")
         self.assertEqual(revision_resp.json()["base_revision"], 1)
@@ -471,7 +475,7 @@ class SemanticMetricRouteTests(unittest.TestCase):
             json={
                 "base_revision": 1,
                 "change_summary": "First revision",
-                "compatibility": "compatible",
+                "expected_change_scope": "display_metadata",
                 "replacement": replacement,
             },
         )
@@ -484,7 +488,7 @@ class SemanticMetricRouteTests(unittest.TestCase):
             json={
                 "base_revision": 1,
                 "change_summary": "Stale revision",
-                "compatibility": "compatible",
+                "expected_change_scope": "display_metadata",
                 "replacement": replacement,
             },
         )
@@ -496,6 +500,143 @@ class SemanticMetricRouteTests(unittest.TestCase):
         default_resp = self.client.get(f"/semantic/metrics/{metric_ref}")
         self.assertEqual(default_resp.status_code, 200, default_resp.text)
         self.assertEqual(default_resp.json()["revision"], 2)
+
+    def test_metric_revision_rejects_legacy_compatibility_request_field(self) -> None:
+        entity_ref = "entity.metric_revision_legacy_field_user"
+        metric_ref = "metric.revision_legacy_field"
+        self._create_published_entity(entity_ref)
+        create_resp = self.client.post(
+            "/semantic/metrics",
+            json=self._metric_create_payload(metric_ref, entity_ref),
+        )
+        self.assertEqual(create_resp.status_code, 200, create_resp.text)
+        metric_id = create_resp.json()["metric_contract_id"]
+        publish_resp = self.client.post(f"/semantic/metrics/{metric_id}/publish")
+        self.assertEqual(publish_resp.status_code, 200, publish_resp.text)
+
+        replacement = self._metric_create_payload(metric_ref, entity_ref)
+        revision_resp = self.client.post(
+            f"/semantic/metrics/{metric_ref}/revisions",
+            json={
+                "base_revision": 1,
+                "change_summary": "Legacy request field",
+                "compatibility": "compatible",
+                "replacement": replacement,
+            },
+        )
+        self.assertEqual(revision_resp.status_code, 422, revision_resp.text)
+
+    def test_metric_revision_guardrail_mismatch_does_not_persist_draft(self) -> None:
+        entity_ref = "entity.revision_guardrail_user"
+        metric_ref = "metric.revision_guardrail"
+        self._create_published_entity(entity_ref)
+        create_resp = self.client.post(
+            "/semantic/metrics",
+            json=self._metric_create_payload(metric_ref, entity_ref),
+        )
+        self.assertEqual(create_resp.status_code, 200, create_resp.text)
+        publish_resp = self.client.post(
+            f"/semantic/metrics/{create_resp.json()['metric_contract_id']}/publish"
+        )
+        self.assertEqual(publish_resp.status_code, 200, publish_resp.text)
+
+        replacement = self._metric_create_payload(metric_ref, entity_ref)
+        replacement["payload"]["count_target"]["aggregation"] = "count_distinct"
+        mismatch = self.client.post(
+            f"/semantic/metrics/{metric_ref}/revisions",
+            json={
+                "base_revision": 1,
+                "change_summary": "Change aggregation semantics",
+                "expected_compatibility": "compatible",
+                "replacement": replacement,
+            },
+        )
+
+        self.assertEqual(mismatch.status_code, 409, mismatch.text)
+        detail = mismatch.json()["detail"]
+        self.assertEqual(detail["error"]["code"], "revision_guardrail_mismatch")
+        remediation = detail["guidance"]["remediation"]
+        self.assertEqual(remediation["classified_compatibility"], "breaking")
+        self.assertEqual(remediation["expected_compatibility"], "compatible")
+        history = self.client.get(f"/semantic/metrics/{metric_ref}/revisions")
+        self.assertEqual(history.json()["total"], 1)
+
+    def test_metric_revision_change_scope_guardrail_mismatch_does_not_persist_draft(
+        self,
+    ) -> None:
+        entity_ref = "entity.revision_scope_guardrail_user"
+        metric_ref = "metric.revision_scope_guardrail"
+        self._create_published_entity(entity_ref)
+        create_resp = self.client.post(
+            "/semantic/metrics",
+            json=self._metric_create_payload(metric_ref, entity_ref),
+        )
+        self.assertEqual(create_resp.status_code, 200, create_resp.text)
+        publish_resp = self.client.post(
+            f"/semantic/metrics/{create_resp.json()['metric_contract_id']}/publish"
+        )
+        self.assertEqual(publish_resp.status_code, 200, publish_resp.text)
+
+        replacement = self._metric_create_payload(metric_ref, entity_ref)
+        replacement["payload"]["count_target"]["aggregation"] = "count_distinct"
+        mismatch = self.client.post(
+            f"/semantic/metrics/{metric_ref}/revisions",
+            json={
+                "base_revision": 1,
+                "change_summary": "Change aggregation semantics",
+                "expected_change_scope": "display_metadata",
+                "replacement": replacement,
+            },
+        )
+
+        self.assertEqual(mismatch.status_code, 409, mismatch.text)
+        detail = mismatch.json()["detail"]
+        self.assertEqual(detail["error"]["code"], "revision_guardrail_mismatch")
+        self.assertEqual(detail["error"]["field_path"], "expected_change_scope")
+        remediation = detail["guidance"]["remediation"]
+        self.assertEqual(remediation["expected_change_scope"], "display_metadata")
+        self.assertEqual(remediation["classified_compatibility"], "breaking")
+        history = self.client.get(f"/semantic/metrics/{metric_ref}/revisions")
+        self.assertEqual(history.json()["total"], 1)
+
+    def test_metric_revision_activation_blocks_pending_required_actions(self) -> None:
+        entity_ref = "entity.revision_activation_gate_user"
+        metric_ref = "metric.revision_activation_gate"
+        self._create_published_entity(entity_ref)
+        create_resp = self.client.post(
+            "/semantic/metrics",
+            json=self._metric_create_payload(metric_ref, entity_ref),
+        )
+        self.assertEqual(create_resp.status_code, 200, create_resp.text)
+        publish_resp = self.client.post(
+            f"/semantic/metrics/{create_resp.json()['metric_contract_id']}/publish"
+        )
+        self.assertEqual(publish_resp.status_code, 200, publish_resp.text)
+
+        replacement = self._metric_create_payload(metric_ref, entity_ref)
+        replacement["payload"]["count_target"]["aggregation"] = "count_distinct"
+        revision_resp = self.client.post(
+            f"/semantic/metrics/{metric_ref}/revisions",
+            json={
+                "base_revision": 1,
+                "change_summary": "Change aggregation semantics",
+                "replacement": replacement,
+            },
+        )
+        self.assertEqual(revision_resp.status_code, 200, revision_resp.text)
+        self.assertEqual(revision_resp.json()["classified_compatibility"], "breaking")
+        self.assertFalse(revision_resp.json()["can_activate_now"])
+        self.assertTrue(revision_resp.json()["required_actions"])
+
+        activate_resp = self.client.post(f"/semantic/metrics/{metric_ref}/revisions/2/activate")
+        self.assertEqual(activate_resp.status_code, 409, activate_resp.text)
+        detail = activate_resp.json()["detail"]
+        self.assertEqual(detail["error"]["code"], "revision_activation_blocked")
+        self.assertTrue(detail["guidance"]["remediation"]["required_actions"])
+
+        default_resp = self.client.get(f"/semantic/metrics/{metric_ref}")
+        self.assertEqual(default_resp.status_code, 200, default_resp.text)
+        self.assertEqual(default_resp.json()["revision"], 1)
 
     def test_metric_routes_use_typed_contract(self) -> None:
         # Publish the entity that the metric references before creating/publishing the metric

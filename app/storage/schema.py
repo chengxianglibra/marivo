@@ -504,7 +504,7 @@ METADATA_DDL: list[str] = [
     """
     CREATE TABLE IF NOT EXISTS typed_bindings (
         binding_id        TEXT PRIMARY KEY,
-        binding_ref       TEXT NOT NULL UNIQUE,
+        binding_ref       TEXT NOT NULL,
         binding_scope     TEXT NOT NULL CHECK (
             binding_scope IN ('entity', 'process_object', 'metric')
         ),
@@ -520,7 +520,8 @@ METADATA_DDL: list[str] = [
         revision          INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
         created_at        TEXT NOT NULL,
         updated_at        TEXT NOT NULL,
-        CHECK (substr(binding_ref, 1, 8) = 'binding.')
+        CHECK (substr(binding_ref, 1, 8) = 'binding.'),
+        UNIQUE(binding_ref, revision)
     )
     """,
     """

@@ -194,6 +194,19 @@ class CompatibilityProfileUpdateRequest(BaseModel):
     )
 
 
+class CompatibilityProfileRevalidateRequest(BaseModel):
+    """Request to revalidate a compatibility profile against a subject revision."""
+
+    subject_revision: int | None = Field(
+        default=None,
+        ge=1,
+        description=(
+            "Subject revision to pin after revalidation. Defaults to the current active subject "
+            "revision."
+        ),
+    )
+
+
 class CompatibilityProfileListItem(ObjectListItemBase):
     """Lightweight list item for compatibility profile endpoints.
 

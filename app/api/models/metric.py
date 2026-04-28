@@ -29,6 +29,8 @@ from .base import (
     validate_ref_prefix,
 )
 
+RequiredMetricInputSpec = dict[str, object] | str
+
 # =============================================================================
 # Metric Header
 # =============================================================================
@@ -221,6 +223,10 @@ class CountMetricPayload(BaseModel):
         default="count_metric", description="Discriminator."
     )
     count_target: MeasurementComponent = Field(description="The target being counted.")
+    required_inputs: list[RequiredMetricInputSpec] | None = Field(
+        default=None,
+        description="Optional required metric input refs used by revision dependency planning.",
+    )
 
 
 class SumMetricPayload(BaseModel):
@@ -228,6 +234,10 @@ class SumMetricPayload(BaseModel):
 
     metric_family: Literal["sum_metric"] = Field(default="sum_metric", description="Discriminator.")
     measure: MeasurementComponent = Field(description="The measure being summed.")
+    required_inputs: list[RequiredMetricInputSpec] | None = Field(
+        default=None,
+        description="Optional required metric input refs used by revision dependency planning.",
+    )
 
 
 class RateMetricPayload(BaseModel):
@@ -241,6 +251,10 @@ class RateMetricPayload(BaseModel):
     default_test_method: str | None = Field(
         default=None, description="Default test method: two_proportion_z or auto."
     )
+    required_inputs: list[RequiredMetricInputSpec] | None = Field(
+        default=None,
+        description="Optional required metric input refs used by revision dependency planning.",
+    )
 
 
 class AverageMetricPayload(BaseModel):
@@ -251,6 +265,10 @@ class AverageMetricPayload(BaseModel):
     )
     numerator: MeasurementComponent = Field(description="The numerator (total).")
     denominator: MeasurementComponent = Field(description="The denominator (count).")
+    required_inputs: list[RequiredMetricInputSpec] | None = Field(
+        default=None,
+        description="Optional required metric input refs used by revision dependency planning.",
+    )
 
 
 class DistributionMetricPayload(BaseModel):
@@ -265,6 +283,10 @@ class DistributionMetricPayload(BaseModel):
     distribution_spec: DistributionSpec = Field(
         description="Distribution specification (percentile, etc.)."
     )
+    required_inputs: list[RequiredMetricInputSpec] | None = Field(
+        default=None,
+        description="Optional required metric input refs used by revision dependency planning.",
+    )
 
 
 class ScoreMetricPayload(BaseModel):
@@ -277,6 +299,10 @@ class ScoreMetricPayload(BaseModel):
     score_kind: str | None = Field(
         default=None, description="Score kind: precomputed, model_output, or rule_score."
     )
+    required_inputs: list[RequiredMetricInputSpec] | None = Field(
+        default=None,
+        description="Optional required metric input refs used by revision dependency planning.",
+    )
 
 
 class SurvivalMetricPayload(BaseModel):
@@ -286,6 +312,10 @@ class SurvivalMetricPayload(BaseModel):
         default="survival_metric", description="Discriminator."
     )
     survival_spec: SurvivalSpec = Field(description="Survival specification.")
+    required_inputs: list[RequiredMetricInputSpec] | None = Field(
+        default=None,
+        description="Optional required metric input refs used by revision dependency planning.",
+    )
 
 
 # =============================================================================
@@ -417,6 +447,8 @@ class TypedMetricCreateRequest(BaseModel):
 class MetricRevisionCreateRequest(BaseModel):
     """Request to create a new revision for an existing typed metric identity."""
 
+    model_config = ConfigDict(extra="forbid")
+
     base_revision: int = Field(
         ge=1,
         description="Latest active metric revision the replacement is based on.",
@@ -425,8 +457,25 @@ class MetricRevisionCreateRequest(BaseModel):
         min_length=1,
         description="Human-readable summary of why this revision is being created.",
     )
-    compatibility: Literal["compatible", "breaking"] = Field(
-        description="Caller-declared compatibility of this revision.",
+    expected_change_scope: (
+        Literal[
+            "display_metadata",
+            "unit_display_metadata",
+            "semantic_contract",
+            "grounding_affecting",
+        ]
+        | None
+    ) = Field(
+        default=None,
+        description="Caller expectation for the intended revision scope; used as a guardrail.",
+    )
+    expected_compatibility: Literal["compatible", "breaking"] | None = Field(
+        default=None,
+        description="Caller compatibility expectation; used as a guardrail.",
+    )
+    accept_classified_compatibility: bool = Field(
+        default=False,
+        description="Whether the caller accepts the server-classified compatibility result.",
     )
     replacement: TypedMetricCreateRequest = Field(
         description="Full replacement typed metric contract for the new revision.",
@@ -496,7 +545,27 @@ class TypedMetricListItem(ObjectListItemBase):
     base_revision: int | None = Field(default=None, description="Base revision for this row.")
     change_summary: str | None = Field(default=None, description="Revision change summary.")
     revision_compatibility: Literal["compatible", "breaking"] | None = Field(
-        default=None, description="Declared revision compatibility."
+        default=None, description="Deprecated compatibility field; mirrors server classification."
+    )
+    classified_compatibility: Literal["compatible", "breaking"] | None = Field(
+        default=None,
+        description="Server-classified compatibility for this revision.",
+    )
+    diff_summary: list[dict[str, object]] = Field(
+        default_factory=list,
+        description="Canonical semantic diff entries generated by the server.",
+    )
+    affected_dependents: list[dict[str, object]] = Field(
+        default_factory=list,
+        description="Dependents affected by this revision plan.",
+    )
+    required_actions: list[dict[str, object]] = Field(
+        default_factory=list,
+        description="Machine-verifiable actions required before activation.",
+    )
+    can_activate_now: bool = Field(
+        default=False,
+        description="Derived activation precheck for the current validation snapshot.",
     )
     is_latest_active: bool = Field(
         default=False, description="Whether this revision is the default active revision."
@@ -518,7 +587,27 @@ class TypedMetricResponse(ObjectResponseBase):
     base_revision: int | None = Field(default=None, description="Base revision for this row.")
     change_summary: str | None = Field(default=None, description="Revision change summary.")
     revision_compatibility: Literal["compatible", "breaking"] | None = Field(
-        default=None, description="Declared revision compatibility."
+        default=None, description="Deprecated compatibility field; mirrors server classification."
+    )
+    classified_compatibility: Literal["compatible", "breaking"] | None = Field(
+        default=None,
+        description="Server-classified compatibility for this revision.",
+    )
+    diff_summary: list[dict[str, object]] = Field(
+        default_factory=list,
+        description="Canonical semantic diff entries generated by the server.",
+    )
+    affected_dependents: list[dict[str, object]] = Field(
+        default_factory=list,
+        description="Dependents affected by this revision plan.",
+    )
+    required_actions: list[dict[str, object]] = Field(
+        default_factory=list,
+        description="Machine-verifiable actions required before activation.",
+    )
+    can_activate_now: bool = Field(
+        default=False,
+        description="Derived activation precheck for the current validation snapshot.",
     )
     is_latest_active: bool = Field(
         default=False, description="Whether this revision is the default active revision."
