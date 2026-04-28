@@ -237,16 +237,19 @@ METADATA_DDL: list[str] = [
             OR aggregation_scope IN ('subject', 'event', 'session', 'window')
         ),
         CHECK (
-            CASE
-                WHEN metric_family = 'count_metric' THEN value_semantics = 'count'
-                WHEN metric_family = 'sum_metric' THEN value_semantics = 'sum'
-                WHEN metric_family = 'rate_metric' THEN value_semantics = 'ratio'
-                WHEN metric_family = 'average_metric' THEN value_semantics = 'mean'
-                WHEN metric_family = 'distribution_metric' THEN value_semantics = 'distribution_statistic'
-                WHEN metric_family = 'score_metric' THEN value_semantics = 'score'
-                WHEN metric_family = 'survival_metric' THEN value_semantics = 'survival_probability'
-                ELSE 1
-            END
+            (metric_family = 'count_metric' AND value_semantics = 'count')
+            OR (metric_family = 'sum_metric' AND value_semantics = 'sum')
+            OR (metric_family = 'rate_metric' AND value_semantics = 'ratio')
+            OR (metric_family = 'average_metric' AND value_semantics = 'mean')
+            OR (
+                metric_family = 'distribution_metric'
+                AND value_semantics = 'distribution_statistic'
+            )
+            OR (metric_family = 'score_metric' AND value_semantics = 'score')
+            OR (
+                metric_family = 'survival_metric'
+                AND value_semantics = 'survival_probability'
+            )
         )
     )
     """,
@@ -730,12 +733,9 @@ METADATA_DDL: list[str] = [
         updated_at              TEXT NOT NULL,
         CHECK (substr(profile_ref, 1, 17) = 'compiler_profile.'),
         CHECK (
-            CASE
-                WHEN subject_kind = 'metric' THEN substr(subject_ref, 1, 7) = 'metric.'
-                WHEN subject_kind = 'process' THEN substr(subject_ref, 1, 8) = 'process.'
-                WHEN subject_kind = 'binding' THEN substr(subject_ref, 1, 8) = 'binding.'
-                ELSE 0
-            END
+            (subject_kind = 'metric' AND substr(subject_ref, 1, 7) = 'metric.')
+            OR (subject_kind = 'process' AND substr(subject_ref, 1, 8) = 'process.')
+            OR (subject_kind = 'binding' AND substr(subject_ref, 1, 8) = 'binding.')
         ),
         CHECK (
             (subject_kind = 'metric' AND profile_kind = 'requirement')
@@ -743,18 +743,12 @@ METADATA_DDL: list[str] = [
             OR (subject_kind = 'binding' AND profile_kind = 'capability')
         ),
         CHECK (
-            CASE
-                WHEN profile_kind = 'requirement' THEN requirement_json != '{}'
-                WHEN profile_kind = 'capability' THEN capability_json != '{}'
-                ELSE 0
-            END
+            (profile_kind = 'requirement' AND requirement_json != '{}')
+            OR (profile_kind = 'capability' AND capability_json != '{}')
         ),
         CHECK (
-            CASE
-                WHEN profile_kind = 'requirement' THEN capability_json = '{}'
-                WHEN profile_kind = 'capability' THEN requirement_json = '{}'
-                ELSE 0
-            END
+            (profile_kind = 'requirement' AND capability_json = '{}')
+            OR (profile_kind = 'capability' AND requirement_json = '{}')
         ),
         CHECK (subject_revision IS NULL OR subject_revision >= 1)
     )
@@ -1248,7 +1242,7 @@ def _mysql_table_ddl(sql: str, indexed_columns: set[str]) -> tuple[str, list[str
         converted.extend(converted_lines)
         foreign_keys.extend(line_foreign_keys)
     table_sql = "\n".join(converted)
-    table_sql = table_sql.replace("DEFAULT (datetime('now'))", "DEFAULT CURRENT_TIMESTAMP")
+    table_sql = table_sql.replace("DEFAULT (datetime('now'))", "DEFAULT CURRENT_TIMESTAMP(6)")
     table_sql = table_sql.replace(
         "INTEGER PRIMARY KEY AUTOINCREMENT",
         "BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY",
@@ -1270,7 +1264,7 @@ def _mysql_table_line(
         leading = line[: len(line) - len(line.lstrip())]
         comma = "," if stripped.endswith(",") else ""
         generated = (
-            f"{leading}metric_latest_active_ref        VARCHAR(191) "
+            f"{leading}metric_latest_active_ref        {_MYSQL_KEY_TEXT_TYPE} "
             "GENERATED ALWAYS AS (CASE WHEN status = 'published' AND is_latest_active = 1 "
             f"THEN metric_ref ELSE NULL END) STORED{comma}"
         )
@@ -1300,21 +1294,30 @@ def _mysql_table_line(
         suffix = f"{suffix[: reference_match.start()]}{suffix[reference_match.end() :]}"
 
     mysql_type = _mysql_text_type(column_name, suffix, indexed_columns)
+    if mysql_type in {"TEXT", "LONGTEXT"}:
+        suffix = _strip_mysql_large_text_default(suffix)
     leading = line[: len(line) - len(line.lstrip())]
     converted = f"{leading}{column_name:<31} {mysql_type}{suffix}"
     if column_name == "identity_key":
         comma = "," if stripped.endswith(",") else ""
         generated = (
-            f"{leading}identity_key_unique             VARCHAR(191) "
+            f"{leading}identity_key_unique             {_MYSQL_KEY_TEXT_TYPE} "
             f"GENERATED ALWAYS AS (NULLIF(identity_key, '')) STORED{comma}"
         )
         return [converted, generated], foreign_keys
     return [converted], foreign_keys
 
 
+def _strip_mysql_large_text_default(suffix: str) -> str:
+    return re.sub(r"\s+DEFAULT\s+(?:'[^']*'|\"[^\"]*\")", "", suffix)
+
+
+_MYSQL_KEY_TEXT_TYPE = "VARCHAR(128)"
+
+
 def _mysql_text_type(column_name: str, suffix: str, indexed_columns: set[str]) -> str:
     if "PRIMARY KEY" in suffix or "REFERENCES" in suffix or "UNIQUE" in suffix:
-        return "VARCHAR(191)"
+        return _MYSQL_KEY_TEXT_TYPE
     if column_name.endswith("_json") or column_name in {
         "content_json",
         "definition_json",
@@ -1327,7 +1330,7 @@ def _mysql_text_type(column_name: str, suffix: str, indexed_columns: set[str]) -
     }:
         return "LONGTEXT"
     if column_name.endswith("_id") or column_name.endswith("_ref") or column_name.endswith("_key"):
-        return "VARCHAR(191)"
+        return _MYSQL_KEY_TEXT_TYPE
     if column_name in {
         "created_at",
         "updated_at",
@@ -1343,7 +1346,7 @@ def _mysql_text_type(column_name: str, suffix: str, indexed_columns: set[str]) -
     }:
         return "DATETIME(6)"
     if column_name in indexed_columns:
-        return "VARCHAR(191)"
+        return _MYSQL_KEY_TEXT_TYPE
     if column_name in {
         "status",
         "source_type",
@@ -1364,7 +1367,7 @@ def _mysql_text_type(column_name: str, suffix: str, indexed_columns: set[str]) -
         "backend",
         "ddl_fingerprint",
     }:
-        return "VARCHAR(191)"
+        return _MYSQL_KEY_TEXT_TYPE
     return "TEXT"
 
 

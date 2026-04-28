@@ -9,7 +9,7 @@ catalogs project into execution catalogs for routing and compile.
 through the HTTP API.
 
 This page documents the current minimal HTTP write/read surface for mappings. It aligns with the
-v1 constraints in [`docs/service/source-execution-mapping-contract.md`](../service/source-execution-mapping-contract.md):
+v1 constraints in [`spec/service/data-plane/source-engine-mapping-contract.md`](../spec/service/data-plane/source-engine-mapping-contract.md):
 
 - `catalog_mappings` is the only catalog projection contract and must be non-empty for a ready
   mapping
