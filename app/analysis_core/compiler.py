@@ -1272,6 +1272,8 @@ def _metric_snapshot(metric: ResolvedSemanticObject) -> MetricRefSnapshot:
     header = dict(metric.semantic_object.get("header") or {})
     snapshot: MetricRefSnapshot = {
         "metric_ref": metric.ref,
+        "resolved_metric_revision": metric.revision,
+        "resolved_metric_object_id": metric.object_id,
     }
     primary_time_ref = _optional_str(header.get("primary_time_ref"))
     observation_grain_ref = _optional_str(header.get("observation_grain_ref"))
@@ -1754,6 +1756,12 @@ def compile_step(
         "ir_plan_id": ir_bundle["plan"]["header"]["plan_id"],
         "normalized_request_class": normalized_request.request_class,
         "resolved_metric_ref": resolved_inputs.resolved_metric.ref
+        if resolved_inputs.resolved_metric is not None
+        else None,
+        "resolved_metric_revision": resolved_inputs.resolved_metric.revision
+        if resolved_inputs.resolved_metric is not None
+        else None,
+        "resolved_metric_object_id": resolved_inputs.resolved_metric.object_id
         if resolved_inputs.resolved_metric is not None
         else None,
         "resolved_process_ref": resolved_inputs.resolved_process.ref

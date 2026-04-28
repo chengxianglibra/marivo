@@ -3319,6 +3319,19 @@ class SemanticLayerService:
                 for compiled in compiled_list
             ]
         )
+        metric_revisions = [
+            int(compiled.metadata["resolved_metric_revision"])
+            for compiled in compiled_list
+            if compiled.metadata.get("resolved_metric_revision") is not None
+        ]
+        metric_object_ids = self._merge_unique_str(
+            [
+                str(compiled.metadata.get("resolved_metric_object_id"))
+                if compiled.metadata.get("resolved_metric_object_id")
+                else None
+                for compiled in compiled_list
+            ]
+        )
         process_refs = self._merge_unique_str(
             [
                 str(compiled.metadata.get("resolved_process_ref"))
@@ -3425,6 +3438,8 @@ class SemanticLayerService:
         if not any(
             (
                 metric_refs,
+                metric_revisions,
+                metric_object_ids,
                 process_refs,
                 filter_time_refs,
                 binding_refs,
@@ -3448,6 +3463,8 @@ class SemanticLayerService:
             "metadata_kind": "typed_semantic_snapshot",
             "typed_inputs": {
                 "metric_ref": metric_refs[0] if metric_refs else None,
+                "resolved_metric_revision": metric_revisions[0] if metric_revisions else None,
+                "resolved_metric_object_id": metric_object_ids[0] if metric_object_ids else None,
                 "process_ref": process_refs[0] if process_refs else None,
                 "dimension_refs": dimension_refs,
                 "filter_time_ref": filter_time_refs[0] if filter_time_refs else None,

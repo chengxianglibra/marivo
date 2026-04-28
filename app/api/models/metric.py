@@ -414,6 +414,25 @@ class TypedMetricCreateRequest(BaseModel):
         return self
 
 
+class MetricRevisionCreateRequest(BaseModel):
+    """Request to create a new revision for an existing typed metric identity."""
+
+    base_revision: int = Field(
+        ge=1,
+        description="Latest active metric revision the replacement is based on.",
+    )
+    change_summary: str = Field(
+        min_length=1,
+        description="Human-readable summary of why this revision is being created.",
+    )
+    compatibility: Literal["compatible", "breaking"] = Field(
+        description="Caller-declared compatibility of this revision.",
+    )
+    replacement: TypedMetricCreateRequest = Field(
+        description="Full replacement typed metric contract for the new revision.",
+    )
+
+
 class TypedMetricUpdateRequest(BaseModel):
     """Request to update an existing typed metric.
 
@@ -474,6 +493,17 @@ class TypedMetricListItem(ObjectListItemBase):
 
     metric_contract_id: str = Field(description="Internal ID of the metric contract.")
     header: MetricHeader = Field(description="Metric header (contains metric_ref).")
+    base_revision: int | None = Field(default=None, description="Base revision for this row.")
+    change_summary: str | None = Field(default=None, description="Revision change summary.")
+    revision_compatibility: Literal["compatible", "breaking"] | None = Field(
+        default=None, description="Declared revision compatibility."
+    )
+    is_latest_active: bool = Field(
+        default=False, description="Whether this revision is the default active revision."
+    )
+    revision_history: list[dict[str, object]] | None = Field(
+        default=None, description="Optional revision history summary for this metric ref."
+    )
 
 
 class TypedMetricResponse(ObjectResponseBase):
@@ -485,6 +515,17 @@ class TypedMetricResponse(ObjectResponseBase):
     metric_contract_id: str = Field(description="Internal ID of the metric contract.")
     header: MetricHeader = Field(description="Metric header.")
     payload: MetricPayload = Field(description="Family-specific payload.")
+    base_revision: int | None = Field(default=None, description="Base revision for this row.")
+    change_summary: str | None = Field(default=None, description="Revision change summary.")
+    revision_compatibility: Literal["compatible", "breaking"] | None = Field(
+        default=None, description="Declared revision compatibility."
+    )
+    is_latest_active: bool = Field(
+        default=False, description="Whether this revision is the default active revision."
+    )
+    revision_history: list[dict[str, object]] | None = Field(
+        default=None, description="Optional revision history summary for this metric ref."
+    )
 
 
 class TypedMetricListResponse(ListResponseBase[TypedMetricListItem]):

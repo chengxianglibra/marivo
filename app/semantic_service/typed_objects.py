@@ -15,6 +15,7 @@ from app.api.models.enum_set import (
 )
 from app.api.models.metric import (
     MetricPayload,
+    MetricRevisionCreateRequest,
     TypedMetricCreateRequest,
     TypedMetricUpdateRequest,
     _collect_aggregation_methods,
@@ -254,10 +255,71 @@ class TypedObjectService(SemanticServiceSupport):
             SELECT metric_contract_id, metric_ref, status, revision
             FROM semantic_metric_contracts
             WHERE metric_ref = ?
+            ORDER BY is_latest_active DESC, revision DESC
             """,
             [metric_ref],
         )
         return None if row is None else dict(row)
+
+    def _metric_latest_active_row_by_ref(self, metric_ref: str) -> dict[str, Any] | None:
+        row = self.metadata.query_one(
+            """
+            SELECT *
+            FROM semantic_metric_contracts
+            WHERE metric_ref = ? AND status = 'published' AND is_latest_active = 1
+            ORDER BY revision DESC
+            """,
+            [metric_ref],
+        )
+        return None if row is None else dict(row)
+
+    def _metric_default_row_by_ref(self, metric_ref: str) -> dict[str, Any] | None:
+        row = self._metric_latest_active_row_by_ref(metric_ref)
+        if row is not None:
+            return row
+        fallback = self.metadata.query_one(
+            """
+            SELECT *
+            FROM semantic_metric_contracts
+            WHERE metric_ref = ?
+            ORDER BY
+                CASE status
+                    WHEN 'draft' THEN 0
+                    WHEN 'deprecated' THEN 1
+                    WHEN 'published' THEN 2
+                    ELSE 3
+                END,
+                revision DESC
+            """,
+            [metric_ref],
+        )
+        return None if fallback is None else dict(fallback)
+
+    def _metric_row_by_ref_and_revision(
+        self, metric_ref: str, revision: int
+    ) -> dict[str, Any] | None:
+        row = self.metadata.query_one(
+            """
+            SELECT *
+            FROM semantic_metric_contracts
+            WHERE metric_ref = ? AND revision = ?
+            """,
+            [metric_ref, revision],
+        )
+        return None if row is None else dict(row)
+
+    def _metric_identity_for_revision_action(self, metric_id_or_ref: str) -> str:
+        row = self.metadata.query_one(
+            "SELECT metric_ref FROM semantic_metric_contracts WHERE metric_contract_id = ?",
+            [metric_id_or_ref],
+        )
+        if row is not None:
+            return str(row["metric_ref"])
+        if metric_id_or_ref.startswith("metric."):
+            existing = self._metric_row_by_ref(metric_id_or_ref)
+            if existing is not None:
+                return metric_id_or_ref
+        raise self._not_found(f"Unknown typed metric: {metric_id_or_ref}")
 
     def _raise_metric_ref_conflict(self, metric_ref: str, existing: dict[str, Any]) -> None:
         existing_status = str(existing["status"])
@@ -333,8 +395,9 @@ class TypedObjectService(SemanticServiceSupport):
                     sample_kind, value_semantics, aggregation_scope, primary_time_ref,
                     additivity_constraints_json, default_predicate_refs_json,
                     metric_contract_version, family_payload_json, status,
-                    revision, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', 1, ?, ?)
+                    revision, base_revision, change_summary, revision_compatibility,
+                    is_latest_active, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', 1, NULL, ?, 'compatible', 0, ?, ?)
                 """,
                 [
                     metric_contract_id,
@@ -353,6 +416,7 @@ class TypedObjectService(SemanticServiceSupport):
                     json.dumps(payload.header.default_predicate_refs or []),
                     payload.header.metric_contract_version,
                     json.dumps(payload.payload.model_dump(mode="json")),
+                    "Initial metric revision",
                     created_at,
                     created_at,
                 ],
@@ -372,10 +436,7 @@ class TypedObjectService(SemanticServiceSupport):
             [metric_identifier],
         )
         if row is None:
-            row = self.metadata.query_one(
-                "SELECT * FROM semantic_metric_contracts WHERE metric_ref = ?",
-                [metric_identifier],
-            )
+            row = self._metric_default_row_by_ref(metric_identifier)
         if row is None:
             raise self._not_found(f"Unknown typed metric: {metric_identifier}")
         return self._row_to_typed_metric(row)
@@ -400,11 +461,30 @@ class TypedObjectService(SemanticServiceSupport):
         status = self._resolve_semantic_filters(status=status, lifecycle_status=lifecycle_status)
         if status is None:
             rows = self.metadata.query_rows(
-                "SELECT * FROM semantic_metric_contracts ORDER BY metric_ref"
+                """
+                SELECT *
+                FROM semantic_metric_contracts
+                WHERE is_latest_active = 1 OR (status = 'draft' AND revision = 1)
+                ORDER BY metric_ref, revision DESC
+                """
+            )
+        elif status == "published":
+            rows = self.metadata.query_rows(
+                """
+                SELECT *
+                FROM semantic_metric_contracts
+                WHERE status = 'published' AND is_latest_active = 1
+                ORDER BY metric_ref
+                """
             )
         else:
             rows = self.metadata.query_rows(
-                "SELECT * FROM semantic_metric_contracts WHERE status = ? ORDER BY metric_ref",
+                """
+                SELECT *
+                FROM semantic_metric_contracts
+                WHERE status = ?
+                ORDER BY metric_ref, revision DESC
+                """,
                 [status],
             )
         list_context = self._list_context()
@@ -484,12 +564,16 @@ class TypedObjectService(SemanticServiceSupport):
                 "Metrics with count_distinct aggregation must not use "
                 "dimension_policy='all'; use 'subset' or 'none' instead."
             )
-        self._apply_contract_update(
-            table_name="semantic_metric_contracts",
-            id_column="metric_contract_id",
-            object_id=metric_contract_id,
-            updates=updates,
-            params=params,
+        updates.append("updated_at = ?")
+        params.append(now_iso())
+        params.append(metric_contract_id)
+        self.metadata.execute(
+            f"""
+            UPDATE semantic_metric_contracts
+            SET {", ".join(updates)}
+            WHERE metric_contract_id = ?
+            """,
+            params,
         )
         return self.get_typed_metric(metric_contract_id)
 
@@ -510,34 +594,218 @@ class TypedObjectService(SemanticServiceSupport):
 
     def activate_typed_metric(self, metric_contract_id: str) -> dict[str, Any]:
         current = self.get_typed_metric(metric_contract_id)
+        if current.get("base_revision") is not None:
+            return self.activate_metric_revision(
+                str(current["header"]["metric_ref"]), int(current["revision"])
+            )
 
         def _validate_refs() -> None:
             self._validate_published_metric_header_refs(current["header"])
             self._validate_published_metric_predicate_refs(current["header"], current["payload"])
 
-        self._activate_record(
-            table_name="semantic_metric_contracts",
-            id_column="metric_contract_id",
-            object_id=metric_contract_id,
-            object_label="Typed metric",
+        self._require_lifecycle_action_status(
+            action="activate",
             status=current["status"],
-            reference_validator=_validate_refs,
+            object_label="Typed metric",
+            object_id=metric_contract_id,
+        )
+        self._run_publish_reference_validation(_validate_refs)
+        self.metadata.execute(
+            """
+            UPDATE semantic_metric_contracts
+            SET status = 'published', is_latest_active = 1, updated_at = ?
+            WHERE metric_contract_id = ?
+            """,
+            [now_iso(), metric_contract_id],
         )
         return self.get_typed_metric(metric_contract_id)
 
     def deprecate_typed_metric(self, metric_contract_id: str) -> dict[str, Any]:
         current = self.get_typed_metric(metric_contract_id)
-        self._deprecate_record(
-            table_name="semantic_metric_contracts",
-            id_column="metric_contract_id",
-            object_id=metric_contract_id,
-            object_label="Typed metric",
+        self._require_lifecycle_action_status(
+            action="deprecate",
             status=current["status"],
+            object_label="Typed metric",
+            object_id=metric_contract_id,
+        )
+        self.metadata.execute(
+            """
+            UPDATE semantic_metric_contracts
+            SET status = 'deprecated', is_latest_active = 0, updated_at = ?
+            WHERE metric_contract_id = ?
+            """,
+            [now_iso(), metric_contract_id],
         )
         return self.get_typed_metric(metric_contract_id)
 
     def publish_typed_metric(self, metric_contract_id: str) -> dict[str, Any]:
         return self.activate_typed_metric(metric_contract_id)
+
+    def create_metric_revision(
+        self, metric_id_or_ref: str, payload: MetricRevisionCreateRequest
+    ) -> dict[str, Any]:
+        metric_ref = self._metric_identity_for_revision_action(metric_id_or_ref)
+        replacement = payload.replacement
+        if replacement.header.metric_ref != metric_ref:
+            raise self._validation_error(
+                "replacement.header.metric_ref must match the metric identity being revised"
+            )
+        base = self._metric_latest_active_row_by_ref(metric_ref)
+        if base is None:
+            raise self._validation_error(
+                f"Metric revision requires a latest active base revision: {metric_ref}"
+            )
+        if int(base["revision"]) != payload.base_revision:
+            raise self._conflict_error(
+                "Metric base_revision is stale",
+                field_path="base_revision",
+                remediation={
+                    "metric_ref": metric_ref,
+                    "requested_base_revision": payload.base_revision,
+                    "latest_active_revision": base["revision"],
+                    "recommended_action": "refresh latest active metric and retry revision create",
+                },
+            )
+        row = self.metadata.query_one(
+            "SELECT COALESCE(MAX(revision), 0) AS max_revision FROM semantic_metric_contracts WHERE metric_ref = ?",
+            [metric_ref],
+        )
+        next_revision = int(row["max_revision"] if row else 0) + 1
+        metric_contract_id = f"metc_{uuid4().hex[:12]}"
+        created_at = now_iso()
+        self.metadata.execute(
+            """
+            INSERT INTO semantic_metric_contracts (
+                metric_contract_id, metric_ref, display_name, description, metric_family,
+                population_subject_ref, observed_entity_ref, observation_grain_ref,
+                sample_kind, value_semantics, aggregation_scope, primary_time_ref,
+                additivity_constraints_json, default_predicate_refs_json,
+                metric_contract_version, family_payload_json, status,
+                revision, base_revision, change_summary, revision_compatibility,
+                is_latest_active, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, 0, ?, ?)
+            """,
+            [
+                metric_contract_id,
+                metric_ref,
+                replacement.header.display_name or metric_ref.removeprefix("metric."),
+                replacement.header.description or "",
+                replacement.header.metric_family,
+                replacement.header.population_subject_ref,
+                replacement.header.observed_entity_ref,
+                replacement.header.observation_grain_ref,
+                replacement.header.sample_kind,
+                replacement.header.value_semantics,
+                replacement.header.aggregation_scope,
+                replacement.header.primary_time_ref,
+                json.dumps(replacement.header.additivity_constraints.model_dump(mode="json")),
+                json.dumps(replacement.header.default_predicate_refs or []),
+                replacement.header.metric_contract_version,
+                json.dumps(replacement.payload.model_dump(mode="json")),
+                next_revision,
+                payload.base_revision,
+                payload.change_summary,
+                payload.compatibility,
+                created_at,
+                created_at,
+            ],
+        )
+        return self.get_typed_metric(metric_contract_id)
+
+    def list_metric_revisions(self, metric_ref: str) -> dict[str, Any]:
+        rows = self.metadata.query_rows(
+            """
+            SELECT *
+            FROM semantic_metric_contracts
+            WHERE metric_ref = ?
+            ORDER BY revision
+            """,
+            [metric_ref],
+        )
+        if not rows:
+            raise self._not_found(f"Unknown typed metric: {metric_ref}")
+        return {"items": [self._row_to_typed_metric(row) for row in rows], "total": len(rows)}
+
+    def read_metric_revision(self, metric_ref: str, revision: int) -> dict[str, Any]:
+        row = self._metric_row_by_ref_and_revision(metric_ref, revision)
+        if row is None:
+            raise self._not_found(f"Unknown typed metric revision: {metric_ref}@{revision}")
+        return self._row_to_typed_metric(row)
+
+    def validate_metric_revision(self, metric_id_or_ref: str, revision: int) -> dict[str, Any]:
+        metric_ref = self._metric_identity_for_revision_action(metric_id_or_ref)
+        row = self._metric_row_by_ref_and_revision(metric_ref, revision)
+        if row is None:
+            raise self._not_found(f"Unknown typed metric revision: {metric_ref}@{revision}")
+        current = self._row_to_typed_metric(row)
+
+        def _validate_refs() -> None:
+            self._validate_published_metric_header_refs(current["header"])
+            self._validate_published_metric_predicate_refs(current["header"], current["payload"])
+
+        self._validate_record(
+            object_id=str(row["metric_contract_id"]),
+            object_label="Typed metric revision",
+            status=str(row["status"]),
+            reference_validator=_validate_refs,
+        )
+        return self.read_metric_revision(metric_ref, revision)
+
+    def activate_metric_revision(self, metric_id_or_ref: str, revision: int) -> dict[str, Any]:
+        metric_ref = self._metric_identity_for_revision_action(metric_id_or_ref)
+        row = self._metric_row_by_ref_and_revision(metric_ref, revision)
+        if row is None:
+            raise self._not_found(f"Unknown typed metric revision: {metric_ref}@{revision}")
+        current = self._row_to_typed_metric(row)
+        self._require_lifecycle_action_status(
+            action="activate",
+            status=current["status"],
+            object_label="Typed metric revision",
+            object_id=str(row["metric_contract_id"]),
+        )
+
+        def _validate_refs() -> None:
+            self._validate_published_metric_header_refs(current["header"])
+            self._validate_published_metric_predicate_refs(current["header"], current["payload"])
+
+        self._run_publish_reference_validation(_validate_refs)
+        base_revision = row["base_revision"]
+        latest = self._metric_latest_active_row_by_ref(metric_ref)
+        if base_revision is not None and (
+            latest is None or int(latest["revision"]) != int(base_revision)
+        ):
+            raise self._conflict_error(
+                "Metric base_revision is stale",
+                field_path="base_revision",
+                remediation={
+                    "metric_ref": metric_ref,
+                    "requested_base_revision": base_revision,
+                    "latest_active_revision": latest["revision"] if latest else None,
+                    "recommended_action": "refresh latest active metric and create a new revision",
+                },
+            )
+        now = now_iso()
+        with self.metadata.connect() as con:
+            self.metadata.execute_sql(
+                con,
+                """
+                UPDATE semantic_metric_contracts
+                SET is_latest_active = 0, updated_at = ?
+                WHERE metric_ref = ? AND status = 'published' AND is_latest_active = 1
+                """,
+                [now, metric_ref],
+            )
+            self.metadata.execute_sql(
+                con,
+                """
+                UPDATE semantic_metric_contracts
+                SET status = 'published', is_latest_active = 1, updated_at = ?
+                WHERE metric_contract_id = ?
+                """,
+                [now, row["metric_contract_id"]],
+            )
+            con.commit()
+        return self.read_metric_revision(metric_ref, revision)
 
     def create_process_object(self, payload: ProcessObjectCreateRequest) -> dict[str, Any]:
         interface_contract = payload.interface_contract.model_dump(mode="json")

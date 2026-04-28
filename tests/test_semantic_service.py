@@ -11,7 +11,11 @@ from app.api.models.compatibility_profile import (
 )
 from app.api.models.dimension import DimensionCreateRequest
 from app.api.models.entity import TypedEntityCreateRequest, TypedEntityUpdateRequest
-from app.api.models.metric import TypedMetricCreateRequest, TypedMetricUpdateRequest
+from app.api.models.metric import (
+    MetricRevisionCreateRequest,
+    TypedMetricCreateRequest,
+    TypedMetricUpdateRequest,
+)
 from app.semantic import SemanticService
 from app.semantic_service import (
     CompatibilityProfileService,
@@ -213,7 +217,8 @@ class SemanticServiceFacadeTests(unittest.TestCase):
             )
         )
         published = self.service.publish_typed_metric(metric["metric_contract_id"])
-        self.assertEqual(published["revision"], 2)
+        self.assertEqual(published["revision"], 1)
+        self.assertEqual(published["is_latest_active"], True)
 
         with self.assertRaises(ValueError):
             self.service.update_typed_metric(
@@ -231,6 +236,88 @@ class SemanticServiceFacadeTests(unittest.TestCase):
                     }
                 ),
             )
+
+    def test_metric_revision_create_and_activate_preserves_old_revision(self) -> None:
+        entity = self.service.create_typed_entity(
+            TypedEntityCreateRequest.model_validate(
+                {
+                    "header": {
+                        "entity_ref": "entity.metric_revision_order",
+                        "display_name": "Order",
+                        "entity_contract_version": "entity.v1",
+                    },
+                    "interface_contract": {
+                        "identity": {
+                            "key_refs": ["key.metric_revision_order_id"],
+                            "uniqueness_scope": "global",
+                            "id_stability": "stable",
+                        }
+                    },
+                }
+            )
+        )
+        self.service.publish_typed_entity(entity["entity_contract_id"])
+        create_payload = {
+            "header": {
+                "metric_ref": "metric.revision_orders",
+                "display_name": "Orders",
+                "description": "Orders in seconds",
+                "metric_family": "count_metric",
+                "observed_entity_ref": "entity.metric_revision_order",
+                "observation_grain_ref": "grain.order",
+                "sample_kind": "numeric",
+                "value_semantics": "count",
+                "additivity_constraints": {
+                    "dimension_policy": "none",
+                    "time_axis_policy": "non_additive",
+                },
+                "metric_contract_version": "metric.v1",
+            },
+            "payload": {
+                "metric_family": "count_metric",
+                "count_target": {
+                    "name": "orders",
+                    "semantics": "order count",
+                    "aggregation": "count",
+                },
+            },
+        }
+        metric = self.service.create_typed_metric(
+            TypedMetricCreateRequest.model_validate(create_payload)
+        )
+        published = self.service.publish_typed_metric(metric["metric_contract_id"])
+        self.assertEqual(published["revision"], 1)
+
+        replacement_payload = dict(create_payload)
+        replacement_payload["header"] = dict(create_payload["header"])
+        replacement_payload["header"]["description"] = "Orders in milliseconds"
+        revision = self.service.create_metric_revision(
+            "metric.revision_orders",
+            MetricRevisionCreateRequest.model_validate(
+                {
+                    "base_revision": 1,
+                    "change_summary": "Fix unit label",
+                    "compatibility": "compatible",
+                    "replacement": replacement_payload,
+                }
+            ),
+        )
+        self.assertEqual(revision["revision"], 2)
+        self.assertEqual(revision["status"], "draft")
+        self.assertEqual(revision["base_revision"], 1)
+
+        self.service.validate_metric_revision("metric.revision_orders", 2)
+        default_before = self.service.read_typed_metric("metric.revision_orders")
+        self.assertEqual(default_before["revision"], 1)
+
+        activated = self.service.activate_metric_revision("metric.revision_orders", 2)
+        self.assertEqual(activated["revision"], 2)
+        self.assertEqual(activated["is_latest_active"], True)
+        old = self.service.read_metric_revision("metric.revision_orders", 1)
+        self.assertEqual(old["revision"], 1)
+        self.assertEqual(old["is_latest_active"], False)
+        default_after = self.service.read_typed_metric("metric.revision_orders")
+        self.assertEqual(default_after["revision"], 2)
 
     def test_list_dimensions_detail_uses_list_context_for_dependents(self) -> None:
         dimension = self.service.create_dimension(
@@ -353,7 +440,7 @@ class SemanticServiceFacadeTests(unittest.TestCase):
         self.service.publish_typed_metric(metric["metric_contract_id"])
         published = self.service.publish_compatibility_profile(profile["profile_id"])
         self.assertEqual(published["revision"], 3)
-        self.assertEqual(published["subject_revision"], 2)
+        self.assertEqual(published["subject_revision"], 1)
 
         with self.assertRaises(ValueError):
             self.service.update_compatibility_profile(
