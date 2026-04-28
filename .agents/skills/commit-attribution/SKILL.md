@@ -8,6 +8,29 @@ description: Use when drafting, editing, or checking commit messages in Marivo t
 Use this skill when a user asks to commit changes, write a commit message, add co-author
 attribution, or verify AI attribution for a commit.
 
+## Pre-commit scope check
+
+Before committing, inspect the staged content and confirm it matches the user's requested scope.
+
+Required checks:
+
+- Run `git status --short --untracked-files=all` to see staged, unstaged, and untracked files.
+- Run `git diff --cached --name-status` to review exactly what will be committed.
+- For any non-obvious file, inspect `git diff --cached -- <path>` before committing.
+- If the user said `commit this`, stage only the files related to the current task.
+- If the user said `commit all`, stage all remaining changes unless they explicitly narrow the scope.
+
+Do not commit unrelated or local-only files unless the user explicitly asks for them. Common files to
+exclude or double-check:
+
+- local runtime/config files such as `.marivo/`, `marivo.yaml`, database files, and credentials
+- editor and OS metadata such as `.obsidian/`, `.vscode/`, `.DS_Store`, and swap files
+- generated caches or reports such as `.mypy_cache/`, `.pytest_cache/`, coverage output, and test reports
+- unrelated user edits already present in the worktree
+
+If the staged diff contains questionable content, stop and narrow the staged set. Ask the user only
+when the intended scope cannot be inferred safely.
+
 ## Required attribution
 
 When AI assistance contributes to a commit, add one attribution line at the end of the commit

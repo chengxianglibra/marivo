@@ -1,0 +1,41 @@
+{
+  "skill_name": "marivo",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Use Marivo to investigate why watch time dropped last week for US mobile users. Show the right sequence of catalog discovery, session creation, typed intent calls, and canonical evidence reads without falling back to ad-hoc SQL.",
+      "expected_output": "Uses catalog discovery plus session creation, then submits typed intents under /sessions/{id}/intents/* and reads /state or /context for evidence decisions. Avoids old /steps APIs and SQL-first framing.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "I already ran several Marivo intents. How do I decide whether to continue or stop, and how do I inspect one proposition deeply?",
+      "expected_output": "Directs the user to /sessions/{id}/state or /state/query for session-level decisions and /sessions/{id}/propositions/{pid}/context for proposition-level closure, while keeping runtime-status separate from canonical evidence.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "I want to build and revise a multi-step Marivo investigation. Show me how to orchestrate that with current Marivo APIs.",
+      "expected_output": "Explains that current Marivo has no public plans API, recommends client-side orchestration over sessions plus typed intents, typed refs, and /state or /context reads for branch decisions.",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "I keep repeating the same one-off watch-time calculation. Show me how to model it in Marivo's semantic layer so later investigations can use a published metric.",
+      "expected_output": "Uses typed semantic entities or metrics and typed bindings, describes draft->publish lifecycle, and avoids legacy /semantic/mappings guidance.",
+      "files": []
+    },
+    {
+      "id": 5,
+      "prompt": "Help me connect a new DuckDB dataset to Marivo, sync its catalog, route it to an engine, and add a freshness quality rule.",
+      "expected_output": "Uses /sources, sync endpoints, /engines, /mappings, optional /routing/resolve, and /quality-rules with the current HTTP surfaces. Uses mappings (not bindings) for source-to-engine routing.",
+      "files": []
+    },
+    {
+      "id": 6,
+      "prompt": "I need a reusable filter for US mobile premium users that I can apply across multiple metrics. Show me how to create a predicate in Marivo's semantic layer.",
+      "expected_output": "Creates a predicate.* with allowed_usage including metric_qualifier or request_scope, uses a conjunction expression with dimension.country and dimension.platform targets, declares subject_ref pointing to the entity, and uses time_policy=non_time_only. Avoids forbidden target prefixes like time.* or metric.*.",
+      "files": []
+    }
+  ]
+}

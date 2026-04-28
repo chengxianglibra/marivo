@@ -1,0 +1,4 @@
+interface:
+  display_name: "Marivo Skill Maintainer"
+  short_description: "Maintain the external Marivo agent skill."
+  default_prompt: "Use $marivo-skill-maintainer to update the external Marivo agent skill from the repository baseline."
