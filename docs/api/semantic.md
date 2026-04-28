@@ -1250,11 +1250,14 @@ consumers recover semantic meaning from typed step metadata and compiler snapsho
 
 - `400`: invalid catalog type filter or invalid typed semantic ref
 - `404`: object not found
-- `409`: typed semantic ref exists and is active but not ready for runtime use, or a compile/intent
-  request is incompatible with otherwise ready semantic objects
+- `409`: typed semantic ref exists and is active but not ready for runtime use, a compile/intent
+  request is incompatible with otherwise ready semantic objects, or a semantic create request
+  conflicts with an existing governed ref
 - `422`: request validation failed or service rejected the request as invalid
 
-Validation errors use FastAPI/Pydantic `detail` arrays. Service-level validation errors use string `detail` values.
+Validation errors use FastAPI/Pydantic `detail` arrays. Service-level semantic errors may return
+structured `detail` objects with `message`, `code`, `category`, `field_path`, `error`, and
+`guidance`.
 
 Request-body validation errors may additionally include:
 
@@ -1276,6 +1279,19 @@ Recommended remediation order for typed semantic `422` responses:
 `guidance.contract_url` points to `GET /openapi/paths/{encoded_path}` where `encoded_path` is the
 raw route path encoded with unpadded base64url. For example, `/semantic/entities` becomes
 `L3NlbWFudGljL2VudGl0aWVz`.
+
+### Semantic Ref Conflict
+
+`POST /semantic/metrics` returns `409 semantic_ref_conflict` when `header.metric_ref` is already
+owned by an existing metric. The conflict applies to `draft`, `published`, and `deprecated`
+objects. `deprecated` means the semantic identity should stop being used for new work; it does not
+release the ref for replacement through create.
+
+The response guidance includes the existing metric id, ref, lifecycle status, revision, and
+recommended next actions. For spelling, description, or unit-label corrections, do not create
+`metric.*_v2` as a routine workaround. Inspect the existing object and use the metric revision path
+when it is available. Only clone with a new ref when the new object represents a different business
+semantic identity.
 
 Common typed semantic request failures:
 

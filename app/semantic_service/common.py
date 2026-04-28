@@ -23,6 +23,7 @@ from app.time_scope import _normalize_date_format, _normalize_hour_format
 
 from .errors import (
     SemanticCompatibilityError,
+    SemanticConflictError,
     SemanticNotFoundError,
     SemanticStateError,
     SemanticValidationError,
@@ -1254,6 +1255,27 @@ class SemanticServiceSupport:
             field_path=field_path,
             remediation=remediation,
             examples=examples,
+        )
+
+    def _conflict_error(
+        self,
+        message: str,
+        *,
+        code: str = "semantic_ref_conflict",
+        category: str = "conflict",
+        field_path: str | None = None,
+        remediation: dict[str, Any] | None = None,
+        examples: list[dict[str, Any]] | None = None,
+        status_code: int = 409,
+    ) -> SemanticConflictError:
+        return SemanticConflictError(
+            message,
+            code=code,
+            category=category,
+            field_path=field_path,
+            remediation=remediation,
+            examples=examples,
+            status_code=status_code,
         )
 
     def _state_error(

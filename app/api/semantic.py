@@ -199,7 +199,7 @@ def _run_route_action(
         error_category = getattr(error, "category", None)
         if structured_value_error and isinstance(error_code, str):
             raise HTTPException(
-                status_code=value_error_status,
+                status_code=int(getattr(error, "status_code", None) or value_error_status),
                 detail=build_service_validation_error_payload(
                     request=request,
                     message=str(error),
@@ -728,7 +728,11 @@ def create_metric(
     request: Request, payload: TypedMetricCreateRequest = Body(...)
 ) -> dict[str, Any]:
     semantic_service = get_services(request).semantic_service
-    return _run_route_action(lambda: semantic_service.create_typed_metric(payload))
+    return _run_route_action(
+        lambda: semantic_service.create_typed_metric(payload),
+        request=request,
+        structured_value_error=True,
+    )
 
 
 @router.get("/semantic/metrics")
@@ -768,7 +772,11 @@ def update_metric(
     payload: TypedMetricUpdateRequest = Body(...),
 ) -> dict[str, Any]:
     semantic_service = get_services(request).semantic_service
-    return _run_route_action(lambda: semantic_service.update_typed_metric(metric_id, payload))
+    return _run_route_action(
+        lambda: semantic_service.update_typed_metric(metric_id, payload),
+        request=request,
+        structured_value_error=True,
+    )
 
 
 @router.post("/semantic/metrics/{metric_id}/publish")

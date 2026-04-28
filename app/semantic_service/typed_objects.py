@@ -243,41 +243,127 @@ class TypedObjectService(SemanticServiceSupport):
     def publish_typed_entity(self, entity_contract_id: str) -> dict[str, Any]:
         return self.activate_typed_entity(entity_contract_id)
 
-    def create_typed_metric(self, payload: TypedMetricCreateRequest) -> dict[str, Any]:
-        metric_contract_id = f"metc_{uuid4().hex[:12]}"
-        created_at = now_iso()
-        self.metadata.execute(
+    @staticmethod
+    def _looks_like_metric_ref_unique_conflict(error: Exception) -> bool:
+        message = str(error).lower()
+        return "metric_ref" in message and ("unique" in message or "duplicate" in message)
+
+    def _metric_row_by_ref(self, metric_ref: str) -> dict[str, Any] | None:
+        row = self.metadata.query_one(
             """
-            INSERT INTO semantic_metric_contracts (
-                metric_contract_id, metric_ref, display_name, description, metric_family,
-                population_subject_ref, observed_entity_ref, observation_grain_ref,
-                sample_kind, value_semantics, aggregation_scope, primary_time_ref,
-                additivity_constraints_json, default_predicate_refs_json,
-                metric_contract_version, family_payload_json, status,
-                revision, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', 1, ?, ?)
+            SELECT metric_contract_id, metric_ref, status, revision
+            FROM semantic_metric_contracts
+            WHERE metric_ref = ?
             """,
-            [
-                metric_contract_id,
-                payload.header.metric_ref,
-                payload.header.display_name or payload.header.metric_ref.removeprefix("metric."),
-                payload.header.description or "",
-                payload.header.metric_family,
-                payload.header.population_subject_ref,
-                payload.header.observed_entity_ref,
-                payload.header.observation_grain_ref,
-                payload.header.sample_kind,
-                payload.header.value_semantics,
-                payload.header.aggregation_scope,
-                payload.header.primary_time_ref,
-                json.dumps(payload.header.additivity_constraints.model_dump(mode="json")),
-                json.dumps(payload.header.default_predicate_refs or []),
-                payload.header.metric_contract_version,
-                json.dumps(payload.payload.model_dump(mode="json")),
-                created_at,
-                created_at,
+            [metric_ref],
+        )
+        return None if row is None else dict(row)
+
+    def _raise_metric_ref_conflict(self, metric_ref: str, existing: dict[str, Any]) -> None:
+        existing_status = str(existing["status"])
+        existing_lifecycle_status = "active" if existing_status == "published" else existing_status
+        raise self._conflict_error(
+            f"Metric ref '{metric_ref}' is already owned by an existing semantic metric",
+            field_path="header.metric_ref",
+            remediation={
+                "existing_object_kind": "metric",
+                "existing_object_id": existing["metric_contract_id"],
+                "existing_ref": existing["metric_ref"],
+                "existing_status": existing_status,
+                "existing_lifecycle_status": existing_lifecycle_status,
+                "existing_revision": existing["revision"],
+                "ref_ownership": "deprecated objects retain semantic ref ownership",
+                "recommended_actions": [
+                    {
+                        "action": "inspect_existing_object",
+                        "method": "GET",
+                        "path": f"/semantic/metrics/{existing['metric_contract_id']}",
+                    },
+                    {
+                        "action": "create_revision",
+                        "availability": "planned",
+                        "when": (
+                            "same semantic identity with description, spelling, "
+                            "or unit-label corrections"
+                        ),
+                    },
+                    {
+                        "action": "clone_with_new_ref",
+                        "when": "new business semantic identity",
+                    },
+                ],
+            },
+            examples=[
+                {
+                    "summary": "Inspect the object that currently owns the ref",
+                    "request": {
+                        "method": "GET",
+                        "path": f"/semantic/metrics/{existing['metric_contract_id']}",
+                    },
+                },
+                {
+                    "summary": "Use a revision for small same-identity corrections",
+                    "note": (
+                        "Revision endpoints are planned; do not create metric.*_v2 "
+                        "for spelling, description, or unit-label fixes."
+                    ),
+                },
+                {
+                    "summary": "Use a new ref only for a new business semantic identity",
+                    "payload_hint": {
+                        "header": {"metric_ref": "metric.<new_business_semantic_ref>"}
+                    },
+                },
             ],
         )
+
+    def create_typed_metric(self, payload: TypedMetricCreateRequest) -> dict[str, Any]:
+        metric_ref = payload.header.metric_ref
+        existing = self._metric_row_by_ref(metric_ref)
+        if existing is not None:
+            self._raise_metric_ref_conflict(metric_ref, existing)
+        metric_contract_id = f"metc_{uuid4().hex[:12]}"
+        created_at = now_iso()
+        try:
+            self.metadata.execute(
+                """
+                INSERT INTO semantic_metric_contracts (
+                    metric_contract_id, metric_ref, display_name, description, metric_family,
+                    population_subject_ref, observed_entity_ref, observation_grain_ref,
+                    sample_kind, value_semantics, aggregation_scope, primary_time_ref,
+                    additivity_constraints_json, default_predicate_refs_json,
+                    metric_contract_version, family_payload_json, status,
+                    revision, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', 1, ?, ?)
+                """,
+                [
+                    metric_contract_id,
+                    metric_ref,
+                    payload.header.display_name or metric_ref.removeprefix("metric."),
+                    payload.header.description or "",
+                    payload.header.metric_family,
+                    payload.header.population_subject_ref,
+                    payload.header.observed_entity_ref,
+                    payload.header.observation_grain_ref,
+                    payload.header.sample_kind,
+                    payload.header.value_semantics,
+                    payload.header.aggregation_scope,
+                    payload.header.primary_time_ref,
+                    json.dumps(payload.header.additivity_constraints.model_dump(mode="json")),
+                    json.dumps(payload.header.default_predicate_refs or []),
+                    payload.header.metric_contract_version,
+                    json.dumps(payload.payload.model_dump(mode="json")),
+                    created_at,
+                    created_at,
+                ],
+            )
+        except Exception as error:
+            existing_after_conflict = self._metric_row_by_ref(metric_ref)
+            if existing_after_conflict is not None and self._looks_like_metric_ref_unique_conflict(
+                error
+            ):
+                self._raise_metric_ref_conflict(metric_ref, existing_after_conflict)
+            raise
         return self.get_typed_metric(metric_contract_id)
 
     def read_typed_metric(self, metric_identifier: str) -> dict[str, Any]:

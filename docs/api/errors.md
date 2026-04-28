@@ -225,6 +225,47 @@ Optional fields that may appear on step-submission errors:
 {"detail": "A policy named 'no_raw_pii' already exists"}
 ```
 
+Typed semantic create routes may return a structured ref conflict when a governed semantic ref is
+already owned:
+
+```json
+{
+  "detail": {
+    "message": "Metric ref 'metric.avg_blocked_time' is already owned by an existing semantic metric",
+    "code": "semantic_ref_conflict",
+    "category": "conflict",
+    "field_path": "header.metric_ref",
+    "error": {
+      "code": "semantic_ref_conflict",
+      "message": "Metric ref 'metric.avg_blocked_time' is already owned by an existing semantic metric",
+      "category": "conflict",
+      "field_path": "header.metric_ref"
+    },
+    "guidance": {
+      "remediation": {
+        "existing_object_kind": "metric",
+        "existing_object_id": "metc_abc123",
+        "existing_ref": "metric.avg_blocked_time",
+        "existing_status": "deprecated",
+        "existing_lifecycle_status": "deprecated",
+        "existing_revision": 3,
+        "ref_ownership": "deprecated objects retain semantic ref ownership"
+      },
+      "examples": []
+    }
+  }
+}
+```
+
+Recovery order:
+
+1. inspect the existing object returned in `guidance.remediation`
+2. use the revision path for spelling, description, or unit-label corrections when available
+3. clone with a new ref only when the new metric is a different business semantic identity
+
+Do not treat `deprecated` as ref release. Deprecated semantic objects remain readable for audit and
+continue to own their ref.
+
 ## Trino-Specific Errors
 
 When using a Trino engine, query errors from the Trino coordinator are wrapped and surfaced as 500 errors with the Trino error message in `detail`. Common Trino errors:
