@@ -79,6 +79,68 @@ type McpStructuredObject = Annotated[
 ]
 
 
+class McpObservationRef(BaseModel):
+    """MCP-visible ref for compare inputs; mirrors CompareRequest ObservationRef."""
+
+    model_config = ConfigDict(extra="allow")
+
+    session_id: str | None = Field(
+        default=None,
+        description="Session containing the upstream observe step. Defaults to path session.",
+    )
+    step_id: str = Field(description='Required upstream observe step id, e.g. "step_obs_current".')
+    step_type: Literal["observe"] = Field(
+        description='Required literal "observe"; compare consumes observe step refs.',
+    )
+
+
+class McpArtifactRef(BaseModel):
+    """MCP-visible generic artifact ref for downstream intent inputs."""
+
+    model_config = ConfigDict(extra="allow")
+
+    session_id: str | None = Field(
+        default=None,
+        description="Session containing the upstream step. Defaults to path session.",
+    )
+    step_id: str = Field(description='Required upstream step id, e.g. "step_compare_1".')
+    step_type: str = Field(description='Required upstream step type, e.g. "compare".')
+
+
+class McpCompareArtifactRef(McpArtifactRef):
+    """MCP-visible ref for decompose inputs; step_type must be compare."""
+
+    step_type: Literal["compare"] = Field(
+        description='Required literal "compare"; decompose consumes compare step refs.',
+    )
+
+
+class McpDetectCurrentWindow(BaseModel):
+    """Current window for detect time_scope."""
+
+    model_config = ConfigDict(extra="allow")
+
+    start: str = Field(description="Inclusive start of the window, ISO-8601 date or datetime.")
+    end: str = Field(description="Exclusive end of the window, ISO-8601 date or datetime.")
+
+
+class McpDetectTimeScope(BaseModel):
+    """MCP-visible detect time_scope contract."""
+
+    model_config = ConfigDict(extra="allow")
+
+    mode: Literal["single_window"] = Field(description='Required literal "single_window".')
+    grain: Literal["hour", "day", "week", "month"] = Field(
+        description='Required scan grain: "hour", "day", "week", or "month".',
+    )
+    current: McpDetectCurrentWindow = Field(
+        description=(
+            'Required current window, e.g. {"start":"2026-04-01","end":"2026-04-08"}. '
+            "The end boundary is exclusive."
+        ),
+    )
+
+
 class McpMetricHeader(BaseModel):
     """MCP-side early validation for metric header fields."""
 
@@ -365,6 +427,23 @@ def _require_observe_time_scope_object(value: object) -> object:
         raise ValueError(error.message()) from error
 
 
+def _coerce_mcp_model[T: BaseModel](
+    value: object,
+    model_type: type[T],
+    *,
+    field_name: str,
+) -> T:
+    _require_structured_object(value, field_name=field_name)
+    if isinstance(value, model_type):
+        return value
+    if isinstance(value, BaseModel):
+        value = value.model_dump(mode="json", by_alias=True, exclude_none=True)
+    try:
+        return model_type.model_validate(value)
+    except ValueError as error:
+        raise ValueError(f"{field_name}: {error}") from error
+
+
 def register_tools(
     server: FastMcpServer,
     config: MarivoMcpConfig,
@@ -528,13 +607,21 @@ def register_tools(
     @_tool_metadata("POST", "/sessions/{session_id}/intents/compare")
     def compare(
         session_id: str,
-        left_ref: McpStructuredObject,
-        right_ref: McpStructuredObject,
-        mode: str = "auto",
+        left_ref: McpObservationRef,
+        right_ref: McpObservationRef,
+        mode: Literal["auto", "scalar", "segmented", "time_series"] = "auto",
     ) -> dict[str, object]:
-        """Submit POST /sessions/{session_id}/intents/compare using the canonical CompareRequest body; this path selects the intent, so do not add an extra intent field. On 422, follow error.guidance.contract_url, schema_url, and examples."""
-        _require_structured_object(left_ref, field_name="left_ref")
-        _require_structured_object(right_ref, field_name="right_ref")
+        """Submit POST /sessions/{session_id}/intents/compare using CompareRequest.
+
+        left_ref/right_ref are structured observe refs:
+          {"step_id":"step_obs_current","step_type":"observe"}
+          {"step_id":"step_obs_baseline","step_type":"observe"}
+
+        Use get_openapi_fragment(path="/sessions/{session_id}/intents/compare",
+        operation="post", expand=["request","schemas"], depth=2) for the canonical contract.
+        On 422, follow error.guidance.contract_url, schema_url, and examples."""
+        left_ref = _coerce_mcp_model(left_ref, McpObservationRef, field_name="left_ref")
+        right_ref = _coerce_mcp_model(right_ref, McpObservationRef, field_name="right_ref")
         return _intent_request(
             client,
             session_id,
@@ -548,12 +635,21 @@ def register_tools(
     @_tool_metadata("POST", "/sessions/{session_id}/intents/decompose")
     def decompose(
         session_id: str,
-        compare_ref: McpStructuredObject,
+        compare_ref: McpCompareArtifactRef,
         dimension: str,
         method: str = "delta_share",
     ) -> dict[str, object]:
-        """Submit POST /sessions/{session_id}/intents/decompose using the canonical DecomposeRequest body; this path selects the intent, so do not add an extra intent field. On 422, follow error.guidance.contract_url, schema_url, and examples."""
-        _require_structured_object(compare_ref, field_name="compare_ref")
+        """Submit POST /sessions/{session_id}/intents/decompose using DecomposeRequest.
+
+        compare_ref is a structured compare ref:
+          {"step_id":"step_compare_1","step_type":"compare"}
+
+        On 422, follow error.guidance.contract_url, schema_url, and examples."""
+        compare_ref = _coerce_mcp_model(
+            compare_ref,
+            McpCompareArtifactRef,
+            field_name="compare_ref",
+        )
         return _intent_request(
             client,
             session_id,
@@ -590,7 +686,7 @@ def register_tools(
     def detect(
         session_id: str,
         metric: str,
-        time_scope: McpStructuredObject,
+        time_scope: McpDetectTimeScope,
         scope: ObserveScope | None = None,
         split_by: str | None = None,
         profile: Literal["auto", "spike_dip", "level_shift", "seasonal_residual"] = "auto",
@@ -598,8 +694,19 @@ def register_tools(
         limit: int | None = None,
         max_series: int | None = None,
     ) -> dict[str, object]:
-        """Submit POST /sessions/{session_id}/intents/detect using the canonical DetectRequest body; this path selects the intent, so do not add an extra intent field. On 422, follow error.guidance.contract_url, schema_url, and examples."""
-        _require_structured_object(time_scope, field_name="time_scope")
+        """Submit POST /sessions/{session_id}/intents/detect using DetectRequest.
+
+        time_scope is not observe's {"kind":"range"} form. It must be:
+          {"mode":"single_window","grain":"day","current":{"start":"2026-04-01","end":"2026-04-08"}}
+
+        Use get_openapi_fragment(path="/sessions/{session_id}/intents/detect",
+        operation="post", expand=["request","schemas"], depth=2) for the canonical contract.
+        On 422, follow error.guidance.contract_url, schema_url, and examples."""
+        time_scope = _coerce_mcp_model(
+            time_scope,
+            McpDetectTimeScope,
+            field_name="time_scope",
+        )
         return _intent_request(
             client,
             session_id,

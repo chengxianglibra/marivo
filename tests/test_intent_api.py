@@ -1698,6 +1698,44 @@ class AttributeUnknownMetricEndpointTests(unittest.TestCase):
 class LightweightIntentEndpointTests(_SessionBackedIntentEndpointMixin, unittest.TestCase):
     """HTTP intent validation paths that only need a session-backed app."""
 
+    def test_compare_validation_error_includes_schema_guidance_and_example(self) -> None:
+        r = self.client.post(
+            f"/sessions/{self.session_id}/intents/compare",
+            json={"left_ref": {"step_type": "observe"}},
+        )
+
+        self.assertEqual(r.status_code, 422)
+        payload = r.json()
+        self.assertEqual(payload["error"]["code"], "request_validation_error")
+        self.assertEqual(
+            payload["guidance"]["schema_url"],
+            "/openapi/schemas/CompareRequest?depth=6",
+        )
+        self.assertIn("/openapi/paths/", payload["guidance"]["contract_url"])
+        self.assertEqual(
+            payload["guidance"]["examples"][0]["payload"]["left_ref"]["step_type"],
+            "observe",
+        )
+        self.assertIn("step_id", payload["guidance"]["examples"][0]["payload"]["left_ref"])
+
+    def test_detect_validation_error_includes_schema_guidance_and_example(self) -> None:
+        r = self.client.post(
+            f"/sessions/{self.session_id}/intents/detect",
+            json={"metric": "metric.watch_time", "time_scope": {"mode": "single_window"}},
+        )
+
+        self.assertEqual(r.status_code, 422)
+        payload = r.json()
+        self.assertEqual(payload["error"]["code"], "request_validation_error")
+        self.assertEqual(
+            payload["guidance"]["schema_url"],
+            "/openapi/schemas/DetectRequest?depth=6",
+        )
+        example_time_scope = payload["guidance"]["examples"][0]["payload"]["time_scope"]
+        self.assertEqual(example_time_scope["mode"], "single_window")
+        self.assertIn("grain", example_time_scope)
+        self.assertEqual(set(example_time_scope["current"]), {"start", "end"})
+
     def test_compare_nonexistent_ref_returns_422(self) -> None:
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/compare",

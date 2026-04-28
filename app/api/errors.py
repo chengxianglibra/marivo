@@ -449,6 +449,50 @@ _GUIDED_EXAMPLES: dict[tuple[str, str], list[dict[str, Any]]] = {
             },
         }
     ],
+    (
+        "POST",
+        "/sessions/{session_id}/intents/observe",
+    ): [
+        {
+            "summary": "Minimal observe payload",
+            "complexity": "minimal",
+            "payload": {
+                "metric": "metric.watch_time",
+                "time_scope": {"kind": "range", "start": "2026-04-01", "end": "2026-04-08"},
+            },
+        }
+    ],
+    (
+        "POST",
+        "/sessions/{session_id}/intents/compare",
+    ): [
+        {
+            "summary": "Minimal compare payload",
+            "complexity": "minimal",
+            "payload": {
+                "left_ref": {"step_id": "step_obs_current", "step_type": "observe"},
+                "right_ref": {"step_id": "step_obs_baseline", "step_type": "observe"},
+                "mode": "auto",
+            },
+        }
+    ],
+    (
+        "POST",
+        "/sessions/{session_id}/intents/detect",
+    ): [
+        {
+            "summary": "Minimal detect payload",
+            "complexity": "minimal",
+            "payload": {
+                "metric": "metric.watch_time",
+                "time_scope": {
+                    "mode": "single_window",
+                    "grain": "day",
+                    "current": {"start": "2026-04-01", "end": "2026-04-08"},
+                },
+            },
+        }
+    ],
 }
 
 _SCHEMA_NAME_BY_ROUTE: dict[tuple[str, str], str] = {
@@ -469,6 +513,18 @@ _SCHEMA_NAME_BY_ROUTE: dict[tuple[str, str], str] = {
     ("PUT", "/semantic/bindings/{binding_id}"): "TypedBindingUpdateRequest",
     ("POST", "/compiler/compatibility-profiles"): "CompatibilityProfileCreateRequest",
     ("PUT", "/compiler/compatibility-profiles/{profile_id}"): "CompatibilityProfileUpdateRequest",
+    ("POST", "/sessions"): "SessionCreateRequest",
+    ("POST", "/sessions/{session_id}/state/query"): "SessionStateQueryRequest",
+    ("POST", "/sessions/{session_id}/intents/observe"): "ObserveRequest",
+    ("POST", "/sessions/{session_id}/intents/compare"): "CompareRequest",
+    ("POST", "/sessions/{session_id}/intents/decompose"): "DecomposeRequest",
+    ("POST", "/sessions/{session_id}/intents/correlate"): "CorrelateRequest",
+    ("POST", "/sessions/{session_id}/intents/detect"): "DetectRequest",
+    ("POST", "/sessions/{session_id}/intents/test"): "IntentTestRequest",
+    ("POST", "/sessions/{session_id}/intents/forecast"): "ForecastRequest",
+    ("POST", "/sessions/{session_id}/intents/attribute"): "AttributeRequest",
+    ("POST", "/sessions/{session_id}/intents/diagnose"): "DiagnoseRequest",
+    ("POST", "/sessions/{session_id}/intents/validate"): "ValidateRequest",
 }
 
 

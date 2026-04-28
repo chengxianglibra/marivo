@@ -340,7 +340,8 @@ def test_detect_and_diagnose_time_scope_annotations_expose_grain_enum() -> None:
     detect_time_scope = TypeAdapter(get_type_hints(detect)["time_scope"]).json_schema()
     diagnose_time_scope = TypeAdapter(get_type_hints(diagnose)["time_scope"]).json_schema()
 
-    assert detect_time_scope["$defs"]["JsonObject"]["type"] == "object"
+    assert detect_time_scope["properties"]["grain"]["enum"] == ["hour", "day", "week", "month"]
+    assert set(detect_time_scope["required"]) == {"mode", "grain", "current"}
     assert diagnose_time_scope["$defs"]["JsonObject"]["type"] == "object"
 
 
@@ -359,22 +360,20 @@ def test_t6_tools_use_strongly_typed_nested_models_instead_of_raw_dicts() -> Non
 
     observe_time_scope_schema = TypeAdapter(observe_hints["time_scope"]).json_schema()
     assert observe_time_scope_schema["$defs"]["JsonObject"]["type"] == "object"
-    assert (
-        TypeAdapter(detect_hints["time_scope"]).json_schema()["$defs"]["JsonObject"]["type"]
-        == "object"
-    )
+    detect_time_scope_schema = TypeAdapter(detect_hints["time_scope"]).json_schema()
+    assert set(detect_time_scope_schema["required"]) == {"mode", "grain", "current"}
     assert (
         TypeAdapter(diagnose_hints["time_scope"]).json_schema()["$defs"]["JsonObject"]["type"]
         == "object"
     )
-    assert (
-        TypeAdapter(compare_hints["left_ref"]).json_schema()["$defs"]["JsonObject"]["type"]
-        == "object"
-    )
-    assert (
-        TypeAdapter(compare_hints["right_ref"]).json_schema()["$defs"]["JsonObject"]["type"]
-        == "object"
-    )
+    assert set(TypeAdapter(compare_hints["left_ref"]).json_schema()["required"]) == {
+        "step_id",
+        "step_type",
+    }
+    assert set(TypeAdapter(compare_hints["right_ref"]).json_schema()["required"]) == {
+        "step_id",
+        "step_type",
+    }
     assert (
         TypeAdapter(test_hints["left_ref"]).json_schema()["$defs"]["JsonObject"]["type"] == "object"
     )
