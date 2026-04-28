@@ -1163,8 +1163,8 @@ def test_compare_uses_path_discriminated_contract_and_default_mode() -> None:
         assert request.method == "POST"
         assert request.url.path == "/sessions/sess_123/intents/compare"
         assert request.read() == (
-            b'{"left_ref":{"artifact_id":"obs_left","step_type":"observe"},'
-            b'"right_ref":{"artifact_id":"obs_right","step_type":"observe"},'
+            b'{"left_ref":{"step_id":"obs_left","step_type":"observe"},'
+            b'"right_ref":{"step_id":"obs_right","step_type":"observe"},'
             b'"mode":"auto"}'
         )
         return httpx.Response(200, json={"artifact_id": "cmp_123"}, request=request)
@@ -1173,8 +1173,8 @@ def test_compare_uses_path_discriminated_contract_and_default_mode() -> None:
         "compare",
         handler,
         session_id="sess_123",
-        left_ref={"artifact_id": "obs_left", "step_type": "observe"},
-        right_ref={"artifact_id": "obs_right", "step_type": "observe"},
+        left_ref={"step_id": "obs_left", "step_type": "observe"},
+        right_ref={"step_id": "obs_right", "step_type": "observe"},
     )
 
     assert result["ok"] is True
@@ -1186,7 +1186,7 @@ def test_decompose_uses_compare_ref_and_default_method() -> None:
         assert request.method == "POST"
         assert request.url.path == "/sessions/sess_123/intents/decompose"
         assert request.read() == (
-            b'{"compare_ref":{"artifact_id":"cmp_123","step_type":"compare"},'
+            b'{"compare_ref":{"step_id":"cmp_123","step_type":"compare"},'
             b'"dimension":"dimension.country","method":"delta_share"}'
         )
         return httpx.Response(200, json={"artifact_id": "decomp_123"}, request=request)
@@ -1195,7 +1195,7 @@ def test_decompose_uses_compare_ref_and_default_method() -> None:
         "decompose",
         handler,
         session_id="sess_123",
-        compare_ref={"artifact_id": "cmp_123", "step_type": "compare"},
+        compare_ref={"step_id": "cmp_123", "step_type": "compare"},
         dimension="dimension.country",
     )
 
@@ -1516,6 +1516,42 @@ def test_compare_rejects_json_string_ref_before_http_roundtrip() -> None:
             left_ref='{"artifact_id":"obs_left","step_type":"observe"}',
             right_ref={"artifact_id": "obs_right", "step_type": "observe"},
         )
+
+
+def test_compare_rejects_missing_step_id_before_http_roundtrip() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("HTTP handler should not be called for invalid MCP input")
+
+    with pytest.raises(ValueError) as exc_info:
+        _invoke_registered_tool(
+            "compare",
+            handler,
+            session_id="sess_123",
+            left_ref={"step_type": "observe"},
+            right_ref={"step_id": "obs_right", "step_type": "observe"},
+        )
+
+    message = str(exc_info.value)
+    assert "left_ref:" in message
+    assert "step_id" in message
+
+
+def test_detect_rejects_missing_current_before_http_roundtrip() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("HTTP handler should not be called for invalid MCP input")
+
+    with pytest.raises(ValueError) as exc_info:
+        _invoke_registered_tool(
+            "detect",
+            handler,
+            session_id="sess_123",
+            metric="metric.watch_time",
+            time_scope={"mode": "single_window", "grain": "day"},
+        )
+
+    message = str(exc_info.value)
+    assert "time_scope:" in message
+    assert "current" in message
 
 
 def test_intent_tools_preserve_422_guidance_from_marivo() -> None:

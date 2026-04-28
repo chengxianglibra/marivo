@@ -446,9 +446,15 @@ Boundary notes:
 - every typed intent tool exposes a top-level `session_id` used to fill the canonical HTTP path, while the remaining MCP parameters map directly to the canonical HTTP request body fields
 - nested MCP fields such as `time_scope`, `left_ref`, `right_ref`, `source_ref`, `left`, `right`, and `hypothesis` are structured objects in the MCP contract, not JSON-encoded strings
 - `observe.time_scope` must be a canonical object, not a shorthand string; for a range use `{"kind":"range","start":"YYYY-MM-DD","end":"YYYY-MM-DD"}`
+- `compare.left_ref` and `compare.right_ref` expose the required observe ref shape inline:
+  `{"step_id":"step_obs_current","step_type":"observe"}`; `session_id` is optional and defaults to the path session.
+- `detect.time_scope` exposes the required single-window shape inline:
+  `{"mode":"single_window","grain":"day","current":{"start":"YYYY-MM-DD","end":"YYYY-MM-DD"}}`.
+- `decompose.compare_ref` exposes the required compare ref shape inline:
+  `{"step_id":"step_compare_1","step_type":"compare"}`.
 - `observe` keeps canonical guardrails from `ObserveRequest`: `granularity` and `dimensions` are mutually exclusive, and both are only valid when `result_mode="standard"`
 - typed intent `metric` parameters must use canonical semantic refs such as `metric.watch_time`; bare names like `watch_time` are rejected
-- the adapter still validates those structured objects with Marivo's canonical request models before forwarding HTTP requests, so discriminators such as `time_scope.kind`, nested required fields, and enums such as `grain` keep canonical behavior
+- inspect the MCP tool schema first for required nested fields; use `get_openapi_fragment(...)` only when you need the full route-scoped HTTP contract
 - tool `data` remains the raw Marivo success body; the adapter does not derive a new evidence summary
 - for `422` responses, use `error.guidance.contract_url`, `error.guidance.schema_url`, and `error.guidance.examples` to repair the payload
 
