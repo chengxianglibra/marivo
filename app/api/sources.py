@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+from typing import Any
+
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from app.api.deps import get_services
@@ -13,6 +16,34 @@ from app.api.models import (
 from app.registry.source_registry import DependencyError
 
 router = APIRouter()
+
+
+def _parse_preview_filters(raw: str | None) -> dict[str, str | int | float | bool | None] | None:
+    if raw is None or not raw.strip():
+        return None
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as error:
+        raise ValueError("filters must be a JSON object or array of {column, value}") from error
+    if isinstance(parsed, dict):
+        items = parsed.items()
+    elif isinstance(parsed, list):
+        normalized: dict[str, Any] = {}
+        for item in parsed:
+            if not isinstance(item, dict) or "column" not in item or "value" not in item:
+                raise ValueError("filters array items must contain column and value")
+            normalized[str(item["column"])] = item["value"]
+        items = normalized.items()
+    else:
+        raise ValueError("filters must be a JSON object or array of {column, value}")
+    filters: dict[str, str | int | float | bool | None] = {}
+    for column, value in items:
+        if not isinstance(column, str) or not column.strip():
+            raise ValueError("filter column names must be non-empty strings")
+        if not isinstance(value, str | int | float | bool) and value is not None:
+            raise ValueError("filter values must be scalar strings, numbers, booleans, or null")
+        filters[column.strip()] = value
+    return filters or None
 
 
 @router.post("/sources", response_model=SourceResponse)
@@ -198,6 +229,10 @@ def preview_table(
     table: str = Query(..., description="Table name"),
     limit: int = Query(default=100, ge=1, description="Max rows to return"),
     columns: str | None = Query(default=None, description="Comma-separated column names"),
+    filters: str | None = Query(
+        default=None,
+        description="JSON object or array of {column,value} equality filters",
+    ),
 ) -> dict[str, object]:
     """Preview sample rows from a source table (live query, no persistence).
 
@@ -211,12 +246,14 @@ def preview_table(
         if not column_list:
             column_list = None
     try:
+        filter_map = _parse_preview_filters(filters)
         return services.source_service.preview_table(
             source_id=source_id,
             schema_name=schema,
             table_name=table,
             limit=limit,
             columns=column_list,
+            filters=filter_map,
         )
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error

@@ -2737,3 +2737,145 @@ class SemanticTypedApiTests(unittest.TestCase):
         self.assertEqual(payload["items"][0]["error"]["code"], "request_validation_error")
         self.assertEqual(payload["items"][1]["status"], "succeeded")
         self.assertTrue(payload["items"][1]["result"]["would_create"])
+
+    def test_semantic_batch_defaults_and_final_metric_readiness(self) -> None:
+        suffix = uuid4().hex[:8]
+        source_object_id = self._insert_source_object(
+            fqn="main.analytics.watch_events",
+            native_name="watch_events",
+        )
+        resp = self.client.post(
+            "/semantic/batch",
+            json={
+                "mode": "apply",
+                "lifecycle": "create_validate_activate",
+                "continue_on_error": True,
+                "defaults": {
+                    "carrier_bindings": {
+                        "watch_events_primary": {
+                            "binding_key": "primary",
+                            "source_object_ref": source_object_id,
+                            "carrier_kind": "table",
+                            "carrier_locator": {
+                                "catalog": "main",
+                                "schema": "analytics",
+                                "table": "watch_events",
+                            },
+                            "binding_role": "primary",
+                            "field_surfaces": [
+                                {"surface_ref": "field.user_id", "physical_name": "user_id"}
+                            ],
+                        }
+                    }
+                },
+                "items": [
+                    {
+                        "op_key": f"entity.batch_account_{suffix}",
+                        "kind": "entity",
+                        "action": "create",
+                        "payload": {
+                            "header": {
+                                "entity_ref": f"entity.batch_account_{suffix}",
+                                "display_name": "Batch Account",
+                                "entity_contract_version": "entity.v4",
+                            },
+                            "interface_contract": {
+                                "identity": {
+                                    "key_refs": ["key.account_id"],
+                                    "uniqueness_scope": "global",
+                                    "id_stability": "stable",
+                                }
+                            },
+                        },
+                    },
+                    {
+                        "op_key": f"metric.batch_query_count_{suffix}",
+                        "kind": "metric",
+                        "action": "create",
+                        "payload": {
+                            "header": {
+                                "metric_ref": f"metric.batch_query_count_{suffix}",
+                                "display_name": "Batch Query Count",
+                                "metric_family": "count_metric",
+                                "observed_entity_ref": f"entity.batch_account_{suffix}",
+                                "observation_grain_ref": "grain.account",
+                                "sample_kind": "numeric",
+                                "value_semantics": "count",
+                                "additivity_constraints": {
+                                    "dimension_policy": "all",
+                                    "time_axis_policy": "additive",
+                                },
+                                "metric_contract_version": "metric.v1",
+                            },
+                            "payload": {
+                                "metric_family": "count_metric",
+                                "count_target": {
+                                    "name": "rows",
+                                    "semantics": "row count",
+                                    "aggregation": "count",
+                                },
+                            },
+                        },
+                    },
+                    {
+                        "op_key": f"binding.batch_query_count_{suffix}",
+                        "kind": "binding",
+                        "action": "create",
+                        "payload": {
+                            "header": {
+                                "binding_ref": f"binding.batch_query_count_{suffix}",
+                                "display_name": "Batch Query Count Binding",
+                                "binding_scope": "metric",
+                                "bound_object_ref": f"metric.batch_query_count_{suffix}",
+                                "binding_contract_version": "binding.v1",
+                            },
+                            "interface_contract": {
+                                "carrier_binding_refs": ["watch_events_primary"],
+                                "field_bindings": [
+                                    {
+                                        "carrier_binding_key": "primary",
+                                        "target": {
+                                            "target_kind": "metric_input",
+                                            "target_key": "count_target",
+                                        },
+                                        "semantic_ref": "metric_input.count_target",
+                                        "surface_ref": "field.user_id",
+                                    }
+                                ],
+                            },
+                        },
+                    },
+                ],
+            },
+        )
+
+        self.assertEqual(resp.status_code, 200, resp.text)
+        payload = resp.json()
+        self.assertTrue(payload["ok"], payload)
+        self.assertEqual(payload["summary"]["failed"], 0)
+        binding_item = next(item for item in payload["items"] if item["kind"] == "binding")
+        carriers = binding_item["result"]["interface_contract"]["carrier_bindings"]
+        self.assertEqual(carriers[0]["binding_key"], "primary")
+        metric_item = next(item for item in payload["items"] if item["kind"] == "metric")
+        self.assertEqual(metric_item["result"]["readiness_status"], "ready")
+        self.assertEqual(payload["readiness_summary"]["counts"]["ready"], 3)
+        self.assertEqual(
+            payload["readiness_summary"]["final_metrics"][0]["readiness_status"], "ready"
+        )
+
+    def test_list_grains_exposes_metric_header_refs(self) -> None:
+        suffix = uuid4().hex[:8]
+        entity_ref, _entity_id = self._create_entity(f"entity.grain_account_{suffix}")
+        metric_ref, _metric_id = self._create_metric(
+            f"metric.grain_query_count_{suffix}", entity_ref
+        )
+
+        resp = self.client.get("/semantic/grains")
+
+        self.assertEqual(resp.status_code, 200, resp.text)
+        matching = [
+            item
+            for item in resp.json()["items"]
+            if item["grain_ref"] == "grain.account" and item["source_ref"] == metric_ref
+        ]
+        self.assertEqual(matching[0]["source_kind"], "metric_observation")

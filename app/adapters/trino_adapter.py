@@ -13,6 +13,7 @@ from app.adapters.base import (
     CatalogAdapter,
     CatalogCapabilities,
     PhysicalObject,
+    PreviewFilters,
     PreviewResult,
 )
 
@@ -621,6 +622,7 @@ class TrinoCatalogAdapter(CatalogAdapter):
         table_name: str,
         limit: int = 100,
         columns: list[str] | None = None,
+        filters: PreviewFilters | None = None,
     ) -> PreviewResult:
         """Preview sample rows from a Trino table."""
         effective_limit = min(max(1, limit), MAX_PREVIEW_ROWS)
@@ -645,17 +647,31 @@ class TrinoCatalogAdapter(CatalogAdapter):
         else:
             selected_columns = list(all_columns.keys())
 
+        filters = filters or {}
+        invalid_filters = [name for name in filters if name not in all_columns]
+        if invalid_filters:
+            raise ValueError(f"Unknown filter columns: {invalid_filters}")
+
         # 3. Build safe SELECT with quoted identifiers
         quoted_cols = ", ".join(self._quote_identifier(c) for c in selected_columns)
         quoted_schema = self._quote_identifier(schema_name)
         quoted_table = self._quote_identifier(table_name)
+        where_clause = ""
+        params: list[Any] = []
+        if filters:
+            predicates = []
+            for column, value in filters.items():
+                predicates.append(f"{self._quote_identifier(column)} IS NOT DISTINCT FROM ?")
+                params.append(value)
+            where_clause = " WHERE " + " AND ".join(predicates)
         # Fetch limit+1 rows to accurately detect truncation
         sql = (
-            f"SELECT {quoted_cols} FROM {quoted_schema}.{quoted_table} LIMIT {effective_limit + 1}"
+            f"SELECT {quoted_cols} FROM {quoted_schema}.{quoted_table}"
+            f"{where_clause} LIMIT {effective_limit + 1}"
         )
 
         # 4. Execute via _query helper
-        rows = self._query(sql)
+        rows = self._query(sql, params)
 
         # 5. Determine truncation and trim to actual limit
         truncated = len(rows) > effective_limit

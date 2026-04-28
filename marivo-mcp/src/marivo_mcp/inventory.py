@@ -221,6 +221,8 @@ SURFACE_SPECS: tuple[McpSurfaceSpec, ...] = (
         "POST",
         ("/semantic/entities/{entity_id}/publish",),
     ),
+    McpSurfaceSpec("semantic_batch", "tool", "p0", True, "POST", ("/semantic/batch",)),
+    McpSurfaceSpec("list_grains", "tool", "p0", True, "GET", ("/semantic/grains",)),
     McpSurfaceSpec("create_metric", "tool", "p0", True, "POST", ("/semantic/metrics",)),
     McpSurfaceSpec("list_metrics", "tool", "p0", True, "GET", ("/semantic/metrics",)),
     McpSurfaceSpec(

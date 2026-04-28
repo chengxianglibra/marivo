@@ -1363,6 +1363,44 @@ class TablePreviewTests(unittest.TestCase):
         for row in result["rows"]:
             self.assertEqual(set(row.keys()), col_names)
 
+    def test_preview_table_with_filters_object(self) -> None:
+        """Preview supports safe equality filters for modeling value checks."""
+        source = self._create_source("Preview Filters")
+        resp = self.client.get(
+            f"/sources/{source['source_id']}/catalog/preview",
+            params={
+                "schema": "analytics",
+                "table": "watch_events",
+                "columns": "user_id,platform",
+                "filters": '{"platform":"android"}',
+            },
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        result = resp.json()
+        self.assertEqual(result["filters_applied"], {"platform": "android"})
+        self.assertGreater(result["row_count"], 0)
+        for row in result["rows"]:
+            self.assertEqual(row["platform"], "android")
+
+    def test_preview_table_with_filters_array(self) -> None:
+        """Preview also accepts array-shaped filters from MCP clients."""
+        source = self._create_source("Preview Filter Array")
+        resp = self.client.get(
+            f"/sources/{source['source_id']}/catalog/preview",
+            params={
+                "schema": "analytics",
+                "table": "watch_events",
+                "columns": "platform,network_type",
+                "filters": '[{"column":"network_type","value":"wifi"}]',
+            },
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        result = resp.json()
+        self.assertEqual(result["filters_applied"], {"network_type": "wifi"})
+        self.assertGreater(result["row_count"], 0)
+        for row in result["rows"]:
+            self.assertEqual(row["network_type"], "wifi")
+
     def test_preview_table_not_found(self) -> None:
         """Preview returns 404 for missing table."""
         source = self._create_source("Preview Missing")
@@ -1381,6 +1419,32 @@ class TablePreviewTests(unittest.TestCase):
                 "schema": "analytics",
                 "table": "watch_events",
                 "columns": "invalid_column_name",
+            },
+        )
+        self.assertEqual(resp.status_code, 400)
+
+    def test_preview_invalid_filter_column(self) -> None:
+        """Preview returns 400 for invalid filter columns."""
+        source = self._create_source("Preview Invalid Filter")
+        resp = self.client.get(
+            f"/sources/{source['source_id']}/catalog/preview",
+            params={
+                "schema": "analytics",
+                "table": "watch_events",
+                "filters": '{"invalid_column_name":"x"}',
+            },
+        )
+        self.assertEqual(resp.status_code, 400)
+
+    def test_preview_invalid_filter_shape(self) -> None:
+        """Preview rejects raw SQL-like filter strings."""
+        source = self._create_source("Preview Invalid Filter Shape")
+        resp = self.client.get(
+            f"/sources/{source['source_id']}/catalog/preview",
+            params={
+                "schema": "analytics",
+                "table": "watch_events",
+                "filters": "platform = 'android'",
             },
         )
         self.assertEqual(resp.status_code, 400)

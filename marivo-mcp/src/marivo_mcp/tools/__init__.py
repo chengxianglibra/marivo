@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import base64
+import json
 from collections.abc import Callable
 from copy import deepcopy
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, BeforeValidator, Field, field_validator, model_validator
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_validator, model_validator
 from pydantic_core import PydanticCustomError
 
 from marivo_mcp.config import MarivoMcpConfig
@@ -76,6 +77,226 @@ type McpStructuredObject = Annotated[
     JsonObject,
     BeforeValidator(_reject_json_string),
 ]
+
+
+class McpMetricHeader(BaseModel):
+    """MCP-side early validation for metric header fields."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    metric_ref: str
+    display_name: str | None = None
+    description: str | None = None
+    metric_family: str
+    population_subject_ref: str | None = None
+    observed_entity_ref: str
+    observation_grain_ref: str
+    sample_kind: str
+    value_semantics: str
+    aggregation_scope: str | None = None
+    primary_time_ref: str | None = None
+    additivity_constraints: dict[str, object]
+    default_predicate_refs: list[str] | None = None
+    metric_contract_version: str
+
+    @field_validator("metric_ref")
+    @classmethod
+    def _validate_metric_ref(cls, value: str) -> str:
+        if not value.startswith("metric."):
+            raise ValueError("metric_ref must start with 'metric.'")
+        return value
+
+    @field_validator("observed_entity_ref")
+    @classmethod
+    def _validate_observed_entity_ref(cls, value: str) -> str:
+        if not value.startswith("entity."):
+            raise ValueError("observed_entity_ref must start with 'entity.'")
+        return value
+
+    @field_validator("observation_grain_ref")
+    @classmethod
+    def _validate_observation_grain_ref(cls, value: str) -> str:
+        if not value.startswith("grain."):
+            raise ValueError("observation_grain_ref must start with 'grain.'")
+        return value
+
+    @field_validator("metric_contract_version")
+    @classmethod
+    def _validate_metric_contract_version(cls, value: str) -> str:
+        if not value.startswith("metric."):
+            raise ValueError("metric_contract_version must start with 'metric.'")
+        return value
+
+
+class McpEnumSetHeader(BaseModel):
+    """MCP-side early validation for enum set header fields."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enum_set_ref: str
+    value_type: str
+
+    @field_validator("enum_set_ref")
+    @classmethod
+    def _validate_enum_set_ref(cls, value: str) -> str:
+        if not value.startswith("enum."):
+            raise ValueError("enum_set_ref must start with 'enum.'")
+        return value
+
+
+class McpBindingHeader(BaseModel):
+    """MCP-side early validation for typed binding header fields."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    binding_ref: str
+    display_name: str | None = None
+    description: str | None = None
+    binding_scope: Literal["entity", "process_object", "metric"]
+    bound_object_ref: str
+    binding_contract_version: str
+
+    @field_validator("binding_ref")
+    @classmethod
+    def _validate_binding_ref(cls, value: str) -> str:
+        if not value.startswith("binding."):
+            raise ValueError("binding_ref must start with 'binding.'")
+        return value
+
+    @field_validator("binding_contract_version")
+    @classmethod
+    def _validate_binding_contract_version(cls, value: str) -> str:
+        if not value.startswith("binding."):
+            raise ValueError("binding_contract_version must start with 'binding.'")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_bound_object_prefix(self) -> McpBindingHeader:
+        expected = {
+            "entity": "entity.",
+            "process_object": "process.",
+            "metric": "metric.",
+        }[self.binding_scope]
+        if not self.bound_object_ref.startswith(expected):
+            raise ValueError(
+                f"bound_object_ref must start with '{expected}' for binding_scope={self.binding_scope!r}"
+            )
+        return self
+
+
+class McpBindingImport(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    import_key: str
+    binding_ref: str
+    required_ref_prefixes: list[str] | None = None
+
+
+class McpFieldSurface(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    surface_ref: str
+    physical_name: str
+    field_type: str | None = None
+
+
+class McpTimeSurface(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    surface_ref: str
+    physical_name: str
+    resolution_hint: str | None = None
+    time_format: str | None = None
+
+
+class McpCarrierBinding(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    binding_key: str
+    source_object_ref: str | None = None
+    carrier_kind: str
+    carrier_locator: str | dict[str, object]
+    binding_role: str
+    semantic_role_ref: str | None = None
+    grain_ref: str | None = None
+    primary_entity_ref: str | None = None
+    row_filter_refs: list[str] | None = None
+    freshness_policy_ref: str | None = None
+    field_surfaces: list[McpFieldSurface] | None = None
+    time_surfaces: list[McpTimeSurface] | None = None
+
+
+class McpBindingTarget(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    target_kind: str
+    target_key: str
+    context_ref: str | None = None
+
+
+class McpFieldBinding(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    carrier_binding_key: str
+    target: McpBindingTarget
+    semantic_ref: str
+    surface_ref: str
+    field_type_ref: str | None = None
+    nullability_policy: str | None = None
+    repeated_value_policy: str | None = None
+
+    @model_validator(mode="after")
+    def _validate_metric_input_ref(self) -> McpFieldBinding:
+        if self.target.target_kind == "metric_input" and not self.semantic_ref.startswith(
+            "metric_input."
+        ):
+            raise ValueError(
+                "metric_input field_bindings require semantic_ref to start with 'metric_input.'"
+            )
+        return self
+
+
+class McpTimeBinding(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    carrier_binding_key: str
+    target: McpBindingTarget
+    semantic_ref: str
+    resolution_kind: Literal["timestamp_column", "date_column", "date_hour_columns"]
+    timestamp_surface_ref: str | None = None
+    timestamp_format: str | None = None
+    date_surface_ref: str | None = None
+    date_format: str | None = None
+    hour_surface_ref: str | None = None
+    hour_format: str | None = None
+    timezone_strategy: str | None = None
+
+
+class McpJoinRelation(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    relation_key: str
+    left_binding_key: str
+    right_binding_key: str
+
+
+class McpConsumptionPolicy(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    policy_key: str
+    policy_type: str
+    policy_target_path: str
+
+
+class McpBindingInterfaceContract(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    imports: list[McpBindingImport] = Field(default_factory=list)
+    carrier_bindings: list[McpCarrierBinding] = Field(default_factory=list)
+    field_bindings: list[McpFieldBinding] = Field(default_factory=list)
+    time_bindings: list[McpTimeBinding] = Field(default_factory=list)
+    join_relations: list[McpJoinRelation] = Field(default_factory=list)
+    consumption_policies: list[McpConsumptionPolicy] = Field(default_factory=list)
 
 
 class ObserveScope(BaseModel):
@@ -737,10 +958,26 @@ def register_tools(
         return _semantic_publish_request(client, f"/semantic/entities/{resolved_id}/publish")
 
     @server.tool()
+    @_tool_metadata("POST", "/semantic/batch")
+    def semantic_batch(request: McpStructuredObject) -> dict[str, object]:
+        """Run semantic authoring operations via POST /semantic/batch."""
+        return client.request_envelope(
+            "POST",
+            "/semantic/batch",
+            json_body=_compact_body(**request),
+        ).model_dump()
+
+    @server.tool()
+    @_tool_metadata("GET", "/semantic/grains")
+    def list_grains() -> dict[str, object]:
+        """List grain refs observed in metric headers, process objects, and carrier bindings."""
+        return client.request_envelope("GET", "/semantic/grains").model_dump()
+
+    @server.tool()
     @_tool_metadata("POST", "/semantic/metrics")
     def create_metric(
-        header: dict[str, object],
-        payload: dict[str, object],
+        header: McpMetricHeader,
+        payload: McpStructuredObject,
     ) -> dict[str, object]:
         """Create one draft metric via POST /semantic/metrics using the canonical TypedMetricCreateRequest fields."""
         return _semantic_write_request(
@@ -1188,7 +1425,7 @@ def register_tools(
     @server.tool()
     @_tool_metadata("POST", "/semantic/enum-sets")
     def create_enum_set(
-        header: dict[str, object],
+        header: McpEnumSetHeader,
         display_name: str,
         versions: list[dict[str, object]],
         description: str | None = None,
@@ -1307,8 +1544,8 @@ def register_tools(
     @server.tool()
     @_tool_metadata("POST", "/semantic/bindings")
     def create_binding(
-        header: dict[str, object],
-        interface_contract: dict[str, object],
+        header: McpBindingHeader,
+        interface_contract: McpBindingInterfaceContract,
     ) -> dict[str, object]:
         """Create one draft binding via POST /semantic/bindings using the canonical TypedBindingCreateRequest fields."""
         return _semantic_write_request(
@@ -1561,6 +1798,7 @@ def register_tools(
         table: str,
         limit: int = 100,
         columns: str | None = None,
+        filters: dict[str, object] | list[dict[str, object]] | None = None,
     ) -> dict[str, object]:
         """Preview sample rows from a source table via GET /sources/{source_id}/catalog/preview.
 
@@ -1573,11 +1811,19 @@ def register_tools(
             table: Table name to preview
             limit: Max rows (default 100, max 1000)
             columns: Comma-separated column names (optional)
+            filters: Equality filters as a JSON-like object, e.g. {"query_state":"FAILED"}
         """
+        encoded_filters = json.dumps(filters) if filters is not None else None
         return client.request_envelope(
             "GET",
             f"/sources/{source_id}/catalog/preview",
-            params=_compact_params(schema=schema, table=table, limit=limit, columns=columns),
+            params=_compact_params(
+                schema=schema,
+                table=table,
+                limit=limit,
+                columns=columns,
+                filters=encoded_filters,
+            ),
         ).model_dump()
 
     @server.tool()

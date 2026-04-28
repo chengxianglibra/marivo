@@ -464,6 +464,8 @@ Current semantic-layer coverage:
 - `activate_entity(entity_id)` -> `POST /semantic/entities/{entity_id}/activate`
 - `deprecate_entity(entity_id)` -> `POST /semantic/entities/{entity_id}/deprecate`
 - `publish_entity(entity_id)` -> `POST /semantic/entities/{entity_id}/publish`
+- `semantic_batch(request)` -> `POST /semantic/batch`
+- `list_grains()` -> `GET /semantic/grains`
 - `create_metric(header, payload)` -> `POST /semantic/metrics`
 - `list_metrics(status=None, lifecycle_status=None, readiness_status=None, detail=None)` -> `GET /semantic/metrics`
 - `get_metric(object_id=None, metric_id=None)` -> `GET /semantic/metrics/{metric_id}`
@@ -610,6 +612,12 @@ Boundary notes:
 - `sync_source()` preserves the current HTTP response body as-is; the MCP adapter does not invent a separate async status model
 - `resolve_routing()` is a planning and debugging aid over the public routing contract; it does not expose a second routing schema
 - tool `data` remains the raw Marivo canonical body for both source and routing tools
+- create tools for metrics, enum sets, and bindings expose MCP-side Pydantic schemas for common
+  authoring mistakes: enum headers require `enum_set_ref`, binding time surface declarations require
+  `surface_ref`, time bindings use `*_surface_ref`, and metric input mappings use
+  `semantic_ref=metric_input.<slot>`.
+- `preview_source_table(..., filters={...})` forwards safe equality filters to the HTTP preview API;
+  raw SQL predicates are not accepted.
 
 ## Minimal Examples
 
