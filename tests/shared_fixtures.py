@@ -484,7 +484,7 @@ _LOCK_FILE = _template_lock_path("default")
 # In-process flags: skip lock on repeated calls within the same worker.
 _TEMPLATE_READY: set[str] = set()
 
-_METADATA_TEMPLATE_VERSION = "sqlite_metadata_v11_marker_time_surface_refs"
+_METADATA_TEMPLATE_VERSION = "sqlite_metadata_v12_metric_revision"
 _METADATA_TEMPLATE = Path(f"/tmp/marivo_test_{_METADATA_TEMPLATE_VERSION}.sqlite")
 _METADATA_LOCK = Path(f"/tmp/marivo_test_{_METADATA_TEMPLATE_VERSION}.lock")
 _METADATA_READY = False
@@ -658,7 +658,13 @@ def _metadata_template_valid(db_path: Path) -> bool:
             "idx_source_objects_source_type_fqn",
             "idx_source_objects_source_fqn",
         }.issubset(source_object_indexes)
-        and {"default_predicate_refs_json"}.issubset(metric_columns)
+        and {
+            "default_predicate_refs_json",
+            "base_revision",
+            "change_summary",
+            "revision_compatibility",
+            "is_latest_active",
+        }.issubset(metric_columns)
         and {
             "binding_ref",
             "binding_scope",

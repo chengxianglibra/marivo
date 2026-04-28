@@ -102,9 +102,12 @@ Current compatibility policy for read routes:
 Unknown storage status values will raise `ValueError` at the service layer to catch data integrity
 issues early, rather than silently falling back to a default status.
 
-Typed semantic object contract updates are draft-only. After `activate` (or the compatibility alias
-`publish`), the public contract is frozen; a second activation attempt or any later update returns a
-validation error from the service layer.
+Typed semantic object contract updates are draft-only for the currently persisted object row. After
+`activate` (or the compatibility alias `publish`), that public revision is frozen; a second
+activation attempt or any later row update returns a validation error from the service layer. For
+metric maintenance, small same-identity corrections should create a new metric revision under the
+same `metric_ref`; `deprecate` is reserved for semantic identity retirement and does not release the
+ref for ordinary recreate flows.
 
 The minimal end-to-end semantic closure is:
 
@@ -146,14 +149,14 @@ payloads, not as separate objects.
 
 Related design docs:
 
-- `docs/semantic/entity-schema-contract.zh.md`
-- `docs/semantic/metric-v2-schema.zh.md`
-- `docs/semantic/dimension-schema-contract.zh.md`
-- `docs/semantic/time-schema-contract.zh.md`
-- `docs/semantic/enum-set-schema-contract.zh.md`
-- `docs/semantic/process-object-schema.zh.md`
-- `docs/semantic/typed-binding-contract.zh.md`
-- `docs/semantic/compiler-compatibility-profile.zh.md`
+- `spec/semantic/entity-schema-contract.zh.md`
+- `spec/semantic/metric-v2-schema.zh.md`
+- `spec/semantic/dimension-schema-contract.zh.md`
+- `spec/semantic/time-schema-contract.zh.md`
+- `spec/semantic/enum-set-schema-contract.zh.md`
+- `spec/semantic/process-object-schema.zh.md`
+- `spec/semantic/typed-binding-contract.zh.md`
+- `spec/semantic/compiler-compatibility-profile.zh.md`
 
 ## Endpoints
 
@@ -177,6 +180,9 @@ canonical `entity.*` ref for detail reads. Write and lifecycle routes remain int
 
 `GET /semantic/metrics/{metric_id}` accepts either the internal `metric_contract_id` or the
 canonical `metric.*` ref for detail reads. Write and lifecycle routes remain internal-id based.
+For `metric.*` reads, the default ref resolution is latest active revision. Historical reads must use
+`metric_ref + revision` so old artifacts can be interpreted against the definition that was active
+when they were produced.
 
 | Method | Path | Description |
 | --- | --- | --- |
@@ -188,6 +194,42 @@ canonical `metric.*` ref for detail reads. Write and lifecycle routes remain int
 | `POST` | `/semantic/metrics/{metric_id}/activate` | Activate a typed metric |
 | `POST` | `/semantic/metrics/{metric_id}/deprecate` | Deprecate a typed metric |
 | `POST` | `/semantic/metrics/{metric_id}/publish` | Compatibility alias for activate |
+
+Metric revision endpoints are the same-identity maintenance path for activated metrics:
+
+| Method | Path | Description |
+| --- | --- | --- |
+| `POST` | `/semantic/metrics/{metric_id_or_ref}/revisions` | Create a draft revision for the existing `metric_ref` |
+| `GET` | `/semantic/metrics/{metric_ref}/revisions` | List revision history for a stable metric identity |
+| `GET` | `/semantic/metrics/{metric_ref}/revisions/{revision}` | Read one explicit revision for audit or replay |
+| `POST` | `/semantic/metrics/{metric_id_or_ref}/revisions/{revision}/validate` | Validate a draft revision without changing default resolution |
+| `POST` | `/semantic/metrics/{metric_id_or_ref}/revisions/{revision}/activate` | Atomically promote the revision to latest active |
+
+`POST /semantic/metrics` creates a new stable metric identity. It must not be used for spelling,
+description, unit label, or other same-identity corrections by appending suffixes such as `_v2`.
+Those changes should use metric revision creation. `deprecated` metrics retain `metric_ref`
+ownership; creating a new metric with the same ref returns `409 semantic_ref_conflict`.
+
+The v1 revision create payload is full replacement with optimistic concurrency:
+
+```json
+{
+  "base_revision": 1,
+  "change_summary": "Fix unit label from seconds to milliseconds.",
+  "compatibility": "compatible",
+  "replacement": {
+    "header": {
+      "metric_ref": "metric.avg_blocked_time",
+      "metric_contract_version": "v1"
+    },
+    "payload": {}
+  }
+}
+```
+
+`base_revision`, `change_summary`, and `compatibility` are required. `compatibility` is either
+`compatible` or `breaking`; compatible revisions should not force downstream binding recreation,
+while breaking revisions must expose affected dependents and migration guidance.
 
 ### Process Objects
 

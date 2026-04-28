@@ -174,7 +174,7 @@ METADATA_DDL: list[str] = [
     """
     CREATE TABLE IF NOT EXISTS semantic_metric_contracts (
         metric_contract_id      TEXT PRIMARY KEY,
-        metric_ref              TEXT NOT NULL UNIQUE,
+        metric_ref              TEXT NOT NULL,
         display_name            TEXT NOT NULL,
         description             TEXT NOT NULL DEFAULT '',
         metric_family           TEXT NOT NULL CHECK (
@@ -215,8 +215,15 @@ METADATA_DDL: list[str] = [
             status IN ('draft', 'published', 'deprecated')
         ),
         revision                INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+        base_revision           INTEGER CHECK (base_revision IS NULL OR base_revision >= 1),
+        change_summary          TEXT NOT NULL DEFAULT '',
+        revision_compatibility  TEXT NOT NULL DEFAULT 'compatible' CHECK (
+            revision_compatibility IN ('compatible', 'breaking')
+        ),
+        is_latest_active        INTEGER NOT NULL DEFAULT 0 CHECK (is_latest_active IN (0, 1)),
         created_at              TEXT NOT NULL,
         updated_at              TEXT NOT NULL,
+        UNIQUE(metric_ref, revision),
         CHECK (substr(metric_ref, 1, 7) = 'metric.'),
         CHECK (
             population_subject_ref IS NULL
@@ -481,6 +488,8 @@ METADATA_DDL: list[str] = [
     "CREATE INDEX IF NOT EXISTS idx_semantic_entity_key_refs_entity ON semantic_entity_key_refs(entity_contract_id)",
     "CREATE INDEX IF NOT EXISTS idx_semantic_entity_stable_descriptors_entity ON semantic_entity_stable_descriptors(entity_contract_id)",
     "CREATE INDEX IF NOT EXISTS idx_semantic_metric_contracts_status_ref ON semantic_metric_contracts(status, metric_ref)",
+    "CREATE INDEX IF NOT EXISTS idx_semantic_metric_contracts_ref_revision ON semantic_metric_contracts(metric_ref, revision)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_semantic_metric_contracts_latest_active ON semantic_metric_contracts(metric_ref) WHERE status = 'published' AND is_latest_active = 1",
     "CREATE INDEX IF NOT EXISTS idx_semantic_process_exported_dimension_refs_process ON semantic_process_exported_dimension_refs(process_contract_id)",
     "CREATE INDEX IF NOT EXISTS idx_semantic_dimension_contracts_status_ref ON semantic_dimension_contracts(status, dimension_ref)",
     "CREATE INDEX IF NOT EXISTS idx_semantic_enum_set_versions_enum_set ON semantic_enum_set_versions(enum_set_contract_id)",
@@ -1212,6 +1221,11 @@ def _mysql_metadata_ddl() -> list[str]:
                 "CREATE UNIQUE INDEX idx_propositions_session_type_identity "
                 "ON propositions(session_id, proposition_type, identity_key_unique)"
             )
+        elif "idx_semantic_metric_contracts_latest_active" in stripped:
+            ddl.append(
+                "CREATE UNIQUE INDEX idx_semantic_metric_contracts_latest_active "
+                "ON semantic_metric_contracts(metric_latest_active_ref)"
+            )
         elif stripped.startswith("CREATE INDEX") or stripped.startswith("CREATE UNIQUE INDEX"):
             ddl.append(stripped.replace(" IF NOT EXISTS", ""))
         else:
@@ -1252,6 +1266,16 @@ def _mysql_table_line(
     line: str, table_name: str, indexed_columns: set[str]
 ) -> tuple[list[str], list[str]]:
     stripped = line.strip()
+    if table_name == "semantic_metric_contracts" and stripped.startswith("is_latest_active"):
+        leading = line[: len(line) - len(line.lstrip())]
+        comma = "," if stripped.endswith(",") else ""
+        generated = (
+            f"{leading}metric_latest_active_ref        VARCHAR(191) "
+            "GENERATED ALWAYS AS (CASE WHEN status = 'published' AND is_latest_active = 1 "
+            f"THEN metric_ref ELSE NULL END) STORED{comma}"
+        )
+        return [line, generated], []
+
     column_match = re.match(r"([a-zA-Z_][a-zA-Z0-9_]*)\s+TEXT\b(.*)", stripped)
     if column_match is None:
         return [line], []

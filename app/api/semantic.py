@@ -18,6 +18,7 @@ from app.api.models import (
     EnumSetCreateRequest,
     EnumSetResponse,
     EnumSetUpdateRequest,
+    MetricRevisionCreateRequest,
     PredicateCreateRequest,
     PredicateResponse,
     PredicateUpdateRequest,
@@ -753,6 +754,62 @@ def list_metrics(
             readiness_status=readiness_status,
             detail=detail,
         )
+    )
+
+
+@router.post("/semantic/metrics/{metric_id_or_ref}/revisions", response_model=TypedMetricResponse)
+def create_metric_revision(
+    metric_id_or_ref: str,
+    request: Request,
+    payload: MetricRevisionCreateRequest = Body(...),
+) -> dict[str, Any]:
+    semantic_service = get_services(request).semantic_service
+    return _run_route_action(
+        lambda: semantic_service.create_metric_revision(metric_id_or_ref, payload),
+        request=request,
+        structured_value_error=True,
+    )
+
+
+@router.get("/semantic/metrics/{metric_ref}/revisions")
+def list_metric_revisions(metric_ref: str, request: Request) -> dict[str, Any]:
+    semantic_service = get_services(request).semantic_service
+    return _run_route_action(lambda: semantic_service.list_metric_revisions(metric_ref))
+
+
+@router.get(
+    "/semantic/metrics/{metric_ref}/revisions/{revision}", response_model=TypedMetricResponse
+)
+def get_metric_revision(metric_ref: str, revision: int, request: Request) -> dict[str, Any]:
+    semantic_service = get_services(request).semantic_service
+    return _run_route_action(lambda: semantic_service.read_metric_revision(metric_ref, revision))
+
+
+@router.post(
+    "/semantic/metrics/{metric_id_or_ref}/revisions/{revision}/validate",
+    response_model=SemanticValidateActionResponse,
+)
+def validate_metric_revision(
+    metric_id_or_ref: str, revision: int, request: Request
+) -> dict[str, Any]:
+    semantic_service = get_services(request).semantic_service
+    return _run_route_action(
+        lambda: semantic_service.validate_metric_revision(metric_id_or_ref, revision),
+        structured_value_error=True,
+    )
+
+
+@router.post(
+    "/semantic/metrics/{metric_id_or_ref}/revisions/{revision}/activate",
+    response_model=TypedMetricResponse,
+)
+def activate_metric_revision(
+    metric_id_or_ref: str, revision: int, request: Request
+) -> dict[str, Any]:
+    semantic_service = get_services(request).semantic_service
+    return _run_route_action(
+        lambda: semantic_service.activate_metric_revision(metric_id_or_ref, revision),
+        structured_value_error=True,
     )
 
 

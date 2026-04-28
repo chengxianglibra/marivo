@@ -308,6 +308,195 @@ class SemanticMetricRouteTests(unittest.TestCase):
             "deprecated objects retain semantic ref ownership",
         )
 
+    def test_metric_revision_routes_keep_ref_stable_and_default_latest_active(self) -> None:
+        entity_ref = "entity.metric_revision_route_user"
+        metric_ref = "metric.revision_route_avg"
+        self._create_published_entity(entity_ref)
+        create_resp = self.client.post(
+            "/semantic/metrics",
+            json=self._metric_create_payload(metric_ref, entity_ref),
+        )
+        self.assertEqual(create_resp.status_code, 200, create_resp.text)
+        metric_id = create_resp.json()["metric_contract_id"]
+        publish_resp = self.client.post(f"/semantic/metrics/{metric_id}/publish")
+        self.assertEqual(publish_resp.status_code, 200, publish_resp.text)
+        self.assertEqual(publish_resp.json()["revision"], 1)
+        self.assertEqual(publish_resp.json()["is_latest_active"], True)
+
+        replacement = self._metric_create_payload(metric_ref, entity_ref)
+        replacement["header"]["description"] = "revision route metric in milliseconds"
+        revision_resp = self.client.post(
+            f"/semantic/metrics/{metric_ref}/revisions",
+            json={
+                "base_revision": 1,
+                "change_summary": "Fix unit label",
+                "compatibility": "compatible",
+                "replacement": replacement,
+            },
+        )
+        self.assertEqual(revision_resp.status_code, 200, revision_resp.text)
+        self.assertEqual(revision_resp.json()["revision"], 2)
+        self.assertEqual(revision_resp.json()["status"], "draft")
+        self.assertEqual(revision_resp.json()["base_revision"], 1)
+
+        default_resp = self.client.get(f"/semantic/metrics/{metric_ref}")
+        self.assertEqual(default_resp.status_code, 200, default_resp.text)
+        self.assertEqual(default_resp.json()["revision"], 1)
+
+        revision_one_resp = self.client.get(f"/semantic/metrics/{metric_ref}/revisions/1")
+        self.assertEqual(revision_one_resp.status_code, 200, revision_one_resp.text)
+        self.assertEqual(revision_one_resp.json()["revision"], 1)
+
+        list_with_draft_revision_resp = self.client.get("/semantic/metrics")
+        self.assertEqual(
+            list_with_draft_revision_resp.status_code, 200, list_with_draft_revision_resp.text
+        )
+        listed_with_draft_revision = [
+            item
+            for item in list_with_draft_revision_resp.json()["items"]
+            if item["header"]["metric_ref"] == metric_ref
+        ]
+        self.assertEqual(len(listed_with_draft_revision), 1)
+        self.assertEqual(listed_with_draft_revision[0]["revision"], 1)
+
+        validate_resp = self.client.post(f"/semantic/metrics/{metric_ref}/revisions/2/validate")
+        self.assertEqual(validate_resp.status_code, 200, validate_resp.text)
+        default_after_validate = self.client.get(f"/semantic/metrics/{metric_ref}")
+        self.assertEqual(default_after_validate.json()["revision"], 1)
+
+        activate_resp = self.client.post(f"/semantic/metrics/{metric_ref}/revisions/2/activate")
+        self.assertEqual(activate_resp.status_code, 200, activate_resp.text)
+        self.assertEqual(activate_resp.json()["revision"], 2)
+        self.assertEqual(activate_resp.json()["is_latest_active"], True)
+
+        default_after_activate = self.client.get(f"/semantic/metrics/{metric_ref}")
+        self.assertEqual(default_after_activate.status_code, 200, default_after_activate.text)
+        self.assertEqual(default_after_activate.json()["revision"], 2)
+        old_revision_resp = self.client.get(f"/semantic/metrics/{metric_ref}/revisions/1")
+        self.assertEqual(old_revision_resp.json()["is_latest_active"], False)
+
+        list_resp = self.client.get("/semantic/metrics?status=published&detail=true")
+        self.assertEqual(list_resp.status_code, 200, list_resp.text)
+        listed = [
+            item for item in list_resp.json()["items"] if item["header"]["metric_ref"] == metric_ref
+        ]
+        self.assertEqual(len(listed), 1)
+        self.assertEqual(listed[0]["revision"], 2)
+
+        list_after_activate_resp = self.client.get("/semantic/metrics")
+        self.assertEqual(list_after_activate_resp.status_code, 200, list_after_activate_resp.text)
+        listed_after_activate = [
+            item
+            for item in list_after_activate_resp.json()["items"]
+            if item["header"]["metric_ref"] == metric_ref
+        ]
+        self.assertEqual(len(listed_after_activate), 1)
+        self.assertEqual(listed_after_activate[0]["revision"], 2)
+
+    def test_draft_metric_can_be_bound_before_metric_publish(self) -> None:
+        entity_ref = "entity.draft_metric_binding_user"
+        metric_ref = "metric.draft_metric_binding_count"
+        self._create_published_entity(entity_ref)
+        metric_resp = self.client.post(
+            "/semantic/metrics",
+            json=self._metric_create_payload(metric_ref, entity_ref),
+        )
+        self.assertEqual(metric_resp.status_code, 200, metric_resp.text)
+        self.assertEqual(metric_resp.json()["status"], "draft")
+
+        binding_resp = self.client.post(
+            "/semantic/bindings",
+            json={
+                "header": {
+                    "binding_ref": "binding.draft_metric_binding_count_primary",
+                    "display_name": "Draft Metric Binding Count Primary",
+                    "binding_scope": "metric",
+                    "bound_object_ref": metric_ref,
+                    "binding_contract_version": "binding.v1",
+                },
+                "interface_contract": {
+                    "carrier_bindings": [
+                        {
+                            "binding_key": "primary",
+                            "carrier_kind": "table",
+                            "carrier_locator": "warehouse.draft_metric_binding_count",
+                            "binding_role": "primary",
+                            "field_surfaces": [
+                                {
+                                    "surface_ref": "field.count_target",
+                                    "physical_name": "count_target",
+                                }
+                            ],
+                        }
+                    ],
+                    "field_bindings": [
+                        {
+                            "carrier_binding_key": "primary",
+                            "target": {
+                                "target_kind": "metric_input",
+                                "target_key": "count_target",
+                            },
+                            "semantic_ref": "metric_input.count_target",
+                            "surface_ref": "field.count_target",
+                        }
+                    ],
+                },
+            },
+        )
+        self.assertEqual(binding_resp.status_code, 200, binding_resp.text)
+        self.assertEqual(binding_resp.json()["status"], "draft")
+
+        publish_binding_resp = self.client.post(
+            f"/semantic/bindings/{binding_resp.json()['binding_id']}/publish"
+        )
+        self.assertEqual(publish_binding_resp.status_code, 422, publish_binding_resp.text)
+        self.assertIn("Unknown metric ref", publish_binding_resp.text)
+
+    def test_metric_revision_rejects_stale_base_revision_without_switching(self) -> None:
+        entity_ref = "entity.metric_revision_stale_user"
+        metric_ref = "metric.revision_stale"
+        self._create_published_entity(entity_ref)
+        create_resp = self.client.post(
+            "/semantic/metrics",
+            json=self._metric_create_payload(metric_ref, entity_ref),
+        )
+        self.assertEqual(create_resp.status_code, 200, create_resp.text)
+        metric_id = create_resp.json()["metric_contract_id"]
+        publish_resp = self.client.post(f"/semantic/metrics/{metric_id}/publish")
+        self.assertEqual(publish_resp.status_code, 200, publish_resp.text)
+
+        replacement = self._metric_create_payload(metric_ref, entity_ref)
+        first_revision = self.client.post(
+            f"/semantic/metrics/{metric_ref}/revisions",
+            json={
+                "base_revision": 1,
+                "change_summary": "First revision",
+                "compatibility": "compatible",
+                "replacement": replacement,
+            },
+        )
+        self.assertEqual(first_revision.status_code, 200, first_revision.text)
+        activate_resp = self.client.post(f"/semantic/metrics/{metric_ref}/revisions/2/activate")
+        self.assertEqual(activate_resp.status_code, 200, activate_resp.text)
+
+        stale_resp = self.client.post(
+            f"/semantic/metrics/{metric_ref}/revisions",
+            json={
+                "base_revision": 1,
+                "change_summary": "Stale revision",
+                "compatibility": "compatible",
+                "replacement": replacement,
+            },
+        )
+        self.assertEqual(stale_resp.status_code, 409, stale_resp.text)
+        detail = stale_resp.json()["detail"]
+        self.assertEqual(detail["error"]["code"], "semantic_ref_conflict")
+        self.assertEqual(detail["error"]["field_path"], "base_revision")
+
+        default_resp = self.client.get(f"/semantic/metrics/{metric_ref}")
+        self.assertEqual(default_resp.status_code, 200, default_resp.text)
+        self.assertEqual(default_resp.json()["revision"], 2)
+
     def test_metric_routes_use_typed_contract(self) -> None:
         # Publish the entity that the metric references before creating/publishing the metric
         entity_resp = self.client.post(
@@ -401,7 +590,7 @@ class SemanticMetricRouteTests(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 200, resp.text)
         self.assertEqual(resp.json()["payload"]["count_target"]["name"], "active_users")
-        self.assertEqual(resp.json()["revision"], 2)
+        self.assertEqual(resp.json()["revision"], 1)
 
         resp = self.client.post(f"/semantic/metrics/{metric_id}/publish")
         self.assertEqual(resp.status_code, 200, resp.text)
@@ -420,7 +609,8 @@ class SemanticMetricRouteTests(unittest.TestCase):
         self.assertEqual(capabilities["supports_test"], True)
         self.assertEqual(capabilities["supports_detect"], False)
         self.assertEqual(capabilities["supports_validate"], False)
-        self.assertEqual(resp.json()["revision"], 3)
+        self.assertEqual(resp.json()["revision"], 1)
+        self.assertEqual(resp.json()["is_latest_active"], True)
 
         resp = self.client.get("/semantic/metrics?status=published")
         self.assertEqual(resp.status_code, 200, resp.text)

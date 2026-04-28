@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections import defaultdict
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any, Literal
 from uuid import uuid4
@@ -449,7 +450,14 @@ class _SemanticListContext:
             )
 
     def _add_metric_snapshots(self, snapshots: dict[str, ReadinessObjectSnapshot]) -> None:
-        rows = self._service.metadata.query_rows("SELECT * FROM semantic_metric_contracts")
+        rows = self._service.metadata.query_rows(
+            """
+            SELECT *
+            FROM semantic_metric_contracts
+            WHERE is_latest_active = 1 OR (status = 'draft' AND revision = 1)
+            ORDER BY metric_ref, is_latest_active DESC, revision DESC
+            """
+        )
         for row in rows:
             semantic_object = {
                 "header": {
@@ -2051,7 +2059,7 @@ class SemanticServiceSupport:
                 "process_object",
             ),
             "metric": (
-                "SELECT metric_contract_id FROM semantic_metric_contracts WHERE metric_ref = ?",
+                "SELECT metric_contract_id FROM semantic_metric_contracts WHERE metric_ref = ? AND status = 'published' AND is_latest_active = 1",
                 "metric",
             ),
         }
@@ -2069,11 +2077,36 @@ class SemanticServiceSupport:
         )
         return None if row is None else self._row_to_typed_entity(row)
 
-    def _get_metric_contract_by_ref(self, metric_ref: str) -> dict[str, Any] | None:
-        row = self.metadata.query_one(
-            "SELECT * FROM semantic_metric_contracts WHERE metric_ref = ?",
-            [metric_ref],
-        )
+    def _get_metric_contract_by_ref(
+        self, metric_ref: str, *, require_published: bool = True
+    ) -> dict[str, Any] | None:
+        if require_published:
+            row = self.metadata.query_one(
+                """
+                SELECT *
+                FROM semantic_metric_contracts
+                WHERE metric_ref = ? AND status = 'published' AND is_latest_active = 1
+                ORDER BY revision DESC
+                """,
+                [metric_ref],
+            )
+        else:
+            row = self.metadata.query_one(
+                """
+                SELECT *
+                FROM semantic_metric_contracts
+                WHERE metric_ref = ?
+                ORDER BY
+                    CASE
+                        WHEN status = 'published' AND is_latest_active = 1 THEN 0
+                        WHEN status = 'draft' THEN 1
+                        WHEN status = 'deprecated' THEN 2
+                        ELSE 3
+                    END,
+                    revision DESC
+                """,
+                [metric_ref],
+            )
         return None if row is None else self._row_to_typed_metric(row)
 
     def _get_process_object_by_ref(self, process_ref: str) -> dict[str, Any] | None:
@@ -2832,10 +2865,12 @@ class SemanticServiceSupport:
         interface_contract: dict[str, Any],
         require_published_dependencies: bool,
     ) -> None:
-        bound_object_lookup = {
+        bound_object_lookup: dict[str, Callable[[str], dict[str, Any] | None]] = {
             "entity": self._get_entity_contract_by_ref,
             "process_object": self._get_process_object_by_ref,
-            "metric": self._get_metric_contract_by_ref,
+            "metric": lambda ref: self._get_metric_contract_by_ref(
+                ref, require_published=require_published_dependencies
+            ),
         }
         resolver = bound_object_lookup.get(binding_scope)
         if resolver is None:
@@ -3053,7 +3088,7 @@ class SemanticServiceSupport:
                 """
                 SELECT metric_contract_id
                 FROM semantic_metric_contracts
-                WHERE metric_ref = ? AND status = 'published'
+                WHERE metric_ref = ? AND status = 'published' AND is_latest_active = 1
                 """,
             ),
             "process": (
@@ -3091,7 +3126,7 @@ class SemanticServiceSupport:
                 """
                 SELECT revision
                 FROM semantic_metric_contracts
-                WHERE metric_ref = ? AND status = 'published'
+                WHERE metric_ref = ? AND status = 'published' AND is_latest_active = 1
                 """,
                 "metric",
             ),
@@ -3550,11 +3585,17 @@ class SemanticServiceSupport:
             },
             "status": row["status"],
             "revision": row["revision"],
+            "base_revision": row["base_revision"],
+            "change_summary": row["change_summary"],
+            "revision_compatibility": row["revision_compatibility"],
+            "is_latest_active": bool(row["is_latest_active"]),
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
             # Readiness evaluation needs the full metric family contract even for list rows.
             "payload": json.loads(row["family_payload_json"]),
         }
+        if mode == "detail":
+            metric["revision_history"] = self._metric_revision_history(str(row["metric_ref"]))
         metric = self._augment_object_with_readiness(
             metric,
             object_kind="metric",
@@ -3568,6 +3609,33 @@ class SemanticServiceSupport:
         if mode == "list":
             metric.pop("payload", None)
         return metric
+
+    def _metric_revision_history(self, metric_ref: str) -> list[dict[str, object]]:
+        rows = self.metadata.query_rows(
+            """
+            SELECT metric_contract_id, status, revision, base_revision,
+                   change_summary, revision_compatibility, is_latest_active,
+                   created_at, updated_at
+            FROM semantic_metric_contracts
+            WHERE metric_ref = ?
+            ORDER BY revision
+            """,
+            [metric_ref],
+        )
+        return [
+            {
+                "metric_contract_id": row["metric_contract_id"],
+                "status": row["status"],
+                "revision": row["revision"],
+                "base_revision": row["base_revision"],
+                "change_summary": row["change_summary"],
+                "revision_compatibility": row["revision_compatibility"],
+                "is_latest_active": bool(row["is_latest_active"]),
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
+            }
+            for row in rows
+        ]
 
     def _row_to_process_object(
         self,

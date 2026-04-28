@@ -399,6 +399,10 @@ class SQLiteMetadataStoreTests(unittest.TestCase):
         rows = self.store.query_rows("PRAGMA table_info(semantic_metric_contracts)")
         column_names = {str(row["name"]) for row in rows}
         self.assertIn("default_predicate_refs_json", column_names)
+        self.assertIn("base_revision", column_names)
+        self.assertIn("change_summary", column_names)
+        self.assertIn("revision_compatibility", column_names)
+        self.assertIn("is_latest_active", column_names)
 
     def test_initialize_uses_current_time_binding_schema(self) -> None:
         create_sql_row = self.store.query_one(

@@ -84,6 +84,8 @@ class StepMetadataPersistenceTests(unittest.TestCase):
                 "ir_plan_id": "plan_test_001",
                 "normalized_request_class": "root_metric_process",
                 "resolved_metric_ref": "metric.dau",
+                "resolved_metric_revision": 2,
+                "resolved_metric_object_id": "metc_dau_v2",
                 "resolved_process_ref": None,
                 "resolved_filter_time_ref": "time.event_date",
                 "resolved_dimension_refs": ["dimension.country"],
@@ -183,6 +185,8 @@ class StepMetadataPersistenceTests(unittest.TestCase):
         snapshot = json.loads(row["semantic_snapshot_json"])
         assert_no_canonical_refs_in_semantic_payload(snapshot, surface="step_semantic_metadata")
         self.assertEqual(snapshot["typed_inputs"]["metric_ref"], "metric.dau")
+        self.assertEqual(snapshot["typed_inputs"]["resolved_metric_revision"], 2)
+        self.assertEqual(snapshot["typed_inputs"]["resolved_metric_object_id"], "metc_dau_v2")
         self.assertEqual(snapshot["typed_inputs"]["metric_entity_anchor_ref"], "entity.user")
         self.assertEqual(
             snapshot["compile_context"]["imported_dimension_lineage"][0]["dimension_ref"],

@@ -11,7 +11,11 @@ from app.api.models.compatibility_profile import (
 from app.api.models.dimension import DimensionCreateRequest, DimensionUpdateRequest
 from app.api.models.entity import TypedEntityCreateRequest, TypedEntityUpdateRequest
 from app.api.models.enum_set import EnumSetCreateRequest, EnumSetUpdateRequest
-from app.api.models.metric import TypedMetricCreateRequest, TypedMetricUpdateRequest
+from app.api.models.metric import (
+    MetricRevisionCreateRequest,
+    TypedMetricCreateRequest,
+    TypedMetricUpdateRequest,
+)
 from app.api.models.predicate import PredicateCreateRequest, PredicateUpdateRequest
 from app.api.models.process_object import ProcessObjectCreateRequest, ProcessObjectUpdateRequest
 from app.api.models.time import TimeCreateRequest, TimeUpdateRequest
@@ -200,6 +204,31 @@ class SemanticService:
 
     def deprecate_typed_metric(self, metric_contract_id: str) -> dict[str, Any]:
         return self._invoke(lambda: self.typed_objects.deprecate_typed_metric(metric_contract_id))
+
+    def create_metric_revision(
+        self, metric_id_or_ref: str, payload: MetricRevisionCreateRequest
+    ) -> dict[str, Any]:
+        return self._invoke(
+            lambda: self.typed_objects.create_metric_revision(metric_id_or_ref, payload)
+        )
+
+    def list_metric_revisions(self, metric_ref: str) -> dict[str, Any]:
+        return self._invoke(lambda: self.typed_objects.list_metric_revisions(metric_ref))
+
+    def read_metric_revision(self, metric_ref: str, revision: int) -> dict[str, Any]:
+        return self._invoke(lambda: self.typed_objects.read_metric_revision(metric_ref, revision))
+
+    def validate_metric_revision(self, metric_id_or_ref: str, revision: int) -> dict[str, Any]:
+        return self._validate_action_response(
+            self._invoke(
+                lambda: self.typed_objects.validate_metric_revision(metric_id_or_ref, revision)
+            )
+        )
+
+    def activate_metric_revision(self, metric_id_or_ref: str, revision: int) -> dict[str, Any]:
+        return self._invoke(
+            lambda: self.typed_objects.activate_metric_revision(metric_id_or_ref, revision)
+        )
 
     def create_process_object(self, payload: ProcessObjectCreateRequest) -> dict[str, Any]:
         return self._invoke(lambda: self.typed_objects.create_process_object(payload))

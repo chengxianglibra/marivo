@@ -127,9 +127,14 @@ class SemanticRuntimeMetadataReader:
         if object_kind is None:
             return None
         table_name, ref_column, converter_name = self._RUNTIME_CONFIG[object_kind]
-        status_predicate = " AND status = 'published'" if published_only else ""
+        if object_kind == "metric" and published_only:
+            status_predicate = " AND status = 'published' AND is_latest_active = 1"
+            order_clause = " ORDER BY revision DESC"
+        else:
+            status_predicate = " AND status = 'published'" if published_only else ""
+            order_clause = ""
         row = self.metadata.query_one(
-            f"SELECT * FROM {table_name} WHERE {ref_column} = ?{status_predicate}",
+            f"SELECT * FROM {table_name} WHERE {ref_column} = ?{status_predicate}{order_clause}",
             [semantic_ref],
         )
         if row is None:
@@ -223,6 +228,10 @@ class SemanticRuntimeMetadataReader:
             "payload": json.loads(row["family_payload_json"]),
             "status": row["status"],
             "revision": row["revision"],
+            "base_revision": row["base_revision"],
+            "change_summary": row["change_summary"],
+            "revision_compatibility": row["revision_compatibility"],
+            "is_latest_active": bool(row["is_latest_active"]),
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }

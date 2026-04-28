@@ -45,11 +45,13 @@ class SemanticSchemaDDLTests(unittest.TestCase):
     def test_semantic_list_indexes_exist(self) -> None:
         indexes = {
             "idx_semantic_metric_contracts_status_ref",
+            "idx_semantic_metric_contracts_ref_revision",
+            "idx_semantic_metric_contracts_latest_active",
             "idx_semantic_dimension_contracts_status_ref",
             "idx_typed_bindings_status_ref",
         }
         rows = self.conn.execute(
-            "SELECT name FROM sqlite_master WHERE type = 'index' AND name IN (?, ?, ?)",
+            "SELECT name FROM sqlite_master WHERE type = 'index' AND name IN (?, ?, ?, ?, ?)",
             tuple(indexes),
         ).fetchall()
         self.assertEqual({str(row["name"]) for row in rows}, indexes)
