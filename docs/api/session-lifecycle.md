@@ -2,7 +2,7 @@
 
 This document defines the target-state external HTTP contract for Marivo's session root lifecycle.
 
-It binds the canonical session schema from [`docs/analysis/evidence-engine/schemas/session.md`](../analysis/evidence-engine/schemas/session.md) to stable HTTP resources. This is a target-state wire specification and does not describe or depend on the current implementation.
+It binds the canonical session schema from [`spec/analysis/evidence-engine/schemas/session.md`](../spec/analysis/evidence-engine/schemas/session.md) to stable HTTP resources. This is a target-state wire specification and does not describe or depend on the current implementation.
 
 ## Purpose
 

@@ -100,7 +100,7 @@ Runtime/catalog availability is gated by `lifecycle_status` and `readiness_statu
 - [Quickstart](quickstart.md) — end-to-end walkthrough with `curl` examples
 - [Error Reference](errors.md) — HTTP status codes, error formats, and common error scenarios
 
-Target-state step submission wire contracts live under `docs/api/`. Non-HTTP analysis-intent design drafts live under `docs/analysis/`.
+Target-state step submission wire contracts live under `docs/api/`. Non-HTTP analysis-intent design drafts live under `spec/analysis/`.
 
 ## Core Concepts
 

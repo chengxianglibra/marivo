@@ -239,11 +239,13 @@ class MySQLMetadataIntegrationTests(unittest.TestCase):
                 "{}",
                 "{}",
                 "{}",
+                "{}",
                 "open",
             ),
             (
                 f"sess_{uuid4().hex}",
                 "goal two",
+                "{}",
                 "{}",
                 "{}",
                 "{}",
@@ -253,8 +255,11 @@ class MySQLMetadataIntegrationTests(unittest.TestCase):
         self.store.execute_many(
             """
             INSERT INTO sessions
-                (session_id, goal, constraints_json, budget_json, policy_json, status)
-            VALUES (?, ?, ?, ?, ?, ?)
+                (
+                    session_id, goal, constraints_json, budget_json, policy_json,
+                    execution_identity_json, status
+                )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             session_rows,
         )
@@ -304,10 +309,10 @@ class MySQLMetadataIntegrationTests(unittest.TestCase):
         self.store.execute(
             """
             INSERT INTO steps
-                (step_id, session_id, step_type, status, summary, result_json)
-            VALUES (?, ?, ?, ?, ?, ?)
+                (step_id, session_id, step_type, status, summary, result_json, provenance_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            [step_id, session_rows[0][0], "observe", "done", "summary", "{}"],
+            [step_id, session_rows[0][0], "observe", "done", "summary", "{}", "{}"],
         )
         self.store.upsert_by_key(
             "step_metadata",
@@ -346,18 +351,21 @@ class MySQLMetadataIntegrationTests(unittest.TestCase):
         self.store.execute(
             """
             INSERT INTO sessions
-                (session_id, goal, constraints_json, budget_json, policy_json, status)
-            VALUES (?, ?, ?, ?, ?, ?)
+                (
+                    session_id, goal, constraints_json, budget_json, policy_json,
+                    execution_identity_json, status
+                )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            [session_id, "integration", "{}", "{}", "{}", "open"],
+            [session_id, "integration", "{}", "{}", "{}", "{}", "open"],
         )
         self.store.execute(
             """
             INSERT INTO steps
-                (step_id, session_id, step_type, status, summary, result_json)
-            VALUES (?, ?, ?, ?, ?, ?)
+                (step_id, session_id, step_type, status, summary, result_json, provenance_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            [step_id, session_id, "observe", "done", "summary", "{}"],
+            [step_id, session_id, "observe", "done", "summary", "{}", "{}"],
         )
         self.store.execute(
             """
@@ -427,10 +435,13 @@ class MySQLMetadataIntegrationTests(unittest.TestCase):
         self.store.execute(
             """
             INSERT INTO sessions
-                (session_id, goal, constraints_json, budget_json, policy_json, status)
-            VALUES (?, ?, ?, ?, ?, ?)
+                (
+                    session_id, goal, constraints_json, budget_json, policy_json,
+                    execution_identity_json, status
+                )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            [session_id, "rollback", "{}", "{}", "{}", "open"],
+            [session_id, "rollback", "{}", "{}", "{}", "{}", "open"],
         )
 
         service = SemanticLayerService(self.store, MagicMock(spec=AnalyticsEngine))

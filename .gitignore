@@ -73,6 +73,10 @@ marivo.yaml
 !.agents/skills/commit-attribution/SKILL.md
 !.agents/skills/marivo-test-fixtures/
 !.agents/skills/marivo-test-fixtures/SKILL.md
+!.agents/skills/marivo-mysql-integration-test/
+!.agents/skills/marivo-mysql-integration-test/SKILL.md
+!.agents/skills/marivo-mysql-integration-test/agents/
+!.agents/skills/marivo-mysql-integration-test/agents/openai.yaml
 
 # Plan
 plan/

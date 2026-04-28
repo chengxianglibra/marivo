@@ -70,11 +70,10 @@ make format
 ## Docs Layout
 
 - `docs/api/`: external HTTP API docs only.
-- `docs/analysis/`: intents and evidence engine schemas.
-- `docs/semantic/`: entity, dimension, metric, process, and semantic compiler schemas.
-- `docs/service/`: service runtime and operator design notes.
+- `spec/analysis/`: intents and evidence engine schemas.
+- `spec/semantic/`: entity, dimension, metric, process, and semantic compiler schemas.
+- `spec/service/`: service runtime and operator design notes.
 - Keep MCP implementation details in `marivo-mcp/README.md` and `marivo_mcp.inventory`, not here.
-- Agent runtime target resolution is summarized in [`docs/service/agent-runtime-target-resolution.md`](service/agent-runtime-target-resolution.md); operator troubleshooting lives in [`docs/service/agent-runtime-target-resolution-troubleshooting.zh.md`](service/agent-runtime-target-resolution-troubleshooting.zh.md).
 
 ## What Not To Add Here
 

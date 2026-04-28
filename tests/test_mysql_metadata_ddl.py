@@ -31,8 +31,8 @@ class MySQLMetadataDDLTests(unittest.TestCase):
         ddl = "\n".join(MYSQL_METADATA_DDL)
 
         self.assertIn("CREATE TABLE IF NOT EXISTS metadata_schema_marker", ddl)
-        self.assertIn("DEFAULT CURRENT_TIMESTAMP", ddl)
-        self.assertIn("VARCHAR(191) PRIMARY KEY", ddl)
+        self.assertIn("DEFAULT CURRENT_TIMESTAMP(6)", ddl)
+        self.assertIn("VARCHAR(128) PRIMARY KEY", ddl)
         self.assertIn("ENGINE=InnoDB DEFAULT CHARSET=utf8mb4", ddl)
         self.assertIn("CHECK (backend IN ('sqlite', 'mysql'))", ddl)
 
@@ -121,6 +121,16 @@ class MySQLMetadataDDLTests(unittest.TestCase):
             for column in columns
             if column_types.get(table, {}).get(column) in {"TEXT", "LONGTEXT"}
         ]
+        self.assertEqual(offenders, [])
+
+    def test_mysql_large_text_columns_do_not_use_defaults(self) -> None:
+        offenders = [
+            line.strip()
+            for statement in MYSQL_METADATA_DDL
+            for line in statement.splitlines()
+            if re.search(r"\b(?:TEXT|LONGTEXT)\b.*\bDEFAULT\b", line)
+        ]
+
         self.assertEqual(offenders, [])
 
 
