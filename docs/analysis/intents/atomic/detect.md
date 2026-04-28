@@ -38,15 +38,14 @@ v1 明确排除：
   "step_type": "detect",
   "metric": "dau",
   "time_scope": {
-    "mode": "single_window",
-    "grain": "day",
-    "current": {
-      "start": "2024-03-01T00:00:00",
-      "end": "2024-04-01T00:00:00"
-    }
+    "kind": "range",
+    "start": "2024-03-01T00:00:00",
+    "end": "2024-04-01T00:00:00"
   },
+  "granularity": "day",
   "scope": null,
   "split_by": null,
+  "patterns": ["point_anomaly"],
   "profile": "auto",
   "sensitivity": "balanced",
   "limit": null,
@@ -61,8 +60,10 @@ type DetectRequest = {
   step_type: "detect";
   metric: string;
   time_scope: DetectTimeScope;
+  granularity: TimeGranularity;
   scope?: Scope | null;
   split_by?: string | null;
+  patterns?: DetectPattern[] | null;
   profile?: DetectProfile | null;
   sensitivity?: DetectSensitivity | null;
   limit?: number | null;
@@ -70,9 +71,9 @@ type DetectRequest = {
 };
 
 type DetectTimeScope = {
-  mode: "single_window";
-  grain: TimeGranularity;
-  current: TimeWindow;
+  kind: "range";
+  start: string;
+  end: string;
 };
 
 type TimeWindow = {
@@ -107,6 +108,8 @@ type Predicate =
 
 type TimeGranularity = "hour" | "day" | "week" | "month";
 
+type DetectPattern = "point_anomaly" | "period_shift";
+
 type DetectProfile =
   | "auto"
   | "spike_dip"
@@ -118,18 +121,20 @@ type DetectSensitivity = "conservative" | "balanced" | "aggressive";
 
 说明：
 
-- `time_scope` 复用 Marivo 统一时间窗口契约；`detect` 仅允许 `mode = "single_window"`
+- `time_scope` 复用 Marivo range 窗口契约；`detect` 仅允许 `kind = "range"`
+- `granularity` 使用与 `observe.granularity` 相同命名
 - `scope` 复用 Marivo 统一 step-level non-time scope 契约；时间条件不得进入 `scope.predicate`
 - `split_by` 是扫描轴，不是额外过滤契约；它定义“按哪个单一 semantic dimension 拆成独立序列扫描”
+- `patterns` 控制候选形态：`point_anomaly` 为窗口内 z-score，`period_shift` 为当前窗口与 previous-adjacent baseline 的整体变化
 
 ## 输入规则
 
 v1 支持的输入形态如下：
 
 - `metric` 必须解析到已发布的 semantic metric
-- `time_scope.mode` 必须为 `"single_window"`
-- `time_scope.current` 必须是合法半开区间 `[start, end)`
-- `time_scope.grain` 必须来自受支持的时间粒度
+- `time_scope.kind` 必须为 `"range"`
+- `time_scope.start/end` 必须是合法半开区间 `[start, end)`
+- `granularity` 必须来自受支持的时间粒度
 - `scope` 若提供，必须遵守统一 scope 契约
 - `split_by` 可选；若提供，则必须是单个 semantic dimension
 - `profile` 必须来自受支持的 detect profiles
@@ -141,7 +146,7 @@ v1 支持的输入形态如下：
 
 ## v1 不支持的输入
 
-- `time_scope.mode = "compare"`
+- `time_scope.kind != "range"`
 - `snapshot_now`、`latest_available`、`as_of`
 - 多个 `split_by` dimensions
 - 显式指定任意 baseline window
@@ -154,13 +159,13 @@ v1 支持的输入形态如下：
 
 ## 非法组合
 
-- `time_scope.mode != "single_window"`
+- `time_scope.kind != "range"`
 - `time_scope.current.start >= time_scope.current.end`
 - `scope.predicate` 包含时间轴条件
 - `split_by` 以数组形式提供
 - `limit != null && limit <= 0`
 - `max_series != null && max_series <= 0`
-- `profile = "seasonal_residual"`，但 metric 或 `time_scope.grain` 无法支持季节性扫描
+- `profile = "seasonal_residual"`，但 metric 或 `granularity` 无法支持季节性扫描
 - 指标不支持按请求的 `split_by` 拆分
 
 推荐错误码：`INVALID_ARGUMENT`。
@@ -187,7 +192,7 @@ v1 支持的输入形态如下：
 
 ### time_scope
 
-必须复用统一时间窗口契约，并限制为 `mode = "single_window"`。
+必须复用统一 range 窗口契约，并限制为 `kind = "range"`。
 
 `detect` 回答的问题是：
 
@@ -198,7 +203,7 @@ v1 支持的输入形态如下：
 - 应该与哪个显式基线窗比较？
 - 为什么会发生？
 
-`time_scope.grain` 定义扫描粒度。粒度是异常定义的一部分。
+顶层 `granularity` 定义扫描粒度。粒度是异常定义的一部分。
 
 同一个点在 `day` 粒度下可能异常，在 `week` 粒度下可能正常。
 
@@ -271,9 +276,9 @@ v1 支持：
 以下情况应直接失败：
 
 - metric 不存在
-- metric 不支持所请求的 `time_scope.grain`
+- metric 不支持所请求的 `granularity`
 - metric 不支持所请求的 `split_by`
-- `time_scope.current` 对目标 profile 来说过短
+- `time_scope` range 对目标 profile 来说过短
 - 请求无法被 bounded fan-out（有界扇出）
 - profile 与指标时间语义不兼容
 
@@ -301,7 +306,7 @@ v1 支持：
 
 系统至少要检查：
 
-- metric 支持所请求的 `time_scope.grain`
+- metric 支持所请求的 `granularity`
 - metric 支持所请求的 `split_by`
 - 解析出的序列对目标 profile 拥有足够点数
 - 数据完整性足以支撑扫描
@@ -411,6 +416,7 @@ type DetectCandidatesArtifact = {
   artifact_schema_version: "v1";
   metric: string;
   time_scope: ResolvedDetectTimeScope;
+  granularity: TimeGranularity;
   scope: Scope | null;
   split_by: string | null;
   profile: DetectProfile;
@@ -425,9 +431,9 @@ type DetectCandidatesArtifact = {
 };
 
 type ResolvedDetectTimeScope = {
-  mode: "single_window";
-  grain: TimeGranularity;
-  current: TimeWindow;
+  kind: "range";
+  start: string;
+  end: string;
 };
 
 type DetectabilityIssue = {
@@ -476,10 +482,12 @@ type DetectCandidateRef = {
 
 type DetectCandidateItem = {
   candidate_ref: DetectCandidateRef;
+  candidate_type: "point_anomaly" | "period_shift";
   window: {
     start: string;
     end: string;
   };
+  baseline_window?: { start: string; end: string } | null;
   slice: Record<string, string> | null;
   observed_value: number | null;
   expected_value: number | null;
@@ -499,7 +507,10 @@ type DetectTruncation = {
 type DetectAnalyticalMetadata = {
   timezone: string | null;
   data_complete: boolean | null;
-  baseline_method: string;
+  baseline_method: {
+    patterns: DetectPattern[];
+    methods: Record<DetectPattern, string>;
+  };
 };
 
 type DetectArtifactProvenance = {

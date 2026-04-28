@@ -11,8 +11,8 @@ Covers:
   - run_detect_intent: split_by scans independent series
   - run_detect_intent: profile echoed in response
   - run_detect_intent: invalid sensitivity → ValueError
-  - run_detect_intent: invalid mode → ValueError
-  - run_detect_intent: invalid grain → ValueError
+  - run_detect_intent: invalid time scope kind → ValueError
+  - run_detect_intent: invalid granularity → ValueError
   - run_detect_intent: invalid profile → ValueError
   - HTTP endpoint: unknown metric → 422
   - HTTP endpoint: invalid time scope (start >= end) → 422
@@ -173,11 +173,8 @@ class DetectRunnerServiceTests(unittest.TestCase):
     ) -> dict:
         params: dict = {
             "metric": _metric_ref(metric),
-            "time_scope": {
-                "mode": "single_window",
-                "grain": "day",
-                "current": {"start": start, "end": end},
-            },
+            "time_scope": {"kind": "range", "start": start, "end": end},
+            "granularity": "day",
             "sensitivity": sensitivity,
         }
         params.update(extra)
@@ -199,7 +196,10 @@ class DetectRunnerServiceTests(unittest.TestCase):
         self.assertIn("truncation", result)
         self.assertIn("returned_candidate_count", result["truncation"])
         self.assertIn("analytical_metadata", result)
-        self.assertEqual(result["analytical_metadata"]["baseline_method"], "zscore")
+        self.assertEqual(
+            result["analytical_metadata"]["baseline_method"]["methods"]["point_anomaly"],
+            "scan_window_zscore",
+        )
         self.assertIn("provenance", result)
         self.assertIn("detector_version", result["provenance"])
         self.assertIn("artifact_id", result)
@@ -234,6 +234,7 @@ class DetectRunnerServiceTests(unittest.TestCase):
         self.assertTrue(len(candidates) >= 1)
 
         top = candidates[0]
+        self.assertEqual(top["candidate_type"], "point_anomaly")
         self.assertIn("candidate_ref", top)
         self.assertIn("observed_value", top)
         self.assertIn("expected_value", top)
@@ -290,6 +291,43 @@ class DetectRunnerServiceTests(unittest.TestCase):
         session_id = self._make_session()
         result = self._detect(session_id, self.spike_metric)
         self.assertEqual(result["profile"], "auto")
+
+    def test_detect_period_shift_finds_structural_degradation(self) -> None:
+        """period_shift compares the whole range to previous adjacent baseline."""
+        session_id = self._make_session()
+        result = self._detect(
+            session_id,
+            self.spike_metric,
+            start="2026-01-09",
+            end="2026-01-15",
+            patterns=["period_shift"],
+        )
+
+        self.assertEqual(result["patterns"], ["period_shift"])
+        self.assertEqual(result["scan_summary"]["total_candidate_count"], 1)
+        candidate = result["candidates"][0]
+        self.assertEqual(candidate["candidate_type"], "period_shift")
+        self.assertEqual(candidate["direction"], "down")
+        self.assertEqual(candidate["window"], {"start": "2026-01-09", "end": "2026-01-15"})
+        self.assertEqual(
+            candidate["baseline_window"],
+            {"start": "2026-01-03", "end": "2026-01-09"},
+        )
+        self.assertLessEqual(candidate["deviation_pct"], -0.20)
+
+    def test_detect_point_anomaly_ignores_uniform_structural_window(self) -> None:
+        """point_anomaly alone returns 0 when all current-window buckets are similar."""
+        session_id = self._make_session()
+        result = self._detect(
+            session_id,
+            self.spike_metric,
+            start="2026-01-09",
+            end="2026-01-15",
+            patterns=["point_anomaly"],
+        )
+
+        self.assertEqual(result["patterns"], ["point_anomaly"])
+        self.assertEqual(result["scan_summary"]["total_candidate_count"], 0)
 
     def test_detect_invalid_profile_raises(self) -> None:
         """Unknown profile → ValueError."""
@@ -389,7 +427,7 @@ class DetectRunnerServiceTests(unittest.TestCase):
     # ── time_scope validation ─────────────────────────────────────────────────
 
     def test_detect_invalid_mode_raises(self) -> None:
-        """mode != 'single_window' → ValueError."""
+        """Old mode/grain/current shape is rejected."""
         session_id = self._make_session()
         with self.assertRaises(ValueError):
             self.service.run_intent(
@@ -402,11 +440,12 @@ class DetectRunnerServiceTests(unittest.TestCase):
                         "grain": "day",
                         "current": {"start": "2026-01-01", "end": "2026-01-15"},
                     },
+                    "granularity": "day",
                 },
             )
 
     def test_detect_invalid_grain_raises(self) -> None:
-        """Unsupported grain → ValueError."""
+        """Unsupported granularity → ValueError."""
         session_id = self._make_session()
         with self.assertRaises(ValueError):
             self.service.run_intent(
@@ -414,11 +453,8 @@ class DetectRunnerServiceTests(unittest.TestCase):
                 "detect",
                 {
                     "metric": self.spike_metric,
-                    "time_scope": {
-                        "mode": "single_window",
-                        "grain": "week",
-                        "current": {"start": "2026-01-01", "end": "2026-01-15"},
-                    },
+                    "time_scope": {"kind": "range", "start": "2026-01-01", "end": "2026-01-15"},
+                    "granularity": "quarter",
                 },
             )
 
@@ -431,11 +467,8 @@ class DetectRunnerServiceTests(unittest.TestCase):
                 "detect",
                 {
                     "metric": self.spike_metric,
-                    "time_scope": {
-                        "mode": "single_window",
-                        "grain": "day",
-                        "current": {"start": "2026-01-15", "end": "2026-01-01"},
-                    },
+                    "time_scope": {"kind": "range", "start": "2026-01-15", "end": "2026-01-01"},
+                    "granularity": "day",
                 },
             )
 
@@ -501,26 +534,22 @@ class DetectRunnerServiceTests(unittest.TestCase):
                 "detect",
                 {
                     "metric": _metric_ref("nonexistent_metric_xyz_abc"),
-                    "time_scope": {
-                        "mode": "single_window",
-                        "grain": "day",
-                        "current": {"start": "2026-01-01", "end": "2026-01-15"},
-                    },
+                    "time_scope": {"kind": "range", "start": "2026-01-01", "end": "2026-01-15"},
+                    "granularity": "day",
                 },
             )
 
     # ── response time_scope shape ─────────────────────────────────────────────
 
     def test_detect_response_time_scope_shape(self) -> None:
-        """Response time_scope must use mode/grain/current schema."""
+        """Response time_scope must use range schema plus top-level granularity."""
         session_id = self._make_session()
         result = self._detect(session_id, self.spike_metric)
         ts = result["time_scope"]
-        self.assertEqual(ts["mode"], "single_window")
-        self.assertEqual(ts["grain"], "day")
-        self.assertIn("current", ts)
-        self.assertIn("start", ts["current"])
-        self.assertIn("end", ts["current"])
+        self.assertEqual(ts["kind"], "range")
+        self.assertEqual(ts["start"], "2026-01-01")
+        self.assertEqual(ts["end"], "2026-01-15")
+        self.assertEqual(result["granularity"], "day")
 
 
 # ── HTTP endpoint tests ───────────────────────────────────────────────────────
@@ -571,10 +600,17 @@ class DetectIntentEndpointTests(unittest.TestCase):
         cls.client.close()
         cls.temp_dir.cleanup()
 
-    def _time_scope(
-        self, start: str = "2026-01-01", end: str = "2026-01-15", grain: str = "day"
-    ) -> dict:
-        return {"mode": "single_window", "grain": grain, "current": {"start": start, "end": end}}
+    def _time_scope(self, start: str = "2026-01-01", end: str = "2026-01-15") -> dict:
+        return {"kind": "range", "start": start, "end": end}
+
+    def _detect_payload(self, metric: str, **extra: object) -> dict:
+        payload: dict = {
+            "metric": _metric_ref(metric),
+            "time_scope": self._time_scope(),
+            "granularity": "day",
+        }
+        payload.update(extra)
+        return payload
 
     def test_detect_missing_metric_returns_422(self) -> None:
         r = self.client.post(
@@ -593,10 +629,7 @@ class DetectIntentEndpointTests(unittest.TestCase):
     def test_detect_unknown_metric_returns_422(self) -> None:
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/detect",
-            json={
-                "metric": _metric_ref("metric_that_does_not_exist_xyz"),
-                "time_scope": self._time_scope(),
-            },
+            json=self._detect_payload("metric_that_does_not_exist_xyz"),
         )
         self.assertEqual(r.status_code, 422)
 
@@ -616,8 +649,7 @@ class DetectIntentEndpointTests(unittest.TestCase):
         response = self.client.post(
             f"/sessions/{self.session_id}/intents/detect",
             json={
-                "metric": _metric_ref(metric_name),
-                "time_scope": self._time_scope(),
+                **self._detect_payload(metric_name),
             },
         )
 
@@ -643,8 +675,7 @@ class DetectIntentEndpointTests(unittest.TestCase):
         response = self.client.post(
             f"/sessions/{self.session_id}/intents/detect",
             json={
-                "metric": _metric_ref(metric_name),
-                "time_scope": self._time_scope(),
+                **self._detect_payload(metric_name),
                 "sensitivity": "balanced",
             },
         )
@@ -659,12 +690,13 @@ class DetectIntentEndpointTests(unittest.TestCase):
             json={
                 "metric": _metric_ref("http_detect_metric"),
                 "time_scope": self._time_scope(start="2026-02-21", end="2026-02-07"),
+                "granularity": "day",
             },
         )
         self.assertEqual(r.status_code, 422)
 
     def test_detect_invalid_mode_returns_422(self) -> None:
-        """mode != 'single_window' → 422."""
+        """Old mode/grain/current shape is rejected with 422."""
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/detect",
             json={
@@ -674,21 +706,19 @@ class DetectIntentEndpointTests(unittest.TestCase):
                     "grain": "day",
                     "current": {"start": "2026-01-01", "end": "2026-01-15"},
                 },
+                "granularity": "day",
             },
         )
         self.assertEqual(r.status_code, 422)
 
     def test_detect_invalid_grain_returns_422(self) -> None:
-        """Unsupported grain → 422."""
+        """Unsupported granularity → 422."""
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/detect",
             json={
                 "metric": _metric_ref("http_detect_metric"),
-                "time_scope": {
-                    "mode": "single_window",
-                    "grain": "week",
-                    "current": {"start": "2026-02-07", "end": "2026-03-08"},
-                },
+                "time_scope": self._time_scope(start="2026-02-07", end="2026-03-08"),
+                "granularity": "quarter",
             },
         )
         self.assertEqual(r.status_code, 422)
@@ -698,8 +728,7 @@ class DetectIntentEndpointTests(unittest.TestCase):
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/detect",
             json={
-                "metric": _metric_ref("http_detect_metric"),
-                "time_scope": self._time_scope(),
+                **self._detect_payload("http_detect_metric"),
                 "sensitivity": "balanced",
             },
         )
@@ -714,8 +743,7 @@ class DetectIntentEndpointTests(unittest.TestCase):
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/detect",
             json={
-                "metric": _metric_ref("http_detect_metric"),
-                "time_scope": self._time_scope(),
+                **self._detect_payload("http_detect_metric"),
                 "sensitivity": "balanced",
             },
         )
@@ -728,8 +756,7 @@ class DetectIntentEndpointTests(unittest.TestCase):
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/detect",
             json={
-                "metric": _metric_ref("http_detect_split_metric"),
-                "time_scope": self._time_scope(),
+                **self._detect_payload("http_detect_split_metric"),
                 "split_by": "dimension.cluster",
                 "sensitivity": "balanced",
             },
@@ -749,6 +776,7 @@ class DetectIntentEndpointTests(unittest.TestCase):
             json={
                 "metric": _metric_ref("http_detect_split_metric"),
                 "time_scope": self._time_scope(),
+                "granularity": "day",
                 "split_by": ["dimension.cluster"],
             },
         )
@@ -760,6 +788,7 @@ class DetectIntentEndpointTests(unittest.TestCase):
             json={
                 "metric": _metric_ref("http_detect_metric"),
                 "time_scope": self._time_scope(),
+                "granularity": "day",
             },
         )
         self.assertEqual(r.status_code, 404)

@@ -5,7 +5,7 @@ Covers:
   - run_diagnose_intent: detect_summary.detect_ref points to detect step
   - run_diagnose_intent: diagnoses[0].current_ref / baseline_ref point to observe steps
   - run_diagnose_intent: validation.status = "diagnosable" on clean data
-  - run_diagnose_intent: empty detect (0 candidates) → diagnoses=[], bundle still committed
+  - run_diagnose_intent: empty detect (0 candidates) → needs_attention with no_detect_candidates
   - run_diagnose_intent: baseline derivation correct for single-day candidate
   - run_diagnose_intent: only top-followup_limit candidates followed
   - run_diagnose_intent: follow_up_truncated when detect returns more than followup_limit
@@ -14,7 +14,7 @@ Covers:
   - run_diagnose_intent: missing metric → ValueError
   - run_diagnose_intent: empty candidate_dimensions → ValueError
   - run_diagnose_intent: followup_limit=0 → ValueError
-  - run_diagnose_intent: time_scope.mode != "single_window" → ValueError
+  - run_diagnose_intent: old detect time_scope shape → ValueError
   - HTTP endpoint: valid diagnose returns 200 with result_type="diagnosis_bundle"
   - HTTP endpoint: missing candidate_dimensions returns 422
   - HTTP endpoint: unknown session returns 404
@@ -69,6 +69,10 @@ _CHANNELS = ["A", "B", "C"]
 _NORMAL_VALUE = 100.0
 _ANOMALY_CHANNEL = "A"
 _ANOMALY_VALUE = 700.0
+
+
+def _detect_time_scope(start: str = _SCAN_START, end: str = _SCAN_END) -> dict[str, str]:
+    return {"kind": "range", "start": start, "end": end}
 
 
 # ── Seeding helpers ────────────────────────────────────────────────────────────
@@ -140,11 +144,8 @@ class DiagnoseRunnerServiceTests(unittest.TestCase):
             "diagnose",
             {
                 "metric": _METRIC,
-                "time_scope": {
-                    "mode": "single_window",
-                    "grain": "day",
-                    "current": {"start": _SCAN_START, "end": _SCAN_END},
-                },
+                "time_scope": _detect_time_scope(),
+                "granularity": "day",
                 "candidate_dimensions": ["channel"],
                 "followup_limit": 1,
                 "decomposition_limit": 5,
@@ -177,11 +178,8 @@ class DiagnoseRunnerServiceTests(unittest.TestCase):
             "diagnose",
             {
                 "metric": _METRIC,
-                "time_scope": {
-                    "mode": "single_window",
-                    "grain": "day",
-                    "current": {"start": _SCAN_START, "end": _SCAN_END},
-                },
+                "time_scope": _detect_time_scope(),
+                "granularity": "day",
                 "candidate_dimensions": candidate_dimensions or ["channel"],
                 "followup_limit": followup_limit,
                 "decomposition_limit": decomposition_limit,
@@ -233,7 +231,7 @@ class DiagnoseRunnerServiceTests(unittest.TestCase):
         self.assertEqual(self.full_bundle["validation"]["status"], "diagnosable")
 
     def test_empty_detect_produces_committed_bundle_with_no_diagnoses(self) -> None:
-        """High sensitivity threshold → no candidates → diagnoses=[], still a valid bundle."""
+        """No candidates returns a needs_attention bundle with guidance."""
         sid = self._make_session()
         # Use "conservative" with threshold 2.5 — our z-score is ≈3.0 so it will still trigger.
         # Use aggressive limit=0 is invalid; instead cap at followup_limit=0 is invalid.
@@ -243,12 +241,9 @@ class DiagnoseRunnerServiceTests(unittest.TestCase):
             "diagnose",
             {
                 "metric": _METRIC,
-                "time_scope": {
-                    "mode": "single_window",
-                    "grain": "day",
-                    # Only normal days — no spike, so z-score < threshold
-                    "current": {"start": "2024-03-01", "end": "2024-03-05"},
-                },
+                # Only normal days — no spike, so z-score < threshold
+                "time_scope": _detect_time_scope("2024-03-01", "2024-03-05"),
+                "granularity": "day",
                 "candidate_dimensions": ["channel"],
                 "followup_limit": 3,
                 "sensitivity": "conservative",  # threshold 2.5
@@ -256,6 +251,10 @@ class DiagnoseRunnerServiceTests(unittest.TestCase):
         )
         self.assertEqual(bundle["result_type"], "diagnosis_bundle")
         self.assertEqual(bundle["diagnoses"], [])
+        self.assertEqual(bundle["validation"]["status"], "needs_attention")
+        self.assertTrue(
+            any(i["code"] == "no_detect_candidates" for i in bundle["validation"]["issues"])
+        )
         self.assertEqual(bundle["detect_summary"]["followed_candidate_count"], 0)
         self.assertIsNotNone(bundle["artifact_id"])
 
@@ -266,15 +265,12 @@ class DiagnoseRunnerServiceTests(unittest.TestCase):
             "diagnose",
             {
                 "metric": _METRIC,
-                "time_scope": {
-                    "mode": "single_window",
-                    "grain": "day",
-                    "current": {"start": "2024-03-01", "end": "2024-03-03"},
-                },
+                "time_scope": _detect_time_scope("2024-03-01", "2024-03-03"),
+                "granularity": "day",
                 "candidate_dimensions": ["channel"],
             },
         )
-        self.assertEqual(bundle["validation"]["status"], "diagnosable")
+        self.assertEqual(bundle["validation"]["status"], "needs_attention")
         self.assertEqual(bundle["diagnoses"], [])
         guidance = bundle["validation"]["guidance"]
         self.assertEqual(guidance["reason"], "insufficient_points")
@@ -329,6 +325,34 @@ class DiagnoseRunnerServiceTests(unittest.TestCase):
         cand = bundle["diagnoses"][0]
         self.assertEqual(cand["status"], "diagnosed")
 
+    def test_explicit_compare_does_not_create_detect_step(self) -> None:
+        sid = self._make_session()
+        bundle = self.service.run_intent(
+            sid,
+            "diagnose",
+            {
+                "mode": "explicit_compare",
+                "metric": _METRIC,
+                "current": {"time_scope": _detect_time_scope(_ANOMALY_DATE, _ANOMALY_DATE_END)},
+                "baseline": {"time_scope": _detect_time_scope(_BASELINE_DATE, _BASELINE_DATE_END)},
+                "candidate_dimensions": ["channel"],
+                "decomposition_limit": 5,
+            },
+        )
+
+        self.assertEqual(bundle["mode"], "explicit_compare")
+        self.assertIsNone(bundle["detect_summary"])
+        self.assertEqual(len(bundle["diagnoses"]), 1)
+        self.assertEqual(bundle["diagnoses"][0]["status"], "diagnosed")
+        step_rows = self.metadata.query_rows(
+            "SELECT step_type FROM steps WHERE session_id = ?", [sid]
+        )
+        step_types = [row["step_type"] for row in step_rows]
+        self.assertNotIn("detect", step_types)
+        self.assertEqual(step_types.count("observe"), 2)
+        self.assertEqual(step_types.count("compare"), 1)
+        self.assertEqual(step_types.count("decompose"), 1)
+
     def test_result_type_is_diagnosis_bundle(self) -> None:
         """result_type field is 'diagnosis_bundle'."""
         self.assertEqual(self.full_bundle["result_type"], "diagnosis_bundle")
@@ -354,11 +378,8 @@ class DiagnoseRunnerServiceTests(unittest.TestCase):
                 "diagnose",
                 {
                     "metric": "",
-                    "time_scope": {
-                        "mode": "single_window",
-                        "grain": "day",
-                        "current": {"start": _SCAN_START, "end": _SCAN_END},
-                    },
+                    "time_scope": _detect_time_scope(),
+                    "granularity": "day",
                     "candidate_dimensions": ["channel"],
                 },
             )
@@ -373,11 +394,8 @@ class DiagnoseRunnerServiceTests(unittest.TestCase):
                 "diagnose",
                 {
                     "metric": _METRIC,
-                    "time_scope": {
-                        "mode": "single_window",
-                        "grain": "day",
-                        "current": {"start": _SCAN_START, "end": _SCAN_END},
-                    },
+                    "time_scope": _detect_time_scope(),
+                    "granularity": "day",
                     "candidate_dimensions": [],
                 },
             )
@@ -392,19 +410,16 @@ class DiagnoseRunnerServiceTests(unittest.TestCase):
                 "diagnose",
                 {
                     "metric": _METRIC,
-                    "time_scope": {
-                        "mode": "single_window",
-                        "grain": "day",
-                        "current": {"start": _SCAN_START, "end": _SCAN_END},
-                    },
+                    "time_scope": _detect_time_scope(),
+                    "granularity": "day",
                     "candidate_dimensions": ["channel"],
                     "followup_limit": 0,
                 },
             )
         self.assertIn("followup_limit", str(ctx.exception))
 
-    def test_time_scope_mode_not_single_window_raises(self) -> None:
-        """time_scope.mode != 'single_window' → ValueError."""
+    def test_old_time_scope_shape_raises(self) -> None:
+        """Old mode/grain/current shape is rejected."""
         sid = self._make_session()
         with self.assertRaises(ValueError) as ctx:
             self.service.run_intent(
@@ -417,10 +432,11 @@ class DiagnoseRunnerServiceTests(unittest.TestCase):
                         "grain": "day",
                         "current": {"start": _SCAN_START, "end": _SCAN_END},
                     },
+                    "granularity": "day",
                     "candidate_dimensions": ["channel"],
                 },
             )
-        self.assertIn("single_window", str(ctx.exception))
+        self.assertIn("time_scope.kind", str(ctx.exception))
 
 
 # ── HTTP endpoint tests ────────────────────────────────────────────────────────
@@ -457,11 +473,8 @@ class DiagnoseHTTPTests(unittest.TestCase):
             f"/sessions/{self.session_id}/intents/diagnose",
             json={
                 "metric": _metric_ref(_METRIC),
-                "time_scope": {
-                    "mode": "single_window",
-                    "grain": "day",
-                    "current": {"start": _SCAN_START, "end": _SCAN_END},
-                },
+                "time_scope": _detect_time_scope(),
+                "granularity": "day",
                 "candidate_dimensions": ["channel"],
                 "followup_limit": 1,
             },
@@ -476,11 +489,8 @@ class DiagnoseHTTPTests(unittest.TestCase):
             f"/sessions/{self.session_id}/intents/diagnose",
             json={
                 "metric": _metric_ref(_METRIC),
-                "time_scope": {
-                    "mode": "single_window",
-                    "grain": "day",
-                    "current": {"start": _SCAN_START, "end": _SCAN_END},
-                },
+                "time_scope": _detect_time_scope(),
+                "granularity": "day",
                 # no candidate_dimensions
             },
         )
@@ -492,11 +502,8 @@ class DiagnoseHTTPTests(unittest.TestCase):
             "/sessions/sess_nonexistent/intents/diagnose",
             json={
                 "metric": _metric_ref(_METRIC),
-                "time_scope": {
-                    "mode": "single_window",
-                    "grain": "day",
-                    "current": {"start": _SCAN_START, "end": _SCAN_END},
-                },
+                "time_scope": _detect_time_scope(),
+                "granularity": "day",
                 "candidate_dimensions": ["channel"],
             },
         )
@@ -528,11 +535,8 @@ class DiagnoseValidationBoundaryTests(unittest.TestCase):
             "diagnose",
             {
                 "metric": _METRIC,
-                "time_scope": {
-                    "mode": "single_window",
-                    "grain": "day",
-                    "current": {"start": _SCAN_START, "end": _SCAN_END},
-                },
+                "time_scope": _detect_time_scope(),
+                "granularity": "day",
                 "candidate_dimensions": ["channel", "channel"],
                 "detect_split_by": "channel",
                 "followup_limit": 1,
@@ -543,11 +547,8 @@ class DiagnoseValidationBoundaryTests(unittest.TestCase):
             "diagnose",
             {
                 "metric": _METRIC,
-                "time_scope": {
-                    "mode": "single_window",
-                    "grain": "day",
-                    "current": {"start": _SCAN_START, "end": _SCAN_END},
-                },
+                "time_scope": _detect_time_scope(),
+                "granularity": "day",
                 "candidate_dimensions": ["channel"],
                 "decomposition_limit": 1,
                 "followup_limit": 1,
@@ -564,11 +565,8 @@ class DiagnoseValidationBoundaryTests(unittest.TestCase):
     def _base_params(self, **overrides: object) -> dict:
         p: dict = {
             "metric": _METRIC,
-            "time_scope": {
-                "mode": "single_window",
-                "grain": "day",
-                "current": {"start": _SCAN_START, "end": _SCAN_END},
-            },
+            "time_scope": _detect_time_scope(),
+            "granularity": "day",
             "candidate_dimensions": ["channel"],
         }
         p.update(overrides)
@@ -588,8 +586,8 @@ class DiagnoseValidationBoundaryTests(unittest.TestCase):
             self.service.run_intent(sid, "diagnose", self._base_params(decomposition_limit=0))
         self.assertIn("decomposition_limit", str(ctx.exception))
 
-    def test_invalid_grain_raises_with_valid_options_listed(self) -> None:
-        """grain='quarterly' → ValueError mentioning all four valid grains."""
+    def test_invalid_granularity_raises_with_valid_options_listed(self) -> None:
+        """granularity='quarterly' → ValueError mentioning all four valid granularities."""
         sid = self._make_session()
         with self.assertRaises(ValueError) as ctx:
             self.service.run_intent(
@@ -597,11 +595,8 @@ class DiagnoseValidationBoundaryTests(unittest.TestCase):
                 "diagnose",
                 {
                     "metric": _METRIC,
-                    "time_scope": {
-                        "mode": "single_window",
-                        "grain": "quarterly",
-                        "current": {"start": _SCAN_START, "end": _SCAN_END},
-                    },
+                    "time_scope": _detect_time_scope(),
+                    "granularity": "quarterly",
                     "candidate_dimensions": ["channel"],
                 },
             )
@@ -611,8 +606,8 @@ class DiagnoseValidationBoundaryTests(unittest.TestCase):
         for g in ("hour", "day", "week", "month"):
             self.assertIn(g, err)
 
-    def test_grain_week_passes_grain_validation(self) -> None:
-        """grain='week' should not be rejected by grain validation (may fail downstream)."""
+    def test_granularity_week_passes_validation(self) -> None:
+        """granularity='week' should not be rejected by granularity validation."""
         sid = self._make_session()
         try:
             self.service.run_intent(
@@ -620,23 +615,21 @@ class DiagnoseValidationBoundaryTests(unittest.TestCase):
                 "diagnose",
                 {
                     "metric": _METRIC,
-                    "time_scope": {
-                        "mode": "single_window",
-                        "grain": "week",
-                        "current": {"start": "2024-03-01", "end": "2024-03-29"},
-                    },
+                    "time_scope": _detect_time_scope("2024-03-01", "2024-03-29"),
+                    "granularity": "week",
                     "candidate_dimensions": ["channel"],
                     "followup_limit": 1,
                 },
             )
         except ValueError as exc:
-            # Must NOT be the grain validation error
             self.assertNotIn(
-                "grain", str(exc).lower(), msg=f"grain validation rejected 'week': {exc}"
+                "granularity",
+                str(exc).lower(),
+                msg=f"granularity validation rejected 'week': {exc}",
             )
 
-    def test_grain_month_passes_grain_validation(self) -> None:
-        """grain='month' should not be rejected by grain validation."""
+    def test_granularity_month_passes_validation(self) -> None:
+        """granularity='month' should not be rejected by granularity validation."""
         sid = self._make_session()
         try:
             self.service.run_intent(
@@ -644,18 +637,17 @@ class DiagnoseValidationBoundaryTests(unittest.TestCase):
                 "diagnose",
                 {
                     "metric": _METRIC,
-                    "time_scope": {
-                        "mode": "single_window",
-                        "grain": "month",
-                        "current": {"start": "2024-01-01", "end": "2024-04-01"},
-                    },
+                    "time_scope": _detect_time_scope("2024-01-01", "2024-04-01"),
+                    "granularity": "month",
                     "candidate_dimensions": ["channel"],
                     "followup_limit": 1,
                 },
             )
         except ValueError as exc:
             self.assertNotIn(
-                "grain", str(exc).lower(), msg=f"grain validation rejected 'month': {exc}"
+                "granularity",
+                str(exc).lower(),
+                msg=f"granularity validation rejected 'month': {exc}",
             )
 
     def test_duplicate_candidate_dimensions_deduped_to_single_driver_set(self) -> None:
@@ -800,13 +792,11 @@ class DiagnoseHourFollowupRegressionTests(unittest.TestCase):
                 {
                     "metric": "trino_elapsed_seconds_p95",
                     "time_scope": {
-                        "mode": "single_window",
-                        "grain": "hour",
-                        "current": {
-                            "start": "2026-04-09T00:00:00",
-                            "end": "2026-04-10T00:00:00",
-                        },
+                        "kind": "range",
+                        "start": "2026-04-09T00:00:00",
+                        "end": "2026-04-10T00:00:00",
                     },
+                    "granularity": "hour",
                     "candidate_dimensions": ["trino_resource_group"],
                     "followup_limit": 1,
                 },

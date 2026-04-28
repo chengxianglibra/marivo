@@ -11,6 +11,7 @@ from app.time_contracts import (
     TimeGrain,
     bucket_window,
     normalize_hour_boundary,
+    previous_adjacent_window,
     recommended_minimum_window,
 )
 from app.time_scope import normalize_metric_query_request
@@ -24,12 +25,19 @@ _SENSITIVITY_THRESHOLD: dict[str, float] = {
     "aggressive": 1.5,
 }
 
+_PERIOD_SHIFT_THRESHOLD: dict[str, float] = {
+    "conservative": 0.30,
+    "balanced": 0.20,
+    "aggressive": 0.10,
+}
+
 _VALID_PROFILES: frozenset[str] = frozenset(
     {"auto", "spike_dip", "level_shift", "seasonal_residual"}
 )
 
 _MIN_POINTS_FOR_DETECTION = 3
 _DEFAULT_MAX_SERIES = 20
+_VALID_PATTERNS: frozenset[str] = frozenset({"point_anomaly", "period_shift"})
 
 
 def _coerce_float(value: Any) -> float | None:
@@ -83,6 +91,7 @@ def _detect_series_candidates(
         flag_level = "high" if abs_z > 3.0 else ("medium" if abs_z > 2.0 else "low")
         candidates.append(
             {
+                "candidate_type": "point_anomaly",
                 "window": bucket["window"],
                 "slice": dict(candidate_slice) if candidate_slice else None,
                 "observed_value": val,
@@ -95,6 +104,32 @@ def _detect_series_candidates(
             }
         )
     return candidates
+
+
+def _resolve_patterns(raw_patterns: Any, *, profile: str) -> list[str]:
+    if raw_patterns is None:
+        return ["period_shift"] if profile == "level_shift" else ["point_anomaly"]
+    if not isinstance(raw_patterns, list) or not raw_patterns:
+        raise ValueError("detect: INVALID_ARGUMENT - patterns must be a non-empty list")
+    patterns: list[str] = []
+    for raw in raw_patterns:
+        pattern = str(raw).strip()
+        if pattern not in _VALID_PATTERNS:
+            raise ValueError(
+                f"detect: INVALID_ARGUMENT - pattern '{pattern}' is not valid. "
+                f"Must be one of: {sorted(_VALID_PATTERNS)}"
+            )
+        if pattern not in patterns:
+            patterns.append(pattern)
+    return patterns
+
+
+def _flag_level_for_period_shift(score: float) -> str:
+    if score >= 0.50:
+        return "high"
+    if score >= 0.30:
+        return "medium"
+    return "low"
 
 
 def _table_has_column(
@@ -117,14 +152,148 @@ def _table_has_column(
     return column_name in {str(row.get("column_name") or "") for row in rows}
 
 
+def _query_scalar_window_values(
+    svc: SemanticLayerService,
+    *,
+    session_id: str,
+    engine: Any,
+    engine_type: str,
+    table: str,
+    qualified_table: str,
+    metric_ref: str,
+    metric_sql: str,
+    all_dimensions: list[str],
+    execution_context: Any,
+    scope_raw: Any,
+    start: str,
+    end: str,
+    granularity: str,
+    split_by: str | None,
+    split_by_expr: str | None,
+) -> dict[str, dict[str, Any]]:
+    mq_params: dict[str, Any] = {
+        "table": table,
+        "metric": metric_ref,
+        "time_scope": {
+            "mode": "single_window",
+            "grain": granularity,
+            "current": {"start": start, "end": end},
+        },
+    }
+    if scope_raw:
+        mq_params["scope"] = scope_raw
+    resolved = normalize_metric_query_request(mq_params)
+    svc._resolve_windowed_query_time_axis(
+        resolved,
+        engine_type=engine_type,
+        metric_name=metric_ref,
+        fallback_columns=all_dimensions,
+    )
+    scoped_query = svc._build_scoped_query(session_id, resolved, engine_type=engine_type)
+
+    select_exprs = [f"{metric_sql} AS value"]
+    group_by: list[str] = []
+    order_by: str | None = None
+    if split_by is not None:
+        if split_by_expr is None:
+            raise ValueError(
+                f"detect: INVALID_ARGUMENT - split_by '{split_by}' did not resolve to a physical column"
+            )
+        select_exprs.insert(0, f"{split_by_expr} AS split_value")
+        group_by.append("split_value")
+        order_by = "split_value"
+
+    compiled_query = svc._compile_step_with_feedback(
+        AnalysisStepIR(
+            index=0,
+            step_type="aggregate_query",
+            params={
+                "table": qualified_table,
+                "select": select_exprs,
+                "group_by": group_by,
+                "order_by": order_by,
+                "scoped_query": scoped_query,
+                "limit": 10000,
+            },
+        ),
+        engine_type=engine_type,
+        semantic_context={"metric_execution_context": execution_context},
+    )
+    result: dict[str, dict[str, Any]] = {}
+    for row in execute_compiled(engine, compiled_query).rows:
+        value = _coerce_float(row.get("value"))
+        if split_by is None:
+            result["__overall__"] = {"slice": None, "value": value}
+        else:
+            split_value = row.get("split_value")
+            result[str(split_value)] = {
+                "slice": {split_by: split_value},
+                "value": value,
+            }
+    if split_by is None and "__overall__" not in result:
+        result["__overall__"] = {"slice": None, "value": None}
+    return result
+
+
+def _detect_period_shift_candidates(
+    *,
+    current_values: dict[str, dict[str, Any]],
+    baseline_values: dict[str, dict[str, Any]],
+    current_window: dict[str, str],
+    baseline_window: dict[str, str],
+    threshold: float,
+) -> list[dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
+    for key, current_item in current_values.items():
+        current_value = current_item.get("value")
+        baseline_item = baseline_values.get(key)
+        if baseline_item is None:
+            continue
+        baseline_value = baseline_item.get("value")
+        if current_value is None or baseline_value is None:
+            continue
+        deviation_abs = current_value - baseline_value
+        if baseline_value != 0:
+            deviation_pct_value = deviation_abs / abs(baseline_value)
+            deviation_pct: float | None = deviation_pct_value
+            candidate_score = abs(deviation_pct_value)
+        else:
+            deviation_pct = None
+            candidate_score = abs(deviation_abs)
+        if candidate_score < threshold:
+            continue
+        if deviation_abs > 0:
+            direction = "up"
+        elif deviation_abs < 0:
+            direction = "down"
+        else:
+            direction = "flat"
+        candidates.append(
+            {
+                "candidate_type": "period_shift",
+                "window": dict(current_window),
+                "baseline_window": dict(baseline_window),
+                "slice": current_item.get("slice"),
+                "observed_value": current_value,
+                "expected_value": baseline_value,
+                "deviation_abs": deviation_abs,
+                "deviation_pct": deviation_pct,
+                "candidate_score": candidate_score,
+                "flag_level": _flag_level_for_period_shift(candidate_score),
+                "direction": direction,
+            }
+        )
+    return candidates
+
+
 def run_detect_intent(
     svc: SemanticLayerService, session_id: str, params: dict[str, Any] | None
 ) -> dict[str, Any]:
     """Execute a `detect` intent: scan a metric time range for anomaly candidates.
 
-    Applies z-score against the scan-window mean/std to flag candidate anomalies.
+    Applies requested candidate patterns to flag anomaly candidates.
 
-    time_scope must use mode="single_window" with explicit grain and current window.
+    time_scope must use the observe-aligned range shape plus top-level granularity.
     Empty semantics: total_candidate_count = 0 is a valid success outcome —
     the artifact is committed even when no candidates are found.
     """
@@ -140,46 +309,43 @@ def run_detect_intent(
     if not isinstance(time_scope_raw, dict):
         raise ValueError("detect intent requires 'time_scope'")
 
-    # ── Validate and parse time_scope (mode/grain/current schema) ─────────────
-    mode = time_scope_raw.get("mode")
-    if mode != "single_window":
+    # ── Validate and parse time_scope (range schema) ─────────────────────────
+    kind = time_scope_raw.get("kind")
+    if kind != "range":
         raise ValueError(
-            f"detect: INVALID_ARGUMENT - time_scope.mode must be 'single_window', got '{mode}'"
+            f"detect: INVALID_ARGUMENT - time_scope.kind must be 'range', got '{kind}'"
         )
 
-    grain: str = str(time_scope_raw.get("grain") or "").lower()
-    if grain not in {"hour", "day", "week", "month"}:
+    granularity: str = str(p.get("granularity") or "").lower()
+    if granularity not in {"hour", "day", "week", "month"}:
         raise ValueError(
-            f"detect: INVALID_ARGUMENT - time_scope.grain must be one of "
-            f"'hour', 'day', 'week', 'month', got '{grain}'"
+            f"detect: INVALID_ARGUMENT - granularity must be one of "
+            f"'hour', 'day', 'week', 'month', got '{granularity}'"
         )
-    grain_typed = cast("TimeGrain", grain)
+    granularity_typed = cast("TimeGrain", granularity)
 
-    current = time_scope_raw.get("current")
-    if not isinstance(current, dict):
-        raise ValueError("detect: INVALID_ARGUMENT - time_scope.current is required")
-    start_str: str = str(current.get("start") or "").strip()
-    end_str: str = str(current.get("end") or "").strip()
+    start_str: str = str(time_scope_raw.get("start") or "").strip()
+    end_str: str = str(time_scope_raw.get("end") or "").strip()
     if not start_str or not end_str:
-        raise ValueError("detect: time_scope.current requires 'start' and 'end'")
-    if grain_typed == "hour":
-        start_str = normalize_hour_boundary(start_str, label="time_scope.current.start")
-        end_str = normalize_hour_boundary(end_str, label="time_scope.current.end")
+        raise ValueError("detect: time_scope requires 'start' and 'end'")
+    if granularity_typed == "hour":
+        start_str = normalize_hour_boundary(start_str, label="time_scope.start")
+        end_str = normalize_hour_boundary(end_str, label="time_scope.end")
         if datetime.fromisoformat(start_str) >= datetime.fromisoformat(end_str):
             raise ValueError(
-                f"detect: INVALID_ARGUMENT - time_scope.current.start ('{start_str}') "
+                f"detect: INVALID_ARGUMENT - time_scope.start ('{start_str}') "
                 f"must be before end ('{end_str}')"
             )
     elif start_str >= end_str:
         raise ValueError(
-            f"detect: INVALID_ARGUMENT - time_scope.current.start ('{start_str}') "
+            f"detect: INVALID_ARGUMENT - time_scope.start ('{start_str}') "
             f"must be before end ('{end_str}')"
         )
 
     resolved_time_scope: dict[str, Any] = {
-        "mode": "single_window",
-        "grain": grain,
-        "current": {"start": start_str, "end": end_str},
+        "kind": "range",
+        "start": start_str,
+        "end": end_str,
     }
 
     # ── Validate sensitivity ───────────────────────────────────────────────────
@@ -197,6 +363,8 @@ def run_detect_intent(
             f"detect: INVALID_ARGUMENT - profile='{profile}' is not valid. "
             f"Must be one of: {sorted(_VALID_PROFILES)}"
         )
+
+    patterns = _resolve_patterns(p.get("patterns"), profile=profile)
 
     # ── Read split_by ─────────────────────────────────────────────────────────
     split_by_raw = p.get("split_by")
@@ -275,7 +443,7 @@ def run_detect_intent(
         "metric": metric_ref,
         "time_scope": {
             "mode": "single_window",
-            "grain": grain,
+            "grain": granularity,
             "current": {"start": start_str, "end": end_str},
         },
     }
@@ -293,7 +461,7 @@ def run_detect_intent(
     qualified_table = qualified.get(table, table)
 
     time_col = resolved.resolved_time_axis.analysis_time_expr
-    bucket_expr = f"DATE_TRUNC('{grain}', {time_col})"
+    bucket_expr = f"DATE_TRUNC('{granularity}', {time_col})"
     select_exprs = [
         f"{bucket_expr} AS bucket_start",
         f"{metric_sql} AS value",
@@ -343,7 +511,7 @@ def run_detect_intent(
         if bucket_raw is None:
             continue
         try:
-            window = bucket_window(bucket_raw, grain_typed)
+            window = bucket_window(bucket_raw, granularity_typed)
         except (ValueError, TypeError):
             bucket_str = str(bucket_raw)
             window = {"start": bucket_str, "end": bucket_str}
@@ -395,7 +563,7 @@ def run_detect_intent(
             "minimum_window_buckets": _MIN_POINTS_FOR_DETECTION,
             "recommended_next_action": "expand_scan_window",
             "recommended_current_window": recommended_minimum_window(
-                end_str, grain=grain_typed, bucket_count=_MIN_POINTS_FOR_DETECTION
+                end_str, grain=granularity_typed, bucket_count=_MIN_POINTS_FOR_DETECTION
             ),
             "fallback_path": {
                 "kind": "compare_plus_decompose",
@@ -431,16 +599,66 @@ def run_detect_intent(
             }
         )
 
-    # ── Z-score detection ──────────────────────────────────────────────────────
+    # ── Candidate detection ───────────────────────────────────────────────────
     _raw_candidates: list[dict[str, Any]] = []
     threshold = _SENSITIVITY_THRESHOLD[sensitivity]
 
-    for item in selected_series:
+    if "point_anomaly" in patterns:
+        for item in selected_series:
+            _raw_candidates.extend(
+                _detect_series_candidates(
+                    cast("list[dict[str, Any]]", item["series"]),
+                    candidate_slice=cast("dict[str, Any] | None", item["slice"]),
+                    threshold=threshold,
+                )
+            )
+
+    if "period_shift" in patterns:
+        baseline_window = previous_adjacent_window(start_str, end_str, grain=granularity_typed)
+        current_window = {"start": start_str, "end": end_str}
+        current_values = _query_scalar_window_values(
+            svc,
+            session_id=session_id,
+            engine=engine,
+            engine_type=engine_type,
+            table=table,
+            qualified_table=qualified_table,
+            metric_ref=metric_ref,
+            metric_sql=metric_sql,
+            all_dimensions=all_dimensions,
+            execution_context=execution_context,
+            scope_raw=scope_raw,
+            start=start_str,
+            end=end_str,
+            granularity=granularity,
+            split_by=split_by,
+            split_by_expr=split_by_expr,
+        )
+        baseline_values = _query_scalar_window_values(
+            svc,
+            session_id=session_id,
+            engine=engine,
+            engine_type=engine_type,
+            table=table,
+            qualified_table=qualified_table,
+            metric_ref=metric_ref,
+            metric_sql=metric_sql,
+            all_dimensions=all_dimensions,
+            execution_context=execution_context,
+            scope_raw=scope_raw,
+            start=baseline_window["start"],
+            end=baseline_window["end"],
+            granularity=granularity,
+            split_by=split_by,
+            split_by_expr=split_by_expr,
+        )
         _raw_candidates.extend(
-            _detect_series_candidates(
-                cast("list[dict[str, Any]]", item["series"]),
-                candidate_slice=cast("dict[str, Any] | None", item["slice"]),
-                threshold=threshold,
+            _detect_period_shift_candidates(
+                current_values=current_values,
+                baseline_values=baseline_values,
+                current_window=current_window,
+                baseline_window=baseline_window,
+                threshold=_PERIOD_SHIFT_THRESHOLD[sensitivity],
             )
         )
 
@@ -450,6 +668,7 @@ def run_detect_intent(
             -c["candidate_score"],
             -(abs(c["deviation_abs"]) if c["deviation_abs"] is not None else 0.0),
             c["window"]["start"],
+            c.get("candidate_type") or "",
             _slice_sort_key(c["slice"]),
         )
     )
@@ -490,10 +709,12 @@ def run_detect_intent(
         "artifact_schema_version": "v1",
         "metric": metric_name,
         "time_scope": resolved_time_scope,
+        "granularity": granularity,
         "scope": scope_raw,
         "split_by": split_by,
         "profile": profile,
         "sensitivity": sensitivity,
+        "patterns": patterns,
         "detectability": {
             "status": detectability_status,
             "issues": detectability_issues,
@@ -514,7 +735,13 @@ def run_detect_intent(
         "analytical_metadata": {
             "timezone": None,
             "data_complete": None,
-            "baseline_method": "zscore",
+            "baseline_method": {
+                "patterns": patterns,
+                "methods": {
+                    "point_anomaly": "scan_window_zscore",
+                    "period_shift": "previous_adjacent_equal_length",
+                },
+            },
         },
         "provenance": {
             "artifact_ref": {
@@ -524,7 +751,7 @@ def run_detect_intent(
                 "artifact_id": None,  # patched after _insert_artifact
             },
             "source_metric_ref": metric_ref,
-            "detector_version": "1.1",
+            "detector_version": "1.2",
             "projection_ref": None,
         },
         "execution_metadata": {

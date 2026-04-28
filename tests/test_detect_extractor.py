@@ -95,17 +95,17 @@ def _artifact(
         "artifact_schema_version": "v1",
         "metric": metric,
         "scope": scope,
-        "time_scope": {
-            "mode": "single_window",
-            "grain": grain,
-            "current": {"start": "2024-01-01", "end": "2024-01-08"},
-        },
+        "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+        "granularity": grain,
         "candidates": candidates,
         "scan_summary": {
             "total_candidate_count": total_candidate_count,
         },
         "analytical_metadata": {
-            "baseline_method": "zscore",
+            "baseline_method": {
+                "patterns": ["point_anomaly"],
+                "methods": {"point_anomaly": "scan_window_zscore"},
+            },
         },
     }
 
@@ -559,7 +559,7 @@ class TestDetectExtractorValidateForCommit(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# TestDetectExtractorGrain — subject.grain extraction from time_scope
+# TestDetectExtractorGrain — subject.grain extraction from granularity
 # ---------------------------------------------------------------------------
 
 
@@ -580,25 +580,26 @@ class TestDetectExtractorGrain(unittest.TestCase):
         result = _EXTRACTOR.extract(_ART_ID, _artifact(grain="hour"), _STEP_REF, _SESSION)
         self.assertEqual(result["findings"][0]["subject"]["grain"], "hour")
 
-    def test_grain_null_when_time_scope_absent(self) -> None:
+    def test_grain_null_when_granularity_absent(self) -> None:
         payload: dict[str, Any] = {
             "artifact_type": "anomaly_candidates",
             "artifact_schema_version": "v1",
             "metric": "daily_users",
+            "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
             "candidates": [_candidate()],
         }
         result = _EXTRACTOR.extract(_ART_ID, payload, _STEP_REF, _SESSION)
         self.assertIsNone(result["findings"][0]["subject"]["grain"])
 
-    def test_grain_null_when_grain_field_absent(self) -> None:
+    def test_grain_null_when_granularity_field_absent(self) -> None:
         payload = _artifact()
-        del payload["time_scope"]["grain"]
+        del payload["granularity"]
         result = _EXTRACTOR.extract(_ART_ID, payload, _STEP_REF, _SESSION)
         self.assertIsNone(result["findings"][0]["subject"]["grain"])
 
     def test_grain_null_for_invalid_value(self) -> None:
         payload = _artifact()
-        payload["time_scope"]["grain"] = "minute"
+        payload["granularity"] = "minute"
         result = _EXTRACTOR.extract(_ART_ID, payload, _STEP_REF, _SESSION)
         self.assertIsNone(result["findings"][0]["subject"]["grain"])
 

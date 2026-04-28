@@ -34,6 +34,66 @@ _DEFAULT_DECOMPOSITION_LIMIT = 5
 _MAX_DECOMPOSITION_LIMIT = 100
 _DERIVED_LOGIC_VERSION = "1.0"
 _PROJECTION_VERSION = "diagnosis_bundle.v1"
+_VALID_PATTERNS = frozenset({"point_anomaly", "period_shift"})
+
+
+def _normalize_range_time_scope(
+    raw: Any,
+    *,
+    granularity: TimeGrain,
+    label: str,
+) -> dict[str, str]:
+    if not isinstance(raw, dict):
+        raise ValueError(f"diagnose: INVALID_ARGUMENT - {label} is required")
+    if raw.get("kind") != "range":
+        raise ValueError(
+            f"diagnose: INVALID_ARGUMENT - {label}.kind must be 'range', got '{raw.get('kind')}'"
+        )
+    start = str(raw.get("start") or "").strip()
+    end = str(raw.get("end") or "").strip()
+    if not start or not end:
+        raise ValueError(f"diagnose: INVALID_ARGUMENT - {label} requires 'start' and 'end'")
+    if granularity == "hour":
+        start = normalize_hour_boundary(start, label=f"{label}.start")
+        end = normalize_hour_boundary(end, label=f"{label}.end")
+        if datetime.fromisoformat(start) >= datetime.fromisoformat(end):
+            raise ValueError(
+                f"diagnose: INVALID_ARGUMENT - {label}.start ('{start}') must be before "
+                f"end ('{end}')"
+            )
+    elif start >= end:
+        raise ValueError(
+            f"diagnose: INVALID_ARGUMENT - {label}.start ('{start}') must be before end ('{end}')"
+        )
+    return {"kind": "range", "start": start, "end": end}
+
+
+def _normalize_granularity(raw: Any) -> TimeGrain:
+    granularity = str(raw or "").lower()
+    if granularity not in {"hour", "day", "week", "month"}:
+        raise ValueError(
+            f"diagnose: INVALID_ARGUMENT - granularity must be one of "
+            f"'hour', 'day', 'week', 'month', got '{granularity}'"
+        )
+    return cast("TimeGrain", granularity)
+
+
+def _normalize_patterns(raw_patterns: Any) -> list[str] | None:
+    if raw_patterns is None:
+        return None
+    if not isinstance(raw_patterns, list) or not raw_patterns:
+        raise ValueError("diagnose: INVALID_ARGUMENT - patterns must be a non-empty list")
+    patterns: list[str] = []
+    for raw in raw_patterns:
+        pattern = str(raw).strip()
+        if pattern not in _VALID_PATTERNS:
+            raise ValueError(
+                f"diagnose: INVALID_ARGUMENT - pattern '{pattern}' is not valid. "
+                f"Must be one of: {sorted(_VALID_PATTERNS)}"
+            )
+        if pattern not in patterns:
+            patterns.append(pattern)
+    return patterns
 
 
 def run_diagnose_intent(
@@ -41,71 +101,33 @@ def run_diagnose_intent(
 ) -> dict[str, Any]:
     """Execute a `diagnose` derived intent.
 
-    Expands to:
-      detect + (observe×2 + compare + decompose×D) × followup_limit
-
-    Input (from DiagnoseRequest):
-      metric:               published semantic metric
-      time_scope:           single_window detect time scope
-      scope:                optional non-time scope
-      detect_split_by:      optional split dimension for detect
-      candidate_dimensions: non-empty list of attribution dimensions (required)
-      profile:              detection profile ("auto" default)
-      sensitivity:          detection sensitivity ("balanced" default)
-      candidate_limit:      passed to detect as limit
-      followup_limit:       max candidates to follow up (default 3, max 10)
-      decomposition_limit:  max driver rows per dimension (default 5, max 100)
-
-    Failure semantics:
-      - detect failure → hard fail for the whole intent
-      - per-candidate observe/compare/decompose failures → mark candidate needs_attention
-      - validation.status = "needs_attention" if any error-severity issues exist
+    `mode="auto_detect"` expands detect + follow-up over top candidates.
+    `mode="explicit_compare"` expands observe(current) + observe(baseline)
+    + compare + decompose without running detect.
     """
     p = params or {}
 
-    # ── Input validation ───────────────────────────────────────────────────────
     metric_ref: str = (p.get("metric") or "").strip()
     if not metric_ref:
         raise ValueError("diagnose: INVALID_ARGUMENT - metric is required")
     metric_ref = svc.normalize_intent_metric_ref(metric_ref)
     metric_name = svc.metric_name_from_ref(metric_ref)
 
-    time_scope_raw = p.get("time_scope")
-    if not isinstance(time_scope_raw, dict):
-        raise ValueError("diagnose: INVALID_ARGUMENT - time_scope is required")
-    ts_mode = time_scope_raw.get("mode")
-    if ts_mode != "single_window":
+    mode = str(p.get("mode") or "auto_detect").strip()
+    if mode not in {"auto_detect", "explicit_compare"}:
         raise ValueError(
-            f"diagnose: INVALID_ARGUMENT - time_scope.mode must be 'single_window', got '{ts_mode}'"
+            "diagnose: INVALID_ARGUMENT - mode must be 'auto_detect' or 'explicit_compare'"
         )
-    ts_grain = time_scope_raw.get("grain")
-    if ts_grain not in {"hour", "day", "week", "month"}:
-        raise ValueError(
-            f"diagnose: INVALID_ARGUMENT - time_scope.grain must be one of "
-            f"'hour', 'day', 'week', 'month', got '{ts_grain}'"
-        )
-    ts_grain_typed = cast("TimeGrain", ts_grain)
-    ts_current = time_scope_raw.get("current")
-    if not isinstance(ts_current, dict) or not ts_current.get("start") or not ts_current.get("end"):
-        raise ValueError(
-            "diagnose: INVALID_ARGUMENT - time_scope.current must have 'start' and 'end'"
-        )
-    if ts_grain_typed == "hour":
-        ts_current = {
-            "start": normalize_hour_boundary(
-                str(ts_current.get("start") or ""),
-                label="time_scope.current.start",
-            ),
-            "end": normalize_hour_boundary(
-                str(ts_current.get("end") or ""),
-                label="time_scope.current.end",
-            ),
-        }
-
     scope: dict[str, Any] | None = p.get("scope") or None
     detect_split_by: str | None = (p.get("detect_split_by") or "").strip() or None
     profile: str = str(p.get("profile") or "auto").lower()
     sensitivity: str = str(p.get("sensitivity") or "balanced").lower()
+    patterns = _normalize_patterns(p.get("patterns"))
+    baseline_policy = str(p.get("baseline_policy") or "previous_adjacent_equal_length")
+    if baseline_policy != "previous_adjacent_equal_length":
+        raise ValueError(
+            "diagnose: INVALID_ARGUMENT - baseline_policy must be 'previous_adjacent_equal_length'"
+        )
 
     raw_dims: list[Any] = p.get("candidate_dimensions") or []
     if not raw_dims:
@@ -131,15 +153,6 @@ def run_diagnose_intent(
             "diagnose: INVALID_ARGUMENT - candidate_dimensions is empty after deduplication"
         )
     dimensions = deduped_dims
-
-    raw_candidate_limit = p.get("candidate_limit")
-    candidate_limit: int | None = None
-    if raw_candidate_limit is not None:
-        candidate_limit = int(raw_candidate_limit)
-        if candidate_limit <= 0:
-            raise ValueError(
-                f"diagnose: INVALID_ARGUMENT - candidate_limit must be > 0, got {candidate_limit}"
-            )
 
     raw_followup = p.get("followup_limit")
     if raw_followup is None:
@@ -172,94 +185,202 @@ def run_diagnose_intent(
                 f"({_MAX_DECOMPOSITION_LIMIT}), got {decomposition_limit}"
             )
 
-    # ── Step 1: detect ─────────────────────────────────────────────────────────
-    detect_params: dict[str, Any] = {
-        "metric": metric_ref,
-        "time_scope": time_scope_raw,
-        "sensitivity": sensitivity,
-        "profile": profile,
-    }
-    if scope is not None:
-        detect_params["scope"] = scope
-    if detect_split_by:
-        detect_params["split_by"] = detect_split_by
-    if candidate_limit is not None:
-        detect_params["limit"] = candidate_limit
-
-    try:
-        detect_result = run_detect_intent(svc, session_id, detect_params)
-    except Exception as exc:
-        raise ValueError(f"diagnose: DETECT_FAILED - {exc}") from exc
-
-    detect_step_id: str = detect_result["step_ref"]["step_id"]
-    detect_artifact_id: str = detect_result["artifact_id"]
-
-    detect_ref: dict[str, Any] = {
-        "session_id": session_id,
-        "step_id": detect_step_id,
-        "step_type": "detect",
-        "artifact_id": detect_artifact_id,
-    }
-
     top_level_issues: list[dict[str, Any]] = []
-    detectability: dict[str, Any] = detect_result.get("detectability") or {}
-    validation_guidance = detectability.get("guidance")
-    if detectability.get("status") == "needs_attention":
-        for iss in detectability.get("issues") or []:
+    diagnoses: list[dict[str, Any]] = []
+    detect_summary: dict[str, Any] | None = None
+    validation_guidance: dict[str, Any] | None = None
+    resolved_time_scope: dict[str, Any] | None = None
+    granularity: str | None = None
+    followed_candidate_count = 0
+    detect_step_id: str | None = None
+
+    if mode == "explicit_compare":
+        current_input = p.get("current")
+        baseline_input = p.get("baseline")
+        if not isinstance(current_input, dict) or not isinstance(baseline_input, dict):
+            raise ValueError(
+                "diagnose: INVALID_ARGUMENT - current and baseline are required "
+                "when mode='explicit_compare'"
+            )
+        current_scope = current_input.get("scope") or scope
+        baseline_scope = baseline_input.get("scope") or scope
+        if current_scope != baseline_scope:
+            raise ValueError(
+                "diagnose: INVALID_ARGUMENT - explicit_compare current.scope and "
+                "baseline.scope must match"
+            )
+        explicit_granularity: TimeGrain = "day"
+        current_window = _normalize_range_time_scope(
+            current_input.get("time_scope"),
+            granularity=explicit_granularity,
+            label="current.time_scope",
+        )
+        baseline_window = _normalize_range_time_scope(
+            baseline_input.get("time_scope"),
+            granularity=explicit_granularity,
+            label="baseline.time_scope",
+        )
+        candidate = {
+            "candidate_type": "explicit_compare",
+            "window": {"start": current_window["start"], "end": current_window["end"]},
+            "slice": None,
+        }
+        result = _follow_up_candidate(
+            svc=svc,
+            session_id=session_id,
+            candidate=candidate,
+            metric_ref=metric_ref,
+            base_scope=current_scope,
+            dimensions=dimensions,
+            decomposition_limit=decomposition_limit,
+            grain=explicit_granularity,
+            baseline_window_override={
+                "start": baseline_window["start"],
+                "end": baseline_window["end"],
+            },
+        )
+        diagnoses.append(result)
+        followed_candidate_count = 1
+        for issue in result.get("issues") or []:
+            if issue.get("severity") == "error":
+                top_level_issues.append(issue)
+    else:
+        ts_granularity = _normalize_granularity(p.get("granularity"))
+        granularity = ts_granularity
+        resolved_time_scope = _normalize_range_time_scope(
+            p.get("time_scope"),
+            granularity=ts_granularity,
+            label="time_scope",
+        )
+        raw_candidate_limit = p.get("candidate_limit")
+        candidate_limit: int | None = None
+        if raw_candidate_limit is not None:
+            candidate_limit = int(raw_candidate_limit)
+            if candidate_limit <= 0:
+                raise ValueError(
+                    f"diagnose: INVALID_ARGUMENT - candidate_limit must be > 0, "
+                    f"got {candidate_limit}"
+                )
+
+        detect_params: dict[str, Any] = {
+            "metric": metric_ref,
+            "time_scope": resolved_time_scope,
+            "granularity": granularity,
+            "sensitivity": sensitivity,
+            "profile": profile,
+        }
+        if patterns is not None:
+            detect_params["patterns"] = patterns
+        if scope is not None:
+            detect_params["scope"] = scope
+        if detect_split_by:
+            detect_params["split_by"] = detect_split_by
+        if candidate_limit is not None:
+            detect_params["limit"] = candidate_limit
+
+        try:
+            detect_result = run_detect_intent(svc, session_id, detect_params)
+        except Exception as exc:
+            raise ValueError(f"diagnose: DETECT_FAILED - {exc}") from exc
+
+        detect_step_id = detect_result["step_ref"]["step_id"]
+        detect_ref: dict[str, Any] = {
+            "session_id": session_id,
+            "step_id": detect_step_id,
+            "step_type": "detect",
+            "artifact_id": detect_result["artifact_id"],
+        }
+        detectability: dict[str, Any] = detect_result.get("detectability") or {}
+        validation_guidance = detectability.get("guidance")
+        if detectability.get("status") == "needs_attention":
+            for iss in detectability.get("issues") or []:
+                top_level_issues.append(
+                    {
+                        "code": "detect_needs_attention",
+                        "severity": iss.get("severity", "warning"),
+                        "message": iss.get("message", "detect returned needs_attention"),
+                    }
+                )
+
+        all_candidates: list[dict[str, Any]] = detect_result.get("candidates") or []
+        total_candidate_count: int = (detect_result.get("scan_summary") or {}).get(
+            "total_candidate_count"
+        ) or 0
+        returned_candidate_count: int = len(all_candidates)
+        candidates_to_follow = all_candidates[:followup_limit]
+        followed_candidate_count = len(candidates_to_follow)
+        follow_up_truncated = returned_candidate_count > followup_limit
+
+        if total_candidate_count == 0:
             top_level_issues.append(
                 {
-                    "code": "detect_needs_attention",
-                    "severity": iss.get("severity", "warning"),
-                    "message": iss.get("message", "detect returned needs_attention"),
+                    "code": "no_detect_candidates",
+                    "severity": "warning",
+                    "message": (
+                        "detect returned no candidates; use mode='explicit_compare' "
+                        "when the current and baseline windows are already known, "
+                        "or expand the scan window / enable period_shift."
+                    ),
+                }
+            )
+            explicit_compare_guidance = {
+                "kind": "explicit_compare",
+                "message": (
+                    "Run diagnose(mode='explicit_compare') with current and baseline "
+                    "range windows when investigating structural degradation."
+                ),
+            }
+            if validation_guidance is None:
+                validation_guidance = {
+                    "recommended_next_action": "use_explicit_compare_or_expand_scan",
+                    "fallback_path": explicit_compare_guidance,
+                }
+            else:
+                validation_guidance["explicit_compare_fallback"] = explicit_compare_guidance
+
+        for cand in candidates_to_follow:
+            cand_result = _follow_up_candidate(
+                svc=svc,
+                session_id=session_id,
+                candidate=cand,
+                metric_ref=metric_ref,
+                base_scope=scope,
+                dimensions=dimensions,
+                decomposition_limit=decomposition_limit,
+                grain=ts_granularity,
+                baseline_window_override=cand.get("baseline_window"),
+            )
+            diagnoses.append(cand_result)
+            for issue in cand_result.get("issues") or []:
+                if issue.get("severity") == "error":
+                    top_level_issues.append(issue)
+
+        if follow_up_truncated:
+            top_level_issues.append(
+                {
+                    "code": "candidate_followup_truncated",
+                    "severity": "warning",
+                    "message": (
+                        f"{returned_candidate_count} candidates returned by detect; "
+                        f"only {followed_candidate_count} followed up "
+                        f"(followup_limit={followup_limit})."
+                    ),
                 }
             )
 
-    all_candidates: list[dict[str, Any]] = detect_result.get("candidates") or []
-    total_candidate_count: int = (detect_result.get("scan_summary") or {}).get(
-        "total_candidate_count"
-    ) or 0
-    returned_candidate_count: int = len(all_candidates)
+        detect_summary = {
+            "detect_ref": detect_ref,
+            "returned_candidate_count": returned_candidate_count,
+            "total_candidate_count": total_candidate_count,
+            "followed_candidate_count": followed_candidate_count,
+            "truncated": follow_up_truncated,
+        }
 
-    # ── Step 2: top-K candidate follow-up ──────────────────────────────────────
-    candidates_to_follow = all_candidates[:followup_limit]
-    followed_candidate_count = len(candidates_to_follow)
-    follow_up_truncated = returned_candidate_count > followup_limit
-
-    diagnoses: list[dict[str, Any]] = []
-
-    for cand in candidates_to_follow:
-        cand_result = _follow_up_candidate(
-            svc=svc,
-            session_id=session_id,
-            candidate=cand,
-            metric_ref=metric_ref,
-            base_scope=scope,
-            dimensions=dimensions,
-            decomposition_limit=decomposition_limit,
-            grain=ts_grain_typed,
-        )
-        diagnoses.append(cand_result)
-        # Propagate candidate-level error issues to top-level
-        for issue in cand_result.get("issues") or []:
-            if issue.get("severity") == "error":
-                top_level_issues.append(issue)
-
-    if follow_up_truncated:
-        top_level_issues.append(
-            {
-                "code": "candidate_followup_truncated",
-                "severity": "warning",
-                "message": (
-                    f"{returned_candidate_count} candidates returned by detect; "
-                    f"only {followed_candidate_count} followed up "
-                    f"(followup_limit={followup_limit})."
-                ),
-            }
-        )
-
-    # ── Step 3: derive validation status ──────────────────────────────────────
     has_error_issue = any(i.get("severity") == "error" for i in top_level_issues)
-    validation_status = "needs_attention" if has_error_issue else "diagnosable"
+    has_no_candidate_issue = any(i.get("code") == "no_detect_candidates" for i in top_level_issues)
+    validation_status = (
+        "needs_attention" if has_error_issue or has_no_candidate_issue else "diagnosable"
+    )
 
     validation: dict[str, Any] = {
         "status": validation_status,
@@ -267,22 +388,6 @@ def run_diagnose_intent(
     }
     if validation_guidance is not None:
         validation["guidance"] = validation_guidance
-
-    # ── Step 4: build detect_summary ───────────────────────────────────────────
-    detect_summary: dict[str, Any] = {
-        "detect_ref": detect_ref,
-        "returned_candidate_count": returned_candidate_count,
-        "total_candidate_count": total_candidate_count,
-        "followed_candidate_count": followed_candidate_count,
-        "truncated": follow_up_truncated,
-    }
-
-    # ── Step 5: assemble diagnosis_bundle artifact ────────────────────────────
-    resolved_time_scope: dict[str, Any] = {
-        "mode": "single_window",
-        "grain": ts_grain,
-        "current": {"start": ts_current["start"], "end": ts_current["end"]},
-    }
 
     now = datetime.now(UTC).isoformat()
     step_id = svc._new_step_id()
@@ -292,13 +397,17 @@ def run_diagnose_intent(
         "intent_type": "diagnose",
         "step_type": "diagnose",
         "artifact_schema_version": "v1",
+        "mode": mode,
         "metric": metric_ref,
         "time_scope": resolved_time_scope,
+        "granularity": granularity,
         "scope": scope,
         "detect_split_by": detect_split_by,
         "candidate_dimensions": dimensions,
         "profile": profile,
         "sensitivity": sensitivity,
+        "patterns": patterns,
+        "baseline_policy": baseline_policy,
         "validation": validation,
         "provenance": {
             "artifact_ref": {
@@ -307,7 +416,7 @@ def run_diagnose_intent(
                 "step_type": "diagnose",
                 "artifact_id": None,  # patched after _insert_artifact
             },
-            "source_detect_ref": detect_ref,
+            "source_detect_ref": detect_summary["detect_ref"] if detect_summary else None,
             "artifact_schema_version": "v1",
             "derivation_version": _DERIVED_LOGIC_VERSION,
             "projection_ref": None,
@@ -347,6 +456,7 @@ def run_diagnose_intent(
 
     provenance: dict[str, Any] = {
         "detect_step_id": detect_step_id,
+        "mode": mode,
         "followed_candidate_count": followed_candidate_count,
         "dimensions": dimensions,
         "followup_limit": followup_limit,
@@ -370,6 +480,7 @@ def _follow_up_candidate(
     dimensions: list[str],
     decomposition_limit: int,
     grain: TimeGrain,
+    baseline_window_override: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Expand a single detect candidate into observe+compare+decompose×D.
 
@@ -388,6 +499,8 @@ def _follow_up_candidate(
             "candidate_score",
             "flag_level",
             "direction",
+            "candidate_type",
+            "baseline_window",
         )
         if k in candidate
     }
@@ -405,11 +518,19 @@ def _follow_up_candidate(
     baseline_ok = False
 
     try:
-        baseline_window = previous_adjacent_window(
-            current_start_str,
-            current_end_str,
-            grain=grain,
-        )
+        if baseline_window_override is not None:
+            baseline_window = {
+                "start": str(baseline_window_override.get("start") or "").strip(),
+                "end": str(baseline_window_override.get("end") or "").strip(),
+            }
+            if not baseline_window["start"] or not baseline_window["end"]:
+                raise ValueError("baseline_window override requires start and end")
+        else:
+            baseline_window = previous_adjacent_window(
+                current_start_str,
+                current_end_str,
+                grain=grain,
+            )
         baseline_start_str = baseline_window["start"]
         baseline_end_str = baseline_window["end"]
         baseline_derivation = {

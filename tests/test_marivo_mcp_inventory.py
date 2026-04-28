@@ -330,7 +330,7 @@ def test_typed_intent_tools_expose_top_level_session_id() -> None:
         assert "request" not in hints
 
 
-def test_detect_and_diagnose_time_scope_annotations_expose_grain_enum() -> None:
+def test_detect_and_diagnose_time_scope_annotations_expose_range_and_granularity() -> None:
     server = cast("Any", _FakeServer())
     register_tools(server, _build_config())
 
@@ -338,11 +338,15 @@ def test_detect_and_diagnose_time_scope_annotations_expose_grain_enum() -> None:
     diagnose = server.tools["diagnose"]
 
     detect_time_scope = TypeAdapter(get_type_hints(detect)["time_scope"]).json_schema()
+    detect_granularity = TypeAdapter(get_type_hints(detect)["granularity"]).json_schema()
     diagnose_time_scope = TypeAdapter(get_type_hints(diagnose)["time_scope"]).json_schema()
+    diagnose_granularity = TypeAdapter(get_type_hints(diagnose)["granularity"]).json_schema()
 
-    assert detect_time_scope["properties"]["grain"]["enum"] == ["hour", "day", "week", "month"]
-    assert set(detect_time_scope["required"]) == {"mode", "grain", "current"}
+    assert set(detect_time_scope["required"]) == {"kind", "start", "end"}
+    assert detect_time_scope["properties"]["kind"]["const"] == "range"
+    assert detect_granularity["enum"] == ["hour", "day", "week", "month"]
     assert diagnose_time_scope["$defs"]["JsonObject"]["type"] == "object"
+    assert diagnose_granularity["anyOf"][0]["enum"] == ["hour", "day", "week", "month"]
 
 
 def test_t6_tools_use_strongly_typed_nested_models_instead_of_raw_dicts() -> None:
@@ -361,7 +365,7 @@ def test_t6_tools_use_strongly_typed_nested_models_instead_of_raw_dicts() -> Non
     observe_time_scope_schema = TypeAdapter(observe_hints["time_scope"]).json_schema()
     assert observe_time_scope_schema["$defs"]["JsonObject"]["type"] == "object"
     detect_time_scope_schema = TypeAdapter(detect_hints["time_scope"]).json_schema()
-    assert set(detect_time_scope_schema["required"]) == {"mode", "grain", "current"}
+    assert set(detect_time_scope_schema["required"]) == {"kind", "start", "end"}
     assert (
         TypeAdapter(diagnose_hints["time_scope"]).json_schema()["$defs"]["JsonObject"]["type"]
         == "object"

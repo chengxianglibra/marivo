@@ -115,30 +115,14 @@ class McpCompareArtifactRef(McpArtifactRef):
     )
 
 
-class McpDetectCurrentWindow(BaseModel):
-    """Current window for detect time_scope."""
-
-    model_config = ConfigDict(extra="allow")
-
-    start: str = Field(description="Inclusive start of the window, ISO-8601 date or datetime.")
-    end: str = Field(description="Exclusive end of the window, ISO-8601 date or datetime.")
-
-
 class McpDetectTimeScope(BaseModel):
     """MCP-visible detect time_scope contract."""
 
     model_config = ConfigDict(extra="allow")
 
-    mode: Literal["single_window"] = Field(description='Required literal "single_window".')
-    grain: Literal["hour", "day", "week", "month"] = Field(
-        description='Required scan grain: "hour", "day", "week", or "month".',
-    )
-    current: McpDetectCurrentWindow = Field(
-        description=(
-            'Required current window, e.g. {"start":"2026-04-01","end":"2026-04-08"}. '
-            "The end boundary is exclusive."
-        ),
-    )
+    kind: Literal["range"] = Field(description='Required literal "range".')
+    start: str = Field(description="Inclusive start of the range, ISO-8601 date or datetime.")
+    end: str = Field(description="Exclusive end of the range, ISO-8601 date or datetime.")
 
 
 class McpMetricHeader(BaseModel):
@@ -687,17 +671,19 @@ def register_tools(
         session_id: str,
         metric: str,
         time_scope: McpDetectTimeScope,
+        granularity: Literal["hour", "day", "week", "month"],
         scope: ObserveScope | None = None,
         split_by: str | None = None,
         profile: Literal["auto", "spike_dip", "level_shift", "seasonal_residual"] = "auto",
         sensitivity: Literal["conservative", "balanced", "aggressive"] = "balanced",
         limit: int | None = None,
         max_series: int | None = None,
+        patterns: list[Literal["point_anomaly", "period_shift"]] | None = None,
     ) -> dict[str, object]:
         """Submit POST /sessions/{session_id}/intents/detect using DetectRequest.
 
-        time_scope is not observe's {"kind":"range"} form. It must be:
-          {"mode":"single_window","grain":"day","current":{"start":"2026-04-01","end":"2026-04-08"}}
+        time_scope uses observe's range form, with scan granularity as a top-level field:
+          {"time_scope":{"kind":"range","start":"2026-04-01","end":"2026-04-08"},"granularity":"day"}
 
         Use get_openapi_fragment(path="/sessions/{session_id}/intents/detect",
         operation="post", expand=["request","schemas"], depth=2) for the canonical contract.
@@ -713,12 +699,14 @@ def register_tools(
             "detect",
             metric=metric,
             time_scope=time_scope,
+            granularity=granularity,
             scope=scope,
             split_by=split_by,
             profile=profile,
             sensitivity=sensitivity,
             limit=limit,
             max_series=max_series,
+            patterns=patterns,
         )
 
     @server.tool()
@@ -805,8 +793,12 @@ def register_tools(
     def diagnose(
         session_id: str,
         metric: str,
-        time_scope: McpStructuredObject,
         candidate_dimensions: list[str],
+        mode: Literal["auto_detect", "explicit_compare"] = "auto_detect",
+        time_scope: McpStructuredObject | None = None,
+        granularity: Literal["hour", "day", "week", "month"] | None = None,
+        current: McpStructuredObject | None = None,
+        baseline: McpStructuredObject | None = None,
         scope: ObserveScope | None = None,
         detect_split_by: str | None = None,
         profile: Literal["auto", "spike_dip", "level_shift", "seasonal_residual"] = "auto",
@@ -814,15 +806,28 @@ def register_tools(
         candidate_limit: int | None = None,
         followup_limit: int | None = 3,
         decomposition_limit: int | None = 5,
+        patterns: list[Literal["point_anomaly", "period_shift"]] | None = None,
+        baseline_policy: Literal[
+            "previous_adjacent_equal_length"
+        ] = "previous_adjacent_equal_length",
     ) -> dict[str, object]:
         """Submit POST /sessions/{session_id}/intents/diagnose using the canonical DiagnoseRequest body; this path selects the intent, so do not add an extra intent field. On 422, follow error.guidance.contract_url, schema_url, and examples."""
-        _require_structured_object(time_scope, field_name="time_scope")
+        if time_scope is not None:
+            _require_structured_object(time_scope, field_name="time_scope")
+        if current is not None:
+            _require_structured_object(current, field_name="current")
+        if baseline is not None:
+            _require_structured_object(baseline, field_name="baseline")
         return _intent_request(
             client,
             session_id,
             "diagnose",
+            mode=mode,
             metric=metric,
             time_scope=time_scope,
+            granularity=granularity,
+            current=current,
+            baseline=baseline,
             candidate_dimensions=candidate_dimensions,
             scope=scope,
             detect_split_by=detect_split_by,
@@ -831,6 +836,8 @@ def register_tools(
             candidate_limit=candidate_limit,
             followup_limit=followup_limit,
             decomposition_limit=decomposition_limit,
+            patterns=patterns,
+            baseline_policy=baseline_policy,
         )
 
     @server.tool()

@@ -10,7 +10,6 @@ import pytest
 
 from app.api.models.intents import (
     DetectTimeScope,
-    DetectTimeScopeCurrentWindow,
     ObserveTimeScopeAsOf,
 )
 
@@ -1231,8 +1230,8 @@ def test_detect_omits_null_optional_fields() -> None:
         assert request.method == "POST"
         assert request.url.path == "/sessions/sess_123/intents/detect"
         assert request.read() == (
-            b'{"metric":"metric.watch_time","time_scope":{"mode":"single_window","grain":"day",'
-            b'"current":{"start":"2025-03-01","end":"2025-03-08"}},'
+            b'{"metric":"metric.watch_time","time_scope":{"kind":"range",'
+            b'"start":"2025-03-01","end":"2025-03-08"},"granularity":"day",'
             b'"profile":"auto","sensitivity":"balanced"}'
         )
         return httpx.Response(200, json={"artifact_id": "detect_123"}, request=request)
@@ -1242,11 +1241,8 @@ def test_detect_omits_null_optional_fields() -> None:
         handler,
         session_id="sess_123",
         metric="metric.watch_time",
-        time_scope={
-            "mode": "single_window",
-            "grain": "day",
-            "current": {"start": "2025-03-01", "end": "2025-03-08"},
-        },
+        time_scope={"kind": "range", "start": "2025-03-01", "end": "2025-03-08"},
+        granularity="day",
     )
 
     assert result["ok"] is True
@@ -1330,10 +1326,11 @@ def test_diagnose_uses_default_followup_limit_and_path_discriminated_body() -> N
         assert request.method == "POST"
         assert request.url.path == "/sessions/sess_123/intents/diagnose"
         assert request.read() == (
-            b'{"metric":"metric.watch_time","time_scope":{"mode":"single_window","grain":"day",'
-            b'"current":{"start":"2025-03-01","end":"2025-03-08"}},'
+            b'{"mode":"auto_detect","metric":"metric.watch_time","time_scope":{"kind":"range",'
+            b'"start":"2025-03-01","end":"2025-03-08"},"granularity":"day",'
             b'"candidate_dimensions":["dimension.country"],"profile":"auto",'
-            b'"sensitivity":"balanced","followup_limit":3,"decomposition_limit":5}'
+            b'"sensitivity":"balanced","followup_limit":3,"decomposition_limit":5,'
+            b'"baseline_policy":"previous_adjacent_equal_length"}'
         )
         return httpx.Response(200, json={"artifact_id": "diagnose_123"}, request=request)
 
@@ -1342,12 +1339,9 @@ def test_diagnose_uses_default_followup_limit_and_path_discriminated_body() -> N
         handler,
         session_id="sess_123",
         metric="metric.watch_time",
-        time_scope={
-            "mode": "single_window",
-            "grain": "day",
-            "current": {"start": "2025-03-01", "end": "2025-03-08"},
-        },
         candidate_dimensions=["dimension.country"],
+        time_scope={"kind": "range", "start": "2025-03-01", "end": "2025-03-08"},
+        granularity="day",
     )
 
     assert result["ok"] is True
@@ -1402,8 +1396,8 @@ def test_detect_accepts_pydantic_time_scope_models_and_serializes_canonical_body
         assert request.method == "POST"
         assert request.url.path == "/sessions/sess_123/intents/detect"
         assert request.read() == (
-            b'{"metric":"metric.watch_time","time_scope":{"mode":"single_window","grain":"day",'
-            b'"current":{"start":"2025-03-01","end":"2025-03-08"}},'
+            b'{"metric":"metric.watch_time","time_scope":{"kind":"range",'
+            b'"start":"2025-03-01","end":"2025-03-08"},"granularity":"day",'
             b'"profile":"auto","sensitivity":"balanced"}'
         )
         return httpx.Response(200, json={"artifact_id": "detect_123"}, request=request)
@@ -1414,10 +1408,11 @@ def test_detect_accepts_pydantic_time_scope_models_and_serializes_canonical_body
         session_id="sess_123",
         metric="metric.watch_time",
         time_scope=DetectTimeScope(
-            mode="single_window",
-            grain="day",
-            current=DetectTimeScopeCurrentWindow(start="2025-03-01", end="2025-03-08"),
+            kind="range",
+            start="2025-03-01",
+            end="2025-03-08",
         ),
+        granularity="day",
     )
 
     assert result["ok"] is True
@@ -1536,7 +1531,7 @@ def test_compare_rejects_missing_step_id_before_http_roundtrip() -> None:
     assert "step_id" in message
 
 
-def test_detect_rejects_missing_current_before_http_roundtrip() -> None:
+def test_detect_rejects_missing_range_end_before_http_roundtrip() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         raise AssertionError("HTTP handler should not be called for invalid MCP input")
 
@@ -1546,12 +1541,13 @@ def test_detect_rejects_missing_current_before_http_roundtrip() -> None:
             handler,
             session_id="sess_123",
             metric="metric.watch_time",
-            time_scope={"mode": "single_window", "grain": "day"},
+            time_scope={"kind": "range", "start": "2025-03-01"},
+            granularity="day",
         )
 
     message = str(exc_info.value)
     assert "time_scope:" in message
-    assert "current" in message
+    assert "end" in message
 
 
 def test_intent_tools_preserve_422_guidance_from_marivo() -> None:

@@ -39,7 +39,13 @@ make format
 - Marivo is HTTP-only; do not assume any MCP layer exists.
 - The UI is an independent `frontend/` React app. Do not restore FastAPI-hosted `/ui` or `/admin` surfaces.
 - Prefer typed analysis steps over exposing raw SQL as the external contract.
+- Use the observe-aligned range shape for detect/diagnose windows:
+  `time_scope={kind: "range", start, end}` plus top-level `granularity`; do not use legacy
+  `time_scope.mode/grain/current`.
 - For anomaly detection across segments, use `detect.split_by` with one supported semantic dimension; inspect `scan_summary` and candidate `slice` before concluding the anomaly is global.
+- For known current-vs-baseline degradation, prefer `diagnose(mode="explicit_compare")` with
+  explicit `current` and `baseline` observe-shaped inputs instead of forcing `detect` to find a
+  candidate first.
 - Keep factual extraction deterministic; use models for explanation, not evidence structure.
 - `marivo-mcp` is the agent-facing connector and runtime supervisor for MCP clients. Keep target resolution, local runtime startup, `runtime.json`, `doctor`, and transport details in `marivo-mcp` docs or service runtime docs; do not duplicate them in skills or HTTP API docs.
 - `marivo.yaml` is runtime-only. Do not add `sources`, `engines`, `bindings`, or `mappings` inventory blocks; source, engine, and mapping objects are configured through the HTTP API only.

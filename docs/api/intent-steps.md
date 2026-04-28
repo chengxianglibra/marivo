@@ -391,9 +391,11 @@ Submits the `detect` atomic intent.
 Request body fields:
 
 - `metric`: required semantic metric
-- `time_scope`: required `single_window` detect scope
+- `time_scope`: required range scope, shaped as `{ "kind": "range", "start": "...", "end": "..." }`
+- `granularity`: required scan bucket size (`hour`, `day`, `week`, or `month`)
 - `scope`: optional non-time scope
 - `split_by`: optional single semantic dimension
+- `patterns`: optional candidate pattern list; supports `point_anomaly` and `period_shift`
 - `profile`: optional detect profile; `null` normalizes to `auto`
 - `sensitivity`: optional sensitivity; `null` normalizes to `balanced`
 - `limit`: optional returned-candidate bound; `null` normalizes to a bounded system default
@@ -401,10 +403,16 @@ Request body fields:
 
 Invalid combinations include:
 
-- non-`single_window` detect time scope
+- non-range detect time scope
 - non-positive `limit` or `max_series`
-- unsupported profile / grain / metric combination
+- unsupported profile / granularity / metric combination
 - time filters inside `scope`
+
+`point_anomaly` uses scan-window z-score over bucketed values. `period_shift`
+compares the whole requested range with the previous adjacent equal-length
+baseline and emits a `candidate_type = "period_shift"` candidate when the
+sensitivity threshold is met. If `patterns` is omitted, `profile = "level_shift"`
+enables `period_shift`; otherwise detect defaults to `point_anomaly`.
 
 Success returns `DetectResponse`, the canonical `anomaly_candidates` artifact. The payload includes detectability status, scan summary, ordered candidates, truncation metadata, provenance, and execution metadata.
 
@@ -559,7 +567,10 @@ Submits the `diagnose` derived intent.
 Request body fields:
 
 - `metric`: required semantic metric
-- `time_scope`: required detect time scope; v1 requires `mode = "single_window"`
+- `mode`: `auto_detect` or `explicit_compare`; defaults to `auto_detect`
+- `time_scope`: required range detect scope when `mode = "auto_detect"`
+- `granularity`: required when `mode = "auto_detect"`
+- `current` / `baseline`: required observe-shaped scalar inputs when `mode = "explicit_compare"`
 - `scope`: optional non-time scope
 - `detect_split_by`: optional single semantic dimension
 - `candidate_dimensions`: required non-empty semantic dimension list for follow-up attribution
@@ -569,7 +580,7 @@ Request body fields:
 - `followup_limit`: optional bound for followed candidates
 - `decomposition_limit`: optional bound for per-dimension driver rows
 
-Deterministic expansion:
+Deterministic expansion for `auto_detect`:
 
 1. `detect(...)`
 2. follow the top `K` candidates in detect ranking order
@@ -578,10 +589,24 @@ Deterministic expansion:
 5. `compare(mode = "scalar")`
 6. `decompose(...)` for each requested candidate dimension
 
+If internal detect returns no candidates, `diagnose` returns a committed
+`diagnosis_bundle` with `validation.status = "needs_attention"`, issue code
+`no_detect_candidates`, and guidance to use `explicit_compare` when the current
+and baseline windows are already known.
+
+Deterministic expansion for `explicit_compare`:
+
+1. `observe(current)`
+2. `observe(baseline)`
+3. `compare(mode = "scalar")`
+4. `decompose(...)` for each requested candidate dimension
+
 Unsupported inputs include:
 
 - auto-selecting attribution dimensions
 - custom baseline policies
+- `time_scope` / `granularity` in `explicit_compare`
+- `current` / `baseline` in `auto_detect`
 - unbounded fan-out across candidates or dimensions
 - planner-style branching based on intermediate results
 

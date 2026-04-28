@@ -712,22 +712,20 @@ class DetectRequestModelTests(unittest.TestCase):
         r = DetectRequest(
             metric=_metric_ref("dau"),
             time_scope={
-                "mode": "single_window",
-                "grain": "hour",
-                "current": {"start": "2024-01-01T00:00:00", "end": "2024-01-01 03:00:00"},
+                "kind": "range",
+                "start": "2024-01-01T00:00:00",
+                "end": "2024-01-01 03:00:00",
             },
+            granularity="hour",
         )
-        self.assertEqual(r.time_scope.grain, "hour")
+        self.assertEqual(r.granularity, "hour")
 
     def test_hour_detect_rejects_date_only_boundaries(self) -> None:
         with self.assertRaises(Exception):
             DetectRequest(
                 metric=_metric_ref("dau"),
-                time_scope={
-                    "mode": "single_window",
-                    "grain": "hour",
-                    "current": {"start": "2024-01-01", "end": "2024-01-02"},
-                },
+                time_scope={"kind": "range", "start": "2024-01-01", "end": "2024-01-02"},
+                granularity="hour",
             )
 
 
@@ -1721,7 +1719,7 @@ class LightweightIntentEndpointTests(_SessionBackedIntentEndpointMixin, unittest
     def test_detect_validation_error_includes_schema_guidance_and_example(self) -> None:
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/detect",
-            json={"metric": "metric.watch_time", "time_scope": {"mode": "single_window"}},
+            json={"metric": "metric.watch_time", "time_scope": {"kind": "range"}},
         )
 
         self.assertEqual(r.status_code, 422)
@@ -1732,9 +1730,9 @@ class LightweightIntentEndpointTests(_SessionBackedIntentEndpointMixin, unittest
             "/openapi/schemas/DetectRequest?depth=6",
         )
         example_time_scope = payload["guidance"]["examples"][0]["payload"]["time_scope"]
-        self.assertEqual(example_time_scope["mode"], "single_window")
-        self.assertIn("grain", example_time_scope)
-        self.assertEqual(set(example_time_scope["current"]), {"start", "end"})
+        self.assertEqual(example_time_scope["kind"], "range")
+        self.assertEqual(set(example_time_scope), {"kind", "start", "end"})
+        self.assertEqual(payload["guidance"]["examples"][0]["payload"]["granularity"], "day")
 
     def test_compare_nonexistent_ref_returns_422(self) -> None:
         r = self.client.post(
@@ -1815,11 +1813,8 @@ class LightweightIntentEndpointTests(_SessionBackedIntentEndpointMixin, unittest
             f"/sessions/{self.session_id}/intents/detect",
             json={
                 "metric": _metric_ref("dau"),
-                "time_scope": {
-                    "mode": "single_window",
-                    "grain": "day",
-                    "current": {"start": "2024-01-01", "end": "2024-01-08"},
-                },
+                "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+                "granularity": "day",
             },
         )
         self.assertEqual(r.status_code, 422)
@@ -1960,11 +1955,8 @@ class ClosedSessionWriteGuardTests(unittest.TestCase):
             f"/sessions/{self.session_id}/intents/detect",
             json={
                 "metric": _metric_ref("dau"),
-                "time_scope": {
-                    "mode": "single_window",
-                    "grain": "day",
-                    "current": {"start": "2024-01-01", "end": "2024-01-08"},
-                },
+                "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+                "granularity": "day",
             },
         )
         self.assertEqual(r.status_code, 422)
@@ -1992,11 +1984,8 @@ class ClosedSessionWriteGuardTests(unittest.TestCase):
             f"/sessions/{self.session_id}/intents/diagnose",
             json={
                 "metric": _metric_ref("dau"),
-                "time_scope": {
-                    "mode": "single_window",
-                    "grain": "day",
-                    "current": {"start": "2024-01-01", "end": "2024-01-08"},
-                },
+                "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+                "granularity": "day",
                 "candidate_dimensions": ["region"],
             },
         )
