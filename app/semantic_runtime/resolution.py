@@ -130,6 +130,9 @@ class SemanticRuntimeMetadataReader:
         if object_kind == "metric" and published_only:
             status_predicate = " AND status = 'published' AND is_latest_active = 1"
             order_clause = " ORDER BY revision DESC"
+        elif object_kind == "binding":
+            status_predicate = " AND status = 'published'" if published_only else ""
+            order_clause = " ORDER BY revision DESC"
         else:
             status_predicate = " AND status = 'published'" if published_only else ""
             order_clause = ""

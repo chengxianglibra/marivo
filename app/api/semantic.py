@@ -9,6 +9,7 @@ from pydantic import BaseModel, ValidationError
 from app.api.deps import get_services
 from app.api.errors import build_service_validation_error_payload, sanitize_validation_errors
 from app.api.models import (
+    BindingDeriveRevisionRequest,
     CompatibilityProfileCreateRequest,
     CompatibilityProfileResponse,
     CompatibilityProfileUpdateRequest,
@@ -41,6 +42,7 @@ from app.api.models import (
     TypedMetricResponse,
     TypedMetricUpdateRequest,
 )
+from app.api.models.compatibility_profile import CompatibilityProfileRevalidateRequest
 
 router = APIRouter()
 
@@ -1373,6 +1375,23 @@ def update_typed_binding(
     )
 
 
+@router.post(
+    "/semantic/bindings/{binding_id_or_ref}/revisions/derive",
+    response_model=TypedBindingResponse,
+)
+def derive_binding_revision(
+    binding_id_or_ref: str,
+    request: Request,
+    payload: BindingDeriveRevisionRequest = Body(...),
+) -> dict[str, Any]:
+    semantic_service = get_services(request).semantic_service
+    return _run_route_action(
+        lambda: semantic_service.derive_binding_revision(binding_id_or_ref, payload),
+        request=request,
+        structured_value_error=True,
+    )
+
+
 @router.post("/semantic/bindings/{binding_id}/publish")
 def publish_typed_binding(binding_id: str, request: Request) -> dict[str, Any]:
     return _run_route_action(
@@ -1473,6 +1492,25 @@ def publish_compatibility_profile(profile_id: str, request: Request) -> dict[str
 def validate_compatibility_profile(profile_id: str, request: Request) -> dict[str, Any]:
     return _run_route_action(
         lambda: get_services(request).semantic_service.validate_compatibility_profile(profile_id),
+        structured_value_error=True,
+    )
+
+
+@router.post(
+    "/compiler/compatibility-profiles/{profile_id_or_ref}/revalidate",
+    response_model=CompatibilityProfileResponse,
+)
+def revalidate_compatibility_profile(
+    profile_id_or_ref: str,
+    request: Request,
+    payload: CompatibilityProfileRevalidateRequest = Body(
+        default_factory=CompatibilityProfileRevalidateRequest
+    ),
+) -> dict[str, Any]:
+    return _run_route_action(
+        lambda: get_services(request).semantic_service.revalidate_compatibility_profile(
+            profile_id_or_ref, payload
+        ),
         structured_value_error=True,
     )
 

@@ -1410,9 +1410,10 @@ class SemanticLayerService:
     def _published_bindings_for_object_ref(self, object_ref: str) -> list[ResolvedSemanticObject]:
         rows = self.metadata.query_rows(
             """
-            SELECT binding_ref
+            SELECT binding_ref, MAX(revision) AS revision
             FROM typed_bindings
             WHERE bound_object_ref = ? AND status = 'published'
+            GROUP BY binding_ref
             ORDER BY binding_ref
             """,
             [object_ref],
@@ -3433,6 +3434,24 @@ class SemanticLayerService:
                 for compiled in compiled_list
             ]
         )
+        resolved_refs: dict[str, dict[str, Any]] = {}
+        for compiled in compiled_list:
+            metric_ref = compiled.metadata.get("resolved_metric_ref")
+            if not metric_ref:
+                continue
+            metric_ref_text = str(metric_ref)
+            resolved = resolved_refs.setdefault(
+                metric_ref_text,
+                {
+                    "ref": metric_ref_text,
+                },
+            )
+            metric_revision = compiled.metadata.get("resolved_metric_revision")
+            if metric_revision is not None:
+                resolved["revision"] = int(metric_revision)
+            metric_object_id = compiled.metadata.get("resolved_metric_object_id")
+            if metric_object_id:
+                resolved["object_id"] = str(metric_object_id)
         calendar_policy_binding = self._build_calendar_policy_binding(resolved_calendar_alignments)
 
         if not any(
@@ -3453,6 +3472,7 @@ class SemanticLayerService:
                 imported_dimension_sources,
                 metric_execution_contexts,
                 metric_entity_anchor_refs,
+                resolved_refs,
                 calendar_policy_binding,
             )
         ):
@@ -3484,6 +3504,7 @@ class SemanticLayerService:
                 "metric_execution_contexts": metric_execution_contexts,
                 "calendar_policy_binding": calendar_policy_binding,
             },
+            "resolved_refs": resolved_refs,
         }
         assert_no_canonical_refs_in_semantic_payload(snapshot, surface="step_semantic_metadata")
         return snapshot

@@ -216,20 +216,30 @@ The v1 revision create payload is full replacement with optimistic concurrency:
 {
   "base_revision": 1,
   "change_summary": "Fix unit label from seconds to milliseconds.",
-  "compatibility": "compatible",
+  "expected_change_scope": "unit_display_metadata",
   "replacement": {
     "header": {
       "metric_ref": "metric.avg_blocked_time",
-      "metric_contract_version": "v1"
+      "metric_contract_version": "metric.v1"
     },
     "payload": {}
   }
 }
 ```
 
-`base_revision`, `change_summary`, and `compatibility` are required. `compatibility` is either
-`compatible` or `breaking`; compatible revisions should not force downstream binding recreation,
-while breaking revisions must expose affected dependents and migration guidance.
+`base_revision`, `change_summary`, and `replacement` are required. The request does not accept
+authoritative `compatibility`; `classified_compatibility` is server output. Optional
+`expected_compatibility` and `expected_change_scope` are guardrails only; they let callers state
+expectations without becoming the compatibility classifier. `accept_classified_compatibility`
+allows a caller to retry after inspecting a server classification mismatch.
+
+Revision responses include `classified_compatibility`, `diff_summary`, `affected_dependents`,
+`required_actions`, and `can_activate_now`. Compatible display-only revisions return canonical
+diff entries but no required actions. Breaking semantic-contract revisions return blocking
+`required_actions`. When published metric bindings or compiler profiles depend on the metric,
+the server returns concrete `derive_revision`, `add_binding_coverage`, and
+`reuse_after_revalidate` actions; breaking revisions without discoverable dependents keep a
+generic blocker until the caller supplies or completes the required dependency plan.
 
 ### Process Objects
 
@@ -310,6 +320,7 @@ canonical `time.*` ref for detail reads.
 | `POST` | `/semantic/bindings/{binding_id}/activate` | Activate a typed binding |
 | `POST` | `/semantic/bindings/{binding_id}/deprecate` | Deprecate a typed binding |
 | `POST` | `/semantic/bindings/{binding_id}/publish` | Compatibility alias for activate |
+| `POST` | `/semantic/bindings/{binding_id_or_ref}/revisions/derive` | Derive a draft binding revision from controlled reuse and coverage delta |
 
 ### Compiler Compatibility Profiles
 
@@ -326,6 +337,7 @@ canonical `compiler_profile.*` ref for detail reads.
 | `POST` | `/compiler/compatibility-profiles/{profile_id}/activate` | Activate a compatibility profile |
 | `POST` | `/compiler/compatibility-profiles/{profile_id}/deprecate` | Deprecate a compatibility profile |
 | `POST` | `/compiler/compatibility-profiles/{profile_id}/publish` | Compatibility alias for activate |
+| `POST` | `/compiler/compatibility-profiles/{profile_id_or_ref}/revalidate` | Revalidate and repin a profile after subject revision drift |
 
 ## Entity Contract
 
@@ -1087,6 +1099,12 @@ Response:
 
 `revision` increments on every persisted contract change, including `PUT` updates and `publish`.
 
+`POST /semantic/bindings/{binding_id_or_ref}/revisions/derive` creates a draft revision for the
+same `binding_ref`. The request names the `base_revision`, target metric revision, reusable binding
+sections, and optional `coverage_additions` such as `metric_input.denominator -> field.denominator`.
+This endpoint is a controlled dependency-action completion path; callers should not copy or patch
+arbitrary full grounding JSON just to satisfy a metric revision action.
+
 List responses use the shared object envelope:
 
 ```json
@@ -1185,6 +1203,10 @@ Notes:
 - `POST /compiler/compatibility-profiles/{profile_id}/publish` freezes the current published
   subject revision into `subject_revision`; if the subject is republished later, compiler treats
   the old profile as stale and rejects it until the profile is republished.
+- `POST /compiler/compatibility-profiles/{profile_id_or_ref}/revalidate` updates validation
+  evidence after subject revision drift by pinning `subject_revision` to the requested revision, or
+  to the current active subject revision when omitted. The requested revision must be the active
+  published subject revision.
 
 ## Runtime Catalog Discovery
 

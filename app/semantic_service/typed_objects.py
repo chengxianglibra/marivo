@@ -23,6 +23,7 @@ from app.api.models.metric import (
 from app.api.models.predicate import PredicateCreateRequest, PredicateUpdateRequest
 from app.api.models.process_object import ProcessObjectCreateRequest, ProcessObjectUpdateRequest
 from app.api.models.time import TimeCreateRequest, TimeUpdateRequest
+from app.semantic_revision.metric_diff import classify_metric_revision
 
 from .common import SemanticServiceSupport, now_iso
 
@@ -673,6 +674,51 @@ class TypedObjectService(SemanticServiceSupport):
         next_revision = int(row["max_revision"] if row else 0) + 1
         metric_contract_id = f"metc_{uuid4().hex[:12]}"
         created_at = now_iso()
+        classification = classify_metric_revision(
+            self._metric_contract_from_row(base),
+            replacement.model_dump(mode="json"),
+        )
+        classification = self._with_metric_revision_dependency_plan_for_contract(
+            metric_ref=metric_ref,
+            metric_revision=next_revision,
+            metric_payload=replacement.payload.model_dump(mode="json"),
+            classification=classification,
+            metric_created_at=created_at,
+        )
+        guarded_compatible_expectation = payload.expected_compatibility == "compatible"
+        guarded_display_scope = payload.expected_change_scope in {
+            "display_metadata",
+            "unit_display_metadata",
+        }
+        if (
+            (guarded_compatible_expectation or guarded_display_scope)
+            and classification.classified_compatibility == "breaking"
+            and not payload.accept_classified_compatibility
+        ):
+            field_path = (
+                "expected_compatibility"
+                if guarded_compatible_expectation
+                else "expected_change_scope"
+            )
+            raise self._conflict_error(
+                "Revision guardrail mismatch",
+                code="revision_guardrail_mismatch",
+                field_path=field_path,
+                remediation={
+                    "metric_ref": metric_ref,
+                    "expected_compatibility": payload.expected_compatibility,
+                    "expected_change_scope": payload.expected_change_scope,
+                    "classified_compatibility": classification.classified_compatibility,
+                    "diff_summary": [entry.to_json() for entry in classification.diff_summary],
+                    "required_actions": [
+                        action.to_json() for action in classification.required_actions
+                    ],
+                    "recommended_action": (
+                        "retry with accept_classified_compatibility=true after inspecting "
+                        "the server classification and required actions"
+                    ),
+                },
+            )
         self.metadata.execute(
             """
             INSERT INTO semantic_metric_contracts (
@@ -705,7 +751,7 @@ class TypedObjectService(SemanticServiceSupport):
                 next_revision,
                 payload.base_revision,
                 payload.change_summary,
-                payload.compatibility,
+                classification.classified_compatibility,
                 created_at,
                 created_at,
             ],
@@ -782,6 +828,24 @@ class TypedObjectService(SemanticServiceSupport):
                     "requested_base_revision": base_revision,
                     "latest_active_revision": latest["revision"] if latest else None,
                     "recommended_action": "refresh latest active metric and create a new revision",
+                },
+            )
+        classification = self._metric_revision_classification_from_row(row)
+        if not classification.can_activate_now:
+            raise self._conflict_error(
+                "Metric revision has pending required actions",
+                code="revision_activation_blocked",
+                field_path="required_actions",
+                remediation={
+                    "metric_ref": metric_ref,
+                    "revision": revision,
+                    "classified_compatibility": classification.classified_compatibility,
+                    "required_actions": [
+                        action.to_json() for action in classification.required_actions
+                    ],
+                    "recommended_action": (
+                        "complete required actions and revalidate before activating this revision"
+                    ),
                 },
             )
         now = now_iso()

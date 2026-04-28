@@ -159,12 +159,20 @@ class ReadinessEvaluationContext:
             return []
         rows = self.metadata.query_rows(
             """
-            SELECT *
-            FROM typed_bindings
-            WHERE bound_object_ref = ?
-            ORDER BY binding_ref
+            SELECT tb.*
+            FROM typed_bindings tb
+            JOIN (
+                SELECT binding_ref, MAX(revision) AS revision
+                FROM typed_bindings
+                WHERE bound_object_ref = ? AND status = 'published'
+                GROUP BY binding_ref
+            ) latest
+              ON latest.binding_ref = tb.binding_ref
+             AND latest.revision = tb.revision
+            WHERE tb.bound_object_ref = ? AND tb.status = 'published'
+            ORDER BY tb.binding_ref
             """,
-            [subject_ref],
+            [subject_ref, subject_ref],
         )
         return [self._build_binding_snapshot(dict(row)) for row in rows]
 
@@ -172,7 +180,12 @@ class ReadinessEvaluationContext:
         if self.metadata is None:
             return []
         binding_row = self.metadata.query_one(
-            "SELECT binding_id FROM typed_bindings WHERE binding_ref = ?",
+            """
+            SELECT binding_id
+            FROM typed_bindings
+            WHERE binding_ref = ? AND status = 'published'
+            ORDER BY revision DESC
+            """,
             [binding_ref],
         )
         if binding_row is None:
@@ -336,7 +349,12 @@ class ReadinessEvaluationContext:
             )
         if object_kind == "metric":
             row = self.metadata.query_one(
-                "SELECT * FROM semantic_metric_contracts WHERE metric_ref = ?",
+                """
+                SELECT *
+                FROM semantic_metric_contracts
+                WHERE metric_ref = ?
+                ORDER BY is_latest_active DESC, revision DESC
+                """,
                 [ref],
             )
             if row is None:
@@ -402,7 +420,18 @@ class ReadinessEvaluationContext:
         # making SQL identifiers safe (values from hardcoded dict, not user input).
         assert object_kind in lookup, f"Invalid object_kind: {object_kind}"
         table, id_field, ref_field = lookup[object_kind]
-        row = self.metadata.query_one(f"SELECT * FROM {table} WHERE {ref_field} = ?", [ref])
+        if object_kind == "binding":
+            row = self.metadata.query_one(
+                """
+                SELECT *
+                FROM typed_bindings
+                WHERE binding_ref = ? AND status = 'published'
+                ORDER BY revision DESC
+                """,
+                [ref],
+            )
+        else:
+            row = self.metadata.query_one(f"SELECT * FROM {table} WHERE {ref_field} = ?", [ref])
         if row is None:
             return None
         row_dict = dict(row)

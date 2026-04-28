@@ -566,6 +566,45 @@ class TypedBindingUpdateRequest(BaseModel):
     )
 
 
+class BindingCoverageAddition(BaseModel):
+    """Field coverage to add while deriving a binding revision."""
+
+    coverage_target: str = Field(
+        description="Metric input target covered by the added field binding (metric_input.*)."
+    )
+    field_ref: str = Field(description="Carrier field surface reference (field.*).")
+
+    @field_validator("coverage_target")
+    @classmethod
+    def validate_coverage_target_prefix(cls, v: str) -> str:
+        if not v.startswith("metric_input."):
+            raise ValueError(f"'coverage_target' must start with 'metric_input.' prefix, got: {v}")
+        return v
+
+    @field_validator("field_ref")
+    @classmethod
+    def validate_field_ref_prefix(cls, v: str) -> str:
+        return validate_ref_prefix(v, "field", "field_ref")
+
+
+class BindingDeriveRevisionRequest(BaseModel):
+    """Request to derive a draft binding revision from the current revision."""
+
+    base_revision: int = Field(ge=1, description="Expected current binding revision.")
+    source_action_id: str = Field(description="Planner action that requested this derivation.")
+    target_metric_ref: str = Field(description="Target metric reference (metric.*).")
+    target_metric_revision: int = Field(ge=1, description="Target metric revision.")
+    reuse_sections: list[Literal["carrier", "time", "imports", "satisfied_field_coverage"]] = Field(
+        description="Existing binding sections to reuse in the derived revision."
+    )
+    coverage_additions: list[BindingCoverageAddition] = Field(default_factory=list)
+
+    @field_validator("target_metric_ref")
+    @classmethod
+    def validate_target_metric_ref_prefix(cls, v: str) -> str:
+        return validate_ref_prefix(v, "metric", "target_metric_ref")
+
+
 # =============================================================================
 # Response Models
 # =============================================================================

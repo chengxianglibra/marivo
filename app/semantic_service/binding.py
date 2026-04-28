@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any, Literal
 from uuid import uuid4
 
-from app.api.models.binding import TypedBindingCreateRequest, TypedBindingUpdateRequest
+from app.api.models.binding import (
+    BindingDeriveRevisionRequest,
+    TypedBindingCreateRequest,
+    TypedBindingUpdateRequest,
+)
 
 from .common import SemanticServiceSupport, now_iso
 
@@ -50,7 +55,12 @@ class TypedBindingService(SemanticServiceSupport):
         )
         if row is None:
             row = self.metadata.query_one(
-                "SELECT * FROM typed_bindings WHERE binding_ref = ?",
+                """
+                SELECT *
+                FROM typed_bindings
+                WHERE binding_ref = ?
+                ORDER BY CASE WHEN status = 'published' THEN 0 ELSE 1 END, revision DESC
+                """,
                 [binding_identifier],
             )
         if row is None:
@@ -142,6 +152,115 @@ class TypedBindingService(SemanticServiceSupport):
         )
         return self.get_typed_binding(binding_id)
 
+    def derive_binding_revision(
+        self, binding_identifier: str, payload: BindingDeriveRevisionRequest
+    ) -> dict[str, Any]:
+        row = self.metadata.query_one(
+            "SELECT * FROM typed_bindings WHERE binding_id = ?",
+            [binding_identifier],
+        )
+        if row is None:
+            row = self.metadata.query_one(
+                """
+                SELECT *
+                FROM typed_bindings
+                WHERE binding_ref = ?
+                ORDER BY CASE WHEN status = 'published' THEN 0 ELSE 1 END, revision DESC
+                """,
+                [binding_identifier],
+            )
+        if row is None:
+            raise self._not_found(f"Unknown typed binding: {binding_identifier}")
+
+        current = self._row_to_typed_binding(row)
+        current_revision = int(current["revision"])
+        if payload.base_revision != current_revision:
+            raise self._state_error(
+                "Binding base_revision does not match current revision: "
+                f"expected {current_revision}, got {payload.base_revision}"
+            )
+        if current["header"]["binding_scope"] != "metric":
+            raise self._validation_error(
+                "Binding revision derivation currently requires metric scope"
+            )
+        if current["header"]["bound_object_ref"] != payload.target_metric_ref:
+            raise self._validation_error(
+                "target_metric_ref must match the binding bound_object_ref"
+            )
+
+        interface_contract = deepcopy(current["interface_contract"])
+        for addition in payload.coverage_additions:
+            self._append_binding_coverage(interface_contract, addition.model_dump(mode="json"))
+
+        next_revision = current_revision + 1
+        binding_id = f"bind_{uuid4().hex[:24]}"
+        created_at = now_iso()
+        header = current["header"]
+        self.metadata.execute(
+            """
+            INSERT INTO typed_bindings (
+                binding_id, binding_ref, binding_scope, bound_object_ref,
+                binding_contract_version, display_name, description,
+                status, revision, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?)
+            """,
+            [
+                binding_id,
+                header["binding_ref"],
+                header["binding_scope"],
+                header["bound_object_ref"],
+                header["binding_contract_version"],
+                header.get("display_name"),
+                header.get("description"),
+                next_revision,
+                created_at,
+                created_at,
+            ],
+        )
+        self._replace_binding_contract(binding_id, interface_contract)
+        return self.get_typed_binding(binding_id)
+
+    def _append_binding_coverage(
+        self, interface_contract: dict[str, Any], addition: dict[str, str]
+    ) -> None:
+        coverage_target = addition["coverage_target"]
+        field_ref = addition["field_ref"]
+        target_key = coverage_target.removeprefix("metric_input.")
+        field_bindings = interface_contract.setdefault("field_bindings", [])
+        for field_binding in field_bindings:
+            if field_binding.get("semantic_ref") == coverage_target:
+                raise self._validation_error(
+                    f"Binding already covers coverage_target: {coverage_target}"
+                )
+
+        matching_carrier_keys = []
+        for carrier in interface_contract.get("carrier_bindings") or []:
+            field_surface_refs = {
+                surface.get("surface_ref") for surface in carrier.get("field_surfaces") or []
+            }
+            if field_ref in field_surface_refs:
+                matching_carrier_keys.append(str(carrier["binding_key"]))
+        if not matching_carrier_keys:
+            raise self._validation_error(
+                f"coverage field_ref does not exist on any carrier field surface: {field_ref}"
+            )
+        if len(matching_carrier_keys) > 1:
+            raise self._validation_error(
+                f"coverage field_ref is ambiguous across carrier bindings: {field_ref}"
+            )
+
+        field_bindings.append(
+            {
+                "carrier_binding_key": matching_carrier_keys[0],
+                "target": {
+                    "target_kind": "metric_input",
+                    "target_key": target_key,
+                },
+                "semantic_ref": coverage_target,
+                "surface_ref": field_ref,
+            }
+        )
+
     def validate_typed_binding(self, binding_id: str) -> dict[str, Any]:
         current = self.get_typed_binding(binding_id)
         self._validate_record(
@@ -160,6 +279,54 @@ class TypedBindingService(SemanticServiceSupport):
 
     def activate_typed_binding(self, binding_id: str) -> dict[str, Any]:
         current = self.get_typed_binding(binding_id)
+        active_same_ref = self.metadata.query_one(
+            """
+            SELECT binding_id
+            FROM typed_bindings
+            WHERE binding_ref = ? AND status = 'published' AND binding_id <> ?
+            ORDER BY revision DESC
+            """,
+            [current["header"]["binding_ref"], binding_id],
+        )
+        if active_same_ref is not None:
+            self._require_lifecycle_action_status(
+                action="activate",
+                status=current["status"],
+                object_label="Typed binding",
+                object_id=binding_id,
+            )
+            self._run_publish_reference_validation(
+                lambda: self._validate_typed_binding_contract(
+                    binding_ref=current["header"]["binding_ref"],
+                    binding_scope=current["header"]["binding_scope"],
+                    bound_object_ref=current["header"]["bound_object_ref"],
+                    interface_contract=current["interface_contract"],
+                    require_published_dependencies=True,
+                )
+            )
+            now = now_iso()
+            with self.metadata.connect() as con:
+                self.metadata.execute_sql(
+                    con,
+                    """
+                    UPDATE typed_bindings
+                    SET status = 'deprecated', updated_at = ?
+                    WHERE binding_ref = ? AND status = 'published' AND binding_id <> ?
+                    """,
+                    [now, current["header"]["binding_ref"], binding_id],
+                )
+                self.metadata.execute_sql(
+                    con,
+                    """
+                    UPDATE typed_bindings
+                    SET status = 'published', updated_at = ?
+                    WHERE binding_id = ?
+                    """,
+                    [now, binding_id],
+                )
+                con.commit()
+            return self.get_typed_binding(binding_id)
+
         self._activate_record(
             table_name="typed_bindings",
             id_column="binding_id",

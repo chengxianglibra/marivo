@@ -149,6 +149,8 @@ from .base import (
 
 # Binding models
 from .binding import (
+    BindingCoverageAddition,
+    BindingDeriveRevisionRequest,
     BindingHeader,
     BindingImport,
     BindingInterfaceContract,
@@ -585,6 +587,8 @@ __all__ = [  # noqa: RUF022
     "TimeSurfaceSpec",
     "TimeUpdateRequest",
     "TimeWindow",
+    "BindingCoverageAddition",
+    "BindingDeriveRevisionRequest",
     "TypedBindingCreateRequest",
     "TypedBindingListItem",
     "TypedBindingListResponse",
