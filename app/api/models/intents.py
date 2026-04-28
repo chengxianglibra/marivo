@@ -267,24 +267,20 @@ class CorrelateRequest(BaseModel):
     )
 
 
-class DetectTimeScopeCurrentWindow(BaseModel):
-    start: str = Field(description="Inclusive start of the window (ISO-8601 date or datetime).")
-    end: str = Field(description="Exclusive end of the window (ISO-8601 date or datetime).")
-
-
 class DetectTimeScope(BaseModel):
-    """time_scope for detect: single_window mode with explicit grain and current window."""
+    """Range-only time_scope for detect and auto-detect diagnose."""
 
-    mode: Literal["single_window"]
-    grain: Literal["hour", "day", "week", "month"]
-    current: DetectTimeScopeCurrentWindow
+    kind: Literal["range"]
+    start: str = Field(description="Inclusive start of the range (ISO-8601 date or datetime).")
+    end: str = Field(description="Exclusive end of the range (ISO-8601 date or datetime).")
 
-    @model_validator(mode="after")
-    def _validate_current_window(self) -> DetectTimeScope:
-        if self.grain == "hour":
-            normalize_hour_boundary(self.current.start, label="time_scope.current.start")
-            normalize_hour_boundary(self.current.end, label="time_scope.current.end")
-        return self
+    @field_validator("start", "end")
+    @classmethod
+    def _validate_non_blank_boundary(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("time_scope.start and time_scope.end must be non-empty")
+        return normalized
 
 
 class DetectRequest(BaseModel):
@@ -294,6 +290,9 @@ class DetectRequest(BaseModel):
         description="Canonical semantic metric ref to scan (e.g., 'metric.watch_time')."
     )
     time_scope: DetectTimeScope
+    granularity: Literal["hour", "day", "week", "month"] = Field(
+        description="Scan bucket size. Uses the same naming as observe.granularity."
+    )
     scope: ObserveScope | None = Field(default=None)
     split_by: str | None = Field(
         default=None,
@@ -317,11 +316,22 @@ class DetectRequest(BaseModel):
         ge=1,
         description="Maximum number of series to scan when split_by is set.",
     )
+    patterns: list[Literal["point_anomaly", "period_shift"]] | None = Field(
+        default=None,
+        description="Candidate patterns to scan. Omitted uses profile-derived defaults.",
+    )
 
     @field_validator("metric")
     @classmethod
     def _validate_metric_ref(cls, value: str) -> str:
         return validate_ref_prefix(value, "metric", "metric")
+
+    @model_validator(mode="after")
+    def _validate_hour_window(self) -> DetectRequest:
+        if self.granularity == "hour":
+            normalize_hour_boundary(self.time_scope.start, label="time_scope.start")
+            normalize_hour_boundary(self.time_scope.end, label="time_scope.end")
+        return self
 
 
 class HypothesisContract(BaseModel):
@@ -448,12 +458,31 @@ class AttributeRequest(BaseModel):
 
 
 class DiagnoseRequest(BaseModel):
-    """Derived intent: diagnose anomalies (expands to detect+compare+decompose on top-K)."""
+    """Derived intent: diagnose anomalies or known current-vs-baseline degradation."""
 
+    mode: Literal["auto_detect", "explicit_compare"] = Field(
+        default="auto_detect",
+        description="auto_detect expands detect+follow-up; explicit_compare expands observe+compare+decompose directly.",
+    )
     metric: str = Field(
         description="Canonical semantic metric ref to diagnose (e.g., 'metric.watch_time')."
     )
-    time_scope: DetectTimeScope
+    time_scope: DetectTimeScope | None = Field(
+        default=None,
+        description="Required when mode='auto_detect'.",
+    )
+    granularity: Literal["hour", "day", "week", "month"] | None = Field(
+        default=None,
+        description="Required when mode='auto_detect'.",
+    )
+    current: AttributeObservationInput | None = Field(
+        default=None,
+        description="Required current side when mode='explicit_compare'.",
+    )
+    baseline: AttributeObservationInput | None = Field(
+        default=None,
+        description="Required baseline side when mode='explicit_compare'.",
+    )
     scope: ObserveScope | None = Field(default=None)
     detect_split_by: str | None = Field(
         default=None,
@@ -486,11 +515,40 @@ class DiagnoseRequest(BaseModel):
         ge=1,
         description="Maximum driver rows per dimension per candidate.",
     )
+    patterns: list[Literal["point_anomaly", "period_shift"]] | None = Field(
+        default=None,
+        description="Candidate patterns passed to detect when mode='auto_detect'.",
+    )
+    baseline_policy: Literal["previous_adjacent_equal_length"] = Field(
+        default="previous_adjacent_equal_length",
+        description="Baseline policy for auto-detect follow-up candidates.",
+    )
 
     @field_validator("metric")
     @classmethod
     def _validate_metric_ref(cls, value: str) -> str:
         return validate_ref_prefix(value, "metric", "metric")
+
+    @model_validator(mode="after")
+    def _validate_mode_inputs(self) -> DiagnoseRequest:
+        if self.mode == "auto_detect":
+            if self.time_scope is None:
+                raise ValueError("time_scope is required when mode='auto_detect'")
+            if self.granularity is None:
+                raise ValueError("granularity is required when mode='auto_detect'")
+            if self.granularity == "hour":
+                normalize_hour_boundary(self.time_scope.start, label="time_scope.start")
+                normalize_hour_boundary(self.time_scope.end, label="time_scope.end")
+            if self.current is not None or self.baseline is not None:
+                raise ValueError("current/baseline are only valid when mode='explicit_compare'")
+        else:
+            if self.current is None or self.baseline is None:
+                raise ValueError("current and baseline are required when mode='explicit_compare'")
+            if self.time_scope is not None or self.granularity is not None:
+                raise ValueError("time_scope/granularity are only valid when mode='auto_detect'")
+            if self.patterns is not None:
+                raise ValueError("patterns are only valid when mode='auto_detect'")
+        return self
 
 
 class ValidateObservationInput(BaseModel):

@@ -41,7 +41,7 @@ subject.slice derivation
 
 subject.grain derivation
 ------------------------
-Extracted from ``artifact_payload["time_scope"]["grain"]`` when present.
+Extracted from ``artifact_payload["granularity"]`` when present.
 This is non-null for v1 time-bucket detect artifacts (the detect runner
 always embeds the scan grain in the artifact payload).
 
@@ -166,10 +166,9 @@ class DetectArtifactExtractor(FindingExtractor):
         scope: dict[str, Any] = artifact_payload.get("scope") or {}
         candidates: list[dict[str, Any]] = artifact_payload.get("candidates") or []
 
-        # Grain is embedded in time_scope by the detect runner for all v1
+        # Granularity is embedded by the detect runner for all v1
         # time-bucket artifacts (e.g. "day", "week").  Null when absent.
-        time_scope: dict[str, Any] = artifact_payload.get("time_scope") or {}
-        grain_raw: str | None = time_scope.get("grain")
+        grain_raw: str | None = artifact_payload.get("granularity")
         grain = grain_raw if grain_raw in _VALID_GRAINS else None
 
         findings: list[AnomalyCandidateFinding] = []

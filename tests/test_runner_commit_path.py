@@ -2317,11 +2317,8 @@ class TestDetectRunnerCommitPath(unittest.TestCase):
 
         params = {
             "metric": "m1",
-            "time_scope": {
-                "mode": "single_window",
-                "grain": "day",
-                "current": {"start": "2024-01-01", "end": "2024-01-31"},
-            },
+            "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-31"},
+            "granularity": "day",
         }
         with patch("app.intents.detect.execute_compiled") as mock_exec:
             # 9 points with one spike (day 5 = 200) to produce ≥1 anomaly candidate.

@@ -38,15 +38,14 @@ v1 明确约束：
 ```json
 {
   "intent": "diagnose",
+  "mode": "auto_detect",
   "metric": "dau",
   "time_scope": {
-    "mode": "single_window",
-    "grain": "day",
-    "current": {
-      "start": "2024-03-01T00:00:00",
-      "end": "2024-04-01T00:00:00"
-    }
+    "kind": "range",
+    "start": "2024-03-01T00:00:00",
+    "end": "2024-04-01T00:00:00"
   },
+  "granularity": "day",
   "scope": null,
   "detect_split_by": null,
   "candidate_dimensions": ["channel", "region"],
@@ -63,8 +62,12 @@ v1 明确约束：
 ```ts
 type DiagnoseRequest = {
   intent: "diagnose";
+  mode?: "auto_detect" | "explicit_compare";
   metric: string;
-  time_scope: DetectTimeScope;
+  time_scope?: DetectTimeScope | null;
+  granularity?: TimeGranularity | null;
+  current?: DiagnoseObservationInput | null;
+  baseline?: DiagnoseObservationInput | null;
   scope?: Scope | null;
   detect_split_by?: string | null;
   candidate_dimensions: string[];
@@ -76,9 +79,14 @@ type DiagnoseRequest = {
 };
 
 type DetectTimeScope = {
-  mode: "single_window";
-  grain: TimeGranularity;
-  current: TimeWindow;
+  kind: "range";
+  start: string;
+  end: string;
+};
+
+type DiagnoseObservationInput = {
+  time_scope: DetectTimeScope;
+  scope?: Scope | null;
 };
 
 type TimeGranularity = "hour" | "day" | "week" | "month";
@@ -127,7 +135,8 @@ type DetectSensitivity = "conservative" | "balanced" | "aggressive";
 v1 支持的输入形态如下：
 
 - `metric` 必须解析到已发布的 semantic metric
-- `time_scope` 必须复用 `detect` 的统一时间窗口契约，且 `mode = "single_window"`
+- `mode = "auto_detect"` 时，`time_scope` 必须复用 `detect` 的 range 窗口契约，且必须提供顶层 `granularity`
+- `mode = "explicit_compare"` 时，必须提供 `current.time_scope` 与 `baseline.time_scope`，不运行 `detect`
 - `scope` 若提供，必须遵守统一 non-time scope 契约
 - `detect_split_by` 可选；若提供，只能是单个 semantic dimension
 - `candidate_dimensions` 必须是非空的单维度名称列表，且去重后仍非空
@@ -249,7 +258,8 @@ v1 baseline policy 固定为 `previous_adjacent_equal_length`：
 以下情况应直接失败：
 
 - `metric` 不存在
-- `time_scope.mode != "single_window"`
+- `auto_detect` 下 `time_scope.kind != "range"` 或缺少 `granularity`
+- `explicit_compare` 下缺少 `current` 或 `baseline`
 - `candidate_dimensions` 为空
 - `candidate_dimensions` 含空字符串或重复后为空
 - `candidate_limit != null && candidate_limit <= 0`
@@ -298,8 +308,10 @@ v1 baseline policy 固定为 `previous_adjacent_equal_length`：
 type DiagnoseArtifact = {
   result_type: "diagnosis_bundle";
   artifact_schema_version: string;
+  mode: "auto_detect" | "explicit_compare";
   metric: string;
-  time_scope: ResolvedDetectTimeScope;
+  time_scope: ResolvedDetectTimeScope | null;
+  granularity: TimeGranularity | null;
   scope: Scope | null;
   detect_split_by: string | null;
   candidate_dimensions: string[];
@@ -307,7 +319,7 @@ type DiagnoseArtifact = {
   sensitivity: DetectSensitivity;
   validation: DiagnoseValidation;
   provenance: DiagnoseArtifactProvenance;
-  detect_summary: DiagnoseDetectSummary;
+  detect_summary: DiagnoseDetectSummary | null;
   diagnoses: DiagnoseCandidateResult[];
 };
 
@@ -329,14 +341,15 @@ type DiagnoseProjection = {
 };
 
 type ResolvedDetectTimeScope = {
-  mode: "single_window";
-  grain: TimeGranularity;
-  current: TimeWindow;
+  kind: "range";
+  start: string;
+  end: string;
 };
 
 type DiagnoseIssue = {
   code:
     | "detect_needs_attention"
+    | "no_detect_candidates"
     | "baseline_derivation_failed"
     | "observe_failed"
     | "compare_needs_attention"
@@ -589,8 +602,10 @@ type DiagnoseDriverProjection = {
 
 ### DiagnoseValidation.status
 
-- 仅当 detect 阶段可执行，且不存在 diagnose-level `error` issue 时，状态为 `diagnosable`
+- `auto_detect` 仅当 detect 阶段可执行、存在可跟进候选、且不存在 diagnose-level `error` issue 时，状态为 `diagnosable`
+- `explicit_compare` 不要求 source detect；只要 compare/decompose follow-up 没有 error issue，即可为 `diagnosable`
 - 只要存在 `detect_needs_attention` 且 `severity = "error"`，状态降为 `needs_attention`
+- 只要存在 `no_detect_candidates`，状态降为 `needs_attention`，并应给出 explicit_compare fallback guidance
 - `candidate_followup_truncated` 只影响 completeness，不单独把顶层状态降为 `needs_attention`
 
 ### DiagnoseCandidateResult.status
@@ -686,7 +701,7 @@ type DiagnoseDriverProjection = {
 请求：
 
 - `metric = "gmv"`
-- `time_scope.grain = "week"`
+- `granularity = "week"`
 - `detect_split_by = "channel"`
 - `candidate_dimensions = ["category", "province"]`
 
