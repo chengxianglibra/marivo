@@ -491,6 +491,7 @@ def ensure_published_typed_dimension(
                     "interface_contract": {
                         "value_domain": {
                             "structure_kind": "flat",
+                            "semantic_role": "category",
                             "value_type": "string",
                             "domain_kind": "open",
                         },
@@ -790,10 +791,11 @@ def ensure_published_typed_metric_binding(
     for dimension_name in dimension_names or []:
         if dimension_name == "event_date":
             continue
+        physical_name = dimension_name.removeprefix("dimension.")
         field_surfaces.append(
             {
-                "surface_ref": f"field.{dimension_name}",
-                "physical_name": dimension_name,
+                "surface_ref": f"field.{physical_name}",
+                "physical_name": physical_name,
             }
         )
 

@@ -477,10 +477,22 @@ class TestDetectExtractorAnalysisAxis(unittest.TestCase):
         result = _EXTRACTOR.extract(_ART_ID, _artifact(candidates=[c]), _STEP_REF, _SESSION)
         self.assertEqual(result["findings"][0]["subject"]["analysis_axis"], "segment")
 
-    def test_time_axis_beats_slice_when_window_present(self) -> None:
+    def test_slice_beats_time_axis_when_window_present(self) -> None:
         c = _candidate(candidate_slice={"region": "US"})
         result = _EXTRACTOR.extract(_ART_ID, _artifact(candidates=[c]), _STEP_REF, _SESSION)
-        self.assertEqual(result["findings"][0]["subject"]["analysis_axis"], "time")
+        self.assertEqual(result["findings"][0]["subject"]["analysis_axis"], "segment")
+
+    def test_same_window_segment_candidates_have_distinct_ids(self) -> None:
+        c_eu = _candidate(candidate_slice={"region": "EU"})
+        c_us = _candidate(candidate_slice={"region": "US"})
+        result = _EXTRACTOR.extract(
+            _ART_ID,
+            _artifact(candidates=[c_eu, c_us]),
+            _STEP_REF,
+            _SESSION,
+        )
+        ids = [f["finding_id"] for f in result["findings"]]
+        self.assertEqual(len(ids), len(set(ids)))
 
 
 # ---------------------------------------------------------------------------

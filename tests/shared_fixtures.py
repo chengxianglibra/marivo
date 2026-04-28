@@ -263,24 +263,28 @@ def _build_detect_intent_template(db_path: Path) -> None:
             """
             CREATE TABLE IF NOT EXISTS analytics.detect_events (
                 event_date DATE NOT NULL,
+                cluster    VARCHAR NOT NULL,
                 value      DOUBLE NOT NULL
             )
             """
         )
-        rows: list[tuple[str, float]] = []
+        rows: list[tuple[str, str, float]] = []
         base_date = datetime(2026, 1, 1).date()
         for i in range(14):
             d = (base_date + timedelta(days=i)).isoformat()
             count = 500 if i == 7 else 100
             for _ in range(count):
-                rows.append((d, 1.0))
-        con.executemany("INSERT INTO analytics.detect_events VALUES (?, ?)", rows)
+                rows.append((d, "alpha", 1.0))
+            for _ in range(100):
+                rows.append((d, "beta", 1.0))
+        con.executemany("INSERT INTO analytics.detect_events VALUES (?, ?, ?)", rows)
 
         # uniform_events: 14 days uniform (100 rows each day)
         con.execute(
             """
             CREATE TABLE IF NOT EXISTS analytics.uniform_events (
                 event_date DATE NOT NULL,
+                cluster    VARCHAR NOT NULL,
                 value      DOUBLE NOT NULL
             )
             """
@@ -289,8 +293,9 @@ def _build_detect_intent_template(db_path: Path) -> None:
         for i in range(14):
             d = (base_date + timedelta(days=i)).isoformat()
             for _ in range(100):
-                rows.append((d, 1.0))
-        con.executemany("INSERT INTO analytics.uniform_events VALUES (?, ?)", rows)
+                rows.append((d, "alpha", 1.0))
+                rows.append((d, "beta", 1.0))
+        con.executemany("INSERT INTO analytics.uniform_events VALUES (?, ?, ?)", rows)
     finally:
         con.close()
 
@@ -440,7 +445,7 @@ _TEMPLATE_SPECS: dict[str, _TemplateSpec] = {
         ),
     ),
     "detect_intent": _TemplateSpec(
-        version="detect_intent_v1",
+        version="detect_intent_v2",
         builder=_build_detect_intent_template,
         validator=lambda db_path: _all_tables_exist(
             db_path,
