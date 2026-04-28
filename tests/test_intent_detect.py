@@ -8,7 +8,7 @@ Covers:
   - run_detect_intent: insufficient points → detectability needs_attention
   - run_detect_intent: artifact schema required fields present
   - run_detect_intent: limit truncation
-  - run_detect_intent: split_by echoed in response
+  - run_detect_intent: split_by scans independent series
   - run_detect_intent: profile echoed in response
   - run_detect_intent: invalid sensitivity → ValueError
   - run_detect_intent: invalid mode → ValueError
@@ -63,6 +63,7 @@ def _seed_metadata(
     binding_role: str = "primary",
     metric_input_target_keys: list[str] | None = None,
     measure_type: str | None = None,
+    dimensions: list[str] | None = None,
 ) -> str:
     """Insert minimal metadata records so detect can resolve metric → table."""
     now = datetime.now(UTC).isoformat()
@@ -96,7 +97,7 @@ def _seed_metadata(
         metric_name=metric_name,
         display_name=metric_name,
         grain="day",
-        dimensions=["event_date"],
+        dimensions=dimensions or ["event_date"],
         definition_sql="COUNT(*)",
         measure_type=measure_type,
     )
@@ -107,6 +108,7 @@ def _seed_metadata(
         source_object_ref=obj_id,
         binding_role=binding_role,
         metric_input_target_keys=metric_input_target_keys,
+        dimension_names=dimensions or ["event_date"],
     )
     ensure_active_duckdb_mapping(meta, source_id=src_id, now=now)
     return metric_name
@@ -138,6 +140,7 @@ class DetectRunnerServiceTests(unittest.TestCase):
             metric_name="detect_event_count",
             table_fqn="analytics.detect_events",
             native_name="detect_events",
+            dimensions=["event_date", "dimension.cluster"],
         )
         # Uniform metric: uniform_event_count → analytics.uniform_events
         cls.uniform_metric = _seed_metadata(
@@ -146,6 +149,7 @@ class DetectRunnerServiceTests(unittest.TestCase):
             metric_name="uniform_event_count",
             table_fqn="analytics.uniform_events",
             native_name="uniform_events",
+            dimensions=["event_date", "dimension.cluster"],
         )
 
         cls.service = build_semantic_layer_service(cls.metadata, cls.analytics)
@@ -295,11 +299,61 @@ class DetectRunnerServiceTests(unittest.TestCase):
 
     # ── split_by ──────────────────────────────────────────────────────────────
 
-    def test_detect_split_by_echoed_in_response(self) -> None:
-        """split_by is echoed in the artifact even though multi-series scan is not yet implemented."""
+    def test_detect_split_by_scans_independent_series(self) -> None:
+        """split_by scans each dimension value as an independent series."""
         session_id = self._make_session()
-        result = self._detect(session_id, self.spike_metric, split_by="region")
-        self.assertEqual(result["split_by"], "region")
+        result = self._detect(session_id, self.spike_metric, split_by="dimension.cluster")
+
+        self.assertEqual(result["split_by"], "dimension.cluster")
+        self.assertEqual(result["scan_summary"]["eligible_series_count"], 2)
+        self.assertEqual(result["scan_summary"]["scanned_series_count"], 2)
+        self.assertEqual(result["scan_summary"]["excluded_series_count"], 0)
+        self.assertGreaterEqual(result["scan_summary"]["total_candidate_count"], 1)
+        self.assertTrue(
+            any(c["slice"] == {"dimension.cluster": "alpha"} for c in result["candidates"])
+        )
+
+    def test_detect_split_by_max_series_limits_scan(self) -> None:
+        """max_series limits split_by fan-out and records excluded series."""
+        session_id = self._make_session()
+        result = self._detect(
+            session_id,
+            self.spike_metric,
+            split_by="dimension.cluster",
+            max_series=1,
+        )
+
+        self.assertEqual(result["scan_summary"]["eligible_series_count"], 2)
+        self.assertEqual(result["scan_summary"]["scanned_series_count"], 1)
+        self.assertEqual(result["scan_summary"]["excluded_series_count"], 1)
+        issues = result["detectability"]["issues"]
+        self.assertTrue(any(i["code"] == "series_limit_applied" for i in issues))
+
+    def test_detect_split_by_unsupported_dimension_raises(self) -> None:
+        """Unsupported split dimension is rejected instead of falling back to overall scan."""
+        session_id = self._make_session()
+        with self.assertRaises(ValueError):
+            self._detect(session_id, self.spike_metric, split_by="dimension.missing_cluster")
+
+    def test_detect_split_by_declared_dimension_without_physical_column_raises(self) -> None:
+        """Declared split dimension must resolve to an executable column."""
+        metric_name = _seed_metadata(
+            self.metadata,
+            src_suffix="03",
+            metric_name="detect_missing_physical_dimension",
+            table_fqn="analytics.detect_events",
+            native_name="detect_events",
+            dimensions=["event_date", "dimension.cluster_missing"],
+        )
+        session_id = self._make_session()
+        with self.assertRaises(ValueError):
+            self._detect(session_id, metric_name, split_by="dimension.cluster_missing")
+
+    def test_detect_split_by_non_string_raises(self) -> None:
+        """Only a single split_by string is supported."""
+        session_id = self._make_session()
+        with self.assertRaises(ValueError):
+            self._detect(session_id, self.spike_metric, split_by=["dimension.cluster"])
 
     def test_detect_split_by_null_when_omitted(self) -> None:
         """Omitted split_by is null in the artifact."""
@@ -475,34 +529,37 @@ class DetectRunnerServiceTests(unittest.TestCase):
 class DetectIntentEndpointTests(unittest.TestCase):
     """HTTP-level tests for /sessions/{id}/intents/detect.
 
-    Uses the standard seeded DuckDB (analytics.watch_events) so the query
-    can execute via the default fallback analytics engine.  watch_events has
-    uniform per-day row counts, so detect returns 0 candidates — testing the
-    success-empty artifact path.  Spike detection is covered by the direct
-    service tests (DetectRunnerServiceTests).
+    Uses the detect intent fixture so HTTP tests can cover both success-empty
+    and split_by execution paths.
     """
 
     @classmethod
     def setUpClass(cls) -> None:
-        from tests.shared_fixtures import get_seeded_duckdb_path
-
         cls.temp_dir = tempfile.TemporaryDirectory()
         db_path = Path(cls.temp_dir.name) / "detect_http.duckdb"
-        get_seeded_duckdb_path(db_path)
+        _seed_detect_tables(db_path)
 
         # Create the metadata store separately so we can seed it before the app starts.
         meta_path = db_path.with_suffix(".meta.sqlite")
         metadata = SQLiteMetadataStore(str(meta_path))
         metadata.initialize()
 
-        # Register metric pointing to analytics.watch_events (exists in seeded DuckDB).
-        # No engine binding → QueryRouter falls back to the default analytics engine.
+        # Register metric pointing to analytics.uniform_events.
         _seed_metadata(
             metadata,
             src_suffix="http01",
             metric_name="http_detect_metric",
-            table_fqn="analytics.watch_events",
-            native_name="watch_events",
+            table_fqn="analytics.uniform_events",
+            native_name="uniform_events",
+            dimensions=["event_date", "dimension.cluster"],
+        )
+        _seed_metadata(
+            metadata,
+            src_suffix="http02",
+            metric_name="http_detect_split_metric",
+            table_fqn="analytics.detect_events",
+            native_name="detect_events",
+            dimensions=["event_date", "dimension.cluster"],
         )
 
         cls.client = TestClient(create_app(db_path=db_path, metadata_store=metadata))
@@ -515,7 +572,7 @@ class DetectIntentEndpointTests(unittest.TestCase):
         cls.temp_dir.cleanup()
 
     def _time_scope(
-        self, start: str = "2026-02-07", end: str = "2026-03-08", grain: str = "day"
+        self, start: str = "2026-01-01", end: str = "2026-01-15", grain: str = "day"
     ) -> dict:
         return {"mode": "single_window", "grain": grain, "current": {"start": start, "end": end}}
 
@@ -549,10 +606,11 @@ class DetectIntentEndpointTests(unittest.TestCase):
             metadata,
             src_suffix="http_not_ready",
             metric_name="http_detect_not_ready_metric",
-            table_fqn="analytics.watch_events",
-            native_name="watch_events",
+            table_fqn="analytics.uniform_events",
+            native_name="uniform_events",
             metric_input_target_keys=["numerator"],
             measure_type="average",
+            dimensions=["event_date", "dimension.cluster"],
         )
 
         response = self.client.post(
@@ -576,9 +634,10 @@ class DetectIntentEndpointTests(unittest.TestCase):
             metadata,
             src_suffix="http_aux",
             metric_name="http_detect_aux_metric",
-            table_fqn="analytics.watch_events",
-            native_name="watch_events",
+            table_fqn="analytics.uniform_events",
+            native_name="uniform_events",
             binding_role="auxiliary",
+            dimensions=["event_date", "dimension.cluster"],
         )
 
         response = self.client.post(
@@ -613,7 +672,7 @@ class DetectIntentEndpointTests(unittest.TestCase):
                 "time_scope": {
                     "mode": "compare",
                     "grain": "day",
-                    "current": {"start": "2026-02-07", "end": "2026-03-08"},
+                    "current": {"start": "2026-01-01", "end": "2026-01-15"},
                 },
             },
         )
@@ -640,7 +699,6 @@ class DetectIntentEndpointTests(unittest.TestCase):
             f"/sessions/{self.session_id}/intents/detect",
             json={
                 "metric": _metric_ref("http_detect_metric"),
-                # Seeded data covers 2026-02-07 to 2026-03-07
                 "time_scope": self._time_scope(),
                 "sensitivity": "balanced",
             },
@@ -663,8 +721,38 @@ class DetectIntentEndpointTests(unittest.TestCase):
         )
         self.assertEqual(r.status_code, 200, msg=r.text)
         body = r.json()
-        # watch_events has the same number of rows per day (256) → std=0 → no candidates
+        # uniform_events has the same number of rows per day per cluster → no candidates
         self.assertEqual(body["scan_summary"]["total_candidate_count"], 0)
+
+    def test_detect_split_by_returns_segment_candidates(self) -> None:
+        r = self.client.post(
+            f"/sessions/{self.session_id}/intents/detect",
+            json={
+                "metric": _metric_ref("http_detect_split_metric"),
+                "time_scope": self._time_scope(),
+                "split_by": "dimension.cluster",
+                "sensitivity": "balanced",
+            },
+        )
+        self.assertEqual(r.status_code, 200, msg=r.text)
+        body = r.json()
+        self.assertEqual(body["split_by"], "dimension.cluster")
+        self.assertEqual(body["scan_summary"]["eligible_series_count"], 2)
+        self.assertEqual(body["scan_summary"]["scanned_series_count"], 2)
+        self.assertTrue(
+            any(c["slice"] == {"dimension.cluster": "alpha"} for c in body["candidates"])
+        )
+
+    def test_detect_split_by_array_returns_422(self) -> None:
+        r = self.client.post(
+            f"/sessions/{self.session_id}/intents/detect",
+            json={
+                "metric": _metric_ref("http_detect_split_metric"),
+                "time_scope": self._time_scope(),
+                "split_by": ["dimension.cluster"],
+            },
+        )
+        self.assertEqual(r.status_code, 422)
 
     def test_detect_nonexistent_session_returns_404(self) -> None:
         r = self.client.post(

@@ -122,10 +122,10 @@ def _derive_analysis_axis(candidate: dict[str, Any]) -> str:
     - scalar / unknown                               → ``"scalar"``
     """
     window = candidate.get("window")
-    if isinstance(window, dict) and window:
-        return "time"
     if candidate.get("slice") is not None:
         return "segment"
+    if isinstance(window, dict) and window:
+        return "time"
     return "scalar"
 
 
@@ -191,7 +191,10 @@ class DetectArtifactExtractor(FindingExtractor):
             # ``artifact_id: null``).  We do NOT read that field — we always
             # reconstruct the canonical ref from the D2-priority key so that
             # the ref is stable and carries the correct artifact_id.
-            if window_start:
+            if window_start and analysis_axis == "segment" and candidate_slice:
+                stable_key = f"{window_start}|{_segment_stable_key(candidate_slice)}"
+                canonical_item_key, item_ref = make_item_identity("candidates", key=stable_key)
+            elif window_start:
                 canonical_item_key, item_ref = make_item_identity("candidates", key=window_start)
             elif analysis_axis == "segment" and candidate_slice:
                 stable_key = _segment_stable_key(candidate_slice)
