@@ -15,6 +15,7 @@ class SemanticServiceError(Exception):
         field_path: str | None = None,
         remediation: dict[str, Any] | None = None,
         examples: list[dict[str, Any]] | None = None,
+        status_code: int | None = None,
     ) -> None:
         super().__init__(message)
         self.code = code
@@ -22,6 +23,7 @@ class SemanticServiceError(Exception):
         self.field_path = field_path
         self.remediation = remediation
         self.examples = examples
+        self.status_code = status_code
 
 
 class SemanticNotFoundError(SemanticServiceError):
@@ -38,3 +40,7 @@ class SemanticStateError(SemanticServiceError):
 
 class SemanticCompatibilityError(SemanticServiceError):
     """Raised when a compatibility/profile constraint is not satisfied."""
+
+
+class SemanticConflictError(SemanticServiceError):
+    """Raised when a semantic write conflicts with an existing governed object."""

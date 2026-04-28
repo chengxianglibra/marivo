@@ -3,6 +3,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any
 
 from fastapi.testclient import TestClient
 
@@ -83,8 +84,11 @@ class SemanticEntityRouteTests(unittest.TestCase):
             json={"description": "Should fail after publish"},
         )
         self.assertEqual(resp.status_code, 422, resp.text)
+        detail = resp.json()["detail"]
+        message = detail["message"] if isinstance(detail, dict) else detail
         self.assertIn(
-            "cannot activate from status=published; expected draft", resp.json()["detail"]
+            "cannot activate from status=published; expected draft",
+            message,
         )
 
         resp = self.client.post(f"/semantic/entities/{entity_id}/publish")
@@ -166,6 +170,143 @@ class SemanticMetricRouteTests(unittest.TestCase):
     def tearDownClass(cls) -> None:
         cls.client.close()
         cls.temp_dir.cleanup()
+
+    def _create_published_entity(self, entity_ref: str) -> None:
+        entity_resp = self.client.post(
+            "/semantic/entities",
+            json={
+                "header": {
+                    "entity_ref": entity_ref,
+                    "display_name": entity_ref.removeprefix("entity."),
+                    "entity_contract_version": "entity.v4",
+                },
+                "interface_contract": {
+                    "identity": {
+                        "key_refs": [f"key.{entity_ref.removeprefix('entity.')}_id"],
+                        "uniqueness_scope": "global",
+                        "id_stability": "stable",
+                    }
+                },
+            },
+        )
+        self.assertEqual(entity_resp.status_code, 200, entity_resp.text)
+        publish_resp = self.client.post(
+            f"/semantic/entities/{entity_resp.json()['entity_contract_id']}/publish"
+        )
+        self.assertEqual(publish_resp.status_code, 200, publish_resp.text)
+
+    def _metric_create_payload(self, metric_ref: str, entity_ref: str) -> dict[str, Any]:
+        metric_name = metric_ref.removeprefix("metric.")
+        return {
+            "header": {
+                "metric_ref": metric_ref,
+                "display_name": metric_name,
+                "description": f"{metric_name} metric",
+                "metric_family": "count_metric",
+                "observed_entity_ref": entity_ref,
+                "observation_grain_ref": "grain.user",
+                "sample_kind": "numeric",
+                "value_semantics": "count",
+                "additivity_constraints": {
+                    "dimension_policy": "none",
+                    "time_axis_policy": "non_additive",
+                },
+                "metric_contract_version": "metric.v1",
+            },
+            "payload": {
+                "metric_family": "count_metric",
+                "count_target": {
+                    "name": metric_name,
+                    "semantics": f"{metric_name} events",
+                    "aggregation": "count",
+                },
+            },
+        }
+
+    def _assert_metric_ref_conflict(
+        self, metric_ref: str, existing: dict[str, Any], resp: Any
+    ) -> None:
+        self.assertEqual(resp.status_code, 409, resp.text)
+        detail = resp.json()["detail"]
+        self.assertEqual(detail["error"]["code"], "semantic_ref_conflict")
+        self.assertEqual(detail["error"]["category"], "conflict")
+        self.assertEqual(detail["error"]["field_path"], "header.metric_ref")
+        remediation = detail["guidance"]["remediation"]
+        self.assertEqual(remediation["existing_object_kind"], "metric")
+        self.assertEqual(remediation["existing_object_id"], existing["metric_contract_id"])
+        self.assertEqual(remediation["existing_ref"], metric_ref)
+        self.assertEqual(remediation["existing_status"], existing["status"])
+        self.assertEqual(remediation["existing_revision"], existing["revision"])
+        self.assertIn("recommended_actions", remediation)
+        self.assertGreaterEqual(len(detail["guidance"]["examples"]), 3)
+
+    def test_metric_create_duplicate_ref_returns_structured_409_for_draft(self) -> None:
+        entity_ref = "entity.metric_ref_conflict_draft_user"
+        metric_ref = "metric.ref_conflict_draft"
+        self._create_published_entity(entity_ref)
+        create_resp = self.client.post(
+            "/semantic/metrics",
+            json=self._metric_create_payload(metric_ref, entity_ref),
+        )
+        self.assertEqual(create_resp.status_code, 200, create_resp.text)
+
+        duplicate_resp = self.client.post(
+            "/semantic/metrics",
+            json=self._metric_create_payload(metric_ref, entity_ref),
+        )
+        self._assert_metric_ref_conflict(metric_ref, create_resp.json(), duplicate_resp)
+
+    def test_metric_create_duplicate_ref_returns_structured_409_for_published(self) -> None:
+        entity_ref = "entity.metric_ref_conflict_published_user"
+        metric_ref = "metric.ref_conflict_published"
+        self._create_published_entity(entity_ref)
+        create_resp = self.client.post(
+            "/semantic/metrics",
+            json=self._metric_create_payload(metric_ref, entity_ref),
+        )
+        self.assertEqual(create_resp.status_code, 200, create_resp.text)
+        publish_resp = self.client.post(
+            f"/semantic/metrics/{create_resp.json()['metric_contract_id']}/publish"
+        )
+        self.assertEqual(publish_resp.status_code, 200, publish_resp.text)
+
+        duplicate_resp = self.client.post(
+            "/semantic/metrics",
+            json=self._metric_create_payload(metric_ref, entity_ref),
+        )
+        self._assert_metric_ref_conflict(metric_ref, publish_resp.json(), duplicate_resp)
+        self.assertEqual(
+            duplicate_resp.json()["detail"]["guidance"]["remediation"]["existing_lifecycle_status"],
+            "active",
+        )
+
+    def test_metric_create_duplicate_ref_returns_structured_409_for_deprecated(self) -> None:
+        entity_ref = "entity.metric_ref_conflict_deprecated_user"
+        metric_ref = "metric.ref_conflict_deprecated"
+        self._create_published_entity(entity_ref)
+        create_resp = self.client.post(
+            "/semantic/metrics",
+            json=self._metric_create_payload(metric_ref, entity_ref),
+        )
+        self.assertEqual(create_resp.status_code, 200, create_resp.text)
+        publish_resp = self.client.post(
+            f"/semantic/metrics/{create_resp.json()['metric_contract_id']}/publish"
+        )
+        self.assertEqual(publish_resp.status_code, 200, publish_resp.text)
+        deprecate_resp = self.client.post(
+            f"/semantic/metrics/{create_resp.json()['metric_contract_id']}/deprecate"
+        )
+        self.assertEqual(deprecate_resp.status_code, 200, deprecate_resp.text)
+
+        duplicate_resp = self.client.post(
+            "/semantic/metrics",
+            json=self._metric_create_payload(metric_ref, entity_ref),
+        )
+        self._assert_metric_ref_conflict(metric_ref, deprecate_resp.json(), duplicate_resp)
+        self.assertEqual(
+            duplicate_resp.json()["detail"]["guidance"]["remediation"]["ref_ownership"],
+            "deprecated objects retain semantic ref ownership",
+        )
 
     def test_metric_routes_use_typed_contract(self) -> None:
         # Publish the entity that the metric references before creating/publishing the metric
@@ -329,8 +470,11 @@ class SemanticMetricRouteTests(unittest.TestCase):
             },
         )
         self.assertEqual(resp.status_code, 422, resp.text)
+        detail = resp.json()["detail"]
+        message = detail["message"] if isinstance(detail, dict) else detail
         self.assertIn(
-            "cannot activate from status=published; expected draft", resp.json()["detail"]
+            "cannot activate from status=published; expected draft",
+            message,
         )
 
         resp = self.client.post(f"/semantic/metrics/{metric_id}/publish")

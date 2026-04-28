@@ -18,6 +18,7 @@ from app.api.models.time import TimeCreateRequest, TimeUpdateRequest
 from app.semantic_service import (
     CompatibilityProfileService,
     SemanticCompatibilityError,
+    SemanticConflictError,
     SemanticNotFoundError,
     SemanticServiceError,
     SemanticStateError,
@@ -42,6 +43,7 @@ class SemanticServiceValueError(ValueError):
         field_path: str | None = None,
         remediation: dict[str, Any] | None = None,
         examples: list[dict[str, Any]] | None = None,
+        status_code: int | None = None,
     ) -> None:
         super().__init__(message)
         self.code = code
@@ -49,6 +51,7 @@ class SemanticServiceValueError(ValueError):
         self.field_path = field_path
         self.remediation = remediation
         self.examples = examples
+        self.status_code = status_code
 
 
 class SemanticService:
@@ -68,7 +71,12 @@ class SemanticService:
             return action()
         except SemanticNotFoundError as error:
             raise KeyError(str(error)) from error
-        except (SemanticValidationError, SemanticStateError, SemanticCompatibilityError) as error:
+        except (
+            SemanticValidationError,
+            SemanticStateError,
+            SemanticCompatibilityError,
+            SemanticConflictError,
+        ) as error:
             raise SemanticServiceValueError(
                 str(error),
                 code=error.code,
@@ -76,6 +84,7 @@ class SemanticService:
                 field_path=getattr(error, "field_path", None),
                 remediation=getattr(error, "remediation", None),
                 examples=getattr(error, "examples", None),
+                status_code=getattr(error, "status_code", None),
             ) from error
         except SemanticServiceError as error:
             raise SemanticServiceValueError(
@@ -85,6 +94,7 @@ class SemanticService:
                 field_path=getattr(error, "field_path", None),
                 remediation=getattr(error, "remediation", None),
                 examples=getattr(error, "examples", None),
+                status_code=getattr(error, "status_code", None),
             ) from error
 
     @staticmethod
