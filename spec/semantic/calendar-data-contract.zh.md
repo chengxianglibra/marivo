@@ -1,5 +1,8 @@
 # Calendar Data Logical Input Contract
 
+> **Superseded** by `docs/superpowers/specs/2026-04-29-calendar-data-policy-redesign-design.md`.
+> This document describes the pre-redesign architecture and is kept for historical reference.
+
 状态：accepted design note。本文冻结 `calendar alignment policy` 在 v1 所依赖的 `calendar data` 逻辑输入契约；它定义 compiler / resolver 读取的稳定字段与约束，不定义新的 top-level semantic object family。
 
 配套文档：

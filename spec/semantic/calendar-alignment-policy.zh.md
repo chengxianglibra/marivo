@@ -1,5 +1,8 @@
 # Calendar / Alignment Policy Contract（草案）
 
+> **Superseded** by `docs/superpowers/specs/2026-04-29-calendar-data-policy-redesign-design.md`.
+> This document describes the pre-redesign architecture and is kept for historical reference.
+
 本文定义 Marivo 中“节假日 / 星期 / 业务活动日等可比期对齐规则”的目标设计。
 
 状态：draft design with v1 scope freeze。本文保留较完整的设计空间，但 v1 实施边界以后续 scope note 为准：`spec/semantic/calendar-alignment-policy-v1-scope-note.zh.md`。

@@ -1,5 +1,8 @@
 # Calendar Bucket Pairing Artifact Decision v1
 
+> **Superseded** by `docs/superpowers/specs/2026-04-29-calendar-data-policy-redesign-design.md`.
+> This document describes the pre-redesign architecture and is kept for historical reference.
+
 状态：accepted design note。本文冻结 `calendar alignment policy` 在 v1 对 `bucket_pairing` 暴露面的治理结论：`bucket_pairing plan` 只作为 observation artifact 中 `resolved_policy_summary` 的 metadata 输出，不升格为可单独引用的一等 artifact。
 
 配套文档：

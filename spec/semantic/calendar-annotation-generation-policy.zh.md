@@ -1,5 +1,8 @@
 # Calendar Annotation Generation Policy v1
 
+> **Superseded** by `docs/superpowers/specs/2026-04-29-calendar-data-policy-redesign-design.md`.
+> This document describes the pre-redesign architecture and is kept for historical reference.
+
 状态：accepted design note。本文冻结 `calendar data` 在 v1 的 holiday / event annotation 生成规则，覆盖 `holiday_group_id`、`year_relative_holiday_key`、`event_group_id`、`year_relative_event_key` 的编码、边界与最小样例。
 
 配套文档：

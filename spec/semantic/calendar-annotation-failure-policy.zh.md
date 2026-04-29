@@ -1,5 +1,8 @@
 # Calendar Annotation Failure Policy v1
 
+> **Superseded** by `docs/superpowers/specs/2026-04-29-calendar-data-policy-redesign-design.md`.
+> This document describes the pre-redesign architecture and is kept for historical reference.
+
 状态：accepted design note。本文冻结 `calendar data` annotation 缺失时的处理规则，定义何时必须 fail、何时记录 warning、何时允许进入 policy 内声明的 fallback path。
 
 配套文档：

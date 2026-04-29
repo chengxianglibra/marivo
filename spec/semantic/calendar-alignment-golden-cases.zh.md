@@ -1,5 +1,8 @@
 # Calendar Alignment Golden Cases
 
+> **Superseded** by `docs/superpowers/specs/2026-04-29-calendar-data-policy-redesign-design.md`.
+> This document describes the pre-redesign architecture and is kept for historical reference.
+
 状态：accepted acceptance note。本文冻结 `calendar alignment policy` 的最小验收样例集，用作人工验收、回归核对与后续自动化扩展的统一基线。
 
 ## 目的
