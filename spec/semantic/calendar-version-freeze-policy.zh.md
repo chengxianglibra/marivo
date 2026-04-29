@@ -1,5 +1,8 @@
 # Calendar Version Freeze Policy v1
 
+> **Superseded** by `docs/superpowers/specs/2026-04-29-calendar-data-policy-redesign-design.md`.
+> This document describes the pre-redesign architecture and is kept for historical reference.
+
 状态：accepted design note。本文冻结 `calendar alignment policy` 在 v1 所依赖的 `calendar version` 锚定规则、resolver 消费约束与数据发布流程，目标是保证同一请求可重放出同一 baseline window 与 bucket pairing plan。
 
 配套文档：

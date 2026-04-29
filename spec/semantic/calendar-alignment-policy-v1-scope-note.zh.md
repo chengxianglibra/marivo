@@ -1,5 +1,8 @@
 # Calendar Alignment Policy v1 Scope Note
 
+> **Superseded** by `docs/superpowers/specs/2026-04-29-calendar-data-policy-redesign-design.md`.
+> This document describes the pre-redesign architecture and is kept for historical reference.
+
 状态：accepted scope note。本文用于冻结 `calendar alignment policy` 的 v1 产品边界与最小 contract；它优先于更早的开放式 design 草案。
 
 配套文档：

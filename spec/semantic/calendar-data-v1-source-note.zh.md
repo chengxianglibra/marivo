@@ -1,5 +1,8 @@
 # Calendar Data v1 Source Note
 
+> **Superseded** by `docs/superpowers/specs/2026-04-29-calendar-data-policy-redesign-design.md`.
+> This document describes the pre-redesign architecture and is kept for historical reference.
+
 状态：accepted source note。本文冻结 `calendar data` 在 v1 的 source 选型、source 分层与 versioning 约束，用于支撑 `calendar alignment policy` 的可重放解析。
 
 配套文档：
