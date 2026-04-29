@@ -38,22 +38,9 @@ observability:
 governance:
   enabled: true
 
-# Optional compiler-owned calendar snapshot registry for calendar alignment.
-# Calendar source bindings must reference sources registered through the HTTP API.
+# Optional calendar configuration for calendar alignment.
 #
 # calendar:
-#   default_region_code: "CN"
-#   snapshots:
-#     - resolved_calendar_source: "calendar_data_cn_assembled"
-#       resolved_calendar_version: "calendar_data_cn_2026q2_v1"
-#       region_code: "CN"
-#       effective_start: "2025-01-01"
-#       effective_end: "2026-12-31"
-#       holiday_source:
-#         source_name: "Local Demo"
-#         table_fqn: "analytics.cn_public_holiday"
-#         calendar_version: "cn_public_holiday_2026_v1"
-#       event_source:
-#         source_name: "Local Demo"
-#         table_fqn: "analytics.campaign_calendar"
-#         calendar_version: "campaign_calendar_2026_q2_v3"
+#   # All fields optional. Defaults: region_code=CN, calendar_version=auto-discover latest.
+#   # calendar_version: "cn_2026q2_v1"  # Uncomment to pin a specific version
+#   # region_code: "CN"                  # Uncomment to override default region

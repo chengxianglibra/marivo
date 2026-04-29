@@ -4,6 +4,7 @@ from fastapi import FastAPI
 
 from app.api import (
     approvals,
+    calendar,
     catalog,
     engines,
     governance,
@@ -34,5 +35,6 @@ def include_api_routers(app: FastAPI) -> None:
         jobs.router,
         approvals.router,
         metrics.router,
+        calendar.router,
     ):
         app.include_router(router)
