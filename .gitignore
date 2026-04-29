@@ -44,6 +44,8 @@ Thumbs.db
 
 # Local editor metadata
 marivo-skill/marivo/.obsidian/
+spec/.obsidian/
+spec/semantic/semantic-layer-management-design.zh.md
 
 # Playwright
 .playwright/

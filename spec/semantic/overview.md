@@ -67,6 +67,7 @@ process schema ----/--/
 | [`calendar-annotation-generation-policy.zh.md`](./calendar-annotation-generation-policy.zh.md) | holiday / event 注释生成规则 | `group_id` 与 relative key 如何生成、哪些窗口必须稳定标注 |
 | [`calendar-annotation-failure-policy.zh.md`](./calendar-annotation-failure-policy.zh.md) | annotation 缺失处理规则 | 何时 fail、何时 warning、何时允许 fallback |
 | [`metric-process-contract.zh.md`](./metric-process-contract.zh.md) | `metric` 与 `process object` 的总分工 | 为什么要把过程语义从 metric 中拆出来、三层对象如何分工、compiler/IR 应如何承接 |
+| [`entity-centric-object-model.zh.md`](./entity-centric-object-model.zh.md) | entity-centric 对象模型收敛 | entity-only physical grounding、thin entity fields、object-owned semantic roles、relationship/profile 组合校验 |
 | [`metric-v2-schema.zh.md`](./metric-v2-schema.zh.md) | `metric` 的目标 schema | metric 应承载哪些 measurement semantics，哪些 capability 应由 compiler 推导 |
 | [`process-object-schema.zh.md`](./process-object-schema.zh.md) | `process object` 的目标 schema | 过程对象如何声明稳定接口、subtype 如何建模、哪些 capability 应保留 vs 推导 |
 | [`entity-schema-contract.zh.md`](./entity-schema-contract.zh.md) | `entity` 的目标 schema | entity 如何作为独立语义锚点，不依赖 binding，不暴露 process 语义 |
@@ -95,6 +96,8 @@ process schema ----/--/
 - compiler / IR 承担组合复杂度，而不是把复杂性泄漏到外部契约
 
 如果不先建立这层分工，后面的 schema 文档会显得像一组孤立字段设计。
+
+如果你关心 semantic layer 对象模型如何从“多个对象都可能触碰 physical grounding”收敛为“entity-only physical grounding + object-owned semantic roles”，以及 entity field、dimension/time/predicate、metric/process、relationship/profile 的新边界，随后阅读 [`entity-centric-object-model.zh.md`](./entity-centric-object-model.zh.md)。
 
 ### 2. 再看六个核心对象与一个配套值域契约
 
