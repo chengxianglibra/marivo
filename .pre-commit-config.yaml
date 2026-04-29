@@ -12,7 +12,7 @@ repos:
     rev: v1.9.0
     hooks:
       - id: mypy
-        additional_dependencies: [types-PyYAML, pydantic, fastapi, starlette]
+        additional_dependencies: [types-PyYAML, types-PyMySQL, pydantic, fastapi, starlette]
         args: [--strict, --ignore-missing-imports]
         files: ^app/
 
