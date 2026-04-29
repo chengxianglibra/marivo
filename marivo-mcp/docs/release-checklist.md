@@ -122,8 +122,8 @@ invalid `MARIVO_WORKSPACE_ROOT` fails closed with `workspace_root_required`.
 - `marivo-mcp/README.md` matches the currently implemented P0/P1 surface.
 - `marivo_mcp.inventory` matches the currently registered tools/resources.
 - Root `README.md` still reflects Marivo's typed-intent and state/context model.
-- `docs/agent-guide.md` still points implementers at the MCP README and inventory
-  instead of duplicating implementation details.
+- `agent-guide.md` stays limited to repository-wide coding and testing rules
+  instead of duplicating product usage or MCP implementation details.
 - `spec/service/agent-runtime/troubleshooting.zh.md` still
   matches the implemented local runtime, remote fail-closed, and HTTP MCP guard
   behavior.
