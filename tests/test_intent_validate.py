@@ -348,7 +348,7 @@ class ValidateRunnerServiceTests(unittest.TestCase):
         sid = self._make_session()
         summaries = [
             _resolved_policy_summary(),
-            _resolved_policy_summary(policy_ref="calendar_policy.holiday_yoy"),
+            _resolved_policy_summary(policy_ref="calendar_policy.calendar_yoy"),
         ]
         original_commit_artifact = self.service._commit_artifact_with_extraction
 

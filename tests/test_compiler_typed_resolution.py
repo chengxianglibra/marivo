@@ -277,18 +277,8 @@ class _FakeCalendarDataReader:
             resolved_calendar_source=self.resolved_calendar_source,
             resolved_calendar_version=self.resolved_calendar_version,
             source_lineage={
-                "holiday_source": {
-                    "source_id": "src_holiday",
-                    "source_name": "CN Holiday",
-                    "table_fqn": "analytics.cn_public_holiday",
-                    "calendar_version": "cn_public_holiday_2026_v1",
-                },
-                "event_source": {
-                    "source_id": "src_event",
-                    "source_name": "Campaign Calendar",
-                    "table_fqn": "analytics.campaign_calendar",
-                    "calendar_version": "campaign_calendar_2026_q2_v3",
-                },
+                "table_fqn": "calendar",
+                "calendar_version": "cn_2026q2_v1",
             },
         )
 
@@ -768,7 +758,7 @@ class CompilerTypedResolutionTests(unittest.TestCase):
                         "grain": "day",
                         "current": {"start": "2026-04-01", "end": "2026-04-08"},
                     },
-                    "calendar_policy_ref": "calendar_policy.holiday_yoy",
+                    "calendar_policy_ref": "calendar_policy.calendar_yoy",
                     "select": ["event_date AS bucket_start", "COUNT(*) AS value"],
                     "group_by": ["bucket_start"],
                 },
@@ -776,7 +766,7 @@ class CompilerTypedResolutionTests(unittest.TestCase):
         )
 
         self.assertEqual(normalized.intent_kind, "aggregate_query")
-        self.assertEqual(normalized.request_calendar_policy_ref, "calendar_policy.holiday_yoy")
+        self.assertEqual(normalized.request_calendar_policy_ref, "calendar_policy.calendar_yoy")
         assert normalized.request_time_scope is not None
         self.assertEqual(normalized.request_time_scope["mode"], "single_window")
         self.assertEqual(normalized.request_time_scope["grain"], "day")
@@ -1205,7 +1195,7 @@ class CompilerTypedResolutionTests(unittest.TestCase):
                 params={
                     "metric": "watch_time",
                     "table": "analytics.watch_events",
-                    "calendar_policy_ref": "calendar_policy.holiday_yoy",
+                    "calendar_policy_ref": "calendar_policy.calendar_yoy",
                     "time_scope": {
                         "mode": "single_window",
                         "grain": "month",
@@ -1275,13 +1265,13 @@ class CompilerTypedResolutionTests(unittest.TestCase):
 
         alignment = compiled.metadata["resolved_calendar_alignment"]
         assert isinstance(alignment, dict)
-        self.assertEqual(alignment["policy_ref"], "calendar_policy.holiday_yoy")
+        self.assertEqual(alignment["policy_ref"], "calendar_policy.calendar_yoy")
         self.assertEqual(alignment["comparison_basis"], "yoy")
         self.assertEqual(alignment["resolved_calendar_source"], "calendar_data_cn_assembled")
         self.assertEqual(alignment["resolved_calendar_version"], "calendar_data_cn_2026q2_v1")
         self.assertEqual(
-            alignment["source_lineage"]["holiday_source"]["calendar_version"],
-            "cn_public_holiday_2026_v1",
+            alignment["source_lineage"]["calendar_version"],
+            "cn_2026q2_v1",
         )
         self.assertEqual(
             alignment["baseline_window"],
@@ -1310,7 +1300,7 @@ class CompilerTypedResolutionTests(unittest.TestCase):
         )
         self.assertEqual(
             compiled.ir_bundle["plan"]["inputs"]["intent_request"]["requested_calendar_policy_ref"],
-            "calendar_policy.holiday_yoy",
+            "calendar_policy.calendar_yoy",
         )
 
     def test_compile_step_records_day_aligned_weekday_wow_for_week_window(self) -> None:
@@ -1646,7 +1636,7 @@ class CompilerTypedResolutionTests(unittest.TestCase):
                 params={
                     "metric": "watch_time",
                     "table": "analytics.watch_events",
-                    "calendar_policy_ref": "calendar_policy.holiday_yoy",
+                    "calendar_policy_ref": "calendar_policy.calendar_yoy",
                     "time_scope": {
                         "mode": "single_window",
                         "grain": "day",
@@ -1723,7 +1713,7 @@ class CompilerTypedResolutionTests(unittest.TestCase):
                 params={
                     "metric": "watch_time",
                     "table": "analytics.watch_events",
-                    "calendar_policy_ref": "calendar_policy.event_yoy",
+                    "calendar_policy_ref": "calendar_policy.calendar_yoy",
                     "time_scope": {
                         "mode": "single_window",
                         "grain": "day",
@@ -1803,7 +1793,7 @@ class CompilerTypedResolutionTests(unittest.TestCase):
                 params={
                     "metric": "watch_time",
                     "table": "analytics.watch_events",
-                    "calendar_policy_ref": "calendar_policy.event_mom",
+                    "calendar_policy_ref": "calendar_policy.calendar_mom",
                     "time_scope": {
                         "mode": "single_window",
                         "grain": "day",
@@ -1883,7 +1873,7 @@ class CompilerTypedResolutionTests(unittest.TestCase):
                 params={
                     "metric": "watch_time",
                     "table": "analytics.watch_events",
-                    "calendar_policy_ref": "calendar_policy.event_mom",
+                    "calendar_policy_ref": "calendar_policy.calendar_mom",
                     "time_scope": {
                         "mode": "single_window",
                         "grain": "day",
@@ -2094,7 +2084,7 @@ class CompilerTypedResolutionTests(unittest.TestCase):
                     params={
                         "metric": "watch_time",
                         "table": "analytics.watch_events",
-                        "calendar_policy_ref": "calendar_policy.holiday_yoy",
+                        "calendar_policy_ref": "calendar_policy.calendar_yoy",
                         "time_scope": {
                             "mode": "single_window",
                             "grain": "month",
@@ -2128,7 +2118,7 @@ class CompilerTypedResolutionTests(unittest.TestCase):
                     params={
                         "metric": "watch_time",
                         "table": "analytics.watch_events",
-                        "calendar_policy_ref": "calendar_policy.holiday_yoy",
+                        "calendar_policy_ref": "calendar_policy.calendar_yoy",
                         "time_scope": {
                             "mode": "single_window",
                             "grain": "month",

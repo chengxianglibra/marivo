@@ -718,7 +718,7 @@ def test_search_catalog_allows_calendar_policy_type_filter() -> None:
             json=[
                 {
                     "object_kind": "calendar_policy",
-                    "ref": "calendar_policy.holiday_yoy",
+                    "ref": "calendar_policy.calendar_yoy",
                 }
             ],
             request=request,
@@ -735,7 +735,7 @@ def test_search_catalog_allows_calendar_policy_type_filter() -> None:
     assert result["data"] == [
         {
             "object_kind": "calendar_policy",
-            "ref": "calendar_policy.holiday_yoy",
+            "ref": "calendar_policy.calendar_yoy",
         }
     ]
 
@@ -1140,7 +1140,7 @@ def test_observe_forwards_calendar_policy_ref_in_canonical_body() -> None:
         assert request.read() == (
             b'{"metric":"metric.watch_time","result_mode":"standard","time_scope":{"kind":"range",'
             b'"start":"2025-10-01","end":"2025-10-08"},"calendar_policy_ref":'
-            b'"calendar_policy.holiday_yoy"}'
+            b'"calendar_policy.calendar_yoy"}'
         )
         return httpx.Response(200, json={"artifact_id": "obs_456"}, request=request)
 
@@ -1150,7 +1150,7 @@ def test_observe_forwards_calendar_policy_ref_in_canonical_body() -> None:
         session_id="sess_123",
         metric="metric.watch_time",
         time_scope={"kind": "range", "start": "2025-10-01", "end": "2025-10-08"},
-        calendar_policy_ref="calendar_policy.holiday_yoy",
+        calendar_policy_ref="calendar_policy.calendar_yoy",
     )
 
     assert result["ok"] is True

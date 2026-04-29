@@ -5,69 +5,12 @@ from datetime import date
 from typing import Any, cast
 
 from app.analysis_core.calendar_data_runtime import (
+    _RESOLVED_CALENDAR_SOURCE,
     CalendarDataReader,
     CalendarDataResolutionError,
 )
 from app.config import CalendarConfig
-from app.routing import QueryRouter
 from app.storage.metadata import MetadataStore
-
-
-class _FakeMetadata:
-    def __init__(self) -> None:
-        self.sources = {
-            "CN Holiday": {"source_id": "src_holiday"},
-            "Campaign Calendar": {"source_id": "src_event"},
-        }
-        self.tables = {
-            ("src_holiday", "analytics.cn_public_holiday"): {"object_id": "obj_holiday"},
-            ("src_event", "analytics.campaign_calendar"): {"object_id": "obj_event"},
-        }
-
-    def query_one(self, sql: str, params: list[Any] | None = None) -> dict[str, Any] | None:
-        params = params or []
-        if "FROM sources" in sql:
-            return self.sources.get(str(params[0]))
-        if "FROM source_objects" in sql:
-            return self.tables.get((str(params[0]), str(params[1])))
-        raise AssertionError(f"Unexpected query: {sql}")
-
-
-class _FakeEngine:
-    def __init__(self, rows_by_table: dict[str, list[dict[str, Any]]]) -> None:
-        self.rows_by_table = rows_by_table
-
-    def query_rows(self, sql: str, params: list[Any] | None = None) -> list[dict[str, Any]]:
-        _ = params
-        for table_name, rows in self.rows_by_table.items():
-            if table_name in sql:
-                return rows
-        raise AssertionError(f"Unexpected table query: {sql}")
-
-
-class _FakeRoute:
-    def __init__(
-        self, table_name: str, engine: _FakeEngine, *, qualified_name: str | None = None
-    ) -> None:
-        self.qualified_names = {table_name: qualified_name or table_name}
-        self.engine = engine
-
-
-class _FakeQueryRouter:
-    def __init__(self, engine: _FakeEngine, *, qualified_name: str | None = None) -> None:
-        self.engine = engine
-        self.qualified_name = qualified_name
-
-    def resolve_tables(self, table_names: list[str]) -> _FakeRoute:
-        return _FakeRoute(table_names[0], self.engine, qualified_name=self.qualified_name)
-
-
-def _metadata_store() -> MetadataStore:
-    return cast("MetadataStore", _FakeMetadata())
-
-
-def _query_router(engine: _FakeEngine, *, qualified_name: str | None = None) -> QueryRouter:
-    return cast("QueryRouter", _FakeQueryRouter(engine, qualified_name=qualified_name))
 
 
 def _calendar_row(
@@ -77,15 +20,17 @@ def _calendar_row(
     year_relative_holiday_key: str | None = None,
     event_group_id: str | None = None,
     year_relative_event_key: str | None = None,
+    calendar_version: str = "cn_2026q2_v1",
 ) -> dict[str, Any]:
     day_value = date.fromisoformat(day)
     return {
         "calendar_date": day,
         "region_code": "CN",
-        "calendar_version": "version",
+        "calendar_version": calendar_version,
         "weekday": day_value.weekday() + 1,
-        "is_weekend": day_value.weekday() >= 5,
-        "is_workday": day_value.weekday() < 5,
+        "is_weekend": 1 if day_value.weekday() >= 5 else 0,
+        "is_workday": 1 if day_value.weekday() < 5 else 0,
+        "holiday_name": None,
         "holiday_group_id": holiday_group_id,
         "year_relative_holiday_key": year_relative_holiday_key,
         "event_group_id": event_group_id,
@@ -93,242 +38,148 @@ def _calendar_row(
     }
 
 
+class _FakeMetadata:
+    def __init__(self, calendar_rows: list[dict[str, Any]] | None = None) -> None:
+        self._calendar_rows = calendar_rows or []
+        self._versions: list[str] = sorted({row["calendar_version"] for row in self._calendar_rows})
+
+    def query_rows(self, sql: str, params: list[Any] | None = None) -> list[dict[str, Any]]:
+        params = params or []
+        if "FROM calendar" in sql and "MAX(calendar_version)" in sql:
+            if not self._versions:
+                return []
+            return [{"max_version": self._versions[-1]}]
+        if "FROM calendar" in sql:
+            calendar_version = params[0] if params else ""
+            region_code = params[1] if len(params) > 1 else "CN"
+            read_start = params[2] if len(params) > 2 else ""
+            read_end = params[3] if len(params) > 3 else ""
+            return [
+                row
+                for row in self._calendar_rows
+                if row["calendar_version"] == calendar_version
+                and row["region_code"] == region_code
+                and read_start <= row["calendar_date"] < read_end
+            ]
+        raise AssertionError(f"Unexpected query: {sql}")
+
+    def query_one(self, sql: str, params: list[Any] | None = None) -> dict[str, Any] | None:
+        params = params or []
+        if "MAX(calendar_version)" in sql:
+            rows = self.query_rows(sql, params)
+            return rows[0] if rows else None
+        raise AssertionError(f"Unexpected query: {sql}")
+
+
+def _metadata_store(
+    calendar_rows: list[dict[str, Any]] | None = None,
+) -> MetadataStore:
+    return cast("MetadataStore", _FakeMetadata(calendar_rows))
+
+
 class CalendarDataReaderTests(unittest.TestCase):
-    def test_read_for_alignment_assembles_holiday_and_event_rows(self) -> None:
-        config = CalendarConfig.model_validate(
-            {
-                "default_region_code": "CN",
-                "snapshots": [
-                    {
-                        "resolved_calendar_source": "calendar_data_cn_assembled",
-                        "resolved_calendar_version": "calendar_data_cn_2026q2_v1",
-                        "region_code": "CN",
-                        "effective_start": "2025-01-01",
-                        "effective_end": "2026-12-31",
-                        "holiday_source": {
-                            "source_name": "CN Holiday",
-                            "table_fqn": "analytics.cn_public_holiday",
-                            "calendar_version": "cn_public_holiday_2026_v1",
-                        },
-                        "event_source": {
-                            "source_name": "Campaign Calendar",
-                            "table_fqn": "analytics.campaign_calendar",
-                            "calendar_version": "campaign_calendar_2026_q2_v3",
-                        },
-                    }
-                ],
-            }
+    def _make_reader(
+        self,
+        calendar_rows: list[dict[str, Any]] | None = None,
+        config: CalendarConfig | None = None,
+    ) -> CalendarDataReader:
+        return CalendarDataReader(
+            metadata=_metadata_store(calendar_rows),
+            config=config or CalendarConfig(),
         )
-        engine = _FakeEngine(
-            {
-                "analytics.cn_public_holiday": [
-                    _calendar_row(
-                        "2025-04-01",
-                        holiday_group_id="qingming",
-                        year_relative_holiday_key="qingming_d-3",
-                    ),
-                    _calendar_row(
-                        "2025-04-02",
-                        holiday_group_id="qingming",
-                        year_relative_holiday_key="qingming_d-2",
-                    ),
-                    _calendar_row(
-                        "2026-04-01",
-                        holiday_group_id="qingming",
-                        year_relative_holiday_key="qingming_d-3",
-                    ),
-                    _calendar_row(
-                        "2026-04-02",
-                        holiday_group_id="qingming",
-                        year_relative_holiday_key="qingming_d-2",
-                    ),
-                ],
-                "analytics.campaign_calendar": [
-                    _calendar_row(
-                        "2025-04-01",
-                        event_group_id="member_day",
-                        year_relative_event_key="member_day_d-1",
-                    ),
-                    _calendar_row(
-                        "2025-04-02",
-                        event_group_id="member_day",
-                        year_relative_event_key="member_day_d+0",
-                    ),
-                    _calendar_row(
-                        "2026-04-01",
-                        event_group_id="member_day",
-                        year_relative_event_key="member_day_d-1",
-                    ),
-                    _calendar_row(
-                        "2026-04-02",
-                        event_group_id="member_day",
-                        year_relative_event_key="member_day_d+0",
-                    ),
-                ],
-            }
-        )
-        reader = CalendarDataReader(
-            metadata=_metadata_store(),
-            query_router=_query_router(engine),
-            config=config,
-        )
+
+    def test_read_for_alignment_reads_single_table(self) -> None:
+        rows = [
+            _calendar_row(
+                "2025-04-01",
+                holiday_group_id="qingming",
+                year_relative_holiday_key="qingming_d-3",
+                event_group_id="member_day",
+                year_relative_event_key="member_day_d-1",
+            ),
+            _calendar_row(
+                "2025-04-02",
+                holiday_group_id="qingming",
+                year_relative_holiday_key="qingming_d-2",
+                event_group_id="member_day",
+                year_relative_event_key="member_day_d+0",
+            ),
+            _calendar_row(
+                "2026-04-01",
+                holiday_group_id="qingming",
+                year_relative_holiday_key="qingming_d-3",
+                event_group_id="member_day",
+                year_relative_event_key="member_day_d-1",
+            ),
+            _calendar_row(
+                "2026-04-02",
+                holiday_group_id="qingming",
+                year_relative_holiday_key="qingming_d-2",
+                event_group_id="member_day",
+                year_relative_event_key="member_day_d+0",
+            ),
+        ]
+        reader = self._make_reader(rows)
 
         result = reader.read_for_alignment(
             current_window=(date(2026, 4, 1), date(2026, 4, 3)),
             baseline_window=(date(2025, 4, 1), date(2025, 4, 3)),
         )
 
-        self.assertEqual(result.resolved_calendar_source, "calendar_data_cn_assembled")
-        self.assertEqual(result.resolved_calendar_version, "calendar_data_cn_2026q2_v1")
+        self.assertEqual(result.resolved_calendar_source, _RESOLVED_CALENDAR_SOURCE)
+        self.assertEqual(result.resolved_calendar_version, "cn_2026q2_v1")
+        self.assertEqual(len(result.annotation_rows), 4)
         self.assertEqual(result.annotation_rows[0].holiday_group_id, "qingming")
         self.assertEqual(result.annotation_rows[0].event_group_id, "member_day")
-        self.assertEqual(
-            result.source_lineage["holiday_source"]["calendar_version"],
-            "cn_public_holiday_2026_v1",
-        )
 
-    def test_read_for_alignment_rejects_overlapping_snapshots(self) -> None:
-        config = CalendarConfig.model_validate(
-            {
-                "snapshots": [
-                    {
-                        "resolved_calendar_source": "calendar_data_cn_assembled",
-                        "resolved_calendar_version": "calendar_data_cn_2026q2_v1",
-                        "region_code": "CN",
-                        "effective_start": "2025-01-01",
-                        "effective_end": "2026-12-31",
-                        "holiday_source": {
-                            "source_name": "CN Holiday",
-                            "table_fqn": "analytics.cn_public_holiday",
-                            "calendar_version": "cn_public_holiday_2026_v1",
-                        },
-                    },
-                    {
-                        "resolved_calendar_source": "calendar_data_cn_assembled",
-                        "resolved_calendar_version": "calendar_data_cn_2026q2_v2",
-                        "region_code": "CN",
-                        "effective_start": "2025-06-01",
-                        "effective_end": "2026-12-31",
-                        "holiday_source": {
-                            "source_name": "CN Holiday",
-                            "table_fqn": "analytics.cn_public_holiday",
-                            "calendar_version": "cn_public_holiday_2026_v2",
-                        },
-                    },
-                ]
-            }
-        )
-        reader = CalendarDataReader(
-            metadata=_metadata_store(),
-            query_router=_query_router(_FakeEngine({"analytics.cn_public_holiday": []})),
-            config=config,
-        )
-
-        with self.assertRaises(CalendarDataResolutionError):
-            reader.read_for_alignment(
-                current_window=(date(2026, 4, 1), date(2026, 4, 3)),
-                baseline_window=(date(2025, 4, 1), date(2025, 4, 3)),
-            )
-
-    def test_read_for_alignment_omits_event_source_lineage_when_snapshot_has_no_event_source(
-        self,
-    ) -> None:
-        config = CalendarConfig.model_validate(
-            {
-                "default_region_code": "CN",
-                "snapshots": [
-                    {
-                        "resolved_calendar_source": "calendar_data_cn_assembled",
-                        "resolved_calendar_version": "calendar_data_cn_2026q2_v1",
-                        "region_code": "CN",
-                        "effective_start": "2025-01-01",
-                        "effective_end": "2026-12-31",
-                        "holiday_source": {
-                            "source_name": "CN Holiday",
-                            "table_fqn": "analytics.cn_public_holiday",
-                            "calendar_version": "cn_public_holiday_2026_v1",
-                        },
-                    }
-                ],
-            }
-        )
-        engine = _FakeEngine(
-            {
-                "analytics.cn_public_holiday": [
-                    _calendar_row(
-                        "2025-04-01",
-                        holiday_group_id="qingming",
-                        year_relative_holiday_key="qingming_d-3",
-                    ),
-                    _calendar_row(
-                        "2025-04-02",
-                        holiday_group_id="qingming",
-                        year_relative_holiday_key="qingming_d-2",
-                    ),
-                    _calendar_row(
-                        "2026-04-01",
-                        holiday_group_id="qingming",
-                        year_relative_holiday_key="qingming_d-3",
-                    ),
-                    _calendar_row(
-                        "2026-04-02",
-                        holiday_group_id="qingming",
-                        year_relative_holiday_key="qingming_d-2",
-                    ),
-                ],
-            }
-        )
-        reader = CalendarDataReader(
-            metadata=_metadata_store(),
-            query_router=_query_router(engine),
-            config=config,
-        )
+    def test_read_for_alignment_with_pinned_version(self) -> None:
+        rows = [
+            _calendar_row("2025-04-01", calendar_version="cn_2026q1_v1"),
+            _calendar_row("2025-04-01", calendar_version="cn_2026q2_v1"),
+            _calendar_row("2026-04-01", calendar_version="cn_2026q1_v1"),
+            _calendar_row("2026-04-01", calendar_version="cn_2026q2_v1"),
+        ]
+        config = CalendarConfig(calendar_version="cn_2026q1_v1")
+        reader = self._make_reader(rows, config=config)
 
         result = reader.read_for_alignment(
-            current_window=(date(2026, 4, 1), date(2026, 4, 3)),
-            baseline_window=(date(2025, 4, 1), date(2025, 4, 3)),
+            current_window=(date(2026, 4, 1), date(2026, 4, 2)),
+            baseline_window=(date(2025, 4, 1), date(2025, 4, 2)),
         )
 
-        self.assertIn("holiday_source", result.source_lineage)
-        self.assertNotIn("event_source", result.source_lineage)
+        self.assertEqual(result.resolved_calendar_version, "cn_2026q1_v1")
 
-    def test_read_for_alignment_rejects_missing_required_fields(self) -> None:
-        config = CalendarConfig.model_validate(
-            {
-                "snapshots": [
-                    {
-                        "resolved_calendar_source": "calendar_data_cn_assembled",
-                        "resolved_calendar_version": "calendar_data_cn_2026q2_v1",
-                        "region_code": "CN",
-                        "effective_start": "2025-01-01",
-                        "effective_end": "2026-12-31",
-                        "holiday_source": {
-                            "source_name": "CN Holiday",
-                            "table_fqn": "analytics.cn_public_holiday",
-                            "calendar_version": "cn_public_holiday_2026_v1",
-                        },
-                    }
-                ]
-            }
+    def test_read_for_alignment_discovers_latest_version(self) -> None:
+        rows = [
+            _calendar_row("2025-04-01", calendar_version="cn_2026q1_v1"),
+            _calendar_row("2025-04-01", calendar_version="cn_2026q2_v1"),
+            _calendar_row("2026-04-01", calendar_version="cn_2026q1_v1"),
+            _calendar_row("2026-04-01", calendar_version="cn_2026q2_v1"),
+        ]
+        reader = self._make_reader(rows)
+
+        result = reader.read_for_alignment(
+            current_window=(date(2026, 4, 1), date(2026, 4, 2)),
+            baseline_window=(date(2025, 4, 1), date(2025, 4, 2)),
         )
-        engine = _FakeEngine(
-            {
-                "analytics.cn_public_holiday": [
-                    {
-                        "calendar_date": "2025-04-01",
-                        "region_code": "CN",
-                        "calendar_version": "cn_public_holiday_2026_v1",
-                        "weekday": 2,
-                        "is_weekend": False,
-                    }
-                ]
-            }
-        )
-        reader = CalendarDataReader(
-            metadata=_metadata_store(),
-            query_router=_query_router(engine),
-            config=config,
-        )
+
+        self.assertEqual(result.resolved_calendar_version, "cn_2026q2_v1")
+
+    def test_read_for_alignment_raises_when_no_data(self) -> None:
+        reader = self._make_reader([])
+
+        with self.assertRaises(CalendarDataResolutionError) as ctx:
+            reader.read_for_alignment(
+                current_window=(date(2026, 4, 1), date(2026, 4, 2)),
+                baseline_window=(date(2025, 4, 1), date(2025, 4, 2)),
+            )
+
+        self.assertIn("no calendar data", str(ctx.exception).lower())
+
+    def test_read_for_alignment_raises_when_pinned_version_missing(self) -> None:
+        rows = [_calendar_row("2026-04-01", calendar_version="cn_2026q2_v1")]
+        config = CalendarConfig(calendar_version="cn_2026q1_v1")
+        reader = self._make_reader(rows, config=config)
 
         with self.assertRaises(CalendarDataResolutionError):
             reader.read_for_alignment(
@@ -336,191 +187,69 @@ class CalendarDataReaderTests(unittest.TestCase):
                 baseline_window=(date(2025, 4, 1), date(2025, 4, 2)),
             )
 
-    def test_read_for_alignment_rejects_unsafe_qualified_table_name(self) -> None:
-        config = CalendarConfig.model_validate(
-            {
-                "snapshots": [
-                    {
-                        "resolved_calendar_source": "calendar_data_cn_assembled",
-                        "resolved_calendar_version": "calendar_data_cn_2026q2_v1",
-                        "region_code": "CN",
-                        "effective_start": "2025-01-01",
-                        "effective_end": "2026-12-31",
-                        "holiday_source": {
-                            "source_name": "CN Holiday",
-                            "table_fqn": "analytics.cn_public_holiday",
-                            "calendar_version": "cn_public_holiday_2026_v1",
-                        },
-                    }
-                ]
-            }
-        )
-        reader = CalendarDataReader(
-            metadata=_metadata_store(),
-            query_router=_query_router(
-                _FakeEngine({"analytics.cn_public_holiday": []}),
-                qualified_name="analytics.cn_public_holiday; DROP TABLE source_objects",
-            ),
-            config=config,
-        )
-
-        with self.assertRaises(CalendarDataResolutionError) as ctx:
-            reader.read_for_alignment(
-                current_window=(date(2026, 4, 1), date(2026, 4, 2)),
-                baseline_window=(date(2025, 4, 1), date(2025, 4, 2)),
-            )
-
-        self.assertEqual(
-            str(ctx.exception),
-            "calendar source resolved to an unsafe table identifier",
-        )
-
-    def test_read_for_alignment_reports_missing_sources_for_uncovered_day(self) -> None:
-        config = CalendarConfig.model_validate(
-            {
-                "snapshots": [
-                    {
-                        "resolved_calendar_source": "calendar_data_cn_assembled",
-                        "resolved_calendar_version": "calendar_data_cn_2026q2_v1",
-                        "region_code": "CN",
-                        "effective_start": "2025-01-01",
-                        "effective_end": "2026-12-31",
-                        "holiday_source": {
-                            "source_name": "CN Holiday",
-                            "table_fqn": "analytics.cn_public_holiday",
-                            "calendar_version": "cn_public_holiday_2026_v1",
-                        },
-                        "event_source": {
-                            "source_name": "Campaign Calendar",
-                            "table_fqn": "analytics.campaign_calendar",
-                            "calendar_version": "campaign_calendar_2026_q2_v3",
-                        },
-                    }
-                ]
-            }
-        )
-        engine = _FakeEngine(
-            {
-                "analytics.cn_public_holiday": [
-                    _calendar_row("2025-04-01"),
-                ],
-                "analytics.campaign_calendar": [
-                    _calendar_row("2025-04-01", event_group_id="member_day"),
-                ],
-            }
-        )
-        reader = CalendarDataReader(
-            metadata=_metadata_store(),
-            query_router=_query_router(engine),
-            config=config,
-        )
-
-        with self.assertRaises(CalendarDataResolutionError) as ctx:
-            reader.read_for_alignment(
-                current_window=(date(2026, 4, 1), date(2026, 4, 2)),
-                baseline_window=(date(2025, 4, 1), date(2025, 4, 2)),
-            )
-
-        self.assertEqual(
-            ctx.exception.details,
+    def test_read_for_alignment_rejects_invalid_weekday(self) -> None:
+        rows = [
             {
                 "calendar_date": "2026-04-01",
-                "missing_sources": ["holiday_source", "event_source"],
+                "region_code": "CN",
+                "calendar_version": "cn_2026q2_v1",
+                "weekday": 8,
+                "is_weekend": 0,
+                "is_workday": 1,
+                "holiday_name": None,
+                "holiday_group_id": None,
+                "year_relative_holiday_key": None,
+                "event_group_id": None,
+                "year_relative_event_key": None,
             },
-        )
+        ]
+        reader = self._make_reader(rows)
 
-    def test_reader_rejects_mutable_snapshot_version_aliases(self) -> None:
-        config = CalendarConfig.model_validate(
-            {
-                "snapshots": [
-                    {
-                        "resolved_calendar_source": "calendar_data_cn_assembled",
-                        "resolved_calendar_version": "latest",
-                        "region_code": "CN",
-                        "effective_start": "2025-01-01",
-                        "effective_end": "2026-12-31",
-                        "holiday_source": {
-                            "source_name": "CN Holiday",
-                            "table_fqn": "analytics.cn_public_holiday",
-                            "calendar_version": "cn_public_holiday_2026_v1",
-                        },
-                    }
-                ]
-            }
-        )
-
-        with self.assertRaises(CalendarDataResolutionError) as ctx:
-            CalendarDataReader(
-                metadata=_metadata_store(),
-                query_router=_query_router(_FakeEngine({"analytics.cn_public_holiday": []})),
-                config=config,
+        with self.assertRaises(CalendarDataResolutionError):
+            reader.read_for_alignment(
+                current_window=(date(2026, 4, 1), date(2026, 4, 2)),
+                baseline_window=(date(2025, 4, 1), date(2025, 4, 2)),
             )
 
-        self.assertEqual(
-            str(ctx.exception),
-            "calendar snapshot requires an immutable resolved_calendar_version",
-        )
-
-    def test_reader_rejects_unregistered_source(self) -> None:
-        config = CalendarConfig.model_validate(
+    def test_read_for_alignment_rejects_missing_weekend_workday(self) -> None:
+        rows = [
             {
-                "snapshots": [
-                    {
-                        "resolved_calendar_source": "calendar_data_cn_assembled",
-                        "resolved_calendar_version": "calendar_data_cn_2026q2_v1",
-                        "region_code": "CN",
-                        "effective_start": "2025-01-01",
-                        "effective_end": "2026-12-31",
-                        "holiday_source": {
-                            "source_name": "Missing Source",
-                            "table_fqn": "analytics.cn_public_holiday",
-                            "calendar_version": "cn_public_holiday_2026_v1",
-                        },
-                    }
-                ]
-            }
-        )
+                "calendar_date": "2026-04-01",
+                "region_code": "CN",
+                "calendar_version": "cn_2026q2_v1",
+                "weekday": 2,
+                "is_weekend": None,
+                "is_workday": 1,
+                "holiday_name": None,
+                "holiday_group_id": None,
+                "year_relative_holiday_key": None,
+                "event_group_id": None,
+                "year_relative_event_key": None,
+            },
+        ]
+        reader = self._make_reader(rows)
 
-        with self.assertRaises(CalendarDataResolutionError) as ctx:
-            CalendarDataReader(
-                metadata=_metadata_store(),
-                query_router=_query_router(_FakeEngine({"analytics.cn_public_holiday": []})),
-                config=config,
+        with self.assertRaises(CalendarDataResolutionError):
+            reader.read_for_alignment(
+                current_window=(date(2026, 4, 1), date(2026, 4, 2)),
+                baseline_window=(date(2025, 4, 1), date(2025, 4, 2)),
             )
 
-        self.assertEqual(str(ctx.exception), "calendar source 'Missing Source' is not registered")
+    def test_source_lineage_contains_table_and_version(self) -> None:
+        rows = [
+            _calendar_row("2025-04-01"),
+            _calendar_row("2026-04-01"),
+        ]
+        reader = self._make_reader(rows)
 
-    def test_reader_rejects_unsynced_table(self) -> None:
-        config = CalendarConfig.model_validate(
-            {
-                "snapshots": [
-                    {
-                        "resolved_calendar_source": "calendar_data_cn_assembled",
-                        "resolved_calendar_version": "calendar_data_cn_2026q2_v1",
-                        "region_code": "CN",
-                        "effective_start": "2025-01-01",
-                        "effective_end": "2026-12-31",
-                        "holiday_source": {
-                            "source_name": "CN Holiday",
-                            "table_fqn": "analytics.missing_table",
-                            "calendar_version": "cn_public_holiday_2026_v1",
-                        },
-                    }
-                ]
-            }
+        result = reader.read_for_alignment(
+            current_window=(date(2026, 4, 1), date(2026, 4, 2)),
+            baseline_window=(date(2025, 4, 1), date(2025, 4, 2)),
         )
 
-        with self.assertRaises(CalendarDataResolutionError) as ctx:
-            CalendarDataReader(
-                metadata=_metadata_store(),
-                query_router=_query_router(_FakeEngine({"analytics.cn_public_holiday": []})),
-                config=config,
-            )
-
-        self.assertEqual(
-            str(ctx.exception),
-            "calendar table 'analytics.missing_table' is not synced for source 'CN Holiday'",
-        )
+        self.assertIn("table_fqn", result.source_lineage)
+        self.assertEqual(result.source_lineage["table_fqn"], "calendar")
+        self.assertIn("calendar_version", result.source_lineage)
 
 
 if __name__ == "__main__":

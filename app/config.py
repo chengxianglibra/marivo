@@ -7,7 +7,7 @@ from typing import Any, Literal
 from urllib.parse import parse_qsl, unquote, urlparse
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.redaction import redact_mapping, redact_sensitive_text
 
@@ -118,31 +118,21 @@ class MetadataConfig(BaseModel):
         return config
 
 
-class CalendarSourceBindingConfig(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    source_name: str
-    table_fqn: str
-    calendar_version: str
-
-
-class CalendarSnapshotConfig(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    resolved_calendar_source: str
-    resolved_calendar_version: str
-    region_code: str = "CN"
-    effective_start: str
-    effective_end: str
-    holiday_source: CalendarSourceBindingConfig
-    event_source: CalendarSourceBindingConfig | None = None
-
-
 class CalendarConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    default_region_code: str = "CN"
-    snapshots: list[CalendarSnapshotConfig] = Field(default_factory=list)
+    region_code: str = "CN"
+    calendar_version: str | None = Field(default=None)
+
+    @field_validator("calendar_version")
+    @classmethod
+    def _reject_sentinel_versions(cls, v: str | None) -> str | None:
+        if v is not None and v.lower() in {"latest", "current"}:
+            raise ValueError(
+                "calendar_version must not be 'latest' or 'current'; "
+                "use an explicit immutable version identifier"
+            )
+        return v
 
 
 class MarivoConfig(BaseModel):

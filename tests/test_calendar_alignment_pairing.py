@@ -90,7 +90,7 @@ class CalendarAlignmentPairingTests(unittest.TestCase):
     def test_holiday_policy_matches_unique_cluster_before_fallback(self) -> None:
         current_window = (date(2026, 4, 4), date(2026, 4, 5))
         baseline_window = (date(2025, 4, 4), date(2025, 4, 5))
-        policy = get_calendar_policy("calendar_policy.holiday_yoy")
+        policy = get_calendar_policy("calendar_policy.calendar_yoy")
 
         resolution = resolve_calendar_bucket_pairing(
             current_window=current_window,
@@ -125,7 +125,7 @@ class CalendarAlignmentPairingTests(unittest.TestCase):
     def test_holiday_policy_uses_relative_key_when_cluster_is_not_unique(self) -> None:
         current_window = (date(2026, 4, 1), date(2026, 4, 4))
         baseline_window = (date(2025, 4, 1), date(2025, 4, 4))
-        policy = get_calendar_policy("calendar_policy.holiday_yoy")
+        policy = get_calendar_policy("calendar_policy.calendar_yoy")
 
         resolution = resolve_calendar_bucket_pairing(
             current_window=current_window,
@@ -185,7 +185,7 @@ class CalendarAlignmentPairingTests(unittest.TestCase):
     ) -> None:
         current_window = (date(2026, 4, 1), date(2026, 4, 2))
         baseline_window = (date(2025, 4, 1), date(2025, 4, 2))
-        policy = get_calendar_policy("calendar_policy.holiday_yoy")
+        policy = get_calendar_policy("calendar_policy.calendar_yoy")
 
         resolution = resolve_calendar_bucket_pairing(
             current_window=current_window,
@@ -220,7 +220,7 @@ class CalendarAlignmentPairingTests(unittest.TestCase):
     ) -> None:
         current_window = (date(2026, 4, 1), date(2026, 4, 2))
         baseline_window = (date(2025, 4, 1), date(2025, 4, 2))
-        policy = get_calendar_policy("calendar_policy.holiday_yoy")
+        policy = get_calendar_policy("calendar_policy.calendar_yoy")
 
         resolution = resolve_calendar_bucket_pairing(
             current_window=current_window,
@@ -256,7 +256,7 @@ class CalendarAlignmentPairingTests(unittest.TestCase):
     def test_holiday_policy_marks_fallback_only_for_buckets_that_downgrade(self) -> None:
         current_window = (date(2026, 4, 1), date(2026, 4, 3))
         baseline_window = (date(2025, 4, 1), date(2025, 4, 3))
-        policy = get_calendar_policy("calendar_policy.holiday_yoy")
+        policy = get_calendar_policy("calendar_policy.calendar_yoy")
 
         resolution = resolve_calendar_bucket_pairing(
             current_window=current_window,
@@ -308,7 +308,7 @@ class CalendarAlignmentPairingTests(unittest.TestCase):
     def test_event_policy_uses_event_relative_key(self) -> None:
         current_window = (date(2026, 6, 15), date(2026, 6, 17))
         baseline_window = (date(2026, 5, 15), date(2026, 5, 17))
-        policy = get_calendar_policy("calendar_policy.event_mom")
+        policy = get_calendar_policy("calendar_policy.calendar_mom")
 
         resolution = resolve_calendar_bucket_pairing(
             current_window=current_window,
@@ -353,7 +353,7 @@ class CalendarAlignmentPairingTests(unittest.TestCase):
     ) -> None:
         current_window = (date(2026, 6, 15), date(2026, 6, 16))
         baseline_window = (date(2026, 5, 15), date(2026, 5, 16))
-        policy = get_calendar_policy("calendar_policy.event_mom")
+        policy = get_calendar_policy("calendar_policy.calendar_mom")
 
         resolution = resolve_calendar_bucket_pairing(
             current_window=current_window,
@@ -435,7 +435,7 @@ class CalendarAlignmentPairingTests(unittest.TestCase):
     ) -> None:
         current_window = (date(2026, 4, 1), date(2026, 4, 2))
         baseline_window = (date(2025, 4, 5), date(2025, 4, 6))
-        policy = get_calendar_policy("calendar_policy.holiday_yoy")
+        policy = get_calendar_policy("calendar_policy.calendar_yoy")
 
         resolution = resolve_calendar_bucket_pairing(
             current_window=current_window,

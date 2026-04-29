@@ -576,7 +576,7 @@ class TestRunnerServiceTests(unittest.TestCase):
         """Mismatched frozen calendar policy ref must fail test comparability reuse."""
         self._assert_calendar_alignment_mismatch_raises(
             field_name="policy_ref",
-            right_value="calendar_policy.holiday_yoy",
+            right_value="calendar_policy.calendar_yoy",
             expected_message=(
                 "test: NOT_COMPARABLE - left and right observations freeze different calendar "
                 "policies"

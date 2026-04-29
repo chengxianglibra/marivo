@@ -50,7 +50,9 @@ class SemanticServiceFacadeTests(unittest.TestCase):
         listed = self.service.list_compatibility_profiles(readiness_status="ready")
 
         holiday = next(
-            item for item in listed["items"] if item["profile_ref"] == "calendar_policy.holiday_yoy"
+            item
+            for item in listed["items"]
+            if item["profile_ref"] == "calendar_policy.calendar_yoy"
         )
         self.assertEqual(holiday["status"], "published")
         self.assertEqual(holiday["lifecycle_status"], "active")
@@ -59,21 +61,21 @@ class SemanticServiceFacadeTests(unittest.TestCase):
         self.assertEqual(holiday["catalog_source"], "builtin_calendar_policy")
 
     def test_builtin_calendar_policy_profile_is_read_only(self) -> None:
-        detail = self.service.read_compatibility_profile("calendar_policy.holiday_yoy")
-        self.assertEqual(detail["profile_ref"], "calendar_policy.holiday_yoy")
+        detail = self.service.read_compatibility_profile("calendar_policy.calendar_yoy")
+        self.assertEqual(detail["profile_ref"], "calendar_policy.calendar_yoy")
         self.assertTrue(detail["system_managed"])
-        self.assertEqual(detail["semantic"]["resolved_alignment_mode"], "holiday_cluster")
+        self.assertEqual(detail["semantic"]["resolved_alignment_mode"], "calendar_aware")
 
         with self.assertRaisesRegex(ValueError, "system-managed builtin calendar policy"):
             self.service.update_compatibility_profile(
-                "calendar_policy.holiday_yoy",
+                "calendar_policy.calendar_yoy",
                 CompatibilityProfileUpdateRequest.model_validate(
                     {"capability": {"inferential_ready": True}}
                 ),
             )
 
         with self.assertRaisesRegex(ValueError, "system-managed builtin calendar policy"):
-            self.service.publish_compatibility_profile("calendar_policy.holiday_yoy")
+            self.service.publish_compatibility_profile("calendar_policy.calendar_yoy")
 
     def test_facade_delegates_typed_entity_operations(self) -> None:
         entity = self.service.create_typed_entity(

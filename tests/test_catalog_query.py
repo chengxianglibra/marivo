@@ -160,7 +160,7 @@ class CatalogQueryTests(unittest.TestCase):
         results = resp.json()
         self.assertTrue(
             any(
-                r["ref"] == "calendar_policy.holiday_yoy"
+                r["ref"] == "calendar_policy.calendar_yoy"
                 and r["object_kind"] == "calendar_policy"
                 and r["readiness_status"] == "ready"
                 and r["comparison_basis"] == "yoy"
@@ -169,13 +169,13 @@ class CatalogQueryTests(unittest.TestCase):
         )
 
     def test_resolve_calendar_policy(self) -> None:
-        resp = self.client.get("/semantic/resolve/calendar_policy.holiday_yoy")
+        resp = self.client.get("/semantic/resolve/calendar_policy.calendar_yoy")
         self.assertEqual(resp.status_code, 200)
         result = resp.json()
         self.assertEqual(result["object_kind"], "calendar_policy")
-        self.assertEqual(result["ref"], "calendar_policy.holiday_yoy")
+        self.assertEqual(result["ref"], "calendar_policy.calendar_yoy")
         self.assertEqual(result["semantic_object"]["comparison_basis"], "yoy")
-        self.assertEqual(result["semantic_object"]["resolved_alignment_mode"], "holiday_cluster")
+        self.assertEqual(result["semantic_object"]["resolved_alignment_mode"], "calendar_aware")
         self.assertTrue(
             result["semantic_object"]["capabilities"]["supports_observe_calendar_alignment"]
         )
@@ -283,7 +283,7 @@ class CatalogQueryTests(unittest.TestCase):
         self.assertIn("metric_query", ctx["available_step_types"])
         self.assertTrue(
             any(
-                policy["policy_ref"] == "calendar_policy.holiday_yoy"
+                policy["policy_ref"] == "calendar_policy.calendar_yoy"
                 for policy in ctx["calendar_policies"]
             )
         )
