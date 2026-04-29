@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
@@ -416,6 +417,34 @@ def _build_calendar_rows(start: date, end: date, calendar_version: str) -> list[
     return rows
 
 
+CSV_COLUMNS = (
+    "calendar_date",
+    "region_code",
+    "weekday",
+    "is_weekend",
+    "is_workday",
+    "holiday_name",
+    "holiday_group_id",
+    "year_relative_holiday_key",
+    "event_group_id",
+    "year_relative_event_key",
+)
+
+
+def _write_csv(output_path: Path, calendar_rows: list[tuple[object, ...]]) -> None:
+    """Write calendar rows to a CSV file (calendar_version column excluded)."""
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(CSV_COLUMNS)
+        for row in calendar_rows:
+            # calendar_rows tuple layout: (calendar_date, region_code, calendar_version,
+            #   weekday, is_weekend, is_workday, holiday_name, holiday_group_id,
+            #   year_relative_holiday_key, event_group_id, year_relative_event_key)
+            # CSV excludes calendar_version at index 2.
+            writer.writerow(row[:2] + row[3:])
+
+
 def _write_tables(
     db_path: Path, notice_rows: list[tuple[object, ...]], calendar_rows: list[tuple[object, ...]]
 ) -> None:
@@ -520,12 +549,23 @@ def _verify_tables(db_path: Path, start: date, end: date, calendar_version: str)
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Build deterministic CN holiday calendar tables in DuckDB."
+        description="Build deterministic CN holiday calendar tables in DuckDB or CSV."
+    )
+    parser.add_argument(
+        "--format",
+        choices=["duckdb", "csv"],
+        default="csv",
+        help="Output format: 'duckdb' for DuckDB tables, 'csv' for CSV file (default: csv).",
     )
     parser.add_argument(
         "--db-path",
         default="marivo.duckdb",
-        help="DuckDB file to create or update.",
+        help="DuckDB file to create or update (used with --format duckdb).",
+    )
+    parser.add_argument(
+        "--csv-output",
+        default="calendar_data.csv",
+        help="CSV output file path (used with --format csv, default: calendar_data.csv).",
     )
     parser.add_argument(
         "--end-date",
@@ -548,11 +588,17 @@ def main() -> None:
     calendar_version = _calendar_version(BUILD_START, end_date)
     notice_rows = _build_notice_day_rows(BUILD_START, end_date, calendar_version)
     calendar_rows = _build_calendar_rows(BUILD_START, end_date, calendar_version)
-    db_path = Path(args.db_path)
-    _write_tables(db_path, notice_rows, calendar_rows)
-    _verify_tables(db_path, BUILD_START, end_date, calendar_version)
 
-    print(f"db_path={db_path.resolve()}")
+    if args.format == "csv":
+        csv_path = Path(args.csv_output)
+        _write_csv(csv_path, calendar_rows)
+        print(f"csv_path={csv_path.resolve()}")
+    else:
+        db_path = Path(args.db_path)
+        _write_tables(db_path, notice_rows, calendar_rows)
+        _verify_tables(db_path, BUILD_START, end_date, calendar_version)
+        print(f"db_path={db_path.resolve()}")
+
     print(f"calendar_version={calendar_version}")
     print(f"resolved_calendar_version={_resolved_calendar_version(BUILD_START, end_date)}")
     print(f"effective_start={BUILD_START.isoformat()}")
