@@ -261,7 +261,7 @@ class _RecomputeBase(unittest.TestCase):
             ]
             calendar_alignment_payload: dict[str, Any] = {
                 "reuse_source": "observation_resolved_policy_summary",
-                "policy_ref": "calendar_policy.holiday_yoy",
+                "policy_ref": "calendar_policy.calendar_yoy",
                 "comparison_basis": "yoy",
                 "resolved_calendar_source": "calendar.cn_holidays",
                 "resolved_calendar_version": "2026.01",
@@ -334,7 +334,7 @@ class _RecomputeBase(unittest.TestCase):
             ]
             calendar_alignment_payload: dict[str, Any] = {
                 "reuse_source": "observation_resolved_policy_summary",
-                "policy_ref": "calendar_policy.holiday_yoy",
+                "policy_ref": "calendar_policy.calendar_yoy",
                 "comparison_basis": "yoy",
                 "resolved_calendar_source": "calendar.cn_holidays",
                 "resolved_calendar_version": "2026.01",

@@ -23,6 +23,7 @@ Marivo 现有 semantic 设计已经把 `metric`、`process object`、`dimension`
 - 让 `dimension`、`time`、`predicate`、`metric`、`process object` 自己声明字段在本对象中的使用角色。
 - 支持 metric / process 跨多个 entity 引用 fields，而不要求 metric / process 自己绑定物理表或字段。
 - 通过 `entity relationship` / `compatibility profile` 表达跨 entity 的 key、grain、time、cardinality 对齐关系。
+- 通过统一 catalog metadata 的 `domain_ref` 支持按业务域搜索、list 和 Agent discovery。
 - 让 compiler 在执行前完成 ref resolution、field type、grain、time、relationship、governance 的确定性校验。
 - 降低 semantic layer 构建成本，同时保留复杂 metric / process 的表达能力。
 
@@ -76,11 +77,103 @@ Process Object
 Entity Relationship / Compatibility Profile
   owns cross-entity key, grain, time, cardinality compatibility
 
+Catalog Metadata
+  owns domain, owner, lifecycle, readiness, revision, aliases
+
 Compiler
   resolves refs through entity binding
   validates compatibility
   lowers semantic plan to IR / engine plan
 ```
+
+## Catalog Metadata 与业务域
+
+业务域标识应作为统一 catalog metadata，而不是写入每个 semantic object 的核心 contract。
+
+示例：
+
+```json
+{
+  "object": {
+    "metric_ref": "metric.gmv"
+  },
+  "catalog_metadata": {
+    "domain_ref": "domain.commerce",
+    "related_domain_refs": ["domain.shared"],
+    "aliases": ["gmv", "gross merchandise value"]
+  }
+}
+```
+
+原因是业务域主要服务 catalog、owner、治理和发现，不是对象语义本体。组织结构或业务域归属调整不应迫使 metric、dimension、time、process 等对象的核心语义 contract 产生 revision。
+
+建议所有顶层 semantic objects 都具备统一 metadata envelope：
+
+```text
+entity
+dimension
+time
+predicate
+metric
+process
+relationship
+compatibility_profile
+```
+
+其中：
+
+- `domain_ref` 建议作为 catalog metadata 必填字段，用于确定对象主归属业务域。
+- `related_domain_refs` 可选，用于表达跨域共享或消费关系。
+- `entity.field` 默认继承所属 entity 的 domain，不建议每个 field 强制声明 domain。
+- 跨域共享对象可归属到 `domain.shared` 或组织定义的共享域。
+- `domain_ref` 不应作为权限来源；权限仍由 governance policy、数据访问授权和底层执行引擎 ACL 判断。
+- 不建议把 domain 编进 stable ref，例如不强制使用 `metric.commerce.gmv`；业务域调整不应污染 stable semantic ref。
+
+### Domain Catalog
+
+Marivo 应提供 domain catalog discovery 能力，方便 Agent 在搜索 semantic objects 前先缩小业务域范围。
+
+最小能力：
+
+```text
+list domains
+get domain detail
+list semantic objects by domain_ref
+search semantic objects within domain_ref
+```
+
+Domain 对象本身应保持轻量：
+
+```text
+domain_ref
+display_name
+description
+status
+aliases
+```
+
+字段语义：
+
+| Field | 语义 |
+| --- | --- |
+| `domain_ref` | 业务域的稳定引用，例如 `domain.commerce`；用于 semantic object catalog metadata 中的主归属引用 |
+| `display_name` | 面向用户展示的业务域名称 |
+| `description` | 业务域覆盖范围说明，帮助 Agent 判断用户问题是否属于该域 |
+| `status` | domain catalog entry 的可发现状态，建议最小取值为 `active`、`deprecated`；用于隐藏废弃域或提示迁移，不等同 semantic object lifecycle |
+| `aliases` | 搜索别名和常用业务叫法，例如 `["ecommerce", "交易"]`；只服务 search/discovery，不作为稳定 identity |
+
+这些字段属于 domain catalog metadata，不应被 compiler 当作 semantic compatibility 真相，也不应被 data-plane authorization 当作最终授权依据。
+
+Agent 推荐流程：
+
+```text
+1. list domains
+2. 根据用户问题选择候选 domain
+3. 在 domain 内搜索 entity / metric / dimension / time / predicate / process
+4. 如果结果不足，再扩展到 related domains 或 shared domain
+```
+
+这里的 list domain 是 catalog 发现接口，不改变本文的对象 contract 边界，也不引入 session / workspace / official 分层。
 
 ## Entity
 

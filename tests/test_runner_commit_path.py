@@ -89,6 +89,10 @@ def _make_compiled_mock_with_calendar_alignment() -> MagicMock:
                 "aligned_present_both_bucket_count": 1,
             },
             "comparability_warnings": [],
+            "source_lineage": {
+                "table_fqn": "calendar",
+                "calendar_version": "cn_2026q2_v1",
+            },
         }
     }
     return m
@@ -109,14 +113,10 @@ def _set_resolved_time_axis(svc: MagicMock, expr: str, *, kind: str = "date_fiel
 
 def _make_compiled_mock_with_holiday_only_calendar_alignment() -> MagicMock:
     m = _make_compiled_mock_with_calendar_alignment()
-    m.metadata["resolved_calendar_alignment"]["policy_ref"] = "calendar_policy.holiday_yoy"
+    m.metadata["resolved_calendar_alignment"]["policy_ref"] = "calendar_policy.calendar_yoy"
     m.metadata["resolved_calendar_alignment"]["source_lineage"] = {
-        "holiday_source": {
-            "source_id": "src_holiday",
-            "source_name": "holiday_source",
-            "table_fqn": "calendar.public_holiday",
-            "calendar_version": "cn_public_holiday_2026_v1",
-        }
+        "table_fqn": "calendar",
+        "calendar_version": "cn_public_holiday_2026_v1",
     }
     m.metadata["resolved_calendar_alignment"]["comparability_warnings"] = [
         "holiday_annotation_missing_fallback_used"
@@ -511,7 +511,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
                 {
                     "metric": "metric.m1",
                     "time_scope": {"kind": "range", "start": "2026-04-01", "end": "2026-04-08"},
-                    "calendar_policy_ref": "calendar_policy.holiday_yoy",
+                    "calendar_policy_ref": "calendar_policy.calendar_yoy",
                 },
             )
 
@@ -523,17 +523,13 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
             result["resolved_policy_summary"], artifact_payload["resolved_policy_summary"]
         )
         self.assertEqual(
-            result["resolved_policy_summary"]["policy_ref"], "calendar_policy.holiday_yoy"
+            result["resolved_policy_summary"]["policy_ref"], "calendar_policy.calendar_yoy"
         )
         self.assertEqual(
             semantic_metadata["compile_context"]["calendar_policy_binding"]["source_lineage"],
             {
-                "holiday_source": {
-                    "source_id": "src_holiday",
-                    "source_name": "holiday_source",
-                    "table_fqn": "calendar.public_holiday",
-                    "calendar_version": "cn_public_holiday_2026_v1",
-                }
+                "table_fqn": "calendar",
+                "calendar_version": "cn_public_holiday_2026_v1",
             },
         )
         self.assertEqual(

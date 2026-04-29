@@ -115,10 +115,38 @@ def _seed_calendar_table_to_duckdb(db_path: Path) -> None:
         con.close()
 
 
+def _seed_calendar_rows_to_metadata(metadata: SQLiteMetadataStore) -> None:
+    """Seed the calendar table in the SQLite metadata store with test data."""
+    rows: list[tuple] = []
+    for year in (2025, 2026):
+        month = 4
+        for day in range(1, 9):
+            iso = f"{year:04d}-{month:02d}-{day:02d}"
+            wd = _weekday_of(iso)
+            is_we = 1 if wd >= 6 else 0
+            is_wd = 1 if wd < 6 else 0
+            rows.append(
+                (iso, "CN", _CALENDAR_VERSION, wd, is_we, is_wd, None, None, None, None, None)
+            )
+    with metadata.connect() as con:
+        con.executemany(
+            """
+            INSERT INTO calendar
+                (calendar_date, region_code, calendar_version, weekday,
+                 is_weekend, is_workday, holiday_name, holiday_group_id,
+                 year_relative_holiday_key, event_group_id, year_relative_event_key)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            rows,
+        )
+        con.commit()
+
+
 def _seed_default_calendar_source_metadata(db_path: Path) -> None:
     _seed_calendar_table_to_duckdb(db_path)
     metadata = SQLiteMetadataStore(db_path.with_suffix(".meta.sqlite"))
     metadata.initialize()
+    _seed_calendar_rows_to_metadata(metadata)
     now = "2026-04-18T00:00:00+00:00"
     seed_duckdb_source_object(
         metadata,
@@ -549,24 +577,11 @@ class _ObserveIntentTestCase:
                 "2026-04-18T00:00:00+00:00",
             ],
         )
-        from app.config import CalendarConfig, CalendarSnapshotConfig, CalendarSourceBindingConfig
+        from app.config import CalendarConfig
 
         svc.config.calendar = CalendarConfig(
-            default_region_code="CN",
-            snapshots=[
-                CalendarSnapshotConfig(
-                    resolved_calendar_source="calendar.test_fixture",
-                    resolved_calendar_version=_CALENDAR_VERSION,
-                    region_code="CN",
-                    effective_start="2024-01-01",
-                    effective_end="2026-12-31",
-                    holiday_source=CalendarSourceBindingConfig(
-                        source_name="DuckDB",
-                        table_fqn="main.analytics.cn_public_holiday",
-                        calendar_version=_CALENDAR_VERSION,
-                    ),
-                ),
-            ],
+            region_code="CN",
+            calendar_version=_CALENDAR_VERSION,
         )
         svc._refresh_calendar_data_reader()
 
@@ -594,8 +609,8 @@ class ObserveRequestModelTests(unittest.TestCase):
         self.assertEqual(r.granularity, "day")
 
     def test_calendar_policy_ref_is_accepted(self) -> None:
-        r = self._make(calendar_policy_ref="calendar_policy.holiday_yoy")
-        self.assertEqual(r.calendar_policy_ref, "calendar_policy.holiday_yoy")
+        r = self._make(calendar_policy_ref="calendar_policy.calendar_yoy")
+        self.assertEqual(r.calendar_policy_ref, "calendar_policy.calendar_yoy")
 
     def test_calendar_policy_ref_rejects_unknown_ref(self) -> None:
         with self.assertRaisesRegex(Exception, "Unknown calendar_policy_ref"):
@@ -683,15 +698,15 @@ class AttributeRequestModelTests(unittest.TestCase):
         request = self._make(
             left={
                 "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
-                "calendar_policy_ref": "calendar_policy.holiday_yoy",
+                "calendar_policy_ref": "calendar_policy.calendar_yoy",
             },
             right={
                 "time_scope": {"kind": "range", "start": "2023-01-01", "end": "2023-01-08"},
-                "calendar_policy_ref": "calendar_policy.holiday_yoy",
+                "calendar_policy_ref": "calendar_policy.calendar_yoy",
             },
         )
-        self.assertEqual(request.left.calendar_policy_ref, "calendar_policy.holiday_yoy")
-        self.assertEqual(request.right.calendar_policy_ref, "calendar_policy.holiday_yoy")
+        self.assertEqual(request.left.calendar_policy_ref, "calendar_policy.calendar_yoy")
+        self.assertEqual(request.right.calendar_policy_ref, "calendar_policy.calendar_yoy")
 
     def test_side_level_calendar_policy_ref_rejects_unknown_ref(self) -> None:
         with self.assertRaisesRegex(Exception, "Unknown calendar_policy_ref"):

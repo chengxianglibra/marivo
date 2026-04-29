@@ -622,7 +622,7 @@ class SemanticResolver:
                     "description": entry.description,
                     "comparison_basis": entry.comparison_basis,
                     "resolved_alignment_mode": entry.resolved_alignment_mode,
-                    "resolved_calendar_source": entry.resolved_calendar_source,
+                    "resolved_calendar_source": "calendar",
                     "window_tags": list(entry.window_tags),
                     "use_when": list(entry.use_when),
                     "avoid_when": list(entry.avoid_when),

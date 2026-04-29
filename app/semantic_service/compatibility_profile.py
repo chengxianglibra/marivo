@@ -307,7 +307,7 @@ class CompatibilityProfileService(SemanticServiceSupport):
                 profile["semantic"] = {
                     "comparison_basis": entry.comparison_basis,
                     "resolved_alignment_mode": entry.resolved_alignment_mode,
-                    "resolved_calendar_source": entry.resolved_calendar_source,
+                    "resolved_calendar_source": "calendar",
                     "use_when": list(entry.use_when),
                     "avoid_when": list(entry.avoid_when),
                     "matching_strategy_summary": list(entry.matching_strategy_summary),

@@ -181,7 +181,7 @@ def _calendar_alignment_summary(
     }
     return {
         "reuse_source": "observation_resolved_policy_summary",
-        "policy_ref": "calendar_policy.holiday_yoy",
+        "policy_ref": "calendar_policy.calendar_yoy",
         "comparison_basis": "yoy",
         "resolved_calendar_source": "calendar.cn_holidays",
         "resolved_calendar_version": "2026.01",
@@ -447,7 +447,9 @@ class TestTestExtractor(unittest.TestCase):
         self.assertEqual(
             payload["comparability"]["issues"][0]["code"], "alignment_coverage_insufficient"
         )
-        self.assertEqual(payload["calendar_alignment"]["policy_ref"], "calendar_policy.holiday_yoy")
+        self.assertEqual(
+            payload["calendar_alignment"]["policy_ref"], "calendar_policy.calendar_yoy"
+        )
 
     def test_registered_in_default_registry(self) -> None:
         extractor = default_finding_registry.find("hypothesis_test", "v1")

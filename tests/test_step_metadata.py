@@ -21,12 +21,8 @@ from tests.semantic_test_helpers import (
 from tests.shared_fixtures import get_seeded_duckdb_path
 
 _VALID_SOURCE_LINEAGE = {
-    "holiday_source": {
-        "source_id": "src_holiday",
-        "source_name": "holiday_source",
-        "table_fqn": "calendar.public_holiday",
-        "calendar_version": "cn_public_holiday_2026_v1",
-    }
+    "table_fqn": "calendar",
+    "calendar_version": "cn_2026q2_v1",
 }
 
 
@@ -141,7 +137,7 @@ class StepMetadataPersistenceTests(unittest.TestCase):
                     "resolved_filter_time_ref": "time.event_date",
                 },
                 "resolved_calendar_alignment": {
-                    "policy_ref": "calendar_policy.holiday_yoy",
+                    "policy_ref": "calendar_policy.calendar_yoy",
                     "comparison_basis": "yoy",
                     "resolved_calendar_source": "calendar_data_cn_assembled",
                     "resolved_calendar_version": "calendar_data_cn_2026q2_v1",
@@ -164,18 +160,8 @@ class StepMetadataPersistenceTests(unittest.TestCase):
                     },
                     "comparability_warnings": [],
                     "source_lineage": {
-                        "holiday_source": {
-                            "source_id": "src_holiday",
-                            "source_name": "holiday_source",
-                            "table_fqn": "calendar.public_holiday",
-                            "calendar_version": "cn_public_holiday_2026_v1",
-                        },
-                        "event_source": {
-                            "source_id": "src_event",
-                            "source_name": "event_source",
-                            "table_fqn": "calendar.business_event",
-                            "calendar_version": "campaign_calendar_2026_q2_v3",
-                        },
+                        "table_fqn": "calendar",
+                        "calendar_version": "cn_2026q2_v1",
                     },
                 },
             },
@@ -220,7 +206,7 @@ class StepMetadataPersistenceTests(unittest.TestCase):
         )
         self.assertEqual(
             snapshot["compile_context"]["calendar_policy_binding"]["policy_ref"],
-            "calendar_policy.holiday_yoy",
+            "calendar_policy.calendar_yoy",
         )
         self.assertEqual(
             snapshot["compile_context"]["calendar_policy_binding"]["resolved_calendar_version"],
@@ -228,9 +214,9 @@ class StepMetadataPersistenceTests(unittest.TestCase):
         )
         self.assertEqual(
             snapshot["compile_context"]["calendar_policy_binding"]["source_lineage"][
-                "holiday_source"
-            ]["calendar_version"],
-            "cn_public_holiday_2026_v1",
+                "calendar_version"
+            ],
+            "cn_2026q2_v1",
         )
         self.assertGreaterEqual(len(snapshot["compile_context"]["ir_plan_ids"]), 1)
 
@@ -305,7 +291,7 @@ class StepMetadataPersistenceTests(unittest.TestCase):
                 "SELECT 1",
                 metadata={
                     "resolved_calendar_alignment": {
-                        "policy_ref": "calendar_policy.holiday_yoy",
+                        "policy_ref": "calendar_policy.calendar_yoy",
                         "comparison_basis": "yoy",
                         "resolved_calendar_source": "calendar_data_cn_assembled",
                         "resolved_calendar_version": "calendar_data_cn_2026q2_v1",
@@ -356,7 +342,7 @@ class StepMetadataPersistenceTests(unittest.TestCase):
             "SELECT 1",
             metadata={
                 "resolved_calendar_alignment": {
-                    "policy_ref": "calendar_policy.holiday_yoy",
+                    "policy_ref": "calendar_policy.calendar_yoy",
                     "comparison_basis": "yoy",
                     "resolved_calendar_source": "calendar_data_cn_assembled",
                     "resolved_calendar_version": "calendar_data_cn_2026q2_v1",
@@ -377,18 +363,18 @@ class StepMetadataPersistenceTests(unittest.TestCase):
             "SELECT 1",
             metadata={
                 "resolved_calendar_alignment": {
-                    "policy_ref": "calendar_policy.holiday_yoy",
+                    "policy_ref": "calendar_policy.calendar_yoy",
                     "comparison_basis": "yoy",
                     "resolved_calendar_source": "calendar_data_cn_assembled",
                     "resolved_calendar_version": "calendar_data_cn_2026q2_v1",
-                    "source_lineage": {"holiday_source": {"source_id": "src_holiday"}},
+                    "source_lineage": {"table_fqn": "calendar"},
                 }
             },
         )
 
         with self.assertRaisesRegex(
             ValueError,
-            "resolved_calendar_alignment source_lineage.holiday_source missing source_name",
+            "resolved_calendar_alignment source_lineage missing calendar_version",
         ):
             self.service.build_step_semantic_metadata(compiled)
 
@@ -396,7 +382,7 @@ class StepMetadataPersistenceTests(unittest.TestCase):
         self,
     ) -> None:
         alignment = {
-            "policy_ref": "calendar_policy.holiday_yoy",
+            "policy_ref": "calendar_policy.calendar_yoy",
             "comparison_basis": "yoy",
             "resolved_calendar_source": "calendar_data_cn_assembled",
             "resolved_calendar_version": "calendar_data_cn_2026q2_v1",
@@ -412,7 +398,7 @@ class StepMetadataPersistenceTests(unittest.TestCase):
         assert semantic_metadata is not None
         self.assertEqual(
             semantic_metadata["compile_context"]["calendar_policy_binding"]["policy_ref"],
-            "calendar_policy.holiday_yoy",
+            "calendar_policy.calendar_yoy",
         )
 
     def test_build_step_semantic_metadata_uses_calendar_policy_binding_from_aligned_query(
@@ -430,7 +416,7 @@ class StepMetadataPersistenceTests(unittest.TestCase):
                 "SELECT 2",
                 metadata={
                     "resolved_calendar_alignment": {
-                        "policy_ref": "calendar_policy.holiday_yoy",
+                        "policy_ref": "calendar_policy.calendar_yoy",
                         "comparison_basis": "yoy",
                         "resolved_calendar_source": "calendar_data_cn_assembled",
                         "resolved_calendar_version": "calendar_data_cn_2026q2_v1",
@@ -455,14 +441,14 @@ class StepMetadataCalendarPolicyBindingUnitTests(unittest.TestCase):
     def setUp(self) -> None:
         self.service = _make_metadata_only_service()
 
-    def test_build_step_semantic_metadata_accepts_holiday_only_calendar_source_lineage(
+    def test_build_step_semantic_metadata_accepts_valid_flat_source_lineage(
         self,
     ) -> None:
         compiled = CompiledQuery(
             "SELECT 1",
             metadata={
                 "resolved_calendar_alignment": {
-                    "policy_ref": "calendar_policy.holiday_yoy",
+                    "policy_ref": "calendar_policy.calendar_yoy",
                     "comparison_basis": "yoy",
                     "resolved_calendar_source": "calendar_data_cn_assembled",
                     "resolved_calendar_version": "calendar_data_cn_2026q2_v1",
@@ -476,54 +462,68 @@ class StepMetadataCalendarPolicyBindingUnitTests(unittest.TestCase):
         assert semantic_metadata is not None
         binding = semantic_metadata["compile_context"]["calendar_policy_binding"]
         self.assertEqual(binding["source_lineage"], _VALID_SOURCE_LINEAGE)
-        self.assertNotIn("event_source", binding["source_lineage"])
 
-    def test_build_step_semantic_metadata_rejects_missing_holiday_calendar_source_lineage(
+    def test_build_step_semantic_metadata_rejects_missing_table_fqn(
         self,
     ) -> None:
         compiled = CompiledQuery(
             "SELECT 1",
             metadata={
                 "resolved_calendar_alignment": {
-                    "policy_ref": "calendar_policy.holiday_yoy",
+                    "policy_ref": "calendar_policy.calendar_yoy",
                     "comparison_basis": "yoy",
                     "resolved_calendar_source": "calendar_data_cn_assembled",
                     "resolved_calendar_version": "calendar_data_cn_2026q2_v1",
                     "source_lineage": {
-                        "event_source": {
-                            "source_id": "src_event",
-                            "source_name": "event_source",
-                            "table_fqn": "calendar.business_event",
-                            "calendar_version": "campaign_calendar_2026_q2_v3",
-                        }
+                        "calendar_version": "cn_2026q2_v1",
                     },
                 }
             },
         )
 
         with self.assertRaisesRegex(
-            ValueError, "resolved_calendar_alignment missing source_lineage.holiday_source"
+            ValueError, "resolved_calendar_alignment source_lineage missing table_fqn"
         ):
             self.service.build_step_semantic_metadata(compiled)
 
-    def test_build_step_semantic_metadata_omits_incomplete_optional_event_source_lineage(
+    def test_build_step_semantic_metadata_rejects_missing_calendar_version(
         self,
     ) -> None:
         compiled = CompiledQuery(
             "SELECT 1",
             metadata={
                 "resolved_calendar_alignment": {
-                    "policy_ref": "calendar_policy.holiday_yoy",
+                    "policy_ref": "calendar_policy.calendar_yoy",
                     "comparison_basis": "yoy",
                     "resolved_calendar_source": "calendar_data_cn_assembled",
                     "resolved_calendar_version": "calendar_data_cn_2026q2_v1",
                     "source_lineage": {
-                        **_VALID_SOURCE_LINEAGE,
-                        "event_source": {
-                            "source_name": "event_source",
-                            "table_fqn": "calendar.business_event",
-                            "calendar_version": "campaign_calendar_2026_q2_v3",
-                        },
+                        "table_fqn": "calendar",
+                    },
+                }
+            },
+        )
+
+        with self.assertRaisesRegex(
+            ValueError, "resolved_calendar_alignment source_lineage missing calendar_version"
+        ):
+            self.service.build_step_semantic_metadata(compiled)
+
+    def test_build_step_semantic_metadata_normalizes_source_lineage_to_required_fields(
+        self,
+    ) -> None:
+        compiled = CompiledQuery(
+            "SELECT 1",
+            metadata={
+                "resolved_calendar_alignment": {
+                    "policy_ref": "calendar_policy.calendar_yoy",
+                    "comparison_basis": "yoy",
+                    "resolved_calendar_source": "calendar_data_cn_assembled",
+                    "resolved_calendar_version": "calendar_data_cn_2026q2_v1",
+                    "source_lineage": {
+                        "table_fqn": "calendar",
+                        "calendar_version": "cn_2026q2_v1",
+                        "extra_key": "ignored",
                     },
                 }
             },
@@ -534,30 +534,4 @@ class StepMetadataCalendarPolicyBindingUnitTests(unittest.TestCase):
         assert semantic_metadata is not None
         binding = semantic_metadata["compile_context"]["calendar_policy_binding"]
         self.assertEqual(binding["source_lineage"], _VALID_SOURCE_LINEAGE)
-        self.assertNotIn("event_source", binding["source_lineage"])
-
-    def test_build_step_semantic_metadata_omits_empty_optional_event_source_lineage(
-        self,
-    ) -> None:
-        compiled = CompiledQuery(
-            "SELECT 1",
-            metadata={
-                "resolved_calendar_alignment": {
-                    "policy_ref": "calendar_policy.holiday_yoy",
-                    "comparison_basis": "yoy",
-                    "resolved_calendar_source": "calendar_data_cn_assembled",
-                    "resolved_calendar_version": "calendar_data_cn_2026q2_v1",
-                    "source_lineage": {
-                        **_VALID_SOURCE_LINEAGE,
-                        "event_source": {},
-                    },
-                }
-            },
-        )
-
-        semantic_metadata = self.service.build_step_semantic_metadata(compiled)
-        self.assertIsNotNone(semantic_metadata)
-        assert semantic_metadata is not None
-        binding = semantic_metadata["compile_context"]["calendar_policy_binding"]
-        self.assertEqual(binding["source_lineage"], _VALID_SOURCE_LINEAGE)
-        self.assertNotIn("event_source", binding["source_lineage"])
+        self.assertNotIn("extra_key", binding["source_lineage"])
