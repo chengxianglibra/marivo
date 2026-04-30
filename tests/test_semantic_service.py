@@ -16,6 +16,7 @@ from app.api.models.metric import (
     TypedMetricCreateRequest,
     TypedMetricUpdateRequest,
 )
+from app.api.models.predicate import PredicateCreateRequest
 from app.semantic import SemanticService
 from app.semantic_service import (
     CompatibilityProfileService,
@@ -321,6 +322,76 @@ class SemanticServiceFacadeTests(unittest.TestCase):
         default_after = self.service.read_typed_metric("metric.revision_orders")
         self.assertEqual(default_after["revision"], 2)
 
+    def test_metric_update_persists_catalog_metadata(self) -> None:
+        entity = self.service.create_typed_entity(
+            TypedEntityCreateRequest.model_validate(
+                {
+                    "header": {
+                        "entity_ref": "entity.metric_catalog_domain",
+                        "display_name": "Catalog Domain Entity",
+                        "entity_contract_version": "entity.v1",
+                    },
+                    "interface_contract": {
+                        "identity": {
+                            "key_refs": ["key.metric_catalog_domain_id"],
+                            "uniqueness_scope": "global",
+                            "id_stability": "stable",
+                        }
+                    },
+                }
+            )
+        )
+        metric = self.service.create_typed_metric(
+            TypedMetricCreateRequest.model_validate(
+                {
+                    "header": {
+                        "metric_ref": "metric.catalog_domain_update",
+                        "display_name": "Catalog Domain Update",
+                        "metric_family": "count_metric",
+                        "observed_entity_ref": entity["header"]["entity_ref"],
+                        "observation_grain_ref": "grain.metric_catalog_domain",
+                        "sample_kind": "numeric",
+                        "value_semantics": "count",
+                        "additivity_constraints": {
+                            "dimension_policy": "none",
+                            "time_axis_policy": "non_additive",
+                        },
+                        "metric_contract_version": "metric.v1",
+                    },
+                    "payload": {
+                        "metric_family": "count_metric",
+                        "count_target": {
+                            "name": "metric_catalog_domain_id",
+                            "semantics": "catalog domain id",
+                            "aggregation": "count_distinct",
+                        },
+                    },
+                }
+            )
+        )
+
+        updated = self.service.update_typed_metric(
+            metric["metric_contract_id"],
+            TypedMetricUpdateRequest.model_validate(
+                {
+                    "catalog_metadata": {
+                        "domain_ref": "domain.growth",
+                        "related_domain_refs": ["domain.core"],
+                        "aliases": ["Catalog Domain"],
+                    }
+                }
+            ),
+        )
+
+        self.assertEqual(
+            updated["catalog_metadata"],
+            {
+                "domain_ref": "domain.growth",
+                "related_domain_refs": ["domain.core"],
+                "aliases": ["Catalog Domain"],
+            },
+        )
+
     def test_list_dimensions_detail_uses_list_context_for_dependents(self) -> None:
         dimension = self.service.create_dimension(
             DimensionCreateRequest.model_validate(
@@ -365,6 +436,69 @@ class SemanticServiceFacadeTests(unittest.TestCase):
             "dimension.discovery_channel",
         )
         self.assertIn("dependent_refs", listed["items"][0])
+
+    def test_field_dependents_use_structured_refs_only(self) -> None:
+        entity = self.service.create_typed_entity(
+            TypedEntityCreateRequest.model_validate(
+                {
+                    "header": {
+                        "entity_ref": "entity.field_structured_only",
+                        "display_name": "Field Structured Only",
+                        "entity_contract_version": "entity.v4",
+                    },
+                    "interface_contract": {
+                        "identity": {
+                            "key_refs": ["key.field_structured_only_id"],
+                            "uniqueness_scope": "global",
+                            "id_stability": "stable",
+                        },
+                        "fields": [
+                            {"field_ref": "field.country", "physical_column": "country"},
+                        ],
+                    },
+                }
+            )
+        )
+        predicate = self.service.create_predicate(
+            PredicateCreateRequest.model_validate(
+                {
+                    "header": {
+                        "predicate_ref": "predicate.field_structured_only",
+                        "display_name": "Field Structured Only",
+                        "description": "mentions field.country but is not a dependency",
+                        "subject_ref": "entity.field_structured_only",
+                        "predicate_contract_version": "predicate.v1",
+                    },
+                    "interface_contract": {
+                        "expression": {
+                            "op": "eq",
+                            "target_ref": "entity.field_structured_only.field.country",
+                            "value": "US",
+                        },
+                        "allowed_usage": ["metric_qualifier"],
+                    },
+                }
+            )
+        )
+
+        dependents = self.service.field_dependents_for_entity_field(
+            "entity.field_structured_only",
+            "entity.field_structured_only.field.country",
+        )
+
+        self.assertEqual(
+            dependents,
+            [
+                {
+                    "object_kind": "predicate",
+                    "ref": predicate["header"]["predicate_ref"],
+                    "usage_paths": ["interface_contract.expression.target_ref"],
+                    "usage_count": 1,
+                }
+            ],
+        )
+        detail = self.service.read_typed_entity(entity["entity_contract_id"])
+        self.assertEqual(detail["field_dependency_graph"]["field.country"], dependents)
 
     def test_compatibility_profile_update_requires_draft_and_increments_revision(self) -> None:
         entity = self.service.create_typed_entity(
@@ -424,17 +558,45 @@ class SemanticServiceFacadeTests(unittest.TestCase):
                     "subject_kind": "metric",
                     "subject_ref": "metric.profile_requirement",
                     "requirement": {"entity_refs": ["entity.profile_subject"]},
+                    "catalog_metadata": {
+                        "domain_ref": "domain.growth",
+                        "related_domain_refs": ["domain.core"],
+                        "aliases": ["Profile Requirement"],
+                    },
                 }
             )
+        )
+        self.assertEqual(
+            profile["catalog_metadata"],
+            {
+                "domain_ref": "domain.growth",
+                "related_domain_refs": ["domain.core"],
+                "aliases": ["Profile Requirement"],
+            },
         )
         updated = self.service.update_compatibility_profile(
             profile["profile_id"],
             CompatibilityProfileUpdateRequest.model_validate(
-                {"requirement": {"entity_refs": ["entity.profile_subject"]}}
+                {
+                    "requirement": {"entity_refs": ["entity.profile_subject"]},
+                    "catalog_metadata": {
+                        "domain_ref": "domain.core",
+                        "related_domain_refs": ["domain.growth"],
+                        "aliases": ["Updated Requirement"],
+                    },
+                }
             ),
         )
         self.assertEqual(updated["revision"], 2)
         self.assertIsNone(updated["subject_revision"])
+        self.assertEqual(
+            updated["catalog_metadata"],
+            {
+                "domain_ref": "domain.core",
+                "related_domain_refs": ["domain.growth"],
+                "aliases": ["Updated Requirement"],
+            },
+        )
 
         with self.assertRaises(ValueError):
             self.service.publish_compatibility_profile(profile["profile_id"])

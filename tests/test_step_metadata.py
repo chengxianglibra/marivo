@@ -102,6 +102,41 @@ class StepMetadataPersistenceTests(unittest.TestCase):
                 "resolved_filter_time_ref": "time.event_date",
                 "resolved_dimension_refs": ["dimension.country"],
                 "resolved_binding_refs": ["binding.watch_events"],
+                "resolved_entity_field_refs": ["entity.user.field.country"],
+                "resolved_entity_field_sources": [
+                    {
+                        "field_ref": "entity.user.field.country",
+                        "entity_ref": "entity.user",
+                        "local_field_ref": "field.country",
+                        "entity_revision": 3,
+                        "value_type": "string",
+                        "nullable": True,
+                        "source_object_fqn": "analytics.user",
+                        "carrier_kind": "table",
+                        "physical_column": "country",
+                        "usage_paths": ["dimension.country.source_field_ref"],
+                    }
+                ],
+                "resolved_relationship_refs": ["relationship.user_account"],
+                "resolved_relationship_sources": [
+                    {
+                        "relationship_ref": "relationship.user_account",
+                        "left_entity_ref": "entity.user",
+                        "right_entity_ref": "entity.account",
+                        "revision": 5,
+                        "key_alignment": {
+                            "left_field_ref": "entity.user.field.user_id",
+                            "right_field_ref": "entity.account.field.user_id",
+                            "alignment_kind": "equality",
+                        },
+                        "cardinality": "one_to_many",
+                        "grain_compatibility": {
+                            "left_grain_ref": "grain.user_day",
+                            "right_grain_ref": "grain.user_day",
+                            "compatibility": "same_grain",
+                        },
+                    }
+                ],
                 "metric_entity_anchor_ref": "entity.user",
                 "resolved_imported_dimensions": [
                     {
@@ -197,6 +232,28 @@ class StepMetadataPersistenceTests(unittest.TestCase):
         self.assertEqual(
             snapshot["compile_context"]["imported_dimension_sources"][0]["carrier_locator"],
             "analytics.entity_events",
+        )
+        self.assertEqual(snapshot["entity_field_refs"], ["entity.user.field.country"])
+        self.assertEqual(
+            snapshot["compile_context"]["entity_field_sources"][0]["physical_column"],
+            "country",
+        )
+        self.assertEqual(
+            snapshot["resolved_refs"]["entity.user.field.country"]["entity_revision"],
+            3,
+        )
+        self.assertEqual(
+            snapshot["resolved_refs"]["entity.user.field.country"]["source_object_fqn"],
+            "analytics.user",
+        )
+        self.assertEqual(snapshot["relationship_refs"], ["relationship.user_account"])
+        self.assertEqual(
+            snapshot["compile_context"]["relationship_sources"][0]["revision"],
+            5,
+        )
+        self.assertEqual(
+            snapshot["resolved_refs"]["relationship.user_account"]["revision"],
+            5,
         )
         self.assertEqual(
             snapshot["compile_context"]["calendar_policy_binding"]["policy_ref"],

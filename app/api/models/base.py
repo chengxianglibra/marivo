@@ -10,13 +10,20 @@ from __future__ import annotations
 import re
 from typing import Any, Generic, Literal, TypeVar
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 # =============================================================================
 # Literal Type Definitions
 # =============================================================================
 
 # Entity types
+EntityKind = Literal[
+    "business_entity",
+    "event_entity",
+    "fact_entity",
+    "snapshot_entity",
+    "derived_entity",
+]
 UniquenessScope = Literal["global", "parent_scoped"]
 IdStability = Literal["stable", "reassignable", "ephemeral"]
 NullableKeyPolicy = Literal["reject", "allow_partial"]
@@ -104,6 +111,21 @@ Cardinality = Literal["one_to_one", "many_to_one", "one_to_many", "many_to_many"
 ConsumptionPolicyType = Literal["late_arrival_policy", "incomplete_window_policy"]
 ConsumptionBehavior = Literal["exclude_open_subjects", "clip_to_window", "keep_partial"]
 
+# Entity relationship types
+RelationshipCardinality = Literal["one_to_one", "many_to_one", "one_to_many", "many_to_many"]
+RelationshipTimeAlignmentKind = Literal[
+    "same_time",
+    "bounded_after",
+    "bounded_before",
+    "overlap",
+    "snapshot_effective_window",
+]
+RelationshipGrainCompatibilityKind = Literal[
+    "same_grain",
+    "rollup_allowed",
+    "many_to_one_rollup",
+]
+
 # Predicate types — see docs/semantic/predicate-schema-contract.zh.md for taxonomy
 PredicateUsage = Literal[
     "metric_qualifier",  # Metric business predicates (qualifier_refs, default_predicate_refs)
@@ -136,6 +158,7 @@ InferentialSampleSummary = Literal["numeric_sample_summary", "rate_sample_summar
 ObjectStatus = Literal["draft", "published", "deprecated"]
 LifecycleStatus = Literal["draft", "validated", "active", "deprecated"]
 ReadinessStatus = Literal["not_ready", "ready", "stale"]
+DomainCatalogStatus = Literal["active", "deprecated"]
 
 
 # =============================================================================
@@ -154,6 +177,8 @@ _REF_PREFIX_PATTERNS = {
     "binding": re.compile(r"^binding\."),
     "enum": re.compile(r"^enum\."),
     "compiler_profile": re.compile(r"^compiler_profile\."),
+    "relationship": re.compile(r"^relationship\."),
+    "domain": re.compile(r"^domain\."),
     "field": re.compile(r"^field\."),
     "time_surface": re.compile(r"^time_surface\."),
     "population": re.compile(r"^population\."),
@@ -186,6 +211,63 @@ def validate_ref_prefix(value: str, prefix: str, field_name: str | None = None) 
         raise ValueError(f"{field_desc} must start with '{prefix}.' prefix, got: {value}")
 
     return value
+
+
+def validate_entity_field_ref(value: str, field_name: str | None = None) -> str:
+    """Validate an entity-owned field ref.
+
+    The canonical form is ``entity.<entity_ref>.field.<field_ref>``. The
+    unqualified ``field.*`` form is still accepted for single-entity authoring
+    contexts and is disambiguated by service/compiler validation.
+    """
+    normalized = value.strip()
+    field_desc = f"'{field_name}'" if field_name else "field ref"
+    if not normalized:
+        raise ValueError(f"{field_desc} must not be empty")
+    if normalized.startswith("field."):
+        return normalized
+    if normalized.startswith("entity.") and ".field." in normalized:
+        entity_part, field_part = normalized.split(".field.", 1)
+        if entity_part != "entity." and field_part:
+            return normalized
+    raise ValueError(
+        f"{field_desc} must be an entity field ref such as "
+        "'entity.order.field.status' or 'field.status', got: {value}"
+    )
+
+
+def validate_canonical_entity_field_ref(value: str, field_name: str | None = None) -> str:
+    """Validate a fully qualified entity-owned field ref."""
+    normalized = validate_entity_field_ref(value, field_name)
+    if normalized.startswith("entity.") and ".field." in normalized:
+        return normalized
+    field_desc = f"'{field_name}'" if field_name else "field ref"
+    raise ValueError(
+        f"{field_desc} must use fully qualified entity field form "
+        f"'entity.<entity>.field.<field>', got: {value}"
+    )
+
+
+def validate_process_semantic_ref(value: str, field_name: str | None = None) -> str:
+    """Validate semantic refs accepted inside process contracts.
+
+    Process objects can point at governed entity fields, time anchors,
+    predicates, dimensions, events, or populations. They must not refer to
+    unqualified carrier field surfaces such as ``field.user_id``.
+    """
+    normalized = value.strip()
+    field_desc = f"'{field_name}'" if field_name else "process ref"
+    if not normalized:
+        raise ValueError(f"{field_desc} must not be empty")
+    if normalized.startswith("entity.") and ".field." in normalized:
+        return validate_canonical_entity_field_ref(normalized, field_name)
+    for prefix in ("time", "predicate", "dimension", "event", "population"):
+        if normalized.startswith(f"{prefix}."):
+            return validate_ref_prefix(normalized, prefix, field_name)
+    raise ValueError(
+        f"{field_desc} must reference entity.<entity>.field.<field>, time.*, "
+        f"predicate.*, dimension.*, event.*, or population.*, got: {value}"
+    )
 
 
 def validate_contract_version(value: str, domain: str) -> str:
@@ -282,6 +364,48 @@ class ObjectHeaderBase(BaseModel):
 
     display_name: str | None = Field(default=None, description="Human-readable display name.")
     description: str | None = Field(default=None, description="Description of the semantic object.")
+
+
+class CatalogMetadata(BaseModel):
+    """Discovery-only catalog metadata shared by semantic objects.
+
+    Domain metadata helps agents browse a large catalog. It is not a permission
+    source, compiler compatibility truth, or part of any stable semantic ref.
+    """
+
+    domain_ref: str | None = Field(
+        default=None,
+        description="Optional discovery domain ref. Top-level semantic objects should provide it.",
+    )
+    related_domain_refs: list[str] = Field(
+        default_factory=list,
+        description="Optional related discovery domains.",
+    )
+    aliases: list[str] = Field(
+        default_factory=list,
+        description="Alternative catalog search names for the object.",
+    )
+
+    @field_validator("domain_ref")
+    @classmethod
+    def validate_domain_ref(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return validate_ref_prefix(value.strip(), "domain", "domain_ref")
+
+    @field_validator("related_domain_refs")
+    @classmethod
+    def validate_related_domain_refs(cls, values: list[str]) -> list[str]:
+        return [
+            validate_ref_prefix(value.strip(), "domain", "related_domain_refs")
+            for value in values
+            if value.strip()
+        ]
+
+    @field_validator("aliases")
+    @classmethod
+    def normalize_aliases(cls, values: list[str]) -> list[str]:
+        return [value.strip() for value in values if value.strip()]
 
 
 class BlockingRequirement(BaseModel):
@@ -410,6 +534,8 @@ class SemanticValidateActionResponse(BaseModel):
 class WindowOffset(BaseModel):
     """Offset specification for time windows."""
 
+    model_config = ConfigDict(extra="forbid")
+
     value: int | float = Field(description="Offset value.")
     unit: Literal["minute", "hour", "day", "week"] = Field(description="Time unit.")
 
@@ -420,6 +546,8 @@ class WindowSpec(BaseModel):
     Used in process objects and other contexts where time windows
     need to be defined relative to an anchor time.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     anchor_ref: str | None = Field(
         default=None, description="Reference to the anchor time (time.*)."
@@ -442,6 +570,8 @@ class WindowSpec(BaseModel):
 class PopulationSpec(BaseModel):
     """Population specification for cohort definitions."""
 
+    model_config = ConfigDict(extra="forbid")
+
     base_population_ref: str = Field(description="Reference to the base population.")
     include_refs: list[str] | None = Field(
         default=None, description="Optional populations to include."
@@ -453,9 +583,23 @@ class PopulationSpec(BaseModel):
         default=None, description="Population membership mode."
     )
 
+    @field_validator("base_population_ref")
+    @classmethod
+    def validate_base_population_ref(cls, v: str) -> str:
+        return validate_process_semantic_ref(v, "base_population_ref")
+
+    @field_validator("include_refs", "exclude_refs")
+    @classmethod
+    def validate_population_filter_refs(cls, v: list[str] | None) -> list[str] | None:
+        if v is None:
+            return None
+        return [validate_process_semantic_ref(ref, "population_ref") for ref in v]
+
 
 class StepSpec(BaseModel):
     """Step specification for funnel and path definitions."""
+
+    model_config = ConfigDict(extra="forbid")
 
     step_key: str = Field(description="Unique key for this step.")
     event_ref: str = Field(description="Reference to the event that defines this step.")
@@ -463,9 +607,23 @@ class StepSpec(BaseModel):
         default=None, description="Optional qualifier references."
     )
 
+    @field_validator("event_ref")
+    @classmethod
+    def validate_event_ref(cls, v: str) -> str:
+        return validate_process_semantic_ref(v, "event_ref")
+
+    @field_validator("qualifier_refs")
+    @classmethod
+    def validate_qualifier_refs(cls, v: list[str] | None) -> list[str] | None:
+        if v is None:
+            return None
+        return [validate_ref_prefix(ref, "predicate", "qualifier_refs") for ref in v]
+
 
 class StateSpec(BaseModel):
     """State specification for lifecycle state machines."""
+
+    model_config = ConfigDict(extra="forbid")
 
     state_key: str = Field(description="Unique key for this state.")
     entry_ref: str = Field(description="Reference to the predicate for state entry.")
@@ -475,6 +633,18 @@ class StateSpec(BaseModel):
     priority: int | float | None = Field(
         default=None, description="Optional priority for conflict resolution."
     )
+
+    @field_validator("entry_ref")
+    @classmethod
+    def validate_entry_ref(cls, v: str) -> str:
+        return validate_process_semantic_ref(v, "entry_ref")
+
+    @field_validator("exit_ref")
+    @classmethod
+    def validate_exit_ref(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        return validate_process_semantic_ref(v, "exit_ref")
 
 
 class HorizonSpec(BaseModel):

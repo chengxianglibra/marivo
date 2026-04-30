@@ -51,6 +51,12 @@ class SemanticRuntimeRepository:
     def resolve_binding_ref(self, binding_ref: str) -> ResolvedSemanticObject:
         return self.resolver.resolve_binding_ref(binding_ref)
 
+    def resolve_relationship_ref(self, relationship_ref: str) -> ResolvedSemanticObject:
+        return self.resolver.resolve_relationship_ref(relationship_ref)
+
+    def resolve_predicate_ref(self, predicate_ref: str) -> ResolvedSemanticObject:
+        return self.resolver.resolve_predicate_ref(predicate_ref)
+
     def resolve_metric(self, metric_name: str) -> ResolvedMetric | None:
         return self.resolver.resolve_metric(metric_name)
 

@@ -14,7 +14,10 @@ from app.analysis_core.compiler import compile_step
 from app.analysis_core.ir import AnalysisStepIR
 from app.evidence_engine.ref_boundary import assert_no_canonical_refs_in_semantic_payload
 from app.main import create_app
-from tests.semantic_test_helpers import seed_duckdb_source_object
+from tests.semantic_test_helpers import (
+    ensure_published_typed_metric_binding,
+    seed_duckdb_source_object,
+)
 from tests.shared_fixtures import get_seeded_duckdb_path
 
 
@@ -147,6 +150,7 @@ class TypedSemanticEndToEndTests(unittest.TestCase):
                     "measure": {
                         "name": "value",
                         "semantics": "Windowed value sum",
+                        "input_field_ref": f"{entity_ref}.field.value",
                         "aggregation": "sum",
                         "measure_ref": "measure.value",
                     },
@@ -160,64 +164,45 @@ class TypedSemanticEndToEndTests(unittest.TestCase):
             200,
         )
 
-        binding_resp = self.client.post(
-            "/semantic/bindings",
-            json={
-                "header": {
-                    "binding_ref": binding_ref,
-                    "display_name": "S7-03 Metric Binding",
-                    "binding_scope": "metric",
-                    "bound_object_ref": metric_ref,
-                    "binding_contract_version": "binding.v1",
-                },
-                "interface_contract": {
-                    "carrier_bindings": [
-                        {
-                            "binding_key": "primary",
-                            "source_object_ref": self.val_events_object_id,
-                            "carrier_kind": "table",
-                            "carrier_locator": self.val_events_fqn,
-                            "binding_role": "primary",
-                            "field_surfaces": [
-                                {
-                                    "surface_ref": "field.event_date",
-                                    "physical_name": "event_date",
-                                },
-                                {
-                                    "surface_ref": "field.value",
-                                    "physical_name": "value",
-                                },
-                            ],
-                        }
-                    ],
-                    "field_bindings": [
-                        {
-                            "carrier_binding_key": "primary",
-                            "target": {
-                                "target_kind": "primary_time",
-                                "target_key": time_ref,
-                            },
-                            "semantic_ref": time_ref,
-                            "surface_ref": "field.event_date",
-                        },
-                        {
-                            "carrier_binding_key": "primary",
-                            "target": {
-                                "target_kind": "metric_input",
-                                "target_key": "measure",
-                            },
-                            "semantic_ref": "metric_input.measure",
-                            "surface_ref": "field.value",
-                        },
-                    ],
-                },
-            },
+        generated_binding_ref = ensure_published_typed_metric_binding(
+            self.metadata,
+            metric_name=metric_key,
+            carrier_locator=self.val_events_fqn,
+            source_object_ref=self.val_events_object_id,
+            surface_name="value",
+            metric_input_target_keys=["measure"],
+            time_surfaces=[
+                {
+                    "surface_ref": "time_surface.event_date",
+                    "physical_name": "event_date",
+                }
+            ],
+            time_bindings=[
+                {
+                    "carrier_binding_key": "primary",
+                    "target": {
+                        "target_kind": "primary_time",
+                        "target_key": time_ref,
+                    },
+                    "semantic_ref": time_ref,
+                    "resolution_kind": "date_column",
+                    "date_surface_ref": "time_surface.event_date",
+                }
+            ],
         )
-        self.assertEqual(binding_resp.status_code, 200, binding_resp.text)
-        binding_id = binding_resp.json()["binding_id"]
-        self.assertEqual(
-            self.client.post(f"/semantic/bindings/{binding_id}/publish").status_code, 200
+        self.metadata.execute(
+            """
+            UPDATE typed_bindings
+            SET binding_ref = ?, display_name = ?
+            WHERE binding_ref = ?
+            """,
+            [binding_ref, "S7-03 Metric Binding", generated_binding_ref],
         )
+        binding_row = self.metadata.query_one(
+            "SELECT binding_id FROM typed_bindings WHERE binding_ref = ?",
+            [binding_ref],
+        )
+        self.assertIsNotNone(binding_row)
 
         resolve_resp = self.client.get(f"/semantic/resolve/{metric_ref}")
         self.assertEqual(resolve_resp.status_code, 200, resolve_resp.text)

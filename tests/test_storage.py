@@ -186,6 +186,55 @@ class SQLiteMetadataStoreTests(unittest.TestCase):
         self.assertNotIn("source_execution_mappings", tables)
         self.assertIn("datasources", tables)
 
+    def test_initialize_uses_entity_grounding_json_columns(self) -> None:
+        rows = self.store.query_rows("PRAGMA table_info(semantic_entity_contracts)")
+        column_names = {str(row["name"]) for row in rows}
+
+        self.assertTrue({"fields_json", "binding_json"}.issubset(column_names))
+        entity_kind_row = next(row for row in rows if row["name"] == "entity_kind")
+        self.assertEqual(entity_kind_row["dflt_value"], "'business_entity'")
+
+    def test_initialize_adds_entity_grounding_columns_to_legacy_table(self) -> None:
+        legacy_path = Path(self.temp_dir.name) / "legacy_entity_schema.sqlite"
+        con = sqlite3.connect(legacy_path)
+        try:
+            con.executescript(
+                """
+                CREATE TABLE semantic_entity_contracts (
+                    entity_contract_id      TEXT PRIMARY KEY,
+                    entity_ref              TEXT NOT NULL UNIQUE,
+                    display_name            TEXT NOT NULL,
+                    description             TEXT NOT NULL DEFAULT '',
+                    properties_json         TEXT NOT NULL DEFAULT '{}',
+                    catalog_metadata_json   TEXT NOT NULL DEFAULT '{}',
+                    entity_contract_version TEXT NOT NULL,
+                    uniqueness_scope        TEXT NOT NULL,
+                    id_stability            TEXT NOT NULL,
+                    nullable_key_policy     TEXT NOT NULL DEFAULT 'reject',
+                    parent_entity_ref       TEXT,
+                    cardinality_to_parent   TEXT,
+                    ownership_semantics     TEXT,
+                    primary_time_ref        TEXT,
+                    status                  TEXT NOT NULL DEFAULT 'draft',
+                    revision                INTEGER NOT NULL DEFAULT 1,
+                    created_at              TEXT NOT NULL,
+                    updated_at              TEXT NOT NULL
+                );
+                """
+            )
+            con.commit()
+        finally:
+            con.close()
+
+        legacy_store = SQLiteMetadataStore(legacy_path)
+        legacy_store.initialize()
+
+        rows = legacy_store.query_rows("PRAGMA table_info(semantic_entity_contracts)")
+        column_names = {str(row["name"]) for row in rows}
+        self.assertTrue({"fields_json", "binding_json", "entity_kind"}.issubset(column_names))
+        entity_kind_row = next(row for row in rows if row["name"] == "entity_kind")
+        self.assertEqual(entity_kind_row["dflt_value"], "'business_entity'")
+
     def test_initialize_rebuilds_tables_that_reference_legacy_sources(self) -> None:
         legacy_path = Path(self.temp_dir.name) / "legacy_source_fk.sqlite"
         con = sqlite3.connect(legacy_path)

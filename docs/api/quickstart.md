@@ -148,20 +148,21 @@ curl -s -X POST http://localhost:8000/semantic/metrics \
 
 Save the returned `time_contract_id`, `entity_contract_id`, and `metric_contract_id`.
 
-## Step 6 - Create a Typed Binding
+## Step 6 - Create an Entity Typed Binding
 
-Link the metric to the physical table with a typed binding. Use the table FQN or `object_id` from
-Step 4 sync results:
+Link the entity to the physical table with a typed binding. Metric and process objects no longer
+submit their own physical carrier bindings; they resolve physical fields through the entity surface.
+Use the table FQN or `object_id` from Step 4 sync results:
 
 ```bash
 curl -s -X POST http://localhost:8000/semantic/bindings \
   -H "Content-Type: application/json" \
   -d '{
     "header": {
-      "binding_ref": "binding.daily_active_users_primary",
-      "display_name": "Daily Active Users Binding",
-      "binding_scope": "metric",
-      "bound_object_ref": "metric.daily_active_users",
+      "binding_ref": "binding.user_watch_events_primary",
+      "display_name": "User Watch Events Binding",
+      "binding_scope": "entity",
+      "bound_object_ref": "entity.user",
       "binding_contract_version": "binding.v1"
     },
     "interface_contract": {
@@ -190,10 +191,10 @@ curl -s -X POST http://localhost:8000/semantic/bindings \
         {
           "carrier_binding_key": "primary",
           "target": {
-            "target_kind": "metric_input",
-            "target_key": "count_target"
+            "target_kind": "identity_key",
+            "target_key": "key.user_id"
           },
-          "semantic_ref": "metric_input.active_users",
+          "semantic_ref": "key.user_id",
           "surface_ref": "field.user_id"
         }
       ]
@@ -216,9 +217,9 @@ Verify that runtime resolution sees only published typed refs:
 curl -s http://localhost:8000/semantic/resolve/metric.daily_active_users | jq .
 ```
 
-Metric bindings use family slot names for `target.target_key`. Common values are `count_target`,
-`measure`, `numerator`, `denominator`, `value_component`, and `score_source`. Do not use a
-`metric_input.*` ref as `target_key`; that belongs in `semantic_ref`.
+Current metric readiness may still report legacy binding blockers until the compiler/readiness
+cutover is completed. Do not create `binding_scope=metric` or `binding_scope=process_object`
+payloads as a workaround; those scopes are rejected by the public typed binding authoring path.
 
 ## Step 8 - Create a Session
 

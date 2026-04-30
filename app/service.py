@@ -3304,6 +3304,38 @@ class SemanticLayerService:
                 for binding_ref in list(compiled.metadata.get("resolved_binding_refs") or [])
             ]
         )
+        entity_field_refs = self._merge_unique_str(
+            [
+                field_ref
+                for compiled in compiled_list
+                for field_ref in list(compiled.metadata.get("resolved_entity_field_refs") or [])
+            ]
+        )
+        entity_field_sources = [
+            dict(source)
+            for compiled in compiled_list
+            for source_list in [compiled.metadata.get("resolved_entity_field_sources")]
+            if isinstance(source_list, list)
+            for source in source_list
+            if isinstance(source, dict)
+        ]
+        relationship_refs = self._merge_unique_str(
+            [
+                relationship_ref
+                for compiled in compiled_list
+                for relationship_ref in list(
+                    compiled.metadata.get("resolved_relationship_refs") or []
+                )
+            ]
+        )
+        relationship_sources = [
+            dict(source)
+            for compiled in compiled_list
+            for source_list in [compiled.metadata.get("resolved_relationship_sources")]
+            if isinstance(source_list, list)
+            for source in source_list
+            if isinstance(source, dict)
+        ]
         dimension_refs = self._merge_unique_str(
             [
                 dimension_ref
@@ -3410,6 +3442,10 @@ class SemanticLayerService:
                 process_refs,
                 filter_time_refs,
                 binding_refs,
+                entity_field_refs,
+                entity_field_sources,
+                relationship_refs,
+                relationship_sources,
                 dimension_refs,
                 ir_plan_ids,
                 request_classes,
@@ -3442,9 +3478,13 @@ class SemanticLayerService:
                 "request_classes": request_classes,
             },
             "binding_refs": binding_refs,
+            "entity_field_refs": entity_field_refs,
+            "relationship_refs": relationship_refs,
             "compile_context": {
                 "ir_plan_ids": ir_plan_ids,
                 "compiler_summaries": compiler_summaries,
+                "entity_field_sources": entity_field_sources,
+                "relationship_sources": relationship_sources,
                 "resolved_calendar_alignments": resolved_calendar_alignments,
                 "imported_dimension_lineage": imported_dimension_lineage,
                 "imported_dimension_conflicts": imported_dimension_conflicts,
@@ -3454,6 +3494,43 @@ class SemanticLayerService:
             },
             "resolved_refs": resolved_refs,
         }
+        for source in entity_field_sources:
+            field_ref = source.get("field_ref")
+            if not field_ref:
+                continue
+            resolved = resolved_refs.setdefault(str(field_ref), {"ref": str(field_ref)})
+            if source.get("entity_revision") is not None:
+                resolved["entity_revision"] = int(source["entity_revision"])
+            if source.get("entity_ref") is not None:
+                resolved["entity_ref"] = str(source["entity_ref"])
+            if source.get("physical_column") is not None:
+                resolved["physical_column"] = str(source["physical_column"])
+            if source.get("physical_expression_locator") is not None:
+                resolved["physical_expression_locator"] = source["physical_expression_locator"]
+            if source.get("source_object_ref") is not None:
+                resolved["source_object_ref"] = str(source["source_object_ref"])
+            if source.get("source_object_fqn") is not None:
+                resolved["source_object_fqn"] = str(source["source_object_fqn"])
+        for source in relationship_sources:
+            relationship_ref = source.get("relationship_ref")
+            if not relationship_ref:
+                continue
+            resolved = resolved_refs.setdefault(
+                str(relationship_ref), {"ref": str(relationship_ref)}
+            )
+            if source.get("revision") is not None:
+                resolved["revision"] = int(source["revision"])
+            for key in (
+                "left_entity_ref",
+                "right_entity_ref",
+                "key_alignment",
+                "time_alignment",
+                "cardinality",
+                "grain_compatibility",
+                "snapshot_effective_window_alignment",
+            ):
+                if source.get(key) is not None:
+                    resolved[key] = source[key]
         assert_no_canonical_refs_in_semantic_payload(snapshot, surface="step_semantic_metadata")
         return snapshot
 

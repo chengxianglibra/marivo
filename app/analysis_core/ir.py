@@ -58,6 +58,30 @@ class BindingRefSnapshot(TypedDict):
     bound_object_ref: str
 
 
+class EntityFieldRefSnapshot(TypedDict):
+    field_ref: str
+    entity_ref: str
+    local_field_ref: str
+    entity_revision: int
+    source_object_ref: NotRequired[str | None]
+    source_object_fqn: NotRequired[str | None]
+    carrier_kind: NotRequired[str | None]
+    physical_column: NotRequired[str | None]
+    physical_expression_locator: NotRequired[dict[str, Any] | None]
+
+
+class RelationshipRefSnapshot(TypedDict):
+    relationship_ref: str
+    left_entity_ref: str
+    right_entity_ref: str
+    revision: NotRequired[int | None]
+    key_alignment: NotRequired[dict[str, Any] | None]
+    time_alignment: NotRequired[dict[str, Any] | None]
+    cardinality: NotRequired[str | None]
+    grain_compatibility: NotRequired[dict[str, Any] | None]
+    snapshot_effective_window_alignment: NotRequired[dict[str, Any] | None]
+
+
 class IntentRequestSnapshot(TypedDict):
     intent_kind: str
     request_class: Literal["root_metric_process", "typed_ref", "derived_macro"]
@@ -75,6 +99,8 @@ class IrInputSnapshot(TypedDict):
     resolved_metric: NotRequired[MetricRefSnapshot | None]
     resolved_processes: NotRequired[list[ProcessRefSnapshot] | None]
     resolved_bindings: NotRequired[list[BindingRefSnapshot] | None]
+    resolved_entity_fields: NotRequired[list[EntityFieldRefSnapshot] | None]
+    resolved_relationships: NotRequired[list[RelationshipRefSnapshot] | None]
     intent_request: IntentRequestSnapshot
 
 
@@ -214,6 +240,9 @@ class ValidationRecord(TypedDict):
         "request_shape",
         "intent_support",
         "metric_process_compatibility",
+        "entity_field_resolution",
+        "field_usage_compatibility",
+        "cross_entity_composition",
         "binding_grounding",
         "predicate_contract",
         "scope_validation",

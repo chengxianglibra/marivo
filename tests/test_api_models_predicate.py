@@ -6,7 +6,9 @@ from pydantic import ValidationError
 from app.api.models.predicate import (
     PredicateAtom,
     PredicateConjunction,
+    PredicateCreateRequest,
     PredicateHeader,
+    PredicateInterfaceContract,
     PredicatePayload,
 )
 
@@ -125,12 +127,12 @@ def test_predicate_atom_not_in():
 
 
 def test_predicate_atom_is_null():
-    atom = PredicateAtom(target_ref="field.description", op="is_null")
+    atom = PredicateAtom(target_ref="entity.user.field.description", op="is_null")
     assert atom.value is None
 
 
 def test_predicate_atom_is_not_null():
-    atom = PredicateAtom(target_ref="field.email", op="is_not_null")
+    atom = PredicateAtom(target_ref="entity.user.field.email", op="is_not_null")
     assert atom.value is None
 
 
@@ -164,12 +166,16 @@ def test_predicate_atom_none_in_list_value():
         "subject.",
         "population.",
         "event.",
-        "field.",
     ],
 )
 def test_predicate_atom_allowed_target_prefixes(prefix):
     atom = PredicateAtom(target_ref=f"{prefix}test", op="eq", value="x")
     assert atom.target_ref.startswith(prefix)
+
+
+def test_predicate_atom_rejects_unqualified_field_ref():
+    with pytest.raises(ValidationError, match="fully qualified entity field"):
+        PredicateAtom(target_ref="field.status", op="eq", value="active")
 
 
 def test_predicate_atom_time_target_forbidden():
@@ -229,12 +235,12 @@ def test_predicate_atom_not_in_requires_non_empty():
 
 def test_predicate_atom_is_null_rejects_value():
     with pytest.raises(ValidationError, match="must be None"):
-        PredicateAtom(target_ref="field.desc", op="is_null", value="something")
+        PredicateAtom(target_ref="entity.user.field.desc", op="is_null", value="something")
 
 
 def test_predicate_atom_is_not_null_rejects_value():
     with pytest.raises(ValidationError, match="must be None"):
-        PredicateAtom(target_ref="field.desc", op="is_not_null", value="x")
+        PredicateAtom(target_ref="entity.user.field.desc", op="is_not_null", value="x")
 
 
 def test_predicate_atom_scalar_op_requires_value():
@@ -284,6 +290,15 @@ def test_predicate_conjunction_nested():
 def test_predicate_conjunction_empty_items_rejected():
     with pytest.raises(ValidationError):
         PredicateConjunction(op="and", items=[])
+
+
+def test_predicate_conjunction_rejects_extra_fields():
+    with pytest.raises(ValidationError, match="physical_column"):
+        PredicateConjunction(
+            op="and",
+            items=[PredicateAtom(target_ref="dimension.country", op="eq", value="CN")],
+            physical_column="country",
+        )
 
 
 def test_predicate_conjunction_single_item():
@@ -359,6 +374,46 @@ def test_predicate_payload_all_usage_values(usage):
         allowed_usage=[usage],
     )
     assert usage in payload.allowed_usage
+
+
+def test_predicate_create_request_carries_catalog_domain_metadata():
+    request = PredicateCreateRequest(
+        header=PredicateHeader(
+            predicate_ref="predicate.active_user",
+            subject_ref="entity.user",
+            predicate_contract_version="predicate.v1",
+        ),
+        interface_contract=PredicateInterfaceContract(
+            expression=PredicateAtom(
+                target_ref="entity.user.field.status", op="eq", value="active"
+            ),
+            allowed_usage=["metric_qualifier"],
+        ),
+        catalog_metadata={"domain_ref": "domain.growth", "related_domain_refs": ["domain.core"]},
+    )
+
+    assert request.catalog_metadata.domain_ref == "domain.growth"
+    assert request.catalog_metadata.related_domain_refs == ["domain.core"]
+
+
+def test_predicate_create_request_rejects_invalid_catalog_domain_ref():
+    with pytest.raises(ValidationError, match=r"'domain_ref' must start with 'domain\.'"):
+        PredicateCreateRequest(
+            header=PredicateHeader(
+                predicate_ref="predicate.active_user",
+                subject_ref="entity.user",
+                predicate_contract_version="predicate.v1",
+            ),
+            interface_contract=PredicateInterfaceContract(
+                expression=PredicateAtom(
+                    target_ref="entity.user.field.status",
+                    op="eq",
+                    value="active",
+                ),
+                allowed_usage=["metric_qualifier"],
+            ),
+            catalog_metadata={"domain_ref": "predicate.active_user"},
+        )
 
 
 # =============================================================================

@@ -56,8 +56,9 @@ Main readiness-facing fields:
 - `capabilities`
 - `dependency_refs`
 - `dependent_refs`
+- `field_dependency_graph` on entity detail when a blocker names an entity field
 
-Binding readiness capabilities:
+Legacy binding readiness capabilities:
 
 - `required_targets`: target coverage required by the bound semantic contract
 - `covered_targets`: targets covered locally by the binding
@@ -65,9 +66,17 @@ Binding readiness capabilities:
 - `missing_required_targets`: required coverage that is still absent
 - `covers_required_targets`: true only when required coverage is complete
 
-Use these fields before activation. Missing metric family slots such as `metric_input.numerator`
-or `metric_input.denominator` are binding coverage problems, not source sync problems. Imported
-coverage can satisfy time or subject requirements, but `metric_input` must always be local.
+Use these fields when they appear on older objects. For entity-centric metrics, missing component
+`input_field_ref` values such as `numerator.input_field_ref` or `denominator.input_field_ref`
+are metric contract problems, not source sync problems. The referenced entity fields must resolve
+through published entity grounding before runtime validation can use the metric.
+
+Entity-field readiness checks:
+
+- `missing_entity_field`: inspect the entity `fields[]`; add or correct the field there
+- `missing_entity_binding`: inspect `entity.interface_contract.binding` and synced source metadata
+- `ambiguous_field_ref`: replace local or shorthand refs with `entity.<entity>.field.<field>`
+- invalid field type blockers: fix the entity field `value_type` or the dependent time/dimension/predicate/metric contract
 
 ## Predicate Readiness
 
@@ -133,13 +142,41 @@ A ready metric can still be incompatible with one specific request.
 
 A ready predicate can still be incompatible with one specific intent's scope requirements.
 
+Entity-centric compiler/readiness blockers use stable lower-case codes when the failure comes from
+the new entity-field grounding path:
+
+- `missing_entity_binding`
+- `missing_entity_field`
+- `ambiguous_field_ref`
+- `missing_time_object`
+- `invalid_metric_input_type`
+- `invalid_time_field_type`
+- `invalid_predicate_operand_type`
+- `missing_entity_relationship`
+- `missing_compatibility_profile`
+- `incompatible_grain`
+- `incompatible_time_semantics`
+- `governance_policy_blocked`
+- `permission_denied`
+
 ## Typical Troubleshooting Order
 
-- missing grounding or binding coverage: inspect blockers on the metric, entity, process, or binding detail
-- incomplete binding coverage: inspect `capabilities.missing_required_targets` and whether eligible imports are published and resolve to the same source object
+- missing grounding or binding coverage: inspect entity field blockers first, then entity detail
+  `interface_contract.binding` / `fields`; do not add metric/time/process-owned grounding
+- incomplete entity grounding coverage: inspect `capabilities.missing_required_targets`, the
+  entity-owned `fields` / `interface_contract.binding`, and any missing relationship/profile
+  alignment before changing downstream metric/time/process contracts
 - predicate gate failure: inspect predicate detail for contract/usage/scope gate blockers
 - mapping readiness failure: inspect mapping detail for failure_code and source/engine status
+- relationship failure: inspect missing/inactive endpoint entities, key field existence, and key
+  value_type compatibility before changing metric/process contracts
 - profile mismatch or subject revision drift: inspect readiness and blockers on the compatibility profile and its subject
+- missing cross-entity composition support: search `list_relationships(left_entity_ref=..., right_entity_ref=...)`
+  and then `list_compatibility_profiles(left_entity_ref=..., right_entity_ref=..., detail=true)`
+- type blocker: check the entity field `value_type`, the dimension `value_domain.value_type`, metric input aggregation, or predicate operator/value compatibility
+- grain blocker: check `observation_grain_ref`, relationship grain alignment, and profile requirements
+- time blocker: check `primary_time_ref`, time object field type, and relationship valid-time alignment
+- governance blocker: inspect predicate/governance policy requirements before changing semantic object grounding
 - picker or catalog visibility issue: confirm whether the caller is using the default ready-only view
 - runtime failure on a semantic ref: check whether the object is active but not ready before assuming the compiler or engine is broken
 

@@ -6,7 +6,7 @@
 
 - 哪些字段应作为稳定的 public semantic contract
 - 哪些信息应下沉到 compiler / IR
-- process object 如何与 `metric`、`intent` 做优雅组合
+- process object 如何与 `metric`、`intent` 做优雅组合，并通过 entity fields 间接消费物理字段
 
 相关背景见：
 
@@ -40,7 +40,7 @@
 本文明确不追求：
 
 - 把所有执行细节暴露成 public schema 字段
-- 让 process object 直接表达底层字段名、join plan、window SQL
+- 让 process object 直接表达底层字段名、join plan、window SQL 或对象级 physical binding
 - 用自由标签系统替代结构化兼容性校验
 - 让 process object 自己枚举所有 intent 适配关系
 - 让每个 subtype 都设计一套完全不同的下游输出接口
@@ -103,6 +103,8 @@
 - 具体 sequence matcher kernel
 
 public schema 应使用语义引用（semantic refs）表达“依赖哪个受治理概念”，而不是直接写“在哪个表、哪个字段上做什么”。
+当 process subtype 需要具体字段时，应引用 `entity.<entity>.field.<field>` 或其他 semantic refs；
+字段到 source object / column / expression 的 grounding 只属于 entity binding。
 
 ### 3. 兼容性以结构化接口为主，不以 tags 为主
 
@@ -234,7 +236,7 @@ class WindowSpec(TypedDict):
 - 若窗口未显式给出 `anchor_ref`，则应默认继承 `interface_contract.anchor_time_ref`
 - 若窗口显式给出不同的 `anchor_ref`，则它表示窗口级 override，而不是替换 process 主锚点
 
-late arrival、open window exclusion、物理消费锚点等实现侧治理，不属于 `WindowSpec` 本体，而属于 typed binding contract 的消费策略。
+late arrival、open window exclusion、物理消费锚点等实现侧治理，不属于 `WindowSpec` 本体，而由 entity binding / compiler policy 消费。
 
 ### PopulationSpec
 
@@ -417,7 +419,7 @@ class ExperimentContext(ProcessObjectBase):
 - 不再内嵌 `default_metric_roles`
 - 不再把 experiment split 伪装成 `variant_membership` 这类独立观测实体
 - `split_basis.resolution = "all"` 不再属于 `experiment_context`；多次 exposure timeline 应由其他 process subtype 或 lower 层表达
-- `analysis_window` 继续属于 process 语义本体；binding 只负责声明该窗口在物理层如何被消费
+- `analysis_window` 继续属于 process 语义本体；entity binding / compiler 只负责声明该窗口在物理层如何被消费
 - attribution basis / attribution window / baseline alignment 这类过程型时间语义，也应优先放在 process object 或 compiler policy，而不是回写进 metric 本体
 
 `default_metric_roles` 属于更高层的 analysis package / orchestration 配置，而不属于实验过程对象的本体语义。
@@ -504,7 +506,7 @@ class CohortDefinition(ProcessObjectBase):
 - 不再使用 `output_mode = retention_ready`
 - “是否可做留存”由 `interface_contract` + `return_population_ref` + `observation_window` 共同决定
 - cohort 不再通过 `subject_membership` 这种 synthetic entity 暴露自己，而是直接声明自己是 `cohort_membership` context provider
-- `observation_window` 的长度与锚点属于 process 本体；late arrival / incomplete-window 行为应在 binding 层补充
+- `observation_window` 的长度与锚点属于 process 本体；late arrival / incomplete-window 行为应由 entity binding / compiler policy 补充
 
 ### 示例
 

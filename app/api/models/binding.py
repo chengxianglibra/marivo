@@ -3,8 +3,9 @@
 This module defines the API models for typed binding objects,
 following the contract defined in docs/semantic/typed-binding-contract.zh.md.
 
-Typed bindings connect semantic objects (entities, metrics, processes)
-to their physical carriers (tables, views) with typed field mappings.
+Typed bindings ground entities to their physical carriers (tables, views)
+with typed field mappings. Legacy metric/process scopes may appear in
+historical metadata reads, but new authoring is restricted to entities.
 """
 
 from __future__ import annotations
@@ -51,7 +52,8 @@ class BindingHeader(ObjectHeaderBase):
         "Must start with 'binding.'."
     )
     binding_scope: BindingScope = Field(
-        description="Scope of the binding: entity, process_object, or metric."
+        description="Scope of the binding. New authoring only supports entity; "
+        "process_object and metric are legacy read-only scopes."
     )
     bound_object_ref: str = Field(
         description="Reference to the bound semantic object. "
@@ -487,7 +489,10 @@ class BindingInterfaceContract(BaseModel):
 
 
 class TypedBindingCreateRequest(BaseModel):
-    """Request to create a new typed binding."""
+    """Request to create a new entity typed binding.
+
+    Public create rejects legacy metric/process_object binding scopes.
+    """
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -588,7 +593,7 @@ class BindingCoverageAddition(BaseModel):
 
 
 class BindingDeriveRevisionRequest(BaseModel):
-    """Request to derive a draft binding revision from the current revision."""
+    """Legacy request shape for disabled metric binding revision derivation."""
 
     base_revision: int = Field(ge=1, description="Expected current binding revision.")
     source_action_id: str = Field(description="Planner action that requested this derivation.")

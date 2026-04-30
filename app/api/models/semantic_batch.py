@@ -8,7 +8,15 @@ from pydantic import BaseModel, Field
 class SemanticBatchItem(BaseModel):
     op_key: str = Field(description="Caller-provided stable key for this batch operation.")
     kind: Literal[
-        "time", "dimension", "enum_set", "entity", "process_object", "metric", "binding"
+        "time",
+        "dimension",
+        "enum_set",
+        "entity",
+        "process_object",
+        "metric",
+        "binding",
+        "relationship",
+        "compatibility_profile",
     ] = Field(description="Semantic object kind handled by this operation.")
     action: Literal["create", "validate", "activate", "publish"] = Field(
         description="Operation to run. publish is treated as an activate alias in batch v1."

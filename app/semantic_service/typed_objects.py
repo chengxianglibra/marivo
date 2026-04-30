@@ -7,7 +7,11 @@ from uuid import uuid4
 from pydantic import TypeAdapter
 
 from app.api.models.dimension import DimensionCreateRequest, DimensionUpdateRequest
-from app.api.models.entity import TypedEntityCreateRequest, TypedEntityUpdateRequest
+from app.api.models.entity import (
+    EntityInterfaceContract,
+    TypedEntityCreateRequest,
+    TypedEntityUpdateRequest,
+)
 from app.api.models.enum_set import (
     EnumSetCreateRequest,
     EnumSetUpdateRequest,
@@ -25,7 +29,7 @@ from app.api.models.process_object import ProcessObjectCreateRequest, ProcessObj
 from app.api.models.time import TimeCreateRequest, TimeUpdateRequest
 from app.semantic_revision.metric_diff import classify_metric_revision
 
-from .common import SemanticServiceSupport, now_iso
+from .common import SemanticServiceSupport, _catalog_metadata_json, now_iso
 
 
 class TypedObjectService(SemanticServiceSupport):
@@ -46,7 +50,23 @@ class TypedObjectService(SemanticServiceSupport):
             params,
         )
 
+    def _validate_entity_field_locators(self, interface_contract: EntityInterfaceContract) -> None:
+        for index, field in enumerate(interface_contract.fields or []):
+            has_column = field.physical_column is not None
+            has_expression = field.physical_expression_locator is not None
+            if has_column and has_expression:
+                raise self._validation_error(
+                    "Entity field must not define both physical_column and physical_expression_locator",
+                    field_path=f"interface_contract.fields[{index}]",
+                )
+            if not has_column and not has_expression:
+                raise self._validation_error(
+                    "Entity field requires one physical locator",
+                    field_path=f"interface_contract.fields[{index}]",
+                )
+
     def create_typed_entity(self, payload: TypedEntityCreateRequest) -> dict[str, Any]:
+        self._validate_entity_field_locators(payload.interface_contract)
         entity_contract_id = f"entc_{uuid4().hex[:12]}"
         created_at = now_iso()
         hierarchy = payload.interface_contract.hierarchy
@@ -54,18 +74,21 @@ class TypedObjectService(SemanticServiceSupport):
             """
             INSERT INTO semantic_entity_contracts (
                 entity_contract_id, entity_ref, display_name, description,
-                entity_contract_version, uniqueness_scope, id_stability,
-                nullable_key_policy, parent_entity_ref, cardinality_to_parent,
-                ownership_semantics, primary_time_ref, status, revision,
+                catalog_metadata_json, entity_contract_version, entity_kind,
+                uniqueness_scope, id_stability, nullable_key_policy,
+                parent_entity_ref, cardinality_to_parent,
+                ownership_semantics, primary_time_ref, fields_json, binding_json, status, revision,
                 created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', 1, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', 1, ?, ?)
             """,
             [
                 entity_contract_id,
                 payload.header.entity_ref,
                 payload.header.display_name or payload.header.entity_ref.removeprefix("entity."),
                 payload.header.description or "",
+                _catalog_metadata_json(payload.catalog_metadata),
                 payload.header.entity_contract_version,
+                payload.entity_kind,
                 payload.interface_contract.identity.uniqueness_scope,
                 payload.interface_contract.identity.id_stability,
                 payload.interface_contract.identity.nullable_key_policy or "reject",
@@ -73,6 +96,17 @@ class TypedObjectService(SemanticServiceSupport):
                 hierarchy.cardinality_to_parent if hierarchy else None,
                 hierarchy.ownership_semantics if hierarchy else None,
                 payload.interface_contract.primary_time_ref,
+                json.dumps(
+                    [
+                        field.model_dump(mode="json")
+                        for field in (payload.interface_contract.fields or [])
+                    ]
+                ),
+                (
+                    json.dumps(payload.interface_contract.binding.model_dump(mode="json"))
+                    if payload.interface_contract.binding is not None
+                    else None
+                ),
                 created_at,
                 created_at,
             ],
@@ -159,7 +193,14 @@ class TypedObjectService(SemanticServiceSupport):
         if payload.description is not None:
             updates.append("description = ?")
             params.append(payload.description)
+        if payload.entity_kind is not None:
+            updates.append("entity_kind = ?")
+            params.append(payload.entity_kind)
+        if payload.catalog_metadata is not None:
+            updates.append("catalog_metadata_json = ?")
+            params.append(_catalog_metadata_json(payload.catalog_metadata))
         if payload.interface_contract is not None:
+            self._validate_entity_field_locators(payload.interface_contract)
             hierarchy = payload.interface_contract.hierarchy
             updates.extend(
                 [
@@ -170,6 +211,8 @@ class TypedObjectService(SemanticServiceSupport):
                     "cardinality_to_parent = ?",
                     "ownership_semantics = ?",
                     "primary_time_ref = ?",
+                    "fields_json = ?",
+                    "binding_json = ?",
                 ]
             )
             params.extend(
@@ -181,6 +224,17 @@ class TypedObjectService(SemanticServiceSupport):
                     hierarchy.cardinality_to_parent if hierarchy else None,
                     hierarchy.ownership_semantics if hierarchy else None,
                     payload.interface_contract.primary_time_ref,
+                    json.dumps(
+                        [
+                            field.model_dump(mode="json")
+                            for field in (payload.interface_contract.fields or [])
+                        ]
+                    ),
+                    (
+                        json.dumps(payload.interface_contract.binding.model_dump(mode="json"))
+                        if payload.interface_contract.binding is not None
+                        else None
+                    ),
                 ]
             )
             self._replace_entity_key_refs(
@@ -395,10 +449,10 @@ class TypedObjectService(SemanticServiceSupport):
                     population_subject_ref, observed_entity_ref, observation_grain_ref,
                     sample_kind, value_semantics, aggregation_scope, primary_time_ref,
                     additivity_constraints_json, default_predicate_refs_json,
-                    metric_contract_version, family_payload_json, status,
+                    metric_contract_version, family_payload_json, catalog_metadata_json, status,
                     revision, base_revision, change_summary, revision_compatibility,
                     is_latest_active, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', 1, NULL, ?, 'compatible', 0, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', 1, NULL, ?, 'compatible', 0, ?, ?)
                 """,
                 [
                     metric_contract_id,
@@ -417,6 +471,7 @@ class TypedObjectService(SemanticServiceSupport):
                     json.dumps(payload.header.default_predicate_refs or []),
                     payload.header.metric_contract_version,
                     json.dumps(payload.payload.model_dump(mode="json")),
+                    _catalog_metadata_json(payload.catalog_metadata),
                     "Initial metric revision",
                     created_at,
                     created_at,
@@ -522,6 +577,9 @@ class TypedObjectService(SemanticServiceSupport):
         if payload.description is not None:
             updates.append("description = ?")
             params.append(payload.description)
+        if payload.catalog_metadata is not None:
+            updates.append("catalog_metadata_json = ?")
+            params.append(_catalog_metadata_json(payload.catalog_metadata))
         if payload.payload is not None:
             current_family = current["header"]["metric_family"]
             if payload.payload.metric_family != current_family:
@@ -726,10 +784,10 @@ class TypedObjectService(SemanticServiceSupport):
                 population_subject_ref, observed_entity_ref, observation_grain_ref,
                 sample_kind, value_semantics, aggregation_scope, primary_time_ref,
                 additivity_constraints_json, default_predicate_refs_json,
-                metric_contract_version, family_payload_json, status,
+                metric_contract_version, family_payload_json, catalog_metadata_json, status,
                 revision, base_revision, change_summary, revision_compatibility,
                 is_latest_active, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, 0, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, 0, ?, ?)
             """,
             [
                 metric_contract_id,
@@ -748,6 +806,7 @@ class TypedObjectService(SemanticServiceSupport):
                 json.dumps(replacement.header.default_predicate_refs or []),
                 replacement.header.metric_contract_version,
                 json.dumps(replacement.payload.model_dump(mode="json")),
+                _catalog_metadata_json(replacement.catalog_metadata),
                 next_revision,
                 payload.base_revision,
                 payload.change_summary,
@@ -883,8 +942,9 @@ class TypedObjectService(SemanticServiceSupport):
                 process_contract_id, process_ref, display_name, description, process_type,
                 process_contract_version, contract_mode, context_kind, population_subject_ref,
                 membership_cardinality, entity_ref, emitted_grain_ref, subject_cardinality,
-                anchor_time_ref, process_payload_json, status, revision, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', 1, ?, ?)
+                anchor_time_ref, process_payload_json, catalog_metadata_json, status, revision,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', 1, ?, ?)
             """,
             [
                 process_contract_id,
@@ -902,6 +962,7 @@ class TypedObjectService(SemanticServiceSupport):
                 interface_contract.get("subject_cardinality"),
                 interface_contract.get("anchor_time_ref"),
                 json.dumps(payload_json),
+                _catalog_metadata_json(payload.catalog_metadata),
                 created_at,
                 created_at,
             ],
@@ -1034,6 +1095,9 @@ class TypedObjectService(SemanticServiceSupport):
         if payload.description is not None:
             updates.append("description = ?")
             params.append(payload.description)
+        if payload.catalog_metadata is not None:
+            updates.append("catalog_metadata_json = ?")
+            params.append(_catalog_metadata_json(payload.catalog_metadata))
         if not updates:
             return current
         self._apply_contract_update(
@@ -1106,8 +1170,8 @@ class TypedObjectService(SemanticServiceSupport):
                 dimension_contract_version, structure_kind, semantic_role, value_type,
                 domain_kind, enum_set_ref, enum_version, hierarchy_type,
                 parent_dimension_ref, supports_grouping, required_time_anchor_ref,
-                status, revision, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', 1, ?, ?)
+                source_field_ref, catalog_metadata_json, status, revision, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', 1, ?, ?)
             """,
             [
                 dimension_contract_id,
@@ -1130,6 +1194,8 @@ class TypedObjectService(SemanticServiceSupport):
                     if time_derived_requirement
                     else None
                 ),
+                interface_contract.get("source_field_ref"),
+                _catalog_metadata_json(payload.catalog_metadata),
                 created_at,
                 created_at,
             ],
@@ -1202,6 +1268,9 @@ class TypedObjectService(SemanticServiceSupport):
         if payload.description is not None:
             updates.append("description = ?")
             params.append(payload.description)
+        if payload.catalog_metadata is not None:
+            updates.append("catalog_metadata_json = ?")
+            params.append(_catalog_metadata_json(payload.catalog_metadata))
         if payload.interface_contract is not None:
             interface_contract = payload.interface_contract.model_dump(mode="json")
             self._validate_dimension_contract_refs(interface_contract)
@@ -1226,6 +1295,7 @@ class TypedObjectService(SemanticServiceSupport):
                     "parent_dimension_ref = ?",
                     "supports_grouping = ?",
                     "required_time_anchor_ref = ?",
+                    "source_field_ref = ?",
                 ]
             )
             params.extend(
@@ -1244,6 +1314,7 @@ class TypedObjectService(SemanticServiceSupport):
                         if time_derived_requirement
                         else None
                     ),
+                    interface_contract.get("source_field_ref"),
                 ]
             )
         if not updates:
@@ -1324,8 +1395,8 @@ class TypedObjectService(SemanticServiceSupport):
             INSERT INTO semantic_predicate_contracts (
                 predicate_contract_id, predicate_ref, display_name, description,
                 subject_ref, predicate_contract_version, payload_json,
-                status, revision, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', 1, ?, ?)
+                catalog_metadata_json, status, revision, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft', 1, ?, ?)
             """,
             [
                 predicate_contract_id,
@@ -1336,6 +1407,7 @@ class TypedObjectService(SemanticServiceSupport):
                 payload.header.subject_ref,
                 payload.header.predicate_contract_version,
                 json.dumps(interface_contract),
+                _catalog_metadata_json(payload.catalog_metadata),
                 created_at,
                 created_at,
             ],
@@ -1422,6 +1494,9 @@ class TypedObjectService(SemanticServiceSupport):
         if payload.description is not None:
             updates.append("description = ?")
             params.append(payload.description)
+        if payload.catalog_metadata is not None:
+            updates.append("catalog_metadata_json = ?")
+            params.append(_catalog_metadata_json(payload.catalog_metadata))
         if payload.interface_contract is not None:
             interface_contract = payload.interface_contract.model_dump(mode="json")
             updates.append("payload_json = ?")
@@ -1493,8 +1568,8 @@ class TypedObjectService(SemanticServiceSupport):
             INSERT INTO semantic_time_objects (
                 time_contract_id, time_ref, display_name, description,
                 time_contract_version, business_anchor, measurement,
-                operational_support, status, revision, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft', 1, ?, ?)
+                operational_support, source_field_ref, catalog_metadata_json, status, revision, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', 1, ?, ?)
             """,
             [
                 time_contract_id,
@@ -1505,6 +1580,8 @@ class TypedObjectService(SemanticServiceSupport):
                 1 if "business_anchor" in semantic_roles else 0,
                 1 if "measurement" in semantic_roles else 0,
                 1 if "operational_support" in semantic_roles else 0,
+                payload.header.source_field_ref,
+                _catalog_metadata_json(payload.catalog_metadata),
                 created_at,
                 created_at,
             ],
@@ -1578,6 +1655,9 @@ class TypedObjectService(SemanticServiceSupport):
         if payload.description is not None:
             updates.append("description = ?")
             params.append(payload.description)
+        if payload.catalog_metadata is not None:
+            updates.append("catalog_metadata_json = ?")
+            params.append(_catalog_metadata_json(payload.catalog_metadata))
         if payload.semantic_roles is not None:
             semantic_roles = set(payload.semantic_roles)
             if not semantic_roles:
@@ -1593,6 +1673,9 @@ class TypedObjectService(SemanticServiceSupport):
                     1 if "operational_support" in semantic_roles else 0,
                 ]
             )
+        if payload.source_field_ref is not None:
+            updates.append("source_field_ref = ?")
+            params.append(payload.source_field_ref)
         if not updates:
             return current
         self._apply_contract_update(
@@ -1610,6 +1693,9 @@ class TypedObjectService(SemanticServiceSupport):
             object_id=time_contract_id,
             object_label="Time semantic",
             status=current["status"],
+            reference_validator=lambda: self._validate_time_source_field_usage_for_contract(
+                current["header"], require_published=True
+            ),
         )
         return self.get_time_semantic(time_contract_id)
 
@@ -1621,6 +1707,9 @@ class TypedObjectService(SemanticServiceSupport):
             object_id=time_contract_id,
             object_label="Time semantic",
             status=current["status"],
+            reference_validator=lambda: self._validate_time_source_field_usage_for_contract(
+                current["header"], require_published=True
+            ),
         )
         return self.get_time_semantic(time_contract_id)
 

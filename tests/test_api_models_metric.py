@@ -110,6 +110,22 @@ class TestMetricHeader:
                 metric_contract_version="metric.v1",
             )
 
+    def test_rejects_legacy_header_physical_binding_fields(self):
+        with pytest.raises(ValidationError, match="physical_column"):
+            MetricHeader(
+                metric_ref="metric.dau",
+                metric_family="count_metric",
+                observed_entity_ref="entity.user",
+                observation_grain_ref="grain.user",
+                sample_kind="numeric",
+                value_semantics="count",
+                additivity_constraints=AdditivityConstraints(
+                    dimension_policy="none", time_axis_policy="non_additive"
+                ),
+                metric_contract_version="metric.v1",
+                physical_column="user_id",
+            )
+
 
 class TestMeasurementComponent:
     """Tests for MeasurementComponent model."""
@@ -120,9 +136,11 @@ class TestMeasurementComponent:
             semantics="distinct active users",
             aggregation="count_distinct",
             measure_ref="measure.active_user",
+            input_field_ref="entity.user.field.user_id",
         )
         assert comp.name == "active_users"
         assert comp.aggregation == "count_distinct"
+        assert comp.input_field_ref == "entity.user.field.user_id"
 
     def test_with_qualifier_refs(self):
         comp = MeasurementComponent(
@@ -132,6 +150,37 @@ class TestMeasurementComponent:
             qualifier_refs=["predicate.converted"],
         )
         assert comp.qualifier_refs == ["predicate.converted"]
+
+    def test_rejects_unqualified_input_field_ref(self):
+        with pytest.raises(ValidationError, match="fully qualified entity field"):
+            MeasurementComponent(
+                name="converted_users",
+                semantics="users who converted",
+                aggregation="count_distinct",
+                input_field_ref="field.user_id",
+            )
+
+    def test_rejects_physical_component_binding_fields(self):
+        with pytest.raises(ValidationError):
+            MeasurementComponent(
+                name="converted_users",
+                semantics="users who converted",
+                aggregation="count_distinct",
+                physical_column="converted_users",
+            )
+
+    @pytest.mark.parametrize(
+        "legacy_field",
+        ["physical_column", "carrier_binding_key", "surface_ref", "binding_ref"],
+    )
+    def test_rejects_legacy_binding_locator_fields(self, legacy_field):
+        with pytest.raises(ValidationError, match=legacy_field):
+            MeasurementComponent(
+                name="converted_users",
+                semantics="users who converted",
+                aggregation="count_distinct",
+                **{legacy_field: "legacy_value"},
+            )
 
 
 class TestDistributionSpec:
@@ -267,8 +316,36 @@ class TestTypedMetricCreateRequest:
                     aggregation="count_distinct",
                 )
             ),
+            catalog_metadata={"domain_ref": "domain.growth", "aliases": ["DAU"]},
         )
         assert request.header.metric_family == "count_metric"
+        assert request.catalog_metadata.domain_ref == "domain.growth"
+        assert request.catalog_metadata.aliases == ["DAU"]
+
+    def test_create_request_rejects_invalid_catalog_domain_ref(self):
+        with pytest.raises(ValidationError, match=r"'domain_ref' must start with 'domain\.'"):
+            TypedMetricCreateRequest(
+                header=MetricHeader(
+                    metric_ref="metric.dau",
+                    metric_family="count_metric",
+                    observed_entity_ref="entity.user",
+                    observation_grain_ref="grain.user",
+                    sample_kind="numeric",
+                    value_semantics="count",
+                    additivity_constraints=AdditivityConstraints(
+                        dimension_policy="none", time_axis_policy="non_additive"
+                    ),
+                    metric_contract_version="metric.v1",
+                ),
+                payload=CountMetricPayload(
+                    count_target=MeasurementComponent(
+                        name="users",
+                        semantics="distinct users",
+                        aggregation="count_distinct",
+                    )
+                ),
+                catalog_metadata={"domain_ref": "metric.dau"},
+            )
 
     def test_valid_rate_metric_request(self):
         request = TypedMetricCreateRequest(
@@ -289,15 +366,21 @@ class TestTypedMetricCreateRequest:
                     name="conversions",
                     semantics="converted users",
                     aggregation="count_distinct",
+                    input_field_ref="entity.conversion_event.field.converted_users",
                 ),
                 denominator=MeasurementComponent(
                     name="users",
                     semantics="total users",
                     aggregation="count_distinct",
+                    input_field_ref="entity.exposure_event.field.exposed_users",
                 ),
             ),
         )
         assert request.header.metric_family == "rate_metric"
+        assert (
+            request.payload.numerator.input_field_ref
+            == "entity.conversion_event.field.converted_users"
+        )
 
     def test_family_semantics_mismatch_rejected(self):
         """value_semantics must match metric_family."""
@@ -347,6 +430,52 @@ class TestTypedMetricCreateRequest:
                         aggregation="sum",
                     )
                 ),
+            )
+
+    @pytest.mark.parametrize("legacy_field", ["binding", "carrier_bindings", "field_bindings"])
+    def test_rejects_legacy_metric_physical_binding_sections(self, legacy_field):
+        with pytest.raises(ValidationError, match=legacy_field):
+            TypedMetricCreateRequest.model_validate(
+                {
+                    "header": {
+                        "metric_ref": "metric.legacy_binding_payload",
+                        "metric_family": "count_metric",
+                        "observed_entity_ref": "entity.user",
+                        "observation_grain_ref": "grain.user",
+                        "sample_kind": "numeric",
+                        "value_semantics": "count",
+                        "additivity_constraints": {
+                            "dimension_policy": "none",
+                            "time_axis_policy": "non_additive",
+                        },
+                        "metric_contract_version": "metric.v1",
+                    },
+                    "payload": {
+                        "metric_family": "count_metric",
+                        "count_target": {
+                            "name": "users",
+                            "semantics": "distinct users",
+                            "aggregation": "count_distinct",
+                        },
+                    },
+                    legacy_field: [],
+                }
+            )
+
+    def test_rejects_legacy_payload_binding_sections(self):
+        with pytest.raises(ValidationError, match="field_bindings"):
+            CountMetricPayload.model_validate(
+                {
+                    "metric_family": "count_metric",
+                    "count_target": {
+                        "name": "users",
+                        "semantics": "distinct users",
+                        "aggregation": "count_distinct",
+                    },
+                    "field_bindings": [
+                        {"surface_ref": "field.user_id", "physical_column": "user_id"}
+                    ],
+                }
             )
 
 

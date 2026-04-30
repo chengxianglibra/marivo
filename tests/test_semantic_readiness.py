@@ -198,7 +198,7 @@ class EntityReadinessEvaluatorTests(unittest.TestCase):
         self.assertEqual(result.readiness_status, "not_ready")
         self.assertEqual(result.blocking_requirements[0].code, "ENTITY_CONTRACT_INVALID")
 
-    def test_active_entity_requires_binding_coverage_when_grounding_is_required(self) -> None:
+    def test_active_entity_ignores_legacy_typed_binding_when_grounding_is_required(self) -> None:
         result = self._evaluate(
             semantic_object={
                 "header": {"entity_ref": "entity.user"},
@@ -227,10 +227,384 @@ class EntityReadinessEvaluatorTests(unittest.TestCase):
         self.assertEqual(result.readiness_status, "not_ready")
         self.assertEqual(
             {item.code for item in result.blocking_requirements},
-            {"ENTITY_BINDING_COVERAGE_MISSING"},
+            {"ENTITY_BINDING_MISSING"},
         )
 
-    def test_active_entity_with_drifted_binding_is_stale(self) -> None:
+    def test_active_entity_validates_own_binding_and_fields_when_grounding_is_required(
+        self,
+    ) -> None:
+        result = self._evaluate(
+            semantic_object={
+                "header": {"entity_ref": "entity.user"},
+                "interface_contract": {
+                    "identity": {
+                        "key_refs": ["key.user_id"],
+                        "uniqueness_scope": "global",
+                        "id_stability": "stable",
+                    },
+                    "fields": [
+                        {
+                            "field_ref": "field.user_id",
+                            "value_type": "string",
+                            "physical_column": "user_id",
+                            "sensitivity_tags": ["pii.user_id"],
+                        },
+                        {
+                            "field_ref": "field.created_at",
+                            "value_type": "datetime",
+                            "physical_column": "created_at",
+                        },
+                    ],
+                    "binding": {
+                        "source_object_ref": "src_user_events",
+                        "source_object_fqn": "main.analytics.user_events",
+                        "carrier_kind": "table",
+                    },
+                },
+            },
+            require_physical_grounding=True,
+            carrier_source_object_loader=lambda _carrier: {
+                "object_id": "src_user_events",
+                "fqn": "main.analytics.user_events",
+            },
+            source_column_type_loader=lambda _source, column: {
+                "user_id": "varchar",
+                "created_at": "timestamp",
+            }.get(column),
+        )
+
+        self.assertEqual(result.readiness_status, "ready")
+        self.assertEqual(result.blocking_requirements, [])
+
+    def test_active_entity_reports_structured_blockers_for_missing_column_and_type_mismatch(
+        self,
+    ) -> None:
+        result = self._evaluate(
+            semantic_object={
+                "header": {"entity_ref": "entity.user"},
+                "interface_contract": {
+                    "identity": {
+                        "key_refs": ["key.user_id"],
+                        "uniqueness_scope": "global",
+                        "id_stability": "stable",
+                    },
+                    "fields": [
+                        {
+                            "field_ref": "field.user_id",
+                            "value_type": "string",
+                            "physical_column": "missing_user_id",
+                        },
+                        {
+                            "field_ref": "field.event_count",
+                            "value_type": "integer",
+                            "physical_column": "event_count",
+                        },
+                    ],
+                    "binding": {
+                        "source_object_ref": "src_user_events",
+                        "carrier_kind": "table",
+                    },
+                },
+            },
+            require_physical_grounding=True,
+            carrier_source_object_loader=lambda _carrier: {"object_id": "src_user_events"},
+            source_column_type_loader=lambda _source, column: {
+                "event_count": "varchar",
+            }.get(column),
+        )
+
+        self.assertEqual(result.readiness_status, "not_ready")
+        self.assertEqual(
+            {item.code for item in result.blocking_requirements},
+            {"ENTITY_FIELD_COLUMN_MISSING", "ENTITY_FIELD_TYPE_MISMATCH"},
+        )
+        blocker_details = {item.code: item.details for item in result.blocking_requirements}
+        self.assertEqual(
+            blocker_details["ENTITY_FIELD_COLUMN_MISSING"]["field_ref"],
+            "field.user_id",
+        )
+        self.assertEqual(
+            blocker_details["ENTITY_FIELD_TYPE_MISMATCH"]["field_ref"],
+            "field.event_count",
+        )
+
+    def test_draft_entity_still_reports_inline_binding_blockers(self) -> None:
+        result = self._evaluate(
+            status="draft",
+            semantic_object={
+                "header": {"entity_ref": "entity.user"},
+                "interface_contract": {
+                    "identity": {
+                        "key_refs": ["key.user_id"],
+                        "uniqueness_scope": "global",
+                        "id_stability": "stable",
+                    },
+                    "fields": [
+                        {
+                            "field_ref": "field.user_id",
+                            "value_type": "string",
+                            "physical_column": "missing_user_id",
+                        }
+                    ],
+                    "binding": {
+                        "source_object_ref": "src_user_events",
+                        "carrier_kind": "table",
+                    },
+                },
+            },
+            carrier_source_object_loader=lambda _carrier: {"object_id": "src_user_events"},
+            source_column_type_loader=lambda _source, _column: None,
+        )
+
+        self.assertEqual(result.lifecycle_status, "draft")
+        self.assertEqual(result.readiness_status, "not_ready")
+        self.assertEqual(result.blocking_requirements[0].code, "ENTITY_FIELD_COLUMN_MISSING")
+
+    def test_entity_reports_binding_locator_mismatch(self) -> None:
+        result = self._evaluate(
+            semantic_object={
+                "header": {"entity_ref": "entity.user"},
+                "interface_contract": {
+                    "identity": {
+                        "key_refs": ["key.user_id"],
+                        "uniqueness_scope": "global",
+                        "id_stability": "stable",
+                    },
+                    "fields": [
+                        {
+                            "field_ref": "field.user_id",
+                            "value_type": "string",
+                            "physical_column": "user_id",
+                        }
+                    ],
+                    "binding": {
+                        "source_object_ref": "src_user_events",
+                        "source_object_fqn": "main.analytics.other_events",
+                        "carrier_kind": "table",
+                    },
+                },
+            },
+            carrier_source_object_loader=lambda _carrier: {
+                "object_id": "src_user_events",
+                "fqn": "main.analytics.user_events",
+            },
+            source_column_type_loader=lambda _source, _column: "varchar",
+        )
+
+        self.assertEqual(result.readiness_status, "not_ready")
+        self.assertEqual(
+            {item.code for item in result.blocking_requirements},
+            {"ENTITY_BINDING_LOCATOR_MISMATCH"},
+        )
+
+    def test_entity_reports_expression_type_unverified(self) -> None:
+        result = self._evaluate(
+            semantic_object={
+                "header": {"entity_ref": "entity.user"},
+                "interface_contract": {
+                    "identity": {
+                        "key_refs": ["key.user_id"],
+                        "uniqueness_scope": "global",
+                        "id_stability": "stable",
+                    },
+                    "fields": [
+                        {
+                            "field_ref": "field.first_value",
+                            "value_type": "string",
+                            "physical_expression_locator": {
+                                "expression_kind": "coalesce",
+                                "input_columns": ["name", "fallback_id"],
+                            },
+                        }
+                    ],
+                    "binding": {
+                        "source_object_ref": "src_user_events",
+                        "carrier_kind": "table",
+                    },
+                },
+            },
+            carrier_source_object_loader=lambda _carrier: {"object_id": "src_user_events"},
+            source_column_type_loader=lambda _source, column: {
+                "name": "varchar",
+                "fallback_id": "integer",
+            }.get(column),
+        )
+
+        self.assertEqual(result.readiness_status, "not_ready")
+        self.assertEqual(result.blocking_requirements[0].code, "ENTITY_FIELD_TYPE_UNVERIFIED")
+
+    def test_source_type_matching_does_not_accept_substring_false_positives(self) -> None:
+        result = self._evaluate(
+            semantic_object={
+                "header": {"entity_ref": "entity.user"},
+                "interface_contract": {
+                    "identity": {
+                        "key_refs": ["key.user_id"],
+                        "uniqueness_scope": "global",
+                        "id_stability": "stable",
+                    },
+                    "fields": [
+                        {
+                            "field_ref": "field.duration",
+                            "value_type": "integer",
+                            "physical_column": "duration",
+                        },
+                        {
+                            "field_ref": "field.created_at",
+                            "value_type": "date",
+                            "physical_column": "created_at",
+                        },
+                    ],
+                    "binding": {
+                        "source_object_ref": "src_user_events",
+                        "carrier_kind": "table",
+                    },
+                },
+            },
+            carrier_source_object_loader=lambda _carrier: {"object_id": "src_user_events"},
+            source_column_type_loader=lambda _source, column: {
+                "duration": "interval",
+                "created_at": "datetime",
+            }.get(column),
+        )
+
+        self.assertEqual(result.readiness_status, "not_ready")
+        self.assertEqual(
+            {item.details["field_ref"] for item in result.blocking_requirements},
+            {"field.duration", "field.created_at"},
+        )
+
+    def test_active_entity_validates_inline_binding_without_explicit_grounding_flag(
+        self,
+    ) -> None:
+        result = self._evaluate(
+            semantic_object={
+                "header": {"entity_ref": "entity.user"},
+                "interface_contract": {
+                    "identity": {
+                        "key_refs": ["key.user_id"],
+                        "uniqueness_scope": "global",
+                        "id_stability": "stable",
+                    },
+                    "fields": [
+                        {
+                            "field_ref": "field.user_id",
+                            "value_type": "string",
+                            "physical_column": "missing_user_id",
+                        }
+                    ],
+                    "binding": {
+                        "source_object_ref": "src_user_events",
+                        "carrier_kind": "table",
+                    },
+                },
+            },
+            carrier_source_object_loader=lambda _carrier: {"object_id": "src_user_events"},
+            source_column_type_loader=lambda _source, _column: None,
+        )
+
+        self.assertEqual(result.readiness_status, "not_ready")
+        self.assertEqual(result.blocking_requirements[0].code, "ENTITY_FIELD_COLUMN_MISSING")
+
+    def test_active_entity_reports_malformed_profile_and_sensitivity_tags(self) -> None:
+        result = self._evaluate(
+            semantic_object={
+                "header": {"entity_ref": "entity.user"},
+                "interface_contract": {
+                    "identity": {
+                        "key_refs": ["key.user_id"],
+                        "uniqueness_scope": "global",
+                        "id_stability": "stable",
+                    },
+                    "fields": [
+                        {
+                            "field_ref": "field.user_id",
+                            "value_type": "string",
+                            "physical_column": "user_id",
+                            "profile_summary": "invalid",
+                            "sensitivity_tags": ["pii", ""],
+                        }
+                    ],
+                    "binding": {
+                        "source_object_ref": "src_user_events",
+                        "carrier_kind": "table",
+                    },
+                },
+            },
+            carrier_source_object_loader=lambda _carrier: {"object_id": "src_user_events"},
+            source_column_type_loader=lambda _source, _column: "varchar",
+        )
+
+        self.assertEqual(result.readiness_status, "not_ready")
+        self.assertEqual(
+            {item.code for item in result.blocking_requirements},
+            {
+                "ENTITY_FIELD_PROFILE_SUMMARY_INVALID",
+                "ENTITY_FIELD_SENSITIVITY_TAGS_INVALID",
+            },
+        )
+
+    def test_active_entity_blocks_unreadable_sensitivity_tags(self) -> None:
+        result = self._evaluate(
+            semantic_object={
+                "header": {"entity_ref": "entity.user"},
+                "interface_contract": {
+                    "identity": {
+                        "key_refs": ["key.user_id"],
+                        "uniqueness_scope": "global",
+                        "id_stability": "stable",
+                    },
+                    "fields": [
+                        {
+                            "field_ref": "field.email",
+                            "value_type": "string",
+                            "physical_column": "email",
+                            "sensitivity_tags": ["pii.email", ""],
+                        }
+                    ],
+                    "binding": {
+                        "source_object_ref": "src_user_events",
+                        "carrier_kind": "table",
+                    },
+                },
+            },
+            carrier_source_object_loader=lambda _carrier: {"object_id": "src_user_events"},
+            source_column_type_loader=lambda _source, _column: "varchar",
+        )
+
+        self.assertEqual(result.readiness_status, "not_ready")
+        blocker = result.blocking_requirements[0]
+        self.assertEqual(blocker.code, "ENTITY_FIELD_SENSITIVITY_TAGS_INVALID")
+        self.assertEqual(blocker.dependency_ref, "field.email")
+
+    def test_active_entity_requires_source_object_for_own_binding(self) -> None:
+        result = self._evaluate(
+            semantic_object={
+                "header": {"entity_ref": "entity.user"},
+                "interface_contract": {
+                    "identity": {
+                        "key_refs": ["key.user_id"],
+                        "uniqueness_scope": "global",
+                        "id_stability": "stable",
+                    },
+                    "fields": [
+                        {
+                            "field_ref": "field.user_id",
+                            "value_type": "string",
+                            "physical_column": "user_id",
+                        }
+                    ],
+                    "binding": {"source_object_ref": "missing_source", "carrier_kind": "table"},
+                },
+            },
+            require_physical_grounding=True,
+            carrier_source_object_loader=lambda _carrier: None,
+        )
+
+        self.assertEqual(result.readiness_status, "not_ready")
+        self.assertEqual(result.blocking_requirements[0].code, "ENTITY_SOURCE_OBJECT_MISSING")
+
+    def test_active_entity_with_legacy_drifted_binding_is_not_ready(self) -> None:
         result = self._evaluate(
             semantic_object={
                 "header": {"entity_ref": "entity.user"},
@@ -267,10 +641,10 @@ class EntityReadinessEvaluatorTests(unittest.TestCase):
             carrier_source_object_loader=lambda _carrier: None,
         )
 
-        self.assertEqual(result.readiness_status, "stale")
+        self.assertEqual(result.readiness_status, "not_ready")
         self.assertEqual(
             {item.code for item in result.blocking_requirements},
-            {"ENTITY_CARRIER_SOURCE_MISSING"},
+            {"ENTITY_BINDING_MISSING"},
         )
 
     def test_draft_entity_is_not_ready(self) -> None:
@@ -317,6 +691,7 @@ class EntityReadinessEvaluatorTests(unittest.TestCase):
         require_physical_grounding: bool = False,
         subject_bindings: list[dict[str, object]] | None = None,
         carrier_source_object_loader=None,
+        source_column_type_loader=None,
     ):
         snapshot = build_snapshot(
             object_kind="entity",
@@ -332,6 +707,7 @@ class EntityReadinessEvaluatorTests(unittest.TestCase):
             subject_bindings_loader=lambda _ref: list(subject_bindings or []),
             carrier_source_object_loader=carrier_source_object_loader
             or (lambda _carrier: {"object_id": "src_123"}),
+            source_column_type_loader=source_column_type_loader,
         )
         return self.registry.evaluator_for("entity").evaluate(context)
 
@@ -369,12 +745,12 @@ class MetricReadinessEvaluatorTests(unittest.TestCase):
     def setUp(self) -> None:
         self.registry = build_default_registry()
 
-    def test_published_metric_without_binding_is_active_but_not_ready(self) -> None:
+    def test_published_metric_without_component_fields_is_active_but_not_ready(self) -> None:
         result = self._evaluate()
 
         self.assertEqual(result.lifecycle_status, "active")
         self.assertEqual(result.readiness_status, "not_ready")
-        self.assertEqual(result.blocking_requirements[0].code, "METRIC_BINDING_MISSING")
+        self.assertEqual(result.blocking_requirements[0].code, "METRIC_INPUT_FIELD_MISSING")
         self.assertEqual(
             result.capabilities,
             {
@@ -403,32 +779,26 @@ class MetricReadinessEvaluatorTests(unittest.TestCase):
             },
         )
 
-    def test_metric_binding_requires_all_metric_inputs(self) -> None:
+    def test_metric_input_field_must_resolve(self) -> None:
         result = self._evaluate(
-            subject_bindings=[
-                self._binding(
-                    field_bindings=[
-                        self._field_binding("metric_input", "numerator", "metric_input.converted"),
-                    ]
-                )
-            ]
+            component_input_field_refs={
+                "numerator": "entity.user.field.converted",
+                "denominator": "entity.user.field.missing",
+            }
         )
 
         self.assertEqual(result.readiness_status, "not_ready")
-        self.assertEqual(result.blocking_requirements[0].code, "METRIC_INPUT_COVERAGE_MISSING")
+        self.assertIn(
+            "ENTITY_FIELD_REF_UNRESOLVED", {item.code for item in result.blocking_requirements}
+        )
 
     def test_metric_dependency_must_be_active(self) -> None:
         result = self._evaluate(
             dependency_statuses={"entity.user": "draft"},
-            subject_bindings=[
-                self._binding(
-                    field_bindings=[
-                        self._field_binding("metric_input", "numerator", "metric_input.converted"),
-                        self._field_binding("metric_input", "denominator", "metric_input.eligible"),
-                        self._field_binding("primary_time", "time.event_date", "time.event_date"),
-                    ]
-                )
-            ],
+            component_input_field_refs={
+                "numerator": "entity.user.field.converted",
+                "denominator": "entity.user.field.eligible",
+            },
         )
 
         self.assertEqual(result.readiness_status, "not_ready")
@@ -438,15 +808,10 @@ class MetricReadinessEvaluatorTests(unittest.TestCase):
 
     def test_metric_with_active_dependencies_and_complete_binding_is_ready(self) -> None:
         result = self._evaluate(
-            subject_bindings=[
-                self._binding(
-                    field_bindings=[
-                        self._field_binding("metric_input", "numerator", "metric_input.converted"),
-                        self._field_binding("metric_input", "denominator", "metric_input.eligible"),
-                        self._field_binding("primary_time", "time.event_date", "time.event_date"),
-                    ]
-                )
-            ],
+            component_input_field_refs={
+                "numerator": "entity.user.field.converted",
+                "denominator": "entity.user.field.eligible",
+            },
         )
 
         self.assertEqual(result.readiness_status, "ready")
@@ -454,15 +819,10 @@ class MetricReadinessEvaluatorTests(unittest.TestCase):
 
     def test_metric_readiness_does_not_require_imported_dimension_bridge(self) -> None:
         result = self._evaluate(
-            subject_bindings=[
-                self._binding(
-                    field_bindings=[
-                        self._field_binding("metric_input", "numerator", "metric_input.converted"),
-                        self._field_binding("metric_input", "denominator", "metric_input.eligible"),
-                        self._field_binding("primary_time", "time.event_date", "time.event_date"),
-                    ]
-                )
-            ],
+            component_input_field_refs={
+                "numerator": "entity.user.field.converted",
+                "denominator": "entity.user.field.eligible",
+            },
         )
 
         self.assertEqual(result.readiness_status, "ready")
@@ -471,25 +831,39 @@ class MetricReadinessEvaluatorTests(unittest.TestCase):
             {item.code for item in result.blocking_requirements},
         )
 
-    def test_metric_with_drifted_binding_is_stale(self) -> None:
+    def test_cross_entity_metric_requires_profile(self) -> None:
         result = self._evaluate(
-            subject_bindings=[
-                self._binding(
-                    field_bindings=[
-                        self._field_binding("metric_input", "numerator", "metric_input.converted"),
-                        self._field_binding("metric_input", "denominator", "metric_input.eligible"),
-                        self._field_binding("primary_time", "time.event_date", "time.event_date"),
-                    ]
-                )
-            ],
-            carrier_source_object_loader=lambda _carrier: None,
+            component_input_field_refs={
+                "numerator": "entity.conversion_event.field.converted",
+                "denominator": "entity.exposure_event.field.exposed",
+            },
         )
 
-        self.assertEqual(result.readiness_status, "stale")
-        self.assertEqual(
+        self.assertEqual(result.readiness_status, "not_ready")
+        self.assertIn(
+            "missing_compatibility_profile",
             {item.code for item in result.blocking_requirements},
-            {"METRIC_CARRIER_SOURCE_MISSING"},
         )
+
+    def test_cross_entity_metric_with_profile_is_ready(self) -> None:
+        result = self._evaluate(
+            component_input_field_refs={
+                "numerator": "entity.conversion_event.field.converted",
+                "denominator": "entity.exposure_event.field.exposed",
+            },
+            profiles=[
+                {
+                    "profile_kind": "requirement",
+                    "profile_ref": "compiler_profile.conversion_rate_requirement",
+                    "requirement": {
+                        "entity_refs": ["entity.conversion_event", "entity.exposure_event"]
+                    },
+                }
+            ],
+        )
+
+        self.assertEqual(result.readiness_status, "ready")
+        self.assertEqual(result.blocking_requirements, [])
 
     def test_draft_metric_is_not_ready(self) -> None:
         result = self._evaluate(status="draft")
@@ -511,7 +885,10 @@ class MetricReadinessEvaluatorTests(unittest.TestCase):
         subject_bindings: list[dict[str, object]] | None = None,
         binding_import_statuses: dict[str, str] | None = None,
         carrier_source_object_loader=None,
+        component_input_field_refs: dict[str, str] | None = None,
+        profiles: list[dict[str, object]] | None = None,
     ):
+        component_input_field_refs = component_input_field_refs or {}
         semantic_object = {
             "header": {
                 "metric_ref": "metric.conversion_rate",
@@ -528,13 +905,31 @@ class MetricReadinessEvaluatorTests(unittest.TestCase):
             },
             "payload": {
                 "metric_family": "rate_metric",
-                "numerator": {"name": "converted"},
-                "denominator": {"name": "eligible"},
+                "numerator": {
+                    "name": "converted",
+                    "aggregation": "sum",
+                    **(
+                        {"input_field_ref": component_input_field_refs["numerator"]}
+                        if "numerator" in component_input_field_refs
+                        else {}
+                    ),
+                },
+                "denominator": {
+                    "name": "eligible",
+                    "aggregation": "sum",
+                    **(
+                        {"input_field_ref": component_input_field_refs["denominator"]}
+                        if "denominator" in component_input_field_refs
+                        else {}
+                    ),
+                },
             },
         }
         dependency_statuses = dependency_statuses or {
             "entity.user": "published",
             "time.event_date": "published",
+            "entity.conversion_event": "published",
+            "entity.exposure_event": "published",
         }
         binding_import_statuses = binding_import_statuses or {}
         snapshot = build_snapshot(
@@ -562,13 +957,28 @@ class MetricReadinessEvaluatorTests(unittest.TestCase):
                 )
             # Handle entity/time dependencies
             if ref in dependency_statuses:
+                fields_by_entity = {
+                    "entity.user": [
+                        {"field_ref": "field.converted", "value_type": "number"},
+                        {"field_ref": "field.eligible", "value_type": "number"},
+                    ],
+                    "entity.conversion_event": [
+                        {"field_ref": "field.converted", "value_type": "number"}
+                    ],
+                    "entity.exposure_event": [
+                        {"field_ref": "field.exposed", "value_type": "number"}
+                    ],
+                }
                 return build_snapshot(
                     object_kind="entity" if ref.startswith("entity.") else "time",
                     object_id=f"{ref}_id",
                     ref=ref,
                     status=dependency_statuses[ref],
                     revision=1,
-                    semantic_object={"header": {}},
+                    semantic_object={
+                        "header": {},
+                        "interface_contract": {"fields": fields_by_entity.get(ref, [])},
+                    },
                 )
             return None
 
@@ -578,6 +988,7 @@ class MetricReadinessEvaluatorTests(unittest.TestCase):
             subject_bindings_loader=lambda _ref: list(subject_bindings or []),
             carrier_source_object_loader=carrier_source_object_loader
             or (lambda _carrier: {"object_id": "src_123"}),
+            profiles_loader=lambda _kind, _ref: list(profiles or []),
         )
         return self.registry.evaluator_for("metric").evaluate(context)
 
@@ -622,10 +1033,14 @@ class MetricReadinessEvaluatorTests(unittest.TestCase):
             },
         }
 
-    def test_metric_binding_with_missing_import_is_not_ready(self) -> None:
+    def test_metric_ignores_legacy_binding_imports_for_readiness(self) -> None:
         """Binding with missing import should be blocked."""
         result = self._evaluate(
             binding_import_statuses={"binding.missing_dependency": "missing"},
+            component_input_field_refs={
+                "numerator": "entity.user.field.converted",
+                "denominator": "entity.user.field.eligible",
+            },
             subject_bindings=[
                 self._binding_with_import(
                     field_bindings=[
@@ -637,14 +1052,18 @@ class MetricReadinessEvaluatorTests(unittest.TestCase):
                 )
             ],
         )
-        self.assertEqual(result.readiness_status, "stale")
+        self.assertEqual(result.readiness_status, "ready")
         blocker_codes = {item.code for item in result.blocking_requirements}
-        self.assertIn("METRIC_BINDING_IMPORT_MISSING", blocker_codes)
+        self.assertNotIn("METRIC_BINDING_IMPORT_MISSING", blocker_codes)
 
-    def test_metric_binding_with_inactive_import_is_stale(self) -> None:
+    def test_metric_ignores_legacy_inactive_binding_imports_for_readiness(self) -> None:
         """Binding with inactive (draft) import should be blocked."""
         result = self._evaluate(
             binding_import_statuses={"binding.draft_dependency": "draft"},
+            component_input_field_refs={
+                "numerator": "entity.user.field.converted",
+                "denominator": "entity.user.field.eligible",
+            },
             subject_bindings=[
                 self._binding_with_import(
                     field_bindings=[
@@ -656,9 +1075,9 @@ class MetricReadinessEvaluatorTests(unittest.TestCase):
                 )
             ],
         )
-        self.assertEqual(result.readiness_status, "stale")
+        self.assertEqual(result.readiness_status, "ready")
         blocker_codes = {item.code for item in result.blocking_requirements}
-        self.assertIn("METRIC_BINDING_IMPORT_MISSING", blocker_codes)
+        self.assertNotIn("METRIC_BINDING_IMPORT_MISSING", blocker_codes)
 
 
 class MetricAdditivityCrossValidationTests(unittest.TestCase):
@@ -1101,50 +1520,17 @@ class ProcessReadinessEvaluatorTests(unittest.TestCase):
         self.assertEqual(result.capabilities["inferential_ready"], False)
         self.assertEqual(result.blocking_requirements[0].code, "PROCESS_PROFILE_MISMATCH")
 
-    def test_process_requires_binding_when_grounding_is_requested(self) -> None:
+    def test_process_ignores_legacy_binding_requirement_when_grounding_is_requested(self) -> None:
         result = self._evaluate(require_physical_grounding=True)
 
-        self.assertEqual(result.readiness_status, "not_ready")
-        self.assertIn(
+        self.assertEqual(result.readiness_status, "ready")
+        self.assertNotIn(
             "PROCESS_BINDING_MISSING", {item.code for item in result.blocking_requirements}
         )
 
-    def test_process_binding_and_matching_profile_make_it_ready(self) -> None:
+    def test_process_matching_profile_makes_it_inferential_ready(self) -> None:
         result = self._evaluate(
             require_physical_grounding=True,
-            subject_bindings=[
-                {
-                    "binding_ref": "binding.exp_assignment",
-                    "binding_scope": "process_object",
-                    "bound_object_ref": "process.experiment_assignment",
-                    "status": "published",
-                    "interface_contract": {
-                        "imports": [],
-                        "carrier_bindings": [
-                            {
-                                "binding_key": "assignment",
-                                "carrier_locator": "warehouse.exp_assignment",
-                            }
-                        ],
-                        "field_bindings": [
-                            {
-                                "target": {
-                                    "target_kind": "population_subject",
-                                    "target_key": "subject.user",
-                                },
-                                "semantic_ref": "subject.user",
-                            },
-                            {
-                                "target": {
-                                    "target_kind": "analysis_window_anchor",
-                                    "target_key": "time.assignment_date",
-                                },
-                                "semantic_ref": "time.assignment_date",
-                            },
-                        ],
-                    },
-                }
-            ],
             profiles=[
                 {
                     "profile_kind": "capability",
@@ -1159,58 +1545,59 @@ class ProcessReadinessEvaluatorTests(unittest.TestCase):
         self.assertEqual(result.blocking_requirements, [])
         self.assertEqual(result.capabilities["inferential_ready"], True)
 
-    def test_process_with_drifted_grounding_is_stale(self) -> None:
+    def test_process_entity_field_ref_must_resolve(self) -> None:
+        result = self._evaluate(
+            payload={"split_basis": {"basis_ref": "entity.assignment.field.missing"}}
+        )
+
+        self.assertEqual(result.readiness_status, "not_ready")
+        self.assertIn(
+            "ENTITY_FIELD_REF_UNRESOLVED", {item.code for item in result.blocking_requirements}
+        )
+
+    def test_checkout_funnel_process_resolves_entity_fields_without_process_binding(self) -> None:
         result = self._evaluate(
             require_physical_grounding=True,
-            carrier_source_object_loader=lambda _carrier: None,
-            subject_bindings=[
-                {
-                    "binding_ref": "binding.exp_assignment",
-                    "binding_scope": "process_object",
-                    "bound_object_ref": "process.experiment_assignment",
-                    "status": "published",
-                    "interface_contract": {
-                        "imports": [],
-                        "carrier_bindings": [
-                            {
-                                "binding_key": "assignment",
-                                "carrier_locator": "warehouse.exp_assignment",
-                            }
-                        ],
-                        "field_bindings": [
-                            {
-                                "target": {
-                                    "target_kind": "population_subject",
-                                    "target_key": "subject.user",
-                                },
-                                "semantic_ref": "subject.user",
-                            },
-                            {
-                                "target": {
-                                    "target_kind": "analysis_window_anchor",
-                                    "target_key": "time.assignment_date",
-                                },
-                                "semantic_ref": "time.assignment_date",
-                            },
-                        ],
+            ref="process.checkout_funnel",
+            process_type="funnel_definition",
+            interface_contract={
+                "contract_mode": "entity_stream",
+                "entity_ref": "entity.checkout_event",
+                "emitted_grain_ref": "grain.user_session",
+                "population_subject_ref": "subject.user",
+                "subject_cardinality": "many",
+                "anchor_time_ref": "time.checkout_event_at",
+            },
+            payload={
+                "process_type": "funnel_definition",
+                "funnel_key": "checkout",
+                "steps": [
+                    {"step_key": "cart", "event_ref": "entity.checkout_event.field.cart_event"},
+                    {
+                        "step_key": "payment",
+                        "event_ref": "entity.checkout_event.field.payment_event",
                     },
-                }
-            ],
+                    {
+                        "step_key": "success",
+                        "event_ref": "entity.checkout_event.field.success_event",
+                    },
+                ],
+                "max_step_gap": {"value": 30, "unit": "minute"},
+                "conversion_step_key": "success",
+            },
             profiles=[
                 {
                     "profile_kind": "capability",
-                    "profile_ref": "compiler_profile.exp_capability",
+                    "profile_ref": "compiler_profile.checkout_funnel_capability",
                     "subject_revision": 3,
                     "capability": {"inferential_ready": True},
                 }
             ],
         )
 
-        self.assertEqual(result.readiness_status, "stale")
-        self.assertEqual(
-            {item.code for item in result.blocking_requirements},
-            {"PROCESS_CARRIER_SOURCE_MISSING"},
-        )
+        self.assertEqual(result.readiness_status, "ready")
+        self.assertEqual(result.blocking_requirements, [])
+        self.assertEqual(result.capabilities["inferential_ready"], True)
 
     def test_draft_process_is_not_ready(self) -> None:
         result = self._evaluate(status="draft")
@@ -1232,30 +1619,84 @@ class ProcessReadinessEvaluatorTests(unittest.TestCase):
         subject_bindings: list[dict[str, object]] | None = None,
         profiles: list[dict[str, object]] | None = None,
         carrier_source_object_loader=None,
+        ref: str = "process.experiment_assignment",
+        process_type: str = "experiment_context",
+        interface_contract: dict[str, object] | None = None,
+        payload: dict[str, object] | None = None,
     ):
+        process_payload: dict[str, object] = (
+            {"analysis_window": {"size": {"value": 7, "unit": "day"}}} if payload is None else {}
+        )
+        if payload:
+            process_payload.update(payload)
         snapshot = build_snapshot(
             object_kind="process",
             object_id="proc_123",
-            ref="process.experiment_assignment",
+            ref=ref,
             status=status,
             revision=3,
             semantic_object={
                 "header": {
-                    "process_ref": "process.experiment_assignment",
-                    "process_type": "experiment_context",
+                    "process_ref": ref,
+                    "process_type": process_type,
                 },
-                "interface_contract": {
+                "interface_contract": interface_contract
+                or {
                     "contract_mode": "context_provider",
                     "context_kind": "experiment_split",
                     "population_subject_ref": "subject.user",
                     "anchor_time_ref": "time.assignment_date",
                 },
-                "payload": {"analysis_window": {"size": {"value": 7, "unit": "day"}}},
+                "payload": process_payload,
             },
         )
+
+        def dependency_loader(ref: str):
+            if ref == "entity.assignment":
+                return build_snapshot(
+                    object_kind="entity",
+                    object_id="entity.assignment_id",
+                    ref=ref,
+                    status="published",
+                    revision=1,
+                    semantic_object={
+                        "interface_contract": {
+                            "fields": [{"field_ref": "field.assigned_at", "value_type": "datetime"}]
+                        }
+                    },
+                )
+            if ref == "entity.checkout_event":
+                return build_snapshot(
+                    object_kind="entity",
+                    object_id="entity.checkout_event_id",
+                    ref=ref,
+                    status="published",
+                    revision=1,
+                    semantic_object={
+                        "interface_contract": {
+                            "fields": [
+                                {"field_ref": "field.cart_event", "value_type": "boolean"},
+                                {"field_ref": "field.payment_event", "value_type": "boolean"},
+                                {"field_ref": "field.success_event", "value_type": "boolean"},
+                            ]
+                        }
+                    },
+                )
+            if ref == "time.assignment_date":
+                return build_snapshot(
+                    object_kind="time",
+                    object_id="time.assignment_date_id",
+                    ref=ref,
+                    status="published",
+                    revision=1,
+                    semantic_object={"header": {"time_ref": ref}},
+                )
+            return None
+
         context = ReadinessEvaluationContext(
             snapshot=snapshot,
             require_physical_grounding=require_physical_grounding,
+            dependency_snapshot_loader=dependency_loader,
             subject_bindings_loader=lambda _ref: list(subject_bindings or []),
             profiles_loader=lambda _kind, _ref: list(profiles or []),
             carrier_source_object_loader=carrier_source_object_loader

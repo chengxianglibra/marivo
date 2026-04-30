@@ -9,7 +9,10 @@ from typing import Any
 from fastapi.testclient import TestClient
 
 from app.main import create_app
-from tests.semantic_test_helpers import seed_duckdb_source_object
+from tests.semantic_test_helpers import (
+    ensure_published_typed_metric_binding,
+    seed_duckdb_source_object,
+)
 from tests.shared_fixtures import get_seeded_duckdb_path
 
 
@@ -43,16 +46,11 @@ class SemanticRevisionDependencyPlanTests(unittest.TestCase):
         )
         self.assertEqual(publish_metric_resp.status_code, 200, publish_metric_resp.text)
 
-        binding_resp = self.client.post(
-            "/semantic/bindings",
-            json=self._metric_binding_payload(
-                binding_ref=binding_ref,
-                metric_ref=metric_ref,
-                covered_input_refs=["metric_input.count_target"],
-            ),
+        self._seed_published_metric_binding(
+            binding_ref=binding_ref,
+            metric_ref=metric_ref,
+            covered_input_refs=["metric_input.count_target"],
         )
-        self.assertEqual(binding_resp.status_code, 200, binding_resp.text)
-        self._mark_binding_published(binding_resp.json()["binding_id"])
 
         profile_resp = self.client.post(
             "/compiler/compatibility-profiles",
@@ -140,28 +138,18 @@ class SemanticRevisionDependencyPlanTests(unittest.TestCase):
         )
         self.assertEqual(publish_metric_resp.status_code, 200, publish_metric_resp.text)
 
-        binding_a_resp = self.client.post(
-            "/semantic/bindings",
-            json=self._metric_binding_payload(
-                binding_ref=binding_a_ref,
-                metric_ref=metric_ref,
-                covered_input_refs=["metric_input.count_target"],
-            ),
+        self._seed_published_metric_binding(
+            binding_ref=binding_a_ref,
+            metric_ref=metric_ref,
+            covered_input_refs=["metric_input.count_target"],
         )
-        self.assertEqual(binding_a_resp.status_code, 200, binding_a_resp.text)
-        self._mark_binding_published(binding_a_resp.json()["binding_id"])
 
-        binding_b_resp = self.client.post(
-            "/semantic/bindings",
-            json=self._metric_binding_payload(
-                binding_ref=binding_b_ref,
-                metric_ref=metric_ref,
-                covered_input_refs=["metric_input.denominator"],
-                target_key_by_input_ref={"metric_input.denominator": "count_target"},
-            ),
+        self._seed_published_metric_binding(
+            binding_ref=binding_b_ref,
+            metric_ref=metric_ref,
+            covered_input_refs=["metric_input.denominator"],
+            target_key_by_input_ref={"metric_input.denominator": "count_target"},
         )
-        self.assertEqual(binding_b_resp.status_code, 200, binding_b_resp.text)
-        self._mark_binding_published(binding_b_resp.json()["binding_id"])
 
         replacement = self._count_metric_payload(metric_ref, entity_ref)
         replacement["payload"]["required_inputs"].append({"input_ref": "metric_input.denominator"})
@@ -202,16 +190,11 @@ class SemanticRevisionDependencyPlanTests(unittest.TestCase):
             f"/semantic/metrics/{metric_resp.json()['metric_contract_id']}/publish"
         )
         self.assertEqual(publish_metric_resp.status_code, 200, publish_metric_resp.text)
-        binding_resp = self.client.post(
-            "/semantic/bindings",
-            json=self._metric_binding_payload(
-                binding_ref=binding_ref,
-                metric_ref=metric_ref,
-                covered_input_refs=["metric_input.count_target"],
-            ),
+        self._seed_published_metric_binding(
+            binding_ref=binding_ref,
+            metric_ref=metric_ref,
+            covered_input_refs=["metric_input.count_target"],
         )
-        self.assertEqual(binding_resp.status_code, 200, binding_resp.text)
-        self._mark_binding_published(binding_resp.json()["binding_id"])
         profile_resp = self.client.post(
             "/compiler/compatibility-profiles",
             json={
@@ -249,7 +232,7 @@ class SemanticRevisionDependencyPlanTests(unittest.TestCase):
         self.assertIn("reuse_after_revalidate", action_names)
         self.assertNotIn("resolve_breaking_revision_plan", action_names)
 
-    def test_completed_dependency_actions_allow_breaking_metric_revision_activation(
+    def test_legacy_metric_binding_derive_action_keeps_breaking_revision_blocked(
         self,
     ) -> None:
         entity_ref = "entity.dependency_plan_complete_user"
@@ -268,16 +251,11 @@ class SemanticRevisionDependencyPlanTests(unittest.TestCase):
         )
         self.assertEqual(publish_metric_resp.status_code, 200, publish_metric_resp.text)
 
-        binding_resp = self.client.post(
-            "/semantic/bindings",
-            json=self._metric_binding_payload(
-                binding_ref=binding_ref,
-                metric_ref=metric_ref,
-                covered_input_refs=["metric_input.numerator", "metric_input.denominator"],
-            ),
+        base_binding_id = self._seed_published_metric_binding(
+            binding_ref=binding_ref,
+            metric_ref=metric_ref,
+            covered_input_refs=["metric_input.numerator", "metric_input.denominator"],
         )
-        self.assertEqual(binding_resp.status_code, 200, binding_resp.text)
-        base_binding_id = binding_resp.json()["binding_id"]
         metadata = self.client.app.state.metadata_store
         now = datetime.now(UTC).isoformat()
         seed_duckdb_source_object(
@@ -330,36 +308,20 @@ class SemanticRevisionDependencyPlanTests(unittest.TestCase):
         self.assertEqual(revision_resp.status_code, 200, revision_resp.text)
         self.assertFalse(revision_resp.json()["can_activate_now"])
 
-        derive_resp = self.client.post(
-            f"/semantic/bindings/{binding_ref}/revisions/derive",
-            json={
-                "base_revision": 1,
-                "source_action_id": "act_dependency_plan_complete_derive",
-                "target_metric_ref": metric_ref,
-                "target_metric_revision": 2,
-                "reuse_sections": ["carrier", "time", "imports", "satisfied_field_coverage"],
-                "coverage_additions": [
-                    {
-                        "coverage_target": "metric_input.denominator",
-                        "field_ref": "field.denominator",
-                    }
-                ],
-            },
+        metadata.execute(
+            """
+            INSERT INTO field_bindings (
+                field_binding_id, binding_id, carrier_binding_key, target_kind, target_key,
+                semantic_ref, surface_ref, created_at
+            ) VALUES (?, ?, 'primary', 'metric_input', 'denominator',
+                'metric_input.denominator', 'field.denominator', ?)
+            """,
+            [
+                "fbind_dependency_plan_denominator",
+                base_binding_id,
+                datetime.now(UTC).isoformat(),
+            ],
         )
-        self.assertEqual(derive_resp.status_code, 200, derive_resp.text)
-        derived_binding = derive_resp.json()
-        self.assertEqual(derived_binding["revision"], 2)
-        activate_binding_resp = self.client.post(
-            f"/semantic/bindings/{derived_binding['binding_id']}/publish"
-        )
-        self.assertEqual(activate_binding_resp.status_code, 200, activate_binding_resp.text)
-        self.assertEqual(activate_binding_resp.json()["revision"], 2)
-        published_binding_rows = metadata.query_rows(
-            "SELECT binding_id FROM typed_bindings WHERE binding_ref = ? AND status = 'published'",
-            [binding_ref],
-        )
-        self.assertEqual(len(published_binding_rows), 1)
-        self.assertEqual(published_binding_rows[0]["binding_id"], derived_binding["binding_id"])
 
         revalidate_resp = self.client.post(
             f"/compiler/compatibility-profiles/{profile_ref}/revalidate",
@@ -370,19 +332,24 @@ class SemanticRevisionDependencyPlanTests(unittest.TestCase):
 
         read_revision_resp = self.client.get(f"/semantic/metrics/{metric_ref}/revisions/2")
         self.assertEqual(read_revision_resp.status_code, 200, read_revision_resp.text)
-        self.assertTrue(read_revision_resp.json()["can_activate_now"])
-        self.assertTrue(
-            all(
-                action["action_status"] == "satisfied"
-                for action in read_revision_resp.json()["required_actions"]
-            )
+        self.assertFalse(read_revision_resp.json()["can_activate_now"])
+        actions_by_name = {
+            action["action"]: action for action in read_revision_resp.json()["required_actions"]
+        }
+        self.assertEqual(
+            actions_by_name["reuse_after_revalidate"]["action_status"],
+            "satisfied",
+        )
+        self.assertEqual(
+            actions_by_name["derive_revision"]["action_status"],
+            "pending",
         )
 
         activate_metric_resp = self.client.post(
             f"/semantic/metrics/{metric_ref}/revisions/2/activate"
         )
-        self.assertEqual(activate_metric_resp.status_code, 200, activate_metric_resp.text)
-        self.assertEqual(activate_metric_resp.json()["revision"], 2)
+        self.assertEqual(activate_metric_resp.status_code, 409, activate_metric_resp.text)
+        self.assertIn("derive_revision", activate_metric_resp.text)
 
     def _assert_dependency_plan(
         self,
@@ -445,6 +412,63 @@ class SemanticRevisionDependencyPlanTests(unittest.TestCase):
             "UPDATE typed_bindings SET status = 'published' WHERE binding_id = ?",
             [binding_id],
         )
+
+    def _seed_published_metric_binding(
+        self,
+        *,
+        binding_ref: str,
+        metric_ref: str,
+        covered_input_refs: list[str],
+        target_key_by_input_ref: dict[str, str] | None = None,
+    ) -> str:
+        metric_name = metric_ref.removeprefix("metric.")
+        binding_name = binding_ref.removeprefix("binding.")
+        generated_binding_ref = ensure_published_typed_metric_binding(
+            self.client.app.state.metadata_store,
+            metric_name=metric_name,
+            carrier_locator={
+                "catalog": None,
+                "schema": "warehouse",
+                "table": "dependency_plan_count",
+            },
+            surface_name=covered_input_refs[0].removeprefix("metric_input."),
+            metric_input_target_keys=[
+                (target_key_by_input_ref or {}).get(
+                    input_ref,
+                    input_ref.removeprefix("metric_input."),
+                )
+                for input_ref in covered_input_refs
+            ],
+        )
+        metadata = self.client.app.state.metadata_store
+        binding_row = metadata.query_one(
+            "SELECT binding_id FROM typed_bindings WHERE binding_ref = ?",
+            [generated_binding_ref],
+        )
+        assert binding_row is not None
+        binding_id = str(binding_row["binding_id"])
+        metadata.execute(
+            """
+            UPDATE typed_bindings
+            SET binding_ref = ?, display_name = ?
+            WHERE binding_id = ?
+            """,
+            [binding_ref, binding_name, binding_id],
+        )
+        for input_ref in covered_input_refs:
+            target_key = (target_key_by_input_ref or {}).get(
+                input_ref,
+                input_ref.removeprefix("metric_input."),
+            )
+            metadata.execute(
+                """
+                UPDATE field_bindings
+                SET semantic_ref = ?, target_key = ?
+                WHERE binding_id = ? AND target_kind = 'metric_input' AND target_key = ?
+                """,
+                [input_ref, target_key, binding_id, target_key],
+            )
+        return binding_id
 
     def _count_metric_payload(self, metric_ref: str, entity_ref: str) -> dict[str, Any]:
         metric_name = metric_ref.removeprefix("metric.")

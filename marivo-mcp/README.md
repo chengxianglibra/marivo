@@ -6,6 +6,12 @@ This subproject keeps the MCP runtime separate from Marivo's core HTTP service.
 Marivo remains HTTP-only. The MCP server is a client-side adapter over the
 canonical HTTP API.
 
+The MCP tool inventory is a convenience layer for agent clients, not a second
+semantic contract. Tool names, parameters, schemas, resources, and examples
+must map back to canonical HTTP paths and payload fields. When the HTTP
+contract changes, update MCP descriptions to point at the new target-state
+payload instead of introducing MCP-only object semantics.
+
 ## Supported Scope
 
 Validated P0 scope provides:
@@ -44,8 +50,10 @@ workflows:
 - `marivo://server/config`
 
 The executable support inventory lives in `marivo_mcp.inventory`. Tests use that
-module as the machine-readable source of truth for registration and contract
-consistency checks.
+module as the machine-readable source of truth for registration and HTTP mapping
+checks. Inventory descriptions should name the mirrored HTTP route and avoid
+claiming MCP ownership of semantic lifecycle, grounding, relationship, or
+compiler-profile contracts.
 
 ## Environment
 
@@ -329,6 +337,9 @@ Resource rules:
 - Marivo remains HTTP-only; this adapter is a separate client-side process.
 - MCP resources mirror canonical HTTP reads and do not become a second source
   of evidence.
+- MCP tool schemas are adapter-facing projections of HTTP request payloads; they
+  must not define alternate semantic object models, physical binding semantics,
+  or relationship/profile repair flows.
 - The adapter does not invent planner-style tools, generic step submission, or
   SQL execution surfaces.
 - Some valid HTTP contracts are intentionally not wrapped yet, including
@@ -512,6 +523,8 @@ Current semantic-layer coverage:
 - `activate_enum_set(enum_set_contract_id)` -> `POST /semantic/enum-sets/{enum_set_contract_id}/activate`
 - `deprecate_enum_set(enum_set_contract_id)` -> `POST /semantic/enum-sets/{enum_set_contract_id}/deprecate`
 - `publish_enum_set(enum_set_contract_id)` -> `POST /semantic/enum-sets/{enum_set_contract_id}/publish`
+- Binding tools mirror the legacy/diagnostic compatibility `/semantic/bindings` route. Target-state
+  authoring uses entity payload fields and `entity.interface_contract.binding`.
 - `create_binding(header, interface_contract)` -> `POST /semantic/bindings`
 - `list_bindings(status=None, lifecycle_status=None, readiness_status=None, detail=None)` -> `GET /semantic/bindings`
 - `get_binding(object_id=None, binding_id=None)` -> `GET /semantic/bindings/{binding_id}`
@@ -520,8 +533,16 @@ Current semantic-layer coverage:
 - `activate_binding(binding_id)` -> `POST /semantic/bindings/{binding_id}/activate`
 - `deprecate_binding(binding_id)` -> `POST /semantic/bindings/{binding_id}/deprecate`
 - `publish_binding(binding_id)` -> `POST /semantic/bindings/{binding_id}/publish`
+- `create_relationship(relationship_ref, left_entity_ref, right_entity_ref, key_alignment, cardinality, display_name=None, description=None, time_alignment=None, grain_compatibility=None, snapshot_effective_window_alignment=None)` -> `POST /semantic/relationships`
+- `list_relationships(status=None, lifecycle_status=None, readiness_status=None, detail=None, left_entity_ref=None, right_entity_ref=None)` -> `GET /semantic/relationships`
+- `get_relationship(relationship_id)` -> `GET /semantic/relationships/{relationship_id}`
+- `update_relationship(relationship_id, display_name=None, description=None, key_alignment=None, time_alignment=None, cardinality=None, grain_compatibility=None, snapshot_effective_window_alignment=None)` -> `PUT /semantic/relationships/{relationship_id}`
+- `validate_relationship(relationship_id)` -> `POST /semantic/relationships/{relationship_id}/validate`
+- `activate_relationship(relationship_id)` -> `POST /semantic/relationships/{relationship_id}/activate`
+- `deprecate_relationship(relationship_id)` -> `POST /semantic/relationships/{relationship_id}/deprecate`
+- `publish_relationship(relationship_id)` -> `POST /semantic/relationships/{relationship_id}/publish`
 - `create_compatibility_profile(profile_ref, profile_kind, subject_kind, subject_ref, schema_version="v1", requirement=None, capability=None)` -> `POST /compiler/compatibility-profiles`
-- `list_compatibility_profiles(status=None, lifecycle_status=None, readiness_status=None, detail=None)` -> `GET /compiler/compatibility-profiles`
+- `list_compatibility_profiles(status=None, lifecycle_status=None, readiness_status=None, detail=None, subject_kind=None, subject_ref=None, left_entity_ref=None, right_entity_ref=None)` -> `GET /compiler/compatibility-profiles`
 - `get_compatibility_profile(profile_id)` -> `GET /compiler/compatibility-profiles/{profile_id}`
 - `update_compatibility_profile(profile_id, requirement=None, capability=None)` -> `PUT /compiler/compatibility-profiles/{profile_id}`
 - `validate_compatibility_profile(profile_id)` -> `POST /compiler/compatibility-profiles/{profile_id}/validate`
@@ -532,69 +553,76 @@ Current semantic-layer coverage:
 Boundary notes:
 
 - these tools map directly to the existing HTTP families; they do not create MCP-only semantic abstractions
+- HTTP remains the contract authority. For semantic authoring, treat MCP tool parameters as a
+  thin projection of the target-state HTTP payload: path ids fill URL templates, and all other
+  fields become the HTTP request body or query string without reinterpretation.
+- entity is the first-class grounding object. Entity payloads declare field refs and identity/time
+  surfaces; metric, process, dimension, time, and predicate payloads reference those entity fields
+  and semantic refs instead of carrying physical locators directly.
+- domain discovery and repair work should map to the canonical read/write endpoints: use
+  `search_catalog` and semantic list/get tools for discovery, relationship tools for
+  entity-to-entity alignment, and compiler profile tools for compatibility/profile repair.
+  Do not model those as MCP-owned discovery, join-planning, or repair contracts.
 - list tools also accept the canonical `detail` query parameter so MCP callers can choose lightweight
   list items or backward-compatible full payloads
 - `publish_*` marks the runtime visibility boundary; draft objects should not be treated as resolvable runtime inputs
 - `key.*`, `grain.*`, `measure.*`, and `metric_input.*` remain payload values only, not CRUD families
+- entity fields are the only physical grounding owner. `dimension.*` uses
+  `interface_contract.source_field_ref`, `time.*` uses `header.source_field_ref`, and predicate atoms
+  use `target_ref` to reference `entity.<entity>.field.<field>` when they need data fields.
+- do not pass `physical_column`, carrier locators, or binding target fields to dimension/time/predicate
+  create/update tools; those physical locators belong on entity fields or entity bindings.
 - `key.*` is used in entity identity declarations and binding targets such as `identity_key` or
   `population_subject`; do not invent `create_key`-style flows
 - `grain.*` is a contract value such as `metric.header.observation_grain_ref`; do not treat it as a
   semantic object family
-- `metric_input.*` only appears inside metric bindings; it is not a creatable semantic object
-- binding target kinds are stricter than semantic-role labels:
-  `entity -> {identity_key, primary_time, stable_descriptor}`,
-  `metric -> {population_subject, primary_time, metric_input}`,
-  `process_object -> {population_subject, primary_time, analysis_window_anchor, process_context}`
-- `create_binding()` and `update_binding()` accept the canonical binding payload, including
-  `interface_contract.time_bindings[]`; there is no separate `create_time_binding` MCP tool because
-  HTTP does not expose time bindings as an independent object family
+- `metric_input.*` only appears in legacy metric binding records; new metric inputs should reference
+  entity fields from the metric contract and resolve through entity grounding
+- public binding authoring is entity-only. Metric/process physical bindings are legacy read/history
+  records and should not be created by agents.
+- compiler and step metadata may expose `resolved_entity_field_refs` and
+  `resolved_entity_field_sources`; use these snapshots to audit which entity fields, entity
+  revisions, and physical locators grounded the analysis result.
+- compiler and step metadata may also expose `resolved_relationship_refs` and
+  `resolved_relationship_sources` for cross-entity analysis audits.
+- relationships/profiles must stay semantic: no raw SQL, optimizer hints, arbitrary join graph, CTE
+  shape, or generic rule-engine fields
+- binding target kinds are stricter than semantic-role labels; for public authoring use
+  `entity -> {identity_key, primary_time, stable_descriptor}`
+- `/semantic/bindings` remains a legacy/diagnostic compatibility surface. Target-state authoring
+  grounds physical data on `entity.interface_contract.fields[]` and
+  `entity.interface_contract.binding`, not on standalone carrier/surface binding payloads.
+- `create_binding()` and `update_binding()` are retained for existing typed-binding records; do not
+  use them to author metric/process physical bindings or new carrier/surface mappings.
 - `time.semantic_roles` are time-object capability labels, not a 1:1 binding target map; only
   `primary_time` and `analysis_window_anchor` are direct binding target kinds today
 - on publish failures, inspect `error.code`, `error.message`, and the preserved `error.detail` object before falling back to raw OpenAPI discovery
 
-Minimal binding payload with `time_bindings[]`:
+Minimal entity payload with physical grounding:
 
 ```json
 {
   "header": {
-    "binding_ref": "binding.metric.user_events",
-    "display_name": "User Events Metric Binding",
-    "binding_scope": "metric",
-    "bound_object_ref": "metric.daily_active_users",
-    "binding_contract_version": "binding.v1"
+    "entity_ref": "entity.user",
+    "display_name": "User",
+    "entity_contract_version": "entity.v4"
   },
   "interface_contract": {
-    "carrier_bindings": [
-      {
-        "binding_key": "primary",
-        "source_object_ref": "obj_user_events",
-        "carrier_kind": "table",
-        "carrier_locator": "trino.analytics.user_events",
-        "binding_role": "primary",
-        "field_surfaces": [
-          {"surface_ref": "field.user_id", "physical_name": "user_id"},
-          {"surface_ref": "field.event_date", "physical_name": "event_date"}
-        ]
-      }
+    "identity": {
+      "key_refs": ["key.user_id"],
+      "uniqueness_scope": "global",
+      "id_stability": "stable"
+    },
+    "primary_time_ref": "time.event_date",
+    "fields": [
+      {"field_ref": "field.user_id", "value_type": "string", "physical_column": "user_id"},
+      {"field_ref": "field.event_date", "value_type": "date", "physical_column": "event_date"}
     ],
-    "field_bindings": [
-      {
-        "carrier_binding_key": "primary",
-        "target": {"target_kind": "population_subject", "target_key": "key.user_id"},
-        "semantic_ref": "key.user_id",
-        "surface_ref": "field.user_id"
-      }
-    ],
-    "time_bindings": [
-      {
-        "carrier_binding_key": "primary",
-        "target": {"target_kind": "primary_time", "target_key": "time.event_date"},
-        "semantic_ref": "time.event_date",
-        "resolution_kind": "date_column",
-        "date_surface_ref": "field.event_date",
-        "timezone_strategy": "session_consistent_naive"
-      }
-    ]
+    "binding": {
+      "source_object_ref": "obj_user_events",
+      "source_object_fqn": "analytics.user_events",
+      "carrier_kind": "table"
+    }
   }
 }
 ```
@@ -933,7 +961,36 @@ Create an entity:
       "key_refs": ["key.user_id"],
       "uniqueness_scope": "global",
       "id_stability": "stable"
-    }
+    },
+    "fields": [
+      {
+        "field_ref": "entity.user.field.user_id",
+        "semantic_role": "identity",
+        "value_type": "string"
+      },
+      {
+        "field_ref": "entity.user.field.event_date",
+        "semantic_role": "event_time",
+        "value_type": "date"
+      }
+    ]
+  }
+}
+```
+
+Reference an entity field from a dimension:
+
+```json
+{
+  "header": {
+    "dimension_ref": "dimension.country",
+    "display_name": "Country",
+    "dimension_contract_version": "dimension.v1"
+  },
+  "interface_contract": {
+    "source_field_ref": "entity.user.field.country",
+    "value_domain": {"kind": "string"},
+    "grouping": {"kind": "categorical"}
   }
 }
 ```
@@ -957,27 +1014,38 @@ Create a metric:
     "metric_family": "count_metric",
     "count_target": {
       "name": "watch_time",
+      "input_field_ref": "entity.user.field.watch_time",
       "semantics": "total watch time",
-      "aggregation": "sum"
+      "aggregation": "count"
     }
   }
 }
 ```
 
-Create a binding:
+Create an entity with physical grounding:
 
 ```json
 {
   "header": {
-    "binding_ref": "binding.user_events_primary",
-    "display_name": "User Events Binding",
-    "binding_scope": "entity",
-    "bound_object_ref": "entity.user",
-    "binding_contract_version": "binding.v1"
+    "entity_ref": "entity.user",
+    "display_name": "User",
+    "entity_contract_version": "entity.v4"
   },
   "interface_contract": {
-    "carrier_bindings": [],
-    "field_bindings": []
+    "identity": {
+      "key_refs": ["key.user_id"],
+      "uniqueness_scope": "global",
+      "id_stability": "stable"
+    },
+    "fields": [
+      {"field_ref": "field.user_id", "value_type": "string", "physical_column": "user_id"},
+      {"field_ref": "field.watch_time", "value_type": "number", "physical_column": "watch_time"}
+    ],
+    "binding": {
+      "source_object_ref": "obj_user_events",
+      "source_object_fqn": "analytics.user_events",
+      "carrier_kind": "table"
+    }
   }
 }
 ```

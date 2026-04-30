@@ -12,8 +12,11 @@ from app.api.models.compatibility_profile import (
     CompatibilityProfileCreateRequest,
     CompatibilityProfileRevalidateRequest,
     CompatibilityProfileUpdateRequest,
+    EntityRelationshipCreateRequest,
+    EntityRelationshipUpdateRequest,
 )
 from app.api.models.dimension import DimensionCreateRequest, DimensionUpdateRequest
+from app.api.models.domain import DomainCatalogCreateRequest, DomainCatalogUpdateRequest
 from app.api.models.entity import TypedEntityCreateRequest, TypedEntityUpdateRequest
 from app.api.models.enum_set import EnumSetCreateRequest, EnumSetUpdateRequest
 from app.api.models.metric import (
@@ -26,6 +29,8 @@ from app.api.models.process_object import ProcessObjectCreateRequest, ProcessObj
 from app.api.models.time import TimeCreateRequest, TimeUpdateRequest
 from app.semantic_service import (
     CompatibilityProfileService,
+    DomainCatalogService,
+    EntityRelationshipService,
     SemanticCompatibilityError,
     SemanticConflictError,
     SemanticNotFoundError,
@@ -71,9 +76,100 @@ class SemanticService:
         self.typed_objects = TypedObjectService(metadata)
         self.bindings = TypedBindingService(metadata)
         self.compatibility_profiles = CompatibilityProfileService(metadata)
+        self.relationships = EntityRelationshipService(metadata)
+        self.domain_catalog = DomainCatalogService(metadata)
 
     def list_grains(self) -> dict[str, Any]:
         return self._invoke(lambda: self.typed_objects.list_grains())
+
+    def create_domain(self, payload: DomainCatalogCreateRequest) -> dict[str, Any]:
+        return self._invoke(lambda: self.domain_catalog.create_domain(payload))
+
+    def read_domain(self, domain_ref: str) -> dict[str, Any]:
+        return self._invoke(lambda: self.domain_catalog.read_domain(domain_ref))
+
+    def list_domains(self, status: str | None = None, q: str | None = None) -> dict[str, Any]:
+        return self._invoke(lambda: self.domain_catalog.list_domains(status=status, q=q))
+
+    def update_domain(self, domain_ref: str, payload: DomainCatalogUpdateRequest) -> dict[str, Any]:
+        return self._invoke(lambda: self.domain_catalog.update_domain(domain_ref, payload))
+
+    def deprecate_domain(self, domain_ref: str) -> dict[str, Any]:
+        return self._invoke(lambda: self.domain_catalog.deprecate_domain(domain_ref))
+
+    def search_semantic_objects_by_domain(
+        self,
+        *,
+        domain_ref: str | None = None,
+        object_type: str | None = None,
+        status: str | None = None,
+        lifecycle_status: str | None = None,
+        readiness_status: str | None = None,
+        q: str | None = None,
+        related_domain_refs: list[str] | None = None,
+    ) -> dict[str, Any]:
+        return self._invoke(
+            lambda: self.domain_catalog.search_semantic_objects_by_domain(
+                domain_ref=domain_ref,
+                object_type=object_type,
+                status=status,
+                lifecycle_status=lifecycle_status,
+                readiness_status=readiness_status,
+                q=q,
+                related_domain_refs=related_domain_refs,
+            )
+        )
+
+    def create_relationship(self, payload: EntityRelationshipCreateRequest) -> dict[str, Any]:
+        return self._invoke(lambda: self.relationships.create_relationship(payload))
+
+    def read_relationship(self, relationship_identifier: str) -> dict[str, Any]:
+        return self._invoke(lambda: self.relationships.read_relationship(relationship_identifier))
+
+    def get_relationship(self, relationship_id: str) -> dict[str, Any]:
+        return self._invoke(lambda: self.relationships.get_relationship(relationship_id))
+
+    def list_relationships(
+        self,
+        *,
+        status: str | None = None,
+        lifecycle_status: str | None = None,
+        readiness_status: str | None = None,
+        detail: bool = False,
+        left_entity_ref: str | None = None,
+        right_entity_ref: str | None = None,
+    ) -> dict[str, Any]:
+        return self._invoke(
+            lambda: self.relationships.list_relationships(
+                status=status,
+                lifecycle_status=lifecycle_status,
+                readiness_status=readiness_status,
+                detail=detail,
+                left_entity_ref=left_entity_ref,
+                right_entity_ref=right_entity_ref,
+            )
+        )
+
+    def update_relationship(
+        self, relationship_id: str, payload: EntityRelationshipUpdateRequest
+    ) -> dict[str, Any]:
+        return self._invoke(
+            lambda: self.relationships.update_relationship(relationship_id, payload)
+        )
+
+    def validate_relationship(self, relationship_id: str) -> dict[str, Any]:
+        return self._validate_action_response(
+            self._invoke(lambda: self.relationships.validate_relationship(relationship_id))
+        )
+
+    def activate_relationship(self, relationship_id: str) -> dict[str, Any]:
+        return self._invoke(lambda: self.relationships.activate_relationship(relationship_id))
+
+    def publish_relationship(self, relationship_id: str) -> dict[str, Any]:
+        return self._invoke(lambda: self.relationships.publish_relationship(relationship_id))
+
+    def deprecate_relationship(self, relationship_id: str) -> dict[str, Any]:
+        return self._invoke(lambda: self.relationships.deprecate_relationship(relationship_id))
 
     def _invoke(self, action: Callable[[], ActionResultT]) -> ActionResultT:
         try:
@@ -108,12 +204,13 @@ class SemanticService:
 
     @staticmethod
     def _validate_action_response(semantic_object: dict[str, Any]) -> dict[str, Any]:
+        blockers = semantic_object.get("blocking_requirements", [])
         return {
             "action": "validate",
-            "ok": True,
+            "ok": not blockers,
             "semantic_object": semantic_object,
             "validation": {
-                "blocking_requirements": semantic_object.get("blocking_requirements", []),
+                "blocking_requirements": blockers,
                 "capabilities": semantic_object.get("capabilities", {}),
             },
         }
@@ -123,6 +220,15 @@ class SemanticService:
 
     def read_typed_entity(self, entity_identifier: str) -> dict[str, Any]:
         return self._invoke(lambda: self.typed_objects.read_typed_entity(entity_identifier))
+
+    def field_dependents_for_entity_field(
+        self, entity_identifier: str, field_ref: str
+    ) -> list[dict[str, Any]]:
+        return self._invoke(
+            lambda: self.typed_objects.field_dependents_for_entity_field(
+                entity_identifier, field_ref
+            )
+        )
 
     def get_typed_entity(self, entity_contract_id: str) -> dict[str, Any]:
         return self._invoke(lambda: self.typed_objects.get_typed_entity(entity_contract_id))
@@ -543,6 +649,10 @@ class SemanticService:
         lifecycle_status: str | None = None,
         readiness_status: str | None = None,
         detail: bool = False,
+        subject_kind: str | None = None,
+        subject_ref: str | None = None,
+        left_entity_ref: str | None = None,
+        right_entity_ref: str | None = None,
     ) -> dict[str, Any]:
         return self._invoke(
             lambda: self.compatibility_profiles.list_compatibility_profiles(
@@ -550,6 +660,10 @@ class SemanticService:
                 lifecycle_status=lifecycle_status,
                 readiness_status=readiness_status,
                 detail=detail,
+                subject_kind=subject_kind,
+                subject_ref=subject_ref,
+                left_entity_ref=left_entity_ref,
+                right_entity_ref=right_entity_ref,
             )
         )
 

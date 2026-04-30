@@ -54,3 +54,11 @@ make format
   one-off workaround notes here.
 - Put task-specific procedures in project-local skills, README files, or the
   relevant domain documentation.
+
+## Semantic Modeling Guardrail
+
+- Marivo is HTTP-only; do not design repo guidance around MCP-first behavior.
+- Keep semantic physical grounding entity-first and entity-only unless the
+  contract docs explicitly change.
+- Put detailed modeling usage in `marivo-skill/` or domain reference docs, not
+  in this guide.

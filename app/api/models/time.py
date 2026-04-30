@@ -14,12 +14,14 @@ from typing import Annotated
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .base import (
+    CatalogMetadata,
     ListResponseBase,
     ObjectHeaderBase,
     ObjectListItemBase,
     ObjectResponseBase,
     TimeGranularity,
     TimeSemanticRole,
+    validate_canonical_entity_field_ref,
     validate_contract_version,
     validate_ref_prefix,
 )
@@ -37,6 +39,8 @@ class TimeSemanticHeader(ObjectHeaderBase):
     and/or operational_support.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     time_ref: str = Field(
         description="Stable time semantic reference (e.g., 'time.exposure_time'). "
         "Must start with 'time.'."
@@ -51,6 +55,13 @@ class TimeSemanticHeader(ObjectHeaderBase):
     ]
     time_contract_version: str = Field(
         description="Contract version (e.g., 'time.v1'). Must start with 'time.'."
+    )
+    source_field_ref: str | None = Field(
+        default=None,
+        description=(
+            "Optional entity field that grounds this time semantic. Must use "
+            "entity.<entity>.field.<field>. Time objects never bind physical columns directly."
+        ),
     )
 
     @field_validator("time_ref")
@@ -70,6 +81,13 @@ class TimeSemanticHeader(ObjectHeaderBase):
             raise ValueError("semantic_roles must be non-empty")
         return v
 
+    @field_validator("source_field_ref")
+    @classmethod
+    def validate_source_field_ref(cls, v: str | None) -> str | None:
+        if v is not None:
+            return validate_canonical_entity_field_ref(v, "source_field_ref")
+        return v
+
 
 # =============================================================================
 # Request Models
@@ -80,6 +98,7 @@ class TimeCreateRequest(BaseModel):
     """Request to create a new time semantic object."""
 
     model_config = ConfigDict(
+        extra="forbid",
         json_schema_extra={
             "examples": [
                 {
@@ -88,14 +107,19 @@ class TimeCreateRequest(BaseModel):
                         "display_name": "Signup Time",
                         "semantic_roles": ["business_anchor"],
                         "time_contract_version": "time.v1",
+                        "source_field_ref": "entity.user.field.signup_time",
                     }
                 }
             ]
-        }
+        },
     )
 
     header: TimeSemanticHeader = Field(
         description="Time semantic header containing identity and roles."
+    )
+    catalog_metadata: CatalogMetadata = Field(
+        default_factory=CatalogMetadata,
+        description="Discovery-only catalog metadata.",
     )
 
 
@@ -105,10 +129,20 @@ class TimeUpdateRequest(BaseModel):
     All fields are optional; only provided fields will be updated.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     display_name: str | None = Field(default=None, description="New display name.")
     description: str | None = Field(default=None, description="New description.")
+    catalog_metadata: CatalogMetadata | None = Field(
+        default=None,
+        description="Updated discovery-only catalog metadata.",
+    )
     semantic_roles: list[TimeSemanticRole] | None = Field(
         default=None, description="New semantic roles. Must be non-empty if provided."
+    )
+    source_field_ref: str | None = Field(
+        default=None,
+        description="Updated entity field ref that grounds this time semantic.",
     )
 
     @field_validator("semantic_roles")
@@ -118,6 +152,13 @@ class TimeUpdateRequest(BaseModel):
     ) -> list[TimeSemanticRole] | None:
         if v is not None and not v:
             raise ValueError("semantic_roles must be non-empty if provided")
+        return v
+
+    @field_validator("source_field_ref")
+    @classmethod
+    def validate_source_field_ref(cls, v: str | None) -> str | None:
+        if v is not None:
+            return validate_canonical_entity_field_ref(v, "source_field_ref")
         return v
 
 
@@ -131,6 +172,10 @@ class TimeListItem(ObjectListItemBase):
 
     time_contract_id: str = Field(description="Internal ID of the time contract.")
     header: TimeSemanticHeader = Field(description="Time header (contains time_ref).")
+    catalog_metadata: CatalogMetadata = Field(
+        default_factory=CatalogMetadata,
+        description="Discovery-only catalog metadata.",
+    )
 
 
 class TimeResponse(ObjectResponseBase):
@@ -141,10 +186,21 @@ class TimeResponse(ObjectResponseBase):
 
     time_contract_id: str = Field(description="Internal ID of the time contract.")
     header: TimeSemanticHeader = Field(description="Time semantic header.")
+    catalog_metadata: CatalogMetadata = Field(
+        default_factory=CatalogMetadata,
+        description="Discovery-only catalog metadata.",
+    )
 
 
 class TimeListResponse(ListResponseBase[TimeListItem]):
     """Response model for listing time semantic objects."""
+
+
+TimeListItemOrFull = TimeListItem | TimeResponse
+
+
+class TimeListResponseFull(ListResponseBase[TimeListItemOrFull]):
+    """Response model for listing time semantic objects with detail=true."""
 
 
 # =============================================================================

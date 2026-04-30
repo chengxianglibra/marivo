@@ -17,6 +17,7 @@ from app.analysis_core.compiler import (
 )
 from app.analysis_core.ir import AnalysisStepIR
 from app.analysis_core.typed_resolution import (
+    NormalizedCompilerRequest,
     normalize_step_request,
     resolve_compiler_inputs,
 )
@@ -27,7 +28,7 @@ from app.semantic_runtime.errors import (
     SemanticRuntimeNotFoundError,
     SemanticRuntimeNotReadyError,
 )
-from app.semantic_runtime.resolution import ResolvedSemanticObject
+from app.semantic_runtime.resolution import ResolvedSemanticObject, RuntimeSemanticAvailability
 
 
 def _resolved_object(
@@ -327,6 +328,37 @@ class _FakeSemanticRepository(SemanticRuntimeRepository):
             },
         )
 
+    def resolve_ref(self, semantic_ref: str) -> ResolvedSemanticObject:
+        if semantic_ref.startswith("metric."):
+            return self.resolve_metric_ref(semantic_ref)
+        if semantic_ref.startswith("dimension."):
+            return self.resolve_dimension_ref(semantic_ref)
+        if semantic_ref.startswith("time."):
+            return self.resolve_time_ref(semantic_ref)
+        if semantic_ref.startswith("process."):
+            return self.resolve_process_ref(semantic_ref)
+        if semantic_ref.startswith("entity."):
+            return self.resolve_entity_ref(semantic_ref)
+        if semantic_ref.startswith("predicate."):
+            return self.resolve_predicate_ref(semantic_ref)
+        if semantic_ref.startswith("relationship."):
+            return self.resolve_relationship_ref(semantic_ref)
+        raise SemanticRuntimeNotFoundError(
+            f"Unknown semantic ref: {semantic_ref}",
+            semantic_ref=semantic_ref,
+        )
+
+    def inspect_ref(self, semantic_ref: str) -> RuntimeSemanticAvailability:
+        resolved = self.resolve_ref(semantic_ref)
+        return RuntimeSemanticAvailability(
+            resolved=resolved,
+            lifecycle_status="active",
+            readiness_status="ready",
+            blocking_requirements=[],
+            capabilities={},
+            dependency_refs=[],
+        )
+
     def resolve_dimension_ref(self, dimension_ref: str) -> ResolvedSemanticObject:
         self.calls.append(("dimension", dimension_ref))
         return _resolved_object(
@@ -388,6 +420,117 @@ class _FakeSemanticRepository(SemanticRuntimeRepository):
                 f"Unknown binding ref: {binding_ref}",
                 semantic_ref=binding_ref,
             ) from error
+
+    def resolve_entity_ref(self, entity_ref: str) -> ResolvedSemanticObject:
+        self.calls.append(("entity", entity_ref))
+        if entity_ref == "entity.user":
+            fields = [
+                {
+                    "field_ref": "field.user_id",
+                    "value_type": "string",
+                    "nullable": False,
+                    "physical_column": "user_id",
+                },
+                {
+                    "field_ref": "field.watch_seconds",
+                    "value_type": "number",
+                    "nullable": False,
+                    "unit": "seconds",
+                    "profile_summary": {"min": 0},
+                    "sensitivity_tags": [],
+                    "physical_column": "watch_seconds",
+                },
+                {
+                    "field_ref": "field.country",
+                    "value_type": "string",
+                    "nullable": True,
+                    "enum_hint": "enum.country",
+                    "profile_summary": {"distinct_count": 2},
+                    "physical_column": "country",
+                },
+                {
+                    "field_ref": "field.event_date",
+                    "value_type": "date",
+                    "nullable": False,
+                    "physical_column": "event_date",
+                },
+            ]
+        elif entity_ref == "entity.account":
+            fields = [
+                {
+                    "field_ref": "field.user_id",
+                    "value_type": "string",
+                    "nullable": False,
+                    "physical_column": "account_user_id",
+                },
+                {
+                    "field_ref": "field.plan",
+                    "value_type": "string",
+                    "nullable": False,
+                    "physical_column": "plan",
+                },
+            ]
+        else:
+            raise SemanticRuntimeNotFoundError(
+                f"Unknown entity ref: {entity_ref}",
+                semantic_ref=entity_ref,
+            )
+        return _resolved_object(
+            "entity",
+            entity_ref,
+            semantic_object={
+                "entity_contract_id": entity_ref.replace(".", "_"),
+                "header": {"entity_ref": entity_ref},
+                "interface_contract": {
+                    "identity": {
+                        "key_refs": [f"key.{entity_ref.removeprefix('entity.')}_id"],
+                        "uniqueness_scope": "global",
+                        "id_stability": "stable",
+                        "nullable_key_policy": "reject",
+                    },
+                    "fields": fields,
+                    "binding": {
+                        "source_object_fqn": f"analytics.{entity_ref.removeprefix('entity.')}",
+                        "carrier_kind": "table",
+                    },
+                },
+                "status": "published",
+                "revision": 1,
+                "created_at": "2026-04-09T00:00:00Z",
+                "updated_at": "2026-04-09T00:00:00Z",
+            },
+        )
+
+    def resolve_predicate_ref(self, predicate_ref: str) -> ResolvedSemanticObject:
+        self.calls.append(("predicate", predicate_ref))
+        return _resolved_object(
+            "predicate",
+            predicate_ref,
+            semantic_object={
+                "predicate_contract_id": "predicate_contract_1",
+                "header": {"predicate_ref": predicate_ref, "subject_ref": "entity.user"},
+                "interface_contract": {
+                    "expression": {
+                        "target_ref": "entity.user.field.country",
+                        "op": "eq",
+                        "value": "US",
+                    },
+                    "allowed_usage": ["metric_qualifier"],
+                    "time_policy": "non_time_only",
+                },
+                "status": "published",
+                "revision": 1,
+                "created_at": "2026-04-09T00:00:00Z",
+                "updated_at": "2026-04-09T00:00:00Z",
+            },
+        )
+
+    def resolve_relationship_ref(self, relationship_ref: str) -> ResolvedSemanticObject:
+        self.calls.append(("relationship", relationship_ref))
+        raise SemanticRuntimeNotFoundError(
+            f"Unknown relationship ref: {relationship_ref}",
+            semantic_ref=relationship_ref,
+        )
 
 
 class _ImportedBindingRepository(_FakeSemanticRepository):
@@ -694,6 +837,485 @@ class _IncompatibleProcessRepository(_FakeSemanticRepository):
             "anchor_time_ref": "time.event_date",
         }
         return resolved
+
+
+class _EntityFieldMetricRepository(_FakeSemanticRepository):
+    def __init__(self) -> None:
+        super().__init__()
+        self.relationships: dict[str, ResolvedSemanticObject] = {}
+
+    def resolve_metric_ref(self, metric_ref: str) -> ResolvedSemanticObject:
+        resolved = super().resolve_metric_ref(metric_ref)
+        resolved.semantic_object["header"].update(
+            {
+                "observed_entity_ref": "entity.user",
+                "primary_time_ref": "time.event_date",
+                "observation_grain_ref": "grain.user_day",
+            }
+        )
+        resolved.semantic_object["payload"] = {
+            "measure": {
+                "name": "watch_seconds",
+                "semantics": "Watch seconds",
+                "input_field_ref": "entity.user.field.watch_seconds",
+                "aggregation": "sum",
+            },
+            "allowed_dimensions": ["dimension.country"],
+        }
+        return resolved
+
+    def resolve_dimension_ref(self, dimension_ref: str) -> ResolvedSemanticObject:
+        resolved = super().resolve_dimension_ref(dimension_ref)
+        if dimension_ref == "dimension.country":
+            resolved.semantic_object["interface_contract"] = {
+                "value_domain": {
+                    "structure_kind": "flat",
+                    "semantic_role": "category",
+                    "value_type": "string",
+                    "domain_kind": "enumerated",
+                    "enum_set_ref": "enum.country",
+                },
+                "source_field_ref": "entity.user.field.country",
+                "grouping": {"supports_grouping": True},
+            }
+        return resolved
+
+    def resolve_time_ref(self, time_ref: str) -> ResolvedSemanticObject:
+        resolved = super().resolve_time_ref(time_ref)
+        resolved.semantic_object["header"]["source_field_ref"] = "entity.user.field.event_date"
+        return resolved
+
+    def resolve_predicate_ref(self, predicate_ref: str) -> ResolvedSemanticObject:
+        resolved = super().resolve_predicate_ref(predicate_ref)
+        if predicate_ref == "predicate.country_after":
+            resolved.semantic_object["interface_contract"]["expression"] = {
+                "target_ref": "entity.user.field.country",
+                "op": "gt",
+                "value": "US",
+            }
+        return resolved
+
+    def resolve_relationship_ref(self, relationship_ref: str) -> ResolvedSemanticObject:
+        try:
+            return self.relationships[relationship_ref]
+        except KeyError as error:
+            raise SemanticRuntimeNotFoundError(
+                f"Unknown relationship ref: {relationship_ref}",
+                semantic_ref=relationship_ref,
+            ) from error
+
+
+class _InvalidMetricInputFieldRepository(_EntityFieldMetricRepository):
+    def resolve_metric_ref(self, metric_ref: str) -> ResolvedSemanticObject:
+        resolved = super().resolve_metric_ref(metric_ref)
+        resolved.semantic_object["payload"]["measure"]["input_field_ref"] = (
+            "entity.user.field.country"
+        )
+        return resolved
+
+
+class _InvalidTimeFieldRepository(_EntityFieldMetricRepository):
+    def resolve_time_ref(self, time_ref: str) -> ResolvedSemanticObject:
+        resolved = super().resolve_time_ref(time_ref)
+        resolved.semantic_object["header"]["source_field_ref"] = "entity.user.field.country"
+        return resolved
+
+
+class _InvalidPredicateOperandRepository(_EntityFieldMetricRepository):
+    def resolve_metric_ref(self, metric_ref: str) -> ResolvedSemanticObject:
+        resolved = super().resolve_metric_ref(metric_ref)
+        resolved.semantic_object["header"]["default_predicate_refs"] = ["predicate.country_after"]
+        return resolved
+
+
+class _CrossEntityMetricRepository(_EntityFieldMetricRepository):
+    def resolve_metric_ref(self, metric_ref: str) -> ResolvedSemanticObject:
+        resolved = super().resolve_metric_ref(metric_ref)
+        if metric_ref == "metric.conversion_rate":
+            resolved.semantic_object["header"].update(
+                {
+                    "metric_ref": "metric.conversion_rate",
+                    "metric_family": "rate_metric",
+                    "observed_entity_ref": "entity.conversion_event",
+                    "observation_grain_ref": "grain.user_day",
+                    "primary_time_ref": "time.conversion_time",
+                }
+            )
+            resolved.semantic_object["payload"] = {
+                "numerator": {
+                    "name": "converted_users",
+                    "semantics": "Users who converted after exposure",
+                    "input_field_ref": "entity.conversion_event.field.converted_users",
+                    "aggregation": "sum",
+                },
+                "denominator": {
+                    "name": "exposed_users",
+                    "semantics": "Users exposed to the experience",
+                    "input_field_ref": "entity.exposure_event.field.exposed_users",
+                    "aggregation": "sum",
+                },
+            }
+            return resolved
+        resolved.semantic_object["header"].update(
+            {"observed_entity_ref": "entity.user", "observation_grain_ref": "grain.user_day"}
+        )
+        resolved.semantic_object["payload"] = {
+            "numerator": {
+                "name": "accounts",
+                "semantics": "Accounts",
+                "input_field_ref": "entity.account.field.plan",
+                "aggregation": "count",
+            },
+            "denominator": {
+                "name": "users",
+                "semantics": "Users",
+                "input_field_ref": "entity.user.field.user_id",
+                "aggregation": "count_distinct",
+            },
+        }
+        return resolved
+
+    def resolve_entity_ref(self, entity_ref: str) -> ResolvedSemanticObject:
+        if entity_ref in {"entity.exposure_event", "entity.conversion_event"}:
+            entity_name = entity_ref.removeprefix("entity.")
+            user_field = {
+                "field_ref": "field.user_id",
+                "value_type": "string",
+                "nullable": False,
+                "physical_column": "user_id",
+            }
+            if entity_ref == "entity.exposure_event":
+                fields = [
+                    user_field,
+                    {
+                        "field_ref": "field.exposed_users",
+                        "value_type": "number",
+                        "nullable": False,
+                        "physical_column": "exposed_users",
+                    },
+                    {
+                        "field_ref": "field.exposed_at",
+                        "value_type": "datetime",
+                        "nullable": False,
+                        "physical_column": "exposed_at",
+                    },
+                ]
+            else:
+                fields = [
+                    user_field,
+                    {
+                        "field_ref": "field.converted_users",
+                        "value_type": "number",
+                        "nullable": False,
+                        "physical_column": "converted_users",
+                    },
+                    {
+                        "field_ref": "field.converted_at",
+                        "value_type": "datetime",
+                        "nullable": False,
+                        "physical_column": "converted_at",
+                    },
+                ]
+            return _resolved_object(
+                "entity",
+                entity_ref,
+                semantic_object={
+                    "entity_contract_id": entity_ref.replace(".", "_"),
+                    "header": {"entity_ref": entity_ref},
+                    "interface_contract": {
+                        "identity": {
+                            "key_refs": [f"key.{entity_name}_id"],
+                            "uniqueness_scope": "global",
+                            "id_stability": "stable",
+                            "nullable_key_policy": "reject",
+                        },
+                        "fields": fields,
+                        "binding": {
+                            "source_object_fqn": f"analytics.{entity_name}s",
+                            "carrier_kind": "table",
+                        },
+                    },
+                    "status": "published",
+                    "revision": 1,
+                    "created_at": "2026-04-09T00:00:00Z",
+                    "updated_at": "2026-04-09T00:00:00Z",
+                },
+            )
+        return super().resolve_entity_ref(entity_ref)
+
+    def resolve_time_ref(self, time_ref: str) -> ResolvedSemanticObject:
+        if time_ref == "time.conversion_time":
+            resolved = super().resolve_time_ref(time_ref)
+            resolved.semantic_object["header"].update(
+                {
+                    "time_ref": "time.conversion_time",
+                    "source_field_ref": "entity.conversion_event.field.converted_at",
+                }
+            )
+            return resolved
+        return super().resolve_time_ref(time_ref)
+
+
+class _SingleEntityGmvRepository(_EntityFieldMetricRepository):
+    def resolve_metric_ref(self, metric_ref: str) -> ResolvedSemanticObject:
+        resolved = super().resolve_metric_ref(metric_ref)
+        resolved.semantic_object["header"].update(
+            {
+                "metric_ref": "metric.gmv",
+                "observed_entity_ref": "entity.order",
+                "primary_time_ref": "time.order_paid_at",
+                "observation_grain_ref": "grain.order_day",
+                "default_predicate_refs": ["predicate.successful_order"],
+            }
+        )
+        resolved.semantic_object["payload"] = {
+            "measure": {
+                "name": "pay_amount",
+                "semantics": "Successful order pay amount",
+                "input_field_ref": "entity.order.field.pay_amount",
+                "aggregation": "sum",
+            }
+        }
+        return resolved
+
+    def resolve_entity_ref(self, entity_ref: str) -> ResolvedSemanticObject:
+        if entity_ref != "entity.order":
+            return super().resolve_entity_ref(entity_ref)
+        return _resolved_object(
+            "entity",
+            "entity.order",
+            semantic_object={
+                "entity_contract_id": "entity_order",
+                "header": {"entity_ref": "entity.order"},
+                "interface_contract": {
+                    "identity": {
+                        "key_refs": ["key.order_id"],
+                        "uniqueness_scope": "global",
+                        "id_stability": "stable",
+                    },
+                    "fields": [
+                        {
+                            "field_ref": "field.order_id",
+                            "value_type": "string",
+                            "physical_column": "order_id",
+                        },
+                        {
+                            "field_ref": "field.pay_amount",
+                            "value_type": "number",
+                            "physical_column": "pay_amount",
+                        },
+                        {
+                            "field_ref": "field.paid_at",
+                            "value_type": "datetime",
+                            "physical_column": "paid_at",
+                        },
+                        {
+                            "field_ref": "field.order_status",
+                            "value_type": "string",
+                            "physical_column": "order_status",
+                        },
+                    ],
+                    "binding": {
+                        "source_object_fqn": "analytics.orders_wide",
+                        "carrier_kind": "view",
+                    },
+                },
+                "status": "published",
+                "revision": 1,
+                "created_at": "2026-04-09T00:00:00Z",
+                "updated_at": "2026-04-09T00:00:00Z",
+            },
+        )
+
+    def resolve_time_ref(self, time_ref: str) -> ResolvedSemanticObject:
+        resolved = super().resolve_time_ref(time_ref)
+        resolved.semantic_object["header"].update(
+            {"time_ref": "time.order_paid_at", "source_field_ref": "entity.order.field.paid_at"}
+        )
+        return resolved
+
+    def resolve_predicate_ref(self, predicate_ref: str) -> ResolvedSemanticObject:
+        if predicate_ref != "predicate.successful_order":
+            return super().resolve_predicate_ref(predicate_ref)
+        return _resolved_object(
+            "predicate",
+            predicate_ref,
+            semantic_object={
+                "predicate_contract_id": "predicate_successful_order",
+                "header": {
+                    "predicate_ref": predicate_ref,
+                    "subject_ref": "entity.order",
+                    "predicate_contract_version": "predicate.v1",
+                },
+                "interface_contract": {
+                    "expression": {
+                        "target_ref": "entity.order.field.order_status",
+                        "op": "eq",
+                        "value": "paid",
+                    },
+                    "allowed_usage": ["metric_qualifier"],
+                    "time_policy": "non_time_only",
+                },
+                "status": "published",
+                "revision": 1,
+                "created_at": "2026-04-09T00:00:00Z",
+                "updated_at": "2026-04-09T00:00:00Z",
+            },
+        )
+
+
+class _CheckoutFunnelProcessRepository(_EntityFieldMetricRepository):
+    def resolve_metric_ref(self, metric_ref: str) -> ResolvedSemanticObject:
+        resolved = super().resolve_metric_ref(metric_ref)
+        resolved.semantic_object["header"].update({"observed_entity_ref": "entity.checkout_event"})
+        resolved.semantic_object["header"]["primary_time_ref"] = None
+        resolved.semantic_object["payload"] = {
+            "count_target": {
+                "name": "checkout_events",
+                "semantics": "Checkout event count",
+                "input_field_ref": "entity.checkout_event.field.event_id",
+                "aggregation": "count_distinct",
+            }
+        }
+        return resolved
+
+    def resolve_process_ref(self, process_ref: str) -> ResolvedSemanticObject:
+        return _resolved_object(
+            "process",
+            process_ref,
+            semantic_object={
+                "process_contract_id": "process_checkout_funnel",
+                "header": {"process_ref": process_ref},
+                "interface_contract": {
+                    "contract_mode": "entity_stream",
+                    "entity_ref": "entity.checkout_event",
+                    "emitted_grain_ref": "grain.user_session",
+                    "population_subject_ref": "subject.user",
+                    "subject_cardinality": "many",
+                    "anchor_time_ref": "time.checkout_event_at",
+                },
+                "payload": {
+                    "process_type": "funnel_definition",
+                    "funnel_key": "checkout",
+                    "steps": [
+                        {
+                            "step_key": "cart",
+                            "event_ref": "entity.checkout_event.field.cart_event",
+                        },
+                        {
+                            "step_key": "payment",
+                            "event_ref": "entity.checkout_event.field.payment_event",
+                        },
+                        {
+                            "step_key": "success",
+                            "event_ref": "entity.checkout_event.field.success_event",
+                        },
+                    ],
+                    "max_step_gap": {"value": 30, "unit": "minute"},
+                    "conversion_step_key": "success",
+                },
+                "status": "published",
+                "revision": 1,
+                "created_at": "2026-04-09T00:00:00Z",
+                "updated_at": "2026-04-09T00:00:00Z",
+            },
+        )
+
+    def resolve_entity_ref(self, entity_ref: str) -> ResolvedSemanticObject:
+        if entity_ref != "entity.checkout_event":
+            return super().resolve_entity_ref(entity_ref)
+        return _resolved_object(
+            "entity",
+            entity_ref,
+            semantic_object={
+                "entity_contract_id": "entity_checkout_event",
+                "header": {"entity_ref": entity_ref},
+                "interface_contract": {
+                    "identity": {
+                        "key_refs": ["key.event_id"],
+                        "uniqueness_scope": "global",
+                        "id_stability": "stable",
+                    },
+                    "fields": [
+                        {
+                            "field_ref": "field.event_id",
+                            "value_type": "string",
+                            "physical_column": "event_id",
+                        },
+                        {
+                            "field_ref": "field.cart_event",
+                            "value_type": "boolean",
+                            "physical_column": "cart_event",
+                        },
+                        {
+                            "field_ref": "field.payment_event",
+                            "value_type": "boolean",
+                            "physical_column": "payment_event",
+                        },
+                        {
+                            "field_ref": "field.success_event",
+                            "value_type": "boolean",
+                            "physical_column": "success_event",
+                        },
+                    ],
+                    "binding": {
+                        "source_object_fqn": "analytics.checkout_events",
+                        "carrier_kind": "table",
+                    },
+                },
+                "status": "published",
+                "revision": 1,
+                "created_at": "2026-04-09T00:00:00Z",
+                "updated_at": "2026-04-09T00:00:00Z",
+            },
+        )
+
+
+class _SnapshotAlignmentRepository(_CrossEntityMetricRepository):
+    def resolve_entity_ref(self, entity_ref: str) -> ResolvedSemanticObject:
+        resolved = super().resolve_entity_ref(entity_ref)
+        if entity_ref == "entity.account":
+            resolved.semantic_object["entity_kind"] = "snapshot_entity"
+        return resolved
+
+
+def _relationship_object(
+    relationship_ref: str,
+    *,
+    left_entity_ref: str = "entity.user",
+    right_entity_ref: str = "entity.account",
+    left_grain_ref: str = "grain.user_day",
+    right_grain_ref: str = "grain.account_day",
+    key_field_name: str = "user_id",
+    snapshot_effective_window_alignment: dict[str, object] | None = None,
+) -> ResolvedSemanticObject:
+    return _resolved_object(
+        "relationship",
+        relationship_ref,
+        semantic_object={
+            "relationship_id": relationship_ref.replace(".", "_"),
+            "relationship_ref": relationship_ref,
+            "left_entity_ref": left_entity_ref,
+            "right_entity_ref": right_entity_ref,
+            "key_alignment": {
+                "left_field_ref": f"{left_entity_ref}.field.{key_field_name}",
+                "right_field_ref": f"{right_entity_ref}.field.{key_field_name}",
+                "alignment_kind": "equality",
+            },
+            "time_alignment": None,
+            "cardinality": "one_to_many",
+            "grain_compatibility": {
+                "left_grain_ref": left_grain_ref,
+                "right_grain_ref": right_grain_ref,
+                "compatibility": "same_grain",
+            },
+            "snapshot_effective_window_alignment": snapshot_effective_window_alignment,
+            "status": "published",
+            "revision": 1,
+            "created_at": "2026-04-09T00:00:00Z",
+            "updated_at": "2026-04-09T00:00:00Z",
+        },
+    )
 
 
 class CompilerTypedResolutionTests(unittest.TestCase):
@@ -1104,6 +1726,48 @@ class CompilerTypedResolutionTests(unittest.TestCase):
         self.assertEqual(resolved.warnings[0]["binding_ref"], "binding.missing_entity")
         self.assertEqual(resolved.warnings[0]["import_key"], "missing_import")
 
+    def test_resolve_compiler_inputs_collects_entity_field_groundings(self) -> None:
+        repository = _EntityFieldMetricRepository()
+        normalized = normalize_step_request(
+            AnalysisStepIR(
+                index=0,
+                step_type="metric_query",
+                params={
+                    "table": "analytics.user",
+                    "metric": "watch_time",
+                    "dimensions": ["dimension.country"],
+                    "time_scope": {
+                        "mode": "single_window",
+                        "grain": "day",
+                        "current": {"start": "2026-03-10", "end": "2026-03-17"},
+                    },
+                },
+            )
+        )
+
+        resolved = resolve_compiler_inputs(
+            normalized,
+            semantic_repository=repository,
+            binding_reader=_empty_binding_reader,
+        )
+
+        self.assertEqual(
+            sorted(resolved.resolved_entity_field_refs),
+            [
+                "entity.user.field.country",
+                "entity.user.field.event_date",
+                "entity.user.field.watch_seconds",
+            ],
+        )
+        watch_field = resolved.resolved_entity_fields["entity.user.field.watch_seconds"]
+        self.assertEqual(watch_field.entity_ref, "entity.user")
+        self.assertEqual(watch_field.entity_revision, 1)
+        self.assertEqual(watch_field.value_type, "number")
+        self.assertEqual(watch_field.physical_column, "watch_seconds")
+        self.assertEqual(watch_field.source_object_fqn, "analytics.user")
+        self.assertEqual(watch_field.usage_paths, ["metric.measure.input_field_ref"])
+        self.assertEqual(resolved.resolved_bindings, [])
+
     def test_compile_step_keeps_sql_output_and_records_resolved_refs(self) -> None:
         compiled = compile_step(
             AnalysisStepIR(
@@ -1186,6 +1850,173 @@ class CompilerTypedResolutionTests(unittest.TestCase):
         )
         self.assertNotIn("artifact_refs", compiled.ir_bundle["compile_report"])
         self.assertNotIn("finding_ref", str(compiled.ir_bundle))
+
+    def test_compile_step_records_entity_field_grounding_in_ir_and_metadata(self) -> None:
+        compiled = compile_step(
+            AnalysisStepIR(
+                index=0,
+                step_type="metric_query",
+                params={
+                    "metric": "watch_time",
+                    "table": "analytics.user",
+                    "dimensions": ["dimension.country"],
+                },
+            ),
+            engine_type="duckdb",
+            semantic_context={
+                "metric_sql": "sum(watch_seconds)",
+                "dimensions": ["dimension.country"],
+                "semantic_repository": _EntityFieldMetricRepository(),
+                "binding_reader": _empty_binding_reader,
+            },
+        )
+
+        self.assertEqual(compiled.metadata["resolved_binding_refs"], [])
+        self.assertEqual(
+            compiled.metadata["resolved_entity_field_refs"],
+            [
+                "entity.user.field.country",
+                "entity.user.field.event_date",
+                "entity.user.field.watch_seconds",
+            ],
+        )
+        sources = {
+            source["field_ref"]: source
+            for source in compiled.metadata["resolved_entity_field_sources"]
+        }
+        self.assertEqual(
+            sources["entity.user.field.watch_seconds"]["physical_column"],
+            "watch_seconds",
+        )
+        self.assertEqual(
+            sources["entity.user.field.watch_seconds"]["source_object_fqn"],
+            "analytics.user",
+        )
+        assert compiled.ir_bundle is not None
+        ir_inputs = compiled.ir_bundle["plan"]["inputs"]
+        self.assertEqual(ir_inputs.get("binding_refs"), None)
+        self.assertEqual(
+            ir_inputs["resolved_entity_fields"][0]["field_ref"],
+            "entity.user.field.country",
+        )
+        requirement_kinds = {
+            requirement["requirement_kind"]
+            for requirement in compiled.ir_bundle["compile_report"]["lowering_requirements"]
+        }
+        self.assertIn("entity_field_grounding", requirement_kinds)
+        self.assertNotIn("semantic_binding_grounding", requirement_kinds)
+
+    def test_single_entity_gmv_metric_resolves_entity_binding_columns(self) -> None:
+        compiled = compile_step(
+            AnalysisStepIR(
+                index=0,
+                step_type="metric_query",
+                params={
+                    "metric": "gmv",
+                    "table": "analytics.orders_wide",
+                    "scoped_query": {
+                        "mode": "single_window",
+                        "grain": "day",
+                        "analysis_time_expr": "paid_at",
+                        "analysis_time_kind": "timestamp",
+                        "current": {"start": "2026-04-01", "end": "2026-04-08"},
+                    },
+                },
+            ),
+            engine_type="duckdb",
+            semantic_context={
+                "metric_sql": "sum(pay_amount)",
+                "dimensions": [],
+                "semantic_repository": _SingleEntityGmvRepository(),
+                "binding_reader": _empty_binding_reader,
+            },
+        )
+
+        self.assertIn("sum(pay_amount)", compiled.sql)
+        self.assertEqual(compiled.metadata["resolved_binding_refs"], [])
+        self.assertEqual(
+            compiled.metadata["resolved_entity_field_refs"],
+            [
+                "entity.order.field.order_status",
+                "entity.order.field.paid_at",
+                "entity.order.field.pay_amount",
+            ],
+        )
+        sources = {
+            source["field_ref"]: source
+            for source in compiled.metadata["resolved_entity_field_sources"]
+        }
+        self.assertEqual(
+            sources["entity.order.field.pay_amount"]["physical_column"],
+            "pay_amount",
+        )
+        self.assertEqual(
+            sources["entity.order.field.paid_at"]["source_object_fqn"],
+            "analytics.orders_wide",
+        )
+        assert compiled.ir_bundle is not None
+        requirement_kinds = {
+            requirement["requirement_kind"]
+            for requirement in compiled.ir_bundle["compile_report"]["lowering_requirements"]
+        }
+        self.assertIn("entity_field_grounding", requirement_kinds)
+        self.assertNotIn("semantic_binding_grounding", requirement_kinds)
+
+    def test_compile_step_records_resolved_relationship_snapshot(self) -> None:
+        repository = _CrossEntityMetricRepository()
+        repository.relationships["relationship.user_account"] = _relationship_object(
+            "relationship.user_account",
+            right_grain_ref="grain.user_day",
+        )
+
+        def _profile_reader(subject_ref: str) -> list[dict[str, object]]:
+            if subject_ref != "metric.watch_time":
+                return []
+            return [
+                {
+                    "profile_ref": "compiler_profile.cross_entity_requirement",
+                    "profile_kind": "requirement",
+                    "subject_ref": subject_ref,
+                    "subject_revision": 1,
+                    "requirement": {
+                        "required_relationship_refs": ["relationship.user_account"],
+                        "grain_compatibility": {
+                            "required_grain_refs": ["grain.user_day"],
+                            "compatibility": "same_grain",
+                        },
+                    },
+                }
+            ]
+
+        compiled = compile_step(
+            AnalysisStepIR(
+                index=0,
+                step_type="metric_query",
+                params={"metric": "watch_time", "table": "analytics.user"},
+            ),
+            engine_type="duckdb",
+            semantic_context={
+                "metric_sql": "count(*)",
+                "dimensions": [],
+                "semantic_repository": repository,
+                "binding_reader": _empty_binding_reader,
+                "compatibility_profile_reader": _profile_reader,
+            },
+        )
+
+        self.assertEqual(
+            compiled.metadata["resolved_relationship_refs"],
+            ["relationship.user_account"],
+        )
+        self.assertEqual(
+            compiled.metadata["resolved_relationship_sources"][0]["revision"],
+            1,
+        )
+        assert compiled.ir_bundle is not None
+        self.assertEqual(
+            compiled.ir_bundle["plan"]["inputs"]["resolved_relationships"][0]["relationship_ref"],
+            "relationship.user_account",
+        )
 
     def test_compile_step_records_resolved_calendar_alignment_for_month_window(self) -> None:
         compiled = compile_step(
@@ -2494,6 +3325,603 @@ class CompilerTypedResolutionTests(unittest.TestCase):
 
         self.assertFalse(result.ok)
         self.assertIn("COMPILER_BINDING_MISSING", [issue.code for issue in result.issues])
+
+    def test_validate_compiler_inputs_allows_entity_field_grounded_metric_without_binding(
+        self,
+    ) -> None:
+        normalized = normalize_step_request(
+            AnalysisStepIR(
+                index=0,
+                step_type="metric_query",
+                params={
+                    "metric": "watch_time",
+                    "table": "analytics.user",
+                    "dimensions": ["dimension.country"],
+                },
+            )
+        )
+        resolved = resolve_compiler_inputs(
+            normalized,
+            semantic_repository=_EntityFieldMetricRepository(),
+            binding_reader=_empty_binding_reader,
+        )
+        derived = derive_compiler_state(
+            intent_kind="metric_query",
+            resolved_metric=resolved.resolved_metric,
+            resolved_process=resolved.resolved_process,
+            resolved_bindings=resolved.resolved_bindings,
+            profile_reader=None,
+        )
+
+        result = validate_compiler_inputs(
+            step_type="metric_query",
+            resolved_inputs=resolved,
+            derived_state=derived,
+        )
+
+        self.assertTrue(result.ok, [issue.to_dict() for issue in result.issues])
+        self.assertNotIn("COMPILER_BINDING_MISSING", [issue.code for issue in result.issues])
+
+    def test_validate_compiler_inputs_rejects_invalid_metric_input_field_type(self) -> None:
+        normalized = normalize_step_request(
+            AnalysisStepIR(
+                index=0,
+                step_type="metric_query",
+                params={"metric": "watch_time", "table": "analytics.user"},
+            )
+        )
+        resolved = resolve_compiler_inputs(
+            normalized,
+            semantic_repository=_InvalidMetricInputFieldRepository(),
+            binding_reader=_empty_binding_reader,
+        )
+        derived = derive_compiler_state(
+            intent_kind="metric_query",
+            resolved_metric=resolved.resolved_metric,
+            resolved_process=resolved.resolved_process,
+            resolved_bindings=resolved.resolved_bindings,
+            profile_reader=None,
+        )
+
+        result = validate_compiler_inputs(
+            step_type="metric_query",
+            resolved_inputs=resolved,
+            derived_state=derived,
+        )
+
+        self.assertFalse(result.ok)
+        issue = next(issue for issue in result.issues if issue.code == "invalid_metric_input_type")
+        self.assertEqual(issue.subject_ref, "entity.user.field.country")
+        self.assertEqual(issue.details["actual_field_value_type"], "string")
+        self.assertEqual(issue.details["usage_path"], "metric.measure.input_field_ref")
+
+    def test_validate_compiler_inputs_rejects_invalid_time_field_type(self) -> None:
+        normalized = normalize_step_request(
+            AnalysisStepIR(
+                index=0,
+                step_type="metric_query",
+                params={
+                    "metric": "watch_time",
+                    "table": "analytics.user",
+                    "time_scope": {
+                        "mode": "single_window",
+                        "grain": "day",
+                        "current": {"start": "2026-03-10", "end": "2026-03-17"},
+                    },
+                },
+            )
+        )
+        resolved = resolve_compiler_inputs(
+            normalized,
+            semantic_repository=_InvalidTimeFieldRepository(),
+            binding_reader=_empty_binding_reader,
+        )
+        derived = derive_compiler_state(
+            intent_kind="metric_query",
+            resolved_metric=resolved.resolved_metric,
+            resolved_process=resolved.resolved_process,
+            resolved_bindings=resolved.resolved_bindings,
+            profile_reader=None,
+        )
+
+        result = validate_compiler_inputs(
+            step_type="metric_query",
+            resolved_inputs=resolved,
+            derived_state=derived,
+        )
+
+        self.assertFalse(result.ok)
+        issue = next(issue for issue in result.issues if issue.code == "invalid_time_field_type")
+        self.assertEqual(issue.subject_ref, "entity.user.field.country")
+        self.assertEqual(issue.details["actual_field_value_type"], "string")
+
+    def test_validate_compiler_inputs_rejects_invalid_predicate_operand_field_type(self) -> None:
+        repository = _InvalidPredicateOperandRepository()
+        normalized = normalize_step_request(
+            AnalysisStepIR(
+                index=0,
+                step_type="metric_query",
+                params={"metric": "watch_time", "table": "analytics.user"},
+            )
+        )
+        resolved = resolve_compiler_inputs(
+            normalized,
+            semantic_repository=repository,
+            binding_reader=_empty_binding_reader,
+        )
+        derived = derive_compiler_state(
+            intent_kind="metric_query",
+            resolved_metric=resolved.resolved_metric,
+            resolved_process=resolved.resolved_process,
+            resolved_bindings=resolved.resolved_bindings,
+            profile_reader=None,
+        )
+
+        result = validate_compiler_inputs(
+            step_type="metric_query",
+            resolved_inputs=resolved,
+            derived_state=derived,
+            semantic_repository=repository,
+        )
+
+        self.assertFalse(result.ok)
+        issue = next(
+            issue for issue in result.issues if issue.code == "invalid_predicate_operand_type"
+        )
+        self.assertEqual(issue.subject_ref, "entity.user.field.country")
+        self.assertEqual(issue.details["operator"], "gt")
+
+    def test_validate_compiler_inputs_rejects_cross_entity_metric_without_relationship(
+        self,
+    ) -> None:
+        repository = _CrossEntityMetricRepository()
+        normalized = normalize_step_request(
+            AnalysisStepIR(
+                index=0,
+                step_type="metric_query",
+                params={"metric": "watch_time", "table": "analytics.user"},
+            )
+        )
+        resolved = resolve_compiler_inputs(
+            normalized,
+            semantic_repository=repository,
+            binding_reader=_empty_binding_reader,
+        )
+        derived = derive_compiler_state(
+            intent_kind="metric_query",
+            resolved_metric=resolved.resolved_metric,
+            resolved_process=resolved.resolved_process,
+            resolved_bindings=resolved.resolved_bindings,
+            profile_reader=lambda subject_ref: [],
+        )
+
+        result = validate_compiler_inputs(
+            step_type="metric_query",
+            resolved_inputs=resolved,
+            derived_state=derived,
+            semantic_repository=repository,
+        )
+
+        self.assertFalse(result.ok)
+        issue = next(
+            issue for issue in result.issues if issue.code == "missing_entity_relationship"
+        )
+        self.assertEqual(issue.subject_ref, "metric.watch_time")
+        self.assertEqual(issue.details["entity_refs"], ["entity.account", "entity.user"])
+
+    def test_validate_compiler_inputs_rejects_cross_entity_metric_with_incompatible_grain(
+        self,
+    ) -> None:
+        repository = _CrossEntityMetricRepository()
+        relationship = _relationship_object("relationship.user_account")
+        repository.relationships[relationship.ref] = relationship
+
+        def _profile_reader(subject_ref: str) -> list[dict[str, object]]:
+            if subject_ref != "metric.watch_time":
+                return []
+            return [
+                {
+                    "profile_ref": "compiler_profile.cross_entity_requirement",
+                    "profile_kind": "requirement",
+                    "subject_ref": subject_ref,
+                    "subject_revision": 1,
+                    "requirement": {
+                        "required_relationship_refs": ["relationship.user_account"],
+                        "grain_compatibility": {
+                            "required_grain_refs": ["grain.user_day", "grain.account_day"],
+                            "compatibility": "same_grain",
+                        },
+                    },
+                }
+            ]
+
+        normalized = normalize_step_request(
+            AnalysisStepIR(
+                index=0,
+                step_type="metric_query",
+                params={"metric": "watch_time", "table": "analytics.user"},
+            )
+        )
+        resolved = resolve_compiler_inputs(
+            normalized,
+            semantic_repository=repository,
+            binding_reader=_empty_binding_reader,
+        )
+        derived = derive_compiler_state(
+            intent_kind="metric_query",
+            resolved_metric=resolved.resolved_metric,
+            resolved_process=resolved.resolved_process,
+            resolved_bindings=resolved.resolved_bindings,
+            profile_reader=_profile_reader,
+        )
+
+        result = validate_compiler_inputs(
+            step_type="metric_query",
+            resolved_inputs=resolved,
+            derived_state=derived,
+            semantic_repository=repository,
+        )
+
+        self.assertFalse(result.ok)
+        issue = next(issue for issue in result.issues if issue.code == "incompatible_grain")
+        self.assertEqual(issue.subject_ref, "relationship.user_account")
+        self.assertEqual(issue.details["left_grain_ref"], "grain.user_day")
+        self.assertEqual(issue.details["right_grain_ref"], "grain.account_day")
+
+    def test_cross_entity_conversion_rate_requires_relationship_then_resolves_fields(
+        self,
+    ) -> None:
+        repository = _CrossEntityMetricRepository()
+        normalized = normalize_step_request(
+            AnalysisStepIR(
+                index=0,
+                step_type="metric_query",
+                params={"metric": "conversion_rate", "table": "analytics.conversion_events"},
+            )
+        )
+
+        unresolved = resolve_compiler_inputs(
+            normalized,
+            semantic_repository=repository,
+            binding_reader=_empty_binding_reader,
+        )
+        unresolved_derived = derive_compiler_state(
+            intent_kind="metric_query",
+            resolved_metric=unresolved.resolved_metric,
+            resolved_process=unresolved.resolved_process,
+            resolved_bindings=unresolved.resolved_bindings,
+            profile_reader=lambda _subject_ref: [],
+        )
+        unresolved_result = validate_compiler_inputs(
+            step_type="metric_query",
+            resolved_inputs=unresolved,
+            derived_state=unresolved_derived,
+            semantic_repository=repository,
+        )
+        self.assertFalse(unresolved_result.ok)
+        self.assertIn("missing_entity_relationship", [i.code for i in unresolved_result.issues])
+
+        repository.relationships["relationship.exposure_conversion"] = _relationship_object(
+            "relationship.exposure_conversion",
+            left_entity_ref="entity.exposure_event",
+            right_entity_ref="entity.conversion_event",
+            left_grain_ref="grain.user_day",
+            right_grain_ref="grain.user_day",
+        )
+
+        def _profile_reader(subject_ref: str) -> list[dict[str, object]]:
+            if subject_ref != "metric.conversion_rate":
+                return []
+            return [
+                {
+                    "profile_ref": "compiler_profile.cross_entity_requirement",
+                    "profile_kind": "requirement",
+                    "subject_ref": subject_ref,
+                    "subject_revision": 1,
+                    "requirement": {
+                        "required_relationship_refs": ["relationship.exposure_conversion"],
+                        "grain_compatibility": {
+                            "required_grain_refs": ["grain.user_day"],
+                            "compatibility": "same_grain",
+                        },
+                    },
+                }
+            ]
+
+        resolved = resolve_compiler_inputs(
+            normalized,
+            semantic_repository=repository,
+            binding_reader=_empty_binding_reader,
+        )
+        derived = derive_compiler_state(
+            intent_kind="metric_query",
+            resolved_metric=resolved.resolved_metric,
+            resolved_process=resolved.resolved_process,
+            resolved_bindings=resolved.resolved_bindings,
+            profile_reader=_profile_reader,
+        )
+        result = validate_compiler_inputs(
+            step_type="metric_query",
+            resolved_inputs=resolved,
+            derived_state=derived,
+            semantic_repository=repository,
+        )
+
+        self.assertTrue(result.ok, [issue.to_dict() for issue in result.issues])
+        self.assertEqual(
+            resolved.resolved_entity_field_refs,
+            [
+                "entity.conversion_event.field.converted_at",
+                "entity.conversion_event.field.converted_users",
+                "entity.exposure_event.field.exposed_users",
+            ],
+        )
+        self.assertEqual(
+            sorted(resolved.resolved_relationships),
+            ["relationship.exposure_conversion"],
+        )
+
+    def test_cross_entity_conversion_rate_rejects_incompatible_grain(self) -> None:
+        repository = _CrossEntityMetricRepository()
+        repository.relationships["relationship.exposure_conversion"] = _relationship_object(
+            "relationship.exposure_conversion",
+            left_entity_ref="entity.exposure_event",
+            right_entity_ref="entity.conversion_event",
+            left_grain_ref="grain.user_day",
+            right_grain_ref="grain.conversion_event",
+        )
+
+        def _profile_reader(subject_ref: str) -> list[dict[str, object]]:
+            if subject_ref != "metric.conversion_rate":
+                return []
+            return [
+                {
+                    "profile_ref": "compiler_profile.cross_entity_requirement",
+                    "profile_kind": "requirement",
+                    "subject_ref": subject_ref,
+                    "subject_revision": 1,
+                    "requirement": {
+                        "required_relationship_refs": ["relationship.exposure_conversion"],
+                        "grain_compatibility": {
+                            "required_grain_refs": ["grain.user_day"],
+                            "compatibility": "same_grain",
+                        },
+                    },
+                }
+            ]
+
+        normalized = normalize_step_request(
+            AnalysisStepIR(
+                index=0,
+                step_type="metric_query",
+                params={"metric": "conversion_rate", "table": "analytics.conversion_events"},
+            )
+        )
+        resolved = resolve_compiler_inputs(
+            normalized,
+            semantic_repository=repository,
+            binding_reader=_empty_binding_reader,
+        )
+        derived = derive_compiler_state(
+            intent_kind="metric_query",
+            resolved_metric=resolved.resolved_metric,
+            resolved_process=resolved.resolved_process,
+            resolved_bindings=resolved.resolved_bindings,
+            profile_reader=_profile_reader,
+        )
+        result = validate_compiler_inputs(
+            step_type="metric_query",
+            resolved_inputs=resolved,
+            derived_state=derived,
+            semantic_repository=repository,
+        )
+
+        self.assertFalse(result.ok)
+        issue = next(issue for issue in result.issues if issue.code == "incompatible_grain")
+        self.assertEqual(issue.subject_ref, "relationship.exposure_conversion")
+        self.assertEqual(issue.details["left_grain_ref"], "grain.user_day")
+        self.assertEqual(issue.details["right_grain_ref"], "grain.conversion_event")
+
+    def test_cross_entity_metric_rejects_sensitivity_tag_profile_gap(self) -> None:
+        repository = _CrossEntityMetricRepository()
+        repository.relationships["relationship.user_account"] = _relationship_object(
+            "relationship.user_account",
+            right_grain_ref="grain.user_day",
+        )
+
+        def _profile_reader(subject_ref: str) -> list[dict[str, object]]:
+            if subject_ref != "metric.watch_time":
+                return []
+            return [
+                {
+                    "profile_ref": "compiler_profile.cross_entity_requirement",
+                    "profile_kind": "requirement",
+                    "subject_ref": subject_ref,
+                    "subject_revision": 1,
+                    "requirement": {
+                        "required_relationship_refs": ["relationship.user_account"],
+                        "field_profile_requirements": [
+                            {
+                                "field_ref": "entity.account.field.plan",
+                                "required_sensitivity_tags": ["governance.approved"],
+                            }
+                        ],
+                    },
+                }
+            ]
+
+        normalized = normalize_step_request(
+            AnalysisStepIR(
+                index=0,
+                step_type="metric_query",
+                params={"metric": "watch_time", "table": "analytics.user"},
+            )
+        )
+        resolved = resolve_compiler_inputs(
+            normalized,
+            semantic_repository=repository,
+            binding_reader=_empty_binding_reader,
+        )
+        derived = derive_compiler_state(
+            intent_kind="metric_query",
+            resolved_metric=resolved.resolved_metric,
+            resolved_process=resolved.resolved_process,
+            resolved_bindings=resolved.resolved_bindings,
+            profile_reader=_profile_reader,
+        )
+        result = validate_compiler_inputs(
+            step_type="metric_query",
+            resolved_inputs=resolved,
+            derived_state=derived,
+            semantic_repository=repository,
+        )
+
+        self.assertFalse(result.ok)
+        issue = next(issue for issue in result.issues if issue.code == "invalid_metric_input_type")
+        self.assertEqual(issue.subject_ref, "entity.account.field.plan")
+        self.assertEqual(issue.details["required_sensitivity_tags"], ["governance.approved"])
+
+    def test_checkout_funnel_process_resolves_entity_fields_without_process_binding(
+        self,
+    ) -> None:
+        repository = _CheckoutFunnelProcessRepository()
+        normalized = NormalizedCompilerRequest(
+            intent_kind="metric_query",
+            request_class="root_metric_process",
+            table_name="analytics.checkout_events",
+            metric_ref="metric.checkout_events",
+            process_ref="process.checkout_funnel",
+        )
+        resolved = resolve_compiler_inputs(
+            normalized,
+            semantic_repository=repository,
+            binding_reader=_empty_binding_reader,
+        )
+        derived = derive_compiler_state(
+            intent_kind="metric_query",
+            resolved_metric=resolved.resolved_metric,
+            resolved_process=resolved.resolved_process,
+            resolved_bindings=resolved.resolved_bindings,
+            profile_reader=None,
+        )
+        result = validate_compiler_inputs(
+            step_type="metric_query",
+            resolved_inputs=resolved,
+            derived_state=derived,
+            semantic_repository=repository,
+        )
+
+        self.assertTrue(result.ok, [issue.to_dict() for issue in result.issues])
+        self.assertEqual(resolved.resolved_bindings, [])
+        self.assertEqual(
+            sorted(resolved.resolved_entity_field_refs),
+            [
+                "entity.checkout_event.field.cart_event",
+                "entity.checkout_event.field.event_id",
+                "entity.checkout_event.field.payment_event",
+                "entity.checkout_event.field.success_event",
+            ],
+        )
+
+    def test_snapshot_alignment_uses_relationship_profile_not_entity_kind(self) -> None:
+        repository = _SnapshotAlignmentRepository()
+        repository.relationships["relationship.event_account_snapshot"] = _relationship_object(
+            "relationship.event_account_snapshot",
+            left_entity_ref="entity.user",
+            right_entity_ref="entity.account",
+            right_grain_ref="grain.user_day",
+            snapshot_effective_window_alignment={
+                "event_time_ref": "entity.user.field.event_date",
+                "snapshot_valid_from_ref": "entity.account.field.valid_from",
+                "snapshot_valid_to_ref": "entity.account.field.valid_to",
+                "alignment_kind": "effective_at_event_time",
+            },
+        )
+
+        def _profile_reader(subject_ref: str) -> list[dict[str, object]]:
+            if subject_ref != "metric.watch_time":
+                return []
+            return [
+                {
+                    "profile_ref": "compiler_profile.snapshot_alignment_requirement",
+                    "profile_kind": "requirement",
+                    "subject_ref": subject_ref,
+                    "subject_revision": 1,
+                    "requirement": {
+                        "required_relationship_refs": ["relationship.event_account_snapshot"],
+                        "grain_compatibility": {
+                            "required_grain_refs": ["grain.user_day"],
+                            "compatibility": "same_grain",
+                        },
+                    },
+                }
+            ]
+
+        normalized = normalize_step_request(
+            AnalysisStepIR(
+                index=0,
+                step_type="metric_query",
+                params={"metric": "watch_time", "table": "analytics.user"},
+            )
+        )
+        resolved = resolve_compiler_inputs(
+            normalized,
+            semantic_repository=repository,
+            binding_reader=_empty_binding_reader,
+        )
+        derived = derive_compiler_state(
+            intent_kind="metric_query",
+            resolved_metric=resolved.resolved_metric,
+            resolved_process=resolved.resolved_process,
+            resolved_bindings=resolved.resolved_bindings,
+            profile_reader=_profile_reader,
+        )
+        result = validate_compiler_inputs(
+            step_type="metric_query",
+            resolved_inputs=resolved,
+            derived_state=derived,
+            semantic_repository=repository,
+        )
+
+        self.assertTrue(result.ok, [issue.to_dict() for issue in result.issues])
+        self.assertEqual(
+            resolved.resolved_relationships[
+                "relationship.event_account_snapshot"
+            ].snapshot_effective_window_alignment["alignment_kind"],
+            "effective_at_event_time",
+        )
+
+    def test_snapshot_entity_kind_without_profile_does_not_enable_cross_entity_metric(self) -> None:
+        repository = _SnapshotAlignmentRepository()
+        normalized = normalize_step_request(
+            AnalysisStepIR(
+                index=0,
+                step_type="metric_query",
+                params={"metric": "watch_time", "table": "analytics.user"},
+            )
+        )
+        resolved = resolve_compiler_inputs(
+            normalized,
+            semantic_repository=repository,
+            binding_reader=_empty_binding_reader,
+        )
+        derived = derive_compiler_state(
+            intent_kind="metric_query",
+            resolved_metric=resolved.resolved_metric,
+            resolved_process=resolved.resolved_process,
+            resolved_bindings=resolved.resolved_bindings,
+            profile_reader=lambda _subject_ref: [],
+        )
+        result = validate_compiler_inputs(
+            step_type="metric_query",
+            resolved_inputs=resolved,
+            derived_state=derived,
+            semantic_repository=repository,
+        )
+
+        self.assertFalse(result.ok)
+        self.assertIn("missing_entity_relationship", [issue.code for issue in result.issues])
+        self.assertEqual(resolved.resolved_relationships, {})
 
     def test_validate_compiler_inputs_rejects_binding_without_carrier_bindings(self) -> None:
         normalized = normalize_step_request(

@@ -13,6 +13,7 @@ from app.main import create_app
 from app.semantic_runtime.dimensions import resolve_entity_binding_dimensions
 from tests.semantic_test_helpers import (
     ensure_published_typed_dimension,
+    ensure_published_typed_metric_binding,
     ensure_published_typed_time,
 )
 from tests.shared_fixtures import get_named_seeded_duckdb_path
@@ -120,6 +121,7 @@ class TypedMetricDimensionResolutionTests(unittest.TestCase):
                     "measure": {
                         "name": "value",
                         "semantics": "Metric value",
+                        "input_field_ref": f"{entity_ref}.field.value",
                         "aggregation": "sum",
                     },
                 },
@@ -205,48 +207,22 @@ class TypedMetricDimensionResolutionTests(unittest.TestCase):
         return str(binding_ref)
 
     def _create_metric_binding(self, *, suffix: str, metric_ref: str) -> str:
-        response = self.client.post(
-            "/semantic/bindings",
-            json={
-                "header": {
-                    "binding_ref": f"binding.metric_binding_{suffix}",
-                    "display_name": f"Metric Binding {suffix}",
-                    "binding_scope": "metric",
-                    "bound_object_ref": metric_ref,
-                    "binding_contract_version": "binding.v1",
-                },
-                "interface_contract": {
-                    "carrier_bindings": [
-                        {
-                            "binding_key": "primary",
-                            "source_object_ref": self.object_id,
-                            "carrier_kind": "table",
-                            "carrier_locator": self.table_fqn,
-                            "binding_role": "primary",
-                            "field_surfaces": [
-                                {"surface_ref": "field.value", "physical_name": "value"},
-                            ],
-                        }
-                    ],
-                    "field_bindings": [
-                        {
-                            "carrier_binding_key": "primary",
-                            "target": {
-                                "target_kind": "metric_input",
-                                "target_key": "measure",
-                            },
-                            "semantic_ref": "metric_input.measure",
-                            "surface_ref": "field.value",
-                        }
-                    ],
-                },
-            },
+        generated_ref = ensure_published_typed_metric_binding(
+            self.metadata_store,
+            metric_name=metric_ref.removeprefix("metric."),
+            carrier_locator=self.table_fqn,
+            source_object_ref=self.object_id,
+            metric_input_target_keys=["measure"],
         )
-        self.assertEqual(response.status_code, 200, response.text)
-        binding_id = response.json()["binding_id"]
-        binding_ref = response.json()["header"]["binding_ref"]
-        publish_response = self.client.post(f"/semantic/bindings/{binding_id}/publish")
-        self.assertEqual(publish_response.status_code, 200, publish_response.text)
+        binding_ref = f"binding.metric_binding_{suffix}"
+        self.metadata_store.execute(
+            """
+            UPDATE typed_bindings
+            SET binding_ref = ?, display_name = ?
+            WHERE binding_ref = ?
+            """,
+            [binding_ref, f"Metric Binding {suffix}", generated_ref],
+        )
         return str(binding_ref)
 
     @pytest.mark.slow

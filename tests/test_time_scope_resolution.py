@@ -24,6 +24,7 @@ from tests.semantic_test_helpers import (
     create_typed_entity,
     create_typed_metric,
     ensure_published_typed_dimension,
+    ensure_published_typed_metric_binding,
     patch_typed_entity_properties,
     publish_typed_entity,
     publish_typed_metric,
@@ -786,85 +787,22 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
         )
         assert publish_entity_binding_resp.status_code == 200, publish_entity_binding_resp.text
 
-        metric_binding_resp = cls.client.post(
-            "/semantic/bindings",
-            json={
-                "header": {
-                    "binding_ref": f"binding.watch_time_tsu02_{suffix}_primary",
-                    "display_name": "TSU-02 Metric Binding",
-                    "binding_scope": "metric",
-                    "bound_object_ref": f"metric.watch_time_tsu02_{suffix}",
-                    "binding_contract_version": "binding.v1",
-                },
-                "interface_contract": {
-                    "imports": [
-                        {
-                            "import_key": "entity_bridge",
-                            "binding_ref": f"binding.session_tsu02_{suffix}_entity",
-                            "required_ref_prefixes": ["dimension."],
-                        }
-                    ],
-                    "carrier_bindings": [
-                        {
-                            "binding_key": "primary",
-                            "source_object_ref": cls.watch_events_object_id,
-                            "carrier_kind": "table",
-                            "carrier_locator": cls.watch_events_fqn,
-                            "binding_role": "primary",
-                            "field_surfaces": [
-                                {
-                                    "surface_ref": "field.event_date",
-                                    "physical_name": "event_date",
-                                },
-                                {
-                                    "surface_ref": "field.value",
-                                    "physical_name": "play_duration_seconds",
-                                },
-                                {
-                                    "surface_ref": "field.platform",
-                                    "physical_name": "platform",
-                                },
-                            ],
-                            "time_surfaces": [
-                                {
-                                    "surface_ref": "time_surface.event_date",
-                                    "physical_name": "event_date",
-                                }
-                            ],
-                        }
-                    ],
-                    "field_bindings": [
-                        {
-                            "carrier_binding_key": "primary",
-                            "target": {
-                                "target_kind": "metric_input",
-                                "target_key": "count_target",
-                            },
-                            "semantic_ref": "metric_input.count_target",
-                            "surface_ref": "field.value",
-                        },
-                    ],
-                    "time_bindings": [
-                        {
-                            "carrier_binding_key": "primary",
-                            "target": {
-                                "target_kind": "primary_time",
-                                "target_key": "time.event_date",
-                            },
-                            "semantic_ref": "time.event_date",
-                            "resolution_kind": "date_column",
-                            "date_surface_ref": "time_surface.event_date",
-                        }
-                    ],
-                },
-            },
+        ensure_published_typed_metric_binding(
+            cls.service.metadata,
+            metric_name=f"watch_time_tsu02_{suffix}",
+            carrier_locator=cls.watch_events_fqn,
+            source_object_ref=cls.watch_events_object_id,
+            surface_name="value",
+            surface_physical_name="play_duration_seconds",
+            metric_input_target_keys=["count_target"],
+            binding_imports=[
+                {
+                    "import_key": "entity_bridge",
+                    "binding_ref": f"binding.session_tsu02_{suffix}_entity",
+                    "required_ref_prefixes": ["dimension."],
+                }
+            ],
         )
-        assert metric_binding_resp.status_code == 200, metric_binding_resp.text
-        metric_binding_id = metric_binding_resp.json()["binding_id"]
-        publish_metric_binding_resp = cls.client.post(
-            f"/semantic/bindings/{metric_binding_id}/publish"
-        )
-        assert publish_metric_binding_resp.status_code == 200, publish_metric_binding_resp.text
 
         cls.metric_name = f"watch_time_tsu02_{suffix}"
 

@@ -14,6 +14,7 @@ ObjectKind = Literal[
     "time",
     "enum",
     "binding",
+    "relationship",
     "compiler_profile",
     "calendar_policy",
     "predicate",

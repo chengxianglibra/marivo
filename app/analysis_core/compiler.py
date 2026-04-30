@@ -30,6 +30,7 @@ from app.analysis_core.ir import (
     BindingRefSnapshot,
     CarrierBinding,
     CompileReport,
+    EntityFieldRefSnapshot,
     IntentNode,
     IntentRequestSnapshot,
     IrArtifact,
@@ -44,6 +45,7 @@ from app.analysis_core.ir import (
     ProcessNode,
     ProcessRefSnapshot,
     ProfileUsageTrace,
+    RelationshipRefSnapshot,
     SemanticCompileError,
     ValidationRecord,
     ValidationSummary,
@@ -764,6 +766,9 @@ _VALIDATION_GATE_ORDER: tuple[
         "request_shape",
         "intent_support",
         "metric_process_compatibility",
+        "entity_field_resolution",
+        "field_usage_compatibility",
+        "cross_entity_composition",
         "binding_grounding",
         "predicate_contract",
         "scope_validation",
@@ -778,6 +783,9 @@ _VALIDATION_GATE_ORDER: tuple[
     "request_shape",
     "intent_support",
     "metric_process_compatibility",
+    "entity_field_resolution",
+    "field_usage_compatibility",
+    "cross_entity_composition",
     "binding_grounding",
     "predicate_contract",
     "scope_validation",
@@ -1056,7 +1064,14 @@ def _build_lowering_requirements(
                 "source_node_id": intent_node_id,
             }
         )
-    if resolved_inputs.resolved_bindings and resolved_inputs.resolved_metric is not None:
+    if resolved_inputs.resolved_entity_fields and resolved_inputs.resolved_metric is not None:
+        requirements.append(
+            {
+                "requirement_kind": "entity_field_grounding",
+                "source_node_id": f"measurement:{step.index}",
+            }
+        )
+    elif resolved_inputs.resolved_bindings and resolved_inputs.resolved_metric is not None:
         requirements.append(
             {
                 "requirement_kind": "semantic_binding_grounding",
@@ -1302,6 +1317,40 @@ def _binding_snapshot(binding: ResolvedSemanticObject) -> BindingRefSnapshot:
     }
 
 
+def _entity_field_snapshot(field: Any) -> EntityFieldRefSnapshot:
+    snapshot: EntityFieldRefSnapshot = {
+        "field_ref": field.field_ref,
+        "entity_ref": field.entity_ref,
+        "local_field_ref": field.local_field_ref,
+        "entity_revision": field.entity_revision,
+    }
+    if field.source_object_ref is not None:
+        snapshot["source_object_ref"] = field.source_object_ref
+    if field.source_object_fqn is not None:
+        snapshot["source_object_fqn"] = field.source_object_fqn
+    if field.carrier_kind is not None:
+        snapshot["carrier_kind"] = field.carrier_kind
+    if field.physical_column is not None:
+        snapshot["physical_column"] = field.physical_column
+    if field.physical_expression_locator is not None:
+        snapshot["physical_expression_locator"] = field.physical_expression_locator
+    return snapshot
+
+
+def _relationship_snapshot(relationship: Any) -> RelationshipRefSnapshot:
+    return {
+        "relationship_ref": relationship.relationship_ref,
+        "left_entity_ref": relationship.left_entity_ref,
+        "right_entity_ref": relationship.right_entity_ref,
+        "revision": relationship.revision,
+        "key_alignment": relationship.key_alignment,
+        "time_alignment": relationship.time_alignment,
+        "cardinality": relationship.cardinality,
+        "grain_compatibility": relationship.grain_compatibility,
+        "snapshot_effective_window_alignment": (relationship.snapshot_effective_window_alignment),
+    }
+
+
 def _intent_request_snapshot(
     normalized_request: NormalizedCompilerRequest,
     resolved_inputs: ResolvedCompilerInputs,
@@ -1353,6 +1402,16 @@ def _build_ir_inputs(
         ]
         input_snapshot["resolved_bindings"] = [
             _binding_snapshot(binding) for binding in resolved_inputs.resolved_bindings
+        ]
+    if resolved_inputs.resolved_entity_fields:
+        input_snapshot["resolved_entity_fields"] = [
+            _entity_field_snapshot(field)
+            for field in resolved_inputs.resolved_entity_fields.values()
+        ]
+    if resolved_inputs.resolved_relationships:
+        input_snapshot["resolved_relationships"] = [
+            _relationship_snapshot(relationship)
+            for relationship in resolved_inputs.resolved_relationships.values()
         ]
     if resolved_inputs.resolved_metric is not None:
         input_snapshot["resolved_metric"] = _metric_snapshot(resolved_inputs.resolved_metric)
@@ -1772,6 +1831,45 @@ def compile_step(
         else None,
         "resolved_dimension_refs": resolved_inputs.resolved_dimension_refs,
         "resolved_binding_refs": [binding.ref for binding in resolved_inputs.resolved_bindings],
+        "resolved_entity_field_refs": resolved_inputs.resolved_entity_field_refs,
+        "resolved_entity_field_sources": [
+            {
+                "field_ref": field.field_ref,
+                "entity_ref": field.entity_ref,
+                "local_field_ref": field.local_field_ref,
+                "entity_revision": field.entity_revision,
+                "value_type": field.value_type,
+                "nullable": field.nullable,
+                "unit": field.unit,
+                "enum_hint": field.enum_hint,
+                "profile_summary": field.profile_summary,
+                "sensitivity_tags": list(field.sensitivity_tags),
+                "source_object_ref": field.source_object_ref,
+                "source_object_fqn": field.source_object_fqn,
+                "carrier_kind": field.carrier_kind,
+                "physical_column": field.physical_column,
+                "physical_expression_locator": field.physical_expression_locator,
+                "usage_paths": list(field.usage_paths),
+            }
+            for field in resolved_inputs.resolved_entity_fields.values()
+        ],
+        "resolved_relationship_refs": sorted(resolved_inputs.resolved_relationships),
+        "resolved_relationship_sources": [
+            {
+                "relationship_ref": relationship.relationship_ref,
+                "left_entity_ref": relationship.left_entity_ref,
+                "right_entity_ref": relationship.right_entity_ref,
+                "revision": relationship.revision,
+                "key_alignment": relationship.key_alignment,
+                "time_alignment": relationship.time_alignment,
+                "cardinality": relationship.cardinality,
+                "grain_compatibility": relationship.grain_compatibility,
+                "snapshot_effective_window_alignment": (
+                    relationship.snapshot_effective_window_alignment
+                ),
+            }
+            for relationship in resolved_inputs.resolved_relationships.values()
+        ],
         "metric_entity_anchor_ref": resolved_inputs.metric_entity_anchor_ref,
         "resolved_imported_dimensions": [
             {

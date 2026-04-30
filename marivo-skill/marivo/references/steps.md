@@ -27,7 +27,7 @@ Do not collapse these into one generic "run analysis and summarize it" surface.
 
 Use this default pattern:
 
-1. Resolve or discover the semantic metric or object you want.
+1. Resolve or discover the domain and semantic metric or object you want.
 2. Create a session (include `execution_identity` when engine auth requires it).
 3. Start with `detect` or `observe`.
 4. Read state after each meaningful branch point.
@@ -37,6 +37,8 @@ Use this default pattern:
 
 Practical heuristics:
 
+- use `/semantic/domains` and `/semantic/domain-objects` when the user names a business area but not the exact typed ref
+- remember that domains are discovery metadata only; they do not authorize access or prove compiler compatibility
 - start with `detect` when anomaly discovery is the first task
 - start with `observe` when you already know the metric and time window
 - for gradual degradation with known current and baseline windows, prefer `diagnose(mode="explicit_compare")`; do not force a z-score detector to invent a candidate first
@@ -146,13 +148,17 @@ Request rules:
 Grouped dimension rules:
 
 - each requested `dimension.*` must already be consumable by the metric
-- a metric can consume a requested `dimension.*` only if the dimension is in the metric's own dimension set, or the metric binding imports a matching published entity binding that exposes the dimension as `stable_descriptor -> dimension.*`
-- imported dimension bridge resolution is strict, single-hop, and limited to matching published entity bindings
+- a metric can consume a requested `dimension.*` when the metric's observed entity exposes that dimension as a stable descriptor
+- cross-entity dimension use requires explicit relationship/profile support; do not add metric-owned grounding to bridge it
+- when cross-entity support is missing, first search existing relationships/profiles by entity pair;
+  create a new `relationship.*` only for key/time/grain/snapshot alignment, then reference it from
+  `compiler_profile.*` if the metric/process needs explicit compile-time preconditions
+- if the dimension is backed by a missing source field, fix the referenced `entity.<entity>.field.<field>` or entity grounding before changing the metric
 
 Useful failure interpretation:
 
-- `COMPILER_DIMENSION_IMPORT_MISSING`: the metric does not currently expose a usable imported entity dimension bridge for that `dimension.*`
-- `COMPILER_DIMENSION_IMPORT_AMBIGUOUS`: multiple imported entity bindings expose the same `dimension.*`, so the compiler refuses to guess
+- `COMPILER_DIMENSION_IMPORT_MISSING`: legacy runtime still could not resolve a usable dimension bridge; prefer fixing the observed entity descriptor/profile path
+- `COMPILER_DIMENSION_IMPORT_AMBIGUOUS`: multiple legacy bridge paths expose the same `dimension.*`, so the compiler refuses to guess
 
 ## `detect` Request Guardrails
 
@@ -230,7 +236,10 @@ After creating or revising semantic objects, run one small typed intent before y
 Smoke-test guardrails:
 
 - for `observe`, use a contract-valid `result_mode` such as `standard` unless you explicitly need a sample-summary mode
-- if grouped `observe` fails, inspect whether the metric binding actually imports the requested `dimension.*` through a published entity binding
+- if grouped `observe` fails, inspect whether the observed entity exposes the requested `dimension.*` and whether any required relationship/profile is present
+- do not repair relationship/profile failures by adding SQL or generic rule fields; fix entity fields,
+  relationship alignment, or profile requirements instead
+- if failure metadata names type, grain, time, or governance blockers, fix the semantic contract or profile that owns that requirement; do not add physical grounding fields to the intent or metric
 - treat a successful resolve plus catalog readiness as necessary but not sufficient; the smoke test is what proves the evidence engine can consume the object graph
 
 For structured time-window rules and `422` repair flow, read `http-contracts.md` instead of expanding those rules here.

@@ -198,6 +198,12 @@ def test_semantic_create_tools_expose_authoring_models() -> None:
     assert "surface_ref" in defs["McpTimeSurface"]["required"]
     assert "date_surface_ref" in defs["McpTimeBinding"]["properties"]
 
+    binding_header_schema = TypeAdapter(binding_hints["header"]).json_schema()
+    binding_scope_schema = binding_header_schema["properties"]["binding_scope"]
+    assert binding_scope_schema["const"] == "entity"
+    assert "process_object" not in str(binding_scope_schema)
+    assert "metric" not in str(binding_scope_schema)
+
 
 def test_create_enum_set_rejects_common_header_typos() -> None:
     server = cast("Any", _FakeServer())

@@ -663,7 +663,7 @@ class DetectIntentEndpointTests(unittest.TestCase):
         detail = response.json()["detail"]
         self.assertEqual(detail["code"], "semantic_not_ready")
         self.assertEqual(detail["category"], "readiness")
-        self.assertEqual(detail["subject_ref"], "metric.http_detect_not_ready_metric")
+        self.assertEqual(detail["subject_ref"], "binding.http_detect_not_ready_metric_primary")
         self.assertEqual(detail["readiness_status"], "not_ready")
 
     def test_detect_ready_metric_with_auxiliary_binding_returns_200(self) -> None:

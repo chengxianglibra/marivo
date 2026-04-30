@@ -17,7 +17,7 @@ from app.semantic_runtime.resolution import RuntimeSemanticAvailability
 from app.semantic_runtime.semantic_metadata import runtime_ref_kind
 from app.storage.metadata import MetadataStore
 
-_SEARCH_CONFIG: dict[str, dict[str, str]] = {
+_SEARCH_CONFIG: dict[str, dict[str, str | None]] = {
     "entity": {
         "table": "semantic_entity_contracts",
         "id_column": "entity_contract_id",
@@ -53,6 +53,12 @@ _SEARCH_CONFIG: dict[str, dict[str, str]] = {
         "id_column": "binding_id",
         "ref_column": "binding_ref",
         "version_column": "binding_contract_version",
+    },
+    "relationship": {
+        "table": "semantic_entity_relationships",
+        "id_column": "relationship_id",
+        "ref_column": "relationship_ref",
+        "version_column": None,
     },
     "predicate": {
         "table": "semantic_predicate_contracts",
@@ -94,9 +100,9 @@ class CatalogRuntimeService:
                 SELECT
                     {config["id_column"]} AS object_id,
                     {config["ref_column"]} AS ref,
-                    display_name,
-                    description,
-                    {config["version_column"]} AS contract_version,
+                    COALESCE(display_name, {config["ref_column"]}) AS display_name,
+                    COALESCE(description, '') AS description,
+                    {config["version_column"] or "NULL"} AS contract_version,
                     status,
                     revision,
                     created_at,
@@ -523,6 +529,17 @@ class CatalogRuntimeService:
                 "id": node_id,
                 "type": "metric",
                 "name": str(row["metric_ref"]).removeprefix("metric."),
+                "display_name": row["display_name"],
+            }
+
+        row = self.metadata.query_one(
+            "SELECT * FROM semantic_entity_relationships WHERE relationship_id = ?", [node_id]
+        )
+        if row is not None:
+            return {
+                "id": node_id,
+                "type": "relationship",
+                "name": str(row["relationship_ref"]).removeprefix("relationship."),
                 "display_name": row["display_name"],
             }
 
