@@ -27,557 +27,76 @@ from pydantic import (
     ConfigDict,
     Field,
     field_validator,
-    model_serializer,
     model_validator,
 )
 
 from app.time_contracts import normalize_hour_boundary
 
 # =============================================================================
-# Source models
+# Datasource models
 # =============================================================================
 
 
-class SourceAuthorityPayload(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    catalog_system: Literal["duckdb", "trino"]
-    connection: dict[str, Any] = Field(default_factory=dict)
-    synthetic_catalog: str | None = None
-
-    @model_validator(mode="after")
-    def normalize_duckdb_catalog(self) -> SourceAuthorityPayload:
-        if self.catalog_system == "duckdb":
-            if self.synthetic_catalog is None:
-                self.synthetic_catalog = "main"
-            elif self.synthetic_catalog != "main":
-                raise ValueError("duckdb authority.synthetic_catalog must be 'main'")
-        elif self.synthetic_catalog is not None:
-            raise ValueError("synthetic_catalog is only supported for duckdb sources")
-        return self
-
-
-class SourceSyncPayload(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    mode: Literal["selected", "all", "none"] = "selected"
-
-
-class SourcePolicyPayload(BaseModel):
+class DatasourcePolicyPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     allow_live_browse: bool = True
     allow_sync: bool = True
+    allow_identity_reuse: bool = False
 
 
-class SourceRegisterRequest(BaseModel):
+class DatasourceRegisterRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    source_type: Literal["duckdb", "trino"]
-    display_name: str
-    authority: SourceAuthorityPayload
-    sync: SourceSyncPayload = Field(default_factory=SourceSyncPayload)
-    policy: SourcePolicyPayload = Field(default_factory=SourcePolicyPayload)
-
-    @model_validator(mode="after")
-    def validate_authority_catalog_system(self) -> SourceRegisterRequest:
-        if self.authority.catalog_system != self.source_type:
-            raise ValueError("authority.catalog_system must match source_type")
-        return self
-
-
-class SourceUpdateRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    display_name: str | None = None
-    authority: SourceAuthorityPayload | None = None
-    sync: SourceSyncPayload | None = None
-    policy: SourcePolicyPayload | None = None
-
-
-class SourceAuthorityResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    catalog_system: Literal["duckdb", "trino"] = Field(
-        description="Underlying metadata authority system type."
-    )
-    connection: dict[str, Any] = Field(
-        default_factory=dict,
-        description="Metadata authority connection parameters.",
-    )
-    synthetic_catalog: str | None = Field(
-        default=None,
-        description="Stable logical catalog name when the source lacks a native catalog layer.",
-    )
-
-
-class SourceSyncResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    mode: Literal["selected", "all", "none"] = Field(description="Metadata sync scope policy.")
-
-
-class SourceIntrinsicCapabilitiesResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    supports_partitions: bool = Field(
-        description="Whether the source adapter can enumerate partition metadata."
-    )
-
-
-class SourcePolicyResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    allow_live_browse: bool = Field(
-        description="Whether operator policy allows live catalog browse."
-    )
-    allow_sync: bool = Field(description="Whether operator policy allows sync jobs.")
-
-
-class SourceMappingSummaryResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    mapping_id: str = Field(description="Stable mapping identifier.")
-    engine_id: str = Field(description="Execution engine targeted by this mapping.")
-    status: Literal["active", "inactive", "deprecated"] = Field(
-        description="Operator lifecycle status for the mapping."
-    )
-    readiness_status: Literal["not_ready", "ready"] = Field(
-        description="Derived readiness status for the mapping."
-    )
-    failure_code: str | None = Field(
-        default=None,
-        description="Stable blocker code when the mapping is not ready.",
-    )
-    catalog_mappings: list[MappingCatalogEntryResponse] = Field(
-        default_factory=list,
-        description="Authority-to-execution catalog projection entries owned by the mapping.",
-    )
-
-
-class SourceResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    source_id: str = Field(description="Stable source identifier.")
-    source_type: Literal["duckdb", "trino"] = Field(description="Metadata authority adapter type.")
-    display_name: str = Field(description="Human-readable source name.")
-    authority: SourceAuthorityResponse = Field(description="Metadata authority contract.")
-    sync: SourceSyncResponse = Field(description="Metadata sync policy.")
-    intrinsic_capabilities: SourceIntrinsicCapabilitiesResponse = Field(
-        description="Read-only source implementation capabilities."
-    )
-    policy: SourcePolicyResponse = Field(description="Operator control-plane policy.")
-    status: Literal["active", "inactive", "deprecated"] = Field(
-        description="Operator lifecycle status for the source."
-    )
-    readiness_status: Literal["not_ready", "ready"] = Field(
-        description="Derived readiness status based on source validation."
-    )
-    failure_code: str | None = Field(
-        default=None,
-        description="Stable blocker code when the source is not ready.",
-    )
-    mappings: list[SourceMappingSummaryResponse] = Field(
-        default_factory=list,
-        description="Mappings currently registered for this source.",
-    )
-    created_at: str = Field(description="Creation timestamp (ISO-8601).")
-    updated_at: str = Field(description="Last update timestamp (ISO-8601).")
-
-
-class ColumnPropertiesUpdateRequest(BaseModel):
-    unit: str | None = None
-
-
-# =============================================================================
-# Engine models
-# =============================================================================
-
-
-class EngineDefaultNamespacePayload(BaseModel):
-    model_config = ConfigDict(extra="forbid", populate_by_name=True)
-
-    catalog: str | None = None
-    schema_name: str | None = Field(default=None, alias="schema")
-
-
-class EngineDeploymentCapabilitiesPayload(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    supported_step_types: list[str] = Field(default_factory=list)
-    min_staleness_minutes: int | None = None
-
-
-class EnginePolicyPayload(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    allowed_step_types: list[str] = Field(default_factory=list)
-    required_policy_support: list[str] = Field(default_factory=list)
-
-
-class EngineAuthPayload(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    mode: Literal["none", "username_only"] = "none"
-    username_source: Literal["session_user", "fixed"] | None = None
-    fallback_username: str | None = None
-
-    @field_validator("fallback_username")
-    @classmethod
-    def trim_optional_fallback_username(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        normalized = value.strip()
-        if not normalized:
-            raise ValueError("engine_auth_invalid: fallback_username must not be blank")
-        return normalized
-
-    @model_validator(mode="after")
-    def validate_auth_contract(self) -> EngineAuthPayload:
-        if self.mode == "none":
-            if self.username_source is not None or self.fallback_username is not None:
-                raise ValueError(
-                    "engine_auth_invalid: mode='none' does not allow username_source "
-                    "or fallback_username"
-                )
-            return self
-        if self.username_source is None:
-            raise ValueError(
-                "engine_auth_invalid: username_source is required when mode='username_only'"
-            )
-        if self.username_source == "fixed" and self.fallback_username is None:
-            raise ValueError(
-                "engine_auth_invalid: fixed username_source requires fallback_username"
-            )
-        return self
-
-    @model_serializer(mode="plain")
-    def serialize_non_default_fields(self) -> dict[str, Any]:
-        payload: dict[str, Any] = {"mode": self.mode}
-        if self.mode != "none":
-            if self.username_source is not None:
-                payload["username_source"] = self.username_source
-            if self.fallback_username is not None:
-                payload["fallback_username"] = self.fallback_username
-        return payload
-
-
-class EngineRegisterRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    engine_type: Literal["duckdb", "trino"]
+    datasource_type: Literal["duckdb", "trino"]
     display_name: str
     connection: dict[str, Any] = Field(default_factory=dict)
-    auth: EngineAuthPayload = Field(default_factory=EngineAuthPayload)
-    default_namespace: EngineDefaultNamespacePayload | None = None
-    deployment_capabilities: EngineDeploymentCapabilitiesPayload = Field(
-        default_factory=EngineDeploymentCapabilitiesPayload
-    )
-    policy: EnginePolicyPayload = Field(default_factory=EnginePolicyPayload)
-
-    @model_validator(mode="after")
-    def validate_engine_defaults(self) -> EngineRegisterRequest:
-        if self.engine_type == "duckdb":
-            namespace = self.default_namespace
-            if namespace is not None and (
-                namespace.catalog is not None or namespace.schema_name is not None
-            ):
-                raise ValueError("duckdb default_namespace must be null for catalog and schema")
-            if self.auth.mode != "none":
-                raise ValueError("engine_auth_unsupported: duckdb only supports auth.mode='none'")
-        return self
+    sync_mode: Literal["selected", "all", "none"] = "selected"
+    policy: DatasourcePolicyPayload = Field(default_factory=DatasourcePolicyPayload)
 
 
-class EngineUpdateRequest(BaseModel):
+class DatasourceUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     display_name: str | None = None
     connection: dict[str, Any] | None = None
-    auth: EngineAuthPayload | None = None
-    default_namespace: EngineDefaultNamespacePayload | None = None
-    deployment_capabilities: EngineDeploymentCapabilitiesPayload | None = None
-    policy: EnginePolicyPayload | None = None
+    sync_mode: Literal["selected", "all", "none"] | None = None
+    policy: DatasourcePolicyPayload | None = None
 
 
-class EngineDefaultNamespaceResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid", populate_by_name=True)
-
-    catalog: str | None = Field(
-        default=None,
-        description="Engine-local default catalog fallback.",
-    )
-    schema_name: str | None = Field(
-        default=None,
-        alias="schema",
-        description="Engine-local default schema fallback.",
-    )
-
-
-class EngineIntrinsicCapabilitiesResponse(BaseModel):
+class DatasourcePolicyResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    materialization_support: str = Field(
-        description="Built-in materialization mode exposed by the engine implementation."
-    )
-    performance_class: str = Field(description="Built-in execution performance class.")
-    federation_support: str = Field(
-        description="Built-in federation mode exposed by the engine implementation."
-    )
+    allow_live_browse: bool = True
+    allow_sync: bool = True
+    allow_identity_reuse: bool = False
 
 
-class EngineDeploymentCapabilitiesResponse(BaseModel):
+class DatasourceResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    supported_step_types: list[str] = Field(
-        default_factory=list,
-        description="Deployment-specific allowed step types when explicitly overridden.",
-    )
-    min_staleness_minutes: int | None = Field(
-        default=None,
-        description="Deployment-specific freshness floor in minutes.",
-    )
-
-    @model_serializer(mode="plain")
-    def serialize_non_default_fields(self) -> dict[str, Any]:
-        payload: dict[str, Any] = {}
-        if self.supported_step_types:
-            payload["supported_step_types"] = self.supported_step_types
-        if self.min_staleness_minutes is not None:
-            payload["min_staleness_minutes"] = self.min_staleness_minutes
-        return payload
-
-
-class EnginePolicyResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    allowed_step_types: list[str] = Field(
-        default_factory=list,
-        description="Operator-allowed step types for this engine.",
-    )
-    required_policy_support: list[str] = Field(
-        default_factory=list,
-        description="Policy capabilities required before this engine may be selected.",
-    )
-
-
-class EngineAuthResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    mode: Literal["none", "username_only"] = Field(
-        description="Execution auth mode for this engine."
-    )
-    username_source: Literal["session_user", "fixed"] | None = Field(
-        default=None,
-        description="Username resolution source when username injection is enabled.",
-    )
-    fallback_username: str | None = Field(
-        default=None,
-        description="Fallback username used when runtime session user is absent.",
-    )
-
-    @model_serializer(mode="plain")
-    def serialize_non_default_fields(self) -> dict[str, Any]:
-        payload: dict[str, Any] = {"mode": self.mode}
-        if self.mode != "none":
-            if self.username_source is not None:
-                payload["username_source"] = self.username_source
-            if self.fallback_username is not None:
-                payload["fallback_username"] = self.fallback_username
-        return payload
-
-
-class EngineMappingSummaryResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    mapping_id: str = Field(description="Stable mapping identifier.")
-    source_id: str = Field(description="Source governed by this mapping.")
-    status: Literal["active", "inactive", "deprecated"] = Field(
-        description="Operator lifecycle status for the mapping."
-    )
-    readiness_status: Literal["not_ready", "ready"] = Field(
-        description="Derived readiness status for the mapping."
-    )
-    failure_code: str | None = Field(
-        default=None,
-        description="Stable blocker code when the mapping is not ready.",
-    )
-    catalog_mappings: list[MappingCatalogEntryResponse] = Field(
-        default_factory=list,
-        description="Authority-to-execution catalog projection entries owned by the mapping.",
-    )
-
-
-class EngineResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    engine_id: str = Field(description="Stable engine identifier.")
-    engine_type: Literal["duckdb", "trino"] = Field(description="Execution engine type.")
-    display_name: str = Field(description="Human-readable engine name.")
-    connection: dict[str, Any] = Field(
-        default_factory=dict,
-        description="Execution engine connection parameters.",
-    )
-    auth: EngineAuthResponse = Field(description="Execution auth contract for this engine.")
-    default_namespace: EngineDefaultNamespaceResponse = Field(
-        description="Engine-local default namespace fallback."
-    )
-    intrinsic_capabilities: EngineIntrinsicCapabilitiesResponse = Field(
-        description="Read-only engine implementation capabilities."
-    )
-    deployment_capabilities: EngineDeploymentCapabilitiesResponse = Field(
-        description="Deployment-scoped engine capability overrides."
-    )
-    policy: EnginePolicyResponse = Field(description="Operator control-plane policy.")
-    status: Literal["active", "inactive", "deprecated"] = Field(
-        description="Operator lifecycle status for the engine."
-    )
-    readiness_status: Literal["not_ready", "ready"] = Field(
-        description="Derived readiness status based on engine validation."
-    )
-    failure_code: str | None = Field(
-        default=None,
-        description="Stable blocker code when the engine is not ready.",
-    )
-    mappings: list[EngineMappingSummaryResponse] = Field(
-        default_factory=list,
-        description="Mappings currently targeting this engine.",
-    )
-    created_at: str = Field(description="Creation timestamp (ISO-8601).")
-    updated_at: str = Field(description="Last update timestamp (ISO-8601).")
-
-
-# =============================================================================
-# Mapping models
-# =============================================================================
-
-
-class MappingCatalogEntryPayload(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    authority_catalog: str
-    execution_catalog: str
-    default_schema: str | None = None
-
-    @field_validator("authority_catalog", "execution_catalog")
-    @classmethod
-    def validate_required_catalog_fields(cls, value: str) -> str:
-        normalized = value.strip()
-        if not normalized:
-            raise ValueError("mapping catalog fields must not be blank")
-        return normalized
-
-    @field_validator("default_schema")
-    @classmethod
-    def validate_default_schema(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        normalized = value.strip()
-        if not normalized:
-            raise ValueError("default_schema must not be blank")
-        return normalized
-
-
-class MappingCatalogEntryResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    authority_catalog: str = Field(
-        description="Authority-side catalog name frozen in source metadata."
-    )
-    execution_catalog: str = Field(description="Execution-side catalog projected by the mapping.")
-    default_schema: str | None = Field(
-        default=None,
-        description="Fallback schema to apply only when the authority locator omits schema.",
-    )
-
-
-class MappingCreateRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    source_id: str
-    engine_id: str
-    priority: int = 0
-    catalog_mappings: list[MappingCatalogEntryPayload] = Field(default_factory=list)
+    datasource_id: str
+    datasource_type: Literal["duckdb", "trino"]
+    display_name: str
+    connection: dict[str, Any] = Field(default_factory=dict)
+    sync_mode: str = "selected"
+    policy: DatasourcePolicyResponse
     status: Literal["active", "inactive", "deprecated"] = "active"
+    readiness_status: Literal["not_ready", "ready"] = "not_ready"
+    failure_code: str | None = None
+    created_at: str = ""
+    updated_at: str = ""
 
-    @model_validator(mode="after")
-    def validate_catalog_mappings(self) -> MappingCreateRequest:
-        _validate_unique_authority_catalogs(self.catalog_mappings)
-        return self
 
-
-class MappingUpdateRequest(BaseModel):
+class DatasourceDeleteResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    priority: int | None = None
-    catalog_mappings: list[MappingCatalogEntryPayload] | None = None
-    status: Literal["active", "inactive", "deprecated"] | None = None
-
-    @model_validator(mode="after")
-    def validate_catalog_mappings(self) -> MappingUpdateRequest:
-        if self.catalog_mappings is not None:
-            _validate_unique_authority_catalogs(self.catalog_mappings)
-        return self
+    datasource_id: str
+    deleted: bool = True
 
 
-class MappingResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    mapping_id: str = Field(description="Stable mapping identifier.")
-    source_id: str = Field(description="Source governed by this mapping.")
-    engine_id: str = Field(description="Execution engine targeted by this mapping.")
-    priority: int = Field(
-        description="Routing priority. Higher values win among otherwise eligible mappings."
-    )
-    catalog_mappings: list[MappingCatalogEntryResponse] = Field(
-        default_factory=list,
-        description="Explicit authority-to-execution catalog projection entries.",
-    )
-    status: Literal["active", "inactive", "deprecated"] = Field(
-        description="Operator lifecycle status for the mapping."
-    )
-    readiness_status: Literal["not_ready", "ready"] = Field(
-        description="Derived readiness status based on dependency and catalog validation."
-    )
-    failure_code: str | None = Field(
-        default=None,
-        description="Stable blocker code when the mapping is not ready.",
-    )
-    created_at: str = Field(description="Creation timestamp (ISO-8601).")
-    updated_at: str = Field(description="Last update timestamp (ISO-8601).")
-
-
-class MappingDeleteResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    status: Literal["deleted"] = Field(description="Deletion status.")
-    mapping_id: str = Field(description="Deleted mapping identifier.")
-
-
-class EngineDeleteResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    status: Literal["deleted"] = Field(description="Deletion status.")
-    engine_id: str = Field(description="Deleted engine identifier.")
-
-
-def _validate_unique_authority_catalogs(
-    catalog_mappings: list[MappingCatalogEntryPayload],
-) -> None:
-    seen_authority_catalogs: set[str] = set()
-    for entry in catalog_mappings:
-        if entry.authority_catalog in seen_authority_catalogs:
-            raise ValueError(
-                f"catalog_mappings contains duplicate authority_catalog: {entry.authority_catalog}"
-            )
-        seen_authority_catalogs.add(entry.authority_catalog)
-
-
-SourceResponse.model_rebuild()
-EngineResponse.model_rebuild()
-SourceRegisterRequest.model_rebuild()
-SourceUpdateRequest.model_rebuild()
-EngineRegisterRequest.model_rebuild()
-EngineUpdateRequest.model_rebuild()
+class ColumnPropertiesUpdateRequest(BaseModel):
+    unit: str | None = None
 
 
 # =============================================================================
@@ -602,9 +121,9 @@ class RouteResolveRequest(BaseModel):
 class RouteEngineResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    engine_id: str = Field(description="Resolved execution engine identifier.")
-    engine_type: str = Field(description="Resolved execution engine type.")
-    display_name: str = Field(description="Resolved execution engine display name.")
+    datasource_id: str = Field(description="Resolved execution datasource identifier.")
+    datasource_type: str = Field(description="Resolved execution datasource type.")
+    display_name: str = Field(description="Resolved execution datasource display name.")
 
 
 class RouteCapabilityProfileResponse(BaseModel):
