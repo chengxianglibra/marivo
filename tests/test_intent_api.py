@@ -245,43 +245,17 @@ def _register_duckdb_runtime(
     *,
     db_path: Path,
     source_display_name: str,
-    engine_display_name: str,
+    engine_display_name: str | None = None,
 ) -> str:
-    source = client.post(
-        "/sources",
+    datasource = client.post(
+        "/datasources",
         json={
-            "source_type": "duckdb",
+            "datasource_type": "duckdb",
             "display_name": source_display_name,
-            "authority": {
-                "catalog_system": "duckdb",
-                "connection": {"path": str(db_path)},
-                "synthetic_catalog": "main",
-            },
+            "connection": {"path": str(db_path)},
         },
     ).json()
-    engine = client.post(
-        "/engines",
-        json={
-            "engine_type": "duckdb",
-            "display_name": engine_display_name,
-            "connection": {"database": str(db_path)},
-        },
-    ).json()
-    client.post(
-        "/mappings",
-        json={
-            "source_id": source["source_id"],
-            "engine_id": engine["engine_id"],
-            "priority": 0,
-            "catalog_mappings": [
-                {
-                    "authority_catalog": "main",
-                    "execution_catalog": "main",
-                }
-            ],
-        },
-    )
-    return str(source["source_id"])
+    return str(datasource["datasource_id"])
 
 
 def _ensure_source_object(
@@ -293,25 +267,21 @@ def _ensure_source_object(
     now: str = "2026-01-01T00:00:00",
 ) -> str:
     fqn_parts = [part for part in fqn.split(".") if part]
-    source_row = metadata.query_one(
-        "SELECT authority_json FROM sources WHERE source_id = ?", [source_id]
+    datasource_row = metadata.query_one(
+        "SELECT connection_json FROM datasources WHERE datasource_id = ?", [source_id]
     )
     catalog: str | None = None
     if len(fqn_parts) >= 3:
         catalog = fqn_parts[-3]
-    elif source_row is not None:
-        authority = json.loads(str(source_row["authority_json"]))
-        if isinstance(authority, dict):
-            synthetic_catalog = authority.get("synthetic_catalog")
-            if isinstance(synthetic_catalog, str) and synthetic_catalog:
-                catalog = synthetic_catalog
+    elif datasource_row is not None:
+        catalog = "main"
     authority_locator = {
         "catalog": catalog,
         "schema": fqn_parts[-2] if len(fqn_parts) >= 2 else None,
         "table": fqn_parts[-1] if fqn_parts else None,
     }
     existing = metadata.query_one(
-        "SELECT object_id FROM source_objects WHERE source_id = ? AND fqn = ?",
+        "SELECT object_id FROM source_objects WHERE datasource_id = ? AND fqn = ?",
         [source_id, fqn],
     )
     if existing is not None:
@@ -325,7 +295,7 @@ def _ensure_source_object(
             """
             SELECT object_id
             FROM source_objects
-            WHERE source_id = ? AND object_type = 'schema' AND fqn = ?
+            WHERE datasource_id = ? AND object_type = 'schema' AND fqn = ?
             """,
             [source_id, schema_fqn],
         )
@@ -336,7 +306,7 @@ def _ensure_source_object(
             metadata.execute(
                 """
                 INSERT INTO source_objects
-                    (object_id, source_id, object_type, native_name, fqn,
+                    (object_id, datasource_id, object_type, native_name, fqn,
                      authority_locator_json, properties_json, created_at, updated_at)
                 VALUES (?, ?, 'schema', ?, ?, ?, '{}', ?, ?)
                 """,
@@ -360,7 +330,7 @@ def _ensure_source_object(
     metadata.execute(
         """
         INSERT INTO source_objects
-            (object_id, source_id, object_type, parent_id, native_name, fqn,
+            (object_id, datasource_id, object_type, parent_id, native_name, fqn,
              authority_locator_json, properties_json, created_at, updated_at)
         VALUES (?, ?, 'table', ?, ?, ?, ?, '{}', ?, ?)
         """,
@@ -549,34 +519,6 @@ class _ObserveIntentTestCase:
             file=sys.stderr,
         )
         metadata = svc.metadata
-        # Find the test class's engine (points to the temp DuckDB with calendar data).
-        engine_row = metadata.query_one(
-            "SELECT engine_id FROM engines WHERE display_name = ?",
-            [f"{cls.__name__} Engine"],
-        )
-        if engine_row is None:
-            return
-        engine_id = str(engine_row["engine_id"])
-        # Remove any existing mappings for the calendar source and rebind to the test engine.
-        metadata.execute(
-            "DELETE FROM source_execution_mappings WHERE source_id = ?",
-            ["src_test_calendar_duckdb"],
-        )
-        metadata.execute(
-            """
-            INSERT INTO source_execution_mappings
-                (mapping_id, source_id, engine_id, priority, catalog_mappings_json, status, created_at, updated_at)
-            VALUES (?, ?, ?, 0, ?, 'active', ?, ?)
-            """,
-            [
-                "map_test_calendar",
-                "src_test_calendar_duckdb",
-                engine_id,
-                '[{"authority_catalog":"main","execution_catalog":"main"}]',
-                "2026-04-18T00:00:00+00:00",
-                "2026-04-18T00:00:00+00:00",
-            ],
-        )
         from app.config import CalendarConfig
 
         svc.config.calendar = CalendarConfig(
@@ -1477,8 +1419,9 @@ class ObserveIntentPreflightFailureEndpointTests(
 
     def test_observe_mapping_preflight_failure_returns_routing_detail(self) -> None:
         metadata = self.client.app.state.service.metadata
+        # Make datasource inactive to cause routing failure
         metadata.execute(
-            "DELETE FROM source_execution_mappings WHERE source_id = ?",
+            "UPDATE datasources SET status = 'inactive' WHERE datasource_id = ?",
             [self.source_id],
         )
         try:
@@ -1494,34 +1437,9 @@ class ObserveIntentPreflightFailureEndpointTests(
                 },
             )
         finally:
-            engine_row = metadata.query_one(
-                "SELECT engine_id FROM engines ORDER BY created_at LIMIT 1",
-            )
-            assert engine_row is not None
-            now = "2026-01-01T00:00:00+00:00"
             metadata.execute(
-                """
-                INSERT INTO source_execution_mappings
-                    (mapping_id, source_id, engine_id, priority, catalog_mappings_json, status, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                [
-                    "map_observe_semantic_runtime",
-                    self.source_id,
-                    str(engine_row["engine_id"]),
-                    0,
-                    json.dumps(
-                        [
-                            {
-                                "authority_catalog": "main",
-                                "execution_catalog": "main",
-                            }
-                        ]
-                    ),
-                    "active",
-                    now,
-                    now,
-                ],
+                "UPDATE datasources SET status = 'active' WHERE datasource_id = ?",
+                [self.source_id],
             )
 
         self.assertEqual(response.status_code, 409, response.text)
@@ -1539,11 +1457,11 @@ class ObserveIntentPreflightFailureEndpointTests(
         if routing_detail:
             self.assertEqual(
                 routing_detail["resolution_status"],
-                "no_active_mappings",
+                "datasource_not_ready",
             )
         blockers = candidate.get("readiness_blockers") or []
         if blockers:
-            self.assertEqual(blockers[0]["failure_code"], "mapping_missing")
+            self.assertEqual(blockers[0]["failure_code"], "datasource_inactive")
 
 
 class ObserveIntentCompatibilityEndpointTests(
@@ -2053,48 +1971,17 @@ class IntentEndpointWithSemanticLayerTests(unittest.TestCase):
 
     @classmethod
     def _setup_semantic_layer(cls) -> None:
-        """Register a source, engine, binding, and semantic metric so observe can execute."""
-        # Register source
+        """Register a datasource and semantic metric so observe can execute."""
+        # Register datasource
         r = cls.client.post(
-            "/sources",
+            "/datasources",
             json={
-                "source_type": "duckdb",
-                "display_name": "Test DuckDB",
-                "authority": {
-                    "catalog_system": "duckdb",
-                    "connection": {"database": ":memory:"},
-                    "synthetic_catalog": "main",
-                },
+                "datasource_type": "duckdb",
+                "display_name": "Test DuckDB DS",
+                "connection": {"path": ":memory:"},
             },
         )
-        cls.source_id = r.json()["source_id"]
-
-        # Register engine
-        r = cls.client.post(
-            "/engines",
-            json={
-                "engine_type": "duckdb",
-                "display_name": "Test DuckDB Engine",
-                "connection": {"database": ":memory:"},
-            },
-        )
-        cls.engine_id = r.json()["engine_id"]
-
-        # Create mapping
-        cls.client.post(
-            "/mappings",
-            json={
-                "source_id": cls.source_id,
-                "engine_id": cls.engine_id,
-                "priority": 0,
-                "catalog_mappings": [
-                    {
-                        "authority_catalog": "main",
-                        "execution_catalog": "main",
-                    }
-                ],
-            },
-        )
+        cls.source_id = r.json()["datasource_id"]
 
         # Create a semantic metric (uses watch_events table from demo data)
         metric = create_typed_metric(

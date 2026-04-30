@@ -81,18 +81,17 @@ class ReadinessEvaluationContextTests(unittest.TestCase):
             metadata.initialize()
             metadata.execute(
                 """
-                INSERT INTO sources (
-                    source_id, source_type, display_name, authority_json, sync_mode,
-                    intrinsic_capabilities_json, policy_json, status, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO datasources (
+                    datasource_id, datasource_type, display_name, connection_json, sync_mode,
+                    policy_json, status, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
-                    "src_123",
+                    "ds_123",
                     "duckdb",
-                    "Readiness Source",
+                    "Readiness Datasource",
                     "{}",
                     "selected",
-                    "{}",
                     "{}",
                     "active",
                     "2026-01-01T00:00:00+00:00",
@@ -102,14 +101,14 @@ class ReadinessEvaluationContextTests(unittest.TestCase):
             metadata.execute(
                 """
                 INSERT INTO source_objects (
-                    object_id, source_id, object_type, parent_id, native_name, native_id, fqn,
+                    object_id, datasource_id, object_type, parent_id, native_name, native_id, fqn,
                     authority_locator_json, properties_json, sync_version, synced_at,
                     created_at, updated_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     "obj_table",
-                    "src_123",
+                    "ds_123",
                     "table",
                     None,
                     "metric_fact",
@@ -126,14 +125,14 @@ class ReadinessEvaluationContextTests(unittest.TestCase):
             metadata.execute(
                 """
                 INSERT INTO source_objects (
-                    object_id, source_id, object_type, parent_id, native_name, native_id, fqn,
+                    object_id, datasource_id, object_type, parent_id, native_name, native_id, fqn,
                     authority_locator_json, properties_json, sync_version, synced_at,
                     created_at, updated_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     "obj_column",
-                    "src_123",
+                    "ds_123",
                     "column",
                     "obj_table",
                     "create_time",

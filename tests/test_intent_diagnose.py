@@ -35,7 +35,6 @@ from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
 from app.storage.sqlite_metadata import SQLiteMetadataStore
 from tests.semantic_test_helpers import (
     build_semantic_layer_service,
-    ensure_active_duckdb_mapping,
     ensure_published_typed_metric,
     ensure_published_typed_metric_binding,
     seed_duckdb_source_object,
@@ -83,7 +82,7 @@ def _seed_diag_table(db_path: Path) -> None:
     get_named_seeded_duckdb_path(db_path, "diagnose_intent")
 
 
-def _seed_metadata(meta: SQLiteMetadataStore) -> None:
+def _seed_metadata(meta: SQLiteMetadataStore, db_path: str | Path) -> None:
     """Insert minimal metadata so diagnose can resolve metric → table."""
     now = datetime.now(UTC).isoformat()
     src_id = "src_diagtest01"
@@ -99,6 +98,7 @@ def _seed_metadata(meta: SQLiteMetadataStore) -> None:
         table_name="diag_events",
         table_fqn="analytics.diag_events",
         now=now,
+        db_path=db_path,
     )
     ensure_published_typed_metric(
         meta,
@@ -117,7 +117,7 @@ def _seed_metadata(meta: SQLiteMetadataStore) -> None:
         surface_name="value",
         dimension_names=["event_date", "channel"],
     )
-    ensure_active_duckdb_mapping(meta, source_id=src_id, now=now)
+    # Datasource IS the engine; no separate mapping needed
 
 
 # ── Direct service tests ───────────────────────────────────────────────────────
@@ -135,7 +135,7 @@ class DiagnoseRunnerServiceTests(unittest.TestCase):
         cls.metadata = SQLiteMetadataStore(str(meta_path))
         cls.metadata.initialize()
         cls.analytics.initialize()
-        _seed_metadata(cls.metadata)
+        _seed_metadata(cls.metadata, db_path)
 
         cls.service = build_semantic_layer_service(cls.metadata, cls.analytics)
         cls.full_session_id = cls.service.create_session("diag full test", {}, {}, {})["session_id"]
@@ -454,7 +454,7 @@ class DiagnoseHTTPTests(unittest.TestCase):
         metadata = SQLiteMetadataStore(str(meta_path))
         metadata.initialize()
         analytics.initialize()
-        _seed_metadata(metadata)
+        _seed_metadata(metadata, db_path)
 
         app = create_app(metadata_store=metadata, analytics_engine=analytics)
         cls.client = TestClient(app)
@@ -527,7 +527,7 @@ class DiagnoseValidationBoundaryTests(unittest.TestCase):
         metadata = SQLiteMetadataStore(str(meta_path))
         metadata.initialize()
         analytics.initialize()
-        _seed_metadata(metadata)
+        _seed_metadata(metadata, db_path)
 
         cls.service = build_semantic_layer_service(metadata, analytics)
         cls.dedup_split_bundle = cls.service.run_intent(

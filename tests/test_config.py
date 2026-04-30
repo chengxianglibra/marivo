@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from app.api.app_factory import create_app
 from app.config import MarivoConfig, load_config
-from app.sources import SourceService
+from app.datasources import DatasourceService
 from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
 from app.storage.sqlite_metadata import SQLiteMetadataStore
 from tests.shared_fixtures import get_seeded_duckdb_path
@@ -193,115 +193,96 @@ class LoadConfigTests(unittest.TestCase):
         self.assertTrue(cfg.governance.enabled)
 
 
-class EnsureSourceTests(unittest.TestCase):
+class EnsureDatasourceTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
         meta_path = Path(self.temp_dir.name) / "meta.sqlite"
         self.metadata = SQLiteMetadataStore(meta_path)
         self.metadata.initialize()
-        self.source_service = SourceService(self.metadata)
+        self.datasource_service = DatasourceService(self.metadata)
 
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
 
-    def test_ensure_source_creates_new(self) -> None:
-        source = self.source_service.ensure_source(
-            "duckdb", "My Source", {"synthetic_catalog": "main"}
+    def test_ensure_datasource_creates_new(self) -> None:
+        ds = self.datasource_service.ensure_datasource(
+            "duckdb", "My DS", {"path": "/tmp/test.duckdb"}
         )
-        self.assertEqual(source["display_name"], "My Source")
-        self.assertEqual(source["source_type"], "duckdb")
-        self.assertTrue(source["source_id"].startswith("src_"))
-        self.assertEqual(source["readiness_status"], "not_ready")
-        self.assertEqual(source["failure_code"], "source_invalid_connection")
+        self.assertEqual(ds["display_name"], "My DS")
+        self.assertEqual(ds["datasource_type"], "duckdb")
+        self.assertTrue(ds["datasource_id"].startswith("ds_"))
 
-    def test_register_source_rejects_unsupported_type(self) -> None:
-        with self.assertRaisesRegex(ValueError, "Unsupported source type"):
-            self.source_service.register_source("mysql", "Unsupported Source", {})
+    def test_register_datasource_rejects_unsupported_type(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Unsupported datasource type"):
+            self.datasource_service.register_datasource("mysql", "Unsupported DS", {})
 
-    def test_ensure_source_idempotent(self) -> None:
-        s1 = self.source_service.ensure_source("duckdb", "Same Name", {"synthetic_catalog": "main"})
-        s2 = self.source_service.ensure_source("duckdb", "Same Name", {"synthetic_catalog": "main"})
-        self.assertEqual(s1["source_id"], s2["source_id"])
-        sources = self.source_service.list_sources()
-        matching = [s for s in sources if s["display_name"] == "Same Name"]
+    def test_ensure_datasource_idempotent(self) -> None:
+        ds1 = self.datasource_service.ensure_datasource(
+            "duckdb", "Same Name", {"path": "/tmp/test.duckdb"}
+        )
+        ds2 = self.datasource_service.ensure_datasource(
+            "duckdb", "Same Name", {"path": "/tmp/test.duckdb"}
+        )
+        self.assertEqual(ds1["datasource_id"], ds2["datasource_id"])
+        datasources = self.datasource_service.list_datasources()
+        matching = [d for d in datasources if d["display_name"] == "Same Name"]
         self.assertEqual(len(matching), 1)
 
-    def test_ensure_source_updates_existing_source_type(self) -> None:
-        existing = self.source_service.register_source(
+    def test_ensure_datasource_updates_existing(self) -> None:
+        existing = self.datasource_service.register_datasource(
             "duckdb",
             "Local Demo",
-            {"path": "/tmp/old.duckdb", "synthetic_catalog": "main"},
+            {"path": "/tmp/old.duckdb"},
         )
 
-        updated = self.source_service.ensure_source(
+        updated = self.datasource_service.ensure_datasource(
             "trino",
             "Local Demo",
-            {"catalog_system": "trino", "connection": {"host": "trino.local"}},
-            sync={"mode": "selected"},
+            {"host": "trino.local"},
+            sync_mode="selected",
         )
 
-        self.assertEqual(updated["source_id"], existing["source_id"])
-        self.assertEqual(updated["source_type"], "trino")
-        self.assertEqual(updated["authority"]["connection"]["host"], "trino.local")
-        self.assertEqual(updated["sync"]["mode"], "selected")
-        persisted = self.source_service.get_source(existing["source_id"])
-        self.assertEqual(persisted["source_type"], "trino")
+        self.assertEqual(updated["datasource_id"], existing["datasource_id"])
+        self.assertEqual(updated["datasource_type"], "trino")
+        self.assertEqual(updated["connection"]["host"], "trino.local")
+        self.assertEqual(updated["sync_mode"], "selected")
+        persisted = self.datasource_service.get_datasource(existing["datasource_id"])
+        self.assertEqual(persisted["datasource_type"], "trino")
 
-    def test_update_source_rejects_synthetic_catalog_rewrite(self) -> None:
-        source = self.source_service.register_source(
-            "duckdb", "Immutable Catalog", {"synthetic_catalog": "main"}
-        )
+    def test_ensure_datasource_rejects_unsupported_type(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Unsupported datasource type"):
+            self.datasource_service.ensure_datasource("mysql", "Unsupported DS", {})
 
-        with self.assertRaisesRegex(ValueError, "synthetic_catalog is immutable"):
-            self.source_service.update_source(
-                source["source_id"],
-                authority={
-                    "catalog_system": "duckdb",
-                    "connection": {"path": "/tmp/new.duckdb"},
-                    "synthetic_catalog": "alt",
-                },
-            )
+    def test_validate_datasource_reports_invalid_connection(self) -> None:
+        ds = self.datasource_service.register_datasource("duckdb", "Unconfigured DuckDB", {})
 
-    def test_ensure_source_rejects_unsupported_type(self) -> None:
-        with self.assertRaisesRegex(ValueError, "Unsupported source type"):
-            self.source_service.ensure_source("mysql", "Unsupported Source", {})
-
-    def test_validate_source_reports_invalid_connection(self) -> None:
-        source = self.source_service.register_source(
-            "duckdb", "Unconfigured DuckDB", {"synthetic_catalog": "main"}
-        )
-
-        validation = self.source_service.validate_source(source["source_id"])
+        validation = self.datasource_service.validate_datasource(ds["datasource_id"])
 
         self.assertEqual(
             validation,
             {
-                "source_id": source["source_id"],
+                "datasource_id": ds["datasource_id"],
                 "is_valid": False,
                 "readiness_status": "not_ready",
-                "failure_code": "source_invalid_connection",
+                "failure_code": "datasource_invalid_connection",
             },
         )
 
-    def test_get_source_readiness_reports_ready_source(self) -> None:
-        db_path = Path(self.temp_dir.name) / "ready-source.duckdb"
+    def test_get_datasource_readiness_reports_ready_datasource(self) -> None:
+        db_path = Path(self.temp_dir.name) / "ready-ds.duckdb"
         get_seeded_duckdb_path(db_path)
-        source = self.source_service.register_source(
+        ds = self.datasource_service.register_datasource(
             "duckdb",
             "Configured DuckDB",
-            {
-                "catalog_system": "duckdb",
-                "connection": {"path": str(db_path)},
-                "synthetic_catalog": "main",
-            },
+            {"path": str(db_path)},
         )
 
-        readiness = self.source_service.get_source_readiness(source["source_id"])
+        readiness = self.datasource_service.get_datasource_readiness(ds["datasource_id"])
 
         self.assertEqual(
             readiness,
             {
-                "source_id": source["source_id"],
+                "datasource_id": ds["datasource_id"],
                 "readiness_status": "ready",
                 "failure_code": None,
             },
@@ -367,7 +348,7 @@ class StartupWithConfigTests(unittest.TestCase):
             client = TestClient(app)
 
             self.assertTrue((Path(tmp) / "test.meta.sqlite").exists())
-            resp = client.get("/sources")
+            resp = client.get("/datasources")
             self.assertEqual(resp.status_code, 200)
             self.assertEqual(resp.json(), [])
             client.close()
@@ -398,9 +379,7 @@ class StartupWithConfigTests(unittest.TestCase):
             )
             client = TestClient(app)
 
-            self.assertEqual(client.get("/sources").json(), [])
-            self.assertEqual(client.get("/engines").json(), [])
-            self.assertEqual(client.get("/mappings").json(), [])
+            self.assertEqual(client.get("/datasources").json(), [])
             client.close()
 
 

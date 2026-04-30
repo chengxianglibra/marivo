@@ -66,8 +66,8 @@ class MySQLMetadataDDLTests(unittest.TestCase):
         ddl = "\n".join(MYSQL_METADATA_DDL)
 
         self.assertIn(
-            "ALTER TABLE source_objects ADD CONSTRAINT fk_source_objects_source_id "
-            "FOREIGN KEY (source_id) REFERENCES sources(source_id)",
+            "ALTER TABLE source_objects ADD CONSTRAINT fk_source_objects_datasource_id "
+            "FOREIGN KEY (datasource_id) REFERENCES datasources(datasource_id)",
             ddl,
         )
         self.assertIn(

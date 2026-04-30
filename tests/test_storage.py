@@ -110,20 +110,20 @@ class SQLiteMetadataStoreTests(unittest.TestCase):
         self.assertIsNotNone(row)
         self.assertEqual(row["dflt_value"], "'{}'")
 
-    def test_initialize_sets_current_engine_auth_default(self) -> None:
+    def test_initialize_sets_current_datasource_connection_default(self) -> None:
         row = self.store.query_one(
             """
             SELECT dflt_value
-            FROM pragma_table_info('engines')
-            WHERE name = 'auth_json'
+            FROM pragma_table_info('datasources')
+            WHERE name = 'connection_json'
             """
         )
 
         self.assertIsNotNone(row)
         self.assertEqual(row["dflt_value"], "'{}'")
 
-    def test_initialize_adds_current_engine_columns_to_legacy_table(self) -> None:
-        legacy_path = Path(self.temp_dir.name) / "legacy_engine_schema.sqlite"
+    def test_initialize_drops_legacy_tables_on_reinit(self) -> None:
+        legacy_path = Path(self.temp_dir.name) / "legacy_dropped.sqlite"
         con = sqlite3.connect(legacy_path)
         try:
             con.execute(
@@ -139,6 +139,34 @@ class SQLiteMetadataStoreTests(unittest.TestCase):
                 )
                 """
             )
+            con.execute(
+                """
+                CREATE TABLE sources (
+                    source_id TEXT PRIMARY KEY,
+                    source_type TEXT NOT NULL,
+                    display_name TEXT NOT NULL,
+                    authority_json TEXT NOT NULL,
+                    sync_mode TEXT NOT NULL DEFAULT 'selected',
+                    status TEXT NOT NULL DEFAULT 'active',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            con.execute(
+                """
+                CREATE TABLE source_execution_mappings (
+                    mapping_id TEXT PRIMARY KEY,
+                    source_id TEXT NOT NULL,
+                    engine_id TEXT NOT NULL,
+                    priority INTEGER NOT NULL DEFAULT 0,
+                    catalog_mappings_json TEXT NOT NULL DEFAULT '[]',
+                    status TEXT NOT NULL DEFAULT 'active',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
             con.commit()
         finally:
             con.close()
@@ -146,17 +174,17 @@ class SQLiteMetadataStoreTests(unittest.TestCase):
         legacy_store = SQLiteMetadataStore(legacy_path)
         legacy_store.initialize()
 
-        rows = legacy_store.query_rows("PRAGMA table_info(engines)")
-        column_names = {str(row["name"]) for row in rows}
-        self.assertTrue(
-            {
-                "auth_json",
-                "default_namespace_json",
-                "intrinsic_capabilities_json",
-                "deployment_capabilities_json",
-                "policy_json",
-            }.issubset(column_names)
-        )
+        # After initialize, legacy tables should be gone and datasources should exist
+        tables = {
+            str(row["name"])
+            for row in legacy_store.query_rows(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+        self.assertNotIn("engines", tables)
+        self.assertNotIn("sources", tables)
+        self.assertNotIn("source_execution_mappings", tables)
+        self.assertIn("datasources", tables)
 
     def test_initialize_rebuilds_tables_that_reference_legacy_sources(self) -> None:
         legacy_path = Path(self.temp_dir.name) / "legacy_source_fk.sqlite"
@@ -333,24 +361,17 @@ class SQLiteMetadataStoreTests(unittest.TestCase):
             """
         )
         self.assertEqual(legacy_rows, [])
-        selection_fks = legacy_store.query_rows("PRAGMA foreign_key_list(sync_selections)")
-        self.assertEqual({str(row["table"]) for row in selection_fks}, {"sources"})
-        selections = legacy_store.query_rows("SELECT * FROM sync_selections")
-        self.assertEqual([row["selection_id"] for row in selections], ["sel_current"])
-        legacy_store.execute(
-            """
-            INSERT INTO sync_selections (
-                selection_id, source_id, schema_name, table_name, created_at
-            ) VALUES (?, ?, ?, ?, ?)
-            """,
-            [
-                "sel_new",
-                "src_current",
-                "analytics",
-                "player_qoe",
-                "2026-04-27T00:00:00Z",
-            ],
-        )
+        # Legacy tables should be dropped; new datasources table should exist
+        tables = {
+            str(row["name"])
+            for row in legacy_store.query_rows(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+        self.assertIn("datasources", tables)
+        self.assertNotIn("sources", tables)
+        self.assertNotIn("engines", tables)
+        self.assertNotIn("source_execution_mappings", tables)
 
     def test_execute_and_query(self) -> None:
         self.store.execute(
@@ -388,7 +409,7 @@ class SQLiteMetadataStoreTests(unittest.TestCase):
     def test_initialize_creates_source_object_lookup_index(self) -> None:
         rows = self.store.query_rows("PRAGMA index_list(source_objects)")
         index_names = {str(row["name"]) for row in rows}
-        self.assertIn("idx_source_objects_source_fqn", index_names)
+        self.assertIn("idx_source_objects_datasource_fqn", index_names)
 
     def test_initialize_uses_current_source_object_schema(self) -> None:
         rows = self.store.query_rows("PRAGMA table_info(source_objects)")
@@ -415,9 +436,8 @@ class SQLiteMetadataStoreTests(unittest.TestCase):
 
     def test_new_tables_exist(self) -> None:
         for table in [
-            "sources",
+            "datasources",
             "source_objects",
-            "source_execution_mappings",
             "semantic_entity_contracts",
             "semantic_entity_key_refs",
             "semantic_entity_stable_descriptors",
@@ -435,11 +455,11 @@ class SQLiteMetadataStoreTests(unittest.TestCase):
             self.assertIsNotNone(row, f"Table {table} should exist")
 
     def assert_current_mapping_only_schema(self, store: SQLiteMetadataStore) -> None:
-        mapping_row = store.query_one(
+        datasources_row = store.query_one(
             """
             SELECT COUNT(*) AS cnt
             FROM sqlite_master
-            WHERE type = 'table' AND name = 'source_execution_mappings'
+            WHERE type = 'table' AND name = 'datasources'
             """
         )
         legacy_row = store.query_one(
@@ -449,8 +469,8 @@ class SQLiteMetadataStoreTests(unittest.TestCase):
             WHERE type = 'table' AND name = 'source_engine_bindings'
             """
         )
-        self.assertIsNotNone(mapping_row)
-        self.assertEqual(mapping_row["cnt"], 1)
+        self.assertIsNotNone(datasources_row)
+        self.assertEqual(datasources_row["cnt"], 1)
         self.assertIsNotNone(legacy_row)
         self.assertEqual(legacy_row["cnt"], 0)
 

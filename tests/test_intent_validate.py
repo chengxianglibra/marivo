@@ -42,7 +42,6 @@ from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
 from app.storage.sqlite_metadata import SQLiteMetadataStore
 from tests.semantic_test_helpers import (
     build_semantic_layer_service,
-    ensure_active_duckdb_mapping,
     ensure_published_typed_metric,
     ensure_published_typed_metric_binding,
     seed_duckdb_source_object,
@@ -140,7 +139,7 @@ def _seed_val_table(db_path: Path) -> None:
     get_named_seeded_duckdb_path(db_path, "validate_intent")
 
 
-def _seed_metadata(meta: SQLiteMetadataStore) -> None:
+def _seed_metadata(meta: SQLiteMetadataStore, db_path: str | Path) -> None:
     """Insert minimal metadata for both val_numeric and val_rate metrics."""
     now = "2024-06-01T00:00:00"
     src_id = "src_valtest01"
@@ -153,6 +152,7 @@ def _seed_metadata(meta: SQLiteMetadataStore) -> None:
         table_name="val_events",
         table_fqn="analytics.val_events",
         now=now,
+        db_path=db_path,
     )
 
     ensure_published_typed_metric(
@@ -186,7 +186,7 @@ def _seed_metadata(meta: SQLiteMetadataStore) -> None:
         source_object_ref=obj_id,
         surface_name="binary_value",
     )
-    ensure_active_duckdb_mapping(meta, source_id=src_id, now=now)
+    # Datasource IS the engine; no separate mapping needed
 
 
 # ── Direct service tests ───────────────────────────────────────────────────────
@@ -204,7 +204,7 @@ class ValidateRunnerServiceTests(unittest.TestCase):
         cls.metadata = SQLiteMetadataStore(str(meta_path))
         cls.metadata.initialize()
         cls.analytics.initialize()
-        _seed_metadata(cls.metadata)
+        _seed_metadata(cls.metadata, db_path)
 
         cls.service = build_semantic_layer_service(cls.metadata, cls.analytics)
 
@@ -486,7 +486,7 @@ class ValidateValidationBoundaryTests(unittest.TestCase):
         metadata = SQLiteMetadataStore(str(meta_path))
         metadata.initialize()
         analytics.initialize()
-        _seed_metadata(metadata)
+        _seed_metadata(metadata, db_path)
 
         cls.service = build_semantic_layer_service(metadata, analytics)
 
@@ -592,7 +592,7 @@ class ValidateHTTPTests(unittest.TestCase):
         metadata = SQLiteMetadataStore(str(meta_path))
         metadata.initialize()
         analytics.initialize()
-        _seed_metadata(metadata)
+        _seed_metadata(metadata, db_path)
 
         app = create_app(metadata_store=metadata, analytics_engine=analytics)
         cls.client = TestClient(app)
