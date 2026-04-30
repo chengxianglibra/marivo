@@ -54,7 +54,7 @@ def _build_config() -> Any:
         api_token=None,
         timeout_ms=1500,
         openapi_cache_ttl_sec=300,
-        default_source_id=None,
+        default_datasource_id=None,
         transport="stdio",
         http=HttpTransportConfig(),
     )
@@ -70,8 +70,8 @@ def test_registers_t9_resources_and_scaffold_config_resource() -> None:
         "marivo://sessions/{session_id}/state",
         "marivo://sessions/{session_id}/propositions/{proposition_id}/context",
         "marivo://semantic/{family}",
-        "marivo://sources/{source_id}/objects",
-        "marivo://sources/{source_id}/objects/{object_id}",
+        "marivo://datasources/{datasource_id}/objects",
+        "marivo://datasources/{datasource_id}/objects/{object_id}",
     }
 
 
@@ -83,7 +83,7 @@ def test_server_config_resource_exposes_non_secret_runtime_settings() -> None:
 
     assert "base_url=http://marivo.test" in payload
     assert "openapi_cache_ttl_sec=300" in payload
-    assert "default_source_id=" in payload
+    assert "default_datasource_id=" in payload
 
 
 def test_session_state_resource_mirrors_canonical_http_body() -> None:
@@ -146,33 +146,33 @@ def test_semantic_family_resource_rejects_unknown_families() -> None:
         )
 
 
-def test_source_objects_resource_reads_synced_metadata_listing() -> None:
+def test_datasource_objects_resource_reads_synced_metadata_listing() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.method == "GET"
-        assert request.url.path == "/sources/src_123/objects"
+        assert request.url.path == "/datasources/ds_123/objects"
         assert dict(request.url.params) == {}
         return httpx.Response(200, json=[{"object_id": "obj_123"}], request=request)
 
     result = _invoke_registered_resource(
-        "marivo://sources/{source_id}/objects",
+        "marivo://datasources/{datasource_id}/objects",
         handler,
-        source_id="src_123",
+        datasource_id="ds_123",
     )
 
     assert result == [{"object_id": "obj_123"}]
 
 
-def test_source_object_resource_reads_one_canonical_object_body() -> None:
+def test_datasource_object_resource_reads_one_canonical_object_body() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.method == "GET"
-        assert request.url.path == "/sources/src_123/objects/obj_456"
+        assert request.url.path == "/datasources/ds_123/objects/obj_456"
         assert dict(request.url.params) == {}
         return httpx.Response(200, json={"object_id": "obj_456"}, request=request)
 
     result = _invoke_registered_resource(
-        "marivo://sources/{source_id}/objects/{object_id}",
+        "marivo://datasources/{datasource_id}/objects/{object_id}",
         handler,
-        source_id="src_123",
+        datasource_id="ds_123",
         object_id="obj_456",
     )
 
@@ -182,7 +182,7 @@ def test_source_object_resource_reads_one_canonical_object_body() -> None:
 def test_catalog_summary_resource_aggregates_fixed_read_surfaces() -> None:
     responses = {
         "/openapi/index": {"revision": "rev_123", "paths": [{"path": "/sessions"}], "schemas": []},
-        "/sources": [{"source_id": "src_123"}],
+        "/datasources": [{"datasource_id": "ds_123"}],
         "/semantic/entities": [{"entity_id": "ent_123"}],
         "/semantic/metrics": [{"metric_id": "met_123"}],
         "/semantic/process-objects": [{"process_contract_id": "proc_123"}],
@@ -202,7 +202,7 @@ def test_catalog_summary_resource_aggregates_fixed_read_surfaces() -> None:
 
     assert seen_paths == [
         "/openapi/index",
-        "/sources",
+        "/datasources",
         "/semantic/entities",
         "/semantic/metrics",
         "/semantic/process-objects",
@@ -214,7 +214,7 @@ def test_catalog_summary_resource_aggregates_fixed_read_surfaces() -> None:
     ]
     assert result == {
         "openapi_index": responses["/openapi/index"],
-        "sources": responses["/sources"],
+        "datasources": responses["/datasources"],
         "semantic": {
             "entities": responses["/semantic/entities"],
             "metrics": responses["/semantic/metrics"],

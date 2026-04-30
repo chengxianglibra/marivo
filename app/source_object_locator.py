@@ -16,11 +16,8 @@ def optional_str(value: Any) -> str | None:
 def normalize_source_object_authority_locator(
     metadata: MetadataStore,
     source_object: dict[str, Any],
-    *,
-    synthetic_catalog_cache: dict[str, str | None] | None = None,
 ) -> dict[str, Any]:
     _ = metadata
-    _ = synthetic_catalog_cache
     locator = source_object.get("authority_locator")
     if isinstance(locator, dict) and locator.get("table"):
         return dict(locator)

@@ -24,7 +24,7 @@ def test_load_config_reads_required_and_optional_environment() -> None:
         monkeypatch.setenv("MARIVO_BASE_URL", "http://127.0.0.1:8000")
         monkeypatch.setenv("MARIVO_TIMEOUT_MS", "15000")
         monkeypatch.setenv("MARIVO_OPENAPI_CACHE_TTL_SEC", "60")
-        monkeypatch.setenv("MARIVO_DEFAULT_SOURCE_ID", "src_demo")
+        monkeypatch.setenv("MARIVO_DEFAULT_DATASOURCE_ID", "src_demo")
         monkeypatch.setenv("MARIVO_API_TOKEN", "secret-token")
 
         config = load_config_from_env()
@@ -34,7 +34,7 @@ def test_load_config_reads_required_and_optional_environment() -> None:
     assert config.transport == "stdio"
     assert config.timeout_ms == 15000
     assert config.openapi_cache_ttl_sec == 60
-    assert config.default_source_id == "src_demo"
+    assert config.default_datasource_id == "src_demo"
     assert config.api_token == "secret-token"
     assert config.http.host == "127.0.0.1"
     assert config.http.port == 8000

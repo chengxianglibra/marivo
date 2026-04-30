@@ -83,7 +83,7 @@ def _build_config() -> Any:
         api_token=None,
         timeout_ms=1500,
         openapi_cache_ttl_sec=300,
-        default_source_id=None,
+        default_datasource_id=None,
         transport="stdio",
         http=HttpTransportConfig(),
     )
@@ -134,7 +134,6 @@ def test_p0_inventory_surfaces_remain_implemented() -> None:
 
 def test_inventory_tracks_known_http_contracts_not_yet_wrapped() -> None:
     assert get_surface_spec("list_sessions").implemented is False
-    assert get_surface_spec("get_source").implemented is False
 
 
 def test_observe_tool_time_scope_annotation_exposes_discriminator_schema() -> None:
