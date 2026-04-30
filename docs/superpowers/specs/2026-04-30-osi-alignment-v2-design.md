@@ -288,18 +288,23 @@ OSI documents have a specific top-level structure:
 }
 ```
 
-- `version` is document-level, NOT inside SemanticModel. It indicates the OSI spec version this document conforms to.
+- `version` is the OSI specification version — a fixed protocol identifier, NOT a per-model property. Currently `"0.1.1"`.
 - `semantic_model` is an array (OSI supports multiple models per document).
 
 ### Version Storage
 
-`osi_spec_version` is stored per model in `semantic_models` because different models may conform to different OSI spec versions (e.g., existing models on v0.1.1 while new models use v0.2.0 after OSI releases an update). Default is the latest supported version at creation time.
+`version` is NOT stored in the database. It is an application-level constant — the version of the OSI spec that this Marivo release conforms to. When the OSI spec is upgraded (e.g., v0.2.0), Marivo updates this constant in code and ensures all models conform to the new version.
+
+The `osi_spec_version` column on `semantic_models` is removed. The top-level `version` is always the application's current supported OSI version.
 
 ### Version on Read
 
-- **Single model read** (`GET /semantic-models/{model}`): Returns `{version: <model.osi_spec_version>, semantic_model: [<model>]}`. The `version` is assembled from the model's `osi_spec_version`.
-- **List models** (`GET /semantic-models`): Returns a summary list (not an OSI document). Each item includes `osi_spec_version` so the client knows which version each model conforms to. Supports optional `?spec_version=0.1.1` filter to list only models of a specific version.
-- **Cross-version documents**: Not supported. Each API response is a single-version OSI document. Models conforming to different OSI versions cannot be mixed in one document.
+All API responses that return OSI documents use the application's current OSI version constant:
+
+- **Single model read** (`GET /semantic-models/{model}`): Returns `{version: "0.1.1", semantic_model: [<model>]}`
+- **List models** (`GET /semantic-models`): Returns a summary list (not an OSI document)
+
+If Marivo upgrades to a newer OSI spec version in the future, existing models must be migrated to conform to the new version before the constant is updated.
 
 ## 7. Harness: Validation, Readiness, and Model Versioning
 
@@ -366,7 +371,6 @@ Tables are organized for queryability and harness support, not minimalism.
 |---|---|---|---|
 | model_id | INTEGER | PK AUTO | |
 | name | TEXT | UNIQUE NOT NULL | OSI name |
-| osi_spec_version | TEXT | NOT NULL DEFAULT '0.1.1' | OSI spec version for export |
 | description | TEXT | | |
 | ai_context | JSON | | OSI AIContext (object form) |
 | version | INTEGER | NOT NULL DEFAULT 1 | Internal version, increments on each write |
