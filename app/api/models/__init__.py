@@ -16,10 +16,10 @@ Modules:
 - predicate: Predicate filter semantic object models
 - intents: Typed intent request models (observe, compare, detect, etc.)
 - session: Session management request models
-- _infrastructure: Infrastructure configuration models (source, engine, mapping, etc.)
+- _infrastructure: Infrastructure configuration models (datasource, routing, etc.)
 """
 
-# Infrastructure models (source, engine, mapping, routing, steps, signals, etc.)
+# Infrastructure models (datasource, routing, steps, signals, etc.)
 from ._infrastructure import (
     AggregateQueryStep,
     AnalysisTimeOverride,
@@ -29,23 +29,16 @@ from ._infrastructure import (
     AttributeChangeStep,
     AutoFlagRequest,
     ColumnPropertiesUpdateRequest,
-    # Engine models
-    EngineDefaultNamespaceResponse,
-    EngineDeleteResponse,
-    EngineDeploymentCapabilitiesResponse,
-    EngineIntrinsicCapabilitiesResponse,
-    EnginePolicyResponse,
-    EngineRegisterRequest,
-    EngineResponse,
-    EngineUpdateRequest,
+    # Datasource models
+    DatasourceDeleteResponse,
+    DatasourcePolicyPayload,
+    DatasourcePolicyResponse,
+    DatasourceRegisterRequest,
+    DatasourceResponse,
+    DatasourceUpdateRequest,
     GovernanceCheckRequest,
     # Job models
     JobSubmitRequest,
-    MappingCatalogEntryResponse,
-    MappingCreateRequest,
-    MappingDeleteResponse,
-    MappingResponse,
-    MappingUpdateRequest,
     Measure,
     # Step models
     MetricQueryStep,
@@ -64,14 +57,6 @@ from ._infrastructure import (
     RouteResolveRequest,
     RouteResolveResponse,
     Scope,
-    # Source models
-    SourceAuthorityResponse,
-    SourceIntrinsicCapabilitiesResponse,
-    SourcePolicyResponse,
-    SourceRegisterRequest,
-    SourceResponse,
-    SourceSyncResponse,
-    SourceUpdateRequest,
     SyncSelectionItem,
     SyncSelectionRequest,
     TimeAxis,
@@ -421,14 +406,12 @@ __all__ = [  # noqa: RUF022
     "DimensionValueType",
     "DistributionMetricPayload",
     "DistributionSpec",
-    "EngineDefaultNamespaceResponse",
-    "EngineDeleteResponse",
-    "EngineDeploymentCapabilitiesResponse",
-    "EngineIntrinsicCapabilitiesResponse",
-    "EnginePolicyResponse",
-    "EngineResponse",
-    "EngineRegisterRequest",
-    "EngineUpdateRequest",
+    "DatasourceDeleteResponse",
+    "DatasourcePolicyPayload",
+    "DatasourcePolicyResponse",
+    "DatasourceRegisterRequest",
+    "DatasourceResponse",
+    "DatasourceUpdateRequest",
     "EntityHeader",
     "EntityHierarchySpec",
     "EntityIdentitySpec",
@@ -467,11 +450,6 @@ __all__ = [  # noqa: RUF022
     "ListResponseBase",
     "Measure",
     "MeasurementComponent",
-    "MappingCreateRequest",
-    "MappingCatalogEntryResponse",
-    "MappingDeleteResponse",
-    "MappingResponse",
-    "MappingUpdateRequest",
     "MembershipCardinality",
     "MetricFamily",
     "MetricHeader",
@@ -554,13 +532,6 @@ __all__ = [  # noqa: RUF022
     "SessionStateQueryRequest",
     "SessionTerminateRequest",
     "SourceObjectResponse",
-    "SourceAuthorityResponse",
-    "SourceIntrinsicCapabilitiesResponse",
-    "SourcePolicyResponse",
-    "SourceResponse",
-    "SourceRegisterRequest",
-    "SourceSyncResponse",
-    "SourceUpdateRequest",
     "StableDescriptorSpec",
     "StateSpec",
     "StepGapSpec",
