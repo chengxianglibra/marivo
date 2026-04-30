@@ -95,7 +95,7 @@ Maps from current Entity. Direct physical grounding (no separate Binding).
 ```
 Dataset (OSI core)
   name              string   (required)
-  source            string   (required) References a Marivo datasource
+  source            string   (required) Physical table/view reference: database.schema.table or SQL query
   primary_key       string[] (optional)
   unique_keys       string[][] (optional)
   description       string   (optional)
@@ -103,10 +103,10 @@ Dataset (OSI core)
   fields[]          Field    (optional in OSI, required by MARIVO validation)
 
 MARIVO extensions (in custom_extensions):
-  (none on Dataset directly)
+  datasource_id     string   (optional) Marivo datasource reference for routing, readiness, and schema resolution
 ```
 
-**Source mapping:** `Dataset.source` references a Marivo datasource, not a raw `catalog.schema.table` string. The datasource abstraction provides routing, readiness, and multi-source support. Format: `datasource:<datasource_id>` or a fully qualified table reference that the service resolves against registered datasources. This maps to the existing `app/storage/datasource` model.
+**Source vs datasource_id:** `Dataset.source` follows OSI spec as a physical reference (`database.schema.table` or query). The Marivo `datasource_id` extension links the dataset to Marivo's datasource abstraction, which provides routing, readiness checks, and multi-source support. When `datasource_id` is set, the service resolves `source` against the registered datasource's schema. When absent, `source` is used as-is.
 
 ### 4.3 Field
 
@@ -270,7 +270,7 @@ Note: No `/export` endpoint needed — standard GET endpoints return OSI format.
    - MARIVO extension fields serialized into `custom_extensions[].data` as JSON string
 3. Response must pass OSI JSON schema validation
 
-## 6. Document Structure
+## 6. Document Structure and Version Handling
 
 OSI documents have a specific top-level structure:
 
@@ -290,7 +290,16 @@ OSI documents have a specific top-level structure:
 
 - `version` is document-level, NOT inside SemanticModel. It indicates the OSI spec version this document conforms to.
 - `semantic_model` is an array (OSI supports multiple models per document).
-- Marivo stores `osi_spec_version` on the `semantic_models` table for per-model version tracking, but the API always wraps output in the standard document structure with `version` at the top.
+
+### Version Storage
+
+`osi_spec_version` is stored per model in `semantic_models` because different models may conform to different OSI spec versions (e.g., existing models on v0.1.1 while new models use v0.2.0 after OSI releases an update). Default is the latest supported version at creation time.
+
+### Version on Read
+
+- **Single model read** (`GET /semantic-models/{model}`): Returns `{version: <model.osi_spec_version>, semantic_model: [<model>]}`. The `version` is assembled from the model's `osi_spec_version`.
+- **List models** (`GET /semantic-models`): Returns a summary list (not an OSI document). Each item includes `osi_spec_version` so the client knows which version each model conforms to. Supports optional `?spec_version=0.1.1` filter to list only models of a specific version.
+- **Cross-version documents**: Not supported. Each API response is a single-version OSI document. Models conforming to different OSI versions cannot be mixed in one document.
 
 ## 7. Harness: Validation, Readiness, and Model Versioning
 
@@ -371,12 +380,12 @@ Tables are organized for queryability and harness support, not minimalism.
 | dataset_id | INTEGER | PK AUTO | |
 | model_id | INTEGER | FK -> semantic_models NOT NULL | |
 | name | TEXT | NOT NULL | Unique within model |
-| source | TEXT | NOT NULL | Datasource reference (see Section 4.2) |
+| source | TEXT | NOT NULL | Physical table/view reference (OSI: database.schema.table or query) |
 | primary_key | JSON | | Array of column names |
 | unique_keys | JSON | | Array of arrays |
 | description | TEXT | | |
 | ai_context | JSON | | |
-| marivo_extensions | JSON | | All MARIVO dataset extensions as JSON object |
+| datasource_id | TEXT | | MARIVO extension: Marivo datasource reference |
 | created_at | TIMESTAMP | NOT NULL | |
 | updated_at | TIMESTAMP | NOT NULL | |
 
@@ -481,7 +490,7 @@ semantic_model:
 
     datasets:
       - name: store_sales
-        source: "datasource:tpcds"
+        source: "tpcds.public.store_sales"
         primary_key: [ss_item_sk, ss_ticket_number]
         description: Store sales transactions
         fields:
@@ -506,7 +515,7 @@ semantic_model:
                 data: '{"data_type": "integer"}'
         custom_extensions:
           - vendor_name: MARIVO
-            data: '{}'
+            data: '{"datasource_id": "tpcds"}'
 
     relationships:
       - name: store_sales_to_date
@@ -596,12 +605,12 @@ semantic_entity_contracts, semantic_entity_key_refs, semantic_entity_stable_desc
 | Object | OSI Core Fields | MARIVO Extensions |
 |---|---|---|
 | SemanticModel | name, description, ai_context, datasets, relationships, metrics | (none) |
-| Dataset | name, source, primary_key, unique_keys, description, ai_context, fields | (none, extensions stored in custom_extensions) |
+| Dataset | name, source, primary_key, unique_keys, description, ai_context, fields | datasource_id |
 | Field | name, expression, dimension.is_time, label, description, ai_context | data_type |
 | Relationship | name, from, to, from_columns, to_columns, ai_context | cardinality |
 | Metric | name, expression, description, ai_context | observed_dataset, observation_grain, primary_time_field, additivity, filters |
 
-Total MARIVO extension fields: 8 across 3 object types.
+Total MARIVO extension fields: 9 across 4 object types.
 
 Every MARIVO extension field exists because it cannot be safely inferred from SQL expressions and wrong inference produces either silent wrong numbers or validation gaps.
 
