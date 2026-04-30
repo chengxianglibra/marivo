@@ -70,23 +70,22 @@ METADATA_DDL: list[str] = [
     "CREATE INDEX IF NOT EXISTS idx_artifacts_session_type_created ON artifacts(session_id, artifact_type, created_at DESC)",
     # -- New semantic layer tables --
     """
-    CREATE TABLE IF NOT EXISTS sources (
-        source_id                    TEXT PRIMARY KEY,
-        source_type                  TEXT NOT NULL,
-        display_name                 TEXT NOT NULL,
-        authority_json               TEXT NOT NULL,
-        sync_mode                    TEXT NOT NULL DEFAULT 'selected',
-        intrinsic_capabilities_json  TEXT NOT NULL DEFAULT '{}',
-        policy_json                  TEXT NOT NULL DEFAULT '{}',
-        status                       TEXT NOT NULL DEFAULT 'active',
-        created_at                   TEXT NOT NULL,
-        updated_at                   TEXT NOT NULL
+    CREATE TABLE IF NOT EXISTS datasources (
+        datasource_id   TEXT PRIMARY KEY,
+        datasource_type TEXT NOT NULL,
+        display_name    TEXT NOT NULL,
+        connection_json TEXT NOT NULL DEFAULT '{}',
+        sync_mode       TEXT NOT NULL DEFAULT 'selected',
+        policy_json     TEXT NOT NULL DEFAULT '{}',
+        status          TEXT NOT NULL DEFAULT 'active',
+        created_at      TEXT NOT NULL,
+        updated_at      TEXT NOT NULL
     )
     """,
     """
     CREATE TABLE IF NOT EXISTS source_objects (
         object_id       TEXT PRIMARY KEY,
-        source_id       TEXT NOT NULL REFERENCES sources(source_id),
+        datasource_id   TEXT NOT NULL REFERENCES datasources(datasource_id),
         object_type     TEXT NOT NULL,
         parent_id       TEXT,
         native_name     TEXT NOT NULL,
@@ -780,7 +779,7 @@ METADATA_DDL: list[str] = [
     """
     CREATE TABLE IF NOT EXISTS sync_jobs (
         job_id          TEXT PRIMARY KEY,
-        source_id       TEXT NOT NULL REFERENCES sources(source_id),
+        datasource_id   TEXT NOT NULL REFERENCES datasources(datasource_id),
         job_type        TEXT NOT NULL,
         status          TEXT NOT NULL DEFAULT 'pending',
         started_at      TEXT,
@@ -791,35 +790,6 @@ METADATA_DDL: list[str] = [
     )
     """,
     # -- Engine registry --
-    """
-    CREATE TABLE IF NOT EXISTS engines (
-        engine_id                    TEXT PRIMARY KEY,
-        engine_type                  TEXT NOT NULL,
-        display_name                 TEXT NOT NULL,
-        connection_json              TEXT NOT NULL,
-        auth_json                    TEXT NOT NULL DEFAULT '{}',
-        default_namespace_json       TEXT NOT NULL DEFAULT '{}',
-        intrinsic_capabilities_json  TEXT NOT NULL DEFAULT '{}',
-        deployment_capabilities_json TEXT NOT NULL DEFAULT '{}',
-        policy_json                  TEXT NOT NULL DEFAULT '{}',
-        status                       TEXT NOT NULL DEFAULT 'active',
-        created_at                   TEXT NOT NULL,
-        updated_at                   TEXT NOT NULL
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS source_execution_mappings (
-        mapping_id             TEXT PRIMARY KEY,
-        source_id              TEXT NOT NULL REFERENCES sources(source_id),
-        engine_id              TEXT NOT NULL REFERENCES engines(engine_id),
-        priority               INTEGER NOT NULL DEFAULT 0,
-        catalog_mappings_json  TEXT NOT NULL DEFAULT '[]',
-        status                 TEXT NOT NULL DEFAULT 'active',
-        created_at             TEXT NOT NULL,
-        updated_at             TEXT NOT NULL,
-        UNIQUE(source_id, engine_id)
-    )
-    """,
     # -- Plans --
     """
     CREATE TABLE IF NOT EXISTS plans (
@@ -835,11 +805,11 @@ METADATA_DDL: list[str] = [
     """
     CREATE TABLE IF NOT EXISTS sync_selections (
         selection_id  TEXT PRIMARY KEY,
-        source_id     TEXT NOT NULL REFERENCES sources(source_id),
+        datasource_id TEXT NOT NULL REFERENCES datasources(datasource_id),
         schema_name   TEXT NOT NULL,
         table_name    TEXT NOT NULL,
         created_at    TEXT NOT NULL,
-        UNIQUE(source_id, schema_name, table_name)
+        UNIQUE(datasource_id, schema_name, table_name)
     )
     """,
     # -- Governance policies --
@@ -966,15 +936,13 @@ METADATA_DDL: list[str] = [
     "CREATE INDEX IF NOT EXISTS idx_propositions_session_created ON propositions(session_id, created_at)",
     "CREATE INDEX IF NOT EXISTS idx_propositions_session_type ON propositions(session_id, proposition_type)",
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_propositions_session_type_identity ON propositions(session_id, proposition_type, identity_key) WHERE identity_key != ''",
-    "CREATE INDEX IF NOT EXISTS idx_source_objects_source_type_fqn ON source_objects(source_id, object_type, fqn)",
-    "CREATE INDEX IF NOT EXISTS idx_source_objects_source_fqn ON source_objects(source_id, fqn)",
+    "CREATE INDEX IF NOT EXISTS idx_source_objects_datasource_type_fqn ON source_objects(datasource_id, object_type, fqn)",
+    "CREATE INDEX IF NOT EXISTS idx_source_objects_datasource_fqn ON source_objects(datasource_id, fqn)",
     "CREATE INDEX IF NOT EXISTS idx_source_objects_object_type_fqn ON source_objects(object_type, fqn)",
     "CREATE INDEX IF NOT EXISTS idx_source_objects_fqn ON source_objects(fqn)",
     "CREATE INDEX IF NOT EXISTS idx_source_objects_native_name ON source_objects(native_name)",
     "CREATE INDEX IF NOT EXISTS idx_source_objects_parent ON source_objects(parent_id)",
-    "CREATE INDEX IF NOT EXISTS idx_source_objects_source_sync_version ON source_objects(source_id, sync_version)",
-    "CREATE INDEX IF NOT EXISTS idx_source_execution_mappings_source_status_priority ON source_execution_mappings(source_id, status, priority DESC, created_at)",
-    "CREATE INDEX IF NOT EXISTS idx_source_execution_mappings_engine_status_priority ON source_execution_mappings(engine_id, status, priority DESC, created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_source_objects_datasource_sync_version ON source_objects(datasource_id, sync_version)",
     # -- assessments: immutable evaluation snapshots --
     """
     CREATE TABLE IF NOT EXISTS assessments (
@@ -1367,9 +1335,8 @@ def _mysql_text_type(column_name: str, suffix: str, indexed_columns: set[str]) -
         return _MYSQL_KEY_TEXT_TYPE
     if column_name in {
         "status",
-        "source_type",
+        "datasource_type",
         "object_type",
-        "engine_type",
         "job_type",
         "step_type",
         "artifact_type",

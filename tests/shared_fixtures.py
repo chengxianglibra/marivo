@@ -484,7 +484,7 @@ _LOCK_FILE = _template_lock_path("default")
 # In-process flags: skip lock on repeated calls within the same worker.
 _TEMPLATE_READY: set[str] = set()
 
-_METADATA_TEMPLATE_VERSION = "sqlite_metadata_v13_binding_revision"
+_METADATA_TEMPLATE_VERSION = "sqlite_metadata_v14_datasource_merge"
 _METADATA_TEMPLATE = Path(f"/tmp/marivo_test_{_METADATA_TEMPLATE_VERSION}.sqlite")
 _METADATA_LOCK = Path(f"/tmp/marivo_test_{_METADATA_TEMPLATE_VERSION}.lock")
 _METADATA_READY = False
@@ -563,17 +563,17 @@ def _metadata_template_valid(db_path: Path) -> bool:
         tables = {
             str(row[0])
             for row in con.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('sessions', 'steps', 'artifacts', 'sources', 'source_objects', 'source_execution_mappings', 'time_bindings', 'metadata_schema_marker')"
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('sessions', 'steps', 'artifacts', 'datasources', 'source_objects', 'time_bindings', 'metadata_schema_marker')"
             ).fetchall()
         }
         legacy_tables = {
             str(row[0])
             for row in con.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'source_engine_bindings'"
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('source_engine_bindings', 'sources', 'engines', 'source_execution_mappings')"
             ).fetchall()
         }
-        source_columns = {
-            str(row[1]) for row in con.execute("PRAGMA table_info(sources)").fetchall()
+        datasource_columns = {
+            str(row[1]) for row in con.execute("PRAGMA table_info(datasources)").fetchall()
         }
         source_object_columns = {
             str(row[1]) for row in con.execute("PRAGMA table_info(source_objects)").fetchall()
@@ -581,15 +581,8 @@ def _metadata_template_valid(db_path: Path) -> bool:
         source_object_indexes = {
             str(row[1]) for row in con.execute("PRAGMA index_list(source_objects)").fetchall()
         }
-        engine_columns = {
-            str(row[1]) for row in con.execute("PRAGMA table_info(engines)").fetchall()
-        }
         session_columns = {
             str(row[1]) for row in con.execute("PRAGMA table_info(sessions)").fetchall()
-        }
-        mapping_columns = {
-            str(row[1])
-            for row in con.execute("PRAGMA table_info(source_execution_mappings)").fetchall()
         }
         metric_columns = {
             str(row[1])
@@ -626,41 +619,25 @@ def _metadata_template_valid(db_path: Path) -> bool:
             "sessions",
             "steps",
             "artifacts",
-            "sources",
+            "datasources",
             "source_objects",
-            "source_execution_mappings",
             "time_bindings",
             "metadata_schema_marker",
         }
         and not legacy_tables
         and {
-            "authority_json",
+            "datasource_type",
+            "connection_json",
             "sync_mode",
-            "intrinsic_capabilities_json",
             "policy_json",
-        }.issubset(source_columns)
-        and {"authority_locator_json"}.issubset(source_object_columns)
+        }.issubset(datasource_columns)
+        and {"datasource_id", "authority_locator_json"}.issubset(source_object_columns)
         and {
             "execution_identity_json",
         }.issubset(session_columns)
         and {
-            "connection_json",
-            "auth_json",
-            "default_namespace_json",
-            "intrinsic_capabilities_json",
-            "deployment_capabilities_json",
-            "policy_json",
-        }.issubset(engine_columns)
-        and {
-            "source_id",
-            "engine_id",
-            "priority",
-            "catalog_mappings_json",
-            "status",
-        }.issubset(mapping_columns)
-        and {
-            "idx_source_objects_source_type_fqn",
-            "idx_source_objects_source_fqn",
+            "idx_source_objects_datasource_type_fqn",
+            "idx_source_objects_datasource_fqn",
         }.issubset(source_object_indexes)
         and {
             "default_predicate_refs_json",
