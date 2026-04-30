@@ -14,7 +14,7 @@ if False:  # pragma: no cover
 @dataclass
 class RoutingResolutionResult:
     engine: AnalyticsEngine
-    engine_type: str
+    datasource_type: str
     route: ResolvedRoute | None = None
     feedback: ExecutionFeedback | None = None
     fallback_used: bool = False
@@ -25,11 +25,11 @@ class RoutingRuntime:
         self,
         query_router: QueryRouter | None,
         default_engine: AnalyticsEngine,
-        default_engine_type: str = "duckdb",
+        default_datasource_type: str = "duckdb",
     ) -> None:
         self.query_router = query_router
         self.default_engine = default_engine
-        self.default_engine_type = default_engine_type
+        self.default_datasource_type = default_datasource_type
 
     def resolve_tables(
         self,
@@ -40,7 +40,7 @@ class RoutingRuntime:
         if self.query_router is None:
             return RoutingResolutionResult(
                 engine=self.default_engine,
-                engine_type=self.default_engine_type,
+                datasource_type=self.default_datasource_type,
             )
 
         try:
@@ -48,17 +48,17 @@ class RoutingRuntime:
                 route = self.query_router.resolve_tables(table_names)
             else:
                 route = self.query_router.resolve_tables(table_names, session_id=session_id)
-            engine_info = self.query_router.engine_service.get_engine(route.engine_id)
+            datasource = self.query_router.datasource_service.get_datasource(route.datasource_id)
             return RoutingResolutionResult(
                 engine=route.require_engine(),
-                engine_type=str(engine_info["engine_type"]),
+                datasource_type=str(datasource["datasource_type"]),
                 route=route,
             )
         except (KeyError, ValueError) as error:
             feedback = routing_feedback_from_error(error, table_names=table_names)
             return RoutingResolutionResult(
                 engine=self.default_engine,
-                engine_type=self.default_engine_type,
+                datasource_type=self.default_datasource_type,
                 feedback=feedback,
                 fallback_used=True,
             )
