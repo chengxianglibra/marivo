@@ -119,7 +119,7 @@
 删除 mapping 和 synthetic_catalog 后，catalog identity 简化：
 
 - **Trino datasource**：source object 的 authority_locator.catalog = Trino 连接中配置的 catalog
-- **DuckDB datasource**：source object 的 authority_locator.catalog = DuckDB 原生 catalog 名（即 `main`）
+- **DuckDB datasource**：source object 的 authority_locator.catalog = DuckDB 原生 catalog 名（即 `main`）。注意：当前已 sync 的 DuckDB source object 的 authority_locator.catalog 存储的是 synthetic_catalog 值（如 `duckdb_local`），需要重新 sync 以更新为原生 catalog 名
 - 执行时直接使用同一个 catalog，无需投影
 
 ### Routing 简化
