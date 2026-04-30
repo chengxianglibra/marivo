@@ -22,7 +22,7 @@ correlation_plan_id: ContextVar[str] = ContextVar("correlation_plan_id", default
 correlation_planner_id: ContextVar[str] = ContextVar("correlation_planner_id", default="")
 correlation_compiler_id: ContextVar[str] = ContextVar("correlation_compiler_id", default="")
 correlation_execution_stage: ContextVar[str] = ContextVar("correlation_execution_stage", default="")
-correlation_engine_id: ContextVar[str] = ContextVar("correlation_engine_id", default="")
+correlation_datasource_id: ContextVar[str] = ContextVar("correlation_datasource_id", default="")
 correlation_governance_scope: ContextVar[str] = ContextVar(
     "correlation_governance_scope", default=""
 )
@@ -37,7 +37,7 @@ def observability_context(
     planner_id: str | None = None,
     compiler_id: str | None = None,
     execution_stage: str | None = None,
-    engine_id: str | None = None,
+    datasource_id: str | None = None,
     governance_scope: str | None = None,
 ) -> Iterator[None]:
     tokens: list[tuple[ContextVar[str], Token[str]]] = []
@@ -48,7 +48,7 @@ def observability_context(
         (correlation_planner_id, planner_id),
         (correlation_compiler_id, compiler_id),
         (correlation_execution_stage, execution_stage),
-        (correlation_engine_id, engine_id),
+        (correlation_datasource_id, datasource_id),
         (correlation_governance_scope, governance_scope),
     ):
         if value:
@@ -117,9 +117,9 @@ class JSONFormatter(logging.Formatter):
         execution_stage = correlation_execution_stage.get("")
         if execution_stage:
             entry["execution_stage"] = execution_stage
-        engine_id = correlation_engine_id.get("")
-        if engine_id:
-            entry["engine_id"] = engine_id
+        datasource_id = correlation_datasource_id.get("")
+        if datasource_id:
+            entry["datasource_id"] = datasource_id
         governance_scope = correlation_governance_scope.get("")
         if governance_scope:
             entry["governance_scope"] = governance_scope
