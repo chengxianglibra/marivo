@@ -106,7 +106,17 @@ METADATA_DDL: list[str] = [
         display_name            TEXT NOT NULL,
         description             TEXT NOT NULL DEFAULT '',
         properties_json         TEXT NOT NULL DEFAULT '{}',
+        catalog_metadata_json   TEXT NOT NULL DEFAULT '{}',
         entity_contract_version TEXT NOT NULL,
+        entity_kind             TEXT NOT NULL DEFAULT 'business_entity' CHECK (
+            entity_kind IN (
+                'business_entity',
+                'event_entity',
+                'fact_entity',
+                'snapshot_entity',
+                'derived_entity'
+            )
+        ),
         uniqueness_scope        TEXT NOT NULL CHECK (
             uniqueness_scope IN ('global', 'parent_scoped')
         ),
@@ -120,6 +130,8 @@ METADATA_DDL: list[str] = [
         cardinality_to_parent   TEXT,
         ownership_semantics     TEXT,
         primary_time_ref        TEXT,
+        fields_json             TEXT NOT NULL DEFAULT '[]',
+        binding_json            TEXT,
         status                  TEXT NOT NULL DEFAULT 'draft' CHECK (
             status IN ('draft', 'published', 'deprecated')
         ),
@@ -210,6 +222,7 @@ METADATA_DDL: list[str] = [
         default_predicate_refs_json TEXT NOT NULL DEFAULT '[]',
         metric_contract_version  TEXT NOT NULL,
         family_payload_json      TEXT NOT NULL DEFAULT '{}',
+        catalog_metadata_json    TEXT NOT NULL DEFAULT '{}',
         status                  TEXT NOT NULL DEFAULT 'draft' CHECK (
             status IN ('draft', 'published', 'deprecated')
         ),
@@ -280,6 +293,7 @@ METADATA_DDL: list[str] = [
         subject_cardinality     TEXT,
         anchor_time_ref         TEXT,
         process_payload_json     TEXT NOT NULL DEFAULT '{}',
+        catalog_metadata_json    TEXT NOT NULL DEFAULT '{}',
         status                  TEXT NOT NULL DEFAULT 'draft' CHECK (
             status IN ('draft', 'published', 'deprecated')
         ),
@@ -354,7 +368,9 @@ METADATA_DDL: list[str] = [
         parent_dimension_ref      TEXT,
         supports_grouping         INTEGER NOT NULL DEFAULT 1 CHECK (supports_grouping IN (0, 1)),
         required_time_anchor_ref  TEXT,
+        source_field_ref          TEXT,
         dimension_payload_json     TEXT NOT NULL DEFAULT '{}',
+        catalog_metadata_json      TEXT NOT NULL DEFAULT '{}',
         status                    TEXT NOT NULL DEFAULT 'draft' CHECK (
             status IN ('draft', 'published', 'deprecated')
         ),
@@ -365,6 +381,13 @@ METADATA_DDL: list[str] = [
         CHECK (enum_set_ref IS NULL OR substr(enum_set_ref, 1, 5) = 'enum.'),
         CHECK (parent_dimension_ref IS NULL OR substr(parent_dimension_ref, 1, 10) = 'dimension.'),
         CHECK (required_time_anchor_ref IS NULL OR substr(required_time_anchor_ref, 1, 5) = 'time.'),
+        CHECK (
+            source_field_ref IS NULL
+            OR (
+              substr(source_field_ref, 1, 7) = 'entity.'
+              AND instr(source_field_ref, '.field.') > 0
+            )
+        ),
         CHECK (
             (
                 domain_kind = 'enumerated'
@@ -416,6 +439,8 @@ METADATA_DDL: list[str] = [
         business_anchor         INTEGER NOT NULL DEFAULT 0 CHECK (business_anchor IN (0, 1)),
         measurement             INTEGER NOT NULL DEFAULT 0 CHECK (measurement IN (0, 1)),
         operational_support     INTEGER NOT NULL DEFAULT 0 CHECK (operational_support IN (0, 1)),
+        source_field_ref        TEXT,
+        catalog_metadata_json   TEXT NOT NULL DEFAULT '{}',
         status                  TEXT NOT NULL DEFAULT 'draft' CHECK (
             status IN ('draft', 'published', 'deprecated')
         ),
@@ -423,6 +448,13 @@ METADATA_DDL: list[str] = [
         created_at              TEXT NOT NULL,
         updated_at              TEXT NOT NULL,
         CHECK (substr(time_ref, 1, 5) = 'time.'),
+        CHECK (
+            source_field_ref IS NULL
+            OR (
+              substr(source_field_ref, 1, 7) = 'entity.'
+              AND instr(source_field_ref, '.field.') > 0
+            )
+        ),
         CHECK (business_anchor = 1 OR measurement = 1 OR operational_support = 1)
     )
     """,
@@ -477,6 +509,7 @@ METADATA_DDL: list[str] = [
         subject_ref                TEXT NOT NULL,
         predicate_contract_version TEXT NOT NULL,
         payload_json               TEXT NOT NULL DEFAULT '{}',
+        catalog_metadata_json      TEXT NOT NULL DEFAULT '{}',
         status                     TEXT NOT NULL DEFAULT 'draft' CHECK (
             status IN ('draft', 'published', 'deprecated')
         ),
@@ -497,6 +530,19 @@ METADATA_DDL: list[str] = [
     "CREATE INDEX IF NOT EXISTS idx_semantic_enum_set_versions_enum_set ON semantic_enum_set_versions(enum_set_contract_id)",
     "CREATE INDEX IF NOT EXISTS idx_semantic_enum_set_values_version ON semantic_enum_set_values(enum_set_version_id)",
     "CREATE INDEX IF NOT EXISTS idx_semantic_predicate_contracts_status_ref ON semantic_predicate_contracts(status, predicate_ref)",
+    """
+    CREATE TABLE IF NOT EXISTS semantic_domain_catalog (
+        domain_ref   TEXT PRIMARY KEY,
+        display_name TEXT NOT NULL,
+        description  TEXT NOT NULL DEFAULT '',
+        status       TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'deprecated')),
+        aliases_json TEXT NOT NULL DEFAULT '[]',
+        created_at   TEXT NOT NULL,
+        updated_at   TEXT NOT NULL,
+        CHECK (substr(domain_ref, 1, 7) = 'domain.')
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_semantic_domain_catalog_status_ref ON semantic_domain_catalog(status, domain_ref)",
     # -------------------------------------------------------------------------
     # Typed binding contract tables
     # -------------------------------------------------------------------------
@@ -704,6 +750,40 @@ METADATA_DDL: list[str] = [
     "CREATE INDEX IF NOT EXISTS idx_join_relations_binding ON join_relations(binding_id)",
     "CREATE INDEX IF NOT EXISTS idx_consumption_policies_binding ON consumption_policies(binding_id)",
     # -------------------------------------------------------------------------
+    # Entity relationships
+    # -------------------------------------------------------------------------
+    """
+    CREATE TABLE IF NOT EXISTS semantic_entity_relationships (
+        relationship_id                         TEXT PRIMARY KEY,
+        relationship_ref                        TEXT NOT NULL UNIQUE,
+        display_name                            TEXT NOT NULL,
+        description                             TEXT NOT NULL DEFAULT '',
+        left_entity_ref                         TEXT NOT NULL,
+        right_entity_ref                        TEXT NOT NULL,
+        key_alignment_json                      TEXT NOT NULL,
+        time_alignment_json                     TEXT,
+        cardinality                             TEXT NOT NULL CHECK (
+            cardinality IN ('one_to_one', 'many_to_one', 'one_to_many', 'many_to_many')
+        ),
+        grain_compatibility_json                TEXT,
+        snapshot_effective_window_alignment_json TEXT,
+        catalog_metadata_json                   TEXT NOT NULL DEFAULT '{}',
+        status                                  TEXT NOT NULL DEFAULT 'draft' CHECK (
+            status IN ('draft', 'published', 'deprecated')
+        ),
+        revision                                INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+        created_at                              TEXT NOT NULL,
+        updated_at                              TEXT NOT NULL,
+        CHECK (substr(relationship_ref, 1, 13) = 'relationship.'),
+        CHECK (substr(left_entity_ref, 1, 7) = 'entity.'),
+        CHECK (substr(right_entity_ref, 1, 7) = 'entity.')
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_semantic_entity_relationships_ref ON semantic_entity_relationships(relationship_ref)",
+    "CREATE INDEX IF NOT EXISTS idx_semantic_entity_relationships_pair ON semantic_entity_relationships(left_entity_ref, right_entity_ref, status, relationship_ref)",
+    "CREATE INDEX IF NOT EXISTS idx_semantic_entity_relationships_right_left ON semantic_entity_relationships(right_entity_ref, left_entity_ref, status, relationship_ref)",
+    "CREATE INDEX IF NOT EXISTS idx_semantic_entity_relationships_status ON semantic_entity_relationships(status)",
+    # -------------------------------------------------------------------------
     # Compiler compatibility profiles (Phase 1, Task 1.4)
     # -------------------------------------------------------------------------
     # NOTE: subject_ref FK validation deferred to Phase 3 service layer.
@@ -725,6 +805,7 @@ METADATA_DDL: list[str] = [
         subject_revision        INTEGER,
         requirement_json        TEXT NOT NULL DEFAULT '{}',
         capability_json         TEXT NOT NULL DEFAULT '{}',
+        catalog_metadata_json   TEXT NOT NULL DEFAULT '{}',
         status                  TEXT NOT NULL DEFAULT 'draft' CHECK (
             status IN ('draft', 'published', 'deprecated')
         ),

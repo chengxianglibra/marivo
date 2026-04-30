@@ -117,6 +117,34 @@ def _required_input_refs(value: Any) -> list[str]:
     return refs
 
 
+def _catalog_metadata_json(value: Any) -> str:
+    if value is None:
+        return "{}"
+    if hasattr(value, "model_dump"):
+        payload = value.model_dump(mode="json")
+    elif isinstance(value, dict):
+        payload = value
+    else:
+        payload = {}
+    return json.dumps(
+        {
+            "domain_ref": payload.get("domain_ref"),
+            "related_domain_refs": list(payload.get("related_domain_refs") or []),
+            "aliases": list(payload.get("aliases") or []),
+        }
+    )
+
+
+def _catalog_metadata_payload(row: dict[str, Any]) -> dict[str, Any]:
+    raw = row.get("catalog_metadata_json") or "{}"
+    payload = json.loads(str(raw))
+    return {
+        "domain_ref": payload.get("domain_ref"),
+        "related_domain_refs": list(payload.get("related_domain_refs") or []),
+        "aliases": list(payload.get("aliases") or []),
+    }
+
+
 def _locator_matches_source_object(
     source_object: dict[str, Any], locator: dict[str, Any] | str
 ) -> bool:
@@ -426,6 +454,7 @@ class _SemanticListContext:
         self._add_time_snapshots(snapshots)
         self._add_enum_snapshots(snapshots)
         self._add_binding_snapshots(snapshots)
+        self._add_relationship_snapshots(snapshots)
         self._add_profile_snapshots(snapshots)
         self._add_predicate_snapshots(snapshots)
         self._snapshots_by_ref = snapshots
@@ -478,6 +507,12 @@ class _SemanticListContext:
                         }
                         for descriptor_row in descriptor_rows.get(entity_id, [])
                     ],
+                    "fields": json.loads(row.get("fields_json") or "[]") or None,
+                    "binding": (
+                        json.loads(row["binding_json"])
+                        if row.get("binding_json") is not None
+                        else None
+                    ),
                 },
             }
             self._add_snapshot(
@@ -635,6 +670,19 @@ class _SemanticListContext:
                 str(binding["binding_ref"]),
                 binding,
                 binding,
+            )
+
+    def _add_relationship_snapshots(self, snapshots: dict[str, ReadinessObjectSnapshot]) -> None:
+        rows = self._service.metadata.query_rows("SELECT * FROM semantic_entity_relationships")
+        for row in rows:
+            semantic_object = self._service._entity_relationship_semantic_object(row)
+            self._add_snapshot(
+                snapshots,
+                "relationship",
+                str(row["relationship_id"]),
+                str(row["relationship_ref"]),
+                row,
+                semantic_object,
             )
 
     def _add_profile_snapshots(self, snapshots: dict[str, ReadinessObjectSnapshot]) -> None:
@@ -1436,15 +1484,159 @@ class SemanticServiceSupport:
     def _dependent_refs_for_ref(self, ref: str) -> list[str]:
         return _SemanticListContext(self).dependent_refs_for(ref)
 
+    def field_dependents_for_entity_field(
+        self, entity_identifier: str, field_ref: str
+    ) -> list[dict[str, Any]]:
+        row = self.metadata.query_one(
+            "SELECT * FROM semantic_entity_contracts WHERE entity_contract_id = ?",
+            [entity_identifier],
+        )
+        if row is None:
+            row = self.metadata.query_one(
+                "SELECT * FROM semantic_entity_contracts WHERE entity_ref = ?",
+                [entity_identifier],
+            )
+        if row is None:
+            raise self._not_found(f"Unknown typed entity: {entity_identifier}")
+        entity = self._row_to_typed_entity(
+            row, include_dependents=False, include_field_dependency_graph=False
+        )
+        entity_ref = str(entity["header"]["entity_ref"])
+        normalized_field_ref = str(field_ref).strip()
+        entity_qualified_prefix = f"{entity_ref}.field."
+        if normalized_field_ref.startswith(entity_qualified_prefix):
+            normalized_field_ref = normalized_field_ref.removeprefix(f"{entity_ref}.")
+        elif normalized_field_ref.startswith("entity."):
+            raise self._validation_error(
+                "field_ref must be a field on the requested entity.",
+                code="entity_field_scope_mismatch",
+                field_path="field_ref",
+            )
+        elif not normalized_field_ref.startswith("field."):
+            raise self._validation_error(
+                "field_ref must start with 'field.' or '<entity_ref>.field.'.",
+                code="entity_field_ref_invalid",
+                field_path="field_ref",
+            )
+        known_field_refs = {
+            str(field.get("field_ref")).strip()
+            for field in (entity.get("interface_contract") or {}).get("fields") or []
+            if isinstance(field, dict) and str(field.get("field_ref") or "").strip()
+        }
+        if normalized_field_ref not in known_field_refs:
+            raise self._validation_error(
+                f"Unknown field_ref for entity {entity_ref}: {normalized_field_ref}",
+                code="entity_field_unknown",
+                field_path="field_ref",
+            )
+        return self._field_dependency_graph_for_entity(entity_ref, entity).get(
+            normalized_field_ref, []
+        )
+
+    def _field_dependency_graph_for_entity(
+        self, entity_ref: str, entity: dict[str, Any]
+    ) -> dict[str, list[dict[str, Any]]]:
+        fields = (entity.get("interface_contract") or {}).get("fields") or []
+        field_refs = [
+            str(field.get("field_ref")).strip()
+            for field in fields
+            if isinstance(field, dict) and str(field.get("field_ref") or "").strip()
+        ]
+        graph: dict[str, list[dict[str, Any]]] = {field_ref: [] for field_ref in field_refs}
+        if not field_refs:
+            return graph
+
+        qualified_alias_by_field = {
+            field_ref: f"{entity_ref}.{field_ref}" for field_ref in field_refs
+        }
+        entries_by_field_and_ref: dict[tuple[str, str], dict[str, Any]] = {}
+        for (
+            object_kind,
+            object_ref,
+            semantic_object,
+        ) in self._iter_semantic_objects_for_dependency_scan():
+            if object_kind == "entity" and object_ref == entity_ref:
+                continue
+            if object_kind not in {
+                "dimension",
+                "time",
+                "predicate",
+                "metric",
+                "process",
+                "compiler_profile",
+            }:
+                continue
+            ref_values = self._iter_structured_ref_values(
+                self._field_dependency_scan_payload(semantic_object)
+            )
+            candidate_refs = {value for _, value in ref_values}
+            entity_refs = {
+                value
+                for value in candidate_refs
+                if value.startswith("entity.") and ".field." not in value
+            }
+            is_single_entity_scoped = entity_refs == {entity_ref}
+            for path, value in ref_values:
+                for target_field_ref, qualified_alias in qualified_alias_by_field.items():
+                    if value != qualified_alias and not (
+                        value == target_field_ref and is_single_entity_scoped
+                    ):
+                        continue
+                    key = (target_field_ref, object_ref)
+                    entry = entries_by_field_and_ref.get(key)
+                    if entry is None:
+                        entry = {
+                            "object_kind": "profile"
+                            if object_kind == "compiler_profile"
+                            else object_kind,
+                            "ref": object_ref,
+                            "usage_paths": [],
+                            "usage_count": 0,
+                        }
+                        entries_by_field_and_ref[key] = entry
+                        graph[target_field_ref].append(entry)
+                    if path not in entry["usage_paths"]:
+                        entry["usage_paths"].append(path)
+                        entry["usage_count"] = len(entry["usage_paths"])
+        for dependents in graph.values():
+            dependents.sort(key=lambda item: (item["object_kind"], item["ref"]))
+            for entry in dependents:
+                entry["usage_paths"].sort()
+        return graph
+
+    @staticmethod
+    def _field_dependency_scan_payload(semantic_object: dict[str, Any]) -> dict[str, Any]:
+        return {
+            key: semantic_object[key]
+            for key in ("header", "interface_contract", "payload", "requirement", "capability")
+            if key in semantic_object
+        }
+
+    def _iter_structured_ref_values(self, value: Any, path: str = "") -> list[tuple[str, str]]:
+        refs: list[tuple[str, str]] = []
+        if isinstance(value, dict):
+            for key, nested in value.items():
+                child_path = f"{path}.{key}" if path else str(key)
+                refs.extend(self._iter_structured_ref_values(nested, child_path))
+            return refs
+        if isinstance(value, list):
+            for index, nested in enumerate(value):
+                child_path = f"{path}[{index}]" if path else f"[{index}]"
+                refs.extend(self._iter_structured_ref_values(nested, child_path))
+            return refs
+        if isinstance(value, str) and self._is_structured_ref_path(path):
+            refs.append((path, value.strip()))
+        return refs
+
+    @staticmethod
+    def _is_structured_ref_path(path: str) -> bool:
+        leaf = path.rsplit(".", 1)[-1].split("[", 1)[0]
+        return leaf == "ref" or leaf.endswith("_ref") or leaf.endswith("_refs")
+
     def _iter_semantic_objects_for_dependency_scan(
         self,
     ) -> list[tuple[ObjectKind, str, dict[str, Any]]]:
         objects: list[tuple[ObjectKind, str, dict[str, Any]]] = []
-
-        entity_rows = self.metadata.query_rows("SELECT * FROM semantic_entity_contracts")
-        for row in entity_rows:
-            entity = self._row_to_typed_entity(row, include_dependents=False)
-            objects.append(("entity", str(row["entity_ref"]), entity))
 
         metric_rows = self.metadata.query_rows("SELECT * FROM semantic_metric_contracts")
         for row in metric_rows:
@@ -1471,10 +1663,20 @@ class SemanticServiceSupport:
             enum_set = self._row_to_enum_set(row, include_dependents=False)
             objects.append(("enum", str(row["enum_set_ref"]), enum_set))
 
+        predicate_rows = self.metadata.query_rows("SELECT * FROM semantic_predicate_contracts")
+        for row in predicate_rows:
+            predicate = self._row_to_predicate(row, include_dependents=False)
+            objects.append(("predicate", str(row["predicate_ref"]), predicate))
+
         binding_rows = self.metadata.query_rows("SELECT * FROM typed_bindings")
         for row in binding_rows:
             binding = self._row_to_typed_binding(row, include_dependents=False)
             objects.append(("binding", str(row["binding_ref"]), binding))
+
+        relationship_rows = self.metadata.query_rows("SELECT * FROM semantic_entity_relationships")
+        for row in relationship_rows:
+            relationship = self._row_to_entity_relationship(row, include_dependents=False)
+            objects.append(("relationship", str(row["relationship_ref"]), relationship))
 
         profile_rows = self.metadata.query_rows("SELECT * FROM compiler_compatibility_profiles")
         for row in profile_rows:
@@ -1568,7 +1770,100 @@ class SemanticServiceSupport:
             return refs
         if object_kind == "compiler_profile":
             self._append_dependency_ref(refs, seen, obj.get("subject_ref"))
+            self._collect_dependency_refs(obj.get("requirement") or {}, refs, seen)
+            self._collect_dependency_refs(obj.get("capability") or {}, refs, seen)
             return refs
+        if object_kind == "relationship":
+            for value in (
+                obj.get("left_entity_ref"),
+                obj.get("right_entity_ref"),
+            ):
+                self._append_dependency_ref(refs, seen, value)
+            self._collect_dependency_refs(obj.get("key_alignment") or {}, refs, seen)
+            self._collect_dependency_refs(obj.get("time_alignment") or {}, refs, seen)
+            self._collect_dependency_refs(obj.get("grain_compatibility") or {}, refs, seen)
+            self._collect_dependency_refs(
+                obj.get("snapshot_effective_window_alignment") or {}, refs, seen
+            )
+            return refs
+        return refs
+
+    def _relationship_row_by_identifier(
+        self, relationship_identifier: str
+    ) -> dict[str, Any] | None:
+        row = self.metadata.query_one(
+            "SELECT * FROM semantic_entity_relationships WHERE relationship_id = ?",
+            [relationship_identifier],
+        )
+        if row is None:
+            row = self.metadata.query_one(
+                "SELECT * FROM semantic_entity_relationships WHERE relationship_ref = ?",
+                [relationship_identifier],
+            )
+        return None if row is None else dict(row)
+
+    def _relationship_row_by_ref(self, relationship_ref: str) -> dict[str, Any] | None:
+        row = self.metadata.query_one(
+            "SELECT * FROM semantic_entity_relationships WHERE relationship_ref = ?",
+            [relationship_ref],
+        )
+        return None if row is None else dict(row)
+
+    def _validate_relationship_contract(
+        self, relationship: dict[str, Any], *, require_published_entities: bool
+    ) -> None:
+        left_entity_ref = str(relationship["left_entity_ref"])
+        right_entity_ref = str(relationship["right_entity_ref"])
+        if require_published_entities:
+            self._validate_published_entity_ref(left_entity_ref)
+            self._validate_published_entity_ref(right_entity_ref)
+        else:
+            self._validate_entity_ref(left_entity_ref)
+            self._validate_entity_ref(right_entity_ref)
+
+        key_alignment = dict(relationship.get("key_alignment") or {})
+        left_entity, left_field = self._resolve_entity_field_ref(
+            str(key_alignment.get("left_field_ref") or ""),
+            require_published=require_published_entities,
+            scope_entity_ref=left_entity_ref,
+        )
+        right_entity, right_field = self._resolve_entity_field_ref(
+            str(key_alignment.get("right_field_ref") or ""),
+            require_published=require_published_entities,
+            scope_entity_ref=right_entity_ref,
+        )
+        left_type = self._field_value_type(left_field)
+        right_type = self._field_value_type(right_field)
+        if left_type is not None and right_type is not None and left_type != right_type:
+            raise self._compatibility_error(
+                "relationship_key_value_type_mismatch: key alignment fields must have compatible value_type.",
+                code="relationship_key_value_type_mismatch",
+            )
+        if left_entity["header"]["entity_ref"] == right_entity["header"]["entity_ref"]:
+            return
+
+        for time_ref in self._relationship_time_refs(relationship):
+            if time_ref.startswith("time."):
+                if require_published_entities:
+                    self._validate_published_time_ref(time_ref)
+                else:
+                    self._validate_time_ref(time_ref)
+                continue
+            self._resolve_entity_field_ref(time_ref, require_published=require_published_entities)
+
+    @staticmethod
+    def _relationship_time_refs(relationship: dict[str, Any]) -> list[str]:
+        refs: list[str] = []
+        time_alignment = relationship.get("time_alignment") or {}
+        for key in ("left_time_ref", "right_time_ref"):
+            value = time_alignment.get(key)
+            if isinstance(value, str) and value.strip():
+                refs.append(value.strip())
+        snapshot_alignment = relationship.get("snapshot_effective_window_alignment") or {}
+        for key in ("event_time_ref", "effective_from_ref", "effective_to_ref"):
+            value = snapshot_alignment.get(key)
+            if isinstance(value, str) and value.strip():
+                refs.append(value.strip())
         return refs
 
     def _collect_dependency_refs(
@@ -2093,7 +2388,9 @@ class SemanticServiceSupport:
 
         Dispatches to the appropriate per-kind validator based on the ref prefix.
         """
-        if target_ref.startswith("dimension."):
+        if self._is_entity_field_ref(target_ref):
+            self._resolve_entity_field_ref(target_ref, require_published=require_published)
+        elif target_ref.startswith("dimension."):
             if require_published:
                 self._validate_published_dimension_ref(target_ref)
             else:
@@ -2121,10 +2418,181 @@ class SemanticServiceSupport:
             else:
                 self._validate_entity_ref(resolved)
         elif target_ref.startswith("field."):
-            self._require_ref_exists(
-                "SELECT carrier_binding_id FROM carrier_field_surfaces WHERE surface_ref = ?",
-                target_ref,
-                "field ref",
+            self._resolve_entity_field_ref(target_ref, require_published=require_published)
+
+    @staticmethod
+    def _is_entity_field_ref(ref: str) -> bool:
+        return ref.startswith("field.") or (ref.startswith("entity.") and ".field." in ref)
+
+    @staticmethod
+    def _split_entity_field_ref(ref: str) -> tuple[str | None, str]:
+        value = ref.strip()
+        if value.startswith("field."):
+            return None, value
+        if value.startswith("entity.") and ".field." in value:
+            entity_ref, field_name = value.split(".field.", 1)
+            return entity_ref, f"field.{field_name}"
+        raise ValueError(f"Invalid entity field ref: {ref}")
+
+    def _resolve_entity_field_ref(
+        self,
+        field_ref: str,
+        *,
+        require_published: bool = False,
+        scope_entity_ref: str | None = None,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        explicit_entity_ref, local_field_ref = self._split_entity_field_ref(field_ref)
+        if explicit_entity_ref is not None:
+            if scope_entity_ref is not None and explicit_entity_ref != scope_entity_ref:
+                raise self._validation_error(
+                    "Entity field ref does not belong to the expected entity scope: "
+                    f"{field_ref} != {scope_entity_ref}",
+                    code="entity_field_scope_mismatch",
+                    field_path="source_field_ref",
+                )
+            entity_ref = explicit_entity_ref
+            if require_published:
+                self._validate_published_entity_ref(entity_ref)
+            else:
+                self._validate_entity_ref(entity_ref)
+            entity = self._get_entity_contract_by_ref(entity_ref)
+            if entity is None:
+                raise self._validation_error(f"Unknown entity ref: {entity_ref}")
+            for field in (entity.get("interface_contract") or {}).get("fields") or []:
+                if isinstance(field, dict) and field.get("field_ref") == local_field_ref:
+                    return entity, field
+            raise self._validation_error(
+                f"Unknown entity field ref: {field_ref}",
+                code="entity_field_unknown",
+                field_path="source_field_ref",
+            )
+        candidate_rows = self.metadata.query_rows("SELECT * FROM semantic_entity_contracts")
+        matches: list[tuple[dict[str, Any], dict[str, Any]]] = []
+        for row in candidate_rows:
+            if require_published and row["status"] != "published":
+                continue
+            if scope_entity_ref is not None and row["entity_ref"] != scope_entity_ref:
+                continue
+            entity = self._row_to_typed_entity(row, include_dependents=False)
+            for field in (entity.get("interface_contract") or {}).get("fields") or []:
+                if isinstance(field, dict) and field.get("field_ref") == local_field_ref:
+                    matches.append((entity, field))
+        if not matches:
+            raise self._validation_error(
+                f"Unknown entity field ref: {field_ref}",
+                code="entity_field_unknown",
+                field_path="source_field_ref",
+            )
+        if len(matches) > 1:
+            raise self._validation_error(
+                "Unqualified field ref is ambiguous across entities; use "
+                "entity.<entity>.field.<field>: " + field_ref,
+                code="entity_field_ref_ambiguous",
+                field_path="source_field_ref",
+            )
+        return matches[0]
+
+    @staticmethod
+    def _field_value_type(field: dict[str, Any]) -> str | None:
+        value = field.get("value_type")
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
+
+    def _validate_dimension_source_field_usage(
+        self, source_field_ref: str, value_type: str, *, require_published: bool = False
+    ) -> None:
+        _entity, field = self._resolve_entity_field_ref(
+            source_field_ref, require_published=require_published
+        )
+        field_value_type = self._field_value_type(field)
+        if field_value_type is None:
+            return
+        allowed_by_dimension_type: dict[str, set[str]] = {
+            "string": {"string"},
+            "integer": {"integer", "number"},
+            "number": {"integer", "number"},
+            "boolean": {"boolean"},
+            "date": {"date", "datetime"},
+            "datetime": {"datetime", "date"},
+        }
+        allowed = allowed_by_dimension_type.get(value_type, set())
+        if field_value_type not in allowed:
+            raise self._validation_error(
+                "invalid_field_type_for_semantic_object: dimension "
+                f"value_type={value_type!r} cannot use {source_field_ref} "
+                f"with field value_type={field_value_type!r}",
+                code="invalid_field_type_for_semantic_object",
+                field_path="interface_contract.source_field_ref",
+                remediation={
+                    "semantic_object_kind": "dimension",
+                    "expected_value_type": value_type,
+                    "actual_field_value_type": field_value_type,
+                    "source_field_ref": source_field_ref,
+                },
+            )
+
+    def _validate_time_source_field_usage(
+        self, source_field_ref: str, *, require_published: bool = False
+    ) -> None:
+        _entity, field = self._resolve_entity_field_ref(
+            source_field_ref, require_published=require_published
+        )
+        field_value_type = self._field_value_type(field)
+        if field_value_type is None:
+            return
+        if field_value_type not in {"date", "datetime"}:
+            raise self._validation_error(
+                "invalid_field_type_for_semantic_object: time object must reference a "
+                f"date/datetime-compatible field, got {field_value_type!r} for {source_field_ref}",
+                code="invalid_field_type_for_semantic_object",
+                field_path="header.source_field_ref",
+                remediation={
+                    "semantic_object_kind": "time",
+                    "expected_field_value_types": ["date", "datetime"],
+                    "actual_field_value_type": field_value_type,
+                    "source_field_ref": source_field_ref,
+                },
+            )
+
+    def _validate_time_source_field_usage_for_contract(
+        self, header: dict[str, Any], *, require_published: bool = False
+    ) -> None:
+        source_field_ref = header.get("source_field_ref")
+        if source_field_ref is not None:
+            self._validate_time_source_field_usage(
+                str(source_field_ref), require_published=require_published
+            )
+
+    def _validate_predicate_atom_field_usage(
+        self, atom: dict[str, Any], *, require_published: bool = False
+    ) -> None:
+        target_ref = str(atom.get("target_ref") or "")
+        if not self._is_entity_field_ref(target_ref):
+            return
+        _entity, field = self._resolve_entity_field_ref(
+            target_ref, require_published=require_published
+        )
+        field_value_type = self._field_value_type(field)
+        if field_value_type is None:
+            return
+        op = str(atom.get("op") or "")
+        numeric_ops = {"gt", "gte", "lt", "lte", "between"}
+        numeric_types = {"integer", "number", "date", "datetime"}
+        if op in numeric_ops and field_value_type not in numeric_types:
+            raise self._validation_error(
+                "invalid_field_type_for_semantic_object: predicate operator "
+                f"{op!r} requires an ordered field, got {field_value_type!r} for {target_ref}",
+                code="invalid_field_type_for_semantic_object",
+                field_path="interface_contract.expression.target_ref",
+                remediation={
+                    "semantic_object_kind": "predicate",
+                    "operator": op,
+                    "expected_field_value_types": sorted(numeric_types),
+                    "actual_field_value_type": field_value_type,
+                    "target_ref": target_ref,
+                },
             )
 
     def _validate_predicate_contract_refs(
@@ -2142,8 +2610,20 @@ class SemanticServiceSupport:
                 self._validate_entity_ref(resolved)
         expression = interface_contract.get("expression")
         if expression is not None:
+            for atom in self._iter_predicate_atoms(expression):
+                self._validate_predicate_atom_field_usage(atom, require_published=require_published)
             for target_ref in self._extract_target_refs(expression):
                 self._validate_semantic_ref_target(target_ref, require_published=require_published)
+
+    @staticmethod
+    def _iter_predicate_atoms(expression: dict[str, Any]) -> list[dict[str, Any]]:
+        if expression.get("target_ref") is not None:
+            return [expression]
+        atoms: list[dict[str, Any]] = []
+        for item in expression.get("items") or []:
+            if isinstance(item, dict):
+                atoms.extend(SemanticServiceSupport._iter_predicate_atoms(item))
+        return atoms
 
     def _validate_published_predicate_contract_refs(
         self, interface_contract: dict[str, Any], *, subject_ref: str | None = None
@@ -2171,6 +2651,11 @@ class SemanticServiceSupport:
             self._validate_published_time_ref(header["primary_time_ref"])
         if header.get("observed_entity_ref") is not None:
             self._validate_published_entity_ref(header["observed_entity_ref"])
+            primary_time_ref = header.get("primary_time_ref")
+            if primary_time_ref is not None:
+                self._validate_time_compatible_with_entity(
+                    str(primary_time_ref), str(header["observed_entity_ref"])
+                )
 
     def _validate_published_metric_predicate_refs(
         self, header: dict[str, Any], payload: dict[str, Any]
@@ -2198,6 +2683,69 @@ class SemanticServiceSupport:
                         required_usage="metric_qualifier",
                         field_name=f"{field}.qualifier_refs",
                     )
+                input_field_ref = component.get("input_field_ref")
+                if input_field_ref is not None:
+                    self._validate_metric_component_input_field(
+                        str(input_field_ref),
+                        aggregation=str(component.get("aggregation") or ""),
+                        field_name=f"{field}.input_field_ref",
+                    )
+
+    def _validate_time_compatible_with_entity(self, time_ref: str, entity_ref: str) -> None:
+        time_row = self.metadata.query_one(
+            "SELECT source_field_ref FROM semantic_time_objects WHERE time_ref = ?",
+            [time_ref],
+        )
+        if time_row is None or time_row["source_field_ref"] is None:
+            return
+        source_field_ref = str(time_row["source_field_ref"])
+        time_entity_ref, _field_ref = self._split_entity_field_ref(source_field_ref)
+        if time_entity_ref is not None and time_entity_ref != entity_ref:
+            raise self._validation_error(
+                f"Metric primary_time_ref {time_ref} resolves to {time_entity_ref}, "
+                f"which is not compatible with observed_entity_ref {entity_ref}.",
+                code="metric_primary_time_entity_mismatch",
+                field_path="header.primary_time_ref",
+                remediation={
+                    "primary_time_ref": time_ref,
+                    "time_source_field_ref": source_field_ref,
+                    "observed_entity_ref": entity_ref,
+                },
+            )
+
+    def _validate_metric_component_input_field(
+        self, input_field_ref: str, *, aggregation: str, field_name: str
+    ) -> None:
+        entity_ref, _field_ref = self._split_entity_field_ref(input_field_ref)
+        if entity_ref is not None:
+            self._validate_published_entity_ref(entity_ref)
+            entity = self._get_entity_contract_by_ref(entity_ref)
+            if entity is not None and not (entity.get("interface_contract") or {}).get("fields"):
+                return
+        _entity, field = self._resolve_entity_field_ref(input_field_ref, require_published=True)
+        field_value_type = self._field_value_type(field)
+        if field_value_type is None:
+            return
+        expected: set[str]
+        if aggregation in {"sum", "mean"}:
+            expected = {"integer", "number"}
+        elif aggregation in {"boolean_any", "boolean_all"}:
+            expected = {"boolean"}
+        else:
+            expected = {"string", "integer", "number", "boolean", "date", "datetime"}
+        if field_value_type not in expected:
+            raise self._validation_error(
+                f"Metric component input field {input_field_ref} has incompatible "
+                f"value_type={field_value_type!r} for aggregation={aggregation!r}.",
+                code="invalid_metric_input_type",
+                field_path=field_name,
+                remediation={
+                    "input_field_ref": input_field_ref,
+                    "aggregation": aggregation,
+                    "actual_field_value_type": field_value_type,
+                    "expected_field_value_types": sorted(expected),
+                },
+            )
 
     def _validate_request_scope_predicate_ref(self, predicate_ref: str | None) -> None:
         if predicate_ref is None:
@@ -2309,6 +2857,8 @@ class SemanticServiceSupport:
                 validate_time(payload["evaluation_anchor_ref"])
             if payload.get("transition_anchor_ref") is not None:
                 validate_time(payload["transition_anchor_ref"])
+        for field_ref in self._collect_entity_field_refs_from_object(payload):
+            self._resolve_entity_field_ref(field_ref, require_published=require_published)
 
     def _validate_published_process_payload_refs(self, payload: dict[str, Any]) -> None:
         self._validate_process_payload_refs(payload, require_published=True)
@@ -2336,7 +2886,21 @@ class SemanticServiceSupport:
         if interface_contract.get("anchor_time_ref") is not None:
             validate_time(interface_contract["anchor_time_ref"])
         validate_dims(interface_contract.get("exported_dimension_refs"))
+        for field_ref in self._collect_entity_field_refs_from_object(interface_contract):
+            self._resolve_entity_field_ref(field_ref, require_published=require_published)
         self._validate_process_payload_refs(payload, require_published=require_published)
+
+    def _collect_entity_field_refs_from_object(self, value: Any) -> list[str]:
+        refs: list[str] = []
+        if isinstance(value, dict):
+            for nested in value.values():
+                refs.extend(self._collect_entity_field_refs_from_object(nested))
+        elif isinstance(value, list):
+            for nested in value:
+                refs.extend(self._collect_entity_field_refs_from_object(nested))
+        elif isinstance(value, str) and value.startswith("entity.") and ".field." in value:
+            refs.append(value)
+        return refs
 
     def _validate_published_process_refs(
         self,
@@ -2362,6 +2926,16 @@ class SemanticServiceSupport:
             self._validate_published_time_ref if require_published else self._validate_time_ref
         )
         value_domain = interface_contract["value_domain"]
+        source_field_ref = interface_contract.get("source_field_ref")
+        if source_field_ref is not None:
+            if require_published:
+                self._validate_dimension_source_field_usage(
+                    str(source_field_ref),
+                    str(value_domain["value_type"]),
+                    require_published=True,
+                )
+            else:
+                self._resolve_entity_field_ref(str(source_field_ref))
         if value_domain.get("enum_set_ref") is not None:
             validate_enum(value_domain["enum_set_ref"])
         hierarchy = interface_contract.get("hierarchy")
@@ -3480,6 +4054,43 @@ class SemanticServiceSupport:
                 code="profile_subject_not_published",
             )
 
+    def _validate_profile_entity_centric_requirements(
+        self, requirement: dict[str, Any], *, require_published: bool = False
+    ) -> None:
+        for relationship_ref in requirement.get("required_relationship_refs") or []:
+            row = self._relationship_row_by_ref(str(relationship_ref))
+            if row is None:
+                raise self._compatibility_error(
+                    f"Missing required entity relationship: {relationship_ref}",
+                    code="missing_entity_relationship",
+                )
+            if require_published and row["status"] != "published":
+                raise self._compatibility_error(
+                    f"Required entity relationship must be published: {relationship_ref}",
+                    code="relationship_not_published",
+                )
+            self._validate_relationship_contract(
+                self._row_to_entity_relationship(row, include_dependents=False),
+                require_published_entities=require_published,
+            )
+        for field_requirement in requirement.get("field_profile_requirements") or []:
+            field_ref = str(field_requirement.get("field_ref") or "")
+            _entity, field = self._resolve_entity_field_ref(
+                field_ref, require_published=require_published
+            )
+            expected_value_type = field_requirement.get("required_value_type")
+            actual_value_type = self._field_value_type(field)
+            if (
+                expected_value_type is not None
+                and actual_value_type is not None
+                and str(expected_value_type) != actual_value_type
+            ):
+                raise self._compatibility_error(
+                    "field_profile_requirement_value_type_mismatch: profile field requirement "
+                    f"expected {expected_value_type!r}, got {actual_value_type!r} for {field_ref}.",
+                    code="field_profile_requirement_value_type_mismatch",
+                )
+
     def _published_profile_subject_revision(self, subject_kind: str, subject_ref: str) -> int:
         lookup = {
             "metric": (
@@ -3877,6 +4488,7 @@ class SemanticServiceSupport:
         mode: Literal["list", "detail"] = "detail",
         *,
         include_dependents: bool = True,
+        include_field_dependency_graph: bool = True,
     ) -> dict[str, Any]:
         key_rows = self.metadata.query_rows(
             """
@@ -3911,6 +4523,8 @@ class SemanticServiceSupport:
                 "description": row["description"],
                 "entity_contract_version": row["entity_contract_version"],
             },
+            "entity_kind": row["entity_kind"],
+            "catalog_metadata": _catalog_metadata_payload(row),
             "status": row["status"],
             "revision": row["revision"],
             "created_at": row["created_at"],
@@ -3933,6 +4547,10 @@ class SemanticServiceSupport:
                     for descriptor_row in descriptor_rows
                 ]
                 or None,
+                "fields": json.loads(row.get("fields_json") or "[]") or None,
+                "binding": (
+                    json.loads(row["binding_json"]) if row.get("binding_json") is not None else None
+                ),
             },
         }
         entity = self._augment_object_with_readiness(
@@ -3944,6 +4562,10 @@ class SemanticServiceSupport:
             mode=mode,
             include_dependents=include_dependents,
         )
+        if mode == "detail" and include_field_dependency_graph:
+            entity["field_dependency_graph"] = self._field_dependency_graph_for_entity(
+                str(row["entity_ref"]), entity
+            )
         if mode == "list":
             entity.pop("interface_contract", None)
         return entity
@@ -3961,6 +4583,7 @@ class SemanticServiceSupport:
         metric = {
             "metric_contract_id": row["metric_contract_id"],
             "header": metric_contract["header"],
+            "catalog_metadata": _catalog_metadata_payload(row),
             "status": row["status"],
             "revision": row["revision"],
             "base_revision": row["base_revision"],
@@ -4069,6 +4692,7 @@ class SemanticServiceSupport:
                 "process_type": row["process_type"],
                 "process_contract_version": row["process_contract_version"],
             },
+            "catalog_metadata": _catalog_metadata_payload(row),
             "status": row["status"],
             "revision": row["revision"],
             "created_at": row["created_at"],
@@ -4126,6 +4750,7 @@ class SemanticServiceSupport:
                 "description": row["description"],
                 "dimension_contract_version": row["dimension_contract_version"],
             },
+            "catalog_metadata": _catalog_metadata_payload(row),
             "status": row["status"],
             "revision": row["revision"],
             "created_at": row["created_at"],
@@ -4133,6 +4758,8 @@ class SemanticServiceSupport:
             # Readiness evaluation needs the full contract even for lightweight list items.
             "interface_contract": interface_contract,
         }
+        if row.get("source_field_ref") is not None:
+            interface_contract["source_field_ref"] = row["source_field_ref"]
         dimension = self._augment_object_with_readiness(
             dimension,
             object_kind="dimension",
@@ -4169,7 +4796,9 @@ class SemanticServiceSupport:
                 "description": row["description"],
                 "semantic_roles": semantic_roles,
                 "time_contract_version": row["time_contract_version"],
+                "source_field_ref": row.get("source_field_ref"),
             },
+            "catalog_metadata": _catalog_metadata_payload(row),
             "status": row["status"],
             "revision": row["revision"],
             "created_at": row["created_at"],
@@ -4393,6 +5022,7 @@ class SemanticServiceSupport:
             "profile_ref": row["profile_ref"],
             "subject_kind": row["subject_kind"],
             "subject_ref": row["subject_ref"],
+            "catalog_metadata": _catalog_metadata_payload(row),
             "status": row["status"],
             "revision": row["revision"],
             "created_at": row["created_at"],
@@ -4414,6 +5044,88 @@ class SemanticServiceSupport:
             include_dependents=include_dependents,
         )
 
+    @staticmethod
+    def _entity_relationship_semantic_object(row: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "relationship_ref": row["relationship_ref"],
+            "left_entity_ref": row["left_entity_ref"],
+            "right_entity_ref": row["right_entity_ref"],
+            "key_alignment": json.loads(row["key_alignment_json"] or "{}"),
+            "time_alignment": (
+                json.loads(row["time_alignment_json"])
+                if row.get("time_alignment_json") is not None
+                else None
+            ),
+            "cardinality": row["cardinality"],
+            "grain_compatibility": (
+                json.loads(row["grain_compatibility_json"])
+                if row.get("grain_compatibility_json") is not None
+                else None
+            ),
+            "snapshot_effective_window_alignment": (
+                json.loads(row["snapshot_effective_window_alignment_json"])
+                if row.get("snapshot_effective_window_alignment_json") is not None
+                else None
+            ),
+        }
+
+    def _row_to_entity_relationship(
+        self,
+        row: dict[str, Any],
+        mode: Literal["list", "detail"] = "detail",
+        *,
+        include_dependents: bool = True,
+    ) -> dict[str, Any]:
+        relationship = {
+            "relationship_id": row["relationship_id"],
+            "relationship_ref": row["relationship_ref"],
+            "display_name": row["display_name"],
+            "description": row["description"],
+            "left_entity_ref": row["left_entity_ref"],
+            "right_entity_ref": row["right_entity_ref"],
+            "key_alignment": json.loads(row["key_alignment_json"] or "{}"),
+            "time_alignment": (
+                json.loads(row["time_alignment_json"])
+                if row.get("time_alignment_json") is not None
+                else None
+            ),
+            "cardinality": row["cardinality"],
+            "grain_compatibility": (
+                json.loads(row["grain_compatibility_json"])
+                if row.get("grain_compatibility_json") is not None
+                else None
+            ),
+            "snapshot_effective_window_alignment": (
+                json.loads(row["snapshot_effective_window_alignment_json"])
+                if row.get("snapshot_effective_window_alignment_json") is not None
+                else None
+            ),
+            "catalog_metadata": _catalog_metadata_payload(row),
+            "status": row["status"],
+            "revision": row["revision"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+        relationship = self._augment_object_with_readiness(
+            relationship,
+            object_kind="relationship",
+            row=row,
+            id_field="relationship_id",
+            ref=str(row["relationship_ref"]),
+            mode=mode,
+            include_dependents=include_dependents,
+        )
+        if mode == "list":
+            for key in (
+                "description",
+                "key_alignment",
+                "time_alignment",
+                "grain_compatibility",
+                "snapshot_effective_window_alignment",
+            ):
+                relationship.pop(key, None)
+        return relationship
+
     def _row_to_predicate(
         self,
         row: dict[str, Any],
@@ -4432,6 +5144,7 @@ class SemanticServiceSupport:
                 "subject_ref": row["subject_ref"],
                 "predicate_contract_version": row["predicate_contract_version"],
             },
+            "catalog_metadata": _catalog_metadata_payload(row),
             "status": row["status"],
             "revision": row["revision"],
             "created_at": row["created_at"],

@@ -6,7 +6,6 @@ from pydantic import BaseModel, Field
 
 from .base import BlockingRequirement, LifecycleStatus, ReadinessStatus
 from .entity import TypedEntityResponse
-from .metric import TypedMetricResponse
 
 
 class SourceObjectResponse(BaseModel):
@@ -96,7 +95,7 @@ class CatalogEntityDetail(CatalogSemanticDetailBase):
 
 class CatalogMetricDetail(CatalogSemanticDetailBase):
     object_kind: Literal["metric"]
-    semantic_object: TypedMetricResponse
+    semantic_object: dict[str, object]
 
 
 class CatalogGenericSemanticDetail(CatalogSemanticDetailBase):

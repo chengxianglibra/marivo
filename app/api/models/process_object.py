@@ -11,9 +11,10 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .base import (
+    CatalogMetadata,
     ContextKind,
     ContractMode,
     ListResponseBase,
@@ -28,6 +29,7 @@ from .base import (
     SubjectCardinality,
     WindowSpec,
     validate_contract_version,
+    validate_process_semantic_ref,
     validate_ref_prefix,
 )
 
@@ -41,6 +43,8 @@ class ProcessObjectHeader(ObjectHeaderBase):
 
     Defines the stable identity and type of a process.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     process_ref: str = Field(
         description="Stable process reference (e.g., 'process.exp_123'). "
@@ -76,6 +80,8 @@ class ContextProcessContract(BaseModel):
     Context providers supply context (cohort membership, experiment split)
     to downstream metrics and analysis.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     contract_mode: Literal["context_provider"] = Field(
         default="context_provider", description="Must be 'context_provider'."
@@ -124,6 +130,8 @@ class EntityProcessContract(BaseModel):
     Entity streams emit entity instances (sessions, path matches, state assignments)
     to downstream metrics and analysis.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     contract_mode: Literal["entity_stream"] = Field(
         default="entity_stream", description="Must be 'entity_stream'."
@@ -190,20 +198,36 @@ ProcessInterfaceContract = Annotated[
 class ExperimentVariant(BaseModel):
     """Variant definition for an experiment."""
 
+    model_config = ConfigDict(extra="forbid")
+
     variant_key: str = Field(description="Unique key for this variant.")
     population_ref: str = Field(description="Reference to the variant population.")
+
+    @field_validator("population_ref")
+    @classmethod
+    def validate_population_ref(cls, v: str) -> str:
+        return validate_process_semantic_ref(v, "population_ref")
 
 
 class ExperimentSplitBasis(BaseModel):
     """Split basis definition for an experiment."""
 
+    model_config = ConfigDict(extra="forbid")
+
     kind: str = Field(description="Split basis kind: assignment or exposure.")
     basis_ref: str = Field(description="Reference to the split basis event/predicate.")
     resolution: str = Field(description="Resolution: first or last.")
 
+    @field_validator("basis_ref")
+    @classmethod
+    def validate_basis_ref(cls, v: str) -> str:
+        return validate_process_semantic_ref(v, "basis_ref")
+
 
 class ExperimentContextPayload(BaseModel):
     """Payload for experiment_context process type."""
+
+    model_config = ConfigDict(extra="forbid")
 
     process_type: Literal["experiment_context"] = Field(
         default="experiment_context", description="Discriminator."
@@ -230,6 +254,8 @@ class ExperimentContextPayload(BaseModel):
 class CohortDefinitionPayload(BaseModel):
     """Payload for cohort_definition process type."""
 
+    model_config = ConfigDict(extra="forbid")
+
     process_type: Literal["cohort_definition"] = Field(
         default="cohort_definition", description="Discriminator."
     )
@@ -246,6 +272,13 @@ class CohortDefinitionPayload(BaseModel):
         default=None, description="Optional return anchor time reference."
     )
 
+    @field_validator("cohort_anchor_ref", "return_anchor_ref")
+    @classmethod
+    def validate_anchor_ref(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        return validate_ref_prefix(v, "time", "anchor_ref")
+
 
 # --- Funnel Definition ---
 
@@ -253,12 +286,16 @@ class CohortDefinitionPayload(BaseModel):
 class StepGapSpec(BaseModel):
     """Maximum gap between steps in a funnel."""
 
+    model_config = ConfigDict(extra="forbid")
+
     value: int | float = Field(description="Gap value.")
     unit: str = Field(description="Time unit: minute, hour, or day.")
 
 
 class FunnelDefinitionPayload(BaseModel):
     """Payload for funnel_definition process type."""
+
+    model_config = ConfigDict(extra="forbid")
 
     process_type: Literal["funnel_definition"] = Field(
         default="funnel_definition", description="Discriminator."
@@ -287,12 +324,16 @@ class FunnelDefinitionPayload(BaseModel):
 class IdleGapSpec(BaseModel):
     """Idle gap specification for session detection."""
 
+    model_config = ConfigDict(extra="forbid")
+
     value: int | float = Field(description="Gap value.")
     unit: str = Field(description="Time unit: minute or hour.")
 
 
 class SessionContractPayload(BaseModel):
     """Payload for session_contract process type."""
+
+    model_config = ConfigDict(extra="forbid")
 
     process_type: Literal["session_contract"] = Field(
         default="session_contract", description="Discriminator."
@@ -317,6 +358,25 @@ class SessionContractPayload(BaseModel):
         default=None, description="Optional reference to canonical session definition."
     )
 
+    @field_validator("event_stream_ref")
+    @classmethod
+    def validate_event_stream_ref(cls, v: str) -> str:
+        return validate_process_semantic_ref(v, "event_stream_ref")
+
+    @field_validator("included_event_refs", "excluded_event_refs")
+    @classmethod
+    def validate_event_refs(cls, v: list[str] | None) -> list[str] | None:
+        if v is None:
+            return None
+        return [validate_process_semantic_ref(ref, "event_ref") for ref in v]
+
+    @field_validator("start_ref", "continuation_ref", "close_ref", "canonical_session_ref")
+    @classmethod
+    def validate_session_refs(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        return validate_process_semantic_ref(v, "session_ref")
+
 
 # --- Path Pattern ---
 
@@ -324,12 +384,16 @@ class SessionContractPayload(BaseModel):
 class PathLagSpec(BaseModel):
     """Maximum lag between path nodes."""
 
+    model_config = ConfigDict(extra="forbid")
+
     value: int | float = Field(description="Lag value.")
     unit: str = Field(description="Time unit: minute, hour, or day.")
 
 
 class PathPatternPayload(BaseModel):
     """Payload for path_pattern process type."""
+
+    model_config = ConfigDict(extra="forbid")
 
     process_type: Literal["path_pattern"] = Field(
         default="path_pattern", description="Discriminator."
@@ -361,6 +425,8 @@ class PathPatternPayload(BaseModel):
 class LifecycleStateMachinePayload(BaseModel):
     """Payload for lifecycle_state_machine process type."""
 
+    model_config = ConfigDict(extra="forbid")
+
     process_type: Literal["lifecycle_state_machine"] = Field(
         default="lifecycle_state_machine", description="Discriminator."
     )
@@ -377,6 +443,13 @@ class LifecycleStateMachinePayload(BaseModel):
     transition_anchor_ref: str | None = Field(
         default=None, description="Optional transition anchor time reference."
     )
+
+    @field_validator("evaluation_anchor_ref", "transition_anchor_ref")
+    @classmethod
+    def validate_anchor_ref(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        return validate_ref_prefix(v, "time", "anchor_ref")
 
 
 # =============================================================================
@@ -407,9 +480,15 @@ _CONTEXT_PROVIDER_PROCESS_TYPES: set[ProcessType] = {
 class ProcessObjectCreateRequest(BaseModel):
     """Request to create a new process object."""
 
+    model_config = ConfigDict(extra="forbid")
+
     header: ProcessObjectHeader = Field(description="Process object header.")
     interface_contract: ProcessInterfaceContract = Field(description="Process interface contract.")
     payload: ProcessPayload = Field(description="Process-type-specific payload.")
+    catalog_metadata: CatalogMetadata = Field(
+        default_factory=CatalogMetadata,
+        description="Discovery-only catalog metadata.",
+    )
 
     @model_validator(mode="after")
     def validate_process_type_matches_payload(self) -> ProcessObjectCreateRequest:
@@ -444,8 +523,14 @@ class ProcessObjectUpdateRequest(BaseModel):
     All fields are optional; only provided fields will be updated.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     display_name: str | None = Field(default=None, description="New display name.")
     description: str | None = Field(default=None, description="New description.")
+    catalog_metadata: CatalogMetadata | None = Field(
+        default=None,
+        description="Updated discovery-only catalog metadata.",
+    )
     interface_contract: ProcessInterfaceContract | None = Field(
         default=None, description="New interface contract."
     )
@@ -465,6 +550,10 @@ class ProcessObjectListItem(ObjectListItemBase):
 
     process_contract_id: str = Field(description="Internal ID of the process contract.")
     header: ProcessObjectHeader = Field(description="Process header (contains process_ref).")
+    catalog_metadata: CatalogMetadata = Field(
+        default_factory=CatalogMetadata,
+        description="Discovery-only catalog metadata.",
+    )
 
 
 class ProcessObjectResponse(ObjectResponseBase):
@@ -475,9 +564,20 @@ class ProcessObjectResponse(ObjectResponseBase):
 
     process_contract_id: str = Field(description="Internal ID of the process contract.")
     header: ProcessObjectHeader = Field(description="Process object header.")
+    catalog_metadata: CatalogMetadata = Field(
+        default_factory=CatalogMetadata,
+        description="Discovery-only catalog metadata.",
+    )
     interface_contract: ProcessInterfaceContract = Field(description="Process interface contract.")
     payload: ProcessPayload = Field(description="Process-type-specific payload.")
 
 
 class ProcessObjectListResponse(ListResponseBase[ProcessObjectListItem]):
     """Response model for listing process objects."""
+
+
+ProcessObjectListItemOrFull = ProcessObjectListItem | ProcessObjectResponse
+
+
+class ProcessObjectListResponseFull(ListResponseBase[ProcessObjectListItemOrFull]):
+    """Response model for listing process objects with detail=true."""

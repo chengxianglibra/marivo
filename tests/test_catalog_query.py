@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -80,6 +81,16 @@ class CatalogQueryTests(unittest.TestCase):
             quality_expectations={"min_group_size": 100},
         )
         cls.watch_metric_id = metric["metric_contract_id"]
+        metric_payload = metric["payload"]
+        metric_payload["denominator"].pop("input_field_ref", None)
+        cls.client.app.state.metadata_store.execute(
+            """
+            UPDATE semantic_metric_contracts
+            SET family_payload_json = ?
+            WHERE metric_contract_id = ?
+            """,
+            [json.dumps(metric_payload), cls.watch_metric_id],
+        )
         publish_typed_metric(cls.client, cls.watch_metric_id)
 
         # Create mapping: metric -> table
@@ -124,7 +135,7 @@ class CatalogQueryTests(unittest.TestCase):
                 and r["lifecycle_status"] == "active"
                 and r["readiness_status"] == "not_ready"
                 and r["blocker_count"] == 1
-                and r["blocking_requirements_preview"][0]["code"] == "METRIC_INPUT_COVERAGE_MISSING"
+                and r["blocking_requirements_preview"][0]["code"] == "METRIC_INPUT_FIELD_MISSING"
                 and r["capabilities_summary"]["supports_validate"] is False
                 for r in results
             )
@@ -198,7 +209,7 @@ class CatalogQueryTests(unittest.TestCase):
         self.assertEqual(detail["readiness_status"], "not_ready")
         self.assertEqual(
             detail["blocking_requirements"][0]["code"],
-            "METRIC_INPUT_COVERAGE_MISSING",
+            "METRIC_INPUT_FIELD_MISSING",
         )
         self.assertIn("entity.user", detail["dependency_refs"])
 
@@ -231,7 +242,7 @@ class CatalogQueryTests(unittest.TestCase):
         self.assertEqual(detail["semantic_object"]["readiness_status"], "not_ready")
         self.assertEqual(
             detail["semantic_object"]["blocking_requirements"][0]["code"],
-            "METRIC_INPUT_COVERAGE_MISSING",
+            "METRIC_INPUT_FIELD_MISSING",
         )
         self.assertIn("entity.user", detail["semantic_object"]["dependency_refs"])
         self.assertIn("time.event_date", detail["semantic_object"]["dependency_refs"])

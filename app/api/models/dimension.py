@@ -12,6 +12,7 @@ from __future__ import annotations
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .base import (
+    CatalogMetadata,
     DimensionDomainKind,
     DimensionValueType,
     HierarchyType,
@@ -21,6 +22,7 @@ from .base import (
     ObjectResponseBase,
     SemanticRole,
     StructureKind,
+    validate_canonical_entity_field_ref,
     validate_contract_version,
     validate_ref_prefix,
 )
@@ -35,6 +37,8 @@ class DimensionHeader(ObjectHeaderBase):
 
     Defines the stable identity of a dimension.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     dimension_ref: str = Field(
         description="Stable dimension reference (e.g., 'dimension.country'). "
@@ -194,7 +198,16 @@ class DimensionInterfaceContract(BaseModel):
     Combines value domain, hierarchy, grouping, and time-derived requirements.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     value_domain: DimensionValueDomainSpec = Field(description="Specification of the value domain.")
+    source_field_ref: str | None = Field(
+        default=None,
+        description=(
+            "Optional entity field that grounds this analysis axis. Must use "
+            "entity.<entity>.field.<field>. Dimensions never bind physical columns directly."
+        ),
+    )
     hierarchy: DimensionHierarchySpec | None = Field(
         default=None, description="Optional hierarchy specification."
     )
@@ -205,6 +218,13 @@ class DimensionInterfaceContract(BaseModel):
         default=None,
         description="Required for time_derived dimensions. Specifies the required time anchor.",
     )
+
+    @field_validator("source_field_ref")
+    @classmethod
+    def validate_source_field_ref(cls, v: str | None) -> str | None:
+        if v is not None:
+            return validate_canonical_entity_field_ref(v, "source_field_ref")
+        return v
 
     @model_validator(mode="after")
     def validate_time_derived(self) -> DimensionInterfaceContract:
@@ -225,6 +245,7 @@ class DimensionCreateRequest(BaseModel):
     """Request to create a new dimension."""
 
     model_config = ConfigDict(
+        extra="forbid",
         json_schema_extra={
             "examples": [
                 {
@@ -234,6 +255,7 @@ class DimensionCreateRequest(BaseModel):
                         "dimension_contract_version": "dimension.v1",
                     },
                     "interface_contract": {
+                        "source_field_ref": "entity.user.field.country",
                         "value_domain": {
                             "structure_kind": "flat",
                             "semantic_role": "category",
@@ -244,12 +266,16 @@ class DimensionCreateRequest(BaseModel):
                     },
                 }
             ]
-        }
+        },
     )
 
     header: DimensionHeader = Field(description="Dimension header.")
     interface_contract: DimensionInterfaceContract = Field(
         description="Dimension interface contract."
+    )
+    catalog_metadata: CatalogMetadata = Field(
+        default_factory=CatalogMetadata,
+        description="Discovery-only catalog metadata.",
     )
 
 
@@ -259,8 +285,14 @@ class DimensionUpdateRequest(BaseModel):
     All fields are optional; only provided fields will be updated.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     display_name: str | None = Field(default=None, description="New display name.")
     description: str | None = Field(default=None, description="New description.")
+    catalog_metadata: CatalogMetadata | None = Field(
+        default=None,
+        description="Updated discovery-only catalog metadata.",
+    )
     interface_contract: DimensionInterfaceContract | None = Field(
         default=None,
         description="New interface contract. Replaces the entire contract if provided.",
@@ -280,6 +312,10 @@ class DimensionListItem(ObjectListItemBase):
 
     dimension_contract_id: str = Field(description="Internal ID of the dimension contract.")
     header: DimensionHeader = Field(description="Dimension header (contains dimension_ref).")
+    catalog_metadata: CatalogMetadata = Field(
+        default_factory=CatalogMetadata,
+        description="Discovery-only catalog metadata.",
+    )
 
 
 class DimensionResponse(ObjectResponseBase):
@@ -290,6 +326,10 @@ class DimensionResponse(ObjectResponseBase):
 
     dimension_contract_id: str = Field(description="Internal ID of the dimension contract.")
     header: DimensionHeader = Field(description="Dimension header.")
+    catalog_metadata: CatalogMetadata = Field(
+        default_factory=CatalogMetadata,
+        description="Discovery-only catalog metadata.",
+    )
     interface_contract: DimensionInterfaceContract = Field(
         description="Dimension interface contract."
     )
@@ -297,3 +337,10 @@ class DimensionResponse(ObjectResponseBase):
 
 class DimensionListResponse(ListResponseBase[DimensionListItem]):
     """Response model for listing dimension objects."""
+
+
+DimensionListItemOrFull = DimensionListItem | DimensionResponse
+
+
+class DimensionListResponseFull(ListResponseBase[DimensionListItemOrFull]):
+    """Response model for listing dimension objects with detail=true."""

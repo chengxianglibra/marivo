@@ -15,9 +15,10 @@ Marivo's semantic layer is typed and HTTP-first.
 - `publish` is a compatibility alias for `activate`, not a separate lifecycle phase
 - runtime and catalog defaults should target objects that are both `lifecycle_status=active` and `readiness_status=ready`
 - semantic refs and session evidence refs are different things
-- bindings ground semantic objects to synced `source_objects`
+- entity contracts ground entity fields to synced `source_objects`
 - predicates define governed, reusable filter semantics consumed by metrics, request scopes, and governance policies
-- mappings govern source-to-engine routing and catalog projection; they are separate from semantic bindings
+- mappings govern source-to-engine routing and catalog projection; they are separate from entity physical grounding
+- domains group objects for discovery and search only; they do not grant permissions or prove compatibility
 
 Do not use storage `status` as a shortcut for usability.
 
@@ -32,25 +33,28 @@ Use these public semantic families:
 - `predicate.*`
 - `time.*`
 - `enum.*`
-- `binding.*`
+- `relationship.*`
 - `compiler_profile.*`
+- `domain.*`
 
 Namespace-only rules:
 
 - `key.*` is a contract-value namespace, not a standalone CRUD family
 - `grain.*` is a contract-value namespace, not a standalone CRUD family
-- `metric_input.*` is a binding payload namespace, not a standalone CRUD family
 
 Use them only as typed contract values, not as objects to create or activate directly.
 
 ## Scope-First Modeling
 
-Do not create semantic objects in isolation. Start from the final object that must become bindable.
+Do not create semantic objects in isolation. Start from the final object graph that must become usable.
 
-- for an `entity`, decide identity keys first, then optional `primary_time_ref`, then stable descriptors
-- for a `metric`, decide the metric family first, then required `metric_input` slots, then optional `primary_time_ref`
-- for a `predicate`, decide the target ref and filter expression first, then allowed usage categories, then time policy
+- for a `domain`, decide the discovery grouping and aliases only
+- for an `entity`, decide identity keys, thin `fields[]`, source object grounding, optional primary time, and stable descriptors
+- for a `time` or `dimension`, decide which `entity.<entity>.field.<field>` it describes
+- for a `metric`, decide the metric family first, then component `input_field_ref` values, then optional `primary_time_ref`
+- for a `predicate`, decide the entity field `target_ref` and filter expression first, then allowed usage categories, then time policy
 - for a `process`, decide the population subject first, then anchor time, analysis window, and process context requirements
+- for a `relationship` or `compiler_profile`, decide the cross-entity blocker it resolves before creating it
 
 Avoid speculative semantics. If a time semantic, descriptor, or compatibility profile is not needed by the current object graph, do not create it by default.
 
@@ -59,35 +63,33 @@ Avoid speculative semantics. If a time semantic, descriptor, or compatibility pr
 Treat semantic creation order as part of the contract:
 
 1. inspect synced source metadata first
-2. identify source columns for identity, time, stable descriptors, and metric inputs
-3. create foundational shared contracts: `time.*`, then `enum.*` when needed
-4. create reusable axes: `dimension.*`
-5. create stable business identity: `entity.*`
+2. discover or create the `domain.*` used for catalog search
+3. identify source columns for entity identity, time, stable descriptors, predicates, and metric inputs
+4. create `entity.*` with thin `fields[]` and entity-owned physical grounding
+5. create `time.*`, `dimension.*`, and `predicate.*` objects that reference fully qualified entity fields
 6. create reusable business measures or process semantics: `metric.*` and/or `process.*`
-7. create governed filter semantics: `predicate.*`
-8. create physical grounding: `binding.*`
-9. create compatibility artifacts only when needed: `compiler_profile.*`
-10. validate and activate in dependency order
-11. resolve or search the resulting refs to confirm runtime visibility
+7. create `relationship.*` and `compiler_profile.*` only when cross-entity composition needs them
+8. validate and activate in dependency order
+9. resolve or search the resulting refs to confirm runtime visibility
 
 Operational rule:
 
-- create meaning first
-- create filter semantics second
-- create grounding third
-- create compatibility artifacts last
+- create discovery context first
+- create entity grounding before dependent semantics
+- create field-referencing objects after the entity fields exist
+- create compatibility artifacts only to resolve real blockers
 
 For multi-object authoring, prefer `POST /semantic/batch` in `dry_run` mode before individual
 writes. Batch v1 executes items in submitted order, supports `time`, `dimension`, `entity`,
-`metric`, and `binding`, and returns per-item diagnostics. It is a validation-oriented authoring
+and `metric`, and returns per-item diagnostics. It is a validation-oriented authoring
 surface, not a transactional SQL executor or DAG planner.
 
 ## Predicate Usage Categories
 
 Each `predicate.*` must declare at least one `allowed_usage`:
 
-- `metric_qualifier`: filters rows for a specific metric binding
-- `carrier_row_filter`: filters rows at the carrier level across bindings
+- `metric_qualifier`: filters rows for a specific metric contract or measurement component
+- `carrier_row_filter`: filters rows at the entity grounding level
 - `request_scope`: constrains results at the request/intent level
 - `governance_policy`: enforces filter policies through governance
 
@@ -101,8 +103,11 @@ Use catalog search when you need fuzzy discovery across active semantic objects 
 
 Search guidance:
 
+- list domains with `GET /semantic/domains?status=active&q=...` when the business area is unclear
+- search domain objects with `/semantic/domain-objects?domain_ref=...&object_type=...&readiness_status=ready`
+- use `related_domain_refs` to find adjacent objects; do not treat related domains as authorization or compatibility
 - `q` should contain the concrete business term or typed-ref fragment you expect
-- narrow `type` when you already know the object family
+- narrow `object_type` when you already know the object family
 - omit readiness when the default ready-only filter is sufficient
 - use `readiness=all` only when blocker inspection is the task
 
@@ -114,7 +119,7 @@ Lifecycle guidance:
 
 1. create semantic objects in `draft`
 2. create predicates in `draft` after their target refs (entity, dimension, key) are clear
-3. create bindings or compatibility profiles in `draft` after referenced semantics are clear
+3. create relationships or compatibility profiles in `draft` after referenced semantics are clear
 4. validate when you want a guardrail pass without changing lifecycle
 5. activate to move the object into the governed public catalog
 6. deprecate when the object should stay readable but stop being the default choice for new work
@@ -127,37 +132,45 @@ Compiler pipeline gates apply during validation and activation:
 - **usage-level gate**: validates that `allowed_usage` values are consistent with the predicate's target refs
 - **scope validation gate**: validates that scope-widening semantics are correct and no conflicting predicates exist
 
-## Binding And Grounding Rules
+## Entity Fields And Grounding Rules
 
-Bindings are the physical grounding layer.
+Entity contracts are the physical grounding layer. Metric, process, dimension, time, and predicate
+objects reference entity fields and other semantic refs; they do not own physical grounding in new
+authoring flows.
 
 Key rules:
 
 - use the synced source object's `authority_locator` (catalog/schema/table) as the primary identity for routing
 - do not shorten the carrier locator when the synced object contains a wider catalog or engine prefix
-- resolve source metadata before creating bindings
-- activate referenced semantic objects before activating dependent bindings or compatibility profiles
-- `time_bindings` must reference declared carrier `time_surfaces` with `time_surface.*` refs; do not point `timestamp_surface_ref`, `date_surface_ref`, or `hour_surface_ref` at `field.*`
-- binding target kinds are scope-specific: `entity` supports `identity_key`, `primary_time`, and `stable_descriptor`; `metric` supports `population_subject`, `primary_time`, and `metric_input`; `process_object` supports `population_subject`, `primary_time`, `analysis_window_anchor`, and `process_context`
-- metric input bindings use family slot names such as `count_target`, `measure`, `numerator`, and `denominator` as `target.target_key`; the `semantic_ref` must use `metric_input.*`
-- for average and rate metrics, declare both local metric input slots: `numerator` and `denominator`
+- resolve source metadata before creating entity fields and entity grounding
+- define each physical column once in `entity.interface_contract.fields[]`
+- use entity-local `field.*` only inside that entity contract; downstream refs must use `entity.<entity>.field.<field>`
+- activate referenced entity/time/dimension/predicate objects before activating dependent metrics, processes, relationships, or compatibility profiles
+- do not put `physical_column`, carrier locators, SQL, or table/view names on dimension/time/predicate/metric/process payloads
+- dimensions and time objects use `source_field_ref` pointing at a fully qualified entity field
+- predicate atoms use `target_ref` pointing at a fully qualified entity field when filtering entity fields
+- metric components use `input_field_ref` such as `entity.order.field.pay_amount`
+- for average and rate metrics, declare both component fields: `numerator.input_field_ref` and `denominator.input_field_ref`
+- process steps, split basis, session events, and state refs use governed refs such as `entity.event.field.event_name`, `predicate.*`, `time.*`, or `event.*`
 
-Binding coverage preview:
+Field dependency preview:
 
-- create/detail readiness capabilities expose `required_targets`, `covered_targets`, `missing_required_targets`, `imported_covered_targets`, and `covers_required_targets`
-- inspect `missing_required_targets` before activation; create may be permissive for incomplete graphs, but readiness will show the missing contract coverage
-
-Imported target coverage:
-
-- a metric binding can use a published same-source entity or process binding import to cover `identity_key`, `primary_time`, `stable_descriptor`, or matching `population_subject` requirements
-- imports participate only when `imports.required_ref_prefixes` explicitly matches the imported target ref
-- `metric_input` never propagates from imports and must be declared locally on the metric binding
-- if multiple imports can satisfy the same required target, treat the ambiguity blocker as a modeling issue and choose one explicit import path
+- entity details expose `field_dependency_graph` so agents can see which dimension/time/predicate/metric/process/profile objects consume each field
+- inspect field dependents before renaming or removing an entity field
+- if readiness reports a missing field or binding, repair the entity field definition or entity grounding first
+- if a metric or process crosses entity boundaries, model the needed relationship/profile instead of adding metric/process-owned grounding
+- create `relationship.*` when two entities need key/time/grain/snapshot alignment. The relationship
+  references entity fields and time refs only; it must not contain SQL, optimizer hints, CTE shape,
+  arbitrary join graph, or boolean-expression DSL.
+- create `compiler_profile.*` when a metric/process needs explicit compile-time preconditions:
+  `required_relationship_refs`, grain/time/additivity compatibility hints, field profile
+  requirements, or governance preflight requirements. The profile does not replace metric/process
+  contracts and does not own physical grounding.
 
 Grouped metric-dimension bridge rule:
 
-- metric bindings do not expose a separate `dimension` target kind
-- grouped `observe(..., dimensions=["dimension.*"])` support requires the metric binding to import a published entity binding that exposes the requested `dimension.*` as `stable_descriptor`
+- grouped `observe(..., dimensions=["dimension.*"])` support relies on the metric's observed entity
+  and that entity's stable descriptors
 
 ## Metric Additivity
 
@@ -178,9 +191,9 @@ Use this playbook for execution histories, request logs, audit trails, task runs
 1. identify the stable analysis subject first
 2. separate source columns into identity, time, descriptors, and metric inputs
 3. create one shared `entity.*` for the stable subject before creating a metric family
-4. create `predicate.*` for common filter patterns (regions, platforms, tiers) before binding
-5. expose reusable descriptors through one published entity binding
-6. import those descriptors into metric bindings instead of rebinding the same grouping axes repeatedly
+4. create `predicate.*` for common filter patterns (regions, platforms, tiers) after entity fields exist
+5. expose reusable descriptors through the entity contract
+6. reference entity fields directly from metric components
 7. verify one representative typed intent before you consider the object graph complete
 
 Subject-first heuristics:
@@ -191,10 +204,10 @@ Subject-first heuristics:
 
 Column classification heuristics:
 
-- identity columns define `key.*` refs and population-subject bindings
-- business or execution anchor timestamps define `time.*` refs and runtime time-axis bindings
+- identity columns define `key.*` refs and population-subject contracts
+- business or execution anchor timestamps define `time.*` refs and runtime time-axis grounding through entity fields
 - reusable grouping axes become `dimension.*` and should usually appear as entity `stable_descriptors`
-- value-bearing numeric or boolean columns become metric inputs, not standalone semantic objects
+- value-bearing numeric or boolean columns become entity fields referenced by metric components
 
 Metric family heuristics:
 
@@ -211,11 +224,11 @@ Time modeling heuristics:
 - for string-backed timestamps, declare `timestamp_format` explicitly instead of relying on `native`
 - for date-plus-hour layouts, prefer `date_hour_columns` when the combined fields represent the runtime time axis
 
-Binding heuristics:
+Grounding heuristics:
 
-- create one entity binding that exposes the stable descriptors analysts will repeatedly group by
-- create metric bindings that focus on metric inputs, population subject, and primary time
-- for grouped `observe` or `detect`, import `dimension.*` coverage from the entity binding rather than duplicating those mappings in each metric binding
+- create one entity contract that exposes identity, primary time, and stable descriptors analysts will repeatedly use
+- do not add metric/process/time/dimension/predicate-owned grounding in new authoring flows
+- for grouped `observe` or `detect`, rely on the observed entity's stable descriptors
 
 Predicate heuristics:
 
@@ -233,7 +246,7 @@ Completion rule:
 - stay in direct session investigation for one-off exploration
 - create or revise semantic contracts when the same business concept will be reused
 - keep semantic refs stable and business-facing
-- let bindings absorb physical churn
+- let entity fields absorb physical churn
 - let predicates absorb filter churn
 - keep object-level readiness separate from request-level incompatibility
 

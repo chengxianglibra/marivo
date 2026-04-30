@@ -312,6 +312,19 @@ def _check_target_refs_resolvable(
         if any(target_ref.startswith(p) for p in ("key.", "enum.", "field.")):
             # Prefix-only validation — these were validated at CRUD time
             continue
+        if target_ref.startswith("entity.") and ".field." in target_ref:
+            entity_ref = target_ref.split(".field.", 1)[0]
+            try:
+                entity = resolver.resolve_entity_ref(entity_ref)
+                interface_contract = dict(entity.semantic_object.get("interface_contract") or {})
+                local_field_ref = f"field.{target_ref.split('.field.', 1)[1]}"
+                if any(
+                    isinstance(field, dict) and field.get("field_ref") == local_field_ref
+                    for field in interface_contract.get("fields") or []
+                ):
+                    continue
+            except SemanticRuntimeError:
+                pass
         entity_ref = _resolve_entity_ref_from_alias(target_ref)
         try:
             resolver.resolve_ref(entity_ref)
@@ -1653,6 +1666,7 @@ def run_lowering_precheck(
     normalized_predicate_input: NormalizedPredicateInput,
     resolved_bindings: list[Any],
     component_fields: list[str],
+    resolved_entity_field_refs: list[str] | None = None,
 ) -> list[ValidationIssue]:
     """Validate lowering readiness with fail-closed semantics.
 
@@ -1664,6 +1678,7 @@ def run_lowering_precheck(
     """
     issues: list[ValidationIssue] = []
     semantic_to_surfaces = _collect_binding_surface_refs(resolved_bindings)
+    grounded_entity_field_refs = set(resolved_entity_field_refs or [])
     comp_by_field: dict[str, NormalizedComponentPredicateInput] = {
         c["component_field"]: c for c in normalized_predicate_input.get("component_inputs", [])
     }
@@ -1731,6 +1746,7 @@ def run_lowering_precheck(
             if (
                 any(tref.startswith(p) for p in _GROUNDABLE_TARGET_PREFIXES)
                 and tref not in semantic_to_surfaces
+                and tref not in grounded_entity_field_refs
             ):
                 issues.append(
                     ValidationIssue(

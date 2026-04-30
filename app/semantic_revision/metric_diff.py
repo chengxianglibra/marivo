@@ -21,6 +21,7 @@ _BREAKING_PATHS = {
 
 
 _COMPATIBLE_PATHS = {
+    "catalog_metadata",
     "header.display_name",
     "header.description",
     "header.owner",
@@ -30,6 +31,7 @@ _COMPATIBLE_PATHS = {
 
 
 _PARENT_DIFF_PATHS = {
+    "catalog_metadata",
     "header.additivity_constraints",
     "header.default_predicate_refs",
     "payload.required_inputs",

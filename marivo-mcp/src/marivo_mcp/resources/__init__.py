@@ -18,6 +18,7 @@ _SEMANTIC_RESOURCE_PATHS = {
     "time": "/semantic/time",
     "enum-sets": "/semantic/enum-sets",
     "bindings": "/semantic/bindings",
+    "relationships": "/semantic/relationships",
     "compatibility-profiles": "/compiler/compatibility-profiles",
 }
 
@@ -68,6 +69,7 @@ def register_resources(
             "/semantic/time",
             "/semantic/enum-sets",
             "/semantic/bindings",
+            "/semantic/relationships",
             "/compiler/compatibility-profiles",
         ),
     )
@@ -110,6 +112,7 @@ def register_resources(
             "/semantic/time",
             "/semantic/enum-sets",
             "/semantic/bindings",
+            "/semantic/relationships",
             "/compiler/compatibility-profiles",
         ),
     )

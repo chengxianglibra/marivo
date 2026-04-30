@@ -12,7 +12,7 @@
 - `process object` 负责 **process semantics**：总体、阶段、路径、session、cohort 等过程如何被稳定构造。
 - `entity` 负责 **stable business identity**：业务实体是什么，以及语义层如何稳定引用它。
 - `dimension` 负责 **analysis axis semantics**：共享维度轴是什么、值如何治理、层级如何组织。
-- `typed binding contract` 负责 **physical grounding**：上述语义对象如何绑定到底层 source objects 与字段角色。
+- `typed binding contract` 负责 **entity-only physical grounding**：只有 `entity` 直接绑定到底层 source objects 与字段角色，其他对象通过 `entity.<entity>.field.<field>` 或语义 ref 间接消费。
 - compiler / IR 负责 **normalization、validation、expansion、IR assembly**：把这些对象编译成可校验、可追踪、可 lower 的内部计划。
 
 一句话说，这一目录是在回答：
@@ -29,13 +29,13 @@ enum-set schema ---+---\
 metric schema -----+--- > metric/process contract ----> compiler spec ----> IR schema contract
 process schema ----/--/
        \
-        -> typed binding contract
+        -> typed binding contract (entity grounding only)
 ```
 
 可以把它理解成四层：
 
 1. **Semantic 层**：`time`、`entity`、`dimension`、`metric`、`process object` 等稳定语义对象
-2. **Binding 层**：typed binding 如何把对象层语义落到物理 carriers / surfaces / relations
+2. **Binding 层**：typed binding 如何把 entity 字段语义落到物理 carriers / surfaces / relations
 3. **Compilation 层**：compiler 如何做 normalize、compatibility resolution、derived expansion、capability derivation
 4. **Plan 层**：IR 如何表达 engine-agnostic 的语义计划（使用引用而非复制）
 
@@ -48,7 +48,7 @@ process schema ----/--/
 - **stable ref / object id / revision 分层**：`metric.*` 等 semantic ref 表示稳定业务语义 identity；object id 是服务端内部实例定位符；revision 是某个 stable identity 下可审计、可回溯的冻结定义版本。
 - **默认解析最新，历史回溯显式带版本**：runtime/catalog 默认把 stable ref 解析到 latest active revision；artifact、step metadata、审计回放必须记录并使用 resolved revision，不能只保存裸 ref。
 - **compatibility profile 不等于对象本体**：`supported_intents`、`result_modes`、`capabilities`、`inference support` 这类组合/编译信息，不应默认塞入 public object schema；由 compiler 从核心字段推导。
-- **binding 统一承载物理落地**：binding 直接表达 carriers / surfaces / relations，不再引入独立的 asset 层；底层物理快照继续由 `source_objects` 承载。
+- **entity-only physical grounding**：只有 entity binding 直接表达 carriers / surfaces / relations；dimension、time、predicate、metric、process object 不再拥有对象级物理绑定，底层物理快照继续由 `source_objects` 承载。
 - **binding 使用类型化 target**：binding 用 `BindingTarget` TypedDict 替代 informal 字符串路径，不依赖 compiler 内部路径。
 - **IR 使用引用而非复制**：IR 只保留对象引用和 resolved/derived 字段，不复制 catalog 对象的全部字段。
 - **entity 定义独立于 binding**：entity contract 在没有 binding 的情况下语义完整，binding 提供物理落地。
@@ -72,11 +72,11 @@ process schema ----/--/
 | [`process-object-schema.zh.md`](./process-object-schema.zh.md) | `process object` 的目标 schema | 过程对象如何声明稳定接口、subtype 如何建模、哪些 capability 应保留 vs 推导 |
 | [`entity-schema-contract.zh.md`](./entity-schema-contract.zh.md) | `entity` 的目标 schema | entity 如何作为独立语义锚点，不依赖 binding，不暴露 process 语义 |
 | [`dimension-schema-contract.zh.md`](./dimension-schema-contract.zh.md) | `dimension` 的目标 schema | 共享分析维度如何成为独立 contract，structure_kind 与 semantic_role 分离 |
-| [`predicate-schema-contract.zh.md`](./predicate-schema-contract.zh.md) | `predicate.*` 的目标 schema | 过滤语义如何成为独立 contract，如何区分 metric qualifier、binding row filter 与 request scope |
+| [`predicate-schema-contract.zh.md`](./predicate-schema-contract.zh.md) | `predicate.*` 的目标 schema | 过滤语义如何成为独立 contract，如何区分 metric qualifier、entity binding row filter 与 request scope |
 | [`predicate-v1-scope-note.zh.md`](./predicate-v1-scope-note.zh.md) | `predicate.*` v1 产品边界 | v1 支持与不支持的表达式结构、操作符、usage 类别与 target_ref 前缀 |
 | [`predicate-governance-note.zh.md`](./predicate-governance-note.zh.md) | `predicate.*` 对象治理说明 | authoring 边界、生命周期约束、catalog 使用约定、新建 vs 复用决策标准 |
 | [`enum-set-schema-contract.zh.md`](./enum-set-schema-contract.zh.md) | `dimension` 的受治理值域 contract | `enum_set_ref` / `enum_version` 引用的值域本体是什么、版本锚定哪一层、与 governance / binding 如何分层 |
-| [`typed-binding-contract.zh.md`](./typed-binding-contract.zh.md) | 语义对象到物理层的绑定契约 | semantic refs 如何映射到 carriers / surfaces / relations，使用类型化 BindingTarget |
+| [`typed-binding-contract.zh.md`](./typed-binding-contract.zh.md) | entity 到物理层的绑定契约 | entity refs 与 entity fields 如何映射到 carriers / surfaces / relations，使用类型化 BindingTarget |
 | [`evidence-integration.zh.md`](./evidence-integration.zh.md) | Evidence 与 Semantic 的集成边界 | canonical refs / canonical artifact refs 与 `metric_ref`、`process_ref`、广义 `semantic_ref` 如何分层、关联与禁止互相替代 |
 | [`compiler-compatibility-profile.zh.md`](./compiler-compatibility-profile.zh.md) | compiler compatibility profile 契约 | 哪些组合兼容性与前置能力应独立发布为 profile artifact，如何被 compiler 消费，如何与 object contract / governance context 分层 |
 | [`compiler-spec.zh.md`](./compiler-spec.zh.md) | semantic compiler 规范 | typed intent、metric、process、typed refs 如何被归一化、校验、展开并编译成 IR，包含 capability 推导规则 |
@@ -96,6 +96,10 @@ process schema ----/--/
 - compiler / IR 承担组合复杂度，而不是把复杂性泄漏到外部契约
 
 如果不先建立这层分工，后面的 schema 文档会显得像一组孤立字段设计。
+
+注意：`metric-process-contract.zh.md` 仍是总分工入口；若其中出现旧的 physical grounding
+表述，应以 [`entity-centric-object-model.zh.md`](./entity-centric-object-model.zh.md) 的
+entity-only physical grounding 收敛结论为准。
 
 如果你关心 semantic layer 对象模型如何从“多个对象都可能触碰 physical grounding”收敛为“entity-only physical grounding + object-owned semantic roles”，以及 entity field、dimension/time/predicate、metric/process、relationship/profile 的新边界，随后阅读 [`entity-centric-object-model.zh.md`](./entity-centric-object-model.zh.md)。
 
@@ -140,7 +144,7 @@ process schema ----/--/
 - 如果你关心“漏斗 / cohort / experiment / lifecycle 这类对象该放在哪里”，优先看 `process-object-schema`
 - 如果你关心“`entity.*` / `subject.*` / `grain.*` / `key.*` 这些 ref taxonomy 为什么要分开”，优先看 `entity-schema-contract`
 - 如果你关心“`dimension.*` 为什么不能继续只是 metric 上的字符串数组”，优先看 `dimension-schema-contract`
-- 如果你关心”metric qualifier、binding row filter、request scope 为什么不能继续各自维护一套 filter 语义”，优先看 `predicate-schema-contract`
+- 如果你关心”metric qualifier、entity binding row filter、request scope 为什么不能继续各自维护一套 filter 语义”，优先看 `predicate-schema-contract`
 - 如果你关心”predicate 该怎么创建、命名、发布，何时新建 vs 复用”，优先看 `predicate-governance-note`
 - 如果你关心“`enum_set_ref` / `enum_version` 到底引用什么，以及为什么它需要独立文档但不是新的顶层对象”，优先看 `enum-set-schema-contract`
 - 如果你关心“`time_scope`、`primary_time_ref`、`anchor_time_ref`、late arrival / freshness 应分别落在哪层”，优先看 `time-schema-contract`
@@ -156,11 +160,11 @@ process schema ----/--/
 
 前面的对象文档主要回答”语义上是什么”，这三篇回答”如何落地”、”如何与 canonical evidence outputs 对齐”以及”如何参与编译兼容性判断”。它们强调：
 
-- binding 是一等、可引用、可组合对象
-- binding 直接承载 carriers / surfaces / relations，不再依赖独立的 asset 层；解析时落到底层 `source_objects`
+- binding 是一等、可引用、可组合对象，但 active public authoring 只允许 entity binding
+- entity binding 直接承载 carriers / surfaces / relations，不再依赖独立的 asset 层；解析时落到底层 `source_objects`
 - field binding 的核心是 **类型化 BindingTarget**
 - canonical refs / artifact refs 与 semantic refs 必须分层，允许关联但不得互相替代
-- join、late arrival、incomplete-window 等属于 binding 的消费约束
+- entity field grounding、late arrival、incomplete-window 等物理消费约束属于 entity binding / compiler，不属于 dimension、time、metric 或 process contract
 - binding 不等于 SQL DSL，也不取代 compiler / IR
 - compatibility profile 是独立 artifact，不回流到 object public schema
 - profile 只承载编译兼容性与前置能力，不承载 object identity 或 runtime policy
@@ -193,11 +197,11 @@ process schema ----/--/
 虽然每篇文档各自聚焦不同层面，但它们共享几条稳定原则：
 
 - **typed contracts over raw SQL**：外部和中间层都应优先表达类型化语义，而不是 SQL 形状。
-- **semantic / physical 分层**：对象层表达”是什么”，binding 层表达”如何落地”，compiler/IR 表达”如何组合与编译”。
+- **semantic / physical 分层**：对象层表达”是什么”；只有 entity binding 表达”entity 字段如何落地”；compiler/IR 表达”如何组合与编译”。
 - **stable object contract / compiler profile 分层**：对象主 contract 只保留稳定且必须的语义字段；组合兼容、治理与执行前置条件优先进入 compiler profile / governance context；capability 从核心字段推导。
 - **stable ref / revision 分层**：semantic ref 是下游 API、intent 和 binding 继续引用的业务 identity；revision 是该 identity 的冻结版本。默认 resolution 使用 latest active revision，historical resolution 必须显式携带 revision。
 - **dimensions are first-class semantic axes**：共享维度应是独立对象，而不是继续退回成 metric 上的字符串数组。
-- **predicates are first-class filter semantics**：共享过滤语义应通过 `predicate.*` 治理，而不是在 metric、binding、request scope 中各自发明局部 filter DSL。每个 predicate 通过 `allowed_usage` 声明合法消费场景（`metric_qualifier`、`carrier_row_filter`、`request_scope`、`governance_policy`），compiler 在校验阶段强制匹配。
+- **predicates are first-class filter semantics**：共享过滤语义应通过 `predicate.*` 治理，而不是在 metric、entity binding、request scope 中各自发明局部 filter DSL。每个 predicate 通过 `allowed_usage` 声明合法消费场景（`metric_qualifier`、`carrier_row_filter`、`request_scope`、`governance_policy`），compiler 在校验阶段强制匹配。
 - **process semantics 从 metric 中拆出**：复杂总体构造、路径、阶段、session、实验上下文不应继续塞进 metric。
 - **time semantics are layered**：时间语义引用、窗口本体、消费策略三层清晰分离；角色可组合而非排斥。
 - **filter semantics are layered by priority**：过滤语义按优先级分为四层：governance policy filter > carrier row filter > request scope > metric business predicate；多 component metric 的 `default_predicate_refs` 与 `qualifier_refs` 不得压平为单个全局 predicate。详细分层公式见 `predicate-schema-contract.zh.md` "Effective Scope 合成"。
@@ -222,7 +226,7 @@ process schema ----/--/
 
 如果只记住一个模型，可以记住下面这句：
 
-> `entity` 定义”谁”，`dimension` 定义”按什么轴观察”，`time` 定义”围绕哪种时间语义组织”，`metric` 定义”量什么”，`process object` 定义”总体/过程怎样形成”，`binding` 定义”这些语义对象如何落到物理 carriers”，而 compiler / IR 定义”它们如何被安全地组合成分析计划”。
+> `entity` 定义”谁”并通过 entity binding 落到物理 carriers，`dimension` 定义”按什么轴观察”，`time` 定义”围绕哪种时间语义组织”，`metric` 定义”量什么”，`process object` 定义”总体/过程怎样形成”，而 compiler / IR 定义”它们如何被安全地组合成分析计划”。
 
 补充两句：
 

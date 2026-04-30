@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -175,68 +176,30 @@ def _create_metric_binding(
     metric_input_target_keys: list[str] | None = None,
     surface_name: str = "value",
 ) -> str:
-    metric_input_keys = metric_input_target_keys or ["measure"]
-    field_surfaces = [
-        {"surface_ref": "field.event_date", "physical_name": "event_date"},
-        {"surface_ref": f"field.{surface_name}", "physical_name": surface_name},
-    ]
-    time_surfaces = [{"surface_ref": "time_surface.event_date", "physical_name": "event_date"}]
-    time_bindings = [
-        {
-            "carrier_binding_key": "primary",
-            "target": {
-                "target_kind": "primary_time",
-                "target_key": "time.event_date",
-            },
-            "semantic_ref": "time.event_date",
-            "resolution_kind": "date_column",
-            "date_surface_ref": "time_surface.event_date",
-        }
-    ]
-    field_bindings = []
-    for target_key in metric_input_keys:
-        field_bindings.append(
-            {
-                "carrier_binding_key": "primary",
-                "target": {
-                    "target_kind": "metric_input",
-                    "target_key": target_key,
-                },
-                "semantic_ref": f"metric_input.{target_key}",
-                "surface_ref": f"field.{surface_name}",
-            }
-        )
-    resp = client.post(
-        "/semantic/bindings",
-        json={
-            "header": {
-                "binding_ref": binding_ref,
-                "display_name": binding_ref,
-                "binding_scope": "metric",
-                "bound_object_ref": metric_ref,
-                "binding_contract_version": "binding.v1",
-            },
-            "interface_contract": {
-                "carrier_bindings": [
-                    {
-                        "binding_key": "primary",
-                        "source_object_ref": source_object_ref,
-                        "carrier_kind": "table",
-                        "carrier_locator": carrier_locator,
-                        "binding_role": binding_role,
-                        "field_surfaces": field_surfaces,
-                        "time_surfaces": time_surfaces,
-                    }
-                ],
-                "field_bindings": field_bindings,
-                "time_bindings": time_bindings,
-            },
-        },
+    metadata = client.app.state.service.metadata
+    generated_ref = ensure_published_typed_metric_binding(
+        metadata,
+        metric_name=metric_ref.removeprefix("metric."),
+        carrier_locator=carrier_locator,
+        source_object_ref=source_object_ref,
+        binding_role=binding_role,
+        surface_name=surface_name,
+        metric_input_target_keys=metric_input_target_keys or ["measure"],
     )
-    assert resp.status_code == 200, resp.text
-    binding_id = resp.json()["binding_id"]
-    publish_resp = client.post(f"/semantic/bindings/{binding_id}/publish")
-    assert publish_resp.status_code == 200, publish_resp.text
+    row = metadata.query_one(
+        "SELECT binding_id FROM typed_bindings WHERE binding_ref = ?",
+        [generated_ref],
+    )
+    assert row is not None
+    binding_id = str(row["binding_id"])
+    metadata.execute(
+        """
+        UPDATE typed_bindings
+        SET binding_ref = ?, display_name = ?
+        WHERE binding_id = ?
+        """,
+        [binding_ref, binding_ref, binding_id],
+    )
     return binding_id
 
 
@@ -1207,88 +1170,39 @@ class _SemanticObserveIntentEndpointMixin:
                 }
             )
 
-        metric_binding_resp = cls.client.post(
-            "/semantic/bindings",
-            json={
-                "header": {
-                    "binding_ref": f"binding.intent_bridge_metric_{suffix}",
-                    "display_name": "Intent Bridge Metric Binding",
-                    "binding_scope": "metric",
-                    "bound_object_ref": metric_ref,
-                    "binding_contract_version": "binding.v1",
-                },
-                "interface_contract": {
-                    "imports": imports,
-                    "carrier_bindings": [
-                        {
-                            "binding_key": "primary",
-                            "source_object_ref": cls.import_bridge_object_id,
-                            "carrier_kind": "table",
-                            "carrier_locator": cls.import_bridge_fqn,
-                            "binding_role": "primary",
-                            "field_surfaces": [
-                                {
-                                    "surface_ref": "field.event_date",
-                                    "physical_name": "event_date",
-                                },
-                                {
-                                    "surface_ref": "field.user_id",
-                                    "physical_name": "user_id",
-                                },
-                                {
-                                    "surface_ref": "field.value",
-                                    "physical_name": "value",
-                                },
-                            ],
-                            "time_surfaces": [
-                                {
-                                    "surface_ref": "time_surface.event_date",
-                                    "physical_name": "event_date",
-                                }
-                            ],
-                        }
-                    ],
-                    "field_bindings": [
-                        {
-                            "carrier_binding_key": "primary",
-                            "target": {
-                                "target_kind": "population_subject",
-                                "target_key": "key.user_id",
-                            },
-                            "semantic_ref": "key.user_id",
-                            "surface_ref": "field.user_id",
-                        },
-                        {
-                            "carrier_binding_key": "primary",
-                            "target": {
-                                "target_kind": "metric_input",
-                                "target_key": "measure",
-                            },
-                            "semantic_ref": "metric_input.measure",
-                            "surface_ref": "field.value",
-                        },
-                    ],
-                    "time_bindings": [
-                        {
-                            "carrier_binding_key": "primary",
-                            "target": {
-                                "target_kind": "primary_time",
-                                "target_key": "time.event_date",
-                            },
-                            "semantic_ref": "time.event_date",
-                            "resolution_kind": "date_column",
-                            "date_surface_ref": "time_surface.event_date",
-                        }
-                    ],
-                },
-            },
+        metric_binding_id = _create_metric_binding(
+            cls.client,
+            binding_ref=f"binding.intent_bridge_metric_{suffix}",
+            metric_ref=metric_ref,
+            source_object_ref=cls.import_bridge_object_id,
+            carrier_locator=cls.import_bridge_fqn,
         )
-        assert metric_binding_resp.status_code == 200, metric_binding_resp.text
-        metric_binding_id = metric_binding_resp.json()["binding_id"]
-        publish_metric_binding_resp = cls.client.post(
-            f"/semantic/bindings/{metric_binding_id}/publish"
+        now = datetime.now(UTC).isoformat()
+        metadata.execute(
+            """
+            INSERT INTO field_bindings (
+                field_binding_id, binding_id, carrier_binding_key, target_kind, target_key,
+                semantic_ref, surface_ref, created_at
+            ) VALUES (?, ?, 'primary', 'population_subject', 'key.user_id',
+                'key.user_id', 'field.user_id', ?)
+            """,
+            [f"fbind_intent_bridge_population_{suffix}", metric_binding_id, now],
         )
-        assert publish_metric_binding_resp.status_code == 200, publish_metric_binding_resp.text
+        for binding_import in imports:
+            metadata.execute(
+                """
+                INSERT INTO binding_imports (
+                    binding_id, import_key, imported_binding_ref,
+                    required_ref_prefixes_json
+                ) VALUES (?, ?, ?, ?)
+                """,
+                [
+                    metric_binding_id,
+                    binding_import["import_key"],
+                    binding_import["binding_ref"],
+                    json.dumps(binding_import["required_ref_prefixes"]),
+                ],
+            )
         return metric_name
 
 
@@ -1326,7 +1240,7 @@ class ObserveIntentNotReadyEndpointTests(_SemanticObserveIntentEndpointMixin, un
         detail = response.json()["detail"]
         self.assertEqual(detail["code"], "semantic_not_ready")
         self.assertEqual(detail["category"], "readiness")
-        self.assertEqual(detail["subject_ref"], "metric.intent_not_ready_metric")
+        self.assertEqual(detail["subject_ref"], "binding.intent_not_ready_metric_primary")
         self.assertEqual(detail["readiness_status"], "not_ready")
 
 
@@ -2548,7 +2462,7 @@ class ObserveBindingCoverageTests(_ObserveBindingResolutionBase, unittest.TestCa
             },
         )
         self.assertEqual(response.status_code, 409, response.text)
-        self.assertIn("METRIC_INPUT_COVERAGE_MISSING", response.text)
+        self.assertIn("BINDING_TARGET_COVERAGE_MISSING", response.text)
         self.assertIn("missing required metric_input coverage", response.text)
 
 

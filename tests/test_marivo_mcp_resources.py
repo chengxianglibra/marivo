@@ -190,6 +190,7 @@ def test_catalog_summary_resource_aggregates_fixed_read_surfaces() -> None:
         "/semantic/time": [{"time_contract_id": "time_123"}],
         "/semantic/enum-sets": [{"enum_set_contract_id": "enum_123"}],
         "/semantic/bindings": [{"binding_id": "bind_123"}],
+        "/semantic/relationships": [{"relationship_id": "rel_123"}],
         "/compiler/compatibility-profiles": [{"profile_id": "cprof_123"}],
     }
     seen_paths: list[str] = []
@@ -210,6 +211,7 @@ def test_catalog_summary_resource_aggregates_fixed_read_surfaces() -> None:
         "/semantic/time",
         "/semantic/enum-sets",
         "/semantic/bindings",
+        "/semantic/relationships",
         "/compiler/compatibility-profiles",
     ]
     assert result == {
@@ -223,6 +225,7 @@ def test_catalog_summary_resource_aggregates_fixed_read_surfaces() -> None:
             "time": responses["/semantic/time"],
             "enum-sets": responses["/semantic/enum-sets"],
             "bindings": responses["/semantic/bindings"],
+            "relationships": responses["/semantic/relationships"],
             "compatibility-profiles": responses["/compiler/compatibility-profiles"],
         },
     }

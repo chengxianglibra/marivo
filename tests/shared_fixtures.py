@@ -484,7 +484,7 @@ _LOCK_FILE = _template_lock_path("default")
 # In-process flags: skip lock on repeated calls within the same worker.
 _TEMPLATE_READY: set[str] = set()
 
-_METADATA_TEMPLATE_VERSION = "sqlite_metadata_v14_datasource_merge"
+_METADATA_TEMPLATE_VERSION = "sqlite_metadata_v15_datasource_domain_entity"
 _METADATA_TEMPLATE = Path(f"/tmp/marivo_test_{_METADATA_TEMPLATE_VERSION}.sqlite")
 _METADATA_LOCK = Path(f"/tmp/marivo_test_{_METADATA_TEMPLATE_VERSION}.lock")
 _METADATA_READY = False
@@ -556,6 +556,8 @@ def _build_metadata_template(db_path: Path) -> None:
 
 
 def _metadata_template_valid(db_path: Path) -> bool:
+    from app.storage.schema import metadata_schema_marker_row
+
     if not db_path.exists():
         return False
     con = sqlite3.connect(str(db_path))
@@ -563,7 +565,7 @@ def _metadata_template_valid(db_path: Path) -> bool:
         tables = {
             str(row[0])
             for row in con.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('sessions', 'steps', 'artifacts', 'datasources', 'source_objects', 'time_bindings', 'metadata_schema_marker')"
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('sessions', 'steps', 'artifacts', 'datasources', 'source_objects', 'semantic_domain_catalog', 'time_bindings', 'metadata_schema_marker')"
             ).fetchall()
         }
         legacy_tables = {
@@ -588,8 +590,35 @@ def _metadata_template_valid(db_path: Path) -> bool:
             str(row[1])
             for row in con.execute("PRAGMA table_info(semantic_metric_contracts)").fetchall()
         }
+        entity_columns = {
+            str(row[1])
+            for row in con.execute("PRAGMA table_info(semantic_entity_contracts)").fetchall()
+        }
+        dimension_columns = {
+            str(row[1])
+            for row in con.execute("PRAGMA table_info(semantic_dimension_contracts)").fetchall()
+        }
+        time_columns = {
+            str(row[1])
+            for row in con.execute("PRAGMA table_info(semantic_time_objects)").fetchall()
+        }
         typed_binding_columns = {
             str(row[1]) for row in con.execute("PRAGMA table_info(typed_bindings)").fetchall()
+        }
+        catalog_metadata_tables = (
+            "semantic_entity_contracts",
+            "semantic_metric_contracts",
+            "semantic_process_objects",
+            "semantic_dimension_contracts",
+            "semantic_time_objects",
+            "semantic_predicate_contracts",
+            "compiler_compatibility_profiles",
+        )
+        tables_with_catalog_metadata = {
+            table_name
+            for table_name in catalog_metadata_tables
+            if "catalog_metadata_json"
+            in {str(row[1]) for row in con.execute(f"PRAGMA table_info({table_name})").fetchall()}
         }
         carrier_binding_columns = {
             str(row[1]) for row in con.execute("PRAGMA table_info(carrier_bindings)").fetchall()
@@ -611,8 +640,25 @@ def _metadata_template_valid(db_path: Path) -> bool:
                 "SELECT backend FROM metadata_schema_marker WHERE backend = 'sqlite'"
             ).fetchall()
         }
+        marker_row = con.execute(
+            """
+            SELECT backend, schema_version, ddl_fingerprint
+            FROM metadata_schema_marker
+            WHERE backend = 'sqlite'
+            """
+        ).fetchone()
     finally:
         con.close()
+    expected_marker = metadata_schema_marker_row("sqlite")
+    actual_marker = (
+        {
+            "backend": str(marker_row[0]),
+            "schema_version": str(marker_row[1]),
+            "ddl_fingerprint": str(marker_row[2]),
+        }
+        if marker_row is not None
+        else None
+    )
     return (
         tables
         == {
@@ -621,6 +667,7 @@ def _metadata_template_valid(db_path: Path) -> bool:
             "artifacts",
             "datasources",
             "source_objects",
+            "semantic_domain_catalog",
             "time_bindings",
             "metadata_schema_marker",
         }
@@ -646,6 +693,9 @@ def _metadata_template_valid(db_path: Path) -> bool:
             "revision_compatibility",
             "is_latest_active",
         }.issubset(metric_columns)
+        and {"entity_kind", "fields_json", "binding_json"}.issubset(entity_columns)
+        and {"source_field_ref"}.issubset(dimension_columns)
+        and {"source_field_ref"}.issubset(time_columns)
         and {
             "binding_ref",
             "binding_scope",
@@ -653,6 +703,7 @@ def _metadata_template_valid(db_path: Path) -> bool:
             "binding_contract_version",
             "status",
         }.issubset(typed_binding_columns)
+        and tables_with_catalog_metadata == set(catalog_metadata_tables)
         and {
             "binding_id",
             "binding_key",
@@ -675,6 +726,7 @@ def _metadata_template_valid(db_path: Path) -> bool:
         and "substr(hour_surface_ref, 1, 6) = 'field.'" not in time_bindings_sql
         and "UNIQUE(binding_ref, revision)" in typed_bindings_sql
         and marker_rows == {"sqlite"}
+        and actual_marker == expected_marker
     )
 
 

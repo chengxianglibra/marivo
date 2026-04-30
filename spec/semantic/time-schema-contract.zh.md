@@ -14,7 +14,7 @@
 
 本文重点回答：
 
-- `time.*` 如何成为 entity / metric / process / dimension / binding 的共享一等语义引用
+- `time.*` 如何成为 entity / metric / process / dimension 的共享一等语义引用，并由 entity binding 落地到物理时间字段
 - 哪些时间语义属于 catalog 对象，哪些属于 request-time `time_scope`
 - `anchor_time_ref`、`analysis_window.anchor_ref`、`observation_window.anchor_ref` 应如何协同
 - compiler / IR 应如何保留多时间组合下的解析结果
@@ -27,7 +27,7 @@
 - `metric.primary_time_ref`
 - `process.interface_contract.anchor_time_ref`
 - `dimension.required_time_anchor_ref`
-- binding 中的 `event_time` / `partition_time` / `anchor_time`
+- entity binding 中的 `event_time` / `partition_time` / `anchor_time`
 
 但目录中还没有一份独立文档统一回答：
 
@@ -43,7 +43,7 @@
 该 contract 应同时满足：
 
 - **唯一标识**：`time_ref` 是唯一稳定标识，不再引入平行命名字段
-- **严格分层**：时间语义、窗口本体、请求时间范围、物理消费策略、编译解析结果必须分层
+- **严格分层**：时间语义、窗口本体、请求时间范围、entity field grounding、编译解析结果必须分层
 - **多角色表达**：同一个时间语义可以同时承担多个分析角色，而不是被迫落入互斥 taxonomy
 - **可校验**：compiler 能显式判断对象组合中的时间语义是否闭合
 - **执行解耦**：不退化为 SQL 时间表达式或 engine-specific 时间函数集合
@@ -85,11 +85,11 @@
 2. **窗口本体**
    - 例如 `analysis_window`、`observation_window`
    - 由 process / metric 对象定义，包括 request `time_scope`
-3. **物理消费策略**
+3. **entity field grounding / 物理消费策略**
    - 例如 `late_arrival_policy`、`incomplete_window_policy`、`freshness_policy_ref`
-   - 由 binding 表达
+   - 由 entity binding 与 compiler 表达
 
-这三层若不拆开，时间语义很容易在 metric / process / binding 之间重复定义。
+这三层若不拆开，时间语义很容易在 metric / process / entity binding 之间重复定义。
 
 **删除了原设计的"编译后的解析结果"层。**
 
@@ -105,7 +105,7 @@
 - **entity**：只声明默认业务时间语义
 - **metric**：只声明 measurement 的 `primary_time_ref`
 - **process**：声明 `anchor_time_ref`，并拥有 `analysis_window` / `observation_window`
-- **binding**：声明时间字段如何落地，以及窗口如何被物理消费
+- **entity binding**：声明 entity 时间字段如何落地；compiler 基于这些字段解析窗口如何被物理消费
 - **compiler / IR**：声明本次请求最终解析出的时间关系
 
 因此：
@@ -130,9 +130,9 @@
 
 这些应先由 catalog 对象声明，再由 compiler 解析。
 
-### 5. 物理时间消费策略属于 binding，不属于 `time.*`
+### 5. 物理时间消费策略属于 entity binding / compiler，不属于 `time.*`
 
-以下内容属于 binding：
+以下内容属于 entity binding / compiler：
 
 - `processing_time`
 - `partition_time`
@@ -142,14 +142,14 @@
 
 它们回答的是“底层如何消费既有时间语义”，而不是“分析窗口本身是什么”。
 
-`time.partition_time`、`time.processing_time` 可以作为 `time.*` 命名空间中的稳定 ref 存在，但它们的物理消费能力不在时间 contract 中枚举，而在 binding contract 中声明。
+`time.partition_time`、`time.processing_time` 可以作为 `time.*` 命名空间中的稳定 ref 存在，但它们的物理消费能力不在时间 contract 中枚举，而通过 entity field refs、entity binding 与 compiler policy 声明。
 
-例如 `time.partition_time` 可以被 binding 映射为：
+例如 `time.partition_time` 可以经 entity binding 映射为：
 
 - 单个物理字段，如 `partition_ts`
 - 复合分区键，如 `log_date` + `log_hour`
 
-但无论物理形态如何，`time.*` contract 只负责声明“这是一种受治理的分区时间语义”；具体如何由多个字段还原出稳定 bucket 边界，应由 binding contract 显式表达。
+但无论物理形态如何，`time.*` contract 只负责声明“这是一种受治理的分区时间语义”；具体如何由多个 entity fields 还原出稳定 bucket 边界，应由 entity binding / compiler 显式表达。
 
 ## 时间语义分层总表
 
@@ -157,7 +157,7 @@
 | --- | --- | --- | --- |
 | 时间语义引用 | `time.*` contract | 这个时间语义是什么、属于哪些分析角色 | 物理列名、SQL 表达式 |
 | 窗口本体 | process / metric | 窗口如何定义、时间范围如何确定 | 具体时间列如何实现 |
-| 消费策略 | typed binding | 时间语义如何映射到物理字段、迟到/新鲜度/不完整窗口策略 | 窗口本体定义 |
+| 消费策略 | entity binding / compiler | entity 时间字段如何映射到物理字段、迟到/新鲜度/不完整窗口策略 | 窗口本体定义 |
 
 **简化说明：**
 
@@ -165,7 +165,7 @@
 1. ~~时间语义引用~~ → **保留**
 2. ~~窗口本体~~ → **保留**（合并到 process/metric 对象中）
 3. ~~请求时间范围~~ → 合并到窗口本体（request `time_scope` 是窗口参数）
-4. ~~物理消费策略~~ → **保留**（在 binding 中）
+4. ~~物理消费策略~~ → **保留**（在 entity binding / compiler 中）
 5. ~~编译后的解析结果~~ → 删除（IR 直接引用 time ref，不创建新的解析层）
 
 Compiler 不再输出 `TimeResolutionSnapshot`，而是直接引用 `time.*` refs。
@@ -207,6 +207,7 @@ class TimeSemanticHeader(TypedDict):
     time_ref: str
     display_name: NotRequired[str | None]
     description: NotRequired[str | None]
+    source_field_ref: NotRequired[str | None]
     semantic_roles: list[
         Literal[
             "business_anchor",
@@ -226,6 +227,7 @@ class TimeSemanticHeader(TypedDict):
 | `time_ref` | string | yes | 稳定时间语义引用；必须使用 `time.*`；也是唯一标识 |
 | `display_name` | string | no | 面向人类的显示名称 |
 | `description` | string | no | 对该时间语义的解释 |
+| `source_field_ref` | string | no | 可选的语义字段来源引用；必须指向 `entity.<entity>.field.<field>`；不是 physical column、carrier locator 或 binding target，不表达物理绑定 |
 | `semantic_roles` | array[string] | yes | 时间语义扮演的角色；允许多值，不再强行单选 |
 | `time_contract_version` | string | yes | 契约版本 |
 
@@ -233,9 +235,11 @@ class TimeSemanticHeader(TypedDict):
 
 - `time_ref` 必须是唯一主键；不再引入平行 `name`
 - `semantic_roles` 必须非空
-- `time.*` contract 不声明 `freshness_anchor`、`partition_anchor` 之类 binding 侧能力
+- `time.*` contract 不声明 `freshness_anchor`、`partition_anchor` 之类 entity binding 侧能力
+- `source_field_ref` 只能引用 `entity.<entity>.field.<field>`，用于声明推荐字段来源；
+  它不替代 entity binding，也不允许写入物理列名、source table 或 SQL 表达式
 - `time.partition_time` 表示受治理 partition bucket 对应的时间语义，不保证等于原始事件发生时刻
-- 同一个 `time.partition_time` 可以被不同 binding 落地为单字段分区时间列，或 `log_date` / `log_hour` 这类复合分区键
+- 同一个 `time.partition_time` 可以被不同 entity binding 落地为单字段分区时间列，或 `log_date` / `log_hour` 这类复合分区键
 
 **注意：角色可组合**
 
@@ -273,7 +277,7 @@ class TimeSemanticHeader(TypedDict):
 1. `time.partition_time` 可以由单个分区时间列承载，例如 `partition_ts`
 2. 也可以由多个分区字段组合承载，例如 `log_date` + `log_hour`
 3. 若 binding 使用 `log_date` + `log_hour`，其语义应解释为某个**小时分区 bucket 的受治理时间边界**
-4. 粒度、时区、边界解释等物理归一化信息属于 binding contract，而不是 `time.*` contract 自身
+4. 粒度、时区、边界解释等物理归一化信息属于 entity binding / compiler，而不是 `time.*` contract 自身
 
 ## 与其他对象的关系
 
@@ -345,7 +349,11 @@ process object 是时间窗口本体的主拥有者。
 
 ### 与 typed binding contract 的关系
 
-binding 负责把：
+time contract 不拥有自己的 physical binding。消费方需要具体字段时，应引用
+`entity.<entity>.field.<field>` 或对象自身的 `time.*` ref；字段的物理落地由 entity
+binding 负责。
+
+entity binding / compiler 负责把：
 
 - `primary_time_ref`
 - `anchor_time_ref`
@@ -361,9 +369,10 @@ binding 负责把：
 - lateness / freshness / incomplete-window 的物理消费策略
 - 结构化 temporal constraints
 
-但 binding 不重新定义窗口本体。
+但 entity binding 不重新定义窗口本体。
 
-即便 `anchor_time_ref` 与 `analysis_window.anchor_ref` 恰好指向同一个 `time.*`，binding 也应把它们视为不同 contract target，因为它们在语义上分别服务“主锚点”和“窗口消费锚点”。
+即便 `anchor_time_ref` 与 `analysis_window.anchor_ref` 恰好指向同一个 `time.*`，
+compiler 也应把它们视为不同消费 target，因为它们在语义上分别服务“主锚点”和“窗口消费锚点”。
 
 ### 与 compiler / IR 的关系
 
@@ -443,7 +452,7 @@ Compiler 根据具体使用场景判断 `operational_support` 时间是否适合
 6. **binding coverage**
    - 所有被消费的时间语义都必须能由 binding 稳定映射到物理层
 7. **partition-time normalization**
-   - 若 binding 用复合分区键承载 `time.partition_time`，必须显式声明粒度、时区与 bucket 边界解释
+   - 若 entity binding 用复合分区键承载 `time.partition_time`，必须显式声明粒度、时区与 bucket 边界解释
    - `log_date` 可单独承载 day-level partition time；hour-level partition time 不能只给出 `log_hour`
    - `log_date` + `log_hour` 这类组合应被归一化为单一受治理 partition-time 语义，而不是暴露为两个独立分析时间
 
@@ -454,6 +463,7 @@ Compiler 根据具体使用场景判断 `operational_support` 时间是否适合
 ```json
 {
   "time_ref": "time.exposure_time",
+  "source_field_ref": "entity.experiment_exposure.field.exposure_time",
   "semantic_roles": ["business_anchor"],
   "time_contract_version": "time.v1"
 }
@@ -464,13 +474,14 @@ Compiler 根据具体使用场景判断 `operational_support` 时间是否适合
 - experiment process 用 `time.exposure_time` 作为 `anchor_time_ref`
 - `analysis_window` 默认也围绕它定义 `0d -> 7d`
 - conversion metric 仍可使用自己的 `primary_time_ref = time.conversion_time`
-- binding 再声明 `time.exposure_time` 在物理层如何落地
+- entity binding 再声明 `time.exposure_time` 在物理层如何落地
 
 ### 示例 2：既是业务锚点又是 measurement 主时间的转化时间
 
 ```json
 {
   "time_ref": "time.conversion_time",
+  "source_field_ref": "entity.conversion.field.conversion_time",
   "semantic_roles": ["business_anchor", "measurement"],
   "time_contract_version": "time.v1"
 }
@@ -486,6 +497,7 @@ Compiler 根据具体使用场景判断 `operational_support` 时间是否适合
 ```json
 {
   "time_ref": "time.partition_time",
+  "source_field_ref": "entity.event.field.partition_time",
   "semantic_roles": ["operational_support"],
   "time_contract_version": "time.v1"
 }
@@ -505,6 +517,7 @@ Compiler 根据具体使用场景判断 `operational_support` 时间是否适合
 ```json
 {
   "time_ref": "time.partition_time",
+  "source_field_ref": "entity.event.field.partition_bucket_time",
   "semantic_roles": ["operational_support"],
   "time_contract_version": "time.v1"
 }
@@ -513,7 +526,7 @@ Compiler 根据具体使用场景判断 `operational_support` 时间是否适合
 在该场景下：
 
 - source 物理上可能只有 `log_date` 与 `log_hour`
-- binding 可把它们组合解释为 hour-level `time.partition_time`
+- entity binding 可把它们组合解释为 hour-level `time.partition_time`
 - 该语义表示每个小时 partition bucket 的受治理时间边界
 - 它仍然服务 partition pruning / freshness / backfill，而不是 metric 或 process 的分析锚点
 
@@ -541,7 +554,12 @@ Compiler 根据具体使用场景判断 `operational_support` 时间是否适合
 - entity 只保留 `primary_time_ref`
 - metric 只保留 measurement `primary_time_ref`
 - process 统一承接窗口与过程锚点
-- binding 统一承接 lateness / freshness / incomplete-window
+- time object 可用 `source_field_ref` 指向 `entity.<entity>.field.<field>` 作为自身字段来源
+- entity binding 统一承接 physical column / expression locator；lateness / freshness / incomplete-window 由 entity binding 与 compiler policy 消费
+
+`time.*` 不直接声明 `physical_column`、carrier、binding target 或 source table。validate/activate
+阶段必须检查 `source_field_ref` 指向 date/datetime-compatible entity field；不兼容时返回
+`invalid_field_type_for_semantic_object` 类 blocker。
 
 ### 第四阶段：补齐 compiler / IR 的时间解析结果
 
@@ -557,4 +575,4 @@ Compiler 根据具体使用场景判断 `operational_support` 时间是否适合
 
 时间语义在 Marivo 中不应继续被当作零散字段或 capability 矩阵，而应收敛为：
 
-> `time.*` 定义“这是哪一种稳定时间语义”，entity / metric / process / dimension 消费这些语义，binding 负责把它们落地并补充消费策略，而 compiler / IR 负责把一次请求解析成可校验、可执行的多时间关系。
+> `time.*` 定义“这是哪一种稳定时间语义”，entity / metric / process / dimension 消费这些语义，entity field 负责连接物理字段，而 compiler / IR 负责把一次请求解析成可校验、可执行的多时间关系。

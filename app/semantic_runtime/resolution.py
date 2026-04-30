@@ -110,6 +110,11 @@ class SemanticRuntimeMetadataReader:
         "dimension": ("semantic_dimension_contracts", "dimension_ref", "_row_to_dimension"),
         "time": ("semantic_time_objects", "time_ref", "_row_to_time_semantic"),
         "binding": ("typed_bindings", "binding_ref", "_row_to_typed_binding"),
+        "relationship": (
+            "semantic_entity_relationships",
+            "relationship_ref",
+            "_row_to_entity_relationship",
+        ),
         "predicate": (
             "semantic_predicate_contracts",
             "predicate_ref",
@@ -198,6 +203,10 @@ class SemanticRuntimeMetadataReader:
                     ]
                     if descriptor_rows
                     else None
+                ),
+                "fields": json.loads(row.get("fields_json") or "[]") or None,
+                "binding": (
+                    json.loads(row["binding_json"]) if row.get("binding_json") is not None else None
                 ),
             },
             "status": row["status"],
@@ -553,6 +562,37 @@ class SemanticRuntimeMetadataReader:
             "updated_at": row["updated_at"],
         }
 
+    def _row_to_entity_relationship(self, row: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "relationship_id": row["relationship_id"],
+            "relationship_ref": row["relationship_ref"],
+            "display_name": row["display_name"],
+            "description": row["description"],
+            "left_entity_ref": row["left_entity_ref"],
+            "right_entity_ref": row["right_entity_ref"],
+            "key_alignment": json.loads(row["key_alignment_json"] or "{}"),
+            "time_alignment": (
+                json.loads(row["time_alignment_json"])
+                if row["time_alignment_json"] is not None
+                else None
+            ),
+            "cardinality": row["cardinality"],
+            "grain_compatibility": (
+                json.loads(row["grain_compatibility_json"])
+                if row["grain_compatibility_json"] is not None
+                else None
+            ),
+            "snapshot_effective_window_alignment": (
+                json.loads(row["snapshot_effective_window_alignment_json"])
+                if row["snapshot_effective_window_alignment_json"] is not None
+                else None
+            ),
+            "status": row["status"],
+            "revision": row["revision"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
 
 class SemanticResolver:
     """Resolve published semantic objects into typed runtime models."""
@@ -565,6 +605,7 @@ class SemanticResolver:
         "time": "time_contract_id",
         "binding": "binding_id",
         "calendar_policy": "policy_ref",
+        "relationship": "relationship_id",
         "predicate": "predicate_contract_id",
     }
     _REF_FIELDS: ClassVar[dict[str, str]] = {
@@ -575,6 +616,7 @@ class SemanticResolver:
         "time": "time_ref",
         "binding": "binding_ref",
         "calendar_policy": "policy_ref",
+        "relationship": "relationship_ref",
         "predicate": "predicate_ref",
     }
 
@@ -694,6 +736,9 @@ class SemanticResolver:
 
     def resolve_binding_ref(self, binding_ref: str) -> ResolvedSemanticObject:
         return self._resolve_ref_of_kind(binding_ref, expected_kind="binding")
+
+    def resolve_relationship_ref(self, relationship_ref: str) -> ResolvedSemanticObject:
+        return self._resolve_ref_of_kind(relationship_ref, expected_kind="relationship")
 
     def resolve_predicate_ref(self, predicate_ref: str) -> ResolvedSemanticObject:
         return self._resolve_ref_of_kind(predicate_ref, expected_kind="predicate")
@@ -841,6 +886,7 @@ _DEPENDENCY_PREFIXES = (
     "enum.",
     "binding.",
     "compiler_profile.",
+    "relationship.",
     "calendar_policy.",
     "predicate.",
     "subject.",
@@ -890,6 +936,16 @@ def _dependency_refs_for_object(
         _collect_dependency_refs(interface_contract.get("expression") or {}, refs, seen)
         return refs
     if object_kind in {"time", "enum"}:
+        return refs
+    if object_kind == "relationship":
+        _append_dependency_ref(refs, seen, semantic_object.get("left_entity_ref"))
+        _append_dependency_ref(refs, seen, semantic_object.get("right_entity_ref"))
+        _collect_dependency_refs(semantic_object.get("key_alignment") or {}, refs, seen)
+        _collect_dependency_refs(semantic_object.get("time_alignment") or {}, refs, seen)
+        _collect_dependency_refs(semantic_object.get("grain_compatibility") or {}, refs, seen)
+        _collect_dependency_refs(
+            semantic_object.get("snapshot_effective_window_alignment") or {}, refs, seen
+        )
         return refs
     if object_kind == "binding":
         header = semantic_object.get("header") or {}

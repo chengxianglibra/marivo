@@ -66,6 +66,7 @@ def _runtime_object_kind(ref: str) -> ObjectKind | None:
         ("time.", "time"),
         ("enum.", "enum"),
         ("binding.", "binding"),
+        ("relationship.", "relationship"),
     )
     for prefix, object_kind in prefixes:
         if ref.startswith(prefix):
@@ -410,6 +411,11 @@ class ReadinessEvaluationContext:
                 "profile_id",
                 "profile_ref",
             ),
+            "relationship": (
+                "semantic_entity_relationships",
+                "relationship_id",
+                "relationship_ref",
+            ),
             "predicate": (
                 "semantic_predicate_contracts",
                 "predicate_contract_id",
@@ -446,6 +452,8 @@ class ReadinessEvaluationContext:
             semantic_object = self._build_binding_snapshot(row_dict)
         elif object_kind == "compiler_profile":
             semantic_object = self._build_compatibility_profile_snapshot(row_dict)
+        elif object_kind == "relationship":
+            semantic_object = self._build_relationship_snapshot(row_dict)
         elif object_kind == "predicate":
             semantic_object = self._build_predicate_snapshot(row_dict)
         else:
@@ -500,6 +508,10 @@ class ReadinessEvaluationContext:
                     }
                     for descriptor_row in descriptor_rows
                 ],
+                "fields": json.loads(row.get("fields_json") or "[]") or None,
+                "binding": (
+                    json.loads(row["binding_json"]) if row.get("binding_json") is not None else None
+                ),
             },
         }
 
@@ -808,6 +820,31 @@ class ReadinessEvaluationContext:
             "subject_revision": row["subject_revision"],
             "requirement": json.loads(row["requirement_json"] or "{}") or None,
             "capability": json.loads(row["capability_json"] or "{}") or None,
+        }
+
+    @staticmethod
+    def _build_relationship_snapshot(row: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "relationship_ref": row["relationship_ref"],
+            "left_entity_ref": row["left_entity_ref"],
+            "right_entity_ref": row["right_entity_ref"],
+            "key_alignment": json.loads(row["key_alignment_json"] or "{}"),
+            "time_alignment": (
+                json.loads(row["time_alignment_json"])
+                if row.get("time_alignment_json") is not None
+                else None
+            ),
+            "cardinality": row["cardinality"],
+            "grain_compatibility": (
+                json.loads(row["grain_compatibility_json"])
+                if row.get("grain_compatibility_json") is not None
+                else None
+            ),
+            "snapshot_effective_window_alignment": (
+                json.loads(row["snapshot_effective_window_alignment_json"])
+                if row.get("snapshot_effective_window_alignment_json") is not None
+                else None
+            ),
         }
 
     @staticmethod

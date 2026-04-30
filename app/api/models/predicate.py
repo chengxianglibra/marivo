@@ -11,15 +11,18 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .base import (
+    CatalogMetadata,
+    ListResponseBase,
     ObjectHeaderBase,
     ObjectListItemBase,
     ObjectResponseBase,
     PredicateOperator,
     PredicateTimePolicy,
     PredicateUsage,
+    validate_canonical_entity_field_ref,
     validate_contract_version,
     validate_ref_prefix,
 )
@@ -34,6 +37,8 @@ class PredicateHeader(ObjectHeaderBase):
 
     Defines the stable identity and primary semantic subject of a predicate.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     predicate_ref: str = Field(
         description="Stable predicate reference (e.g., 'predicate.exclude_test_data'). "
@@ -81,7 +86,6 @@ _ALLOWED_ATOM_TARGET_PREFIXES = frozenset(
         "subject.",
         "population.",
         "event.",
-        "field.",
     }
 )
 
@@ -107,9 +111,11 @@ PredicateValue = str | int | float | bool | None | list[str | int | float | bool
 class PredicateAtom(BaseModel):
     """Atomic predicate: a single filter condition on a governed semantic ref."""
 
+    model_config = ConfigDict(extra="forbid")
+
     target_ref: str = Field(
         description="Governed semantic ref being filtered. "
-        "Must use an allowed prefix (dimension., entity., key., etc.). "
+        "Must use an allowed semantic prefix or fully qualified entity field ref. "
         "Must not use 'time.*' — time filtering belongs in time_scope."
     )
     op: PredicateOperator = Field(
@@ -134,12 +140,20 @@ class PredicateAtom(BaseModel):
                         "time filtering belongs in time_scope, got: " + v
                     )
                 raise ValueError(f"target_ref must not use '{prefix}' prefix, got: " + v)
+        if v.startswith("entity.") and ".field." in v:
+            return validate_canonical_entity_field_ref(v, "target_ref")
+        if v.startswith("field."):
+            raise ValueError(
+                "target_ref must use fully qualified entity field form "
+                "'entity.<entity>.field.<field>', got: " + v
+            )
         for prefix in _ALLOWED_ATOM_TARGET_PREFIXES:
             if v.startswith(prefix):
                 return v
         raise ValueError(
             "target_ref must start with a governed semantic ref prefix "
-            "(dimension., entity., key., enum., subject., population., event., field.), "
+            "(dimension., entity., key., enum., subject., population., event.) "
+            "or fully qualified entity field ref, "
             "got: " + v
         )
 
@@ -187,6 +201,8 @@ class PredicateAtom(BaseModel):
 class PredicateConjunction(BaseModel):
     """Conjunctive predicate: AND-combined list of predicate expressions."""
 
+    model_config = ConfigDict(extra="forbid")
+
     op: Literal["and"] = Field(description="Conjunction operator. v1 only supports 'and'.")
     items: list[PredicateExpression] = Field(
         min_length=1, description="One or more predicate expressions combined with AND."
@@ -210,6 +226,8 @@ class PredicatePayload(BaseModel):
 
     Contains the filter expression, allowed usage contexts, and time policy.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     expression: PredicateExpression = Field(
         description="The filter expression. v1 supports PredicateAtom and "
@@ -237,6 +255,8 @@ class PredicateInterfaceContract(BaseModel):
     create/update request patterns.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     expression: PredicateExpression = Field(
         description="The filter expression. v1 supports PredicateAtom and "
         "PredicateConjunction(op='and') only."
@@ -259,17 +279,29 @@ class PredicateInterfaceContract(BaseModel):
 class PredicateCreateRequest(BaseModel):
     """Request body for creating a predicate object."""
 
+    model_config = ConfigDict(extra="forbid")
+
     header: PredicateHeader = Field(description="Predicate header with identity and subject.")
     interface_contract: PredicateInterfaceContract = Field(
         description="Predicate interface contract with expression and usage."
+    )
+    catalog_metadata: CatalogMetadata = Field(
+        default_factory=CatalogMetadata,
+        description="Discovery-only catalog metadata.",
     )
 
 
 class PredicateUpdateRequest(BaseModel):
     """Request body for updating a predicate object."""
 
+    model_config = ConfigDict(extra="forbid")
+
     display_name: str | None = Field(default=None, description="Updated display name.")
     description: str | None = Field(default=None, description="Updated description.")
+    catalog_metadata: CatalogMetadata | None = Field(
+        default=None,
+        description="Updated discovery-only catalog metadata.",
+    )
     interface_contract: PredicateInterfaceContract | None = Field(
         default=None, description="Updated interface contract."
     )
@@ -280,6 +312,10 @@ class PredicateListItem(ObjectListItemBase):
 
     predicate_contract_id: str = Field(description="Predicate contract ID.")
     header: PredicateHeader = Field(description="Predicate header.")
+    catalog_metadata: CatalogMetadata = Field(
+        default_factory=CatalogMetadata,
+        description="Discovery-only catalog metadata.",
+    )
 
 
 class PredicateResponse(ObjectResponseBase):
@@ -287,13 +323,21 @@ class PredicateResponse(ObjectResponseBase):
 
     predicate_contract_id: str = Field(description="Predicate contract ID.")
     header: PredicateHeader = Field(description="Predicate header.")
+    catalog_metadata: CatalogMetadata = Field(
+        default_factory=CatalogMetadata,
+        description="Discovery-only catalog metadata.",
+    )
     interface_contract: PredicateInterfaceContract = Field(
         description="Predicate interface contract."
     )
 
 
-class PredicateListResponse(BaseModel):
-    """List envelope for predicate objects."""
+class PredicateListResponse(ListResponseBase[PredicateListItem]):
+    """Response model for listing predicate objects."""
 
-    items: list[PredicateListItem] = Field(default_factory=list, description="List of predicates.")
-    total: int = Field(ge=0, description="Total count of predicates.")
+
+PredicateListItemOrFull = PredicateListItem | PredicateResponse
+
+
+class PredicateListResponseFull(ListResponseBase[PredicateListItemOrFull]):
+    """Response model for listing predicate objects with detail=true."""

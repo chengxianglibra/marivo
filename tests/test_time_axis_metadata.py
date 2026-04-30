@@ -16,6 +16,7 @@ from app.time_axis_metadata import (
 from tests.semantic_test_helpers import (
     create_typed_entity,
     create_typed_metric,
+    ensure_published_typed_metric_binding,
     ensure_published_typed_time,
     publish_typed_entity,
     publish_typed_metric,
@@ -231,89 +232,66 @@ class TimeAxisMetadataProviderTests(unittest.TestCase):
         assert entity_binding_resp.status_code == 200, entity_binding_resp.text
         cls.client.post(f"/semantic/bindings/{entity_binding_resp.json()['binding_id']}/publish")
 
-        metric_binding_resp = cls.client.post(
-            "/semantic/bindings",
-            json={
-                "header": {
-                    "binding_ref": "binding.watch_time_tsu11_metric",
-                    "display_name": "Watch Time Metric Binding",
-                    "binding_scope": "metric",
-                    "bound_object_ref": cls.metric_ref,
-                    "binding_contract_version": "binding.v1",
+        generated_ref = ensure_published_typed_metric_binding(
+            cls.service.metadata,
+            metric_name=cls.metric_name,
+            carrier_locator=cls.watch_events_fqn,
+            source_object_ref=cls.watch_events_object_id,
+            surface_name="value",
+            surface_physical_name="play_duration_seconds",
+            metric_input_target_keys=["count_target"],
+            field_surfaces_extra=[
+                {"surface_ref": "field.log_date", "physical_name": "event_date"},
+                {"surface_ref": "field.log_hour", "physical_name": "event_hour"},
+            ],
+            time_surfaces=[
+                {"surface_ref": "time_surface.log_date", "physical_name": "event_date"},
+                {"surface_ref": "time_surface.log_hour", "physical_name": "event_hour"},
+            ],
+            time_bindings=[
+                {
+                    "carrier_binding_key": "primary",
+                    "target": {
+                        "target_kind": "primary_time",
+                        "target_key": cls.primary_time_ref,
+                    },
+                    "semantic_ref": cls.primary_time_ref,
+                    "resolution_kind": "date_hour_columns",
+                    "date_surface_ref": "time_surface.log_date",
+                    "date_format": "yyyymmdd",
+                    "hour_surface_ref": "time_surface.log_hour",
+                    "hour_format": "hh",
+                    "timezone_strategy": "session_consistent_naive",
                 },
-                "interface_contract": {
-                    "carrier_bindings": [
-                        {
-                            "binding_key": "primary",
-                            "source_object_ref": cls.watch_events_object_id,
-                            "carrier_kind": "table",
-                            "carrier_locator": cls.watch_events_fqn,
-                            "binding_role": "primary",
-                            "field_surfaces": [
-                                {"surface_ref": "field.event_date", "physical_name": "event_date"},
-                                {"surface_ref": "field.log_date", "physical_name": "event_date"},
-                                {"surface_ref": "field.log_hour", "physical_name": "event_hour"},
-                                {
-                                    "surface_ref": "field.value",
-                                    "physical_name": "play_duration_seconds",
-                                },
-                            ],
-                            "time_surfaces": [
-                                {
-                                    "surface_ref": "time_surface.log_date",
-                                    "physical_name": "event_date",
-                                },
-                                {
-                                    "surface_ref": "time_surface.log_hour",
-                                    "physical_name": "event_hour",
-                                },
-                            ],
-                        }
-                    ],
-                    "field_bindings": [
-                        {
-                            "carrier_binding_key": "primary",
-                            "target": {"target_kind": "metric_input", "target_key": "count_target"},
-                            "semantic_ref": "metric_input.count_target",
-                            "surface_ref": "field.value",
-                        }
-                    ],
-                    "time_bindings": [
-                        {
-                            "carrier_binding_key": "primary",
-                            "target": {
-                                "target_kind": "primary_time",
-                                "target_key": cls.primary_time_ref,
-                            },
-                            "semantic_ref": cls.primary_time_ref,
-                            "resolution_kind": "date_hour_columns",
-                            "date_surface_ref": "time_surface.log_date",
-                            "date_format": "yyyymmdd",
-                            "hour_surface_ref": "time_surface.log_hour",
-                            "hour_format": "hh",
-                            "timezone_strategy": "session_consistent_naive",
-                        },
-                        {
-                            "carrier_binding_key": "primary",
-                            "target": {
-                                "target_kind": "primary_time",
-                                "target_key": "time.partition_time",
-                            },
-                            "semantic_ref": "time.partition_time",
-                            "resolution_kind": "date_hour_columns",
-                            "date_surface_ref": "time_surface.log_date",
-                            "date_format": "yyyymmdd",
-                            "hour_surface_ref": "time_surface.log_hour",
-                            "hour_format": "hh",
-                        },
-                    ],
+                {
+                    "carrier_binding_key": "primary",
+                    "target": {
+                        "target_kind": "primary_time",
+                        "target_key": "time.partition_time",
+                    },
+                    "semantic_ref": "time.partition_time",
+                    "resolution_kind": "date_hour_columns",
+                    "date_surface_ref": "time_surface.log_date",
+                    "date_format": "yyyymmdd",
+                    "hour_surface_ref": "time_surface.log_hour",
+                    "hour_format": "hh",
                 },
-            },
+            ],
         )
-        assert metric_binding_resp.status_code == 200, metric_binding_resp.text
-        cls.metric_binding_id = metric_binding_resp.json()["binding_id"]
-        publish_resp = cls.client.post(f"/semantic/bindings/{cls.metric_binding_id}/publish")
-        assert publish_resp.status_code == 200, publish_resp.text
+        cls.service.metadata.execute(
+            """
+            UPDATE typed_bindings
+            SET binding_ref = ?, display_name = ?
+            WHERE binding_ref = ?
+            """,
+            ["binding.watch_time_tsu11_metric", "Watch Time Metric Binding", generated_ref],
+        )
+        metric_binding_row = cls.service.metadata.query_one(
+            "SELECT binding_id FROM typed_bindings WHERE binding_ref = ?",
+            ["binding.watch_time_tsu11_metric"],
+        )
+        assert metric_binding_row is not None
+        cls.metric_binding_id = str(metric_binding_row["binding_id"])
 
     @classmethod
     def tearDownClass(cls) -> None:

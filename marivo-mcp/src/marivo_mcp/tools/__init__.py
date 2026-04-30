@@ -190,14 +190,24 @@ class McpEnumSetHeader(BaseModel):
 
 
 class McpBindingHeader(BaseModel):
-    """MCP-side early validation for typed binding header fields."""
+    """MCP-side early validation for legacy typed binding header fields.
+
+    Target-state physical grounding belongs on entity.interface_contract fields and binding.
+    The MCP write schema only permits entity-scoped legacy/diagnostic binding records.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     binding_ref: str
     display_name: str | None = None
     description: str | None = None
-    binding_scope: Literal["entity", "process_object", "metric"]
+    binding_scope: Literal["entity"] = Field(
+        description=(
+            "Only entity-scoped legacy/diagnostic bindings are accepted. "
+            "Metric/process physical binding authoring is unsupported; ground those objects through "
+            "entity.interface_contract.fields[] and entity.interface_contract.binding."
+        )
+    )
     bound_object_ref: str
     binding_contract_version: str
 
@@ -217,14 +227,9 @@ class McpBindingHeader(BaseModel):
 
     @model_validator(mode="after")
     def _validate_bound_object_prefix(self) -> McpBindingHeader:
-        expected = {
-            "entity": "entity.",
-            "process_object": "process.",
-            "metric": "metric.",
-        }[self.binding_scope]
-        if not self.bound_object_ref.startswith(expected):
+        if not self.bound_object_ref.startswith("entity."):
             raise ValueError(
-                f"bound_object_ref must start with '{expected}' for binding_scope={self.binding_scope!r}"
+                "bound_object_ref must start with 'entity.' for binding_scope='entity'"
             )
         return self
 
@@ -334,6 +339,13 @@ class McpConsumptionPolicy(BaseModel):
 
 
 class McpBindingInterfaceContract(BaseModel):
+    """Legacy/diagnostic typed-binding payload.
+
+    New authoring should put physical grounding on entity.interface_contract.fields[] and
+    entity.interface_contract.binding. Metric/process carrier, field, and time binding writes are
+    intentionally outside this MCP target-state schema.
+    """
+
     model_config = ConfigDict(extra="forbid")
 
     imports: list[McpBindingImport] = Field(default_factory=list)
@@ -1660,7 +1672,7 @@ def register_tools(
         header: McpBindingHeader,
         interface_contract: McpBindingInterfaceContract,
     ) -> dict[str, object]:
-        """Create one draft binding via POST /semantic/bindings using the canonical TypedBindingCreateRequest fields."""
+        """Legacy/diagnostic compatibility only: create one entity-scoped binding via POST /semantic/bindings. Target-state authoring grounds physical data on entity.interface_contract fields and binding."""
         return _semantic_write_request(
             client,
             "POST",
@@ -1705,7 +1717,7 @@ def register_tools(
         description: str | None = None,
         interface_contract: dict[str, object] | None = None,
     ) -> dict[str, object]:
-        """Update one draft binding via PUT /semantic/bindings/{binding_id} using the canonical TypedBindingUpdateRequest fields."""
+        """Legacy/diagnostic compatibility only: update one entity-scoped binding via PUT /semantic/bindings/{binding_id}. Target-state authoring grounds physical data on entity.interface_contract fields and binding."""
         resolved_id = _resolve_object_id(object_id, binding_id, legacy_name="binding_id")
         return _semantic_write_request(
             client,
@@ -1753,6 +1765,143 @@ def register_tools(
         return _semantic_publish_request(client, f"/semantic/bindings/{resolved_id}/publish")
 
     @server.tool()
+    @_tool_metadata("POST", "/semantic/relationships")
+    def create_relationship(
+        relationship_ref: str,
+        left_entity_ref: str,
+        right_entity_ref: str,
+        key_alignment: dict[str, object],
+        cardinality: str,
+        display_name: str | None = None,
+        description: str | None = None,
+        time_alignment: dict[str, object] | None = None,
+        grain_compatibility: dict[str, object] | None = None,
+        snapshot_effective_window_alignment: dict[str, object] | None = None,
+        catalog_metadata: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        """Create one draft entity relationship via POST /semantic/relationships."""
+        return _semantic_write_request(
+            client,
+            "POST",
+            "/semantic/relationships",
+            relationship_ref=relationship_ref,
+            display_name=display_name,
+            description=description,
+            left_entity_ref=left_entity_ref,
+            right_entity_ref=right_entity_ref,
+            key_alignment=key_alignment,
+            time_alignment=time_alignment,
+            cardinality=cardinality,
+            grain_compatibility=grain_compatibility,
+            snapshot_effective_window_alignment=snapshot_effective_window_alignment,
+            catalog_metadata=catalog_metadata,
+        )
+
+    @server.tool()
+    @_tool_metadata("GET", "/semantic/relationships")
+    def list_relationships(
+        status: str | None = None,
+        lifecycle_status: str | None = None,
+        readiness_status: str | None = None,
+        detail: bool | None = None,
+        left_entity_ref: str | None = None,
+        right_entity_ref: str | None = None,
+    ) -> dict[str, object]:
+        """List entity relationships via GET /semantic/relationships."""
+        return _semantic_read_request(
+            client,
+            "/semantic/relationships",
+            status=status,
+            lifecycle_status=lifecycle_status,
+            readiness_status=readiness_status,
+            detail=detail,
+            extra_params={
+                "left_entity_ref": left_entity_ref,
+                "right_entity_ref": right_entity_ref,
+            },
+        )
+
+    @server.tool()
+    @_tool_metadata("GET", "/semantic/relationships/{relationship_id}")
+    def get_relationship(
+        object_id: str | None = None,
+        relationship_id: str | None = None,
+    ) -> dict[str, object]:
+        """Read one entity relationship via GET /semantic/relationships/{relationship_id}."""
+        resolved_id = _resolve_object_id(object_id, relationship_id, legacy_name="relationship_id")
+        return _semantic_read_request(client, f"/semantic/relationships/{resolved_id}")
+
+    @server.tool()
+    @_tool_metadata("PUT", "/semantic/relationships/{relationship_id}")
+    def update_relationship(
+        object_id: str | None = None,
+        relationship_id: str | None = None,
+        display_name: str | None = None,
+        description: str | None = None,
+        key_alignment: dict[str, object] | None = None,
+        time_alignment: dict[str, object] | None = None,
+        cardinality: str | None = None,
+        grain_compatibility: dict[str, object] | None = None,
+        snapshot_effective_window_alignment: dict[str, object] | None = None,
+        catalog_metadata: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        """Update one draft entity relationship via PUT /semantic/relationships/{relationship_id}."""
+        resolved_id = _resolve_object_id(object_id, relationship_id, legacy_name="relationship_id")
+        return _semantic_write_request(
+            client,
+            "PUT",
+            f"/semantic/relationships/{resolved_id}",
+            display_name=display_name,
+            description=description,
+            key_alignment=key_alignment,
+            time_alignment=time_alignment,
+            cardinality=cardinality,
+            grain_compatibility=grain_compatibility,
+            snapshot_effective_window_alignment=snapshot_effective_window_alignment,
+            catalog_metadata=catalog_metadata,
+        )
+
+    @server.tool()
+    @_tool_metadata("POST", "/semantic/relationships/{relationship_id}/validate")
+    def validate_relationship(
+        object_id: str | None = None,
+        relationship_id: str | None = None,
+    ) -> dict[str, object]:
+        """Validate one entity relationship via POST /semantic/relationships/{relationship_id}/validate."""
+        resolved_id = _resolve_object_id(object_id, relationship_id, legacy_name="relationship_id")
+        return _semantic_action_request(client, f"/semantic/relationships/{resolved_id}/validate")
+
+    @server.tool()
+    @_tool_metadata("POST", "/semantic/relationships/{relationship_id}/activate")
+    def activate_relationship(
+        object_id: str | None = None,
+        relationship_id: str | None = None,
+    ) -> dict[str, object]:
+        """Activate one entity relationship via POST /semantic/relationships/{relationship_id}/activate."""
+        resolved_id = _resolve_object_id(object_id, relationship_id, legacy_name="relationship_id")
+        return _semantic_action_request(client, f"/semantic/relationships/{resolved_id}/activate")
+
+    @server.tool()
+    @_tool_metadata("POST", "/semantic/relationships/{relationship_id}/deprecate")
+    def deprecate_relationship(
+        object_id: str | None = None,
+        relationship_id: str | None = None,
+    ) -> dict[str, object]:
+        """Deprecate one entity relationship via POST /semantic/relationships/{relationship_id}/deprecate."""
+        resolved_id = _resolve_object_id(object_id, relationship_id, legacy_name="relationship_id")
+        return _semantic_action_request(client, f"/semantic/relationships/{resolved_id}/deprecate")
+
+    @server.tool()
+    @_tool_metadata("POST", "/semantic/relationships/{relationship_id}/publish")
+    def publish_relationship(
+        object_id: str | None = None,
+        relationship_id: str | None = None,
+    ) -> dict[str, object]:
+        """Compatibility alias for activate_relationship via POST /semantic/relationships/{relationship_id}/publish."""
+        resolved_id = _resolve_object_id(object_id, relationship_id, legacy_name="relationship_id")
+        return _semantic_publish_request(client, f"/semantic/relationships/{resolved_id}/publish")
+
+    @server.tool()
     @_tool_metadata("POST", "/compiler/compatibility-profiles")
     def create_compatibility_profile(
         profile_ref: str,
@@ -1784,6 +1933,10 @@ def register_tools(
         lifecycle_status: str | None = None,
         readiness_status: str | None = None,
         detail: bool | None = None,
+        subject_kind: str | None = None,
+        subject_ref: str | None = None,
+        left_entity_ref: str | None = None,
+        right_entity_ref: str | None = None,
     ) -> dict[str, object]:
         """List compatibility profiles via GET /compiler/compatibility-profiles; prefer lifecycle_status/readiness_status over legacy status."""
         return _semantic_read_request(
@@ -1793,6 +1946,12 @@ def register_tools(
             lifecycle_status=lifecycle_status,
             readiness_status=readiness_status,
             detail=detail,
+            extra_params={
+                "subject_kind": subject_kind,
+                "subject_ref": subject_ref,
+                "left_entity_ref": left_entity_ref,
+                "right_entity_ref": right_entity_ref,
+            },
         )
 
     @server.tool()
@@ -2124,16 +2283,20 @@ def _semantic_read_request(
     lifecycle_status: str | None = None,
     readiness_status: str | None = None,
     detail: bool | None = None,
+    extra_params: dict[str, str | bool | None] | None = None,
 ) -> dict[str, object]:
+    params = {
+        "status": status,
+        "lifecycle_status": lifecycle_status,
+        "readiness_status": readiness_status,
+        "detail": detail,
+    }
+    if extra_params:
+        params.update(extra_params)
     return client.request_envelope(
         "GET",
         path,
-        params=_compact_params(
-            status=status,
-            lifecycle_status=lifecycle_status,
-            readiness_status=readiness_status,
-            detail=detail,
-        ),
+        params=_compact_params(**params),
     ).model_dump()
 
 

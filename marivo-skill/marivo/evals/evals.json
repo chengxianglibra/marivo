@@ -22,7 +22,7 @@
     {
       "id": 4,
       "prompt": "I keep repeating the same one-off watch-time calculation. Show me how to model it in Marivo's semantic layer so later investigations can use a published metric.",
-      "expected_output": "Uses typed semantic entities or metrics and typed bindings, describes draft->publish lifecycle, and avoids legacy /semantic/mappings guidance.",
+      "expected_output": "Uses entity-first semantic authoring: discover domain/source metadata, create entity fields with entity-owned grounding, define the metric from entity field refs, describe draft->publish lifecycle, and avoid legacy /semantic/mappings or metric-owned binding guidance.",
       "files": []
     },
     {

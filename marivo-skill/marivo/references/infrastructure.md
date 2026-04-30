@@ -66,17 +66,24 @@ Mapping structure:
 
 ### Bindings
 
-Bindings belong to the semantic layer. They ground semantic objects (metrics, entities) to source columns for runtime consumption. They are distinct from mappings.
+Bindings belong to the semantic layer and are distinct from mappings. In the target-state
+entity-centric model, direct physical grounding is authored on entity fields and
+`entity.interface_contract.binding`; metric/time/process/dimension/predicate objects reference
+entity fields instead of owning physical bindings.
 
-Use bindings when:
+Use entity grounding when:
 
 - the problem is semantic grounding rather than source-to-engine routing
-- a metric or entity cannot consume source data because the column mapping is missing
+- an entity field cannot resolve to the expected source column or controlled expression
+- a downstream metric/time/process object cannot consume data because its referenced entity field,
+  relationship, or compatibility profile is missing
 
 Key distinction:
 
 - **mappings** = source-to-engine routing (which engine, which catalog)
-- **bindings** = semantic-to-column grounding (which column, which semantic ref)
+- **entity grounding** = semantic-to-column grounding owned by entity fields
+- legacy `/semantic/bindings` = compatibility/diagnostic surface, not the target-state metric or
+  process authoring path
 
 ## Execution Auth
 

@@ -99,11 +99,10 @@ Common typed semantic `422` patterns:
 | metric create uses the wrong payload shape for the family | `count_metric` uses `count_target`, `sum_metric` uses `measure`, and `average_metric` or `rate_metric` use `numerator` plus `denominator` |
 | dimension create is missing `value_domain` | place it at `interface_contract.value_domain` |
 | time create sends `interface_contract` | remove it; `/semantic/time` is header-only |
-| binding create omits grounding structure | include `interface_contract.carrier_bindings`, declare `field_surfaces`, then reference them from `field_bindings[*].surface_ref` |
+| binding create omits grounding structure | create an entity binding with `interface_contract.carrier_bindings`, declare `field_surfaces`, then reference them from `field_bindings[*].surface_ref` |
 | binding uses a short `carrier_locator` such as `schema.table` | use the resolved synced source object's full FQN in `carrier_locator` |
-| binding uses `target_kind=measure` | use `target_kind=metric_input`; `measure.*` is a metric payload ref, not a binding target kind |
-| metric binding uses `target_key=metric_input.count_target` | use only the slot name in `target_key`, such as `count_target`, `measure`, `numerator`, or `denominator` |
-| binding uses a target kind outside its scope | use the binding scope matrix: `entity` supports identity/time/descriptor targets, `metric` supports subject/time/metric input, `process_object` supports subject/time/window/process context |
+| binding uses `binding_scope=metric` or `binding_scope=process_object` | use `binding_scope=entity`; metric/process physical grounding must go through `entity.field` |
+| entity binding uses a metric/process target kind | use one of `identity_key`, `primary_time`, or `stable_descriptor` |
 | time binding references `field.*` | declare `carrier_bindings[*].time_surfaces[]` and reference `time_surface.*` from `timestamp_surface_ref`, `date_surface_ref`, or `hour_surface_ref` |
 
 Semantic service validation errors use the same guided envelope shape as request validation where possible. The `detail` object includes `message`, `code`, `category`, optional `field_path`, and nested `guidance` with docs/schema/contract links plus remediation examples.

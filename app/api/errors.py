@@ -327,59 +327,6 @@ _GUIDED_EXAMPLES: dict[tuple[str, str], list[dict[str, Any]]] = {
                 },
             },
         },
-        {
-            "summary": "Common metric binding create payload",
-            "complexity": "common",
-            "payload": {
-                "header": {
-                    "binding_ref": "binding.daily_active_users_primary",
-                    "display_name": "Daily Active Users Binding",
-                    "binding_scope": "metric",
-                    "bound_object_ref": "metric.daily_active_users",
-                    "binding_contract_version": "binding.v1",
-                },
-                "interface_contract": {
-                    "carrier_bindings": [
-                        {
-                            "binding_key": "primary",
-                            "carrier_kind": "table",
-                            "carrier_locator": "analytics.watch_events",
-                            "binding_role": "primary",
-                            "field_surfaces": [
-                                {"surface_ref": "field.user_id", "physical_name": "user_id"},
-                            ],
-                            "time_surfaces": [
-                                {
-                                    "surface_ref": "time_surface.event_date",
-                                    "physical_name": "event_date",
-                                }
-                            ],
-                        }
-                    ],
-                    "field_bindings": [
-                        {
-                            "carrier_binding_key": "primary",
-                            "target": {"target_kind": "metric_input", "target_key": "count_target"},
-                            "semantic_ref": "metric_input.active_users",
-                            "surface_ref": "field.user_id",
-                        },
-                    ],
-                    "time_bindings": [
-                        {
-                            "carrier_binding_key": "primary",
-                            "target": {
-                                "target_kind": "primary_time",
-                                "target_key": "time.watch_event_date",
-                            },
-                            "semantic_ref": "time.watch_event_date",
-                            "resolution_kind": "date_column",
-                            "date_surface_ref": "time_surface.event_date",
-                            "date_format": "yyyy-mm-dd",
-                        }
-                    ],
-                },
-            },
-        },
     ],
     (
         "PUT",
@@ -412,6 +359,35 @@ _GUIDED_EXAMPLES: dict[tuple[str, str], list[dict[str, Any]]] = {
                     ],
                 },
             },
+        }
+    ],
+    (
+        "POST",
+        "/semantic/relationships",
+    ): [
+        {
+            "summary": "Minimal entity relationship create payload",
+            "complexity": "minimal",
+            "payload": {
+                "relationship_ref": "relationship.exposure_to_conversion",
+                "left_entity_ref": "entity.exposure",
+                "right_entity_ref": "entity.conversion",
+                "key_alignment": {
+                    "left_field_ref": "entity.exposure.field.user_id",
+                    "right_field_ref": "entity.conversion.field.user_id",
+                },
+                "cardinality": "many_to_many",
+            },
+        }
+    ],
+    (
+        "PUT",
+        "/semantic/relationships/{relationship_id}",
+    ): [
+        {
+            "summary": "Minimal entity relationship update payload",
+            "complexity": "minimal",
+            "payload": {"cardinality": "many_to_many"},
         }
     ],
     (
@@ -508,6 +484,8 @@ _SCHEMA_NAME_BY_ROUTE: dict[tuple[str, str], str] = {
     ("POST", "/semantic/bindings"): "TypedBindingCreateRequest",
     ("POST", "/semantic/batch"): "SemanticBatchRequest",
     ("PUT", "/semantic/bindings/{binding_id}"): "TypedBindingUpdateRequest",
+    ("POST", "/semantic/relationships"): "EntityRelationshipCreateRequest",
+    ("PUT", "/semantic/relationships/{relationship_id}"): "EntityRelationshipUpdateRequest",
     ("POST", "/compiler/compatibility-profiles"): "CompatibilityProfileCreateRequest",
     ("PUT", "/compiler/compatibility-profiles/{profile_id}"): "CompatibilityProfileUpdateRequest",
     ("POST", "/sessions"): "SessionCreateRequest",
@@ -569,6 +547,77 @@ def _docs_url_for_path(path: str) -> str:
     return "docs/api/errors.md"
 
 
+_LEGACY_PHYSICAL_BINDING_FIELDS = frozenset(
+    {
+        "binding",
+        "binding_ref",
+        "carrier_binding_key",
+        "carrier_bindings",
+        "field_bindings",
+        "physical_column",
+        "physical_name",
+        "surface_ref",
+        "time_bindings",
+    }
+)
+
+_ENTITY_FIELD_AUTHORING_ERROR_MARKERS = frozenset(
+    {
+        "fully qualified entity field",
+        "entity.<entity>.field.<field>",
+    }
+)
+
+
+def _detail_mentions_legacy_physical_binding(detail: list[dict[str, Any]]) -> bool:
+    for item in detail:
+        loc = item.get("loc")
+        if isinstance(loc, list | tuple) and any(
+            str(part) in _LEGACY_PHYSICAL_BINDING_FIELDS for part in loc
+        ):
+            return True
+        message = str(item.get("msg") or "")
+        if any(field in message for field in _LEGACY_PHYSICAL_BINDING_FIELDS):
+            return True
+    return False
+
+
+def _detail_mentions_entity_field_authoring(detail: list[dict[str, Any]]) -> bool:
+    for item in detail:
+        message = str(item.get("msg") or "")
+        if any(marker in message for marker in _ENTITY_FIELD_AUTHORING_ERROR_MARKERS):
+            return True
+    return False
+
+
+def _add_entity_first_authoring_guidance(
+    guidance: dict[str, Any],
+    *,
+    detail: list[dict[str, Any]] | None = None,
+    route_path: str | None = None,
+) -> None:
+    semantic_routes = {
+        "/semantic/metrics",
+        "/semantic/process-objects",
+        "/semantic/dimensions",
+        "/semantic/time",
+        "/semantic/predicates",
+    }
+    if route_path not in semantic_routes:
+        return
+    if detail is not None and not (
+        _detail_mentions_legacy_physical_binding(detail)
+        or _detail_mentions_entity_field_authoring(detail)
+    ):
+        return
+    guidance["authoring_model"] = "entity_first"
+    guidance["legacy_physical_binding_fields"] = sorted(_LEGACY_PHYSICAL_BINDING_FIELDS)
+    guidance["entity_first_next_action"] = (
+        "Move physical table/view and column grounding to the entity interface_contract "
+        "fields/binding, then reference entity.<entity>.field.<field> from semantic objects."
+    )
+
+
 def build_validation_error_payload(
     request: Request,
     detail: list[dict[str, Any]],
@@ -600,10 +649,11 @@ def build_validation_error_payload(
                 "common_mistake": "surface_ref inside time_bindings",
             },
             {
-                "expected": "field_bindings[].semantic_ref = metric_input.<slot>",
-                "common_mistake": "metric.<name> for metric_input targets",
+                "expected": "entity binding targets: identity_key, primary_time, stable_descriptor",
+                "common_mistake": "metric_input targets on POST /semantic/bindings",
             },
         ]
+    _add_entity_first_authoring_guidance(guidance, detail=detail, route_path=route_path)
     guidance["next_action"] = (
         "Start with guidance.examples, then inspect guidance.schema_url for the exact request model, "
         "and use guidance.contract_url when nested refs or route-scoped rules are unclear."
@@ -667,10 +717,11 @@ def build_service_validation_error_payload(
                 "common_mistake": "surface_ref inside time_bindings",
             },
             {
-                "expected": "field_bindings[].semantic_ref = metric_input.<slot>",
-                "common_mistake": "metric.<name> for metric_input targets",
+                "expected": "entity binding targets: identity_key, primary_time, stable_descriptor",
+                "common_mistake": "metric_input targets on POST /semantic/bindings",
             },
         ]
+    _add_entity_first_authoring_guidance(guidance, route_path=route_path if request else None)
     return {
         "message": message,
         "code": code,

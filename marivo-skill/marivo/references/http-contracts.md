@@ -140,10 +140,15 @@ Common semantic authoring error codes:
 - `semantic_ref_conflict`: the submitted semantic ref is already owned by a governed object; inspect
   `guidance.remediation.existing_object_id` before retrying
 - `binding_target_kind_not_allowed_for_scope`: choose a target kind allowed by the binding scope
-- `metric_input_semantic_ref_prefix_invalid`: use `semantic_ref=metric_input.<slot_or_name>`
-- `metric_input_target_key_invalid`: use the metric family slot name as `target.target_key`
-- `binding_primary_time_missing`: add local time coverage or an eligible published same-source import
-- `binding_required_metric_input_missing`: declare the required metric input slots locally
+- `metric_input_semantic_ref_prefix_invalid`: legacy metric binding payloads use
+  `semantic_ref=metric_input.<slot_or_name>`; new metrics should declare component
+  `input_field_ref` instead
+- `metric_input_target_key_invalid`: legacy metric binding payloads use the metric family slot
+  name as `target.target_key`; new metrics should declare component `input_field_ref` instead
+- `binding_primary_time_missing`: repair the entity-owned time field grounding, then point
+  `time.*.source_field_ref` at that field or add the required relationship/profile alignment
+- `binding_required_metric_input_missing`: legacy binding records are missing required metric input
+  slots; new metrics should declare component `input_field_ref` values on the metric contract
 
 For `409 semantic_ref_conflict` on `POST /semantic/metrics`:
 

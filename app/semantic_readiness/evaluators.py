@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from typing import Any
 
 from app.analysis_core.additivity_capabilities import derive_additivity_capabilities
@@ -80,41 +80,25 @@ class EntityReadinessEvaluator:
                     subject_ref=snapshot.ref,
                 )
             )
+        allow_stale = False
+        if (
+            context.require_physical_grounding
+            or interface_contract.get("binding") is not None
+            or bool(interface_contract.get("fields"))
+        ):
+            grounding_blockers, grounding_trace, allow_stale = _evaluate_entity_contract_grounding(
+                context=context,
+                interface_contract=interface_contract,
+            )
+            blockers.extend(grounding_blockers)
+            trace.extend(grounding_trace)
         if lifecycle_status != "active":
             readiness_status = "not_ready"
         else:
-            had_active_bindings = False
-            if context.require_physical_grounding:
-                grounding_blockers, grounding_trace, _grounded, had_active_bindings = (
-                    _evaluate_subject_bindings(
-                        context=context,
-                        expected_scope="entity",
-                        required_targets=[
-                            *[("identity_key", key_ref, key_ref) for key_ref in key_refs],
-                            *_optional_required_target(
-                                "primary_time",
-                                interface_contract.get("primary_time_ref"),
-                            ),
-                            *[
-                                (
-                                    "stable_descriptor",
-                                    descriptor["dimension_ref"],
-                                    descriptor["dimension_ref"],
-                                )
-                                for descriptor in interface_contract.get("stable_descriptors") or []
-                                if isinstance(descriptor, dict) and descriptor.get("dimension_ref")
-                            ],
-                        ],
-                        missing_binding_code="ENTITY_GROUNDING_MISSING",
-                        coverage_code="ENTITY_BINDING_COVERAGE_MISSING",
-                    )
-                )
-                blockers.extend(grounding_blockers)
-                trace.extend(grounding_trace)
             readiness_status = _classify_active_readiness(
                 blockers,
-                stale_codes={"ENTITY_BINDING_IMPORT_MISSING", "ENTITY_CARRIER_SOURCE_MISSING"},
-                allow_stale=had_active_bindings,
+                stale_codes=set(),
+                allow_stale=allow_stale,
             )
         return ReadinessResult(
             lifecycle_status=lifecycle_status,
@@ -197,31 +181,16 @@ class MetricReadinessEvaluator:
                             dependency_ref=dependency_ref,
                         )
                     )
-            grounding_blockers, grounding_trace, _grounded, had_active_bindings = (
-                _evaluate_subject_bindings(
-                    context=context,
-                    expected_scope="metric",
-                    required_targets=[
-                        *[
-                            ("metric_input", target_key, None)
-                            for target_key in _required_metric_inputs(header, payload)
-                        ],
-                        *_optional_required_target("primary_time", header.get("primary_time_ref")),
-                        *_optional_required_target(
-                            "population_subject",
-                            header.get("population_subject_ref"),
-                        ),
-                    ],
-                    missing_binding_code="METRIC_BINDING_MISSING",
-                    coverage_code_map={
-                        "metric_input": "METRIC_INPUT_COVERAGE_MISSING",
-                        "primary_time": "METRIC_REQUIREMENT_COVERAGE_MISSING",
-                        "population_subject": "METRIC_REQUIREMENT_COVERAGE_MISSING",
-                    },
-                )
+            input_field_blockers, input_trace = _evaluate_metric_input_fields(
+                context=context,
+                header=header,
+                payload=payload,
+                subject_ref=snapshot.ref,
             )
-            blockers.extend(grounding_blockers)
-            trace.extend(grounding_trace)
+            blockers.extend(input_field_blockers)
+            trace.extend(input_trace)
+        else:
+            had_active_bindings = False
         readiness_status = (
             _classify_active_readiness(
                 blockers,
@@ -275,29 +244,16 @@ class ProcessReadinessEvaluator:
                 )
             )
 
-        if lifecycle_status == "active" and context.require_physical_grounding:
-            grounding_blockers, grounding_trace, _grounded, had_active_bindings = (
-                _evaluate_subject_bindings(
-                    context=context,
-                    expected_scope="process_object",
-                    required_targets=[
-                        *_optional_required_target(
-                            "population_subject",
-                            interface_contract.get("population_subject_ref"),
-                        ),
-                        *_optional_required_target(
-                            "analysis_window_anchor",
-                            interface_contract.get("anchor_time_ref"),
-                        ),
-                    ],
-                    missing_binding_code="PROCESS_BINDING_MISSING",
-                    coverage_code="PROCESS_BINDING_COVERAGE_MISSING",
-                )
+        if lifecycle_status == "active":
+            semantic_blockers, semantic_trace = _evaluate_process_semantic_refs(
+                context=context,
+                interface_contract=interface_contract,
+                payload=dict(snapshot.semantic_object.get("payload") or {}),
+                subject_ref=snapshot.ref,
             )
-            blockers.extend(grounding_blockers)
-            trace.extend(grounding_trace)
-        else:
-            had_active_bindings = False
+            blockers.extend(semantic_blockers)
+            trace.extend(semantic_trace)
+        had_active_bindings = False
 
         profiles = context.load_profiles("process", snapshot.ref)
         capability_profile = next(
@@ -395,12 +351,14 @@ class DimensionReadinessEvaluator:
         interface_contract = dict(snapshot.semantic_object.get("interface_contract") or {})
         value_domain = dict(interface_contract.get("value_domain") or {})
         time_requirement = dict(interface_contract.get("time_derived_requirement") or {})
+        source_field_ref = _optional_str(interface_contract.get("source_field_ref"))
         blockers: list[BlockingRequirementPayload] = []
         capabilities: dict[str, Any] = {
             "supports_grouping": bool(
                 dict(interface_contract.get("grouping") or {}).get("supports_grouping")
             ),
             "requires_time_anchor": bool(time_requirement.get("required_time_anchor_ref")),
+            "source_field_ref": source_field_ref,
         }
         required_time_anchor_ref = _optional_str(time_requirement.get("required_time_anchor_ref"))
         if required_time_anchor_ref is not None:
@@ -441,6 +399,19 @@ class DimensionReadinessEvaluator:
                     subject_ref=snapshot.ref,
                 )
             )
+        if lifecycle_status == "active" and source_field_ref is not None:
+            field_type_blocker = _semantic_field_type_blocker(
+                context=context,
+                source_field_ref=source_field_ref,
+                subject_ref=snapshot.ref,
+                semantic_object_kind="dimension",
+                expected_value_types=_expected_dimension_source_field_types(
+                    str(value_domain.get("value_type") or "")
+                ),
+                field_path="interface_contract.source_field_ref",
+            )
+            if field_type_blocker is not None:
+                blockers.append(field_type_blocker)
         readiness_status = "ready" if lifecycle_status == "active" and not blockers else "not_ready"
         return ReadinessResult(
             lifecycle_status=lifecycle_status,
@@ -467,12 +438,14 @@ class TimeReadinessEvaluator:
         semantic_roles = [
             str(role) for role in header.get("semantic_roles") or [] if str(role).strip()
         ]
+        source_field_ref = _optional_str(header.get("source_field_ref"))
         blockers: list[BlockingRequirementPayload] = []
         capabilities: dict[str, Any] = {
             "semantic_roles": semantic_roles,
             "supports_business_anchor": "business_anchor" in semantic_roles,
             "supports_measurement": "measurement" in semantic_roles,
             "supports_operational_support": "operational_support" in semantic_roles,
+            "source_field_ref": source_field_ref,
         }
         if not header.get("time_ref") or not semantic_roles:
             blockers.append(
@@ -482,6 +455,17 @@ class TimeReadinessEvaluator:
                     subject_ref=snapshot.ref,
                 )
             )
+        if lifecycle_status == "active" and source_field_ref is not None:
+            field_type_blocker = _semantic_field_type_blocker(
+                context=context,
+                source_field_ref=source_field_ref,
+                subject_ref=snapshot.ref,
+                semantic_object_kind="time",
+                expected_value_types={"date", "datetime"},
+                field_path="header.source_field_ref",
+            )
+            if field_type_blocker is not None:
+                blockers.append(field_type_blocker)
         readiness_status = "ready" if lifecycle_status == "active" and not blockers else "not_ready"
         return ReadinessResult(
             lifecycle_status=lifecycle_status,
@@ -776,6 +760,79 @@ class CompilerProfileReadinessEvaluator:
                     stage="lifecycle_gate",
                     detail=f"Derived lifecycle_status={lifecycle_status} from storage status={snapshot.status}.",
                     source="compiler_profile_readiness_evaluator",
+                    subject_ref=snapshot.ref,
+                )
+            ],
+            had_ready_predecessor=context.previously_ready(),
+        )
+
+
+class EntityRelationshipReadinessEvaluator:
+    def evaluate(self, context: ReadinessEvaluationContext) -> ReadinessResult:
+        snapshot = context.snapshot
+        lifecycle_status = derive_lifecycle_status(snapshot.status)
+        semantic_object = snapshot.semantic_object
+        left_entity_ref = _optional_str(semantic_object.get("left_entity_ref"))
+        right_entity_ref = _optional_str(semantic_object.get("right_entity_ref"))
+        key_alignment = dict(semantic_object.get("key_alignment") or {})
+        blockers: list[BlockingRequirementPayload] = []
+        capabilities: dict[str, Any] = {
+            "left_entity_ref": left_entity_ref,
+            "right_entity_ref": right_entity_ref,
+            "cardinality": semantic_object.get("cardinality"),
+            "has_time_alignment": bool(semantic_object.get("time_alignment")),
+            "has_grain_compatibility": bool(semantic_object.get("grain_compatibility")),
+            "has_snapshot_effective_window_alignment": bool(
+                semantic_object.get("snapshot_effective_window_alignment")
+            ),
+        }
+        if (
+            not semantic_object.get("relationship_ref")
+            or left_entity_ref is None
+            or right_entity_ref is None
+            or not key_alignment.get("left_field_ref")
+            or not key_alignment.get("right_field_ref")
+            or not semantic_object.get("cardinality")
+        ):
+            blockers.append(
+                _blocker(
+                    code="RELATIONSHIP_CONTRACT_INVALID",
+                    message=(
+                        "Entity relationship must define relationship_ref, left/right entity refs, "
+                        "key_alignment, and cardinality."
+                    ),
+                    subject_ref=snapshot.ref,
+                )
+            )
+        if lifecycle_status == "active":
+            for dependency_ref in (left_entity_ref, right_entity_ref):
+                if dependency_ref is None:
+                    continue
+                dependency = context.load_dependency_snapshot(dependency_ref)
+                if dependency is None or derive_lifecycle_status(dependency.status) != "active":
+                    blockers.append(
+                        _blocker(
+                            code="RELATIONSHIP_ENTITY_INACTIVE",
+                            message="Entity relationship endpoints must exist and be active.",
+                            subject_ref=snapshot.ref,
+                            dependency_ref=dependency_ref,
+                        )
+                    )
+        readiness_status = (
+            "not_ready"
+            if lifecycle_status != "active"
+            else _classify_active_readiness(blockers, stale_codes=set(), allow_stale=False)
+        )
+        return ReadinessResult(
+            lifecycle_status=lifecycle_status,
+            readiness_status=readiness_status,
+            capabilities=capabilities,
+            blocking_requirements=_dedupe_blockers(blockers),
+            trace=[
+                ReadinessTraceItem(
+                    stage="lifecycle_gate",
+                    detail=f"Derived lifecycle_status={lifecycle_status} from storage status={snapshot.status}.",
+                    source="entity_relationship_readiness_evaluator",
                     subject_ref=snapshot.ref,
                 )
             ],
@@ -1085,12 +1142,94 @@ def _process_capabilities(interface_contract: dict[str, Any]) -> dict[str, Any]:
 
 
 def _metric_dependency_refs(header: dict[str, Any], payload: dict[str, Any]) -> list[str]:
-    refs = {
-        ref
-        for ref in _collect_semantic_refs([header, payload])
-        if ref.startswith(("entity.", "time.", "dimension.", "process."))
-    }
+    refs: set[str] = set()
+    for ref in _collect_semantic_refs([header, payload]):
+        if ref.startswith("entity.") and ".field." in ref:
+            entity_ref, _field_ref = _split_entity_field_ref(ref)
+            if entity_ref is not None:
+                refs.add(entity_ref)
+            continue
+        if ref.startswith(("entity.", "time.", "dimension.", "process.")):
+            refs.add(ref)
     return sorted(refs)
+
+
+def _expected_dimension_source_field_types(value_type: str) -> set[str]:
+    return {
+        "string": {"string"},
+        "integer": {"integer", "number"},
+        "number": {"integer", "number"},
+        "boolean": {"boolean"},
+        "date": {"date", "datetime"},
+        "datetime": {"datetime", "date"},
+    }.get(value_type, set())
+
+
+def _semantic_field_type_blocker(
+    *,
+    context: ReadinessEvaluationContext,
+    source_field_ref: str,
+    subject_ref: str,
+    semantic_object_kind: str,
+    expected_value_types: set[str],
+    field_path: str,
+) -> BlockingRequirementPayload | None:
+    resolved = _resolve_entity_field_from_context(context, source_field_ref)
+    if resolved is None:
+        return _blocker(
+            code="ENTITY_FIELD_REF_UNRESOLVED",
+            message=f"Semantic object references unknown entity field: {source_field_ref}.",
+            subject_ref=subject_ref,
+            dependency_ref=source_field_ref,
+            details={
+                "semantic_object_kind": semantic_object_kind,
+                "field_path": field_path,
+                "source_field_ref": source_field_ref,
+            },
+        )
+    field_value_type = _optional_str(resolved.get("value_type"))
+    if field_value_type is None or field_value_type in expected_value_types:
+        return None
+    return _blocker(
+        code="invalid_field_type_for_semantic_object",
+        message=(
+            f"{semantic_object_kind} source_field_ref {source_field_ref} has incompatible "
+            f"field value_type {field_value_type!r}."
+        ),
+        subject_ref=subject_ref,
+        dependency_ref=source_field_ref,
+        details={
+            "semantic_object_kind": semantic_object_kind,
+            "field_path": field_path,
+            "source_field_ref": source_field_ref,
+            "actual_field_value_type": field_value_type,
+            "expected_field_value_types": sorted(expected_value_types),
+        },
+    )
+
+
+def _resolve_entity_field_from_context(
+    context: ReadinessEvaluationContext, source_field_ref: str
+) -> dict[str, Any] | None:
+    entity_ref, local_field_ref = _split_entity_field_ref(source_field_ref)
+    if entity_ref is None:
+        return None
+    entity = context.load_dependency_snapshot(entity_ref)
+    if entity is None:
+        return None
+    for field in (entity.semantic_object.get("interface_contract") or {}).get("fields") or []:
+        if isinstance(field, dict) and field.get("field_ref") == local_field_ref:
+            return field
+    return None
+
+
+def _split_entity_field_ref(source_field_ref: str) -> tuple[str | None, str]:
+    if source_field_ref.startswith("field."):
+        return None, source_field_ref
+    if source_field_ref.startswith("entity.") and ".field." in source_field_ref:
+        entity_ref, field_name = source_field_ref.split(".field.", 1)
+        return entity_ref, f"field.{field_name}"
+    return None, source_field_ref
 
 
 def _collect_semantic_refs(values: list[Any]) -> set[str]:
@@ -1110,6 +1249,214 @@ def _collect_semantic_refs(values: list[Any]) -> set[str]:
 def _required_metric_inputs(header: dict[str, Any], payload: dict[str, Any]) -> list[str]:
     metric_family = str(header.get("metric_family") or payload.get("metric_family") or "").strip()
     return list(required_metric_input_slots(metric_family))
+
+
+def _metric_component_field_paths(
+    header: dict[str, Any], payload: dict[str, Any]
+) -> list[tuple[str, dict[str, Any]]]:
+    components: list[tuple[str, dict[str, Any]]] = []
+    for field_name in _required_metric_inputs(header, payload):
+        component = payload.get(field_name)
+        if isinstance(component, dict):
+            components.append((field_name, component))
+    if components:
+        return components
+    for field_name in (
+        "count_target",
+        "measure",
+        "numerator",
+        "denominator",
+        "value_component",
+        "score_source",
+    ):
+        component = payload.get(field_name)
+        if isinstance(component, dict):
+            components.append((field_name, component))
+    return components
+
+
+def _field_ref_entity_ref(field_ref: str) -> str | None:
+    entity_ref, _local_field_ref = _split_entity_field_ref(field_ref)
+    return entity_ref
+
+
+def _expected_metric_component_field_types(aggregation: str | None) -> set[str]:
+    if aggregation in {"sum", "mean"}:
+        return {"integer", "number"}
+    if aggregation in {"boolean_any", "boolean_all"}:
+        return {"boolean"}
+    return {"string", "integer", "number", "boolean", "date", "datetime"}
+
+
+def _has_metric_profile_for_component_entities(
+    context: ReadinessEvaluationContext,
+    subject_ref: str,
+    component_entity_refs: Sequence[str],
+) -> bool:
+    profiles = context.load_profiles("metric", subject_ref)
+    if not profiles:
+        return False
+    required = set(component_entity_refs)
+    for profile in profiles:
+        if profile.get("profile_kind") != "requirement":
+            continue
+        requirement = dict(profile.get("requirement") or {})
+        entity_refs = {
+            str(ref)
+            for ref in requirement.get("entity_refs") or []
+            if isinstance(ref, str) and ref.startswith("entity.")
+        }
+        if not entity_refs or required.issubset(entity_refs):
+            return True
+    return False
+
+
+def _evaluate_metric_input_fields(
+    *,
+    context: ReadinessEvaluationContext,
+    header: dict[str, Any],
+    payload: dict[str, Any],
+    subject_ref: str,
+) -> tuple[list[BlockingRequirementPayload], list[ReadinessTraceItem]]:
+    blockers: list[BlockingRequirementPayload] = []
+    trace: list[ReadinessTraceItem] = []
+    component_fields = _metric_component_field_paths(header, payload)
+    input_entity_refs: set[str] = set()
+    for component_name, component in component_fields:
+        input_field_ref = _optional_str(component.get("input_field_ref"))
+        if input_field_ref is None:
+            blockers.append(
+                _blocker(
+                    code="METRIC_INPUT_FIELD_MISSING",
+                    message="Metric component must declare input_field_ref.",
+                    subject_ref=subject_ref,
+                    details={"component": component_name},
+                )
+            )
+            continue
+        input_entity_ref = _field_ref_entity_ref(input_field_ref)
+        if input_entity_ref is not None:
+            input_entity_refs.add(input_entity_ref)
+        input_entity_snapshot = (
+            context.load_dependency_snapshot(input_entity_ref)
+            if input_entity_ref is not None
+            else None
+        )
+        input_entity_fields = (
+            (input_entity_snapshot.semantic_object.get("interface_contract") or {}).get("fields")
+            if input_entity_snapshot is not None
+            else None
+        )
+        if input_entity_snapshot is not None and not input_entity_fields:
+            continue
+        expected_types = _expected_metric_component_field_types(
+            _optional_str(component.get("aggregation"))
+        )
+        field_type_blocker = _semantic_field_type_blocker(
+            context=context,
+            source_field_ref=input_field_ref,
+            subject_ref=subject_ref,
+            semantic_object_kind="metric",
+            expected_value_types=expected_types,
+            field_path=f"payload.{component_name}.input_field_ref",
+        )
+        if field_type_blocker is not None:
+            field_type_blocker.code = (
+                "invalid_metric_input_type"
+                if field_type_blocker.code == "invalid_field_type_for_semantic_object"
+                else field_type_blocker.code
+            )
+            blockers.append(field_type_blocker)
+    observed_entity_ref = _optional_str(header.get("observed_entity_ref"))
+    cross_entity_refs = sorted(
+        entity_ref
+        for entity_ref in input_entity_refs
+        if observed_entity_ref is not None and entity_ref != observed_entity_ref
+    )
+    if cross_entity_refs and not _has_metric_profile_for_component_entities(
+        context, subject_ref, sorted(input_entity_refs)
+    ):
+        blockers.append(
+            _blocker(
+                code="missing_compatibility_profile",
+                message="Cross-entity metric components require a compatibility profile.",
+                subject_ref=subject_ref,
+                details={
+                    "observed_entity_ref": observed_entity_ref,
+                    "component_entity_refs": sorted(input_entity_refs),
+                    "cross_entity_refs": cross_entity_refs,
+                },
+            )
+        )
+    trace.append(
+        ReadinessTraceItem(
+            stage="metric_input_field_check",
+            detail=f"Checked {len(component_fields)} metric component input field refs.",
+            source="metric_readiness_evaluator",
+            subject_ref=subject_ref,
+        )
+    )
+    return blockers, trace
+
+
+def _collect_process_field_refs(value: Any) -> list[str]:
+    refs: list[str] = []
+    if isinstance(value, dict):
+        for item in value.values():
+            refs.extend(_collect_process_field_refs(item))
+    elif isinstance(value, list):
+        for item in value:
+            refs.extend(_collect_process_field_refs(item))
+    elif isinstance(value, str) and value.startswith("entity.") and ".field." in value:
+        refs.append(value)
+    return refs
+
+
+def _evaluate_process_semantic_refs(
+    *,
+    context: ReadinessEvaluationContext,
+    interface_contract: dict[str, Any],
+    payload: dict[str, Any],
+    subject_ref: str,
+) -> tuple[list[BlockingRequirementPayload], list[ReadinessTraceItem]]:
+    blockers: list[BlockingRequirementPayload] = []
+    trace: list[ReadinessTraceItem] = []
+    process_entity_ref = _optional_str(interface_contract.get("entity_ref"))
+    field_refs = sorted(set(_collect_process_field_refs([interface_contract, payload])))
+    for field_ref in field_refs:
+        entity_ref = _field_ref_entity_ref(field_ref)
+        if process_entity_ref is not None and entity_ref not in {None, process_entity_ref}:
+            blockers.append(
+                _blocker(
+                    code="missing_compatibility_profile",
+                    message="Cross-entity process field refs require a compatibility profile.",
+                    subject_ref=subject_ref,
+                    dependency_ref=field_ref,
+                    details={
+                        "process_entity_ref": process_entity_ref,
+                        "field_entity_ref": entity_ref,
+                    },
+                )
+            )
+        resolved = _resolve_entity_field_from_context(context, field_ref)
+        if resolved is None:
+            blockers.append(
+                _blocker(
+                    code="ENTITY_FIELD_REF_UNRESOLVED",
+                    message=f"Process references unknown entity field: {field_ref}.",
+                    subject_ref=subject_ref,
+                    dependency_ref=field_ref,
+                )
+            )
+    trace.append(
+        ReadinessTraceItem(
+            stage="process_semantic_ref_check",
+            detail=f"Checked {len(field_refs)} process entity field refs.",
+            source="process_readiness_evaluator",
+            subject_ref=subject_ref,
+        )
+    )
+    return blockers, trace
 
 
 def _optional_required_target(
@@ -1495,6 +1842,406 @@ def _binding_time_binding_blockers(
     return blockers
 
 
+def _evaluate_entity_contract_grounding(
+    *,
+    context: ReadinessEvaluationContext,
+    interface_contract: dict[str, Any],
+) -> tuple[list[BlockingRequirementPayload], list[ReadinessTraceItem], bool]:
+    snapshot = context.snapshot
+    blockers: list[BlockingRequirementPayload] = []
+    trace: list[ReadinessTraceItem] = []
+    binding = interface_contract.get("binding")
+    fields = list(interface_contract.get("fields") or [])
+    if not isinstance(binding, dict) or not binding:
+        blockers.append(
+            _blocker(
+                code="ENTITY_BINDING_MISSING",
+                message="Entity contract requires interface_contract.binding for physical grounding.",
+                subject_ref=snapshot.ref,
+            )
+        )
+        trace.append(
+            ReadinessTraceItem(
+                stage="entity_binding_check",
+                detail="Entity contract does not declare its own binding.",
+                source="entity_readiness_evaluator",
+                subject_ref=snapshot.ref,
+            )
+        )
+        return blockers, trace, False
+    if not fields:
+        blockers.append(
+            _blocker(
+                code="ENTITY_FIELDS_MISSING",
+                message="Entity contract requires interface_contract.fields for physical grounding.",
+                subject_ref=snapshot.ref,
+            )
+        )
+        trace.append(
+            ReadinessTraceItem(
+                stage="entity_field_check",
+                detail="Entity contract does not declare grounded fields.",
+                source="entity_readiness_evaluator",
+                subject_ref=snapshot.ref,
+            )
+        )
+        return blockers, trace, True
+
+    carrier = _entity_binding_as_carrier(binding)
+    source_object = context.load_carrier_source_object(carrier)
+    if source_object is None:
+        blockers.append(
+            _blocker(
+                code="ENTITY_SOURCE_OBJECT_MISSING",
+                message="Entity binding must resolve to a synced source object.",
+                subject_ref=snapshot.ref,
+                dependency_ref=_entity_binding_dependency_ref(binding),
+            )
+        )
+        trace.append(
+            ReadinessTraceItem(
+                stage="entity_binding_check",
+                detail="Entity binding source object could not be resolved.",
+                source="entity_readiness_evaluator",
+                subject_ref=snapshot.ref,
+                dependency_ref=_entity_binding_dependency_ref(binding),
+            )
+        )
+        return blockers, trace, True
+    locator_mismatch_blocker = _entity_binding_locator_mismatch_blocker(
+        subject_ref=snapshot.ref,
+        binding=binding,
+        source_object=source_object,
+    )
+    if locator_mismatch_blocker is not None:
+        blockers.append(locator_mismatch_blocker)
+
+    for index, field in enumerate(fields):
+        if not isinstance(field, dict):
+            blockers.append(
+                _blocker(
+                    code="ENTITY_FIELD_INVALID",
+                    message="Entity field entries must be objects.",
+                    subject_ref=snapshot.ref,
+                    details={"field_index": index},
+                )
+            )
+            continue
+        blockers.extend(
+            _entity_field_grounding_blockers(
+                context=context,
+                source_object=source_object,
+                field=field,
+                field_index=index,
+            )
+        )
+
+    trace.append(
+        ReadinessTraceItem(
+            stage="entity_binding_check",
+            detail=f"Checked entity binding and {len(fields)} grounded fields.",
+            source="entity_readiness_evaluator",
+            subject_ref=snapshot.ref,
+            dependency_ref=_entity_binding_dependency_ref(binding),
+        )
+    )
+    return _dedupe_blockers(blockers), trace, True
+
+
+def _entity_binding_as_carrier(binding: dict[str, Any]) -> dict[str, Any]:
+    carrier: dict[str, Any] = {
+        "source_object_ref": _optional_str(binding.get("source_object_ref")),
+        "carrier_kind": _optional_str(binding.get("carrier_kind")),
+    }
+    source_object_fqn = _optional_str(binding.get("source_object_fqn"))
+    if source_object_fqn is not None:
+        carrier["carrier_locator"] = source_object_fqn
+    return carrier
+
+
+def _entity_binding_dependency_ref(binding: dict[str, Any]) -> str | None:
+    return _optional_str(binding.get("source_object_ref")) or _optional_str(
+        binding.get("source_object_fqn")
+    )
+
+
+def _entity_binding_locator_mismatch_blocker(
+    *,
+    subject_ref: str,
+    binding: dict[str, Any],
+    source_object: dict[str, Any],
+) -> BlockingRequirementPayload | None:
+    source_object_fqn = _optional_str(binding.get("source_object_fqn"))
+    if source_object_fqn is None:
+        return None
+    resolved_refs = {
+        ref
+        for ref in (
+            _optional_str(source_object.get("fqn")),
+            _optional_str(source_object.get("native_name")),
+        )
+        if ref is not None
+    }
+    if source_object_fqn in resolved_refs:
+        return None
+    return _blocker(
+        code="ENTITY_BINDING_LOCATOR_MISMATCH",
+        message="Entity binding source_object_fqn must resolve to the same source object.",
+        subject_ref=subject_ref,
+        dependency_ref=_entity_binding_dependency_ref(binding),
+        details={
+            "source_object_ref": _optional_str(binding.get("source_object_ref")),
+            "source_object_fqn": source_object_fqn,
+            "resolved_source_object_fqn": _optional_str(source_object.get("fqn")),
+        },
+    )
+
+
+def _entity_field_grounding_blockers(
+    *,
+    context: ReadinessEvaluationContext,
+    source_object: dict[str, Any],
+    field: dict[str, Any],
+    field_index: int,
+) -> list[BlockingRequirementPayload]:
+    subject_ref = context.snapshot.ref
+    field_ref = _optional_str(field.get("field_ref")) or f"fields[{field_index}]"
+    blockers: list[BlockingRequirementPayload] = []
+    sensitivity_tags = field.get("sensitivity_tags")
+    if sensitivity_tags is not None and (
+        not isinstance(sensitivity_tags, list)
+        or any(not isinstance(tag, str) or not tag.strip() for tag in sensitivity_tags)
+    ):
+        blockers.append(
+            _blocker(
+                code="ENTITY_FIELD_SENSITIVITY_TAGS_INVALID",
+                message="Entity field sensitivity_tags must be a readable list of non-empty strings.",
+                subject_ref=subject_ref,
+                dependency_ref=field_ref,
+                details={"field_ref": field_ref, "field_index": field_index},
+            )
+        )
+    profile_summary = field.get("profile_summary")
+    if profile_summary is not None and not isinstance(profile_summary, dict):
+        blockers.append(
+            _blocker(
+                code="ENTITY_FIELD_PROFILE_SUMMARY_INVALID",
+                message="Entity field profile_summary must be a readable object.",
+                subject_ref=subject_ref,
+                dependency_ref=field_ref,
+                details={"field_ref": field_ref, "field_index": field_index},
+            )
+        )
+
+    physical_columns = _entity_field_physical_columns(field)
+    if not physical_columns:
+        blockers.append(
+            _blocker(
+                code="ENTITY_FIELD_LOCATOR_MISSING",
+                message="Entity field requires physical_column or physical_expression_locator input columns.",
+                subject_ref=subject_ref,
+                dependency_ref=field_ref,
+                details={"field_ref": field_ref, "field_index": field_index},
+            )
+        )
+        return blockers
+
+    declared_value_type = _optional_str(field.get("value_type"))
+    column_types: dict[str, str] = {}
+    for physical_column in physical_columns:
+        column_type = context.load_source_column_type(source_object, physical_column)
+        if column_type is None:
+            blockers.append(
+                _blocker(
+                    code="ENTITY_FIELD_COLUMN_MISSING",
+                    message="Entity field physical column must exist in source metadata.",
+                    subject_ref=subject_ref,
+                    dependency_ref=physical_column,
+                    details={
+                        "field_ref": field_ref,
+                        "field_index": field_index,
+                        "physical_column": physical_column,
+                    },
+                )
+            )
+            continue
+        column_types[physical_column] = column_type
+
+    if declared_value_type is not None:
+        inferred_column_type = _entity_field_inferred_type(
+            field=field,
+            physical_columns=physical_columns,
+            column_types=column_types,
+        )
+        if inferred_column_type is None:
+            if len(column_types) == len(physical_columns):
+                blockers.append(
+                    _blocker(
+                        code="ENTITY_FIELD_TYPE_UNVERIFIED",
+                        message=(
+                            "Entity field value_type cannot be verified from "
+                            "physical_expression_locator metadata."
+                        ),
+                        subject_ref=subject_ref,
+                        dependency_ref=field_ref,
+                        details={
+                            "field_ref": field_ref,
+                            "field_index": field_index,
+                            "value_type": declared_value_type,
+                            "physical_columns": physical_columns,
+                            "source_column_types": column_types,
+                        },
+                    )
+                )
+            return blockers
+        if not _source_type_matches_entity_value_type(
+            inferred_column_type,
+            declared_value_type,
+        ):
+            blockers.append(
+                _blocker(
+                    code="ENTITY_FIELD_TYPE_MISMATCH",
+                    message="Entity field value_type must be compatible with source column metadata.",
+                    subject_ref=subject_ref,
+                    dependency_ref=field_ref,
+                    details={
+                        "field_ref": field_ref,
+                        "field_index": field_index,
+                        "physical_columns": physical_columns,
+                        "value_type": declared_value_type,
+                        "source_column_type": inferred_column_type,
+                    },
+                )
+            )
+    return blockers
+
+
+def _entity_field_physical_columns(field: dict[str, Any]) -> list[str]:
+    physical_column = _optional_str(field.get("physical_column"))
+    if physical_column is not None:
+        return [physical_column]
+    locator = field.get("physical_expression_locator")
+    if not isinstance(locator, dict):
+        return []
+    return [
+        column
+        for column in (_optional_str(item) for item in locator.get("input_columns") or [])
+        if column is not None
+    ]
+
+
+def _entity_field_inferred_type(
+    *,
+    field: dict[str, Any],
+    physical_columns: list[str],
+    column_types: dict[str, str],
+) -> str | None:
+    if len(column_types) != len(physical_columns):
+        return None
+    physical_column = _optional_str(field.get("physical_column"))
+    if physical_column is not None and len(physical_columns) == 1:
+        return column_types.get(physical_column)
+    locator = field.get("physical_expression_locator")
+    if not isinstance(locator, dict):
+        return None
+    expression_kind = _optional_str(locator.get("expression_kind"))
+    if expression_kind == "date_trunc":
+        return "date"
+    if expression_kind == "concat":
+        return "string"
+    if expression_kind == "bucket":
+        return "string"
+    if expression_kind == "coalesce":
+        input_types = {column_types[column].strip().lower() for column in physical_columns}
+        if len(input_types) == 1:
+            return next(iter(input_types))
+        return None
+    if expression_kind == "cast":
+        parameters = locator.get("parameters")
+        if isinstance(parameters, dict):
+            return _optional_str(
+                parameters.get("target_type")
+                or parameters.get("value_type")
+                or parameters.get("data_type")
+            )
+    return None
+
+
+def _source_type_matches_entity_value_type(column_type: str, value_type: str) -> bool:
+    normalized = _normalized_source_type(column_type)
+    if normalized is None:
+        return False
+    if value_type == "string":
+        return normalized in {"char", "character", "string", "text", "uuid", "varchar", "json"}
+    if value_type == "integer":
+        return normalized in {
+            "bigint",
+            "byteint",
+            "hugeint",
+            "int",
+            "int2",
+            "int4",
+            "int8",
+            "integer",
+            "long",
+            "short",
+            "smallint",
+            "tinyint",
+        }
+    if value_type == "number":
+        return normalized in {
+            "bigint",
+            "byteint",
+            "decimal",
+            "double",
+            "float",
+            "hugeint",
+            "int",
+            "int2",
+            "int4",
+            "int8",
+            "integer",
+            "long",
+            "numeric",
+            "real",
+            "short",
+            "smallint",
+            "tinyint",
+        }
+    if value_type == "boolean":
+        return normalized in {"bool", "boolean"}
+    if value_type == "date":
+        return normalized == "date"
+    if value_type == "datetime":
+        return normalized in {
+            "datetime",
+            "timestamp",
+            "timestamp_ltz",
+            "timestamp_ntz",
+            "timestamp_tz",
+            "timestamptz",
+            "time",
+        }
+    return True
+
+
+def _normalized_source_type(column_type: str) -> str | None:
+    normalized = column_type.strip().lower()
+    if not normalized:
+        return None
+    base = normalized.split("(", 1)[0].strip()
+    base = base.replace(" with time zone", "tz")
+    base = base.replace(" without time zone", "")
+    tokens = [token for token in base.replace("_", " ").split() if token]
+    if not tokens:
+        return None
+    if tokens[0] in {"array", "map", "struct"}:
+        return tokens[0]
+    if tokens[:2] == ["double", "precision"]:
+        return "double"
+    return "_".join(tokens)
+
+
 def _evaluate_subject_bindings(
     *,
     context: ReadinessEvaluationContext,
@@ -1541,8 +2288,12 @@ def _evaluate_subject_bindings(
                 }
             else:
                 blocker_details["remediation"] = {
-                    "tool": "create_binding",
-                    "message": "Create a typed binding with header.binding_scope='metric' for this metric.",
+                    "tool": "update_metric",
+                    "message": (
+                        "Metric bindings are legacy read/history records. Declare component "
+                        "input_field_ref values on the metric and ground those fields through "
+                        "the referenced entities."
+                    ),
                 }
         blockers.append(
             _blocker(

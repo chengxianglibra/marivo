@@ -14,31 +14,45 @@ from app.api.models import (
     CompatibilityProfileResponse,
     CompatibilityProfileUpdateRequest,
     DimensionCreateRequest,
+    DimensionListResponseFull,
     DimensionResponse,
     DimensionUpdateRequest,
+    DomainCatalogCreateRequest,
+    DomainCatalogListResponse,
+    DomainCatalogResponse,
+    DomainCatalogUpdateRequest,
+    DomainSemanticObjectSearchResponse,
+    EntityRelationshipCreateRequest,
+    EntityRelationshipResponse,
+    EntityRelationshipUpdateRequest,
     EnumSetCreateRequest,
     EnumSetResponse,
     EnumSetUpdateRequest,
     MetricRevisionCreateRequest,
     PredicateCreateRequest,
+    PredicateListResponseFull,
     PredicateResponse,
     PredicateUpdateRequest,
     ProcessObjectCreateRequest,
+    ProcessObjectListResponseFull,
     ProcessObjectResponse,
     ProcessObjectUpdateRequest,
     SemanticBatchRequest,
     SemanticBatchResponse,
     SemanticValidateActionResponse,
     TimeCreateRequest,
+    TimeListResponseFull,
     TimeResponse,
     TimeUpdateRequest,
     TypedBindingCreateRequest,
     TypedBindingResponse,
     TypedBindingUpdateRequest,
     TypedEntityCreateRequest,
+    TypedEntityListResponseFull,
     TypedEntityResponse,
     TypedEntityUpdateRequest,
     TypedMetricCreateRequest,
+    TypedMetricListResponseFull,
     TypedMetricResponse,
     TypedMetricUpdateRequest,
 )
@@ -55,6 +69,8 @@ _CREATE_MODEL_BY_BATCH_KIND: dict[str, type[BaseModel]] = {
     "process_object": ProcessObjectCreateRequest,
     "metric": TypedMetricCreateRequest,
     "binding": TypedBindingCreateRequest,
+    "relationship": EntityRelationshipCreateRequest,
+    "compatibility_profile": CompatibilityProfileCreateRequest,
 }
 
 _BATCH_CREATE_ORDER = {
@@ -65,6 +81,8 @@ _BATCH_CREATE_ORDER = {
     "process_object": 4,
     "metric": 5,
     "binding": 6,
+    "relationship": 7,
+    "compatibility_profile": 8,
 }
 
 _BATCH_ACTIVATE_ORDER = {
@@ -75,6 +93,8 @@ _BATCH_ACTIVATE_ORDER = {
     "process_object": 4,
     "metric": 5,
     "binding": 6,
+    "relationship": 7,
+    "compatibility_profile": 8,
 }
 
 
@@ -181,6 +201,8 @@ def _created_id(kind: str, result: dict[str, Any]) -> str | None:
         "process_object": "process_contract_id",
         "metric": "metric_contract_id",
         "binding": "binding_id",
+        "relationship": "relationship_id",
+        "compatibility_profile": "profile_id",
     }
     value = result.get(id_fields[kind])
     return str(value) if value is not None else None
@@ -253,6 +275,14 @@ def semantic_batch(request: Request, payload: SemanticBatchRequest = Body(...)) 
             return semantic_service.create_typed_binding(
                 TypedBindingCreateRequest.model_validate(item_payload)
             )
+        if kind == "relationship":
+            return semantic_service.create_relationship(
+                EntityRelationshipCreateRequest.model_validate(item_payload)
+            )
+        if kind == "compatibility_profile":
+            return semantic_service.create_compatibility_profile(
+                CompatibilityProfileCreateRequest.model_validate(item_payload)
+            )
         raise ValueError(f"Unsupported batch kind: {kind}")
 
     def validate_item(kind: str, object_id: str) -> dict[str, Any]:
@@ -270,6 +300,10 @@ def semantic_batch(request: Request, payload: SemanticBatchRequest = Body(...)) 
             return semantic_service.validate_typed_metric(object_id)
         if kind == "binding":
             return semantic_service.validate_typed_binding(object_id)
+        if kind == "relationship":
+            return semantic_service.validate_relationship(object_id)
+        if kind == "compatibility_profile":
+            return semantic_service.validate_compatibility_profile(object_id)
         raise ValueError(f"Unsupported batch kind: {kind}")
 
     def activate_item(kind: str, object_id: str) -> dict[str, Any]:
@@ -287,6 +321,10 @@ def semantic_batch(request: Request, payload: SemanticBatchRequest = Body(...)) 
             return semantic_service.activate_typed_metric(object_id)
         if kind == "binding":
             return semantic_service.activate_typed_binding(object_id)
+        if kind == "relationship":
+            return semantic_service.activate_relationship(object_id)
+        if kind == "compatibility_profile":
+            return semantic_service.activate_compatibility_profile(object_id)
         raise ValueError(f"Unsupported batch kind: {kind}")
 
     if (
@@ -545,6 +583,10 @@ def semantic_batch(request: Request, payload: SemanticBatchRequest = Body(...)) 
                             bound_object_ref: str = bound_object_ref,
                             interface_contract: dict[str, Any] = interface_contract,
                         ) -> None:
+                            semantic_service.bindings._ensure_entity_binding_authoring_scope(
+                                binding_scope=binding_scope,
+                                action="create",
+                            )
                             semantic_service.bindings._validate_typed_binding_contract(
                                 binding_ref=binding_ref,
                                 binding_scope=binding_scope,
@@ -640,6 +682,71 @@ def list_grains(request: Request) -> dict[str, Any]:
     return get_services(request).semantic_service.list_grains()
 
 
+@router.post("/semantic/domains", response_model=DomainCatalogResponse)
+def create_domain(
+    request: Request, payload: DomainCatalogCreateRequest = Body(...)
+) -> dict[str, Any]:
+    semantic_service = get_services(request).semantic_service
+    return _run_route_action(lambda: semantic_service.create_domain(payload))
+
+
+@router.get("/semantic/domains", response_model=DomainCatalogListResponse)
+def list_domains(
+    request: Request,
+    status: str | None = Query(default=None),
+    q: str | None = Query(default=None),
+) -> dict[str, Any]:
+    semantic_service = get_services(request).semantic_service
+    return _run_route_action(lambda: semantic_service.list_domains(status=status, q=q))
+
+
+@router.get("/semantic/domains/{domain_ref}", response_model=DomainCatalogResponse)
+def get_domain(domain_ref: str, request: Request) -> dict[str, Any]:
+    semantic_service = get_services(request).semantic_service
+    return _run_route_action(lambda: semantic_service.read_domain(domain_ref))
+
+
+@router.put("/semantic/domains/{domain_ref}", response_model=DomainCatalogResponse)
+def update_domain(
+    domain_ref: str,
+    request: Request,
+    payload: DomainCatalogUpdateRequest = Body(...),
+) -> dict[str, Any]:
+    semantic_service = get_services(request).semantic_service
+    return _run_route_action(lambda: semantic_service.update_domain(domain_ref, payload))
+
+
+@router.post("/semantic/domains/{domain_ref}/deprecate", response_model=DomainCatalogResponse)
+def deprecate_domain(domain_ref: str, request: Request) -> dict[str, Any]:
+    semantic_service = get_services(request).semantic_service
+    return _run_route_action(lambda: semantic_service.deprecate_domain(domain_ref))
+
+
+@router.get("/semantic/domain-objects", response_model=DomainSemanticObjectSearchResponse)
+def search_semantic_objects_by_domain(
+    request: Request,
+    domain_ref: str | None = Query(default=None),
+    object_type: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    lifecycle_status: str | None = Query(default=None),
+    readiness_status: str | None = Query(default=None),
+    related_domain_refs: list[str] | None = Query(default=None),
+    q: str | None = Query(default=None),
+) -> dict[str, Any]:
+    semantic_service = get_services(request).semantic_service
+    return _run_route_action(
+        lambda: semantic_service.search_semantic_objects_by_domain(
+            domain_ref=domain_ref,
+            object_type=object_type,
+            status=status,
+            lifecycle_status=lifecycle_status,
+            readiness_status=readiness_status,
+            q=q,
+            related_domain_refs=related_domain_refs,
+        )
+    )
+
+
 @router.post("/semantic/entities", response_model=TypedEntityResponse)
 def create_entity(
     request: Request, payload: TypedEntityCreateRequest = Body(...)
@@ -648,7 +755,7 @@ def create_entity(
     return _run_route_action(lambda: semantic_service.create_typed_entity(payload))
 
 
-@router.get("/semantic/entities")
+@router.get("/semantic/entities", response_model=TypedEntityListResponseFull)
 def list_entities(
     request: Request,
     status: str | None = Query(default=None),
@@ -676,6 +783,26 @@ def get_entity(
 ) -> dict[str, Any]:
     semantic_service = get_services(request).semantic_service
     return _run_route_action(lambda: semantic_service.read_typed_entity(entity_id))
+
+
+@router.get("/semantic/entities/{entity_id}/field-dependents")
+def get_entity_field_dependents(
+    entity_id: str,
+    request: Request,
+    field_ref: str = Query(
+        ...,
+        description="Entity field ref, either field.x or <entity_ref>.field.x.",
+    ),
+) -> dict[str, Any]:
+    semantic_service = get_services(request).semantic_service
+    return _run_route_action(
+        lambda: {
+            "entity_id": entity_id,
+            "field_ref": field_ref,
+            "dependents": semantic_service.field_dependents_for_entity_field(entity_id, field_ref),
+        },
+        structured_value_error=True,
+    )
 
 
 @router.put("/semantic/entities/{entity_id}", response_model=TypedEntityResponse)
@@ -738,7 +865,7 @@ def create_metric(
     )
 
 
-@router.get("/semantic/metrics")
+@router.get("/semantic/metrics", response_model=TypedMetricListResponseFull)
 def list_metrics(
     request: Request,
     status: str | None = Query(default=None),
@@ -884,7 +1011,7 @@ def create_process_object(
     return _run_route_action(lambda: semantic_service.create_process_object(payload))
 
 
-@router.get("/semantic/process-objects")
+@router.get("/semantic/process-objects", response_model=ProcessObjectListResponseFull)
 def list_process_objects(
     request: Request,
     status: str | None = Query(default=None),
@@ -976,7 +1103,7 @@ def create_dimension(
     return _run_route_action(lambda: semantic_service.create_dimension(payload))
 
 
-@router.get("/semantic/dimensions")
+@router.get("/semantic/dimensions", response_model=DimensionListResponseFull)
 def list_dimensions(
     request: Request,
     status: str | None = Query(default=None),
@@ -1071,7 +1198,7 @@ def create_predicate(
     return _run_route_action(lambda: semantic_service.create_predicate(payload))
 
 
-@router.get("/semantic/predicates")
+@router.get("/semantic/predicates", response_model=PredicateListResponseFull)
 def list_predicates(
     request: Request,
     status: str | None = Query(default=None),
@@ -1161,7 +1288,7 @@ def create_time_semantic(
     return _run_route_action(lambda: semantic_service.create_time_semantic(payload))
 
 
-@router.get("/semantic/time")
+@router.get("/semantic/time", response_model=TimeListResponseFull)
 def list_time_semantics(
     request: Request,
     status: str | None = Query(default=None),
@@ -1426,6 +1553,101 @@ def deprecate_typed_binding(binding_id: str, request: Request) -> dict[str, Any]
     )
 
 
+@router.post("/semantic/relationships", response_model=EntityRelationshipResponse)
+def create_relationship(
+    request: Request, payload: EntityRelationshipCreateRequest = Body(...)
+) -> dict[str, Any]:
+    return _run_route_action(
+        lambda: get_services(request).semantic_service.create_relationship(payload)
+    )
+
+
+@router.get("/semantic/relationships")
+def list_relationships(
+    request: Request,
+    status: str | None = Query(default=None),
+    lifecycle_status: str | None = Query(default=None),
+    readiness_status: str | None = Query(default=None),
+    detail: bool = Query(
+        default=False, description="Return full detail instead of lightweight format."
+    ),
+    left_entity_ref: str | None = Query(default=None),
+    right_entity_ref: str | None = Query(default=None),
+) -> dict[str, Any]:
+    return _run_route_action(
+        lambda: get_services(request).semantic_service.list_relationships(
+            status=status,
+            lifecycle_status=lifecycle_status,
+            readiness_status=readiness_status,
+            detail=detail,
+            left_entity_ref=left_entity_ref,
+            right_entity_ref=right_entity_ref,
+        )
+    )
+
+
+@router.get("/semantic/relationships/{relationship_id}", response_model=EntityRelationshipResponse)
+def get_relationship(relationship_id: str, request: Request) -> dict[str, Any]:
+    return _run_route_action(
+        lambda: get_services(request).semantic_service.read_relationship(relationship_id)
+    )
+
+
+@router.put("/semantic/relationships/{relationship_id}", response_model=EntityRelationshipResponse)
+def update_relationship(
+    relationship_id: str,
+    request: Request,
+    payload: EntityRelationshipUpdateRequest = Body(...),
+) -> dict[str, Any]:
+    return _run_route_action(
+        lambda: get_services(request).semantic_service.update_relationship(
+            relationship_id, payload
+        ),
+        structured_value_error=True,
+    )
+
+
+@router.post("/semantic/relationships/{relationship_id}/publish")
+def publish_relationship(relationship_id: str, request: Request) -> dict[str, Any]:
+    return _run_route_action(
+        lambda: get_services(request).semantic_service.publish_relationship(relationship_id),
+        structured_value_error=True,
+    )
+
+
+@router.post(
+    "/semantic/relationships/{relationship_id}/validate",
+    response_model=SemanticValidateActionResponse,
+)
+def validate_relationship(relationship_id: str, request: Request) -> dict[str, Any]:
+    return _run_route_action(
+        lambda: get_services(request).semantic_service.validate_relationship(relationship_id),
+        structured_value_error=True,
+    )
+
+
+@router.post(
+    "/semantic/relationships/{relationship_id}/activate",
+    response_model=EntityRelationshipResponse,
+)
+def activate_relationship(relationship_id: str, request: Request) -> dict[str, Any]:
+    return _run_route_action(
+        lambda: get_services(request).semantic_service.activate_relationship(relationship_id),
+        structured_value_error=True,
+    )
+
+
+@router.post(
+    "/semantic/relationships/{relationship_id}/deprecate",
+    response_model=EntityRelationshipResponse,
+)
+def deprecate_relationship(relationship_id: str, request: Request) -> dict[str, Any]:
+    return _run_route_action(
+        lambda: get_services(request).semantic_service.deprecate_relationship(relationship_id),
+        structured_value_error=True,
+    )
+
+
 @router.post("/compiler/compatibility-profiles", response_model=CompatibilityProfileResponse)
 def create_compatibility_profile(
     request: Request, payload: CompatibilityProfileCreateRequest = Body(...)
@@ -1443,6 +1665,10 @@ def list_compatibility_profiles(
     detail: bool = Query(
         default=False, description="Return full detail instead of lightweight format."
     ),
+    subject_kind: str | None = Query(default=None),
+    subject_ref: str | None = Query(default=None),
+    left_entity_ref: str | None = Query(default=None),
+    right_entity_ref: str | None = Query(default=None),
 ) -> dict[str, Any]:
     return _run_route_action(
         lambda: get_services(request).semantic_service.list_compatibility_profiles(
@@ -1450,6 +1676,10 @@ def list_compatibility_profiles(
             lifecycle_status=lifecycle_status,
             readiness_status=readiness_status,
             detail=detail,
+            subject_kind=subject_kind,
+            subject_ref=subject_ref,
+            left_entity_ref=left_entity_ref,
+            right_entity_ref=right_entity_ref,
         )
     )
 

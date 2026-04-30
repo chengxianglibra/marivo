@@ -13,6 +13,7 @@ Guardrails:
 - when the server returns `422` guidance, use that guidance instead of expanding this file into a field-by-field contract manual
 - keep modeling decisions such as dependency order, descriptor strategy, or import topology in `semantic-layer.md`
 - keep investigation sequencing decisions in `steps.md` and `planning.md`
+- entity fields are the only physical grounding owner; downstream objects should reference `entity.<entity>.field.<field>`
 
 ## `detect` Intent
 
@@ -87,6 +88,26 @@ Rules:
 - in `auto_detect`, do not send `current` or `baseline`
 - if auto-detect returns `no_detect_candidates`, treat it as `needs_attention` and switch to `explicit_compare` when possible
 
+## `domain.*`
+
+Domains are discovery objects only. They do not grant permissions or prove compiler compatibility.
+
+Required fields:
+
+- `domain_ref`
+- `display_name`
+
+Minimal example:
+
+```json
+{
+  "domain_ref": "domain.growth",
+  "display_name": "Growth",
+  "description": "Acquisition and activation analytics",
+  "aliases": ["growth", "activation"]
+}
+```
+
 ## `time.*`
 
 Required header fields:
@@ -95,6 +116,7 @@ Required header fields:
 - `display_name`
 - `semantic_roles`
 - `time_contract_version`
+- `source_field_ref` when the time semantic is backed by a source field
 
 Minimal example:
 
@@ -104,7 +126,8 @@ Minimal example:
     "time_ref": "time.event_date",
     "display_name": "Event Date",
     "semantic_roles": ["measurement"],
-    "time_contract_version": "time.v1"
+    "time_contract_version": "time.v1",
+    "source_field_ref": "entity.event.field.event_date"
   }
 }
 ```
@@ -146,6 +169,7 @@ Required fields:
 - `header.dimension_ref`
 - `header.display_name`
 - `header.dimension_contract_version`
+- `interface_contract.source_field_ref`
 - `interface_contract.value_domain`
 
 Minimal example:
@@ -158,6 +182,7 @@ Minimal example:
     "dimension_contract_version": "dimension.v1"
   },
   "interface_contract": {
+    "source_field_ref": "entity.user.field.country",
     "value_domain": {
       "structure_kind": "flat",
       "semantic_role": "category",
@@ -178,6 +203,8 @@ Required fields:
 - `interface_contract.identity.key_refs[]`
 - `interface_contract.identity.uniqueness_scope`
 - `interface_contract.identity.id_stability`
+- `interface_contract.fields[]`
+- `interface_contract.binding`
 
 Add these only when they are part of the contract:
 
@@ -188,6 +215,7 @@ Minimal example:
 
 ```json
 {
+  "catalog_metadata": {"domain_ref": "domain.growth"},
   "header": {
     "entity_ref": "entity.user",
     "display_name": "User",
@@ -199,7 +227,20 @@ Minimal example:
       "uniqueness_scope": "global",
       "id_stability": "stable"
     },
-    "primary_time_ref": "time.event_date"
+    "fields": [
+      {"field_ref": "field.user_id", "value_type": "string", "physical_column": "user_id"},
+      {"field_ref": "field.event_date", "value_type": "date", "physical_column": "event_date"},
+      {"field_ref": "field.country", "value_type": "string", "physical_column": "country"}
+    ],
+    "binding": {
+      "source_object_ref": "obj_user_events",
+      "source_object_fqn": "analytics.user_events",
+      "carrier_kind": "table"
+    },
+    "primary_time_ref": "time.event_date",
+    "stable_descriptors": [
+      {"dimension_ref": "dimension.country", "field_ref": "entity.user.field.country"}
+    ]
   }
 }
 ```
@@ -231,7 +272,7 @@ Minimal example (simple equality filter):
   "interface_contract": {
     "expression": {
       "op": "eq",
-      "target_ref": "dimension.country",
+      "target_ref": "entity.user.field.country",
       "value": "US"
     },
     "allowed_usage": ["request_scope"],
@@ -254,8 +295,8 @@ Conjunction example (AND-combined filters):
     "expression": {
       "op": "and",
       "items": [
-        {"op": "eq", "target_ref": "dimension.country", "value": "US"},
-        {"op": "eq", "target_ref": "dimension.platform", "value": "mobile"}
+        {"op": "eq", "target_ref": "entity.user.field.country", "value": "US"},
+        {"op": "eq", "target_ref": "entity.user.field.platform", "value": "mobile"}
       ]
     },
     "allowed_usage": ["metric_qualifier", "request_scope"],
@@ -266,7 +307,9 @@ Conjunction example (AND-combined filters):
 
 Allowed operators: `eq`, `neq`, `in`, `not_in`, `gt`, `gte`, `lt`, `lte`, `between`, `is_null`, `is_not_null`.
 
-Allowed target ref prefixes: `dimension.`, `entity.`, `key.`, `enum.`, `subject.`, `population.`, `event.`, `field.`.
+Allowed target ref prefixes: `dimension.`, `entity.`, `key.`, `enum.`, `subject.`, `population.`, `event.`.
+
+When targeting an entity field, use the fully qualified form `entity.<entity>.field.<field>`.
 
 Forbidden target ref prefixes: `time.`, `metric.`, `process.`, `binding.`, `predicate.`, `grain.`, `measure.`, `compiler_profile.`.
 
@@ -306,6 +349,8 @@ Payload rules:
 
 - `payload.metric_family` must exactly match `header.metric_family`
 - the payload structure must match the selected family slot names
+- each measurement component should declare `input_field_ref` as a fully qualified `entity.<entity>.field.<field>` ref
+- metric payloads must not include physical table, carrier, or column binding fields
 - start with the shortest valid payload, then use server guidance if the service returns a `422`
 
 `additivity_constraints` structure:
@@ -313,20 +358,20 @@ Payload rules:
 ```json
 {
   "additivity_constraints": {
-    "kind": "additive"
+    "dimension_policy": "all",
+    "time_axis_policy": "additive"
   }
 }
 ```
 
-For semi-additive metrics, include per-dimension blockers:
+For subset-additive metrics, include explicit additive dimensions:
 
 ```json
 {
   "additivity_constraints": {
-    "kind": "semi_additive",
-    "dimension_blockers": [
-      {"dimension_ref": "dimension.date", "reason": "non_additive_across_time"}
-    ]
+    "dimension_policy": "subset",
+    "additive_dimensions": ["dimension.country"],
+    "time_axis_policy": "non_additive"
   }
 }
 ```
@@ -336,10 +381,8 @@ For non-additive metrics:
 ```json
 {
   "additivity_constraints": {
-    "kind": "non_additive",
-    "dimension_blockers": [
-      {"dimension_ref": "dimension.date", "reason": "non_additive_across_time"}
-    ]
+    "dimension_policy": "none",
+    "time_axis_policy": "non_additive"
   }
 }
 ```
@@ -360,7 +403,10 @@ Minimal count metric example:
     "value_semantics": "count",
     "aggregation_scope": "window",
     "primary_time_ref": "time.event_date",
-    "additivity_constraints": {"kind": "additive"},
+    "additivity_constraints": {
+      "dimension_policy": "none",
+      "time_axis_policy": "non_additive"
+    },
     "metric_contract_version": "metric.v1"
   },
   "payload": {
@@ -368,128 +414,143 @@ Minimal count metric example:
     "count_target": {
       "name": "active_users",
       "semantics": "Distinct active users",
+      "input_field_ref": "entity.user.field.user_id",
       "aggregation": "count_distinct"
     }
   }
 }
 ```
 
-## `binding.*`
-
-Required header fields:
-
-- `binding_ref`
-- `display_name`
-- `binding_scope`
-- `bound_object_ref`
-- `binding_contract_version`
-
-Required interface fields:
-
-- at least one `carrier_bindings[]`
-- at least one `field_bindings[]`
-- add `time_bindings[]` whenever the binding must ground `time.*` semantics for runtime time-axis use
-
-Target rules:
-
-- `entity` bindings allow `identity_key`, `primary_time`, and `stable_descriptor`
-- `metric` bindings allow `population_subject`, `primary_time`, and `metric_input`
-- `process_object` bindings allow `population_subject`, `primary_time`, `analysis_window_anchor`, and `process_context`
-- `metric_input` uses the metric family slot name as `target.target_key`
-- `metric_input` uses `semantic_ref=metric_input.<slot_or_name>`, not `metric.*` or `measure.*`
-- `time_bindings` must reference declared `time_surface.*` entries, not `field.*`
-
-`carrier_locator` rules:
-
-- use the synced source object's `authority_locator` (catalog/schema/table)
-- do not shorten it to `schema.table` if the synced object includes a wider engine or catalog prefix
-
-Minimal example:
+Minimal cross-entity rate example:
 
 ```json
 {
   "header": {
-    "binding_ref": "binding.user_events_primary",
-    "display_name": "User Events Primary Binding",
-    "binding_scope": "metric",
-    "bound_object_ref": "metric.daily_active_users",
-    "binding_contract_version": "binding.v1"
+    "metric_ref": "metric.conversion_rate",
+    "display_name": "Conversion Rate",
+    "metric_family": "rate_metric",
+    "observed_entity_ref": "entity.conversion_event",
+    "observation_grain_ref": "grain.user",
+    "sample_kind": "rate",
+    "value_semantics": "ratio",
+    "aggregation_scope": "window",
+    "primary_time_ref": "time.conversion_at",
+    "additivity_constraints": {
+      "dimension_policy": "none",
+      "time_axis_policy": "non_additive"
+    },
+    "metric_contract_version": "metric.v1"
   },
-  "interface_contract": {
-    "carrier_bindings": [
-      {
-        "binding_key": "primary",
-        "source_object_ref": "obj_user_events",
-        "carrier_kind": "table",
-        "carrier_locator": "trino.analytics.user_events",
-        "binding_role": "primary",
-        "field_surfaces": [
-          {"surface_ref": "field.user_id", "physical_name": "user_id"},
-          {"surface_ref": "field.event_date", "physical_name": "event_date"}
-        ],
-        "time_surfaces": [
-          {"surface_ref": "time_surface.event_date", "physical_name": "event_date"}
-        ]
-      }
-    ],
-    "field_bindings": [
-      {
-        "carrier_binding_key": "primary",
-        "target": {"target_kind": "population_subject", "target_key": "key.user_id"},
-        "semantic_ref": "key.user_id",
-        "surface_ref": "field.user_id"
-      },
-      {
-        "carrier_binding_key": "primary",
-        "target": {"target_kind": "metric_input", "target_key": "count_target"},
-        "semantic_ref": "metric_input.count_target",
-        "surface_ref": "field.user_id"
-      }
-    ],
-    "time_bindings": [
-      {
-        "carrier_binding_key": "primary",
-        "target": {"target_kind": "primary_time", "target_key": "time.event_date"},
-        "semantic_ref": "time.event_date",
-        "resolution_kind": "date_column",
-        "date_surface_ref": "time_surface.event_date"
-      }
-    ]
+  "payload": {
+    "metric_family": "rate_metric",
+    "numerator": {
+      "name": "converted_users",
+      "semantics": "Converted users",
+      "input_field_ref": "entity.conversion_event.field.converted_users",
+      "aggregation": "sum"
+    },
+    "denominator": {
+      "name": "exposed_users",
+      "semantics": "Exposed users",
+      "input_field_ref": "entity.exposure_event.field.exposed_users",
+      "aggregation": "sum"
+    }
   }
 }
 ```
 
-Average or rate metric input example:
+## `process.*`
+
+Process objects reference semantic refs and entity fields. They do not carry physical table, view,
+SQL, carrier, or column binding fields.
+
+Required header fields:
+
+- `process_ref`
+- `display_name`
+- `process_type`
+- `process_contract_version`
+
+Minimal cohort-style example:
 
 ```json
 {
-  "field_bindings": [
-    {
-      "carrier_binding_key": "primary",
-      "target": {"target_kind": "metric_input", "target_key": "numerator"},
-      "semantic_ref": "metric_input.numerator",
-      "surface_ref": "field.elapsed_seconds"
-    },
-    {
-      "carrier_binding_key": "primary",
-      "target": {"target_kind": "metric_input", "target_key": "denominator"},
-      "semantic_ref": "metric_input.denominator",
-      "surface_ref": "field.session_count"
-    }
-  ]
+  "catalog_metadata": {"domain_ref": "domain.growth"},
+  "header": {
+    "process_ref": "process.signup_cohort",
+    "display_name": "Signup Cohort",
+    "process_type": "cohort_definition",
+    "process_contract_version": "process.v2"
+  },
+  "interface_contract": {
+    "contract_mode": "context_provider",
+    "context_kind": "cohort_membership",
+    "population_subject_ref": "subject.user",
+    "membership_cardinality": "exclusive_one",
+    "anchor_time_ref": "time.signup_at"
+  },
+  "payload": {
+    "process_type": "cohort_definition",
+    "cohort_key": "signup_cohort",
+    "entry_population": {"base_population_ref": "population.signed_up_users"},
+    "cohort_anchor_ref": "time.signup_at"
+  }
 }
 ```
 
+## Relationship / Profile Blocker Repair
+
+Use these only when readiness or compiler diagnostics show a real cross-entity blocker.
+
+Minimal relationship example:
+
+```json
+{
+  "relationship_ref": "relationship.exposure_to_signup",
+  "display_name": "Exposure To Signup",
+  "left_entity_ref": "entity.exposure",
+  "right_entity_ref": "entity.signup",
+  "key_alignment": {
+    "left_field_ref": "entity.exposure.field.user_id",
+    "right_field_ref": "entity.signup.field.user_id"
+  },
+  "cardinality": "many_to_many",
+  "catalog_metadata": {"domain_ref": "domain.growth", "related_domain_refs": ["domain.ads"]}
+}
+```
+
+Minimal compatibility profile example:
+
+```json
+{
+  "profile_ref": "compiler_profile.signup_conversion_requirement",
+  "profile_kind": "requirement",
+  "subject_kind": "metric",
+  "subject_ref": "metric.conversion_rate",
+  "requirement": {
+    "required_relationship_refs": ["relationship.exposure_to_signup"],
+    "entity_refs": ["entity.exposure", "entity.signup"]
+  },
+  "catalog_metadata": {"domain_ref": "domain.growth"}
+}
+```
+
+Rules:
+
+- relationships reference entity fields; they do not contain SQL or join-plan text
+- profiles describe compile-time preconditions; they do not own physical grounding
+- revalidate profiles after subject revision drift before changing metric/process contracts
+
 ## `POST /semantic/batch`
 
-Use batch authoring when creating several semantic objects and bindings together.
+Use batch authoring when creating several semantic objects together.
 
 Batch v1 supports:
 
 - `mode`: `dry_run` or `apply`
 - `lifecycle`: `create_only`, `create_and_validate`, or `create_validate_activate`
 - `continue_on_error`
-- item `kind`: `time`, `dimension`, `entity`, `metric`, or `binding`
+- item `kind`: `time`, `dimension`, `entity`, or `metric`
 - item `action`: `create`, `validate`, `activate`; `publish` is accepted as an alias for `activate`
 
 Minimal dry-run example:
@@ -509,7 +570,8 @@ Minimal dry-run example:
           "time_ref": "time.event_date",
           "display_name": "Event Date",
           "semantic_roles": ["measurement"],
-          "time_contract_version": "time.v1"
+          "time_contract_version": "time.v1",
+          "source_field_ref": "entity.event.field.event_date"
         }
       }
     }
@@ -522,11 +584,11 @@ Rules:
 - `dry_run` validates request and service contracts without writing metadata
 - `apply` writes in submitted order and is not all-or-nothing
 - batch does not plan a dependency DAG; submit items in dependency order
-- defaults v1 can reference whole carrier or time binding defaults by key; local field conflicts are errors, not silent overrides
+- batch does not create metric/time/dimension/predicate/process-owned physical grounding
 
 ## Modeling Pattern Boundary
 
-If you need to decide whether a metric binding should import descriptors from an entity binding, or how to structure a reusable entity-plus-metric graph, stop here and read `semantic-layer.md`.
+If you need to decide how to structure a reusable entity-plus-metric graph, stop here and read `semantic-layer.md`.
 
 This file should only help once you already know which object you are writing and only need the minimum valid request shape.
 

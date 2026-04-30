@@ -46,6 +46,10 @@ class MetricProcessRequirements:
     context_kinds: list[str] = field(default_factory=list)
     entity_refs: list[str] = field(default_factory=list)
     population_subject_refs: list[str] = field(default_factory=list)
+    required_relationship_refs: list[str] = field(default_factory=list)
+    grain_compatibility: dict[str, Any] | None = None
+    time_compatibility: dict[str, Any] | None = None
+    field_profile_requirements: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -129,6 +133,10 @@ class DerivedCompilerState:
             "context_kinds": list(self.metric_requirements.context_kinds),
             "entity_refs": list(self.metric_requirements.entity_refs),
             "population_subject_refs": list(self.metric_requirements.population_subject_refs),
+            "required_relationship_refs": list(self.metric_requirements.required_relationship_refs),
+            "grain_compatibility": self.metric_requirements.grain_compatibility,
+            "time_compatibility": self.metric_requirements.time_compatibility,
+            "field_profile_requirements": list(self.metric_requirements.field_profile_requirements),
         }
         return payload
 
@@ -182,6 +190,20 @@ def derive_compiler_state(
                 context_kinds=list(requirement.get("context_kinds") or []),
                 entity_refs=list(requirement.get("entity_refs") or []),
                 population_subject_refs=list(requirement.get("population_subject_refs") or []),
+                required_relationship_refs=list(
+                    requirement.get("required_relationship_refs") or []
+                ),
+                grain_compatibility=dict(requirement.get("grain_compatibility") or {})
+                if isinstance(requirement.get("grain_compatibility"), dict)
+                else None,
+                time_compatibility=dict(requirement.get("time_compatibility") or {})
+                if isinstance(requirement.get("time_compatibility"), dict)
+                else None,
+                field_profile_requirements=[
+                    dict(item)
+                    for item in requirement.get("field_profile_requirements") or []
+                    if isinstance(item, dict)
+                ],
             )
             state.usage_trace.append(
                 {

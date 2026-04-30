@@ -17,6 +17,7 @@ from .base import (
     AdditivityConstraints,
     AggregationMethod,
     AggregationScope,
+    CatalogMetadata,
     HorizonSpec,
     ListResponseBase,
     MetricFamily,
@@ -25,6 +26,7 @@ from .base import (
     ObjectResponseBase,
     SampleKind,
     ValueSemantics,
+    validate_canonical_entity_field_ref,
     validate_contract_version,
     validate_ref_prefix,
 )
@@ -41,6 +43,8 @@ class MetricHeader(ObjectHeaderBase):
 
     Defines the stable identity and core measurement semantics of a metric.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     metric_ref: str = Field(
         description="Stable metric reference (e.g., 'metric.dau'). Must start with 'metric.'."
@@ -131,8 +135,15 @@ class MeasurementComponent(BaseModel):
     Expresses what is being measured without exposing physical field names.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     name: str = Field(description="Name of this measurement component.")
     semantics: str = Field(description="Semantic description of what this measures.")
+    input_field_ref: str | None = Field(
+        default=None,
+        description="Entity-owned field consumed by this measurement component. "
+        "Must use fully qualified entity.<entity>.field.<field> form.",
+    )
     aggregation: AggregationMethod = Field(
         description="Aggregation method: count, count_distinct, sum, mean, "
         "boolean_any, or boolean_all."
@@ -153,6 +164,13 @@ class MeasurementComponent(BaseModel):
             return validate_ref_prefix(v, "measure", "measure_ref")
         return v
 
+    @field_validator("input_field_ref")
+    @classmethod
+    def validate_input_field_ref(cls, v: str | None) -> str | None:
+        if v is not None:
+            return validate_canonical_entity_field_ref(v, "input_field_ref")
+        return v
+
     @field_validator("qualifier_refs")
     @classmethod
     def validate_qualifier_refs_prefix(cls, v: list[str] | None) -> list[str] | None:
@@ -168,6 +186,8 @@ class MeasurementComponent(BaseModel):
 
 class DistributionSpec(BaseModel):
     """Specification for distribution metrics (percentiles, etc.)."""
+
+    model_config = ConfigDict(extra="forbid")
 
     kind: str = Field(description="Distribution kind: percentile, quantile, or histogram_ready.")
     percentile: int | float | None = Field(
@@ -196,6 +216,8 @@ class DistributionSpec(BaseModel):
 class SurvivalSpec(BaseModel):
     """Specification for survival metrics."""
 
+    model_config = ConfigDict(extra="forbid")
+
     origin_time_ref: str = Field(description="Reference to the origin time (time.*).")
     event_time_ref: str = Field(description="Reference to the event time (time.*).")
     censor_time_ref: str | None = Field(
@@ -219,6 +241,8 @@ class SurvivalSpec(BaseModel):
 class CountMetricPayload(BaseModel):
     """Payload for count_metric family."""
 
+    model_config = ConfigDict(extra="forbid")
+
     metric_family: Literal["count_metric"] = Field(
         default="count_metric", description="Discriminator."
     )
@@ -232,6 +256,8 @@ class CountMetricPayload(BaseModel):
 class SumMetricPayload(BaseModel):
     """Payload for sum_metric family."""
 
+    model_config = ConfigDict(extra="forbid")
+
     metric_family: Literal["sum_metric"] = Field(default="sum_metric", description="Discriminator.")
     measure: MeasurementComponent = Field(description="The measure being summed.")
     required_inputs: list[RequiredMetricInputSpec] | None = Field(
@@ -242,6 +268,8 @@ class SumMetricPayload(BaseModel):
 
 class RateMetricPayload(BaseModel):
     """Payload for rate_metric family."""
+
+    model_config = ConfigDict(extra="forbid")
 
     metric_family: Literal["rate_metric"] = Field(
         default="rate_metric", description="Discriminator."
@@ -260,6 +288,8 @@ class RateMetricPayload(BaseModel):
 class AverageMetricPayload(BaseModel):
     """Payload for average_metric family."""
 
+    model_config = ConfigDict(extra="forbid")
+
     metric_family: Literal["average_metric"] = Field(
         default="average_metric", description="Discriminator."
     )
@@ -273,6 +303,8 @@ class AverageMetricPayload(BaseModel):
 
 class DistributionMetricPayload(BaseModel):
     """Payload for distribution_metric family."""
+
+    model_config = ConfigDict(extra="forbid")
 
     metric_family: Literal["distribution_metric"] = Field(
         default="distribution_metric", description="Discriminator."
@@ -292,6 +324,8 @@ class DistributionMetricPayload(BaseModel):
 class ScoreMetricPayload(BaseModel):
     """Payload for score_metric family."""
 
+    model_config = ConfigDict(extra="forbid")
+
     metric_family: Literal["score_metric"] = Field(
         default="score_metric", description="Discriminator."
     )
@@ -307,6 +341,8 @@ class ScoreMetricPayload(BaseModel):
 
 class SurvivalMetricPayload(BaseModel):
     """Payload for survival_metric family."""
+
+    model_config = ConfigDict(extra="forbid")
 
     metric_family: Literal["survival_metric"] = Field(
         default="survival_metric", description="Discriminator."
@@ -376,6 +412,7 @@ class TypedMetricCreateRequest(BaseModel):
     """Request to create a new typed metric."""
 
     model_config = ConfigDict(
+        extra="forbid",
         json_schema_extra={
             "examples": [
                 {
@@ -403,11 +440,15 @@ class TypedMetricCreateRequest(BaseModel):
                     },
                 }
             ]
-        }
+        },
     )
 
     header: MetricHeader = Field(description="Metric header.")
     payload: MetricPayload = Field(description="Family-specific payload.")
+    catalog_metadata: CatalogMetadata = Field(
+        default_factory=CatalogMetadata,
+        description="Discovery-only catalog metadata.",
+    )
 
     @model_validator(mode="after")
     def validate_family_matches_semantics(self) -> TypedMetricCreateRequest:
@@ -489,6 +530,7 @@ class TypedMetricUpdateRequest(BaseModel):
     """
 
     model_config = ConfigDict(
+        extra="forbid",
         json_schema_extra={
             "examples": [
                 {
@@ -503,11 +545,15 @@ class TypedMetricUpdateRequest(BaseModel):
                     },
                 }
             ]
-        }
+        },
     )
 
     display_name: str | None = Field(default=None, description="New display name.")
     description: str | None = Field(default=None, description="New description.")
+    catalog_metadata: CatalogMetadata | None = Field(
+        default=None,
+        description="Updated discovery-only catalog metadata.",
+    )
     additivity_constraints: AdditivityConstraints | None = Field(
         default=None,
         description="Updated additivity constraints. Only updatable in draft status.",
@@ -542,6 +588,10 @@ class TypedMetricListItem(ObjectListItemBase):
 
     metric_contract_id: str = Field(description="Internal ID of the metric contract.")
     header: MetricHeader = Field(description="Metric header (contains metric_ref).")
+    catalog_metadata: CatalogMetadata = Field(
+        default_factory=CatalogMetadata,
+        description="Discovery-only catalog metadata.",
+    )
     base_revision: int | None = Field(default=None, description="Base revision for this row.")
     change_summary: str | None = Field(default=None, description="Revision change summary.")
     revision_compatibility: Literal["compatible", "breaking"] | None = Field(
@@ -583,6 +633,10 @@ class TypedMetricResponse(ObjectResponseBase):
 
     metric_contract_id: str = Field(description="Internal ID of the metric contract.")
     header: MetricHeader = Field(description="Metric header.")
+    catalog_metadata: CatalogMetadata = Field(
+        default_factory=CatalogMetadata,
+        description="Discovery-only catalog metadata.",
+    )
     payload: MetricPayload = Field(description="Family-specific payload.")
     base_revision: int | None = Field(default=None, description="Base revision for this row.")
     change_summary: str | None = Field(default=None, description="Revision change summary.")
@@ -619,3 +673,10 @@ class TypedMetricResponse(ObjectResponseBase):
 
 class TypedMetricListResponse(ListResponseBase[TypedMetricListItem]):
     """Response model for listing typed metric objects."""
+
+
+TypedMetricListItemOrFull = TypedMetricListItem | TypedMetricResponse
+
+
+class TypedMetricListResponseFull(ListResponseBase[TypedMetricListItemOrFull]):
+    """Response model for listing typed metrics with detail=true."""

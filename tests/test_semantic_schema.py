@@ -56,6 +56,41 @@ class SemanticSchemaDDLTests(unittest.TestCase):
         ).fetchall()
         self.assertEqual({str(row["name"]) for row in rows}, indexes)
 
+    def test_fresh_init_semantic_tables_use_entity_first_grounding(self) -> None:
+        metric_columns = {
+            str(row["name"])
+            for row in self.conn.execute("PRAGMA table_info(semantic_metric_contracts)")
+        }
+        process_columns = {
+            str(row["name"])
+            for row in self.conn.execute("PRAGMA table_info(semantic_process_objects)")
+        }
+        dimension_columns = {
+            str(row["name"])
+            for row in self.conn.execute("PRAGMA table_info(semantic_dimension_contracts)")
+        }
+        time_columns = {
+            str(row["name"])
+            for row in self.conn.execute("PRAGMA table_info(semantic_time_objects)")
+        }
+        entity_columns = {
+            str(row["name"])
+            for row in self.conn.execute("PRAGMA table_info(semantic_entity_contracts)")
+        }
+
+        self.assertTrue({"fields_json", "binding_json"}.issubset(entity_columns))
+        for columns in (metric_columns, process_columns, dimension_columns, time_columns):
+            self.assertFalse(
+                {
+                    "binding_json",
+                    "carrier_bindings_json",
+                    "field_bindings_json",
+                    "physical_column",
+                }.intersection(columns)
+            )
+        self.assertIn("source_field_ref", dimension_columns)
+        self.assertIn("source_field_ref", time_columns)
+
     def test_entity_contract_constraints(self) -> None:
         self.conn.execute(
             """

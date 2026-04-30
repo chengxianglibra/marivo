@@ -27,7 +27,7 @@ Use this skill when the task involves any of these:
 
 - investigating a metric change, anomaly, or hypothesis through typed intents
 - reading canonical evidence from session state or proposition context
-- modeling reusable semantic contracts such as entities, metrics, dimensions, mappings, predicates, or time semantics
+- modeling reusable semantic contracts such as domains, entities, metrics, dimensions, predicates, processes, or time semantics
 - troubleshooting lifecycle/readiness, source sync, routing, grounding, or execution auth problems
 - preferring structured Marivo evidence over ad hoc SQL or MCP summaries
 
@@ -40,7 +40,7 @@ Start by choosing the correct Marivo surface:
 - **Action surface**: submit typed intents when the task should create or advance analysis
 - **State surface**: read session-level decision state when deciding whether to continue, branch, or stop
 - **Context surface**: read proposition-level canonical closure when one claim needs deeper explanation
-- **Semantic layer**: create or inspect reusable governed business contracts such as `entity.*`, `metric.*`, `predicate.*`, or `mapping.*`
+- **Semantic layer**: create or inspect reusable governed business contracts such as `domain.*`, `entity.*`, `metric.*`, `predicate.*`, or `mapping.*`
 - **Infrastructure surfaces**: inspect health, sources, sync, mappings, engines, jobs, and operational grounding
 
 Use these routing rules:
@@ -58,7 +58,9 @@ Keep these boundaries explicit:
 - state and context are canonical evidence reads
 - runtime-status or jobs are operator surfaces, not canonical evidence
 - semantic objects define reusable meaning; they are not session evidence
-- `mapping.*` objects govern source-to-engine routing and catalog projection; `binding.*` objects govern semantic grounding to source columns
+- `mapping.*` objects govern source-to-engine routing and catalog projection; they are not semantic object physical grounding
+- domains are discovery metadata, not permissions, compiler compatibility, or runtime policy
+- entity fields are the only physical grounding owner; dimension/time/predicate/metric/process objects reference `entity.<entity>.field.<field>` or other semantic refs instead of declaring physical columns
 
 ## Default Operating Loop
 
@@ -80,8 +82,10 @@ Practical heuristics:
 - use `detect(patterns=["period_shift"])` or `profile="level_shift"` when the question is about whole-window degradation rather than a single bucket spike
 - use `diagnose(mode="explicit_compare")` when the caller already knows current and baseline windows; this skips `detect` and directly expands through scalar observe, compare, and decompose
 - move to the semantic layer when the same business concept, grouping axis, or time contract should be reused across investigations
+- author semantic objects entity-first: discover/create the `domain.*`, create `entity.*` with thin `fields[]` and entity grounding, then create `time.*` / `dimension.*` / `predicate.*` with fully qualified entity field refs, then metric/process contracts
+- when a metric/process crosses entities, fix the blocker through `relationship.*` and `compiler_profile.*`; do not add metric/process-owned grounding
 - use `predicate.*` refs when you need governed, reusable filter semantics for metrics, request scopes, or governance policies
-- use `POST /semantic/batch` dry-run when authoring multiple semantic objects and bindings together; inspect per-item guidance and binding coverage before applying or activating
+- use `POST /semantic/batch` dry-run when authoring multiple semantic objects together; inspect per-item guidance and entity-field coverage before applying or activating
 - always send canonical structured time windows such as `{"kind":"range","start":"YYYY-MM-DD","end":"YYYY-MM-DD"}`; do not use shorthand strings such as `"2026-04-01 to 2026-04-19"`
 - when the business request gives an inclusive end date, convert it to Marivo's exclusive `range.end` before sending the request; for example, inclusive `2026-04-01` through `2026-04-18` must be sent as `start=2026-04-01, end=2026-04-19`
 - for `observe`, choose exactly one output shape per step: use `granularity` for time-series or `dimensions` for grouped comparisons, never both in the same request
@@ -110,9 +114,10 @@ Avoid these high-frequency errors:
 - treating `lifecycle_status=active` as proof that an object is usable now
 - treating derived intents as an open-ended planning engine
 - treating old `/steps/*` routes as current public write surfaces
-- confusing `mapping.*` (source-to-engine routing) with `binding.*` (semantic grounding); they are separate concepts
-- using `field.*` refs in `time_bindings`; time binding surfaces must reference declared `time_surface.*` entries
-- using `metric.*` or `measure.*` refs for metric input bindings; metric inputs use `target_kind=metric_input`, slot-name `target_key`, and `semantic_ref=metric_input.*`
+- confusing `mapping.*` (source-to-engine routing) with entity physical grounding; they are separate concepts
+- adding `physical_column`, carrier, binding-target, SQL, or table/view fields to dimension/time/predicate/metric/process objects; only entity fields own physical locators
+- using unqualified `field.*` refs outside entity-local field definitions; downstream objects should use `entity.<entity>.field.<field>`
+- fixing cross-entity blockers by inventing metric/time/process grounding; use entity fields, relationships, and compatibility profiles instead
 - guessing request payloads when the tool or guided contract links already provide the exact shape
 - sending shorthand time-window strings where the contract expects structured objects such as `time_scope`, `left`, or `right`
 - sending legacy detect or diagnose time shapes such as `time_scope.mode`, `time_scope.grain`, or `time_scope.current`; use observe-aligned range plus top-level `granularity`

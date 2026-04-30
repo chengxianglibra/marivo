@@ -2,7 +2,7 @@
 
 本文定义 Marivo semantic layer 对象模型的一次收敛方向：以 `entity` 作为唯一 physical grounding 单元，其他 semantic objects 只通过 `entity.field` 或其他 semantic refs 间接触达物理数据。
 
-本文是对象模型设计说明，不是当前实现说明，也不是 HTTP wire spec。本文不讨论 session / workspace / official 分层，不讨论 promotion / approval 流程，也不定义最终 DDL 或 API payload。
+本文是对象模型设计说明，不是当前实现说明，也不是 HTTP wire spec。本轮只冻结对象模型重构边界和 public contract 方向，不要求实现 session / workspace / official 分层，不要求实现 promotion / approval 流程，也不定义最终 DDL 或 API payload。
 
 ## 背景
 
@@ -78,13 +78,82 @@ Entity Relationship / Compatibility Profile
   owns cross-entity key, grain, time, cardinality compatibility
 
 Catalog Metadata
-  owns domain, owner, lifecycle, readiness, revision, aliases
+  owns domain discovery metadata and aliases
 
 Compiler
   resolves refs through entity binding
   validates compatibility
   lowers semantic plan to IR / engine plan
 ```
+
+## 本轮重构边界与 Contract Decisions
+
+本轮重构只处理 semantic layer 对象模型：把 physical grounding 权威收敛到 `entity`，并明确其他对象如何通过 `entity.field` 与 semantic refs 表达职责。它不是使用范围治理重构，不引入 session / workspace / official 分层，不实现 promotion / approval 流程，也不重构企业权限体系。
+
+### Decision 1：Physical Grounding 唯一权威
+
+`entity` 是唯一可以拥有 physical binding 的 semantic object。
+
+规则：
+
+- `entity` 可以绑定 physical table / view，并在 `entity.field` 上暴露 physical column 或受控 physical expression locator。
+- `dimension`、`time`、`predicate`、`metric`、`process object` 不直接绑定 physical table / view / column。
+- 上述对象需要物理字段时，只引用 `entity.field`、`time.*`、`predicate.*`、`dimension.*`、`process.*` 等 semantic refs。
+- service、schema、compiler 和 readiness 后续任务必须以 entity binding 作为唯一 grounding authority，不再引入第二套 binding authority。
+
+### Decision 2：`entity.field` 最小字段集
+
+`entity.field` 是薄字段 surface，只描述字段本体、基础类型、治理标签和物理 locator，不声明消费角色。
+
+| 字段 | 是否保留 | Contract 语义 |
+| --- | --- | --- |
+| `field_ref` | 是 | 字段在所属 entity 内的稳定引用 |
+| `display_name` | 是 | 面向用户和 Agent 展示的字段名称 |
+| `description` | 是 | 字段业务含义说明 |
+| `value_type` | 是 | 字段基础值类型，用于后续对象校验 |
+| `nullable` | 是 | 字段是否可为空 |
+| `unit` | 是 | 度量单位或业务单位 |
+| `enum_hint` | 是 | 枚举/低基数值域提示，不替代 dimension contract |
+| `sample_values` / `profile_summary` | 是 | 样例值或字段 profile 摘要，只服务理解和校验提示 |
+| `sensitivity_tags` | 是 | 数据敏感性和治理标签 |
+| `physical_column` / `physical_expression_locator` | 是 | entity binding 下的物理列或受控表达式定位信息 |
+| `field_kind` | 删除 | 不在 field 层声明 dimension / metric input / time / process step 等角色 |
+| `semantic_role` | 删除 | 不在 field 层声明 numerator、grouping axis、time anchor 等消费语义 |
+| `allowed_usages` | 删除 | 不在 field 层预设 metric component、predicate target、process step 等用途白名单 |
+
+locator 规则：
+
+- 每个 `entity.field` 必须且只能声明一个 locator：`physical_column` 或 `physical_expression_locator`。
+- `physical_column` 是 source object 下的物理列名，用于映射到执行侧 column。
+- `physical_expression_locator` 是受控结构，不是 SQL DSL。当前只允许 `expression_kind` 白名单、非空 `input_columns`、可选 `output_name` 和受控 JSON `parameters`。
+- `parameters` 不允许携带 `sql`、`raw_sql`、`sql_expression`、`expression`、`template`、`lowering_template` 等 raw lowering/template 键。
+- locator 只解决 “source object 的哪些列如何生成执行侧列/别名”，不承载 metric input、process step、time anchor、grouping axis 等语义角色。
+
+因此，field 层不提前声明 numerator、dimension、time anchor、process step 等消费角色。这些角色由 metric、dimension、time、predicate、process object 自己声明，并由 compiler 在解析时校验。
+
+### Decision 3：Stable Ref 与 Domain 关系
+
+业务域归属放在统一 `catalog_metadata.domain_ref` 中，不编入 `metric.*`、`entity.*`、`dimension.*` 等 stable ref。
+
+规则：
+
+- `domain_ref` 服务 catalog discovery、搜索、归属展示和治理上下文。
+- stable ref 仍表达 semantic object identity，例如 `metric.gmv`、`entity.order`。
+- 业务域调整只更新 catalog metadata，不强制修改 semantic object core contract，也不要求修改 stable ref。
+- `domain_ref` 不是权限来源，也不是 compiler compatibility 真相。
+
+### Decision 4：Legacy Typed Binding Cutover
+
+metric / process / dimension / time / predicate 的 binding path 一次性切到 entity-only physical grounding。
+
+本轮目标态不做：
+
+- legacy binding authority 的长期兼容分支。
+- metric/process/dimension/time/predicate binding 的双写。
+- entity binding 与 legacy object binding 的双读。
+- 把 legacy binding 自动回投影成新的 object-level binding authority。
+
+如果现有 metadata 模板或测试数据无法满足目标态，应在后续实现任务中按 fresh-init / reset 边界处理，而不是保留长期并行 binding authority。
 
 ## Catalog Metadata 与业务域
 
@@ -105,7 +174,7 @@ Compiler
 }
 ```
 
-原因是业务域主要服务 catalog、owner、治理和发现，不是对象语义本体。组织结构或业务域归属调整不应迫使 metric、dimension、time、process 等对象的核心语义 contract 产生 revision。
+原因是业务域主要服务 catalog 发现、归属展示和治理上下文，不是对象语义本体。组织结构或业务域归属调整不应迫使 metric、dimension、time、process 等对象的核心语义 contract 变更。
 
 建议所有顶层 semantic objects 都具备统一 metadata envelope：
 
@@ -122,7 +191,7 @@ compatibility_profile
 
 其中：
 
-- `domain_ref` 建议作为 catalog metadata 必填字段，用于确定对象主归属业务域。
+- 目标态中，顶层 semantic objects 的 `catalog_metadata.domain_ref` 为必填字段，用于确定对象主归属业务域。
 - `related_domain_refs` 可选，用于表达跨域共享或消费关系。
 - `entity.field` 默认继承所属 entity 的 domain，不建议每个 field 强制声明 domain。
 - 跨域共享对象可归属到 `domain.shared` 或组织定义的共享域。
@@ -131,15 +200,17 @@ compatibility_profile
 
 ### Domain Catalog
 
-Marivo 应提供 domain catalog discovery 能力，方便 Agent 在搜索 semantic objects 前先缩小业务域范围。
+本节记录 T2 的最小 discovery 上下文，解释 `catalog_metadata.domain_ref` 为什么需要稳定存在；domain catalog 只服务对象发现、搜索和展示归属，不参与权限或编译兼容性判断。
 
-最小能力：
+当前 HTTP discovery surface：
 
 ```text
-list domains
-get domain detail
-list semantic objects by domain_ref
-search semantic objects within domain_ref
+POST /semantic/domains
+GET /semantic/domains
+GET /semantic/domains/{domain_ref}
+PUT /semantic/domains/{domain_ref}
+POST /semantic/domains/{domain_ref}/deprecate
+GET /semantic/domain-objects?domain_ref=...&object_type=...&status=...&q=...
 ```
 
 Domain 对象本身应保持轻量：
@@ -159,10 +230,10 @@ aliases
 | `domain_ref` | 业务域的稳定引用，例如 `domain.commerce`；用于 semantic object catalog metadata 中的主归属引用 |
 | `display_name` | 面向用户展示的业务域名称 |
 | `description` | 业务域覆盖范围说明，帮助 Agent 判断用户问题是否属于该域 |
-| `status` | domain catalog entry 的可发现状态，建议最小取值为 `active`、`deprecated`；用于隐藏废弃域或提示迁移，不等同 semantic object lifecycle |
+| `status` | domain catalog entry 的可发现状态，建议最小取值为 `active`、`deprecated`；用于隐藏废弃域或提示迁移，不等同对象发布治理状态 |
 | `aliases` | 搜索别名和常用业务叫法，例如 `["ecommerce", "交易"]`；只服务 search/discovery，不作为稳定 identity |
 
-这些字段属于 domain catalog metadata，不应被 compiler 当作 semantic compatibility 真相，也不应被 data-plane authorization 当作最终授权依据。
+这些字段属于 domain catalog metadata，不应被 compiler 当作 semantic compatibility 真相，也不应被 data-plane authorization 当作最终授权依据。权限仍由 governance policy、数据访问授权和底层执行引擎 ACL 判断，`domain_ref` 不能替代这些授权来源。
 
 Agent 推荐流程：
 
@@ -209,12 +280,13 @@ snapshot_entity
 derived_entity
 ```
 
+API / catalog 返回该字段；未显式声明时默认为 `business_entity`。
+
 但 `entity_kind` 不应成为编译真相。它可以用于：
 
 - Agent 建模建议。
 - catalog 过滤和导航。
-- 默认 readiness hint。
-- 字段识别模板选择。
+- 默认 readiness hint 或提示文案。
 
 它不应单独决定：
 
@@ -255,6 +327,15 @@ usage_hints:
 ```
 
 `usage_hints` 只供 Agent 和 UI 推荐使用，不作为 compiler 真相。
+
+读取 entity detail 时，服务应返回 `field_dependency_graph`。该图以 `field_ref` 为 key，
+列出结构化引用该字段的 dimension/time/predicate/metric/process/profile 对象，并返回
+`object_kind`、`ref`、`usage_paths`、`usage_count`。独立查询接口可按单个 `entity.field`
+返回同一消费列表，便于 Agent 在修改 field 前评估影响面。
+
+依赖图只扫描结构化 ref 字段，不扫描 description、display_name、SQL 文本或其他自由文本。
+未带 entity 前缀的 `field.*` 只有在消费对象同时结构化引用目标 `entity.*` 时才归属到该
+entity；`entity.user.field.country` 这类完整引用始终按 entity 精确匹配。
 
 `entity.field` 不应提前保存：
 
@@ -298,7 +379,7 @@ time.order_paid_at
 
 predicate.successful_order
   atoms:
-    - target_field_ref: entity.order.field.order_status
+    - target_ref: entity.order.field.order_status
       op: in
       values: ["paid", "completed"]
 ```
@@ -315,6 +396,12 @@ predicate.successful_order
 - source table / view。
 - join path。
 - SQL expression。
+
+实现层应拒绝在 dimension/time/predicate public contract 中提交 `physical_column`、carrier
+locator、binding target 等对象级物理绑定字段。字段类型也必须在 validate/activate 阶段校验：
+time 只能引用 date/datetime-compatible field，dimension 的 `value_domain.value_type` 必须与
+source field 兼容，predicate 的比较操作符必须与字段类型兼容。失败返回
+`invalid_field_type_for_semantic_object` 类 blocker。
 
 ## Metric
 
@@ -435,6 +522,7 @@ Relationship 不应表达：
 - physical join SQL。
 - optimizer hint。
 - CTE shape。
+- arbitrary join graph。
 - 任意 boolean expression DSL。
 
 ## Compatibility Profile
@@ -469,6 +557,7 @@ Profile 的 v1 范围应保持克制：
 - 任意 SQL。
 - 任意 join graph。
 - 任意规则引擎。
+- physical binding / table / column locator。
 
 ## Compiler Resolution Flow
 
@@ -491,11 +580,16 @@ Profile 的 v1 范围应保持克制：
 示例 blocker：
 
 ```text
+missing_entity_binding
+missing_entity_field
+ambiguous_field_ref
 missing_time_object
 invalid_metric_input_type
+invalid_time_field_type
+invalid_predicate_operand_type
 missing_entity_relationship
+missing_compatibility_profile
 incompatible_grain
-ambiguous_field_ref
 permission_denied
 ```
 
@@ -578,6 +672,11 @@ entity.order.field.pay_time
 ## 与当前模型的差异
 
 当前设计倾向于让 typed binding 作为独立 binding 层，服务 metric、process、entity、dimension 等对象的 physical grounding。本设计将 binding 收敛到 entity。
+
+实现上，typed binding storage 可以继续识别历史 `binding_scope=metric` /
+`binding_scope=process_object` 行用于读取和诊断，但 public authoring path 已收敛为
+entity-only：新建、更新、校验、发布都只接受 `binding_scope=entity`，metric binding
+revision derive 这类 legacy metric grounding completion path 不再作为有效入口。
 
 差异总结：
 

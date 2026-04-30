@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -59,6 +60,17 @@ class SemanticRuntimeTests(unittest.TestCase):
         )
         publish_typed_metric(cls.client, metric["metric_contract_id"])
         cls.metric_id = metric["metric_contract_id"]
+        metric_payload = metric["payload"]
+        for component_name in ("numerator", "denominator"):
+            metric_payload[component_name].pop("input_field_ref", None)
+        cls.metadata_store.execute(
+            """
+            UPDATE semantic_metric_contracts
+            SET family_payload_json = ?
+            WHERE metric_contract_id = ?
+            """,
+            [json.dumps(metric_payload), cls.metric_id],
+        )
 
         datasource = cls.client.post(
             "/datasources",
@@ -283,7 +295,7 @@ class SemanticRuntimeTests(unittest.TestCase):
                 "payload": {
                     "process_type": "session_contract",
                     "session_key": f"runtime_session_{suffix}",
-                    "event_stream_ref": "event_stream.watch_events",
+                    "event_stream_ref": "event.watch_events",
                 },
             },
         )
@@ -563,7 +575,7 @@ class SemanticRuntimeTests(unittest.TestCase):
                 "payload": {
                     "process_type": "session_contract",
                     "session_key": f"runtime_unpublished_session_{suffix}",
-                    "event_stream_ref": "event_stream.watch_events",
+                    "event_stream_ref": "event.watch_events",
                 },
             },
         )
@@ -710,10 +722,10 @@ class SemanticRuntimeTests(unittest.TestCase):
         self.assertEqual(metric["object_id"], self.metric_id)
         self.assertEqual(metric["lifecycle_status"], "active")
         self.assertEqual(metric["readiness_status"], "not_ready")
-        self.assertEqual(metric["blocker_count"], 1)
+        self.assertEqual(metric["blocker_count"], 2)
         self.assertEqual(
-            metric["blocking_requirements_preview"][0]["code"],
-            "METRIC_INPUT_COVERAGE_MISSING",
+            [blocker["code"] for blocker in metric["blocking_requirements_preview"]],
+            ["METRIC_INPUT_FIELD_MISSING", "METRIC_INPUT_FIELD_MISSING"],
         )
         self.assertFalse(metric["capabilities_summary"]["supports_validate"])
 
@@ -727,7 +739,7 @@ class SemanticRuntimeTests(unittest.TestCase):
         self.assertEqual(error.semantic_ref, "metric.watch_time")
         self.assertEqual(error.lifecycle_status, "active")
         self.assertEqual(error.readiness_status, "not_ready")
-        self.assertEqual(error.blocking_requirements[0]["code"], "METRIC_INPUT_COVERAGE_MISSING")
+        self.assertEqual(error.blocking_requirements[0]["code"], "METRIC_INPUT_FIELD_MISSING")
         self.assertIn("entity.user", error.dependency_refs)
         detail = error.detail_payload()
         self.assertEqual(detail["code"], "semantic_not_ready")
@@ -736,9 +748,7 @@ class SemanticRuntimeTests(unittest.TestCase):
         self.assertEqual(detail["object_kind"], "metric")
         self.assertEqual(detail["lifecycle_status"], "active")
         self.assertEqual(detail["readiness_status"], "not_ready")
-        self.assertEqual(
-            detail["blocking_requirements"][0]["code"], "METRIC_INPUT_COVERAGE_MISSING"
-        )
+        self.assertEqual(detail["blocking_requirements"][0]["code"], "METRIC_INPUT_FIELD_MISSING")
         self.assertIn("entity.user", detail["dependency_refs"])
 
     def test_catalog_runtime_resolve_requires_explicit_typed_refs(self) -> None:

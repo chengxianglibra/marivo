@@ -397,7 +397,7 @@ class SemanticMetricRouteTests(unittest.TestCase):
         self.assertEqual(len(listed_after_activate), 1)
         self.assertEqual(listed_after_activate[0]["revision"], 2)
 
-    def test_draft_metric_can_be_bound_before_metric_publish(self) -> None:
+    def test_metric_binding_authoring_rejects_metric_scope(self) -> None:
         entity_ref = "entity.draft_metric_binding_user"
         metric_ref = "metric.draft_metric_binding_count"
         self._create_published_entity(entity_ref)
@@ -447,14 +447,14 @@ class SemanticMetricRouteTests(unittest.TestCase):
                 },
             },
         )
-        self.assertEqual(binding_resp.status_code, 200, binding_resp.text)
-        self.assertEqual(binding_resp.json()["status"], "draft")
-
-        publish_binding_resp = self.client.post(
-            f"/semantic/bindings/{binding_resp.json()['binding_id']}/publish"
+        self.assertEqual(binding_resp.status_code, 422, binding_resp.text)
+        self.assertEqual(
+            binding_resp.json()["detail"]["code"], "typed_binding_scope_not_authorable"
         )
-        self.assertEqual(publish_binding_resp.status_code, 422, publish_binding_resp.text)
-        self.assertIn("Unknown metric ref", publish_binding_resp.text)
+        self.assertEqual(
+            binding_resp.json()["detail"]["field_path"],
+            "header.binding_scope",
+        )
 
     def test_metric_revision_rejects_stale_base_revision_without_switching(self) -> None:
         entity_ref = "entity.metric_revision_stale_user"
@@ -738,9 +738,11 @@ class SemanticMetricRouteTests(unittest.TestCase):
         self.assertEqual(resp.json()["status"], "published")
         self.assertEqual(resp.json()["lifecycle_status"], "active")
         self.assertEqual(resp.json()["readiness_status"], "not_ready")
-        self.assertEqual(resp.json()["blocking_requirements"][0]["code"], "METRIC_BINDING_MISSING")
         self.assertEqual(
-            resp.json()["blocking_requirements"][0]["details"]["required_binding_scope"], "metric"
+            resp.json()["blocking_requirements"][0]["code"], "METRIC_INPUT_FIELD_MISSING"
+        )
+        self.assertEqual(
+            resp.json()["blocking_requirements"][0]["details"]["component"], "count_target"
         )
         capabilities = resp.json()["capabilities"]
         self.assertEqual(capabilities["supports_observe"], True)
