@@ -20,7 +20,7 @@ def _optional_str(value: Any) -> str | None:
 @dataclass(slots=True)
 class FederationStage:
     stage_id: str
-    engine_id: str | None = None
+    datasource_id: str | None = None
     engine_type: str | None = None
     sql: str = ""
     params: list[Any] = field(default_factory=list)
@@ -95,7 +95,7 @@ class FederationPlanner:
         sources = self._normalize_sources(federation, source_tables, target_engine_type)
         distinct_sources = {
             (
-                _optional_str(source.get("engine_id")),
+                _optional_str(source.get("datasource_id") or source.get("engine_id")),
                 _optional_str(source.get("engine_type")),
                 tuple(str(name) for name in source.get("table_names", [])),
             )
@@ -114,7 +114,10 @@ class FederationPlanner:
                 stages=[
                     FederationStage(
                         stage_id="stage_0",
-                        engine_id=_optional_str(normalized_metadata.get("engine_id")),
+                        datasource_id=_optional_str(
+                            normalized_metadata.get("datasource_id")
+                            or normalized_metadata.get("engine_id")
+                        ),
                         engine_type=target_engine_type,
                         sql=translated_sql,
                         params=list(params or []),
@@ -142,7 +145,7 @@ class FederationPlanner:
             stages.append(
                 FederationStage(
                     stage_id=f"stage_{index}",
-                    engine_id=_optional_str(source.get("engine_id")),
+                    datasource_id=_optional_str(source.get("datasource_id")),
                     engine_type=_optional_str(source.get("engine_type")) or target_engine_type,
                     sql=str(source.get("sql") or f"-- staged handoff for {placeholder_source}"),
                     params=list(source.get("params", [])),
@@ -176,7 +179,7 @@ class FederationPlanner:
                 "merge_required": True,
                 "source_engines": [
                     {
-                        "engine_id": stage.engine_id,
+                        "datasource_id": stage.datasource_id,
                         "engine_type": stage.engine_type,
                     }
                     for stage in stages
@@ -212,7 +215,9 @@ class FederationPlanner:
                 if isinstance(source, dict):
                     normalized_sources.append(
                         {
-                            "engine_id": _optional_str(source.get("engine_id")),
+                            "datasource_id": _optional_str(
+                                source.get("datasource_id") or source.get("engine_id")
+                            ),
                             "engine_type": _optional_str(source.get("engine_type"))
                             or target_engine_type,
                             "table_names": list(source.get("table_names", source_tables)),
@@ -222,7 +227,7 @@ class FederationPlanner:
                     continue
                 normalized_sources.append(
                     {
-                        "engine_id": _optional_str(source),
+                        "datasource_id": _optional_str(source),
                         "engine_type": target_engine_type,
                         "table_names": source_tables,
                     }
@@ -271,7 +276,7 @@ class FederationRuntime:
                 "sql": executed_sql,
                 "param_count": len(executed_params),
                 "engine_type": stage.engine_type,
-                "engine_id": stage.engine_id,
+                "datasource_id": stage.datasource_id,
                 "stage_id": stage.stage_id,
                 "source_tables": list(stage.source_tables),
                 "execution_mode": effective_plan.mode,

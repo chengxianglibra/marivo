@@ -366,7 +366,7 @@ class ExecutionTargetIR:
     table_names: list[str] = field(default_factory=list)
     routing_table_names: list[str] = field(default_factory=list)
     qualified_names: dict[str, str] = field(default_factory=dict)
-    engine_id: str | None = None
+    datasource_id: str | None = None
     engine_type: str | None = None
     engine_locality: str = "unknown"
     routing_strategy: str | None = None

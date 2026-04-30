@@ -11,7 +11,7 @@ from .metric import TypedMetricResponse
 
 class SourceObjectResponse(BaseModel):
     object_id: str
-    source_id: str
+    datasource_id: str
     object_type: str
     parent_id: str | None = None
     native_name: str
@@ -68,7 +68,7 @@ class CatalogCalendarPolicySearchResult(CatalogSearchResultBase):
 class CatalogAssetSearchResult(CatalogSearchResultBase):
     object_kind: Literal["asset"]
     object_type: str
-    source_id: str
+    datasource_id: str
     synced_at: str | None = None
     source_object_path: str
 

@@ -137,7 +137,7 @@ class CatalogRuntimeService:
         if normalized_type is None or normalized_type == "asset":
             rows = self.metadata.query_rows(
                 """
-                SELECT object_id, native_name, object_type, fqn, source_id, synced_at
+                SELECT object_id, native_name, object_type, fqn, datasource_id, synced_at
                 FROM source_objects
                 WHERE object_type = 'table'
                   AND (native_name LIKE ? OR fqn LIKE ?)
@@ -390,7 +390,7 @@ class CatalogRuntimeService:
 
     def _asset_search_row_to_summary(self, row: dict[str, Any]) -> dict[str, Any]:
         object_id = str(row["object_id"])
-        source_id = str(row["source_id"])
+        source_id = str(row["datasource_id"])
         return {
             "object_kind": "asset",
             "object_id": object_id,
@@ -403,7 +403,7 @@ class CatalogRuntimeService:
             "source_id": source_id,
             "synced_at": row["synced_at"],
             "detail_path": self._catalog_detail_path("asset", object_id),
-            "source_object_path": f"/sources/{source_id}/objects/{object_id}",
+            "source_object_path": f"/datasources/{source_id}/objects/{object_id}",
         }
 
     def _availability_to_detail(self, availability: RuntimeSemanticAvailability) -> dict[str, Any]:
@@ -489,7 +489,7 @@ class CatalogRuntimeService:
         properties = row["properties_json"]
         return {
             "object_id": str(row["object_id"]),
-            "source_id": str(row["source_id"]),
+            "source_id": str(row["datasource_id"]),
             "object_type": str(row["object_type"]),
             "parent_id": str(row["parent_id"]) if row["parent_id"] is not None else None,
             "native_name": str(row["native_name"]),

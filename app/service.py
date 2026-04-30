@@ -458,7 +458,7 @@ class SemanticLayerService:
 
         # Assets — all synced tables from source_objects
         asset_rows = self.metadata.query_rows(
-            "SELECT native_name, fqn, source_id FROM source_objects "
+            "SELECT native_name, fqn, datasource_id FROM source_objects "
             "WHERE object_type = 'table' ORDER BY fqn"
         )
         assets: list[dict[str, Any]] = []
@@ -467,7 +467,7 @@ class SemanticLayerService:
                 "id": row["native_name"],
                 "kind": "table",
                 "fqn": row["fqn"],
-                "source_id": row["source_id"],
+                "source_id": row["datasource_id"],
             }
             # Best-effort row count from the analytics engine
             try:
@@ -989,14 +989,16 @@ class SemanticLayerService:
 
     def _executable_metric_table_name(
         self,
-        engine_id: str,
+        datasource_id: str,
         execution_locator: dict[str, Any],
     ) -> str:
-        engine = self.metadata.query_one(
-            "SELECT engine_type FROM engines WHERE engine_id = ?",
-            [engine_id],
+        datasource = self.metadata.query_one(
+            "SELECT datasource_type FROM datasources WHERE datasource_id = ?",
+            [datasource_id],
         )
-        engine_type = _optional_str(engine["engine_type"]) if engine is not None else None
+        engine_type = (
+            _optional_str(datasource["datasource_type"]) if datasource is not None else None
+        )
         return qualify_execution_locator(execution_locator, engine_type=engine_type)
 
     # ── Metric resolution ────────────────────────────────────────────
