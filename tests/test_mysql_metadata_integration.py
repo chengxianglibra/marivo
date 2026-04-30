@@ -281,27 +281,50 @@ class MySQLMetadataIntegrationTests(unittest.TestCase):
             )
         )
 
-        source_id = f"src_{uuid4().hex}"
+        source_id = f"ds_{uuid4().hex}"
         source_columns = [
-            "source_id",
-            "source_type",
+            "datasource_id",
+            "datasource_type",
             "display_name",
-            "authority_json",
+            "connection_json",
+            "sync_mode",
+            "policy_json",
+            "status",
             "created_at",
             "updated_at",
         ]
         self.store.insert_ignore(
-            "sources",
+            "datasources",
             source_columns,
-            [source_id, "duckdb", "first", "{}", "2026-01-01 00:00:00", "2026-01-01 00:00:00"],
+            [
+                source_id,
+                "duckdb",
+                "first",
+                "{}",
+                "selected",
+                "{}",
+                "active",
+                "2026-01-01 00:00:00",
+                "2026-01-01 00:00:00",
+            ],
         )
         self.store.insert_ignore(
-            "sources",
+            "datasources",
             source_columns,
-            [source_id, "duckdb", "second", "{}", "2026-01-02 00:00:00", "2026-01-02 00:00:00"],
+            [
+                source_id,
+                "duckdb",
+                "second",
+                "{}",
+                "selected",
+                "{}",
+                "active",
+                "2026-01-02 00:00:00",
+                "2026-01-02 00:00:00",
+            ],
         )
         source = self.store.query_one(
-            "SELECT display_name FROM sources WHERE source_id = ?", [source_id]
+            "SELECT display_name FROM datasources WHERE datasource_id = ?", [source_id]
         )
         self.assertEqual(source, {"display_name": "first"})
 

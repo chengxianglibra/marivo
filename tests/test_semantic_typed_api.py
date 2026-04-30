@@ -30,32 +30,33 @@ class SemanticTypedApiTests(unittest.TestCase):
         return self.client.app.state.services.metadata_store
 
     def _ensure_source_id(self) -> str:
-        row = self._metadata().query_one("SELECT source_id FROM sources ORDER BY source_id LIMIT 1")
+        row = self._metadata().query_one(
+            "SELECT datasource_id FROM datasources ORDER BY datasource_id LIMIT 1"
+        )
         if row is not None:
-            return str(row["source_id"])
-        source_id = f"src_{uuid4().hex[:12]}"
+            return str(row["datasource_id"])
+        datasource_id = f"ds_{uuid4().hex[:12]}"
         now = "2026-04-09T00:00:00+00:00"
         self._metadata().execute(
             """
-            INSERT INTO sources (
-                source_id, source_type, display_name, authority_json,
-                sync_mode, intrinsic_capabilities_json, policy_json, status, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO datasources (
+                datasource_id, datasource_type, display_name, connection_json,
+                sync_mode, policy_json, status, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
-                source_id,
+                datasource_id,
                 "duckdb",
-                "Test Source",
-                '{"catalog_system":"duckdb","connection":{},"synthetic_catalog":"main"}',
+                "Test Datasource",
+                "{}",
                 "all",
-                '{"supports_partitions": false}',
                 '{"allow_live_browse": true, "allow_sync": true}',
                 "active",
                 now,
                 now,
             ],
         )
-        return source_id
+        return datasource_id
 
     def _insert_source_object(
         self,
@@ -73,23 +74,21 @@ class SemanticTypedApiTests(unittest.TestCase):
         object_id = f"obj_{uuid4().hex[:12]}"
         now = "2026-04-09T00:00:00+00:00"
         fqn_parts = fqn.split(".")
-        source_row = self._metadata().query_one(
-            "SELECT authority_json FROM sources WHERE source_id = ?",
+        datasource_row = self._metadata().query_one(
+            "SELECT connection_json FROM datasources WHERE datasource_id = ?",
             [self._ensure_source_id()],
         )
         catalog: str | None = None
         if len(fqn_parts) >= 3:
             catalog = fqn_parts[-3]
-        elif source_row is not None:
-            authority = json.loads(str(source_row["authority_json"]))
-            if isinstance(authority, dict):
-                synthetic_catalog = authority.get("synthetic_catalog")
-                if isinstance(synthetic_catalog, str) and synthetic_catalog:
-                    catalog = synthetic_catalog
+        elif datasource_row is not None:
+            connection = json.loads(str(datasource_row["connection_json"]))
+            if isinstance(connection, dict):
+                catalog = "main"
         self._metadata().execute(
             """
             INSERT INTO source_objects (
-                object_id, source_id, object_type, parent_id, native_name, native_id,
+                object_id, datasource_id, object_type, parent_id, native_name, native_id,
                 fqn, authority_locator_json, properties_json, sync_version, synced_at, created_at, updated_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,

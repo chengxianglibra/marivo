@@ -65,6 +65,7 @@ class TypedSemanticEndToEndTests(unittest.TestCase):
             table_name="val_events",
             table_fqn=cls.val_events_fqn,
             now=now,
+            db_path=db_path,
         )
 
     @classmethod

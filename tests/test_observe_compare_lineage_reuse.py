@@ -34,36 +34,15 @@ def _register_duckdb_runtime(
     source_display_name: str,
     engine_display_name: str,
 ) -> str:
-    source = client.post(
-        "/sources",
+    datasource = client.post(
+        "/datasources",
         json={
-            "source_type": "duckdb",
+            "datasource_type": "duckdb",
             "display_name": source_display_name,
-            "authority": {
-                "catalog_system": "duckdb",
-                "connection": {"path": str(db_path)},
-                "synthetic_catalog": "main",
-            },
+            "connection": {"path": str(db_path), "catalog": "main"},
         },
     ).json()
-    engine = client.post(
-        "/engines",
-        json={
-            "engine_type": "duckdb",
-            "display_name": engine_display_name,
-            "connection": {"database": str(db_path)},
-        },
-    ).json()
-    client.post(
-        "/mappings",
-        json={
-            "source_id": source["source_id"],
-            "engine_id": engine["engine_id"],
-            "priority": 0,
-            "catalog_mappings": [{"authority_catalog": "main", "execution_catalog": "main"}],
-        },
-    )
-    return str(source["source_id"])
+    return str(datasource["datasource_id"])
 
 
 def _ensure_source_object(
@@ -75,7 +54,7 @@ def _ensure_source_object(
     now: str = "2026-01-01T00:00:00",
 ) -> str:
     existing = metadata.query_one(
-        "SELECT object_id FROM source_objects WHERE source_id = ? AND fqn = ?",
+        "SELECT object_id FROM source_objects WHERE datasource_id = ? AND fqn = ?",
         [source_id, fqn],
     )
     if existing is not None:
@@ -86,7 +65,7 @@ def _ensure_source_object(
         schema_name = fqn_parts[-2]
         schema_fqn = ".".join(fqn_parts[:-1])
         existing_schema = metadata.query_one(
-            "SELECT object_id FROM source_objects WHERE source_id = ? AND object_type = 'schema' AND fqn = ?",
+            "SELECT object_id FROM source_objects WHERE datasource_id = ? AND object_type = 'schema' AND fqn = ?",
             [source_id, schema_fqn],
         )
         if existing_schema is not None:
@@ -96,7 +75,7 @@ def _ensure_source_object(
             metadata.execute(
                 """
                 INSERT INTO source_objects
-                    (object_id, source_id, object_type, native_name, fqn,
+                    (object_id, datasource_id, object_type, native_name, fqn,
                      properties_json, created_at, updated_at)
                 VALUES (?, ?, 'schema', ?, ?, '{}', ?, ?)
                 """,
@@ -106,7 +85,7 @@ def _ensure_source_object(
     metadata.execute(
         """
         INSERT INTO source_objects
-            (object_id, source_id, object_type, parent_id, native_name, fqn,
+            (object_id, datasource_id, object_type, parent_id, native_name, fqn,
              properties_json, created_at, updated_at)
         VALUES (?, ?, 'table', ?, ?, ?, '{}', ?, ?)
         """,

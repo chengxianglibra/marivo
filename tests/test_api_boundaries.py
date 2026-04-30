@@ -32,6 +32,6 @@ class ApiBoundaryTests(unittest.TestCase):
     def test_app_state_exposes_service_bundle_and_legacy_aliases(self) -> None:
         services = self.app.state.services
         self.assertIs(services.service, self.app.state.service)
-        self.assertIs(services.source_service, self.app.state.source_service)
+        self.assertIs(services.datasource_service, self.app.state.datasource_service)
         self.assertIs(services.semantic_service, self.app.state.semantic_service)
         self.assertIs(services.catalog_runtime, self.app.state.catalog_runtime)

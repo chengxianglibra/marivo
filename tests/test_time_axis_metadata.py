@@ -115,19 +115,15 @@ class TimeAxisMetadataProviderTests(unittest.TestCase):
         cls.service = cls.app.state.service
 
         source_id = cls.client.post(
-            "/sources",
+            "/datasources",
             json={
-                "source_type": "duckdb",
+                "datasource_type": "duckdb",
                 "display_name": "TSU-11 Source",
-                "authority": {
-                    "catalog_system": "duckdb",
-                    "connection": {"path": str(db_path)},
-                    "synthetic_catalog": "main",
-                },
+                "connection": {"path": str(db_path), "catalog": "main"},
             },
-        ).json()["source_id"]
+        ).json()["datasource_id"]
         cls.client.post(
-            f"/sources/{source_id}/sync/selections",
+            f"/datasources/{source_id}/sync/selections",
             json={
                 "selections": [
                     {"schema_name": "analytics", "table_name": "watch_events"},
@@ -137,7 +133,7 @@ class TimeAxisMetadataProviderTests(unittest.TestCase):
                 ]
             },
         )
-        cls.client.post(f"/sources/{source_id}/sync")
+        cls.client.post(f"/datasources/{source_id}/sync")
 
         entity = create_typed_entity(
             cls.client,

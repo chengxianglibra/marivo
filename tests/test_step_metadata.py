@@ -13,7 +13,6 @@ from app.api.models.metric import MetricRevisionCreateRequest
 from app.evidence_engine.ref_boundary import assert_no_canonical_refs_in_semantic_payload
 from app.service import SemanticLayerService
 from tests.semantic_test_helpers import (
-    ensure_active_duckdb_mapping,
     ensure_published_typed_metric,
     ensure_published_typed_metric_binding,
     seed_duckdb_source_object,
@@ -54,12 +53,7 @@ class StepMetadataPersistenceTests(unittest.TestCase):
             table_name="watch_events",
             table_fqn="analytics.watch_events",
             now=now,
-        )
-        ensure_active_duckdb_mapping(
-            cls.metadata,
-            source_id="src_step_metadata",
-            now=now,
-            db_path=str(db_path),
+            connection={"path": str(db_path), "catalog": "main"},
         )
         ensure_published_typed_metric(
             cls.metadata,

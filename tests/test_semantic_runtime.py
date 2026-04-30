@@ -32,7 +32,7 @@ class SemanticRuntimeTests(unittest.TestCase):
         get_seeded_duckdb_path(db_path)
         cls.client = TestClient(create_app(db_path))
         cls.metadata_store = cls.client.app.state.metadata_store
-        cls.mapping_service = cls.client.app.state.mapping_service
+        cls.datasource_service = cls.client.app.state.datasource_service
 
         entity = create_typed_entity(
             cls.client,
@@ -60,21 +60,17 @@ class SemanticRuntimeTests(unittest.TestCase):
         publish_typed_metric(cls.client, metric["metric_contract_id"])
         cls.metric_id = metric["metric_contract_id"]
 
-        source = cls.client.post(
-            "/sources",
+        datasource = cls.client.post(
+            "/datasources",
             json={
-                "source_type": "duckdb",
+                "datasource_type": "duckdb",
                 "display_name": "Semantic Runtime Source",
-                "authority": {
-                    "catalog_system": "duckdb",
-                    "connection": {"path": str(db_path)},
-                    "synthetic_catalog": "main",
-                },
+                "connection": {"path": str(db_path), "catalog": "main"},
             },
         ).json()
-        cls.source_id = source["source_id"]
+        cls.source_id = datasource["datasource_id"]
         cls.client.post(
-            f"/sources/{cls.source_id}/sync/selections",
+            f"/datasources/{cls.source_id}/sync/selections",
             json={
                 "selections": [
                     {"schema_name": "analytics", "table_name": "watch_events"},
@@ -84,11 +80,11 @@ class SemanticRuntimeTests(unittest.TestCase):
                 ]
             },
         )
-        cls.client.post(f"/sources/{cls.source_id}/sync")
+        cls.client.post(f"/datasources/{cls.source_id}/sync")
 
         table_objects = {
             table["native_name"]: table
-            for table in cls.client.get(f"/sources/{cls.source_id}/objects?type=table").json()
+            for table in cls.client.get(f"/datasources/{cls.source_id}/objects?type=table").json()
         }
         cls.watch_events_object_id = table_objects["watch_events"]["object_id"]
         cls.watch_events_fqn = str(table_objects["watch_events"]["fqn"])

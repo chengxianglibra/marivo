@@ -36,7 +36,6 @@ from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
 from app.storage.sqlite_metadata import SQLiteMetadataStore
 from tests.semantic_test_helpers import (
     build_semantic_layer_service,
-    ensure_active_duckdb_mapping,
     ensure_published_typed_metric,
     ensure_published_typed_metric_binding,
     seed_duckdb_source_object,
@@ -125,6 +124,7 @@ def _resolved_policy_summary(
 def _seed_metric(
     meta: SQLiteMetadataStore,
     *,
+    db_path: str | Path | None = None,
     suffix: str,
     metric_name: str,
     table_fqn: str,
@@ -146,6 +146,7 @@ def _seed_metric(
         table_name=native_name,
         table_fqn=table_fqn,
         now=now,
+        db_path=db_path,
     )
     ensure_published_typed_metric(
         meta,
@@ -161,7 +162,6 @@ def _seed_metric(
         carrier_locator=table_fqn,
         source_object_ref=obj_id,
     )
-    ensure_active_duckdb_mapping(meta, source_id=src_id, now=now)
     return metric_name
 
 
@@ -203,6 +203,7 @@ class TestRunnerServiceTests(unittest.TestCase):
 
         cls.metric_num_a = _seed_metric(
             cls.metadata,
+            db_path=db_path,
             suffix="numa",
             metric_name="test_response_time_a",
             table_fqn="analytics.test_numeric_a",
@@ -211,6 +212,7 @@ class TestRunnerServiceTests(unittest.TestCase):
         )
         cls.metric_num_b = _seed_metric(
             cls.metadata,
+            db_path=db_path,
             suffix="numb",
             metric_name="test_response_time_b",
             table_fqn="analytics.test_numeric_b",
@@ -219,6 +221,7 @@ class TestRunnerServiceTests(unittest.TestCase):
         )
         cls.metric_rate_a = _seed_metric(
             cls.metadata,
+            db_path=db_path,
             suffix="ratea",
             metric_name="test_conversion_a",
             table_fqn="analytics.test_rate_a",
@@ -227,6 +230,7 @@ class TestRunnerServiceTests(unittest.TestCase):
         )
         cls.metric_rate_b = _seed_metric(
             cls.metadata,
+            db_path=db_path,
             suffix="rateb",
             metric_name="test_conversion_b",
             table_fqn="analytics.test_rate_b",
@@ -1158,6 +1162,7 @@ class TestIntentEndpointTests(unittest.TestCase):
 
         _seed_metric(
             metadata,
+            db_path=db_path,
             suffix="httpnuma",
             metric_name="http_test_num_a",
             table_fqn="analytics.test_numeric_a",
@@ -1166,6 +1171,7 @@ class TestIntentEndpointTests(unittest.TestCase):
         )
         _seed_metric(
             metadata,
+            db_path=db_path,
             suffix="httpnumb",
             metric_name="http_test_num_b",
             table_fqn="analytics.test_numeric_b",

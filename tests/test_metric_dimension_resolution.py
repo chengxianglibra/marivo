@@ -27,33 +27,29 @@ class TypedMetricDimensionResolutionTests(unittest.TestCase):
         cls.client = TestClient(create_app(cls.db_path))
         cls.metadata_store = cls.client.app.state.metadata_store
         cls.service = cls.client.app.state.service
-        source = cls.client.post(
-            "/sources",
+        datasource = cls.client.post(
+            "/datasources",
             json={
-                "source_type": "duckdb",
+                "datasource_type": "duckdb",
                 "display_name": "Metric Dimension Resolution Source",
-                "authority": {
-                    "catalog_system": "duckdb",
-                    "connection": {"path": str(cls.db_path)},
-                    "synthetic_catalog": "main",
-                },
+                "connection": {"path": str(cls.db_path), "catalog": "main"},
             },
         ).json()
-        cls.source_id = source["source_id"]
+        cls.source_id = datasource["datasource_id"]
         cls.client.post(
-            f"/sources/{cls.source_id}/sync/selections",
+            f"/datasources/{cls.source_id}/sync/selections",
             json={
                 "selections": [
                     {"schema_name": "analytics", "table_name": "metric_dimension_events"},
                 ]
             },
         )
-        cls.client.post(f"/sources/{cls.source_id}/sync")
+        cls.client.post(f"/datasources/{cls.source_id}/sync")
         source_object = cls.metadata_store.query_one(
             """
             SELECT object_id, fqn
             FROM source_objects
-            WHERE source_id = ? AND object_type = 'table' AND fqn LIKE ?
+            WHERE datasource_id = ? AND object_type = 'table' AND fqn LIKE ?
             ORDER BY object_id
             """,
             [cls.source_id, "%.metric_dimension_events"],

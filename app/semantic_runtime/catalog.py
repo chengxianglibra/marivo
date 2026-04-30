@@ -390,7 +390,7 @@ class CatalogRuntimeService:
 
     def _asset_search_row_to_summary(self, row: dict[str, Any]) -> dict[str, Any]:
         object_id = str(row["object_id"])
-        source_id = str(row["datasource_id"])
+        datasource_id = str(row["datasource_id"])
         return {
             "object_kind": "asset",
             "object_id": object_id,
@@ -400,10 +400,10 @@ class CatalogRuntimeService:
             "description": None,
             "status": "synced",
             "object_type": row["object_type"],
-            "source_id": source_id,
+            "datasource_id": datasource_id,
             "synced_at": row["synced_at"],
             "detail_path": self._catalog_detail_path("asset", object_id),
-            "source_object_path": f"/datasources/{source_id}/objects/{object_id}",
+            "source_object_path": f"/datasources/{datasource_id}/objects/{object_id}",
         }
 
     def _availability_to_detail(self, availability: RuntimeSemanticAvailability) -> dict[str, Any]:
@@ -489,7 +489,7 @@ class CatalogRuntimeService:
         properties = row["properties_json"]
         return {
             "object_id": str(row["object_id"]),
-            "source_id": str(row["datasource_id"]),
+            "datasource_id": str(row["datasource_id"]),
             "object_type": str(row["object_type"]),
             "parent_id": str(row["parent_id"]) if row["parent_id"] is not None else None,
             "native_name": str(row["native_name"]),

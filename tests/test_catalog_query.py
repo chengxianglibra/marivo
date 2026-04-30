@@ -27,22 +27,18 @@ class CatalogQueryTests(unittest.TestCase):
         get_seeded_duckdb_path(cls.db_path)
         cls.client = TestClient(create_app(cls.db_path))
 
-        # Set up test data: source + sync + semantic objects + mappings
+        # Set up test data: datasource + sync + semantic objects + mappings
         resp = cls.client.post(
-            "/sources",
+            "/datasources",
             json={
-                "source_type": "duckdb",
+                "datasource_type": "duckdb",
                 "display_name": "CQ Test Source",
-                "authority": {
-                    "catalog_system": "duckdb",
-                    "connection": {"path": str(cls.db_path)},
-                    "synthetic_catalog": "main",
-                },
+                "connection": {"path": str(cls.db_path), "catalog": "main"},
             },
         )
-        cls.source_id = resp.json()["source_id"]
+        cls.source_id = resp.json()["datasource_id"]
         cls.client.post(
-            f"/sources/{cls.source_id}/sync/selections",
+            f"/datasources/{cls.source_id}/sync/selections",
             json={
                 "selections": [
                     {"schema_name": "analytics", "table_name": "watch_events"},
@@ -52,10 +48,10 @@ class CatalogQueryTests(unittest.TestCase):
                 ]
             },
         )
-        cls.client.post(f"/sources/{cls.source_id}/sync")
+        cls.client.post(f"/datasources/{cls.source_id}/sync")
 
         # Get synced table objects
-        resp = cls.client.get(f"/sources/{cls.source_id}/objects?type=table")
+        resp = cls.client.get(f"/datasources/{cls.source_id}/objects?type=table")
         cls.table_objects = {t["native_name"]: t for t in resp.json()}
 
         # Create and publish entities
@@ -149,7 +145,8 @@ class CatalogQueryTests(unittest.TestCase):
                 r["name"] == "watch_events"
                 and r["object_kind"] == "asset"
                 and r["detail_path"] == f"/catalog/objects/asset/{r['object_id']}"
-                and r["source_object_path"] == f"/sources/{self.source_id}/objects/{r['object_id']}"
+                and r["source_object_path"]
+                == f"/datasources/{self.source_id}/objects/{r['object_id']}"
                 for r in results
             )
         )
@@ -252,7 +249,7 @@ class CatalogQueryTests(unittest.TestCase):
 
         self.assertEqual(detail["object_kind"], "asset")
         self.assertEqual(detail["object_id"], summary["object_id"])
-        self.assertEqual(detail["source_object"]["source_id"], self.source_id)
+        self.assertEqual(detail["source_object"]["datasource_id"], self.source_id)
         self.assertEqual(detail["source_object"]["native_name"], "watch_events")
 
     def test_resolve_requires_explicit_typed_refs(self) -> None:

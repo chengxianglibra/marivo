@@ -38,7 +38,6 @@ from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
 from app.storage.sqlite_metadata import SQLiteMetadataStore
 from tests.semantic_test_helpers import (
     build_semantic_layer_service,
-    ensure_active_duckdb_mapping,
     ensure_published_typed_metric,
     ensure_published_typed_metric_binding,
     seed_duckdb_source_object,
@@ -71,6 +70,7 @@ def _seed_metadata(meta: SQLiteMetadataStore, db_path: Path | None = None) -> No
         table_name=_TABLE,
         table_fqn=f"analytics.{_TABLE}",
         now=now,
+        db_path=db_path,
     )
     ensure_published_typed_metric(
         meta,
@@ -101,12 +101,11 @@ def _seed_metadata(meta: SQLiteMetadataStore, db_path: Path | None = None) -> No
             """,
             ["measure", "metric_input.measure", binding_row["binding_id"]],
         )
-    ensure_active_duckdb_mapping(
-        meta,
-        source_id=src_id,
-        now=now,
-        db_path=str(db_path) if db_path is not None else None,
-    )
+    if db_path is not None:
+        meta.execute(
+            "UPDATE datasources SET connection_json = ? WHERE datasource_id = ?",
+            [json.dumps({"path": str(db_path), "catalog": "main"}), src_id],
+        )
 
 
 class _RegressionServiceTestCase(unittest.TestCase):

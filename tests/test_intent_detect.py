@@ -33,7 +33,6 @@ from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
 from app.storage.sqlite_metadata import SQLiteMetadataStore
 from tests.semantic_test_helpers import (
     build_semantic_layer_service,
-    ensure_active_duckdb_mapping,
     ensure_published_typed_metric,
     ensure_published_typed_metric_binding,
     seed_duckdb_source_object,
@@ -56,6 +55,7 @@ def _seed_detect_tables(db_path: Path) -> None:
 def _seed_metadata(
     meta: SQLiteMetadataStore,
     *,
+    db_path: str | Path | None = None,
     src_suffix: str = "01",
     metric_name: str = "detect_event_count",
     table_fqn: str = "analytics.detect_events",
@@ -69,7 +69,7 @@ def _seed_metadata(
     now = datetime.now(UTC).isoformat()
     existing_object = meta.query_one(
         """
-        SELECT object_id, source_id
+        SELECT object_id, datasource_id
         FROM source_objects
         WHERE object_type = 'table' AND fqn = ?
         ORDER BY updated_at DESC, object_id
@@ -88,9 +88,10 @@ def _seed_metadata(
             table_name=native_name,
             table_fqn=table_fqn,
             now=now,
+            db_path=db_path,
         )
     else:
-        src_id = str(existing_object["source_id"])
+        src_id = str(existing_object["datasource_id"])
         obj_id = str(existing_object["object_id"])
     ensure_published_typed_metric(
         meta,
@@ -110,7 +111,6 @@ def _seed_metadata(
         metric_input_target_keys=metric_input_target_keys,
         dimension_names=dimensions or ["event_date"],
     )
-    ensure_active_duckdb_mapping(meta, source_id=src_id, now=now)
     return metric_name
 
 
@@ -136,6 +136,7 @@ class DetectRunnerServiceTests(unittest.TestCase):
         # Spike metric: detect_event_count → analytics.detect_events
         cls.spike_metric = _seed_metadata(
             cls.metadata,
+            db_path=db_path,
             src_suffix="01",
             metric_name="detect_event_count",
             table_fqn="analytics.detect_events",
@@ -145,6 +146,7 @@ class DetectRunnerServiceTests(unittest.TestCase):
         # Uniform metric: uniform_event_count → analytics.uniform_events
         cls.uniform_metric = _seed_metadata(
             cls.metadata,
+            db_path=db_path,
             src_suffix="02",
             metric_name="uniform_event_count",
             table_fqn="analytics.uniform_events",
@@ -377,6 +379,7 @@ class DetectRunnerServiceTests(unittest.TestCase):
         """Declared split dimension must resolve to an executable column."""
         metric_name = _seed_metadata(
             self.metadata,
+            db_path=Path(self.temp_dir.name) / "detect_svc.duckdb",
             src_suffix="03",
             metric_name="detect_missing_physical_dimension",
             table_fqn="analytics.detect_events",
@@ -576,6 +579,7 @@ class DetectIntentEndpointTests(unittest.TestCase):
         # Register metric pointing to analytics.uniform_events.
         _seed_metadata(
             metadata,
+            db_path=db_path,
             src_suffix="http01",
             metric_name="http_detect_metric",
             table_fqn="analytics.uniform_events",
@@ -584,6 +588,7 @@ class DetectIntentEndpointTests(unittest.TestCase):
         )
         _seed_metadata(
             metadata,
+            db_path=db_path,
             src_suffix="http02",
             metric_name="http_detect_split_metric",
             table_fqn="analytics.detect_events",
@@ -637,6 +642,7 @@ class DetectIntentEndpointTests(unittest.TestCase):
         metadata = self.client.app.state.service.metadata
         metric_name = _seed_metadata(
             metadata,
+            db_path=self.client.app.state.services.resolved_path,
             src_suffix="http_not_ready",
             metric_name="http_detect_not_ready_metric",
             table_fqn="analytics.uniform_events",
@@ -664,6 +670,7 @@ class DetectIntentEndpointTests(unittest.TestCase):
         metadata = self.client.app.state.service.metadata
         metric_name = _seed_metadata(
             metadata,
+            db_path=self.client.app.state.services.resolved_path,
             src_suffix="http_aux",
             metric_name="http_detect_aux_metric",
             table_fqn="analytics.uniform_events",

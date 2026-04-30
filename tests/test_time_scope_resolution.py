@@ -23,7 +23,6 @@ from app.time_scope import (
 from tests.semantic_test_helpers import (
     create_typed_entity,
     create_typed_metric,
-    ensure_active_duckdb_mapping,
     ensure_published_typed_dimension,
     patch_typed_entity_properties,
     publish_typed_entity,
@@ -648,19 +647,15 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
 
         cls.client = TestClient(cls.app)
         source_id = cls.client.post(
-            "/sources",
+            "/datasources",
             json={
-                "source_type": "duckdb",
-                "display_name": "TSU-05 Source",
-                "authority": {
-                    "catalog_system": "duckdb",
-                    "connection": {"path": str(db_path)},
-                    "synthetic_catalog": "main",
-                },
+                "datasource_type": "duckdb",
+                "display_name": "TSU-05 Datasource",
+                "connection": {"path": str(db_path), "catalog": "main"},
             },
-        ).json()["source_id"]
+        ).json()["datasource_id"]
         cls.client.post(
-            f"/sources/{source_id}/sync/selections",
+            f"/datasources/{source_id}/sync/selections",
             json={
                 "selections": [
                     {"schema_name": "analytics", "table_name": "watch_events"},
@@ -670,16 +665,10 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
                 ]
             },
         )
-        cls.client.post(f"/sources/{source_id}/sync")
-        ensure_active_duckdb_mapping(
-            cls.service.metadata,
-            source_id=source_id,
-            now="2026-03-10T00:00:00Z",
-            db_path=str(db_path),
-        )
+        cls.client.post(f"/datasources/{source_id}/sync")
         table_objects = {
             table["native_name"]: table
-            for table in cls.client.get(f"/sources/{source_id}/objects?type=table").json()
+            for table in cls.client.get(f"/datasources/{source_id}/objects?type=table").json()
         }
         cls.watch_events_object_id = table_objects["watch_events"]["object_id"]
         cls.watch_events_fqn = str(table_objects["watch_events"]["fqn"])

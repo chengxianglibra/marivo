@@ -12,7 +12,7 @@ from app.api.models.dimension import DimensionCreateRequest
 from app.api.models.entity import TypedEntityCreateRequest
 from app.api.models.metric import TypedMetricCreateRequest
 from app.api.models.time import TimeCreateRequest
-from app.engines import EngineService
+from app.datasources import DatasourceService
 from app.routing import QueryRouter
 from app.semantic import SemanticService
 from app.service import SemanticLayerService
@@ -40,7 +40,7 @@ def build_semantic_layer_service(
     analytics: AnalyticsEngine,
 ) -> SemanticLayerService:
     service = SemanticLayerService(metadata, analytics)
-    service.query_router = QueryRouter(metadata, EngineService(metadata))
+    service.query_router = QueryRouter(metadata, DatasourceService(metadata))
     return service
 
 
@@ -54,22 +54,29 @@ def seed_duckdb_source_object(
     table_fqn: str,
     now: str,
     connection: dict[str, Any] | None = None,
+    db_path: str | Path | None = None,
     authority_locator: dict[str, Any] | None = None,
     properties: dict[str, Any] | None = None,
     sync_version: str | None = None,
     synced_at: str | None = None,
     status: str = "active",
 ) -> None:
-    """Seed a DuckDB source/table pair through backend-neutral metadata helpers."""
+    """Seed a DuckDB datasource/table pair through backend-neutral metadata helpers."""
+    effective_connection: dict[str, Any]
+    if connection is not None:
+        effective_connection = connection
+    elif db_path is not None:
+        effective_connection = {"path": str(db_path), "catalog": "main"}
+    else:
+        effective_connection = {}
     metadata.insert_ignore(
-        "sources",
+        "datasources",
         [
-            "source_id",
-            "source_type",
+            "datasource_id",
+            "datasource_type",
             "display_name",
-            "authority_json",
+            "connection_json",
             "sync_mode",
-            "intrinsic_capabilities_json",
             "policy_json",
             "status",
             "created_at",
@@ -79,15 +86,8 @@ def seed_duckdb_source_object(
             source_id,
             "duckdb",
             display_name,
-            json.dumps(
-                {
-                    "catalog_system": "duckdb",
-                    "connection": connection or {},
-                    "synthetic_catalog": "main",
-                }
-            ),
+            json.dumps(effective_connection),
             "selected",
-            json.dumps({"supports_partitions": False}),
             json.dumps({"allow_live_browse": True, "allow_sync": True}),
             status,
             now,
@@ -98,7 +98,7 @@ def seed_duckdb_source_object(
         "source_objects",
         [
             "object_id",
-            "source_id",
+            "datasource_id",
             "object_type",
             "parent_id",
             "native_name",
@@ -129,103 +129,6 @@ def seed_duckdb_source_object(
             now,
         ],
     )
-
-
-def ensure_active_duckdb_mapping(
-    metadata: MetadataStore,
-    *,
-    source_id: str,
-    now: str,
-    db_path: str | None = None,
-) -> tuple[str, str]:
-    resolved_db_path = db_path
-    if resolved_db_path is None:
-        metadata_path = getattr(metadata, "db_path", None)
-        if metadata_path is not None:
-            path = Path(str(metadata_path))
-            if path.name.endswith(".meta.sqlite"):
-                resolved_db_path = str(
-                    path.with_name(path.name.removesuffix(".meta.sqlite") + ".duckdb")
-                )
-    if resolved_db_path is None:
-        raise AssertionError("DuckDB mapping seed requires an explicit analytics db path")
-
-    source_row = metadata.query_one(
-        "SELECT source_type, authority_json FROM sources WHERE source_id = ?",
-        [source_id],
-    )
-    if source_row is None:
-        raise AssertionError(f"Unknown source for mapping seed: {source_id}")
-    if str(source_row["source_type"]) == "duckdb":
-        authority = json.loads(str(source_row["authority_json"]))
-        connection = authority.get("connection")
-        if not isinstance(connection, dict) or not connection.get("path"):
-            authority["connection"] = {"path": resolved_db_path}
-            metadata.execute(
-                "UPDATE sources SET authority_json = ?, updated_at = ? WHERE source_id = ?",
-                [json.dumps(authority), now, source_id],
-            )
-
-    suffix = source_id.removeprefix("src_")
-    engine_id = f"eng_{suffix}"
-    mapping_id = f"map_{suffix}"
-    metadata.insert_ignore(
-        "engines",
-        [
-            "engine_id",
-            "engine_type",
-            "display_name",
-            "connection_json",
-            "default_namespace_json",
-            "intrinsic_capabilities_json",
-            "deployment_capabilities_json",
-            "policy_json",
-            "created_at",
-            "updated_at",
-        ],
-        [
-            engine_id,
-            "duckdb",
-            f"DuckDB Engine {suffix}",
-            json.dumps({"path": resolved_db_path}),
-            json.dumps({"catalog": None, "schema": None}),
-            json.dumps(
-                {
-                    "materialization_support": "temporary_table",
-                    "performance_class": "embedded",
-                    "federation_support": "none",
-                }
-            ),
-            json.dumps({"supported_step_types": [], "min_staleness_minutes": None}),
-            json.dumps({"allowed_step_types": [], "required_policy_support": []}),
-            now,
-            now,
-        ],
-    )
-    metadata.insert_ignore(
-        "source_execution_mappings",
-        [
-            "mapping_id",
-            "source_id",
-            "engine_id",
-            "priority",
-            "catalog_mappings_json",
-            "status",
-            "created_at",
-            "updated_at",
-        ],
-        [
-            mapping_id,
-            source_id,
-            engine_id,
-            0,
-            json.dumps([{"authority_catalog": "main", "execution_catalog": "main"}]),
-            "active",
-            now,
-            now,
-        ],
-    )
-    return engine_id, mapping_id
 
 
 def _metric_payload_for_measure_type(metric_name: str, measure_type: str | None) -> dict[str, Any]:
