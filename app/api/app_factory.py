@@ -19,16 +19,14 @@ from app.api.errors import (
 from app.api.router import include_api_routers
 from app.approvals import ApprovalService
 from app.config import MarivoConfig, load_config, resolve_config_path, resolve_metadata_path
-from app.engines import EngineService
+from app.datasources import DatasourceService
 from app.governance import GovernanceService
 from app.jobs import JobService
-from app.mappings import MappingService
 from app.observability import MetricsCollector, TimingMiddleware, setup_logging
 from app.routing import QueryRouter
 from app.semantic import SemanticService
 from app.semantic_runtime import CatalogRuntimeService
 from app.service import SemanticLayerService
-from app.sources import SourceService
 from app.storage.analytics import AnalyticsEngine
 from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
 from app.storage.metadata import MetadataStore
@@ -159,11 +157,9 @@ def _build_services(
         metrics=metrics_collector,
         approvals=approval_service,
     )
-    source_service = SourceService(metadata_store)
+    source_service = DatasourceService(metadata_store)
     sync_engine = SyncEngine(metadata_store)
-    engine_service = EngineService(metadata_store)
-    mapping_service = MappingService(metadata_store)
-    query_router = QueryRouter(metadata_store, engine_service)
+    query_router = QueryRouter(metadata_store, source_service)
     service.query_router = query_router
     _register_configured_governance(config, metadata_store, governance_service)
     semantic_service = SemanticService(metadata_store)
@@ -179,10 +175,8 @@ def _build_services(
         resolved_path=resolved_path,
         config=config,
         service=service,
-        source_service=source_service,
+        datasource_service=source_service,
         sync_engine=sync_engine,
-        engine_service=engine_service,
-        mapping_service=mapping_service,
         query_router=query_router,
         metadata_store=metadata_store,
         analytics_engine=analytics_engine,
@@ -200,10 +194,8 @@ def _attach_state(app: FastAPI, services: AppServices) -> None:
     app.state.services = services
     app.state.config = services.config
     app.state.service = services.service
-    app.state.source_service = services.source_service
+    app.state.datasource_service = services.datasource_service
     app.state.sync_engine = services.sync_engine
-    app.state.engine_service = services.engine_service
-    app.state.mapping_service = services.mapping_service
     app.state.query_router = services.query_router
     app.state.metadata_store = services.metadata_store
     app.state.analytics_engine = services.analytics_engine
