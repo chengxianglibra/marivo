@@ -5,8 +5,7 @@ from typing import Any
 from app.adapters.base import CatalogAdapter
 from app.storage.analytics import AnalyticsEngine
 
-SUPPORTED_SOURCE_TYPES: tuple[str, ...] = ("duckdb", "trino")
-SUPPORTED_ENGINE_TYPES: tuple[str, ...] = ("duckdb", "trino")
+SUPPORTED_DATASOURCE_TYPES: tuple[str, ...] = ("duckdb", "trino")
 
 
 def _duckdb_path(connection: dict[str, Any]) -> str:
@@ -47,43 +46,33 @@ def _trino_connect_kwargs(connection: dict[str, Any]) -> dict[str, Any]:
     return kwargs
 
 
-def validate_source_type(source_type: str) -> None:
-    if source_type not in SUPPORTED_SOURCE_TYPES:
-        supported = ", ".join(SUPPORTED_SOURCE_TYPES)
-        raise ValueError(
-            f"Unsupported source type: {source_type}. Supported source types: {supported}"
-        )
+def validate_datasource_type(datasource_type: str) -> None:
+    if datasource_type not in SUPPORTED_DATASOURCE_TYPES:
+        supported = ", ".join(SUPPORTED_DATASOURCE_TYPES)
+        raise ValueError(f"Unsupported datasource type: {datasource_type}. Supported types: {supported}")
 
 
-def validate_engine_type(engine_type: str) -> None:
-    if engine_type not in SUPPORTED_ENGINE_TYPES:
-        supported = ", ".join(SUPPORTED_ENGINE_TYPES)
-        raise ValueError(
-            f"Unsupported engine type: {engine_type}. Supported engine types: {supported}"
-        )
-
-
-def build_catalog_adapter(source_type: str, connection: dict[str, Any]) -> CatalogAdapter:
-    validate_source_type(source_type)
-    if source_type == "duckdb":
+def build_catalog_adapter(datasource_type: str, connection: dict[str, Any]) -> CatalogAdapter:
+    validate_datasource_type(datasource_type)
+    if datasource_type == "duckdb":
         from app.adapters.duckdb_adapter import DuckDBCatalogAdapter
 
         return DuckDBCatalogAdapter(_duckdb_path(connection))
-    if source_type == "trino":
+    if datasource_type == "trino":
         from app.adapters.trino_adapter import TrinoCatalogAdapter
 
         return TrinoCatalogAdapter(**_trino_connect_kwargs(connection))
-    raise ValueError(f"Unsupported source type: {source_type}")
+    raise ValueError(f"Unsupported datasource type: {datasource_type}")
 
 
-def build_analytics_engine(engine_type: str, connection: dict[str, Any]) -> AnalyticsEngine:
-    validate_engine_type(engine_type)
-    if engine_type == "duckdb":
+def build_analytics_engine(datasource_type: str, connection: dict[str, Any]) -> AnalyticsEngine:
+    validate_datasource_type(datasource_type)
+    if datasource_type == "duckdb":
         from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
 
         return DuckDBAnalyticsEngine(_duckdb_path(connection))
-    if engine_type == "trino":
+    if datasource_type == "trino":
         from app.storage.trino_analytics import TrinoAnalyticsEngine
 
         return TrinoAnalyticsEngine(**_trino_connect_kwargs(connection))
-    raise ValueError(f"Unsupported engine type: {engine_type}")
+    raise ValueError(f"Unsupported datasource type: {datasource_type}")
