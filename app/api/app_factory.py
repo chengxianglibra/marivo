@@ -157,9 +157,9 @@ def _build_services(
         metrics=metrics_collector,
         approvals=approval_service,
     )
-    source_service = DatasourceService(metadata_store)
+    datasource_service = DatasourceService(metadata_store)
     sync_engine = SyncEngine(metadata_store)
-    query_router = QueryRouter(metadata_store, source_service)
+    query_router = QueryRouter(metadata_store, datasource_service)
     service.query_router = query_router
     _register_configured_governance(config, metadata_store, governance_service)
     semantic_service = SemanticService(metadata_store)
@@ -175,7 +175,7 @@ def _build_services(
         resolved_path=resolved_path,
         config=config,
         service=service,
-        datasource_service=source_service,
+        datasource_service=datasource_service,
         sync_engine=sync_engine,
         query_router=query_router,
         metadata_store=metadata_store,

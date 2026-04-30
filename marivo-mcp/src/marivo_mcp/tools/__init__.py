@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import base64
-import json
 from collections.abc import Callable
 from copy import deepcopy
 from typing import Annotated, Any, Literal
@@ -1873,25 +1872,25 @@ def register_tools(
         )
 
     @server.tool()
-    @_tool_metadata("GET", "/sources")
-    def list_sources() -> dict[str, object]:
-        """List registered sources via GET /sources without adding MCP-only filtering semantics."""
-        return client.request_envelope("GET", "/sources").model_dump()
+    @_tool_metadata("GET", "/datasources")
+    def list_datasources() -> dict[str, object]:
+        """List registered datasources via GET /datasources without adding MCP-only filtering semantics."""
+        return client.request_envelope("GET", "/datasources").model_dump()
 
     @server.tool()
-    @_tool_metadata("POST", "/sources")
-    def register_source(
-        source_type: str,
+    @_tool_metadata("POST", "/datasources")
+    def create_datasource(
+        datasource_type: str,
         display_name: str,
         connection: dict[str, object] | None = None,
         capabilities: dict[str, object] | None = None,
     ) -> dict[str, object]:
-        """Register one source via POST /sources using the canonical source_type, display_name, connection, and capabilities fields."""
+        """Create one datasource via POST /datasources using the canonical datasource_type, display_name, connection, and capabilities fields."""
         return client.request_envelope(
             "POST",
-            "/sources",
+            "/datasources",
             json_body=_compact_body(
-                source_type=source_type,
+                datasource_type=datasource_type,
                 display_name=display_name,
                 connection=connection,
                 capabilities=capabilities,
@@ -1899,68 +1898,145 @@ def register_tools(
         ).model_dump()
 
     @server.tool()
-    @_tool_metadata("POST", "/sources/{source_id}/sync")
-    def sync_source(source_id: str) -> dict[str, object]:
-        """Trigger synced metadata refresh via POST /sources/{source_id}/sync; this operates on stored source metadata, not live catalog browse endpoints."""
-        return client.request_envelope("POST", f"/sources/{source_id}/sync").model_dump()
+    @_tool_metadata("GET", "/datasources/{datasource_id}")
+    def get_datasource(datasource_id: str) -> dict[str, object]:
+        """Read one datasource via GET /datasources/{datasource_id}."""
+        return client.request_envelope("GET", f"/datasources/{datasource_id}").model_dump()
 
     @server.tool()
-    @_tool_metadata("GET", "/sources/{source_id}/catalog/preview")
-    def preview_source_table(
-        source_id: str,
+    @_tool_metadata("PUT", "/datasources/{datasource_id}")
+    def update_datasource(
+        datasource_id: str,
+        display_name: str | None = None,
+        connection: dict[str, object] | None = None,
+        capabilities: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        """Update one datasource via PUT /datasources/{datasource_id}."""
+        return client.request_envelope(
+            "PUT",
+            f"/datasources/{datasource_id}",
+            json_body=_compact_body(
+                display_name=display_name,
+                connection=connection,
+                capabilities=capabilities,
+            ),
+        ).model_dump()
+
+    @server.tool()
+    @_tool_metadata("DELETE", "/datasources/{datasource_id}")
+    def delete_datasource(datasource_id: str) -> dict[str, object]:
+        """Delete one datasource via DELETE /datasources/{datasource_id}."""
+        return client.request_envelope("DELETE", f"/datasources/{datasource_id}").model_dump()
+
+    @server.tool()
+    @_tool_metadata("POST", "/datasources/{datasource_id}/sync")
+    def sync_datasource(datasource_id: str) -> dict[str, object]:
+        """Trigger synced metadata refresh via POST /datasources/{datasource_id}/sync; this operates on stored datasource metadata, not live catalog browse endpoints."""
+        return client.request_envelope("POST", f"/datasources/{datasource_id}/sync").model_dump()
+
+    @server.tool()
+    @_tool_metadata("GET", "/datasources/{datasource_id}/browse/catalogs")
+    def browse_catalogs(
+        datasource_id: str,
+    ) -> dict[str, object]:
+        """Browse available catalogs via GET /datasources/{datasource_id}/browse/catalogs."""
+        return client.request_envelope(
+            "GET",
+            f"/datasources/{datasource_id}/browse/catalogs",
+        ).model_dump()
+
+    @server.tool()
+    @_tool_metadata("GET", "/datasources/{datasource_id}/browse/schemas")
+    def browse_schemas(
+        datasource_id: str,
+        catalog: str | None = None,
+    ) -> dict[str, object]:
+        """Browse schemas via GET /datasources/{datasource_id}/browse/schemas."""
+        return client.request_envelope(
+            "GET",
+            f"/datasources/{datasource_id}/browse/schemas",
+            params=_compact_params(catalog=catalog),
+        ).model_dump()
+
+    @server.tool()
+    @_tool_metadata("GET", "/datasources/{datasource_id}/browse/tables")
+    def browse_tables(
+        datasource_id: str,
+        catalog: str | None = None,
+        schema: str | None = None,
+    ) -> dict[str, object]:
+        """Browse tables via GET /datasources/{datasource_id}/browse/tables."""
+        return client.request_envelope(
+            "GET",
+            f"/datasources/{datasource_id}/browse/tables",
+            params=_compact_params(catalog=catalog, schema=schema),
+        ).model_dump()
+
+    @server.tool()
+    @_tool_metadata("POST", "/datasources/{datasource_id}/preview")
+    def preview_table(
+        datasource_id: str,
         schema: str,
         table: str,
         limit: int = 100,
         columns: str | None = None,
         filters: dict[str, object] | list[dict[str, object]] | None = None,
     ) -> dict[str, object]:
-        """Preview sample rows from a source table via GET /sources/{source_id}/catalog/preview.
+        """Preview sample rows from a table via POST /datasources/{datasource_id}/preview.
 
         Use this to inspect actual data values when configuring semantic bindings,
         especially for determining timestamp formats and column data types.
 
         Args:
-            source_id: Registered source identifier
+            datasource_id: Registered datasource identifier
             schema: Schema name containing the table
             table: Table name to preview
             limit: Max rows (default 100, max 1000)
             columns: Comma-separated column names (optional)
             filters: Equality filters as a JSON-like object, e.g. {"query_state":"FAILED"}
         """
-        encoded_filters = json.dumps(filters) if filters is not None else None
         return client.request_envelope(
-            "GET",
-            f"/sources/{source_id}/catalog/preview",
-            params=_compact_params(
+            "POST",
+            f"/datasources/{datasource_id}/preview",
+            json_body=_compact_body(
                 schema=schema,
                 table=table,
                 limit=limit,
                 columns=columns,
-                filters=encoded_filters,
+                filters=filters,
             ),
         ).model_dump()
 
     @server.tool()
-    @_tool_metadata("GET", "/sources/{source_id}/objects")
-    def get_source_objects(
-        source_id: str,
+    @_tool_metadata("GET", "/datasources/{datasource_id}/objects")
+    def get_datasource_objects(
+        datasource_id: str,
         type: str | None = None,
         schema: str | None = None,
     ) -> dict[str, object]:
-        """Read synced source metadata via GET /sources/{source_id}/objects using only the canonical type and schema filters; for live external catalog browse, use /sources/{source_id}/catalog/* instead."""
+        """Read synced source objects via GET /datasources/{datasource_id}/objects using only the canonical type and schema filters; for live external catalog browse, use /datasources/{datasource_id}/browse/* instead."""
         return client.request_envelope(
             "GET",
-            f"/sources/{source_id}/objects",
+            f"/datasources/{datasource_id}/objects",
             params=_compact_params(type=type, schema=schema),
         ).model_dump()
 
     @server.tool()
-    @_tool_metadata("GET", "/sources/{source_id}/objects/{object_id}")
-    def get_source_object(source_id: str, object_id: str) -> dict[str, object]:
-        """Read one synced source object via GET /sources/{source_id}/objects/{object_id}; this mirrors Marivo's stored metadata detail and does not browse live external catalogs."""
+    @_tool_metadata("GET", "/datasources/{datasource_id}/objects/{object_id}")
+    def get_datasource_object(datasource_id: str, object_id: str) -> dict[str, object]:
+        """Read one synced source object via GET /datasources/{datasource_id}/objects/{object_id}; this mirrors Marivo's stored metadata detail and does not browse live external catalogs."""
         return client.request_envelope(
             "GET",
-            f"/sources/{source_id}/objects/{object_id}",
+            f"/datasources/{datasource_id}/objects/{object_id}",
+        ).model_dump()
+
+    @server.tool()
+    @_tool_metadata("GET", "/datasources/{datasource_id}/sync/selections")
+    def get_sync_selections(datasource_id: str) -> dict[str, object]:
+        """Read sync selections via GET /datasources/{datasource_id}/sync/selections."""
+        return client.request_envelope(
+            "GET",
+            f"/datasources/{datasource_id}/sync/selections",
         ).model_dump()
 
     @server.tool()

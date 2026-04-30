@@ -60,7 +60,7 @@ def _build_config(*, api_token: str | None = None) -> Any:
         api_token=api_token,
         timeout_ms=1500,
         openapi_cache_ttl_sec=300,
-        default_source_id=None,
+        default_datasource_id=None,
         transport="stdio",
         http=HttpTransportConfig(),
     )
@@ -395,10 +395,10 @@ def test_registers_t4_discovery_and_catalog_tools() -> None:
         "publish_compatibility_profile",
     }
     assert set(server.tools) >= {
-        "list_sources",
-        "register_source",
-        "sync_source",
-        "get_source_objects",
+        "list_datasources",
+        "create_datasource",
+        "sync_datasource",
+        "get_datasource_objects",
         "resolve_routing",
     }
 
@@ -2057,23 +2057,23 @@ def test_publish_compatibility_profile_preserves_not_found() -> None:
     assert result["error"]["category"] == "not_found"
 
 
-def test_list_sources_uses_canonical_sources_index() -> None:
+def test_list_datasources_uses_canonical_datasources_index() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.method == "GET"
-        assert request.url.path == "/sources"
+        assert request.url.path == "/datasources"
         assert request.url.query == b""
-        return httpx.Response(200, json=[{"source_id": "src_123"}], request=request)
+        return httpx.Response(200, json=[{"datasource_id": "ds_123"}], request=request)
 
-    result = _invoke_registered_tool("list_sources", handler)
+    result = _invoke_registered_tool("list_datasources", handler)
 
     assert result["ok"] is True
-    assert result["data"] == [{"source_id": "src_123"}]
-    assert result["meta"]["marivo_path"] == "/sources"
+    assert result["data"] == [{"datasource_id": "ds_123"}]
+    assert result["meta"]["marivo_path"] == "/datasources"
 
 
-def test_register_source_uses_only_canonical_body_fields() -> None:
+def test_create_datasource_uses_only_canonical_body_fields() -> None:
     tool_kwargs = {
-        "source_type": "duckdb",
+        "datasource_type": "duckdb",
         "display_name": "Analytics DuckDB",
         "connection": {"db_path": "/data/analytics.duckdb"},
         "capabilities": {"supports_partitions": False},
@@ -2082,156 +2082,162 @@ def test_register_source_uses_only_canonical_body_fields() -> None:
 
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.method == "POST"
-        assert request.url.path == "/sources"
+        assert request.url.path == "/datasources"
         assert request.read() == expected_body
-        return httpx.Response(200, json={"source_id": "src_123"}, request=request)
+        return httpx.Response(200, json={"datasource_id": "ds_123"}, request=request)
 
-    result = _invoke_registered_tool("register_source", handler, **tool_kwargs)
+    result = _invoke_registered_tool("create_datasource", handler, **tool_kwargs)
 
     assert result["ok"] is True
-    assert result["data"] == {"source_id": "src_123"}
-    assert result["meta"]["marivo_path"] == "/sources"
+    assert result["data"] == {"datasource_id": "ds_123"}
+    assert result["meta"]["marivo_path"] == "/datasources"
 
 
-def test_register_source_omits_none_optional_fields() -> None:
+def test_create_datasource_omits_none_optional_fields() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.method == "POST"
-        assert request.url.path == "/sources"
+        assert request.url.path == "/datasources"
         assert request.read() == (
             httpx.Request(
                 "POST",
                 "http://marivo.test",
-                json={"source_type": "trino", "display_name": "Warehouse"},
+                json={"datasource_type": "trino", "display_name": "Warehouse"},
             ).read()
         )
-        return httpx.Response(200, json={"source_id": "src_456"}, request=request)
+        return httpx.Response(200, json={"datasource_id": "ds_456"}, request=request)
 
     result = _invoke_registered_tool(
-        "register_source",
+        "create_datasource",
         handler,
-        source_type="trino",
+        datasource_type="trino",
         display_name="Warehouse",
     )
 
     assert result["ok"] is True
-    assert result["data"] == {"source_id": "src_456"}
+    assert result["data"] == {"datasource_id": "ds_456"}
 
 
-def test_sync_source_uses_canonical_sync_route_without_body() -> None:
+def test_sync_datasource_uses_canonical_sync_route_without_body() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.method == "POST"
-        assert request.url.path == "/sources/src_123/sync"
+        assert request.url.path == "/datasources/ds_123/sync"
         assert request.read() == b""
         return httpx.Response(
             200,
-            json={"job_id": "sync_123", "source_id": "src_123", "status": "succeeded"},
+            json={"job_id": "sync_123", "datasource_id": "ds_123", "status": "succeeded"},
             request=request,
         )
 
-    result = _invoke_registered_tool("sync_source", handler, source_id="src_123")
+    result = _invoke_registered_tool("sync_datasource", handler, datasource_id="ds_123")
 
     assert result["ok"] is True
-    assert result["data"] == {"job_id": "sync_123", "source_id": "src_123", "status": "succeeded"}
-    assert result["meta"]["marivo_path"] == "/sources/src_123/sync"
+    assert result["data"] == {
+        "job_id": "sync_123",
+        "datasource_id": "ds_123",
+        "status": "succeeded",
+    }
+    assert result["meta"]["marivo_path"] == "/datasources/ds_123/sync"
 
 
-def test_sync_source_preserves_not_found_and_client_failure_shapes() -> None:
+def test_sync_datasource_preserves_not_found_and_client_failure_shapes() -> None:
     def not_found_handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/sources/src_missing/sync"
-        return httpx.Response(404, json={"detail": "'src_missing' not found"}, request=request)
+        assert request.url.path == "/datasources/ds_missing/sync"
+        return httpx.Response(404, json={"detail": "'ds_missing' not found"}, request=request)
 
-    not_found = _invoke_registered_tool("sync_source", not_found_handler, source_id="src_missing")
+    not_found = _invoke_registered_tool(
+        "sync_datasource", not_found_handler, datasource_id="ds_missing"
+    )
 
     assert not_found["ok"] is False
     assert not_found["status_code"] == 404
     assert not_found["error"]["category"] == "not_found"
-    assert not_found["error"]["message"] == "'src_missing' not found"
+    assert not_found["error"]["message"] == "'ds_missing' not found"
 
     def client_error_handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/sources/src_disabled/sync"
+        assert request.url.path == "/datasources/ds_disabled/sync"
         return httpx.Response(
             400,
-            json={"detail": "Sync disabled for this source (mode=none)"},
+            json={"detail": "Sync disabled for this datasource (mode=none)"},
             request=request,
         )
 
     client_error = _invoke_registered_tool(
-        "sync_source",
+        "sync_datasource",
         client_error_handler,
-        source_id="src_disabled",
+        datasource_id="ds_disabled",
     )
 
     assert client_error["ok"] is False
     assert client_error["status_code"] == 400
     assert client_error["error"]["category"] == "server_error"
-    assert client_error["error"]["message"] == "Sync disabled for this source (mode=none)"
+    assert client_error["error"]["message"] == "Sync disabled for this datasource (mode=none)"
 
 
-def test_get_source_objects_uses_only_canonical_type_and_schema_filters() -> None:
+def test_get_datasource_objects_uses_only_canonical_type_and_schema_filters() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.method == "GET"
-        assert request.url.path == "/sources/src_123/objects"
+        assert request.url.path == "/datasources/ds_123/objects"
         assert dict(request.url.params) == {"type": "table", "schema": "events"}
         return httpx.Response(200, json=[{"object_id": "obj_123"}], request=request)
 
     result = _invoke_registered_tool(
-        "get_source_objects",
+        "get_datasource_objects",
         handler,
-        source_id="src_123",
+        datasource_id="ds_123",
         type="table",
         schema="events",
     )
 
     assert result["ok"] is True
     assert result["data"] == [{"object_id": "obj_123"}]
-    assert result["meta"]["marivo_path"] == "/sources/src_123/objects"
+    assert result["meta"]["marivo_path"] == "/datasources/ds_123/objects"
 
 
-def test_get_source_objects_preserves_missing_source_not_found() -> None:
+def test_get_datasource_objects_preserves_missing_datasource_not_found() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/sources/src_missing/objects"
-        return httpx.Response(404, json={"detail": "'src_missing' not found"}, request=request)
+        assert request.url.path == "/datasources/ds_missing/objects"
+        return httpx.Response(404, json={"detail": "'ds_missing' not found"}, request=request)
 
     result = _invoke_registered_tool(
-        "get_source_objects",
+        "get_datasource_objects",
         handler,
-        source_id="src_missing",
+        datasource_id="ds_missing",
     )
 
     assert result["ok"] is False
     assert result["status_code"] == 404
     assert result["error"]["category"] == "not_found"
-    assert result["error"]["message"] == "'src_missing' not found"
+    assert result["error"]["message"] == "'ds_missing' not found"
 
 
-def test_get_source_object_reads_one_synced_object_detail() -> None:
+def test_get_datasource_object_reads_one_synced_object_detail() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.method == "GET"
-        assert request.url.path == "/sources/src_123/objects/obj_456"
+        assert request.url.path == "/datasources/ds_123/objects/obj_456"
         assert dict(request.url.params) == {}
         return httpx.Response(200, json={"object_id": "obj_456"}, request=request)
 
     result = _invoke_registered_tool(
-        "get_source_object",
+        "get_datasource_object",
         handler,
-        source_id="src_123",
+        datasource_id="ds_123",
         object_id="obj_456",
     )
 
     assert result["ok"] is True
     assert result["data"] == {"object_id": "obj_456"}
-    assert result["meta"]["marivo_path"] == "/sources/src_123/objects/obj_456"
+    assert result["meta"]["marivo_path"] == "/datasources/ds_123/objects/obj_456"
 
 
-def test_get_source_object_preserves_missing_object_not_found() -> None:
+def test_get_datasource_object_preserves_missing_object_not_found() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/sources/src_123/objects/obj_missing"
+        assert request.url.path == "/datasources/ds_123/objects/obj_missing"
         return httpx.Response(404, json={"detail": "'obj_missing' not found"}, request=request)
 
     result = _invoke_registered_tool(
-        "get_source_object",
+        "get_datasource_object",
         handler,
-        source_id="src_123",
+        datasource_id="ds_123",
         object_id="obj_missing",
     )
 

@@ -52,7 +52,7 @@ def register_resources(
             f"base_url={config.base_url}\n"
             f"timeout_ms={config.timeout_ms}\n"
             f"openapi_cache_ttl_sec={config.openapi_cache_ttl_sec}\n"
-            f"default_source_id={config.default_source_id or ''}\n"
+            f"default_datasource_id={config.default_datasource_id or ''}\n"
         )
 
     @server.resource("marivo://catalog/summary")
@@ -60,7 +60,7 @@ def register_resources(
         http_method="GET",
         http_paths=(
             "/openapi/index",
-            "/sources",
+            "/datasources",
             "/semantic/entities",
             "/semantic/metrics",
             "/semantic/process-objects",
@@ -75,7 +75,7 @@ def register_resources(
         """Expose a fixed catalog summary snapshot assembled from canonical HTTP read surfaces."""
         return {
             "openapi_index": _read_resource(client, "/openapi/index"),
-            "sources": _read_resource(client, "/sources"),
+            "datasources": _read_resource(client, "/datasources"),
             "semantic": {
                 family: _read_resource(client, path)
                 for family, path in _SEMANTIC_RESOURCE_PATHS.items()
@@ -123,20 +123,20 @@ def register_resources(
             )
         return _read_resource(client, path)
 
-    @server.resource("marivo://sources/{source_id}/objects")
-    @_resource_metadata(http_method="GET", http_paths=("/sources/{source_id}/objects",))
-    def source_objects(source_id: str) -> object:
-        """Mirror synced source metadata reads via GET /sources/{source_id}/objects only."""
-        return _read_resource(client, f"/sources/{source_id}/objects")
+    @server.resource("marivo://datasources/{datasource_id}/objects")
+    @_resource_metadata(http_method="GET", http_paths=("/datasources/{datasource_id}/objects",))
+    def datasource_objects(datasource_id: str) -> object:
+        """Mirror synced source metadata reads via GET /datasources/{datasource_id}/objects only."""
+        return _read_resource(client, f"/datasources/{datasource_id}/objects")
 
-    @server.resource("marivo://sources/{source_id}/objects/{object_id}")
+    @server.resource("marivo://datasources/{datasource_id}/objects/{object_id}")
     @_resource_metadata(
         http_method="GET",
-        http_paths=("/sources/{source_id}/objects/{object_id}",),
+        http_paths=("/datasources/{datasource_id}/objects/{object_id}",),
     )
-    def source_object(source_id: str, object_id: str) -> object:
-        """Mirror synced source metadata detail via GET /sources/{source_id}/objects/{object_id} only."""
-        return _read_resource(client, f"/sources/{source_id}/objects/{object_id}")
+    def datasource_object(datasource_id: str, object_id: str) -> object:
+        """Mirror synced source metadata detail via GET /datasources/{datasource_id}/objects/{object_id} only."""
+        return _read_resource(client, f"/datasources/{datasource_id}/objects/{object_id}")
 
 
 def _read_resource(

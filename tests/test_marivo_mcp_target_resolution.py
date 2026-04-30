@@ -78,7 +78,7 @@ def _build_config(**overrides: Any) -> MarivoMcpConfig:
         "healthcheck_timeout_ms": 2000,
         "timeout_ms": 1500,
         "openapi_cache_ttl_sec": 300,
-        "default_source_id": None,
+        "default_datasource_id": None,
         "transport": "stdio",
         "http": HttpTransportConfig(),
     }
