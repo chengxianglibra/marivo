@@ -17,7 +17,7 @@ container-backed MySQL instance.
 - Do not assume Docker Desktop. Prefer native arm64 Colima on Apple Silicon.
 - If global Docker config references a missing credential helper, use a temporary `DOCKER_CONFIG`
   and explicit Colima socket for test containers.
-- Stop the MySQL test container after the targeted test run finishes.
+- Stop the MySQL test container and Colima after the targeted test run finishes.
 
 ## Environment Check
 
@@ -214,4 +214,10 @@ Remove the container only when a clean container is needed for the next run:
 
 ```bash
 docker rm -f marivo-mysql-test
+```
+
+Stop Colima to free VM resources:
+
+```bash
+colima stop
 ```
