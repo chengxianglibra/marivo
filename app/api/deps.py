@@ -8,16 +8,14 @@ from fastapi import HTTPException, Request
 
 from app.approvals import ApprovalService
 from app.config import MarivoConfig
-from app.engines import EngineService
+from app.datasources import DatasourceService
 from app.governance import GovernanceService
 from app.jobs import JobService
-from app.mappings import MappingService
 from app.observability import MetricsCollector
 from app.routing import QueryRouter
 from app.semantic import SemanticService
 from app.semantic_runtime.catalog import CatalogRuntimeService
 from app.service import SemanticLayerService
-from app.sources import SourceService
 from app.storage.analytics import AnalyticsEngine
 from app.storage.metadata import MetadataStore
 from app.storage.repositories import JobRepository
@@ -29,10 +27,8 @@ class AppServices:
     resolved_path: Path | str  # Analytics path; str ":memory:" means in-memory DuckDB.
     config: MarivoConfig
     service: SemanticLayerService
-    source_service: SourceService
+    datasource_service: DatasourceService
     sync_engine: SyncEngine
-    engine_service: EngineService
-    mapping_service: MappingService
     query_router: QueryRouter
     metadata_store: MetadataStore
     analytics_engine: AnalyticsEngine

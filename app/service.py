@@ -974,7 +974,7 @@ class SemanticLayerService:
         return MetricCarrierRoutePreflight(
             table_name=(
                 self._executable_metric_table_name(
-                    route_resolution.route.engine_id,
+                    route_resolution.route.datasource_id,
                     execution_locator,
                 )
                 if route_resolution.route is not None
@@ -1333,7 +1333,7 @@ class SemanticLayerService:
             resolution.feedback.to_dict() if resolution.feedback is not None else None
         )
         qualified = resolution.route.qualified_names if resolution.route is not None else {}
-        return resolution.engine, resolution.engine_type, qualified
+        return resolution.engine, resolution.datasource_type, qualified
 
     def _resolve_engine_for_session(
         self,
