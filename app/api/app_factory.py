@@ -24,8 +24,6 @@ from app.governance import GovernanceService
 from app.jobs import JobService
 from app.observability import MetricsCollector, TimingMiddleware, setup_logging
 from app.routing import QueryRouter
-from app.semantic import SemanticService
-from app.semantic_runtime import CatalogRuntimeService
 from app.semantic_service_v2.service import SemanticModelV2Service
 from app.service import SemanticLayerService
 from app.storage.analytics import AnalyticsEngine
@@ -163,9 +161,7 @@ def _build_services(
     query_router = QueryRouter(metadata_store, datasource_service)
     service.query_router = query_router
     _register_configured_governance(config, metadata_store, governance_service)
-    semantic_service = SemanticService(metadata_store)
     semantic_v2_service = SemanticModelV2Service(cast("SQLiteMetadataStore", metadata_store))
-    catalog_runtime = CatalogRuntimeService(metadata_store)
     job_repository = JobRepository(metadata_store)
     job_service = JobService(
         metadata_store,
@@ -187,9 +183,7 @@ def _build_services(
         metrics=metrics_collector,
         job_service=job_service,
         job_repository=job_repository,
-        semantic_service=semantic_service,
         semantic_v2_service=semantic_v2_service,
-        catalog_runtime=catalog_runtime,
     )
 
 
@@ -207,9 +201,7 @@ def _attach_state(app: FastAPI, services: AppServices) -> None:
     app.state.metrics = services.metrics
     app.state.job_service = services.job_service
     app.state.job_repository = services.job_repository
-    app.state.semantic_service = services.semantic_service
     app.state.semantic_v2_service = services.semantic_v2_service
-    app.state.catalog_runtime = services.catalog_runtime
 
 
 def create_app(

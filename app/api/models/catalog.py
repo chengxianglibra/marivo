@@ -1,11 +1,16 @@
+"""Stub catalog models — preserved for import compatibility during OSI v2 migration.
+
+These models are minimal stubs.  The full catalog models will be re-implemented
+in Task 7 (Fix Downstream Dependencies).
+"""
+
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
 from .base import BlockingRequirement, LifecycleStatus, ReadinessStatus
-from .entity import TypedEntityResponse
 
 
 class SourceObjectResponse(BaseModel):
@@ -72,10 +77,9 @@ class CatalogAssetSearchResult(CatalogSearchResultBase):
     source_object_path: str
 
 
-CatalogSearchResult = Annotated[
-    CatalogSemanticSearchResult | CatalogCalendarPolicySearchResult | CatalogAssetSearchResult,
-    Field(discriminator="object_kind"),
-]
+CatalogSearchResult = (
+    CatalogSemanticSearchResult | CatalogCalendarPolicySearchResult | CatalogAssetSearchResult
+)
 
 
 class CatalogSemanticDetailBase(BaseModel):
@@ -90,22 +94,22 @@ class CatalogSemanticDetailBase(BaseModel):
 
 class CatalogEntityDetail(CatalogSemanticDetailBase):
     object_kind: Literal["entity"]
-    semantic_object: TypedEntityResponse
+    semantic_object: dict[str, Any]
 
 
 class CatalogMetricDetail(CatalogSemanticDetailBase):
     object_kind: Literal["metric"]
-    semantic_object: dict[str, object]
+    semantic_object: dict[str, Any]
 
 
 class CatalogGenericSemanticDetail(CatalogSemanticDetailBase):
     object_kind: Literal["process", "dimension", "time", "binding", "predicate"]
-    semantic_object: dict[str, object]
+    semantic_object: dict[str, Any]
 
 
 class CatalogCalendarPolicyDetail(CatalogSemanticDetailBase):
     object_kind: Literal["calendar_policy"]
-    semantic_object: dict[str, object]
+    semantic_object: dict[str, Any]
 
 
 class CatalogAssetDetail(BaseModel):
@@ -115,11 +119,10 @@ class CatalogAssetDetail(BaseModel):
     source_object: SourceObjectResponse
 
 
-CatalogObjectDetail = Annotated[
+CatalogObjectDetail = (
     CatalogEntityDetail
     | CatalogMetricDetail
     | CatalogGenericSemanticDetail
     | CatalogCalendarPolicyDetail
-    | CatalogAssetDetail,
-    Field(discriminator="object_kind"),
-]
+    | CatalogAssetDetail
+)

@@ -40,11 +40,6 @@ from app.api.models.base import (
     validate_contract_version,
     validate_ref_prefix,
 )
-from app.api.models.binding import TypedBindingResponse
-from app.api.models.dimension import DimensionResponse
-from app.api.models.entity import TypedEntityResponse
-from app.api.models.enum_set import EnumSetResponse
-from app.api.models.metric import TypedMetricResponse
 
 
 class TestValidateRefPrefix(unittest.TestCase):
@@ -227,42 +222,6 @@ class TestCatalogMetadata(unittest.TestCase):
             CatalogMetadata(domain_ref="metric.dau")
 
         self.assertIn("'domain_ref' must start with 'domain.' prefix", str(ctx.exception))
-
-    def test_object_response_base_carries_default_catalog_metadata(self):
-        response = TypedEntityResponse(
-            entity_contract_id="entc_test",
-            header={
-                "entity_ref": "entity.test",
-                "display_name": "Test",
-                "entity_contract_version": "entity.v1",
-            },
-            interface_contract={
-                "identity": {
-                    "key_refs": ["key.test_id"],
-                    "uniqueness_scope": "global",
-                    "id_stability": "stable",
-                }
-            },
-            status="draft",
-            lifecycle_status="draft",
-            readiness_status="not_ready",
-            blocking_requirements=[],
-            capabilities={},
-            revision=1,
-            created_at="2026-01-01T00:00:00Z",
-            updated_at="2026-01-01T00:00:00Z",
-        )
-
-        self.assertEqual(response.catalog_metadata, CatalogMetadata())
-
-    def test_catalog_metadata_is_not_exposed_by_unsupported_response_models(self):
-        self.assertNotIn("catalog_metadata", TypedBindingResponse.model_fields)
-        self.assertNotIn("catalog_metadata", EnumSetResponse.model_fields)
-
-    def test_catalog_metadata_is_exposed_by_supported_response_models(self):
-        self.assertIn("catalog_metadata", TypedEntityResponse.model_fields)
-        self.assertIn("catalog_metadata", TypedMetricResponse.model_fields)
-        self.assertIn("catalog_metadata", DimensionResponse.model_fields)
 
 
 class TestWindowOffset(unittest.TestCase):

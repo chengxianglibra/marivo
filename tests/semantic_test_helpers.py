@@ -9,16 +9,19 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
-from app.api.models.dimension import DimensionCreateRequest
-from app.api.models.entity import TypedEntityCreateRequest
-from app.api.models.metric import TypedMetricCreateRequest
-from app.api.models.time import TimeCreateRequest
 from app.datasources import DatasourceService
 from app.routing import QueryRouter
-from app.semantic import SemanticService
 from app.service import SemanticLayerService
 from app.storage.analytics import AnalyticsEngine
 from app.storage.metadata import MetadataStore
+
+# Stub names for deleted model types — these are no longer functional.
+# The helper functions that use them will raise NotImplementedError at runtime.
+# Task 7 will migrate these helpers to use OSI v2 models.
+TypedEntityCreateRequest = None  # type: ignore[assignment,misc]
+TypedMetricCreateRequest = None  # type: ignore[assignment,misc]
+TimeCreateRequest = None  # type: ignore[assignment,misc]
+DimensionCreateRequest = None  # type: ignore[assignment,misc]
 
 _DEFAULT_TYPED_ENTITY_REF = "entity.synthetic_subject"
 _DEFAULT_TYPED_ENTITY_KEY = "key.synthetic_subject_id"
@@ -148,8 +151,22 @@ def _ensure_entity_has_default_fields(
     )
 
 
-def _semantic_service_for_metadata(metadata: MetadataStore) -> SemanticService:
-    return SemanticService(metadata)
+def _semantic_service_for_metadata(metadata: MetadataStore) -> Any:
+    # SemanticService removed during OSI v2 migration; these helpers will be
+    # updated in Task 7.  Return a stub that raises on any method call.
+    return _RemovedSemanticServiceStub()
+
+
+class _RemovedSemanticServiceStub:
+    """Stub that raises NotImplementedError on any method call.
+
+    SemanticService was removed during OSI v2 migration.
+    This stub exists so that test collection/setup does not crash at import time.
+    See Task 7 for the full migration.
+    """
+
+    def __getattr__(self, name: str) -> Any:
+        raise NotImplementedError(f"SemanticService.{name}() removed — see Task 7")
 
 
 def _metadata_store_from_client(client: TestClient) -> MetadataStore:
