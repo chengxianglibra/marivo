@@ -49,7 +49,9 @@ def _trino_connect_kwargs(connection: dict[str, Any]) -> dict[str, Any]:
 def validate_datasource_type(datasource_type: str) -> None:
     if datasource_type not in SUPPORTED_DATASOURCE_TYPES:
         supported = ", ".join(SUPPORTED_DATASOURCE_TYPES)
-        raise ValueError(f"Unsupported datasource type: {datasource_type}. Supported types: {supported}")
+        raise ValueError(
+            f"Unsupported datasource type: {datasource_type}. Supported types: {supported}"
+        )
 
 
 def build_catalog_adapter(datasource_type: str, connection: dict[str, Any]) -> CatalogAdapter:

@@ -263,7 +263,9 @@ class DatasourceRegistry:
                 dependencies=refs,
             )
 
-        self.metadata.execute("DELETE FROM sync_selections WHERE datasource_id = ?", [datasource_id])
+        self.metadata.execute(
+            "DELETE FROM sync_selections WHERE datasource_id = ?", [datasource_id]
+        )
         self.metadata.execute("DELETE FROM sync_jobs WHERE datasource_id = ?", [datasource_id])
         self.metadata.execute("DELETE FROM source_objects WHERE datasource_id = ?", [datasource_id])
         self.metadata.execute("DELETE FROM datasources WHERE datasource_id = ?", [datasource_id])
@@ -546,7 +548,9 @@ class DatasourceRegistry:
 
     def clear_sync_selections(self, datasource_id: str) -> None:
         self.get_datasource(datasource_id)
-        self.metadata.execute("DELETE FROM sync_selections WHERE datasource_id = ?", [datasource_id])
+        self.metadata.execute(
+            "DELETE FROM sync_selections WHERE datasource_id = ?", [datasource_id]
+        )
 
     # =========================================================================
     # Row conversion

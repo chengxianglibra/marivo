@@ -211,12 +211,6 @@ curl -s -X POST http://localhost:8000/semantic/metrics/metc_.../publish | jq .
 curl -s -X POST http://localhost:8000/semantic/bindings/bind_.../publish | jq .
 ```
 
-Verify that runtime resolution sees only published typed refs:
-
-```bash
-curl -s http://localhost:8000/semantic/resolve/metric.daily_active_users | jq .
-```
-
 Current metric readiness may still report legacy binding blockers until the compiler/readiness
 cutover is completed. Do not create `binding_scope=metric` or `binding_scope=process_object`
 payloads as a workaround; those scopes are rejected by the public typed binding authoring path.

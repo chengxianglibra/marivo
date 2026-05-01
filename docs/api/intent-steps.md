@@ -158,8 +158,8 @@ Step submission errors may include additional structured fields such as:
 - `issues`: typed validation issues when the failing intent contract defines them
 - `ref`: the typed ref or path target associated with the failure when useful
 
-When intent compilation hits an object-level readiness gate, the endpoint returns `409` with the
-same readiness payload used by `GET /semantic/resolve/{typed_ref}`:
+When intent compilation hits an object-level readiness gate, the endpoint returns `409` with a
+structured readiness payload:
 
 - `message`
 - `code`
@@ -229,11 +229,10 @@ Other supported `kind` values:
 - `latest_available`: latest stable data point in the source
 - `as_of`: historical snapshot as of a specified timestamp (requires `at` field)
 
-Supported `calendar_policy_ref` values are discoverable through `GET /catalog/search` with
-`type=calendar_policy` and through `GET /semantic/resolve/{ref}`. The fixed refs are
-compiler-owned builtin catalog entries such as `calendar_policy.holiday_yoy`,
-`calendar_policy.weekday_yoy`, and `calendar_policy.natural_yoy`; callers should discover them
-instead of guessing or reading implementation docs.
+Supported `calendar_policy_ref` values are compiler-owned builtin refs such as
+`calendar_policy.holiday_yoy`, `calendar_policy.weekday_yoy`, and
+`calendar_policy.natural_yoy`. Public `/catalog/*` discovery is no longer exposed; callers should
+use the semantic API documentation and compiler profile surfaces instead of legacy catalog lookup.
 
 Supported outputs:
 

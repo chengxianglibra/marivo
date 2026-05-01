@@ -297,7 +297,7 @@ def test_health_check_uses_shared_http_client_envelope() -> None:
     }
 
 
-def test_registers_t4_discovery_and_catalog_tools() -> None:
+def test_registers_t4_discovery_tools() -> None:
     server = cast("Any", _FakeServer())
     register_tools(server, _build_config())
 
@@ -313,8 +313,6 @@ def test_registers_t4_discovery_and_catalog_tools() -> None:
         "get_openapi_schema",
         "get_openapi_fragment",
         "get_openapi_path_fragment",
-        "search_catalog",
-        "resolve_typed_ref",
     }
     assert set(server.tools) >= {
         "observe",
@@ -661,152 +659,6 @@ def test_openapi_cache_can_be_disabled_with_zero_ttl() -> None:
     assert attempts["count"] == 2
     assert first["data"]["attempt"] == 1
     assert second["data"]["attempt"] == 2
-
-
-def test_search_catalog_forwards_query_and_type_filter() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/catalog/search"
-        assert dict(request.url.params) == {"q": "watch", "type": "metric"}
-        return httpx.Response(
-            200, json=[{"object_kind": "metric", "ref": "metric.watch_time"}], request=request
-        )
-
-    result = _invoke_registered_tool(
-        "search_catalog",
-        handler,
-        q="watch",
-        type="metric",
-    )
-
-    assert result["ok"] is True
-    assert result["data"] == [{"object_kind": "metric", "ref": "metric.watch_time"}]
-
-
-def test_search_catalog_forwards_readiness_filter() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/catalog/search"
-        assert dict(request.url.params) == {
-            "q": "watch",
-            "type": "metric",
-            "readiness": "not_ready",
-        }
-        return httpx.Response(
-            200, json=[{"object_kind": "metric", "ref": "metric.watch_time"}], request=request
-        )
-
-    result = _invoke_registered_tool(
-        "search_catalog",
-        handler,
-        q="watch",
-        type="metric",
-        readiness="not_ready",
-    )
-
-    assert result["ok"] is True
-    assert result["data"] == [{"object_kind": "metric", "ref": "metric.watch_time"}]
-
-
-def test_search_catalog_allows_calendar_policy_type_filter() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/catalog/search"
-        assert dict(request.url.params) == {
-            "q": "holiday",
-            "type": "calendar_policy",
-        }
-        return httpx.Response(
-            200,
-            json=[
-                {
-                    "object_kind": "calendar_policy",
-                    "ref": "calendar_policy.calendar_yoy",
-                }
-            ],
-            request=request,
-        )
-
-    result = _invoke_registered_tool(
-        "search_catalog",
-        handler,
-        q="holiday",
-        type="calendar_policy",
-    )
-
-    assert result["ok"] is True
-    assert result["data"] == [
-        {
-            "object_kind": "calendar_policy",
-            "ref": "calendar_policy.calendar_yoy",
-        }
-    ]
-
-
-def test_search_catalog_rejects_invalid_type_filter_before_http_request() -> None:
-    with pytest.raises(ValueError, match="search_catalog type must be one of"):
-        _invoke_registered_tool(
-            "search_catalog",
-            lambda request: httpx.Response(200, json=[], request=request),
-            q="watch",
-            type="profile",
-        )
-
-
-def test_search_catalog_rejects_invalid_readiness_filter_before_http_request() -> None:
-    with pytest.raises(ValueError, match="search_catalog readiness must be one of"):
-        _invoke_registered_tool(
-            "search_catalog",
-            lambda request: httpx.Response(200, json=[], request=request),
-            q="watch",
-            readiness="blocked",
-        )
-
-
-def test_resolve_typed_ref_uses_explicit_ref_path() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/semantic/resolve/metric.watch_time"
-        return httpx.Response(
-            200, json={"object_kind": "metric", "ref": "metric.watch_time"}, request=request
-        )
-
-    result = _invoke_registered_tool(
-        "resolve_typed_ref",
-        handler,
-        ref="metric.watch_time",
-    )
-
-    assert result["ok"] is True
-    assert result["data"] == {"object_kind": "metric", "ref": "metric.watch_time"}
-
-
-def test_resolve_typed_ref_preserves_not_found_for_bare_name_lookup() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/semantic/resolve/watch_time"
-        return httpx.Response(404, json={"detail": "'watch_time' not found"}, request=request)
-
-    result = _invoke_registered_tool(
-        "resolve_typed_ref",
-        handler,
-        ref="watch_time",
-    )
-
-    assert result["ok"] is False
-    assert result["status_code"] == 404
-    assert result["error"]["category"] == "not_found"
-
-
-def test_resolve_typed_ref_preserves_not_found_for_non_public_namespace_values() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/semantic/resolve/key.user_id"
-        return httpx.Response(404, json={"detail": "'key.user_id' not found"}, request=request)
-
-    result = _invoke_registered_tool(
-        "resolve_typed_ref",
-        handler,
-        ref="key.user_id",
-    )
-
-    assert result["ok"] is False
-    assert result["status_code"] == 404
-    assert result["error"]["category"] == "not_found"
 
 
 def test_create_session_uses_canonical_session_root_request_fields() -> None:

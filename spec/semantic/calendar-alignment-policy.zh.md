@@ -592,8 +592,8 @@ v1 不提供 `calendar_policy.*` 的独立 CRUD。
 
 - `calendar_policy_ref` 可被请求与 compile plan 稳定引用
 - policy 条目由 compiler 侧 catalog 预装和版本化
-- policy 条目可通过 discovery surface 发现：`GET /catalog/search?type=calendar_policy`、
-  `GET /semantic/resolve/{ref}`，以及只读的 compatibility-profile list 投影视图
+- policy 条目可通过只读 compatibility-profile list 投影视图发现；不再通过 legacy
+  `/catalog/*` 或 `/semantic/resolve/{ref}` API 暴露
 - 不承诺与 `metric.*` / `dimension.*` / `time.*` 同级的独立治理面
 - `calendar_policy_ref` 只在 `observe` 暴露，整体采用 `observation-first` 编译入口
 
@@ -663,11 +663,10 @@ agent 不应只凭 prompt 自由发挥，而应读取一个固定的 policy regi
 - `use_when`
 - `avoid_when`
 
-HTTP discovery surface 已暴露该固定 registry：优先用 `GET /catalog/search?q=holiday&type=calendar_policy`
-或 `GET /catalog/search?q=weekday&type=calendar_policy` 查找候选，再用
-`GET /semantic/resolve/calendar_policy.*` 读取详情。`GET /compiler/compatibility-profiles` 也会以
-只读、`system_managed=true` 的投影视图列出这些内置 policy，便于只使用 compatibility profile
-列表面的 agent 自洽发现。
+HTTP discovery surface 通过 `GET /compiler/compatibility-profiles` 以只读、
+`system_managed=true` 的投影视图列出这些内置 policy，便于只使用 compatibility profile
+列表面的 agent 自洽发现。legacy `/catalog/*` 和 `/semantic/resolve/{ref}` 不再作为 policy
+发现入口。
 
 示意：
 

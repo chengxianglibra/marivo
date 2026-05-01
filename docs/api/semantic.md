@@ -1538,94 +1538,15 @@ Notes:
   active subject revision. Use `POST /compiler/compatibility-profiles/{profile_id_or_ref}/revalidate`
   after reviewing the changed subject and dependent relationship/profile requirements.
 
-## Runtime Catalog Discovery
+## Semantic Model Discovery
 
-Runtime catalog discovery defaults to ready semantic objects and exposes explicit readiness filters
-for modeling and integration callers.
+`catalog` is an OSI semantic-model concept in Marivo, not a standalone legacy HTTP API family.
+Legacy runtime routes under `/catalog/*`, `/semantic/resolve/{name}`, and
+`/sessions/{session_id}/planner-context` are no longer public surfaces.
 
-`GET /catalog/search?q=...&type=...&readiness=...`
-
-- Supported semantic `type` filters: `entity`, `metric`, `process`, `dimension`, `time`,
-  `binding`, `calendar_policy`
-- `asset` remains available as a source-object discovery filter and is not a semantic object kind
-- `calendar_policy.*` results are compiler-owned builtin catalog entries. They are discoverable and
-  resolvable but do not expose public CRUD or semantic-object lifecycle operations.
-- `readiness` supports `ready` (default), `not_ready`, `stale`, and `all`
-- Semantic results use a unified summary envelope:
-  - `object_kind`
-  - `object_id`
-  - `ref`
-  - `name`
-  - `display_name`
-  - `description`
-  - `status`
-  - `lifecycle_status`
-  - `readiness_status`
-  - `blocker_count`
-  - `blocking_requirements_preview`
-  - `capabilities_summary`
-  - `revision`
-  - `created_at`
-  - `updated_at`
-  - `detail_path`
-  - `resolve_path`
-- `readiness=ready` is the intended end-user default for picker/search UI. Use `readiness=all`
-  only when the caller explicitly wants to inspect unavailable objects and surface why-not-ready.
-- Asset results additionally expose:
-  - `source_id`
-  - `object_type`
-  - `synced_at`
-  - `source_object_path`
-
-`GET /catalog/objects/{object_kind}/{object_id}`
-
-- Canonical follow-up detail read for catalog search results
-- Semantic object kinds return the same typed detail envelope shape used by runtime resolution
-- Catalog detail remains available for explicit inspection even when an object is `active + not_ready`
-- `asset` returns:
-  - `object_kind`
-  - `object_id`
-  - `ref`
-  - `source_object`
-- `source_object` matches the synced source-object detail from
-  `GET /sources/{source_id}/objects/{object_id}`
-
-`GET /semantic/resolve/{name}`
-
-- Runtime resolution is typed-ref first: `entity.*`, `metric.*`, `process.*`, `dimension.*`,
-  `time.*`, `binding.*`
-- Bare-name aliases remain supported only for `entity` and `metric`
-- Default resolution returns only ready semantic objects
-- The response is a typed detail envelope:
-  - `object_kind`
-  - `object_id`
-  - `ref`
-  - `semantic_object`
-  - `status`
-  - `revision`
-  - `created_at`
-  - `updated_at`
-- Resolve responses no longer expose legacy `mappings`, `physical_assets`, or legacy object payloads
-  derived from legacy mapping tables
-- When a typed ref is active but not ready, resolve returns `409` with structured readiness detail:
-  - `message`
-  - `code`
-  - `category`
-  - `subject_ref`
-  - `object_kind`
-  - `lifecycle_status`
-  - `readiness_status`
-  - `blocking_requirements`
-  - `capabilities`
-  - `dependency_refs`
-- Request-level compatibility is not evaluated on `/semantic/resolve/{typed_ref}`. Compatibility
-  failures only surface on compile/intent execution routes that include request context.
-
-`GET /sessions/{session_id}/planner-context`
-
-- Planner context reads only ready typed metric/entity contracts
-- `metrics[*]` and `entities[*]` are returned as typed semantic objects
-- Planner context no longer exposes `legacy` compatibility blocks derived from legacy tables
+Use the typed semantic object APIs in this document for object lifecycle and inspection. Use
+datasource object APIs under `/datasources/{datasource_id}/objects` for synced physical-source
+objects. Public discovery must not depend on the removed legacy catalog search/detail/graph routes.
 
 ## Compiler And Evidence Handoff
 
