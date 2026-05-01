@@ -148,6 +148,22 @@ class TestGetSession(unittest.TestCase):
         self.assertEqual(client.get("/analysis-sessions/nonexistent").status_code, 404)
 
 
+class TestSessionSnapshotRefresh(unittest.TestCase):
+    def test_new_private_model_added_to_active_session(self) -> None:
+        client = _make_app()
+        session_id = client.post("/analysis-sessions", json={"requesting_user": "alice"}).json()[
+            "session_id"
+        ]
+        client.post(
+            "/semantic-models",
+            json=_make_model_dict(name="alice_explore", visibility="private", owner_user="alice"),
+            params={"session_id": session_id},
+        )
+        resp = client.get(f"/analysis-sessions/{session_id}")
+        model_names = [o["model_name"] for o in resp.json()["resolved_objects"]]
+        self.assertIn("alice_explore", model_names)
+
+
 class TestEndSession(unittest.TestCase):
     def test_end_session(self) -> None:
         client = _make_app()
