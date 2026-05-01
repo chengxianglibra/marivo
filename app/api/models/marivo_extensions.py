@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field, model_validator
 class MarivoSemanticModelExtension(BaseModel):
     visibility: Literal["public", "private"]
     owner_user: str | None = None
+    revision: int | None = None
 
     @model_validator(mode="after")
     def _private_requires_owner(self) -> MarivoSemanticModelExtension:
