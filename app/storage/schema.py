@@ -101,28 +101,9 @@ METADATA_DDL: list[str] = [
     """,
     # -------------------------------------------------------------------------
     # OSI-aligned semantic layer tables (v2)
+    # semantic_versions dropped — per-model revision replaces global versioning.
+    # semantic_models recreated with revision column at end of DDL (after DROP).
     # -------------------------------------------------------------------------
-    """
-    CREATE TABLE IF NOT EXISTS semantic_versions (
-        version_id    INTEGER PRIMARY KEY AUTOINCREMENT,
-        created_at    TEXT NOT NULL DEFAULT (datetime('now'))
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS semantic_models (
-        model_id             INTEGER PRIMARY KEY AUTOINCREMENT,
-        semantic_version_id  INTEGER REFERENCES semantic_versions(version_id),
-        name                 TEXT NOT NULL,
-        description          TEXT,
-        ai_context           TEXT,
-        visibility           TEXT NOT NULL DEFAULT 'public' CHECK (visibility IN ('public', 'private')),
-        owner_user           TEXT,
-        created_at           TEXT NOT NULL DEFAULT (datetime('now')),
-        updated_at           TEXT NOT NULL DEFAULT (datetime('now'))
-    )
-    """,
-    "CREATE INDEX IF NOT EXISTS idx_semantic_models_version_visibility ON semantic_models(semantic_version_id, visibility)",
-    "CREATE INDEX IF NOT EXISTS idx_semantic_models_visibility_owner ON semantic_models(visibility, owner_user)",
     """
     CREATE TABLE IF NOT EXISTS semantic_datasets (
         dataset_id     INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -192,11 +173,10 @@ METADATA_DDL: list[str] = [
     """,
     """
     CREATE TABLE IF NOT EXISTS semantic_readiness_status (
-        model_id                        INTEGER PRIMARY KEY REFERENCES semantic_models(model_id) ON DELETE CASCADE,
-        status                          TEXT NOT NULL CHECK (status IN ('ready', 'not_ready')),
-        blockers                        TEXT,
-        evaluated_semantic_version_id   INTEGER,
-        updated_at                      TEXT NOT NULL DEFAULT (datetime('now'))
+        model_id    INTEGER PRIMARY KEY REFERENCES semantic_models(model_id) ON DELETE CASCADE,
+        status      TEXT NOT NULL CHECK (status IN ('ready', 'not_ready')),
+        blockers    TEXT,
+        updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
     )
     """,
     """
@@ -1272,6 +1252,56 @@ METADATA_DDL: list[str] = [
         ddl_fingerprint TEXT NOT NULL
     )
     """,
+    # -------------------------------------------------------------------------
+    # Dual-path semantic layer tables
+    # Per-model revision replaces global semantic_versions.
+    # Session tables support snapshot isolation for analysis sessions.
+    # -------------------------------------------------------------------------
+    "DROP TABLE IF EXISTS semantic_versions",
+    """
+    CREATE TABLE semantic_models (
+        model_id    INTEGER PRIMARY KEY AUTOINCREMENT,
+        name        TEXT NOT NULL,
+        description TEXT,
+        ai_context  TEXT,
+        visibility  TEXT NOT NULL DEFAULT 'public' CHECK (visibility IN ('public', 'private')),
+        owner_user  TEXT,
+        revision    INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+        created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_semantic_models_visibility_owner ON semantic_models(visibility, owner_user)",
+    """
+    CREATE TABLE semantic_readiness_status (
+        model_id    INTEGER PRIMARY KEY REFERENCES semantic_models(model_id) ON DELETE CASCADE,
+        status      TEXT NOT NULL CHECK (status IN ('ready', 'not_ready')),
+        blockers    TEXT,
+        updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+    """,
+    """
+    CREATE TABLE analysis_sessions (
+        session_id          TEXT PRIMARY KEY,
+        requesting_user     TEXT NOT NULL,
+        snapshot_frozen_at  TEXT NOT NULL DEFAULT (datetime('now')),
+        status              TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'ended')),
+        created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+        ended_at            TEXT
+    )
+    """,
+    """
+    CREATE TABLE session_semantic_snapshots (
+        snapshot_id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id          TEXT NOT NULL REFERENCES analysis_sessions(session_id),
+        model_name          TEXT NOT NULL,
+        revision            INTEGER NOT NULL CHECK (revision >= 1),
+        visibility          TEXT NOT NULL CHECK (visibility IN ('public', 'private')),
+        owner_user          TEXT,
+        frozen_at           TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_session_snapshots_session ON session_semantic_snapshots(session_id)",
 ]
 
 MetadataBackend = Literal["sqlite", "mysql"]
