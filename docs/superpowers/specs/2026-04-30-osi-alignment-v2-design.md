@@ -9,7 +9,7 @@
 1. Replace Marivo's semantic model with OSI-aligned objects (SemanticModel, Dataset, Field, Relationship, Metric)
 2. Delete unused objects (Process, EnumSet, Predicate, Binding, CompatibilityProfile) and collapse Dimension/Time into Field
 3. Three-layer boundary: OSI external contract → MARIVO extension schema → internal storage/implementation
-4. Preserve harness safety (validation, readiness, model versioning) in MARIVO extension layer
+4. Preserve harness safety (write-time validation, readiness, semantic layer versioning) in MARIVO extension layer
 
 ## 2. Three-Layer Boundary
 
@@ -32,6 +32,8 @@ Top-level structure follows OSI exactly:
 ### Layer 2: MARIVO Extension Schema
 
 Defines the structure of `custom_extensions[].data` when `vendor_name: "MARIVO"`. These are the fields that Marivo needs beyond OSI core for safe analysis. The extension schema is versioned alongside the OSI spec version.
+
+Machine-readable schema: [`2026-04-30-osi-marivo-schema.json`](./2026-04-30-osi-marivo-schema.json).
 
 Extension fields are only added when they serve a harness purpose: preventing silent wrong numbers, enabling validation, or providing explicit references that cannot be safely inferred from SQL expressions.
 
@@ -58,7 +60,7 @@ Storage is organized for efficient queries, not OSI structure. Tables may differ
 
 **Lifecycle ceremony deleted:** draft→validate→activate→publish→deprecate flow removed. Objects are created/updated/deleted directly.
 
-**Harness preserved:** Validation, readiness assessment, and model versioning remain as MARIVO extension concerns (see Section 7).
+**Harness preserved:** Write-time validation, readiness assessment, and semantic layer versioning remain as MARIVO extension concerns (see Section 7).
 
 ### OSI Spec Conformance
 
@@ -83,10 +85,15 @@ SemanticModel (OSI core)
   metrics[]         Metric   (optional)
 
 MARIVO extensions (in custom_extensions):
-  (none on SemanticModel directly)
+  visibility        string   public/private
+  owner_user        string   required when visibility=private
 ```
 
 The `version` field is document-level (top-level alongside `semantic_model`), not inside SemanticModel. See Section 6 for document structure.
+
+**Public vs private models:** `public` models are business-domain semantic-layer objects curated by business experts and visible/usable by all users after publication. `private` models are temporary analysis-time semantic-layer objects created by analysts or agents, visible/usable only to the owning user. This is a visibility contract, not a lifecycle state machine: publishing a model means updating `visibility` to `public`, not reintroducing draft/validate/activate/publish stages.
+
+`owner_user` uses the same username-style user identity boundary as analysis sessions. It is required for `private` models and is used for visibility filtering. This does not introduce full authentication, delegation, or role management into the semantic model contract.
 
 ### 4.2 Dataset
 
@@ -248,21 +255,61 @@ GET    /semantic-models/{model}/metrics/{name}       Get metric (OSI format)
 PUT    /semantic-models/{model}/metrics/{name}       Update metric
 DELETE /semantic-models/{model}/metrics/{name}       Delete metric
 
-POST   /semantic-models/{model}/validate             Validate model readiness
+POST   /semantic-models/import                       Import public semantic models from OSI document
 GET    /semantic-models/{model}/readiness            Get readiness status + blockers
 ```
 
-Note: No `/export` endpoint needed — standard GET endpoints return OSI format. The `validate` and `readiness` endpoints are harness operations (see Section 7).
+Note: No `/export` endpoint needed — standard GET endpoints return OSI format. No standalone `validate` endpoint exists; deterministic validation runs inside create/update. The `readiness` endpoint is the agent-facing harness operation for deciding whether a model can be used for analysis (see Section 7).
+
+List and read endpoints apply model visibility before returning results:
+- All users can see and use `public` models.
+- A user can see and use only their own `private` models.
+- A direct read of another user's `private` model returns `404` so the caller cannot distinguish hidden private models from missing models.
+- Public model reads expose only models associated with the latest internal semantic version.
+- Private models do not bind to the internal semantic version and remain visible only to their owner.
 
 ### 5.3 Write Path (API -> Storage)
 
 1. Validate request against OSI JSON schema (strict — must pass `additionalProperties: false`)
 2. Parse MARIVO extensions from `custom_extensions[].data` where `vendor_name == "MARIVO"`
 3. Validate MARIVO extension fields against MARIVO extension schema
-4. Store OSI core fields and MARIVO extension fields in normalized tables
-5. MARIVO extension fields stored in dedicated columns for queryability where possible; structured objects (additivity, filters) stored as JSON
+4. Run deterministic semantic validation:
+   - All required OSI/MARIVO fields are present
+   - All dataset references in relationships and metrics resolve to existing datasets
+   - All field references in metric expressions resolve to existing fields
+   - `observed_dataset` references a valid dataset
+   - `observation_grain` fields exist in the observed dataset
+   - `primary_time_field` references an `is_time: true` field
+   - `additivity.additive_dimensions` reference valid dimension fields
+   - Relationship column pairs have matching types where `data_type` is available
+   - Referenced datasources exist
+   - `visibility` is `public` or `private`
+   - `owner_user` is present when `visibility=private`
+5. Reject invalid create/update requests with structured `4xx` errors. Invalid semantic objects are not persisted.
+6. If a public model is created directly, associate it with the latest `semantic_versions.version_id`. If no semantic version exists, create the initial internal semantic version first.
+7. Private models are stored with no `semantic_version_id`.
+8. Store OSI core fields and MARIVO extension fields in normalized tables
+9. MARIVO extension fields stored in dedicated columns for queryability where possible; structured objects (additivity, filters) stored as JSON
 
-### 5.4 Read Path (Storage -> API)
+### 5.4 Import Path (OSI JSON -> Public Semantic Layer)
+
+`POST /semantic-models/import`
+
+Imports an OSI document as the latest public Marivo semantic layer. The input may be either:
+- A standard OSI v0.1.1 document with no MARIVO extensions
+- A Marivo-extended OSI document that passes [`2026-04-30-osi-marivo-schema.json`](./2026-04-30-osi-marivo-schema.json)
+
+Import semantics:
+1. Validate the input as OSI JSON. If MARIVO extensions exist, validate their decoded `data` payloads against the Marivo extension schema.
+2. Treat every imported `semantic_model` as `public`. If a model has no MARIVO SemanticModel extension, the service normalizes it as `{"visibility": "public"}` on storage/readback. If a Marivo-extended import marks a model as `private`, reject the import because private models are not part of the versioned public semantic layer.
+3. Create a new row in `semantic_versions`; its auto-increment `version_id` becomes the latest public semantic-layer version.
+4. Store all imported semantic models with `visibility="public"`, `owner_user=NULL`, and `semantic_version_id=<new version_id>`.
+5. Existing public models from older `semantic_version_id` values remain in storage for internal audit/staleness resolution but are no longer visible through normal read/list APIs.
+6. Private models are not modified, replaced, or rebound by import.
+
+The import endpoint is replace-by-version, not row-by-row merge. The submitted document is the complete latest public semantic layer.
+
+### 5.5 Read Path (Storage -> API)
 
 1. Read from normalized tables
 2. Assemble OSI-conformant response:
@@ -306,15 +353,15 @@ All API responses that return OSI documents use the application's current OSI ve
 
 If Marivo upgrades to a newer OSI spec version in the future, existing models must be migrated to conform to the new version before the constant is updated.
 
-## 7. Harness: Validation, Readiness, and Model Versioning
+## 7. Harness: Write-Time Validation, Readiness, and Semantic Layer Versioning
 
-Lifecycle ceremony (draft→activate→publish→deprecate) is removed, but the harness functions remain.
+Lifecycle ceremony (draft→validate→activate→publish→deprecate) is removed, but the harness functions remain.
 
-### 7.1 Validation
+### 7.1 Write-Time Validation
 
-`POST /semantic-models/{model}/validate`
+No standalone `validate` endpoint exists. Create/update requests perform deterministic validation inline and fail fast when the model is not structurally valid.
 
-Checks the model for completeness and correctness:
+Checks the model for completeness and correctness before persistence:
 - All required OSI fields present
 - All dataset references in relationships and metrics resolve to existing datasets
 - All field references in metric expressions resolve to existing fields
@@ -323,31 +370,68 @@ Checks the model for completeness and correctness:
 - `primary_time_field` references an `is_time: true` field
 - `additivity.additive_dimensions` reference valid dimension fields
 - Relationship column pairs have matching types (via `data_type` extension)
-- Source datasources exist and are reachable
+- Referenced datasources exist
+- `visibility` is `public` or `private`
+- `owner_user` is present when `visibility=private`
 
-Returns a validation report: `{valid: bool, errors: [{code, message, path}]}`.
+Invalid requests return structured `4xx` errors: `{error: {code, message, path, details}}`.
 
 ### 7.2 Readiness
 
 `GET /semantic-models/{model}/readiness`
 
-Assesses whether the model is ready for analysis:
-- Validation passes (all errors resolved)
+Assesses whether the already-valid model is currently ready for analysis. This endpoint is designed for agents to decide whether they can safely use the model, and if not, what concrete remediation is needed.
+
+Readiness checks environment-dependent and freshness-dependent conditions:
+- The model was accepted by write-time validation
 - All referenced datasources are reachable and have current schema
-- No stale dependencies (referenced datasets/fields haven't changed since last validation)
+- No stale dependencies (referenced datasources, datasets, or physical fields have not changed since the public semantic version was written, or since the private model was written)
+- Compiler/runtime prerequisites are available for the referenced datasource types
 
-Returns: `{status: "ready" | "not_ready", blockers: [{code, message, subject_ref, dependency_ref}]}`
+Returns:
 
-### 7.3 Model Versioning
+```json
+{
+  "status": "ready",
+  "semantic_version_id": 3,
+  "blockers": []
+}
+```
 
-Every semantic model has an internal version that increments on each write. Analysis artifacts (intents, evidence) reference a specific model version so they can detect staleness.
+When unavailable:
 
-Stored in `semantic_models.version` (integer, auto-increment on each write operation).
+```json
+{
+  "status": "not_ready",
+  "semantic_version_id": 3,
+  "blockers": [{
+    "code": "datasource_unreachable",
+    "message": "Datasource tpcds is not reachable.",
+    "subject_ref": "dataset.store_sales",
+    "dependency_ref": "datasource.tpcds",
+    "next_action_hint": "Check datasource connectivity or choose another ready semantic model."
+  }]
+}
+```
 
-This is NOT the OSI `version` field. It's an internal versioning mechanism that allows:
-- Analysis artifacts to pin to a specific model state
-- Staleness detection when the model changes after an analysis was run
-- Audit trail of model changes
+Blockers must be explicit enough for an agent to choose between retrying later, repairing metadata, selecting another model, or asking the user for a datasource/configuration fix.
+
+### 7.3 Semantic Layer Versioning
+
+Public semantic models are grouped by an internal Marivo semantic-layer version. This version is not the OSI `version` field and is never exposed in OSI documents.
+
+Stored in `semantic_versions.version_id` (integer primary key, auto-increment). Public `semantic_models` rows reference it through `semantic_models.semantic_version_id`.
+
+Rules:
+- `POST /semantic-models/import` creates a new semantic version and stores the imported public semantic models against that version.
+- Directly created public semantic models attach to the latest semantic version.
+- Normal public read/list APIs return only models whose `semantic_version_id` is the latest version.
+- Private semantic models have `semantic_version_id=NULL` and are filtered only by `owner_user`.
+
+This internal versioning mechanism allows:
+- Analysis artifacts to pin to a specific public semantic-layer snapshot
+- Staleness detection when the public semantic layer changes after an analysis was run
+- Audit trail of public semantic-layer imports and replacements
 
 ### 7.4 Dependency Graph
 
@@ -365,17 +449,36 @@ Stored as a computed property, not a separate table. Derived from:
 
 Tables are organized for queryability and harness support, not minimalism.
 
+### `semantic_versions`
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| version_id | INTEGER | PK AUTO | Internal Marivo semantic-layer version |
+| created_at | TIMESTAMP | NOT NULL | |
+
+This table is internal only. It is not part of OSI output, API response bodies, or MARIVO `custom_extensions`.
+
 ### `semantic_models`
 
 | Column | Type | Constraints | Notes |
 |---|---|---|---|
 | model_id | INTEGER | PK AUTO | |
-| name | TEXT | UNIQUE NOT NULL | OSI name |
+| semantic_version_id | INTEGER | FK -> semantic_versions | Required for public models; NULL for private models |
+| name | TEXT | NOT NULL | OSI name |
 | description | TEXT | | |
 | ai_context | JSON | | OSI AIContext (object form) |
-| version | INTEGER | NOT NULL DEFAULT 1 | Internal version, increments on each write |
+| visibility | TEXT | NOT NULL | MARIVO extension: public/private |
+| owner_user | TEXT | | Required when visibility=private; used for private model filtering |
 | created_at | TIMESTAMP | NOT NULL | |
 | updated_at | TIMESTAMP | NOT NULL | |
+
+Recommended indexes:
+- `(semantic_version_id, visibility)` for latest-public filtering
+- `(visibility, owner_user)` for private list/search filtering
+
+Recommended uniqueness:
+- Public models: unique `(semantic_version_id, name)`
+- Private models: unique `(owner_user, name)` where `visibility='private'`
 
 ### `semantic_datasets`
 
@@ -458,98 +561,113 @@ UNIQUE(model_id, name)
 
 Note: `observed_dataset`, `observation_grain`, and `primary_time_field` are in dedicated columns for queryability and foreign key validation. `additivity` and `filters` are structured JSON objects.
 
-### `semantic_validation_results` (harness)
-
-| Column | Type | Constraints | Notes |
-|---|---|---|---|
-| validation_id | INTEGER | PK AUTO | |
-| model_id | INTEGER | FK -> semantic_models NOT NULL | |
-| model_version | INTEGER | NOT NULL | Snapshot of model version at validation time |
-| status | TEXT | NOT NULL | valid/invalid |
-| errors | JSON | | Array of {code, message, path} |
-| validated_at | TIMESTAMP | NOT NULL | |
-
 ### `semantic_readiness_status` (harness)
 
 | Column | Type | Constraints | Notes |
 |---|---|---|---|
 | model_id | INTEGER | PK, FK -> semantic_models | |
 | status | TEXT | NOT NULL | ready/not_ready |
-| blockers | JSON | | Array of {code, message, subject_ref, dependency_ref} |
-| last_validated_version | INTEGER | | Model version at last successful validation |
+| blockers | JSON | | Array of {code, message, subject_ref, dependency_ref, next_action_hint} |
+| evaluated_semantic_version_id | INTEGER | | Public semantic version evaluated by this readiness snapshot; NULL for private models |
 | updated_at | TIMESTAMP | NOT NULL | |
 
 ## 9. OSI Document Example
 
 A complete OSI-conformant document (what the API returns):
 
-```yaml
-version: "0.1.1"
-semantic_model:
-  - name: retail
-    description: Retail analytics semantic model
-    ai_context:
-      instructions: "Use this model for retail sales analytics"
-      synonyms: ["retail", "store sales"]
-
-    datasets:
-      - name: store_sales
-        source: "tpcds.public.store_sales"
-        primary_key: [ss_item_sk, ss_ticket_number]
-        description: Store sales transactions
-        fields:
-          - name: ss_sold_date_sk
-            expression:
-              dialects:
-                - dialect: ANSI_SQL
-                  expression: ss_sold_date_sk
-            description: Foreign key to date dimension
-            custom_extensions:
-              - vendor_name: MARIVO
-                data: '{"data_type": "integer"}'
-          - name: ss_sold_time
-            expression:
-              dialects:
-                - dialect: ANSI_SQL
-                  expression: ss_sold_time_sk
-            dimension:
-              is_time: true
-            custom_extensions:
-              - vendor_name: MARIVO
-                data: '{"data_type": "integer"}'
-        custom_extensions:
-          - vendor_name: MARIVO
-            data: '{"datasource_id": "tpcds"}'
-
-    relationships:
-      - name: store_sales_to_date
-        from: store_sales
-        to: date_dim
-        from_columns: [ss_sold_date_sk]
-        to_columns: [d_date_sk]
-        custom_extensions:
-          - vendor_name: MARIVO
-            data: '{"cardinality": "many_to_one"}'
-
-    metrics:
-      - name: total_sales
-        expression:
-          dialects:
-            - dialect: ANSI_SQL
-              expression: SUM(store_sales.ss_ext_sales_price)
-        description: Total sales revenue
-        custom_extensions:
-          - vendor_name: MARIVO
-            data: '{"observed_dataset": "store_sales", "additivity": {"dimension_policy": "all", "time_axis_policy": "additive"}}'
-      - name: avg_order_value
-        expression:
-          dialects:
-            - dialect: ANSI_SQL
-              expression: SUM(store_sales.ss_ext_sales_price) / COUNT(DISTINCT store_sales.ss_ticket_number)
-        description: Average order value
-        custom_extensions:
-          - vendor_name: MARIVO
-            data: '{"observed_dataset": "store_sales", "observation_grain": ["ss_ticket_number"], "primary_time_field": "ss_sold_time", "additivity": {"dimension_policy": "none", "time_axis_policy": "non_additive"}}'
+```json
+{
+  "version": "0.1.1",
+  "semantic_model": [{
+    "name": "retail",
+    "description": "Retail analytics semantic model",
+    "ai_context": {
+      "instructions": "Use this model for retail sales analytics",
+      "synonyms": ["retail", "store sales"]
+    },
+    "custom_extensions": [{
+      "vendor_name": "MARIVO",
+      "data": "{\"visibility\": \"public\"}"
+    }],
+    "datasets": [{
+      "name": "store_sales",
+      "source": "tpcds.public.store_sales",
+      "primary_key": ["ss_item_sk", "ss_ticket_number"],
+      "description": "Store sales transactions",
+      "fields": [{
+        "name": "ss_sold_date_sk",
+        "expression": {
+          "dialects": [{
+            "dialect": "ANSI_SQL",
+            "expression": "ss_sold_date_sk"
+          }]
+        },
+        "description": "Foreign key to date dimension",
+        "custom_extensions": [{
+          "vendor_name": "MARIVO",
+          "data": "{\"data_type\": \"integer\"}"
+        }]
+      }, {
+        "name": "ss_sold_time",
+        "expression": {
+          "dialects": [{
+            "dialect": "ANSI_SQL",
+            "expression": "ss_sold_time_sk"
+          }]
+        },
+        "dimension": {
+          "is_time": true
+        },
+        "custom_extensions": [{
+          "vendor_name": "MARIVO",
+          "data": "{\"data_type\": \"integer\"}"
+        }]
+      }],
+      "custom_extensions": [{
+        "vendor_name": "MARIVO",
+        "data": "{\"datasource_id\": \"tpcds\"}"
+      }]
+    }],
+    "relationships": [{
+      "name": "store_sales_to_date",
+      "from": "store_sales",
+      "to": "date_dim",
+      "from_columns": ["ss_sold_date_sk"],
+      "to_columns": ["d_date_sk"],
+      "custom_extensions": [{
+        "vendor_name": "MARIVO",
+        "data": "{\"cardinality\": \"many_to_one\"}"
+      }]
+    }],
+    "metrics": [{
+      "name": "total_sales",
+      "expression": {
+        "dialects": [{
+          "dialect": "ANSI_SQL",
+          "expression": "SUM(store_sales.ss_ext_sales_price)"
+        }]
+      },
+      "description": "Total sales revenue",
+      "custom_extensions": [{
+        "vendor_name": "MARIVO",
+        "data": "{\"observed_dataset\": \"store_sales\", \"additivity\": {\"dimension_policy\": \"all\", \"time_axis_policy\": \"additive\"}}"
+      }]
+    }, {
+      "name": "avg_order_value",
+      "expression": {
+        "dialects": [{
+          "dialect": "ANSI_SQL",
+          "expression": "SUM(store_sales.ss_ext_sales_price) / COUNT(DISTINCT store_sales.ss_ticket_number)"
+        }]
+      },
+      "description": "Average order value",
+      "custom_extensions": [{
+        "vendor_name": "MARIVO",
+        "data": "{\"observed_dataset\": \"store_sales\", \"observation_grain\": [\"ss_ticket_number\"], \"primary_time_field\": \"ss_sold_time\", \"additivity\": {\"dimension_policy\": \"none\", \"time_axis_policy\": \"non_additive\"}}"
+      }]
+    }]
+  }]
+}
 ```
 
 This document passes OSI JSON schema validation. All MARIVO-specific data is in `custom_extensions`.
@@ -566,7 +684,7 @@ Dimension -> Field property (dimension.is_time), Time -> Field property (dimensi
 
 ### Lifecycle Ceremony Deleted
 
-draft→validate→activate→publish→deprecate flow removed. Revision mechanism removed. Objects are created/updated/deleted directly. Validation and readiness remain as harness operations (Section 7).
+draft→validate→activate→publish→deprecate flow removed. Revision mechanism removed. Objects are created/updated/deleted directly. Deterministic validation runs inside create/update; readiness remains as the agent-facing harness operation (Section 7).
 
 ### API Endpoints Removed
 
@@ -598,7 +716,7 @@ semantic_entity_contracts, semantic_entity_key_refs, semantic_entity_stable_desc
 - `app/semantic_revision/` -> deleted (revision removed)
 
 **Refactored (not deleted):**
-- `app/semantic_readiness/` -> simplified to validation + readiness (no lifecycle)
+- `app/semantic_readiness/` -> simplified to agent-facing readiness with explicit blockers and next-action hints
 - `app/analysis_core/capability_profiles.py` -> deleted
 - `app/analysis_core/predicate_validator.py` -> deleted (filters are in metric extensions)
 - `app/analysis_core/typed_resolution.py` -> simplified for new object model
@@ -608,13 +726,13 @@ semantic_entity_contracts, semantic_entity_key_refs, semantic_entity_stable_desc
 
 | Object | OSI Core Fields | MARIVO Extensions |
 |---|---|---|
-| SemanticModel | name, description, ai_context, datasets, relationships, metrics | (none) |
+| SemanticModel | name, description, ai_context, datasets, relationships, metrics | visibility, owner_user |
 | Dataset | name, source, primary_key, unique_keys, description, ai_context, fields | datasource_id |
 | Field | name, expression, dimension.is_time, label, description, ai_context | data_type |
 | Relationship | name, from, to, from_columns, to_columns, ai_context | cardinality |
 | Metric | name, expression, description, ai_context | observed_dataset, observation_grain, primary_time_field, additivity, filters |
 
-Total MARIVO extension fields: 9 across 4 object types.
+Total MARIVO extension fields: 10 across 5 object types.
 
 Every MARIVO extension field exists because it cannot be safely inferred from SQL expressions and wrong inference produces either silent wrong numbers or validation gaps.
 
@@ -625,12 +743,12 @@ Every MARIVO extension field exists because it cannot be safely inferred from SQ
 | Metric | Value |
 |---|---|
 | Object types | 4 (from 12+) |
-| Storage tables | 7 (5 core + 2 harness) |
-| MARIVO extension fields | 8 (from 20+) |
-| API endpoints | ~18 (from 40+) |
+| Storage tables | 7 (6 core + 1 harness) |
+| MARIVO extension fields | 10 (from 20+) |
+| API endpoints | 22 (from 40+) |
 | OSI schema validation | Passes (all non-OSI data in custom_extensions) |
 | OSI core field coverage | ~75% |
-| Harness preserved | Validation, readiness, model versioning, dependency graph |
+| Harness preserved | Write-time validation, readiness, semantic layer versioning, dependency graph |
 
 **Remaining risk:**
 - MARIVO vendor namespace not yet registered in OSI (use COMMON with `_vendor: "marivo"` as fallback until registered)
@@ -641,4 +759,4 @@ Every MARIVO extension field exists because it cannot be safely inferred from SQ
 **Not a risk:**
 - OSI conformance — wire format passes schema validation by construction
 - Loss of capability — all safety-critical semantics preserved with explicit extensions
-- Harness gaps — validation, readiness, and model versioning explicitly designed
+- Harness gaps — write-time validation, readiness, and semantic layer versioning explicitly designed

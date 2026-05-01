@@ -1,3 +1,5 @@
+"""Legacy semantic_runtime.errors stubs — preserved for import compatibility."""
+
 from __future__ import annotations
 
 from typing import Any

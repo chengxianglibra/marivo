@@ -116,51 +116,15 @@ class OpenApiFragmentTests(unittest.TestCase):
         schema = response.json()
         components = schema["components"]["schemas"]
 
-        request_schema_by_route = {
-            "/semantic/entities": "TypedEntityCreateRequest",
-            "/semantic/metrics": "TypedMetricCreateRequest",
-            "/semantic/process-objects": "ProcessObjectCreateRequest",
-            "/semantic/dimensions": "DimensionCreateRequest",
-            "/semantic/time": "TimeCreateRequest",
-            "/semantic/enum-sets": "EnumSetCreateRequest",
-            "/semantic/bindings": "TypedBindingCreateRequest",
-            "/compiler/compatibility-profiles": "CompatibilityProfileCreateRequest",
-        }
-        response_schema_by_route = {
-            "/semantic/entities": "TypedEntityResponse",
-            "/semantic/metrics": "TypedMetricResponse",
-            "/semantic/process-objects": "ProcessObjectResponse",
-            "/semantic/dimensions": "DimensionResponse",
-            "/semantic/time": "TimeResponse",
-            "/semantic/enum-sets": "EnumSetResponse",
-            "/semantic/bindings": "TypedBindingResponse",
-            "/compiler/compatibility-profiles": "CompatibilityProfileResponse",
-        }
-
-        for schema_name in request_schema_by_route.values():
+        # Verify core infrastructure schemas are still published
+        infrastructure_schemas = [
+            "ObserveRequest",
+            "CompareRequest",
+            "DetectRequest",
+            "SessionCreateRequest",
+        ]
+        for schema_name in infrastructure_schemas:
             self.assertIn(schema_name, components)
-        for schema_name in response_schema_by_route.values():
-            self.assertIn(schema_name, components)
-
-        self.assertIn("examples", components["TypedEntityCreateRequest"])
-        self.assertIn("examples", components["TypedMetricCreateRequest"])
-        self.assertIn("examples", components["DimensionCreateRequest"])
-        self.assertIn("examples", components["TimeCreateRequest"])
-        self.assertIn("examples", components["EnumSetCreateRequest"])
-        self.assertIn("examples", components["TypedBindingCreateRequest"])
-
-        for route_path, schema_name in request_schema_by_route.items():
-            request_body = schema["paths"][route_path]["post"]["requestBody"]["content"][
-                "application/json"
-            ]["schema"]
-            self.assertEqual(request_body["$ref"], f"#/components/schemas/{schema_name}")
-            self.assertNotIn("additionalProperties", request_body)
-
-        for route_path, schema_name in response_schema_by_route.items():
-            response_body = schema["paths"][route_path]["post"]["responses"]["200"]["content"][
-                "application/json"
-            ]["schema"]
-            self.assertEqual(response_body["$ref"], f"#/components/schemas/{schema_name}")
 
     def test_datasource_routes_publish_stable_request_and_response_schemas(self) -> None:
         response = self.client.get("/openapi.json")

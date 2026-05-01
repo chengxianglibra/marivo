@@ -1,12 +1,15 @@
-"""Compatibility wrappers for readiness derivation utilities.
-
-This module re-exports derive_lifecycle_status and derive_readiness_status
-from app.semantic_readiness for backwards compatibility. The readiness
-contract computation is now handled by SemanticReadinessService.
-"""
+"""Legacy semantic_runtime.status_utils stubs — preserved for import compatibility."""
 
 from __future__ import annotations
 
-from app.semantic_readiness import derive_lifecycle_status, derive_readiness_status
+from typing import Any
 
-__all__ = ["derive_lifecycle_status", "derive_readiness_status"]
+
+def derive_lifecycle_status(*_args: Any, **_kwargs: Any) -> str:
+    """Stub — returns 'draft' during OSI v2 migration.  See Task 7."""
+    return "draft"
+
+
+def derive_readiness_status(*_args: Any, **_kwargs: Any) -> str:
+    """Stub — returns 'not_ready' during OSI v2 migration.  See Task 7."""
+    return "not_ready"

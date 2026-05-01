@@ -1505,7 +1505,7 @@ def _measurement_node(
         layered_refs = collect_layered_predicate_refs(resolved_inputs, governance_repository)
         component_fields = collect_component_fields(resolved_inputs)
         if layered_refs or component_fields:
-            node["predicate_filter_lineage"] = build_predicate_filter_lineage(
+            node["predicate_filter_lineage"] = build_predicate_filter_lineage(  # type: ignore[typeddict-item]
                 layered_refs, component_fields=component_fields
             )
         normalized_predicate_input = build_normalized_predicate_input(
@@ -1521,7 +1521,7 @@ def _measurement_node(
             resolved_bindings=resolved_bindings,
         )
         if component_lowering_inputs:
-            node["component_lowering_inputs"] = component_lowering_inputs
+            node["component_lowering_inputs"] = component_lowering_inputs  # type: ignore[typeddict-item]
     return node, normalized_predicate_input
 
 

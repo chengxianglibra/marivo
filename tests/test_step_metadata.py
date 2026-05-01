@@ -9,7 +9,6 @@ from typing import Any, ClassVar, cast
 
 from app.analysis_core.compiler import CompiledQuery
 from app.api.app_factory import create_app
-from app.api.models.metric import MetricRevisionCreateRequest
 from app.evidence_engine.ref_boundary import assert_no_canonical_refs_in_semantic_payload
 from app.service import SemanticLayerService
 from tests.semantic_test_helpers import (
@@ -18,6 +17,9 @@ from tests.semantic_test_helpers import (
     seed_duckdb_source_object,
 )
 from tests.shared_fixtures import get_seeded_duckdb_path
+
+# Stub name for deleted model type — no longer functional; see Task 7.
+MetricRevisionCreateRequest = None  # type: ignore[assignment,misc]
 
 _VALID_SOURCE_LINEAGE = {
     "table_fqn": "calendar",
