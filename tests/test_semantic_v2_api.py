@@ -59,6 +59,15 @@ class _TestMetadataStore(SQLiteMetadataStore):
 # ---------------------------------------------------------------------------
 
 
+def _get_revision(model_dict: dict) -> int | None:
+    """Extract revision from a semantic model dict's MARIVO custom_extension."""
+    for ext in model_dict.get("custom_extensions", []):
+        if ext.get("vendor_name") == "MARIVO":
+            data = json.loads(ext["data"])
+            return data.get("revision")
+    return None
+
+
 def _make_app() -> TestClient:
     """Create a FastAPI app with semantic_v2 router and an in-memory service."""
     import uuid
@@ -608,11 +617,11 @@ class TestPerModelImport(unittest.TestCase):
         }
         client.post("/semantic-models/import", json=doc)
         self.assertEqual(
-            client.get("/semantic-models/commerce").json()["semantic_model"][0]["revision"], 1
+            _get_revision(client.get("/semantic-models/commerce").json()["semantic_model"][0]), 1
         )
         client.post("/semantic-models/import", json=doc)
         self.assertEqual(
-            client.get("/semantic-models/commerce").json()["semantic_model"][0]["revision"], 2
+            _get_revision(client.get("/semantic-models/commerce").json()["semantic_model"][0]), 2
         )
 
     def test_import_official_model_with_same_name_as_private_succeeds(self) -> None:
@@ -687,7 +696,7 @@ class TestPerModelImport(unittest.TestCase):
         }
         client.post("/semantic-models/import", json=doc)
         self.assertEqual(
-            client.get("/semantic-models/commerce").json()["semantic_model"][0]["revision"], 1
+            _get_revision(client.get("/semantic-models/commerce").json()["semantic_model"][0]), 1
         )
 
 

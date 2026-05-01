@@ -256,6 +256,7 @@ def storage_to_model(
     marivo_ext = MarivoSemanticModelExtension(
         visibility=row.get("visibility", "public"),
         owner_user=row.get("owner_user"),
+        revision=revision,
     )
     result: dict[str, Any] = {
         "name": row["name"],
@@ -270,6 +271,4 @@ def storage_to_model(
         result["relationships"] = relationships
     if metrics:
         result["metrics"] = metrics
-    if revision is not None:
-        result["revision"] = revision
     return result
