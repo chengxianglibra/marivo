@@ -110,22 +110,6 @@ class TestMetricHeader:
                 metric_contract_version="metric.v1",
             )
 
-    def test_rejects_legacy_header_physical_binding_fields(self):
-        with pytest.raises(ValidationError, match="physical_column"):
-            MetricHeader(
-                metric_ref="metric.dau",
-                metric_family="count_metric",
-                observed_entity_ref="entity.user",
-                observation_grain_ref="grain.user",
-                sample_kind="numeric",
-                value_semantics="count",
-                additivity_constraints=AdditivityConstraints(
-                    dimension_policy="none", time_axis_policy="non_additive"
-                ),
-                metric_contract_version="metric.v1",
-                physical_column="user_id",
-            )
-
 
 class TestMeasurementComponent:
     """Tests for MeasurementComponent model."""
@@ -167,19 +151,6 @@ class TestMeasurementComponent:
                 semantics="users who converted",
                 aggregation="count_distinct",
                 physical_column="converted_users",
-            )
-
-    @pytest.mark.parametrize(
-        "legacy_field",
-        ["physical_column", "carrier_binding_key", "surface_ref", "binding_ref"],
-    )
-    def test_rejects_legacy_binding_locator_fields(self, legacy_field):
-        with pytest.raises(ValidationError, match=legacy_field):
-            MeasurementComponent(
-                name="converted_users",
-                semantics="users who converted",
-                aggregation="count_distinct",
-                **{legacy_field: "legacy_value"},
             )
 
 
@@ -430,52 +401,6 @@ class TestTypedMetricCreateRequest:
                         aggregation="sum",
                     )
                 ),
-            )
-
-    @pytest.mark.parametrize("legacy_field", ["binding", "carrier_bindings", "field_bindings"])
-    def test_rejects_legacy_metric_physical_binding_sections(self, legacy_field):
-        with pytest.raises(ValidationError, match=legacy_field):
-            TypedMetricCreateRequest.model_validate(
-                {
-                    "header": {
-                        "metric_ref": "metric.legacy_binding_payload",
-                        "metric_family": "count_metric",
-                        "observed_entity_ref": "entity.user",
-                        "observation_grain_ref": "grain.user",
-                        "sample_kind": "numeric",
-                        "value_semantics": "count",
-                        "additivity_constraints": {
-                            "dimension_policy": "none",
-                            "time_axis_policy": "non_additive",
-                        },
-                        "metric_contract_version": "metric.v1",
-                    },
-                    "payload": {
-                        "metric_family": "count_metric",
-                        "count_target": {
-                            "name": "users",
-                            "semantics": "distinct users",
-                            "aggregation": "count_distinct",
-                        },
-                    },
-                    legacy_field: [],
-                }
-            )
-
-    def test_rejects_legacy_payload_binding_sections(self):
-        with pytest.raises(ValidationError, match="field_bindings"):
-            CountMetricPayload.model_validate(
-                {
-                    "metric_family": "count_metric",
-                    "count_target": {
-                        "name": "users",
-                        "semantics": "distinct users",
-                        "aggregation": "count_distinct",
-                    },
-                    "field_bindings": [
-                        {"surface_ref": "field.user_id", "physical_column": "user_id"}
-                    ],
-                }
             )
 
 

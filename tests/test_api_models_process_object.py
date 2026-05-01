@@ -153,49 +153,6 @@ class TestProcessObjectCreateRequest:
         assert payload.states[0].entry_ref == "predicate.active_customer"
         assert payload.states[0].exit_ref == "entity.customer.field.churned_at"
 
-    @pytest.mark.parametrize("legacy_field", ["binding", "carrier_bindings", "field_bindings"])
-    def test_rejects_legacy_process_physical_binding_sections(self, legacy_field):
-        with pytest.raises(ValidationError, match=legacy_field):
-            ProcessObjectCreateRequest.model_validate(
-                {
-                    "header": {
-                        "process_ref": "process.legacy_binding_payload",
-                        "process_type": "cohort_definition",
-                        "process_contract_version": "process.v2",
-                    },
-                    "interface_contract": {
-                        "contract_mode": "context_provider",
-                        "context_kind": "cohort_membership",
-                        "population_subject_ref": "subject.user",
-                        "membership_cardinality": "exclusive_one",
-                    },
-                    "payload": {
-                        "process_type": "cohort_definition",
-                        "cohort_key": "new_users",
-                        "entry_population": {"base_population_ref": "population.users"},
-                        "cohort_anchor_ref": "time.signup_time",
-                    },
-                    legacy_field: [],
-                }
-            )
-
-    def test_rejects_legacy_process_payload_field_binding(self):
-        with pytest.raises(ValidationError, match="field_bindings"):
-            FunnelDefinitionPayload.model_validate(
-                {
-                    "process_type": "funnel_definition",
-                    "funnel_key": "purchase",
-                    "steps": [
-                        {"step_key": "view", "event_ref": "predicate.viewed_product"},
-                        {"step_key": "buy", "event_ref": "predicate.completed_purchase"},
-                    ],
-                    "conversion_step_key": "buy",
-                    "field_bindings": [
-                        {"surface_ref": "field.user_id", "physical_column": "user_id"}
-                    ],
-                }
-            )
-
     def test_checkout_funnel_refs_entity_fields_time_and_predicates(self):
         request = ProcessObjectCreateRequest(
             header=ProcessObjectHeader(

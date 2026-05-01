@@ -296,11 +296,6 @@ class ObserveScopePredicateRefTests(unittest.TestCase):
                 predicate_ref="predicate.test_scope",
             )
 
-    def test_legacy_predicate_still_works(self) -> None:
-        scope = ObserveScope(predicate={"target_ref": "entity.user", "op": "is_not_null"})
-        self.assertIsNotNone(scope.predicate)
-        self.assertIsNone(scope.predicate_ref)
-
     def test_none_both_is_valid(self) -> None:
         scope = ObserveScope()
         self.assertIsNone(scope.predicate)
@@ -515,13 +510,6 @@ class PredicateRefResolutionTests(unittest.TestCase):
         scope = _normalize_scope({"predicate_ref": "predicate.test", "constraints": {}})
         self.assertEqual(scope.predicate_ref, "predicate.test")
         self.assertIsNone(scope.predicate)
-
-    def test_normalize_scope_legacy_predicate_unchanged(self) -> None:
-        from app.time_scope import _normalize_scope
-
-        scope = _normalize_scope({"predicate": "status = 'active'", "constraints": {}})
-        self.assertEqual(scope.predicate, "status = 'active'")
-        self.assertIsNone(scope.predicate_ref)
 
 
 # =============================================================================

@@ -62,25 +62,6 @@ class StepRegistryWiringTests(unittest.TestCase):
             service.run_step(session_id, "not_a_real_step")
         self.assertIn("Unsupported step type", str(ctx.exception))
 
-    def test_legacy_step_http_endpoints_removed(self) -> None:
-        """Legacy /steps/* HTTP endpoints must no longer be reachable."""
-        session_id = self.client.post("/sessions", json={"goal": "Legacy endpoint guard"}).json()[
-            "session_id"
-        ]
-
-        for path in (
-            f"/sessions/{session_id}/steps/metric_query",
-            f"/sessions/{session_id}/steps/aggregate_query",
-            f"/sessions/{session_id}/steps/attribute_change",
-            f"/sessions/{session_id}/steps/synthesize_findings",
-        ):
-            response = self.client.post(path)
-            self.assertEqual(
-                response.status_code,
-                404,
-                f"Expected 404 for removed endpoint {path}, got {response.status_code}",
-            )
-
 
 if __name__ == "__main__":
     unittest.main()

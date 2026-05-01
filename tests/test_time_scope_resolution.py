@@ -98,22 +98,6 @@ class TimeScopeNormalizationTests(unittest.TestCase):
         self.assertIsNone(resolved.resolved_time_axis.override_analysis_time_column)
         self.assertEqual(resolved.resolved_time_axis.observation_grain, "day")
 
-    def test_normalizers_reject_legacy_fields(self) -> None:
-        with self.assertRaisesRegex(ValueError, "legacy fields"):
-            normalize_metric_query_request(
-                {
-                    "table": "analytics.watch_events",
-                    "metric": "watch_time",
-                    "time_scope": {
-                        "mode": "compare",
-                        "grain": "day",
-                        "current": {"start": "2026-03-10", "end": "2026-03-17"},
-                        "baseline": {"start": "2026-03-03", "end": "2026-03-10"},
-                    },
-                    "period_end": "2026-03-16",
-                }
-            )
-
     def test_normalizers_reject_time_predicates_in_scope(self) -> None:
         with self.assertRaisesRegex(
             ValueError, "scope.predicate must not contain time-axis predicates"

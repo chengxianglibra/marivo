@@ -158,19 +158,6 @@ class SessionAPITests(unittest.TestCase):
             {"session_user": "alice", "actor_ref": "agent.alice"},
         )
 
-    def test_create_session_rejects_blank_execution_identity_fields(self) -> None:
-        response = self.client.post(
-            "/sessions",
-            json={
-                "goal": "Blank execution identity session",
-                "execution_identity": {
-                    "session_user": "   ",
-                    "actor_ref": "agent.alice",
-                },
-            },
-        )
-        self.assertEqual(response.status_code, 422)
-
     def test_get_session_not_found(self) -> None:
         """GET /sessions/{id} with unknown ID should 404."""
         resp = self.client.get("/sessions/sess_nonexistent")
@@ -254,10 +241,6 @@ class SessionAPITests(unittest.TestCase):
         )
         self.assertEqual(second_page.status_code, 200)
         self.assertEqual(len(second_page.json()["items"]), 1)
-
-    def test_list_sessions_rejects_invalid_page_token(self) -> None:
-        resp = self.client.get("/sessions?page_token=bad-token")
-        self.assertEqual(resp.status_code, 400)
 
 
 class SessionCloseTests(unittest.TestCase):

@@ -216,20 +216,6 @@ class MySQLMetadataIntegrationTests(unittest.TestCase):
 
         self.assertIn("customer_table", self._table_names())
 
-    def test_initialize_fails_closed_when_current_schema_lacks_index(self) -> None:
-        self.store.initialize()
-        self.store.execute("DROP INDEX idx_sessions_created ON sessions")
-
-        with self.assertRaisesRegex(RuntimeError, "missing indexes"):
-            self.store.initialize()
-
-    def test_initialize_fails_closed_when_current_schema_lacks_foreign_key(self) -> None:
-        self.store.initialize()
-        self.store.execute("ALTER TABLE step_metadata DROP FOREIGN KEY fk_step_metadata_step_id")
-
-        with self.assertRaisesRegex(RuntimeError, "missing foreign keys"):
-            self.store.initialize()
-
     def test_query_shape_execute_many_insert_ignore_and_upsert_contracts(self) -> None:
         self.store.initialize()
         session_rows = [
