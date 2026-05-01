@@ -58,6 +58,16 @@ class SemanticModelV2Service:
             raise HTTPException(status_code=404, detail=f"Semantic model '{name}' not found")
         return row
 
+    def _require_private_model(self, name: str) -> dict[str, Any]:
+        """Look up a model and raise 403 if it is not private."""
+        row = self._require_model_row(name)
+        if row["visibility"] != "private":
+            raise HTTPException(
+                status_code=403,
+                detail=f"Cannot modify official semantic model '{name}' via CRUD; use /semantic-models/import",
+            )
+        return row
+
     def _assemble_model(self, model_row: dict[str, Any]) -> dict[str, Any]:
         """Assemble a full OSI-conformant model dict from storage rows."""
         model_id = model_row["model_id"]
@@ -203,6 +213,14 @@ class SemanticModelV2Service:
         Validates, parses with Pydantic, extracts MARIVO extensions,
         inserts into storage, and returns the assembled model.
         """
+        # Reject creation of official models via CRUD
+        enriched_pre = self._enrich_model_dict_with_marivo(model_data)
+        if enriched_pre.get("visibility", "public") != "private":
+            raise HTTPException(
+                status_code=403,
+                detail="Cannot create official semantic model via CRUD; use /semantic-models/import",
+            )
+
         # Enrich for validation (adds MARIVO fields as top-level dict keys)
         enriched = self._enrich_model_dict_with_marivo(model_data)
 
@@ -382,7 +400,7 @@ class SemanticModelV2Service:
 
     def update_semantic_model(self, name: str, updates: dict[str, Any]) -> dict[str, Any]:
         """Update top-level fields of a semantic model (description only for now)."""
-        model_row = self._require_model_row(name)
+        model_row = self._require_private_model(name)
         model_id = model_row["model_id"]
 
         allowed_fields = {"description"}
@@ -410,9 +428,7 @@ class SemanticModelV2Service:
 
     def delete_semantic_model(self, name: str) -> None:
         """Delete a semantic model and all children (CASCADE)."""
-        model_row = self._get_model_row_by_name(name)
-        if model_row is None:
-            raise HTTPException(status_code=404, detail=f"Semantic model '{name}' not found")
+        model_row = self._require_private_model(name)
         self.store.execute(
             "DELETE FROM semantic_models WHERE model_id = ?",
             [model_row["model_id"]],
