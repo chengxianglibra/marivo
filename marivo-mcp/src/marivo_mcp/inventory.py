@@ -162,15 +162,6 @@ SURFACE_SPECS: tuple[McpSurfaceSpec, ...] = (
         "POST",
         ("/sessions/{session_id}/intents/validate",),
     ),
-    McpSurfaceSpec("search_catalog", "tool", "p0", True, "GET", ("/catalog/search",)),
-    McpSurfaceSpec(
-        "resolve_typed_ref",
-        "tool",
-        "p0",
-        True,
-        "GET",
-        ("/semantic/resolve/{ref}",),
-    ),
     McpSurfaceSpec("create_entity", "tool", "p0", True, "POST", ("/semantic/entities",)),
     McpSurfaceSpec("list_entities", "tool", "p0", True, "GET", ("/semantic/entities",)),
     McpSurfaceSpec(

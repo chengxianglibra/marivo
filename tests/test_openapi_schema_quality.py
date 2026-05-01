@@ -38,6 +38,21 @@ def _router_only_openapi() -> dict[str, Any]:
     return app.openapi()
 
 
+def test_legacy_catalog_routes_are_not_registered() -> None:
+    openapi = _router_only_openapi()
+    paths = set(openapi["paths"])
+
+    legacy_paths = {
+        "/catalog/search",
+        "/catalog/objects/{object_kind}/{object_id}",
+        "/catalog/graph",
+        "/semantic/resolve/{name}",
+        "/sessions/{session_id}/planner-context",
+    }
+
+    assert paths.isdisjoint(legacy_paths)
+
+
 def _is_scoped_path(path: str) -> bool:
     return (
         path.startswith(SCOPED_PATH_PREFIXES)

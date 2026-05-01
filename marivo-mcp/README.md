@@ -387,16 +387,13 @@ dependencies, compatibility failures, and missing objects.
 
 ## T4 Tools
 
-Current discovery / health / catalog coverage:
+Current discovery / health coverage:
 
 - `health_check()` -> `GET /health`
 - `list_openapi_paths()` -> `GET /openapi/index`
 - `get_openapi_schema(schema_name, depth=1)` -> `GET /openapi/schemas/{schema_name}`
 - `get_openapi_fragment(path, operation=None, expand=None, depth=1)` -> `GET /openapi/fragment`
 - `get_openapi_path_fragment(path, expand=None, depth=1)` -> `GET /openapi/paths/{encoded_path}` (tool auto-encodes raw path as base64url)
-- `search_catalog(q, type=None, readiness=None)` -> `GET /catalog/search`; `type` includes
-  `calendar_policy` for builtin calendar-alignment refs such as `calendar_policy.holiday_yoy`
-- `resolve_typed_ref(ref)` -> `GET /semantic/resolve/{ref}`
 
 These tools are adapters over the canonical HTTP contract. They do not publish a
 second schema or reinterpret Marivo object families.
@@ -559,9 +556,9 @@ Boundary notes:
 - entity is the first-class grounding object. Entity payloads declare field refs and identity/time
   surfaces; metric, process, dimension, time, and predicate payloads reference those entity fields
   and semantic refs instead of carrying physical locators directly.
-- domain discovery and repair work should map to the canonical read/write endpoints: use
-  `search_catalog` and semantic list/get tools for discovery, relationship tools for
-  entity-to-entity alignment, and compiler profile tools for compatibility/profile repair.
+- domain discovery and repair work should map to the canonical read/write endpoints: use semantic
+  list/get tools for discovery, relationship tools for entity-to-entity alignment, and compiler
+  profile tools for compatibility/profile repair.
   Do not model those as MCP-owned discovery, join-planning, or repair contracts.
 - list tools also accept the canonical `detail` query parameter so MCP callers can choose lightweight
   list items or backward-compatible full payloads

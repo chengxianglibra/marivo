@@ -74,8 +74,8 @@ class CalendarPolicyCatalogEntry:
     matching_strategy_summary: tuple[str, ...]
     fallback_strategy: tuple[str, ...]
     coverage_behavior: str
-    detail_path: str
-    resolve_path: str
+    detail_path: str | None
+    resolve_path: str | None
     status: Literal["published"] = "published"
     lifecycle_status: Literal["active"] = "active"
     readiness_status: Literal["ready"] = "ready"
@@ -308,8 +308,8 @@ def calendar_policy_catalog_entry(policy_ref: str) -> CalendarPolicyCatalogEntry
         ),
         fallback_strategy=policy.fallback_strategy,
         coverage_behavior=policy.coverage_behavior,
-        detail_path=f"/catalog/objects/calendar_policy/{policy.policy_ref}",
-        resolve_path=f"/semantic/resolve/{policy.policy_ref}",
+        detail_path=None,
+        resolve_path=None,
     )
 
 

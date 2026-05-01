@@ -16,10 +16,6 @@ from marivo_mcp.sdk import FastMcpServer
 _ParamScalar = str | int | float | bool | None
 _ParamList = list[_ParamScalar]
 _ParamValue = _ParamScalar | _ParamList
-_CATALOG_SEARCH_TYPES = frozenset(
-    {"asset", "binding", "calendar_policy", "dimension", "entity", "metric", "process", "time"}
-)
-_CATALOG_SEARCH_READINESS = frozenset({"all", "not_ready", "ready", "stale"})
 _OBSERVE_TIME_SCOPE_CANONICAL_MESSAGE = (
     "observe.time_scope requires canonical object shape, not shorthand string. "
     'Use {"kind":"range","start":"YYYY-MM-DD","end":"YYYY-MM-DD"}. '
@@ -955,36 +951,6 @@ def register_tools(
             f"/openapi/paths/{encoded_path}",
             params=_compact_params(expand=request_expand, depth=depth),
         )
-
-    @server.tool()
-    @_tool_metadata("GET", "/catalog/search")
-    def search_catalog(
-        q: str, type: str | None = None, readiness: str | None = None
-    ) -> dict[str, object]:
-        """Search catalog objects via GET /catalog/search; `q` is required, `type` narrows object families, and `readiness` defaults to ready semantic objects when omitted."""
-        if type is not None and type not in _CATALOG_SEARCH_TYPES:
-            supported_types = ", ".join(sorted(_CATALOG_SEARCH_TYPES))
-            raise ValueError(
-                f"search_catalog type must be one of: {supported_types}. "
-                "Run separate searches instead of using a catch-all value like 'all'."
-            )
-        if readiness is not None and readiness not in _CATALOG_SEARCH_READINESS:
-            supported_readiness = ", ".join(sorted(_CATALOG_SEARCH_READINESS))
-            raise ValueError(
-                f"search_catalog readiness must be one of: {supported_readiness}. "
-                "Omit it to use the HTTP default of 'ready'."
-            )
-        return client.request_envelope(
-            "GET",
-            "/catalog/search",
-            params=_compact_params(q=q, type=type, readiness=readiness),
-        ).model_dump()
-
-    @server.tool()
-    @_tool_metadata("GET", "/semantic/resolve/{ref}")
-    def resolve_typed_ref(ref: str) -> dict[str, object]:
-        """Resolve one typed semantic ref via GET /semantic/resolve/{ref}; this does not create new object families."""
-        return client.request_envelope("GET", f"/semantic/resolve/{ref}").model_dump()
 
     @server.tool()
     @_tool_metadata("POST", "/semantic/entities")

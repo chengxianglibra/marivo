@@ -135,21 +135,6 @@ from .calendar import (
     CalendarDataRow,
     CalendarVersionItem,
 )
-
-# Catalog models (stub)
-from .catalog import (
-    CatalogAssetDetail,
-    CatalogAssetSearchResult,
-    CatalogCalendarPolicyDetail,
-    CatalogCalendarPolicySearchResult,
-    CatalogEntityDetail,
-    CatalogGenericSemanticDetail,
-    CatalogMetricDetail,
-    CatalogObjectDetail,
-    CatalogSearchResult,
-    CatalogSemanticSearchResult,
-    SourceObjectResponse,
-)
 from .intent_responses import (
     AttributeResponse,
     CompareResponse,
@@ -287,16 +272,6 @@ __all__ = [  # noqa: RUF022
     "CalendarDataLoadRequest",
     "CalendarDataLoadResponse",
     "CalendarVersionItem",
-    "CatalogAssetDetail",
-    "CatalogAssetSearchResult",
-    "CatalogCalendarPolicyDetail",
-    "CatalogCalendarPolicySearchResult",
-    "CatalogEntityDetail",
-    "CatalogGenericSemanticDetail",
-    "CatalogMetricDetail",
-    "CatalogObjectDetail",
-    "CatalogSearchResult",
-    "CatalogSemanticSearchResult",
     "Cardinality",
     "CardinalityToParent",
     "CatalogMetadata",
@@ -440,7 +415,6 @@ __all__ = [  # noqa: RUF022
     "SessionStateView",
     "SessionTerminateRequest",
     "SessionTerminateResponse",
-    "SourceObjectResponse",
     "StateSpec",
     "StepSpec",
     "StructureKind",
