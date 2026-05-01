@@ -7,19 +7,26 @@ Handles the bidirectional mapping between:
 
 from __future__ import annotations
 
-from typing import TypeVar
+from collections.abc import Sequence
+from typing import Protocol, TypeVar
 
 from pydantic import BaseModel
-
-from app.api.models.osi import CustomExtension
 
 T = TypeVar("T", bound=BaseModel)
 
 MARIVO_VENDOR = "MARIVO"
 
 
+class OsiCustomExtensionLike(Protocol):
+    @property
+    def vendor_name(self) -> str: ...
+
+    @property
+    def data(self) -> str: ...
+
+
 def extract_marivo_extension(  # noqa: UP047 — PEP 695 not yet supported by mypy
-    custom_extensions: list[CustomExtension] | None,
+    custom_extensions: Sequence[OsiCustomExtensionLike] | None,
     extension_type: type[T],
 ) -> T | None:
     """Extract and parse the MARIVO vendor extension from a custom_extensions list."""
@@ -33,10 +40,12 @@ def extract_marivo_extension(  # noqa: UP047 — PEP 695 not yet supported by my
 
 def build_custom_extensions(
     marivo_ext: BaseModel | None = None,
-    *others: CustomExtension,
-) -> list[CustomExtension]:
+    *others: OsiCustomExtensionLike,
+) -> list[OsiCustomExtensionLike]:
     """Build a custom_extensions list from a MARIVO extension model and optional other extensions."""
-    result: list[CustomExtension] = []
+    from app.api.models.osi import CustomExtension
+
+    result: list[OsiCustomExtensionLike] = []
     if marivo_ext is not None:
         result.append(
             CustomExtension(

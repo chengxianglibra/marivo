@@ -8,7 +8,7 @@ Path (/intents/<intent_type>) acts as the discriminator; no step_type field.
 
 from __future__ import annotations
 
-from typing import Annotated, Any, Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -17,6 +17,7 @@ from app.analysis_core.calendar_policy import (
     validate_calendar_policy_ref,
 )
 from app.api.models.base import validate_ref_prefix
+from app.api.models.json_contract import JsonObject, JsonScalar, ScalarMap
 from app.time_contracts import normalize_hour_boundary
 
 
@@ -104,6 +105,15 @@ ObserveTimeScope = Annotated[
 ]
 
 
+class PredicateComparison(BaseModel):
+    """Deprecated inline predicate comparison shape."""
+
+    field: str
+    operator: Literal["eq", "neq", "gt", "gte", "lt", "lte", "in"]
+    value: JsonScalar = None
+    values: list[JsonScalar] | None = None
+
+
 class ObserveScope(BaseModel):
     """Non-time population scope for an observe intent.
 
@@ -112,11 +122,11 @@ class ObserveScope(BaseModel):
     Prefer `predicate_ref` over `predicate` for governed predicate references.
     """
 
-    constraints: dict[str, Any] | None = Field(
+    constraints: ScalarMap | None = Field(
         default=None,
         description="Scalar equality constraints on semantic dimensions.",
     )
-    predicate: dict[str, Any] | None = Field(
+    predicate: PredicateComparison | JsonObject | None = Field(
         default=None,
         description="DEPRECATED: Use predicate_ref instead. "
         "Structured non-time predicate AST.  Must not contain time conditions.",

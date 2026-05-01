@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from app.api.models.json_contract import ScalarMap
 
 
 class SessionTerminateRequest(BaseModel):
@@ -28,26 +30,42 @@ class SessionExecutionIdentityPayload(BaseModel):
         return normalized
 
 
+class SessionBudget(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    max_scan_bytes: int = Field(default=500_000_000_000, ge=0)
+    max_latency_sec: int = Field(default=120, ge=0)
+
+
+class SessionPolicyRef(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    policy_id: str
+    policy_version: str | None = None
+
+
+class SessionGovernancePolicy(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    aggregate_only: bool = True
+    min_group_size: int = Field(default=100, ge=0)
+    policy_refs: list[SessionPolicyRef] | None = None
+
+
 class SessionCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     goal: str
-    budget: dict[str, Any] = Field(
-        default_factory=lambda: {
-            "max_scan_bytes": 500_000_000_000,
-            "max_latency_sec": 120,
-        },
+    budget: SessionBudget = Field(
+        default_factory=SessionBudget,
         description=(
             "Hard resource limits enforced by Marivo. Steps that would exceed "
             "max_scan_bytes or max_latency_sec are blocked before execution. "
             "This is a system decision constraint, not a suggestion."
         ),
     )
-    policy: dict[str, Any] = Field(
-        default_factory=lambda: {
-            "aggregate_only": True,
-            "min_group_size": 100,
-        },
+    policy: SessionGovernancePolicy = Field(
+        default_factory=SessionGovernancePolicy,
         description=(
             "Governance rules enforced by Marivo (e.g. aggregate_only blocks raw row access, "
             "min_group_size enforces k-anonymity). System-enforced decision constraints — "
@@ -57,6 +75,15 @@ class SessionCreateRequest(BaseModel):
     execution_identity: SessionExecutionIdentityPayload = Field(
         default_factory=SessionExecutionIdentityPayload
     )
+
+
+class SessionStateSlice(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    metric: str | None = None
+    entity: str | None = None
+    grain: str | None = None
+    constraints: ScalarMap | None = None
 
 
 class SessionStateQueryRequest(BaseModel):
@@ -73,7 +100,7 @@ class SessionStateQueryRequest(BaseModel):
 
     metric: str | None = None
     entity: str | None = None
-    slice: dict[str, Any] | None = None
+    slice: SessionStateSlice | ScalarMap | None = None
     proposition_types: list[str] | None = None
     origin_kinds: list[str] | None = None
     assessment_presence: Literal["assessed", "unassessed"] | None = None

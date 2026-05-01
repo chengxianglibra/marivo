@@ -36,7 +36,7 @@ def test_ai_context_string_form():
 
 
 def test_ai_context_object_form():
-    from app.api.models.osi import AIContext
+    from app.api.models.osi import AIContext, AIContextObject
 
     ctx = AIContext(
         root={
@@ -45,7 +45,8 @@ def test_ai_context_object_form():
             "examples": ["Show me sales by region"],
         }
     )
-    assert isinstance(ctx.root, dict)
+    assert isinstance(ctx.root, AIContextObject)
+    assert ctx.root.instructions == "Use this for retail"
 
 
 def test_field_minimal():

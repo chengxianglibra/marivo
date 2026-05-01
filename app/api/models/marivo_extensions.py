@@ -6,7 +6,7 @@ custom_extensions[].data when vendor_name == "MARIVO".
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -61,9 +61,22 @@ class MarivoAdditivity(BaseModel):
     model_config = {"extra": "forbid"}
 
 
+class MarivoMetricFilterExpressionDialect(BaseModel):
+    dialect: Literal["ANSI_SQL", "SNOWFLAKE", "MDX", "TABLEAU", "DATABRICKS"]
+    expression: str
+
+    model_config = {"extra": "forbid"}
+
+
+class MarivoMetricFilterExpression(BaseModel):
+    dialects: list[MarivoMetricFilterExpressionDialect] = Field(..., min_length=1)
+
+    model_config = {"extra": "forbid"}
+
+
 class MarivoMetricFilter(BaseModel):
     name: str = Field(..., min_length=1)
-    expression: dict[str, Any]  # Expression serialized as dict (avoid circular import)
+    expression: MarivoMetricFilterExpression
 
     model_config = {"extra": "forbid"}
 

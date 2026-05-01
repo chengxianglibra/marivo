@@ -6,16 +6,19 @@ for API input/output. All MARIVO-specific data lives in custom_extensions.
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import BaseModel, RootModel
 from pydantic import Field as PydanticField
+
+Dialect = Literal["ANSI_SQL", "SNOWFLAKE", "MDX", "TABLEAU", "DATABRICKS"]
+Vendor = Literal["COMMON", "SNOWFLAKE", "SALESFORCE", "DBT", "DATABRICKS", "MARIVO"]
 
 
 class DialectExpression(BaseModel):
     """Expression in a specific dialect."""
 
-    dialect: Literal["ANSI_SQL", "SNOWFLAKE", "MDX", "TABLEAU", "DATABRICKS"]
+    dialect: Dialect
     expression: str
 
     model_config = {"extra": "forbid"}
@@ -29,17 +32,112 @@ class Expression(BaseModel):
     model_config = {"extra": "forbid"}
 
 
-class AIContext(RootModel[str | dict[str, Any]]):
-    """AI context — either a string or an object with instructions/synonyms/examples."""
+class AIContextObject(BaseModel):
+    """Structured AI context for instructions, synonyms, and examples."""
 
-    root: str | dict[str, Any]
+    instructions: str | None = None
+    synonyms: list[str] | None = None
+    examples: list[str] | None = None
+
+    model_config = {"extra": "forbid"}
+
+
+class AIContext(RootModel[str | AIContextObject]):
+    """AI context — either a string or a typed OSI AI context object."""
+
+    root: str | AIContextObject
 
 
 class CustomExtension(BaseModel):
     """Vendor-specific extension container."""
 
-    vendor_name: Literal["COMMON", "SNOWFLAKE", "SALESFORCE", "DBT", "DATABRICKS", "MARIVO"]
+    vendor_name: Vendor
     data: str  # JSON string containing vendor-specific data
+
+    model_config = {"extra": "forbid"}
+
+
+class MarivoSemanticModelCustomExtension(BaseModel):
+    """MARIVO custom extension container for SemanticModel."""
+
+    vendor_name: Literal["MARIVO"]
+    data: str = PydanticField(
+        ...,
+        json_schema_extra={
+            "contentMediaType": "application/json",
+            "contentSchema": {
+                "$ref": "https://marivo.dev/schemas/osi-marivo-schema.json#/$defs/MarivoSemanticModelExtension"
+            },
+        },
+    )
+
+    model_config = {"extra": "forbid"}
+
+
+class MarivoDatasetCustomExtension(BaseModel):
+    """MARIVO custom extension container for Dataset."""
+
+    vendor_name: Literal["MARIVO"]
+    data: str = PydanticField(
+        ...,
+        json_schema_extra={
+            "contentMediaType": "application/json",
+            "contentSchema": {
+                "$ref": "https://marivo.dev/schemas/osi-marivo-schema.json#/$defs/MarivoDatasetExtension"
+            },
+        },
+    )
+
+    model_config = {"extra": "forbid"}
+
+
+class MarivoFieldCustomExtension(BaseModel):
+    """MARIVO custom extension container for Field."""
+
+    vendor_name: Literal["MARIVO"]
+    data: str = PydanticField(
+        ...,
+        json_schema_extra={
+            "contentMediaType": "application/json",
+            "contentSchema": {
+                "$ref": "https://marivo.dev/schemas/osi-marivo-schema.json#/$defs/MarivoFieldExtension"
+            },
+        },
+    )
+
+    model_config = {"extra": "forbid"}
+
+
+class MarivoRelationshipCustomExtension(BaseModel):
+    """MARIVO custom extension container for Relationship."""
+
+    vendor_name: Literal["MARIVO"]
+    data: str = PydanticField(
+        ...,
+        json_schema_extra={
+            "contentMediaType": "application/json",
+            "contentSchema": {
+                "$ref": "https://marivo.dev/schemas/osi-marivo-schema.json#/$defs/MarivoRelationshipExtension"
+            },
+        },
+    )
+
+    model_config = {"extra": "forbid"}
+
+
+class MarivoMetricCustomExtension(BaseModel):
+    """MARIVO custom extension container for Metric."""
+
+    vendor_name: Literal["MARIVO"]
+    data: str = PydanticField(
+        ...,
+        json_schema_extra={
+            "contentMediaType": "application/json",
+            "contentSchema": {
+                "$ref": "https://marivo.dev/schemas/osi-marivo-schema.json#/$defs/MarivoMetricExtension"
+            },
+        },
+    )
 
     model_config = {"extra": "forbid"}
 
@@ -61,7 +159,7 @@ class Field(BaseModel):
     label: str | None = None
     description: str | None = None
     ai_context: AIContext | None = None
-    custom_extensions: list[CustomExtension] | None = None
+    custom_extensions: list[MarivoFieldCustomExtension | CustomExtension] | None = None
 
     model_config = {"extra": "forbid"}
 
@@ -76,7 +174,7 @@ class Dataset(BaseModel):
     description: str | None = None
     ai_context: AIContext | None = None
     fields: list[Field] | None = None
-    custom_extensions: list[CustomExtension] | None = None
+    custom_extensions: list[MarivoDatasetCustomExtension | CustomExtension] | None = None
 
     model_config = {"extra": "forbid"}
 
@@ -92,7 +190,7 @@ class Relationship(BaseModel):
     from_columns: list[str] = PydanticField(..., min_length=1)
     to_columns: list[str] = PydanticField(..., min_length=1)
     ai_context: AIContext | None = None
-    custom_extensions: list[CustomExtension] | None = None
+    custom_extensions: list[MarivoRelationshipCustomExtension | CustomExtension] | None = None
 
 
 class Metric(BaseModel):
@@ -102,7 +200,7 @@ class Metric(BaseModel):
     expression: Expression
     description: str | None = None
     ai_context: AIContext | None = None
-    custom_extensions: list[CustomExtension] | None = None
+    custom_extensions: list[MarivoMetricCustomExtension | CustomExtension] | None = None
 
     model_config = {"extra": "forbid"}
 
@@ -116,7 +214,7 @@ class SemanticModel(BaseModel):
     ai_context: AIContext | None = None
     relationships: list[Relationship] | None = None
     metrics: list[Metric] | None = None
-    custom_extensions: list[CustomExtension] | None = None
+    custom_extensions: list[MarivoSemanticModelCustomExtension | CustomExtension] | None = None
 
     model_config = {"extra": "forbid"}
 
@@ -126,6 +224,8 @@ class OSIDocument(BaseModel):
 
     version: Literal["0.1.1"]
     semantic_model: list[SemanticModel]
+    dialects: list[Dialect] | None = None
+    vendors: list[Vendor] | None = None
 
     model_config = {"extra": "forbid"}
 
