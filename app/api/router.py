@@ -75,7 +75,6 @@ def include_api_routers(app: FastAPI) -> None:
         routing.router,
         semantic_v2.router,
         analysis_session.router,
-        catalog.router,
         governance.router,
         jobs.router,
         approvals.router,
