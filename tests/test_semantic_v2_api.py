@@ -789,3 +789,81 @@ class TestVisibilityGuardOnModelWrites(unittest.TestCase):
         )
         resp = client.delete("/semantic-models/priv_model")
         self.assertEqual(resp.status_code, 204)
+
+
+# ---------------------------------------------------------------------------
+# Visibility guard on sub-entity CRUD writes
+# ---------------------------------------------------------------------------
+
+
+class TestVisibilityGuardOnSubEntityWrites(unittest.TestCase):
+    def _create_official_model(self, client: TestClient) -> None:
+        doc = {
+            "version": OSI_SPEC_VERSION,
+            "semantic_model": [
+                {
+                    "name": "official_model",
+                    "datasets": [
+                        {
+                            "name": "orders",
+                            "source": "analytics.orders",
+                            "primary_key": ["order_id"],
+                            "fields": [
+                                {
+                                    "name": "order_id",
+                                    "expression": {
+                                        "dialects": [
+                                            {"dialect": "ANSI_SQL", "expression": "order_id"}
+                                        ]
+                                    },
+                                },
+                            ],
+                        }
+                    ],
+                }
+            ],
+        }
+        client.post("/semantic-models/import", json=doc)
+
+    def test_create_dataset_in_official_returns_403(self) -> None:
+        client = _make_app()
+        self._create_official_model(client)
+        resp = client.post("/semantic-models/official_model/datasets", json=_make_dataset_dict())
+        self.assertEqual(resp.status_code, 403)
+
+    def test_update_dataset_in_official_returns_403(self) -> None:
+        client = _make_app()
+        self._create_official_model(client)
+        resp = client.put(
+            "/semantic-models/official_model/datasets/orders", json={"description": "new"}
+        )
+        self.assertEqual(resp.status_code, 403)
+
+    def test_delete_dataset_in_official_returns_403(self) -> None:
+        client = _make_app()
+        self._create_official_model(client)
+        resp = client.delete("/semantic-models/official_model/datasets/orders")
+        self.assertEqual(resp.status_code, 403)
+
+    def test_create_relationship_in_official_returns_403(self) -> None:
+        client = _make_app()
+        self._create_official_model(client)
+        rel = {
+            "name": "r",
+            "from": "orders",
+            "to": "orders",
+            "from_columns": ["order_id"],
+            "to_columns": ["order_id"],
+        }
+        resp = client.post("/semantic-models/official_model/relationships", json=rel)
+        self.assertEqual(resp.status_code, 403)
+
+    def test_create_metric_in_official_returns_403(self) -> None:
+        client = _make_app()
+        self._create_official_model(client)
+        metric = {
+            "name": "total",
+            "expression": {"dialects": [{"dialect": "ANSI_SQL", "expression": "COUNT(order_id)"}]},
+        }
+        resp = client.post("/semantic-models/official_model/metrics", json=metric)
+        self.assertEqual(resp.status_code, 403)

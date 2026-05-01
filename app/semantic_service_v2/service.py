@@ -440,7 +440,7 @@ class SemanticModelV2Service:
 
     def create_dataset(self, model_name: str, ds_data: dict[str, Any]) -> dict[str, Any]:
         """Create a dataset within a model."""
-        model_row = self._require_model_row(model_name)
+        model_row = self._require_private_model(model_name)
         model_id = model_row["model_id"]
 
         ds = Dataset.model_validate(ds_data)
@@ -550,7 +550,7 @@ class SemanticModelV2Service:
         self, model_name: str, dataset_name: str, updates: dict[str, Any]
     ) -> dict[str, Any]:
         """Update a dataset's top-level fields."""
-        model_row = self._require_model_row(model_name)
+        model_row = self._require_private_model(model_name)
         ds_row = self.store.query_one(
             "SELECT * FROM semantic_datasets WHERE model_id = ? AND name = ?",
             [model_row["model_id"], dataset_name],
@@ -590,7 +590,7 @@ class SemanticModelV2Service:
 
     def delete_dataset(self, model_name: str, dataset_name: str) -> None:
         """Delete a dataset and all its fields (CASCADE)."""
-        model_row = self._require_model_row(model_name)
+        model_row = self._require_private_model(model_name)
         ds_row = self.store.query_one(
             "SELECT dataset_id FROM semantic_datasets WHERE model_id = ? AND name = ?",
             [model_row["model_id"], dataset_name],
@@ -611,7 +611,7 @@ class SemanticModelV2Service:
 
     def create_relationship(self, model_name: str, rel_data: dict[str, Any]) -> dict[str, Any]:
         """Create a relationship within a model. Validates from/to datasets exist."""
-        model_row = self._require_model_row(model_name)
+        model_row = self._require_private_model(model_name)
         model_id = model_row["model_id"]
 
         # Validate from/to datasets exist
@@ -692,7 +692,7 @@ class SemanticModelV2Service:
         self, model_name: str, rel_name: str, updates: dict[str, Any]
     ) -> dict[str, Any]:
         """Update a relationship's fields."""
-        model_row = self._require_model_row(model_name)
+        model_row = self._require_private_model(model_name)
         rel_row = self.store.query_one(
             "SELECT * FROM semantic_relationships WHERE model_id = ? AND name = ?",
             [model_row["model_id"], rel_name],
@@ -732,7 +732,7 @@ class SemanticModelV2Service:
 
     def delete_relationship(self, model_name: str, rel_name: str) -> None:
         """Delete a relationship."""
-        model_row = self._require_model_row(model_name)
+        model_row = self._require_private_model(model_name)
         rel_row = self.store.query_one(
             "SELECT relationship_id FROM semantic_relationships WHERE model_id = ? AND name = ?",
             [model_row["model_id"], rel_name],
@@ -753,7 +753,7 @@ class SemanticModelV2Service:
 
     def create_metric(self, model_name: str, metric_data: dict[str, Any]) -> dict[str, Any]:
         """Create a metric within a model."""
-        model_row = self._require_model_row(model_name)
+        model_row = self._require_private_model(model_name)
         model_id = model_row["model_id"]
 
         # Enrich metric data with MARIVO extension fields for validation
@@ -828,7 +828,7 @@ class SemanticModelV2Service:
         self, model_name: str, metric_name: str, updates: dict[str, Any]
     ) -> dict[str, Any]:
         """Update a metric's fields."""
-        model_row = self._require_model_row(model_name)
+        model_row = self._require_private_model(model_name)
         metric_row = self.store.query_one(
             "SELECT * FROM semantic_metrics WHERE model_id = ? AND name = ?",
             [model_row["model_id"], metric_name],
@@ -888,7 +888,7 @@ class SemanticModelV2Service:
 
     def delete_metric(self, model_name: str, metric_name: str) -> None:
         """Delete a metric."""
-        model_row = self._require_model_row(model_name)
+        model_row = self._require_private_model(model_name)
         metric_row = self.store.query_one(
             "SELECT metric_id FROM semantic_metrics WHERE model_id = ? AND name = ?",
             [model_row["model_id"], metric_name],
