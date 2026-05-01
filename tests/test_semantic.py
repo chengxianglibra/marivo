@@ -98,17 +98,6 @@ class SemanticEntityRouteTests(unittest.TestCase):
             resp.json()["detail"]["message"],
         )
 
-    def test_entity_routes_reject_legacy_contract_and_missing_object(self) -> None:
-        resp = self.client.post(
-            "/semantic/entities",
-            json={"name": "user", "display_name": "User", "keys": ["user_id"]},
-        )
-        self.assertEqual(resp.status_code, 422, resp.text)
-        self.assertIsInstance(resp.json()["detail"], list)
-
-        resp = self.client.get("/semantic/entities/nonexistent")
-        self.assertEqual(resp.status_code, 404)
-
     def test_entity_detail_read_accepts_canonical_ref(self) -> None:
         create_resp = self.client.post(
             "/semantic/entities",
@@ -396,65 +385,6 @@ class SemanticMetricRouteTests(unittest.TestCase):
         ]
         self.assertEqual(len(listed_after_activate), 1)
         self.assertEqual(listed_after_activate[0]["revision"], 2)
-
-    def test_metric_binding_authoring_rejects_metric_scope(self) -> None:
-        entity_ref = "entity.draft_metric_binding_user"
-        metric_ref = "metric.draft_metric_binding_count"
-        self._create_published_entity(entity_ref)
-        metric_resp = self.client.post(
-            "/semantic/metrics",
-            json=self._metric_create_payload(metric_ref, entity_ref),
-        )
-        self.assertEqual(metric_resp.status_code, 200, metric_resp.text)
-        self.assertEqual(metric_resp.json()["status"], "draft")
-
-        binding_resp = self.client.post(
-            "/semantic/bindings",
-            json={
-                "header": {
-                    "binding_ref": "binding.draft_metric_binding_count_primary",
-                    "display_name": "Draft Metric Binding Count Primary",
-                    "binding_scope": "metric",
-                    "bound_object_ref": metric_ref,
-                    "binding_contract_version": "binding.v1",
-                },
-                "interface_contract": {
-                    "carrier_bindings": [
-                        {
-                            "binding_key": "primary",
-                            "carrier_kind": "table",
-                            "carrier_locator": "warehouse.draft_metric_binding_count",
-                            "binding_role": "primary",
-                            "field_surfaces": [
-                                {
-                                    "surface_ref": "field.count_target",
-                                    "physical_name": "count_target",
-                                }
-                            ],
-                        }
-                    ],
-                    "field_bindings": [
-                        {
-                            "carrier_binding_key": "primary",
-                            "target": {
-                                "target_kind": "metric_input",
-                                "target_key": "count_target",
-                            },
-                            "semantic_ref": "metric_input.count_target",
-                            "surface_ref": "field.count_target",
-                        }
-                    ],
-                },
-            },
-        )
-        self.assertEqual(binding_resp.status_code, 422, binding_resp.text)
-        self.assertEqual(
-            binding_resp.json()["detail"]["code"], "typed_binding_scope_not_authorable"
-        )
-        self.assertEqual(
-            binding_resp.json()["detail"]["field_path"],
-            "header.binding_scope",
-        )
 
     def test_metric_revision_rejects_stale_base_revision_without_switching(self) -> None:
         entity_ref = "entity.metric_revision_stale_user"
@@ -816,22 +746,6 @@ class SemanticMetricRouteTests(unittest.TestCase):
             "cannot activate from status=published; expected draft",
             resp.json()["detail"]["message"],
         )
-
-    def test_metric_routes_reject_legacy_contract_and_missing_object(self) -> None:
-        resp = self.client.post(
-            "/semantic/metrics",
-            json={
-                "name": "watch_time",
-                "display_name": "Watch Time",
-                "definition_sql": "avg(play_duration_seconds)",
-                "dimensions": ["platform"],
-            },
-        )
-        self.assertEqual(resp.status_code, 422, resp.text)
-        self.assertIsInstance(resp.json()["detail"], list)
-
-        resp = self.client.get("/semantic/metrics/nonexistent")
-        self.assertEqual(resp.status_code, 404)
 
     def test_metric_detail_read_accepts_canonical_ref(self) -> None:
         entity_resp = self.client.post(

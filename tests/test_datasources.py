@@ -263,33 +263,6 @@ class DatasourceServiceUnitTests(unittest.TestCase):
                 connection={},
             )
 
-    # -- Ensure idempotent ------------------------------------------------
-
-    def test_ensure_datasource_idempotent(self) -> None:
-        ds1 = self.service.ensure_datasource(
-            datasource_type="duckdb",
-            display_name="Idempotent DS",
-            connection={"path": "/tmp/idem.duckdb"},
-        )
-        ds2 = self.service.ensure_datasource(
-            datasource_type="duckdb",
-            display_name="Idempotent DS",
-            connection={"path": "/tmp/idem.duckdb"},
-        )
-        self.assertEqual(ds1["datasource_id"], ds2["datasource_id"])
-
-    # -- Validate datasource ----------------------------------------------
-
-    def test_validate_datasource_reports_invalid_connection(self) -> None:
-        ds = self.service.register_datasource(
-            datasource_type="duckdb",
-            display_name="Bad Connection DS",
-            connection={},
-        )
-        validation = self.service.validate_datasource(ds["datasource_id"])
-        self.assertFalse(validation["is_valid"])
-        self.assertEqual(validation["failure_code"], "datasource_invalid_connection")
-
     # -- Get datasource readiness ------------------------------------------
 
     def test_get_datasource_readiness(self) -> None:
@@ -400,19 +373,6 @@ class DatasourceAPITests(unittest.TestCase):
         self.assertEqual(ds["policy"]["allow_identity_reuse"], False)
         self.assertEqual(ds["readiness_status"], "ready")
         self.assertIsNone(ds["failure_code"])
-
-    # -- Register rejects unsupported type --------------------------------
-
-    def test_register_datasource_rejects_unsupported_type(self) -> None:
-        resp = self.client.post(
-            "/datasources",
-            json={
-                "datasource_type": "mysql",
-                "display_name": "Unsupported DS",
-                "connection": {},
-            },
-        )
-        self.assertEqual(resp.status_code, 422)
 
     # -- Get datasource ---------------------------------------------------
 

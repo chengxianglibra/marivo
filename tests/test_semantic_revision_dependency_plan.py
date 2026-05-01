@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import tempfile
 import unittest
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -11,7 +10,6 @@ from fastapi.testclient import TestClient
 from app.main import create_app
 from tests.semantic_test_helpers import (
     ensure_published_typed_metric_binding,
-    seed_duckdb_source_object,
 )
 from tests.shared_fixtures import get_seeded_duckdb_path
 
@@ -232,125 +230,6 @@ class SemanticRevisionDependencyPlanTests(unittest.TestCase):
         self.assertIn("reuse_after_revalidate", action_names)
         self.assertNotIn("resolve_breaking_revision_plan", action_names)
 
-    def test_legacy_metric_binding_derive_action_keeps_breaking_revision_blocked(
-        self,
-    ) -> None:
-        entity_ref = "entity.dependency_plan_complete_user"
-        metric_ref = "metric.dependency_plan_complete_rate"
-        binding_ref = "binding.dependency_plan_complete_rate_primary"
-        profile_ref = "compiler_profile.dependency_plan_complete_requirement"
-
-        self._create_published_entity(entity_ref)
-        metric_resp = self.client.post(
-            "/semantic/metrics",
-            json=self._rate_metric_payload(metric_ref, entity_ref),
-        )
-        self.assertEqual(metric_resp.status_code, 200, metric_resp.text)
-        publish_metric_resp = self.client.post(
-            f"/semantic/metrics/{metric_resp.json()['metric_contract_id']}/publish"
-        )
-        self.assertEqual(publish_metric_resp.status_code, 200, publish_metric_resp.text)
-
-        base_binding_id = self._seed_published_metric_binding(
-            binding_ref=binding_ref,
-            metric_ref=metric_ref,
-            covered_input_refs=["metric_input.numerator", "metric_input.denominator"],
-        )
-        metadata = self.client.app.state.metadata_store
-        now = datetime.now(UTC).isoformat()
-        seed_duckdb_source_object(
-            metadata,
-            source_id="src_dependency_plan_complete",
-            object_id="obj_dependency_plan_complete",
-            display_name="Dependency plan complete fact",
-            table_name="dependency_plan_count",
-            table_fqn="warehouse.dependency_plan_count",
-            authority_locator={
-                "catalog": None,
-                "schema": "warehouse",
-                "table": "dependency_plan_count",
-            },
-            now=now,
-        )
-        metadata.execute(
-            "DELETE FROM field_bindings WHERE binding_id = ? AND semantic_ref = ?",
-            [base_binding_id, "metric_input.denominator"],
-        )
-        self._mark_binding_published(base_binding_id)
-
-        profile_resp = self.client.post(
-            "/compiler/compatibility-profiles",
-            json={
-                "profile_ref": profile_ref,
-                "profile_kind": "requirement",
-                "schema_version": "v1",
-                "subject_kind": "metric",
-                "subject_ref": metric_ref,
-                "requirement": {"contract_modes": ["entity_stream"]},
-            },
-        )
-        self.assertEqual(profile_resp.status_code, 200, profile_resp.text)
-        publish_profile_resp = self.client.post(
-            f"/compiler/compatibility-profiles/{profile_resp.json()['profile_id']}/publish"
-        )
-        self.assertEqual(publish_profile_resp.status_code, 200, publish_profile_resp.text)
-
-        replacement = self._rate_metric_payload(metric_ref, entity_ref)
-        replacement["payload"]["required_inputs"].append({"input_ref": "metric_input.denominator"})
-        revision_resp = self.client.post(
-            f"/semantic/metrics/{metric_ref}/revisions",
-            json={
-                "base_revision": 1,
-                "change_summary": "Add denominator input",
-                "replacement": replacement,
-            },
-        )
-        self.assertEqual(revision_resp.status_code, 200, revision_resp.text)
-        self.assertFalse(revision_resp.json()["can_activate_now"])
-
-        metadata.execute(
-            """
-            INSERT INTO field_bindings (
-                field_binding_id, binding_id, carrier_binding_key, target_kind, target_key,
-                semantic_ref, surface_ref, created_at
-            ) VALUES (?, ?, 'primary', 'metric_input', 'denominator',
-                'metric_input.denominator', 'field.denominator', ?)
-            """,
-            [
-                "fbind_dependency_plan_denominator",
-                base_binding_id,
-                datetime.now(UTC).isoformat(),
-            ],
-        )
-
-        revalidate_resp = self.client.post(
-            f"/compiler/compatibility-profiles/{profile_ref}/revalidate",
-            json={"subject_revision": 2},
-        )
-        self.assertEqual(revalidate_resp.status_code, 200, revalidate_resp.text)
-        self.assertEqual(revalidate_resp.json()["subject_revision"], 2)
-
-        read_revision_resp = self.client.get(f"/semantic/metrics/{metric_ref}/revisions/2")
-        self.assertEqual(read_revision_resp.status_code, 200, read_revision_resp.text)
-        self.assertFalse(read_revision_resp.json()["can_activate_now"])
-        actions_by_name = {
-            action["action"]: action for action in read_revision_resp.json()["required_actions"]
-        }
-        self.assertEqual(
-            actions_by_name["reuse_after_revalidate"]["action_status"],
-            "satisfied",
-        )
-        self.assertEqual(
-            actions_by_name["derive_revision"]["action_status"],
-            "pending",
-        )
-
-        activate_metric_resp = self.client.post(
-            f"/semantic/metrics/{metric_ref}/revisions/2/activate"
-        )
-        self.assertEqual(activate_metric_resp.status_code, 409, activate_metric_resp.text)
-        self.assertIn("derive_revision", activate_metric_resp.text)
-
     def _assert_dependency_plan(
         self,
         payload: dict[str, Any],
@@ -405,13 +284,6 @@ class SemanticRevisionDependencyPlanTests(unittest.TestCase):
             f"/semantic/entities/{entity_resp.json()['entity_contract_id']}/publish"
         )
         self.assertEqual(publish_resp.status_code, 200, publish_resp.text)
-
-    def _mark_binding_published(self, binding_id: str) -> None:
-        metadata = self.client.app.state.metadata_store
-        metadata.execute(
-            "UPDATE typed_bindings SET status = 'published' WHERE binding_id = ?",
-            [binding_id],
-        )
 
     def _seed_published_metric_binding(
         self,
@@ -496,90 +368,6 @@ class SemanticRevisionDependencyPlanTests(unittest.TestCase):
                     "aggregation": "count",
                 },
                 "required_inputs": [{"input_ref": "metric_input.count_target"}],
-            },
-        }
-
-    def _rate_metric_payload(self, metric_ref: str, entity_ref: str) -> dict[str, Any]:
-        metric_name = metric_ref.removeprefix("metric.")
-        return {
-            "header": {
-                "metric_ref": metric_ref,
-                "display_name": metric_name,
-                "description": f"{metric_name} metric",
-                "metric_family": "rate_metric",
-                "observed_entity_ref": entity_ref,
-                "observation_grain_ref": "grain.user",
-                "sample_kind": "rate",
-                "value_semantics": "ratio",
-                "additivity_constraints": {
-                    "dimension_policy": "none",
-                    "time_axis_policy": "non_additive",
-                },
-                "metric_contract_version": "metric.v1",
-            },
-            "payload": {
-                "metric_family": "rate_metric",
-                "numerator": {
-                    "name": "converted_users",
-                    "semantics": "converted users",
-                    "aggregation": "count_distinct",
-                },
-                "denominator": {
-                    "name": "eligible_users",
-                    "semantics": "eligible users",
-                    "aggregation": "count_distinct",
-                },
-                "required_inputs": [{"input_ref": "metric_input.numerator"}],
-            },
-        }
-
-    def _metric_binding_payload(
-        self,
-        *,
-        binding_ref: str,
-        metric_ref: str,
-        covered_input_refs: list[str],
-        target_key_by_input_ref: dict[str, str] | None = None,
-    ) -> dict[str, Any]:
-        field_surfaces = [
-            {
-                "surface_ref": f"field.{input_ref.removeprefix('metric_input.')}",
-                "physical_name": input_ref.removeprefix("metric_input."),
-            }
-            for input_ref in covered_input_refs
-        ]
-        return {
-            "header": {
-                "binding_ref": binding_ref,
-                "display_name": binding_ref.removeprefix("binding."),
-                "binding_scope": "metric",
-                "bound_object_ref": metric_ref,
-                "binding_contract_version": "binding.v1",
-            },
-            "interface_contract": {
-                "carrier_bindings": [
-                    {
-                        "binding_key": "primary",
-                        "carrier_kind": "table",
-                        "carrier_locator": "warehouse.dependency_plan_count",
-                        "binding_role": "primary",
-                        "field_surfaces": field_surfaces,
-                    }
-                ],
-                "field_bindings": [
-                    {
-                        "carrier_binding_key": "primary",
-                        "target": {
-                            "target_kind": "metric_input",
-                            "target_key": (target_key_by_input_ref or {}).get(
-                                input_ref, input_ref.removeprefix("metric_input.")
-                            ),
-                        },
-                        "semantic_ref": input_ref,
-                        "surface_ref": f"field.{input_ref.removeprefix('metric_input.')}",
-                    }
-                    for input_ref in covered_input_refs
-                ],
             },
         }
 

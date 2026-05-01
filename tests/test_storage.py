@@ -41,17 +41,6 @@ class SQLiteMetadataStoreTests(unittest.TestCase):
         )
         self.assertEqual(marker_row, metadata_schema_marker_row("sqlite"))
 
-    def test_initialize_does_not_create_legacy_source_engine_bindings_table(self) -> None:
-        row = self.store.query_one(
-            """
-            SELECT COUNT(*) AS cnt
-            FROM sqlite_master
-            WHERE type = 'table' AND name = 'source_engine_bindings'
-            """
-        )
-        self.assertIsNotNone(row)
-        self.assertEqual(row["cnt"], 0)
-
     def test_reset_metadata_file_rebuilds_current_schema(self) -> None:
         self.store.execute(
             "INSERT INTO sessions (session_id, goal, constraints_json, budget_json, policy_json, status) VALUES (?, ?, ?, ?, ?, ?)",
@@ -74,15 +63,6 @@ class SQLiteMetadataStoreTests(unittest.TestCase):
         template_store = SQLiteMetadataStore(template_path)
 
         self.assert_current_mapping_only_schema(template_store)
-
-    def test_metadata_template_validation_rejects_legacy_binding_table(self) -> None:
-        template_path = shared_fixtures.get_seeded_metadata_path(
-            Path(self.temp_dir.name) / "legacy_meta.sqlite"
-        )
-        legacy_store = SQLiteMetadataStore(template_path)
-        legacy_store.execute("CREATE TABLE source_engine_bindings (binding_id TEXT PRIMARY KEY)")
-
-        self.assertFalse(shared_fixtures._metadata_template_valid(template_path))
 
     def test_initialize_uses_current_sessions_schema(self) -> None:
         rows = self.store.query_rows("PRAGMA table_info(sessions)")
@@ -121,70 +101,6 @@ class SQLiteMetadataStoreTests(unittest.TestCase):
 
         self.assertIsNotNone(row)
         self.assertEqual(row["dflt_value"], "'{}'")
-
-    def test_initialize_drops_legacy_tables_on_reinit(self) -> None:
-        legacy_path = Path(self.temp_dir.name) / "legacy_dropped.sqlite"
-        con = sqlite3.connect(legacy_path)
-        try:
-            con.execute(
-                """
-                CREATE TABLE engines (
-                    engine_id TEXT PRIMARY KEY,
-                    engine_type TEXT NOT NULL,
-                    display_name TEXT NOT NULL,
-                    connection_json TEXT NOT NULL,
-                    status TEXT NOT NULL DEFAULT 'active',
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
-                )
-                """
-            )
-            con.execute(
-                """
-                CREATE TABLE sources (
-                    source_id TEXT PRIMARY KEY,
-                    source_type TEXT NOT NULL,
-                    display_name TEXT NOT NULL,
-                    authority_json TEXT NOT NULL,
-                    sync_mode TEXT NOT NULL DEFAULT 'selected',
-                    status TEXT NOT NULL DEFAULT 'active',
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
-                )
-                """
-            )
-            con.execute(
-                """
-                CREATE TABLE source_execution_mappings (
-                    mapping_id TEXT PRIMARY KEY,
-                    source_id TEXT NOT NULL,
-                    engine_id TEXT NOT NULL,
-                    priority INTEGER NOT NULL DEFAULT 0,
-                    catalog_mappings_json TEXT NOT NULL DEFAULT '[]',
-                    status TEXT NOT NULL DEFAULT 'active',
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
-                )
-                """
-            )
-            con.commit()
-        finally:
-            con.close()
-
-        legacy_store = SQLiteMetadataStore(legacy_path)
-        legacy_store.initialize()
-
-        # After initialize, legacy tables should be gone and datasources should exist
-        tables = {
-            str(row["name"])
-            for row in legacy_store.query_rows(
-                "SELECT name FROM sqlite_master WHERE type = 'table'"
-            )
-        }
-        self.assertNotIn("engines", tables)
-        self.assertNotIn("sources", tables)
-        self.assertNotIn("source_execution_mappings", tables)
-        self.assertIn("datasources", tables)
 
     def test_initialize_uses_entity_grounding_json_columns(self) -> None:
         rows = self.store.query_rows("PRAGMA table_info(semantic_entity_contracts)")

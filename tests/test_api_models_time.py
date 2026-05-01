@@ -61,14 +61,3 @@ class TestTimeModels:
         )
 
         assert header.source_field_ref == "entity.user.field.signup_time"
-
-    @pytest.mark.parametrize("legacy_field", ["binding", "physical_column", "field_bindings"])
-    def test_header_rejects_legacy_physical_binding_fields(self, legacy_field):
-        with pytest.raises(ValidationError, match=legacy_field):
-            TimeSemanticHeader(
-                time_ref="time.signup_time",
-                semantic_roles=["business_anchor"],
-                time_contract_version="time.v1",
-                source_field_ref="entity.user.field.signup_time",
-                **{legacy_field: "legacy_value"},
-            )

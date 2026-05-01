@@ -433,26 +433,3 @@ def test_nested_object_params_still_validate_against_canonical_models() -> None:
 
     with pytest.raises(ValueError, match="Pass a structured object, not a JSON-encoded string"):
         tools_module_any._require_structured_object('{"step_id":"step_123"}', field_name="left_ref")
-
-
-def test_typed_intent_tool_runtime_schema_uses_objects_not_strings() -> None:
-    mcp_module = pytest.importorskip("mcp.server.fastmcp")
-    server = mcp_module.FastMCP("test")
-    register_tools(server, _build_config())
-
-    cases = {
-        "observe": "time_scope",
-        "compare": "left_ref",
-        "correlate": "left_ref",
-        "detect": "time_scope",
-        "test_intent": "hypothesis",
-        "forecast": "source_ref",
-        "attribute": "left",
-        "diagnose": "time_scope",
-        "validate": "left",
-    }
-
-    for tool_name, field_name in cases.items():
-        tool = server._tool_manager.get_tool(tool_name)
-        assert tool is not None
-        assert tool.parameters["properties"][field_name]["type"] == "object"

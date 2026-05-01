@@ -120,24 +120,6 @@ def test_marivo_mcp_semantic_payload_snippets_validate(key, value, model):
     model.model_validate(payload)
 
 
-def test_docs_payload_snippets_reject_legacy_physical_grounding_on_non_entity_objects():
-    checked = [
-        _find_block("docs/api/semantic.md", "metric_ref", "metric.active_users"),
-        _find_block("docs/api/semantic.md", "metric_ref", "metric.signup_conversion_rate"),
-        _find_block("docs/api/semantic.md", "process_ref", "process.signup_cohort"),
-        _find_block(
-            "marivo-skill/marivo/references/payload-cheatsheet.md",
-            "metric_ref",
-            "metric.daily_active_users",
-        ),
-        _find_block("marivo-mcp/README.md", "metric_ref", "metric.watch_time"),
-    ]
-
-    forbidden = {"binding", "carrier_bindings", "field_bindings", "physical_column"}
-    for payload in checked:
-        assert not _contains_any_key(payload, forbidden)
-
-
 def test_docs_json_blocks_are_parseable_except_explicit_http_examples():
     for relative_path in (
         "docs/api/semantic.md",

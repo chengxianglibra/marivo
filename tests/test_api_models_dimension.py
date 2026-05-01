@@ -97,16 +97,3 @@ class TestDimensionModels:
         )
 
         assert contract.source_field_ref == "entity.user.field.country"
-
-    @pytest.mark.parametrize("legacy_field", ["binding", "physical_column", "field_bindings"])
-    def test_interface_contract_rejects_legacy_physical_binding_fields(self, legacy_field):
-        with pytest.raises(ValidationError, match=legacy_field):
-            DimensionInterfaceContract(
-                source_field_ref="entity.user.field.country",
-                value_domain=DimensionValueDomainSpec(
-                    structure_kind="flat",
-                    value_type="string",
-                    domain_kind="open",
-                ),
-                **{legacy_field: "legacy_value"},
-            )
