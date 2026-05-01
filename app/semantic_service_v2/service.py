@@ -68,6 +68,17 @@ class SemanticModelV2Service:
             )
         return row
 
+    def _require_visible_model(
+        self, name: str, requesting_user: str | None = None
+    ) -> dict[str, Any]:
+        """Look up a model and raise 404 if not visible to requesting_user."""
+        row = self._require_model_row(name)
+        if row["visibility"] == "private" and (
+            requesting_user is None or requesting_user != row["owner_user"]
+        ):
+            raise HTTPException(status_code=404, detail=f"Semantic model '{name}' not found")
+        return row
+
     def _assemble_model(self, model_row: dict[str, Any]) -> dict[str, Any]:
         """Assemble a full OSI-conformant model dict from storage rows."""
         model_id = model_row["model_id"]
@@ -522,11 +533,13 @@ class SemanticModelV2Service:
                 ],
             )
 
-        return self.get_dataset(model_name, ds.name)
+        return self.get_dataset(model_name, ds.name, requesting_user=model_row["owner_user"])
 
-    def get_dataset(self, model_name: str, dataset_name: str) -> dict[str, Any]:
+    def get_dataset(
+        self, model_name: str, dataset_name: str, requesting_user: str | None = None
+    ) -> dict[str, Any]:
         """Get a dataset by name within a model."""
-        model_row = self._require_model_row(model_name)
+        model_row = self._require_visible_model(model_name, requesting_user)
         ds_row = self.store.query_one(
             "SELECT * FROM semantic_datasets WHERE model_id = ? AND name = ?",
             [model_row["model_id"], dataset_name],
@@ -545,9 +558,11 @@ class SemanticModelV2Service:
         ds_dict["_fields"] = [dict(f) for f in field_rows]
         return _storage_to_dataset(ds_dict)
 
-    def list_datasets(self, model_name: str) -> list[dict[str, Any]]:
+    def list_datasets(
+        self, model_name: str, requesting_user: str | None = None
+    ) -> list[dict[str, Any]]:
         """List all datasets in a model."""
-        model_row = self._require_model_row(model_name)
+        model_row = self._require_visible_model(model_name, requesting_user)
         ds_rows = self.store.query_rows(
             "SELECT * FROM semantic_datasets WHERE model_id = ? ORDER BY dataset_id",
             [model_row["model_id"]],
@@ -593,7 +608,9 @@ class SemanticModelV2Service:
                 params.append(value)
 
         if not update_parts:
-            return self.get_dataset(model_name, dataset_name)
+            return self.get_dataset(
+                model_name, dataset_name, requesting_user=model_row["owner_user"]
+            )
 
         update_parts.append("updated_at = datetime('now')")
         params.append(ds_row["dataset_id"])
@@ -603,7 +620,7 @@ class SemanticModelV2Service:
             params,
         )
 
-        return self.get_dataset(model_name, dataset_name)
+        return self.get_dataset(model_name, dataset_name, requesting_user=model_row["owner_user"])
 
     def delete_dataset(self, model_name: str, dataset_name: str) -> None:
         """Delete a dataset and all its fields (CASCADE)."""
@@ -632,7 +649,7 @@ class SemanticModelV2Service:
         model_id = model_row["model_id"]
 
         # Validate from/to datasets exist
-        datasets = self.list_datasets(model_name)
+        datasets = self.list_datasets(model_name, requesting_user=model_row["owner_user"])
         from_ds = rel_data.get("from") or rel_data.get("from_dataset")
         to_ds = rel_data.get("to") or rel_data.get("to_dataset")
         dataset_names = {ds["name"] for ds in datasets}
@@ -680,11 +697,13 @@ class SemanticModelV2Service:
             ],
         )
 
-        return self.get_relationship(model_name, rel.name)
+        return self.get_relationship(model_name, rel.name, requesting_user=model_row["owner_user"])
 
-    def get_relationship(self, model_name: str, rel_name: str) -> dict[str, Any]:
+    def get_relationship(
+        self, model_name: str, rel_name: str, requesting_user: str | None = None
+    ) -> dict[str, Any]:
         """Get a relationship by name within a model."""
-        model_row = self._require_model_row(model_name)
+        model_row = self._require_visible_model(model_name, requesting_user)
         rel_row = self.store.query_one(
             "SELECT * FROM semantic_relationships WHERE model_id = ? AND name = ?",
             [model_row["model_id"], rel_name],
@@ -696,9 +715,11 @@ class SemanticModelV2Service:
             )
         return _storage_to_relationship(dict(rel_row))
 
-    def list_relationships(self, model_name: str) -> list[dict[str, Any]]:
+    def list_relationships(
+        self, model_name: str, requesting_user: str | None = None
+    ) -> list[dict[str, Any]]:
         """List all relationships in a model."""
-        model_row = self._require_model_row(model_name)
+        model_row = self._require_visible_model(model_name, requesting_user)
         rel_rows = self.store.query_rows(
             "SELECT * FROM semantic_relationships WHERE model_id = ? ORDER BY relationship_id",
             [model_row["model_id"]],
@@ -735,7 +756,9 @@ class SemanticModelV2Service:
                 params.append(value)
 
         if not update_parts:
-            return self.get_relationship(model_name, rel_name)
+            return self.get_relationship(
+                model_name, rel_name, requesting_user=model_row["owner_user"]
+            )
 
         update_parts.append("updated_at = datetime('now')")
         params.append(rel_row["relationship_id"])
@@ -745,7 +768,7 @@ class SemanticModelV2Service:
             params,
         )
 
-        return self.get_relationship(model_name, rel_name)
+        return self.get_relationship(model_name, rel_name, requesting_user=model_row["owner_user"])
 
     def delete_relationship(self, model_name: str, rel_name: str) -> None:
         """Delete a relationship."""
@@ -787,7 +810,7 @@ class SemanticModelV2Service:
         if enriched_metric.get("observed_dataset"):
             from app.semantic_service_v2.validation import validate_metric
 
-            datasets = self.list_datasets(model_name)
+            datasets = self.list_datasets(model_name, requesting_user=model_row["owner_user"])
             fields_by_dataset = self._build_fields_by_dataset(datasets)
             validate_metric(enriched_metric, datasets, fields_by_dataset)
 
@@ -816,11 +839,13 @@ class SemanticModelV2Service:
             ],
         )
 
-        return self.get_metric(model_name, metric.name)
+        return self.get_metric(model_name, metric.name, requesting_user=model_row["owner_user"])
 
-    def get_metric(self, model_name: str, metric_name: str) -> dict[str, Any]:
+    def get_metric(
+        self, model_name: str, metric_name: str, requesting_user: str | None = None
+    ) -> dict[str, Any]:
         """Get a metric by name within a model."""
-        model_row = self._require_model_row(model_name)
+        model_row = self._require_visible_model(model_name, requesting_user)
         metric_row = self.store.query_one(
             "SELECT * FROM semantic_metrics WHERE model_id = ? AND name = ?",
             [model_row["model_id"], metric_name],
@@ -832,9 +857,11 @@ class SemanticModelV2Service:
             )
         return _storage_to_metric(dict(metric_row))
 
-    def list_metrics(self, model_name: str) -> list[dict[str, Any]]:
+    def list_metrics(
+        self, model_name: str, requesting_user: str | None = None
+    ) -> list[dict[str, Any]]:
         """List all metrics in a model."""
-        model_row = self._require_model_row(model_name)
+        model_row = self._require_visible_model(model_name, requesting_user)
         metric_rows = self.store.query_rows(
             "SELECT * FROM semantic_metrics WHERE model_id = ? ORDER BY metric_id",
             [model_row["model_id"]],
@@ -891,7 +918,7 @@ class SemanticModelV2Service:
                 params.append(value)
 
         if not update_parts:
-            return self.get_metric(model_name, metric_name)
+            return self.get_metric(model_name, metric_name, requesting_user=model_row["owner_user"])
 
         update_parts.append("updated_at = datetime('now')")
         params.append(metric_row["metric_id"])
@@ -901,7 +928,7 @@ class SemanticModelV2Service:
             params,
         )
 
-        return self.get_metric(model_name, metric_name)
+        return self.get_metric(model_name, metric_name, requesting_user=model_row["owner_user"])
 
     def delete_metric(self, model_name: str, metric_name: str) -> None:
         """Delete a metric."""

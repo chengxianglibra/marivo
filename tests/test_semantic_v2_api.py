@@ -935,3 +935,142 @@ class TestSameNameValidation(unittest.TestCase):
             json=_make_model_dict(name="commerce", visibility="private", owner_user="alice"),
         )
         self.assertEqual(resp.status_code, 200)
+
+
+# ---------------------------------------------------------------------------
+# Sub-entity read visibility
+# ---------------------------------------------------------------------------
+
+
+class TestSubEntityReadVisibility(unittest.TestCase):
+    def test_get_dataset_from_private_model_requires_owner(self) -> None:
+        client = _make_app()
+        client.post(
+            "/semantic-models",
+            json=_make_model_dict(name="priv_model", visibility="private", owner_user="alice"),
+        )
+        resp = client.get(
+            "/semantic-models/priv_model/datasets/orders", params={"requesting_user": "alice"}
+        )
+        self.assertEqual(resp.status_code, 200)
+        resp = client.get(
+            "/semantic-models/priv_model/datasets/orders", params={"requesting_user": "bob"}
+        )
+        self.assertEqual(resp.status_code, 404)
+
+    def test_list_datasets_from_private_model_requires_owner(self) -> None:
+        client = _make_app()
+        client.post(
+            "/semantic-models",
+            json=_make_model_dict(name="priv_model", visibility="private", owner_user="alice"),
+        )
+        resp = client.get(
+            "/semantic-models/priv_model/datasets", params={"requesting_user": "alice"}
+        )
+        self.assertEqual(resp.status_code, 200)
+        resp = client.get("/semantic-models/priv_model/datasets", params={"requesting_user": "bob"})
+        self.assertEqual(resp.status_code, 404)
+
+    def test_get_relationship_from_private_model_requires_owner(self) -> None:
+        client = _make_app()
+        client.post(
+            "/semantic-models",
+            json=_make_model_dict(name="priv_model", visibility="private", owner_user="alice"),
+        )
+        # Add a relationship first
+        rel = {
+            "name": "self_rel",
+            "from": "orders",
+            "to": "orders",
+            "from_columns": ["order_id"],
+            "to_columns": ["order_id"],
+        }
+        client.post("/semantic-models/priv_model/relationships", json=rel)
+        resp = client.get(
+            "/semantic-models/priv_model/relationships/self_rel",
+            params={"requesting_user": "alice"},
+        )
+        self.assertEqual(resp.status_code, 200)
+        resp = client.get(
+            "/semantic-models/priv_model/relationships/self_rel", params={"requesting_user": "bob"}
+        )
+        self.assertEqual(resp.status_code, 404)
+
+    def test_list_relationships_from_private_model_requires_owner(self) -> None:
+        client = _make_app()
+        client.post(
+            "/semantic-models",
+            json=_make_model_dict(name="priv_model", visibility="private", owner_user="alice"),
+        )
+        resp = client.get(
+            "/semantic-models/priv_model/relationships", params={"requesting_user": "bob"}
+        )
+        self.assertEqual(resp.status_code, 404)
+
+    def test_get_metric_from_private_model_requires_owner(self) -> None:
+        client = _make_app()
+        client.post(
+            "/semantic-models",
+            json=_make_model_dict(name="priv_model", visibility="private", owner_user="alice"),
+        )
+        # Add a metric first
+        metric = {
+            "name": "total_orders",
+            "expression": {"dialects": [{"dialect": "ANSI_SQL", "expression": "COUNT(order_id)"}]},
+        }
+        client.post("/semantic-models/priv_model/metrics", json=metric)
+        resp = client.get(
+            "/semantic-models/priv_model/metrics/total_orders", params={"requesting_user": "alice"}
+        )
+        self.assertEqual(resp.status_code, 200)
+        resp = client.get(
+            "/semantic-models/priv_model/metrics/total_orders", params={"requesting_user": "bob"}
+        )
+        self.assertEqual(resp.status_code, 404)
+
+    def test_list_metrics_from_private_model_requires_owner(self) -> None:
+        client = _make_app()
+        client.post(
+            "/semantic-models",
+            json=_make_model_dict(name="priv_model", visibility="private", owner_user="alice"),
+        )
+        resp = client.get("/semantic-models/priv_model/metrics", params={"requesting_user": "bob"})
+        self.assertEqual(resp.status_code, 404)
+
+    def test_public_model_sub_entities_visible_to_all(self) -> None:
+        """Sub-entity reads on a public model should succeed for any user."""
+        client = _make_app()
+        doc = {
+            "version": OSI_SPEC_VERSION,
+            "semantic_model": [
+                {
+                    "name": "public_model",
+                    "datasets": [
+                        {
+                            "name": "orders",
+                            "source": "analytics.orders",
+                            "primary_key": ["order_id"],
+                            "fields": [
+                                {
+                                    "name": "order_id",
+                                    "expression": {
+                                        "dialects": [
+                                            {"dialect": "ANSI_SQL", "expression": "order_id"}
+                                        ]
+                                    },
+                                },
+                            ],
+                        }
+                    ],
+                }
+            ],
+        }
+        client.post("/semantic-models/import", json=doc)
+        resp = client.get("/semantic-models/public_model/datasets/orders")
+        self.assertEqual(resp.status_code, 200)
+        resp = client.get("/semantic-models/public_model/datasets")
+        self.assertEqual(resp.status_code, 200)
+        resp = client.get(
+            "/semantic-models/public_model/datasets/orders", params={"requesting_user": "bob"}
+        )
+        self.assertEqual(resp.status_code, 200)
