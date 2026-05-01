@@ -137,17 +137,21 @@ def create_dataset(model: str, request: Request, payload: Dataset) -> Dataset:
 
 
 @router.get("/{model}/datasets", response_model=list[Dataset])
-def list_datasets(model: str, request: Request) -> list[Dataset]:
+def list_datasets(
+    model: str, request: Request, requesting_user: str | None = None
+) -> list[Dataset]:
     """List datasets in a model."""
     svc = _get_service(request)
-    return [Dataset.model_validate(item) for item in svc.list_datasets(model)]
+    return [Dataset.model_validate(item) for item in svc.list_datasets(model, requesting_user=requesting_user)]
 
 
 @router.get("/{model}/datasets/{name}", response_model=Dataset)
-def get_dataset(model: str, name: str, request: Request) -> Dataset:
+def get_dataset(
+    model: str, name: str, request: Request, requesting_user: str | None = None
+) -> Dataset:
     """Get a dataset by name within a model."""
     svc = _get_service(request)
-    return Dataset.model_validate(_run(lambda: svc.get_dataset(model, name)))
+    return Dataset.model_validate(_run(lambda: svc.get_dataset(model, name, requesting_user=requesting_user)))
 
 
 @router.put("/{model}/datasets/{name}", response_model=Dataset)
@@ -181,17 +185,21 @@ def create_relationship(model: str, request: Request, payload: Relationship) -> 
 
 
 @router.get("/{model}/relationships", response_model=list[Relationship])
-def list_relationships(model: str, request: Request) -> list[Relationship]:
+def list_relationships(
+    model: str, request: Request, requesting_user: str | None = None
+) -> list[Relationship]:
     """List relationships in a model."""
     svc = _get_service(request)
-    return [Relationship.model_validate(item) for item in svc.list_relationships(model)]
+    return [Relationship.model_validate(item) for item in svc.list_relationships(model, requesting_user=requesting_user)]
 
 
 @router.get("/{model}/relationships/{name}", response_model=Relationship)
-def get_relationship(model: str, name: str, request: Request) -> Relationship:
+def get_relationship(
+    model: str, name: str, request: Request, requesting_user: str | None = None
+) -> Relationship:
     """Get a relationship by name within a model."""
     svc = _get_service(request)
-    return Relationship.model_validate(_run(lambda: svc.get_relationship(model, name)))
+    return Relationship.model_validate(_run(lambda: svc.get_relationship(model, name, requesting_user=requesting_user)))
 
 
 @router.put("/{model}/relationships/{name}", response_model=Relationship)
@@ -225,17 +233,21 @@ def create_metric(model: str, request: Request, payload: Metric) -> Metric:
 
 
 @router.get("/{model}/metrics", response_model=list[Metric])
-def list_metrics(model: str, request: Request) -> list[Metric]:
+def list_metrics(
+    model: str, request: Request, requesting_user: str | None = None
+) -> list[Metric]:
     """List metrics in a model."""
     svc = _get_service(request)
-    return [Metric.model_validate(item) for item in svc.list_metrics(model)]
+    return [Metric.model_validate(item) for item in svc.list_metrics(model, requesting_user=requesting_user)]
 
 
 @router.get("/{model}/metrics/{name}", response_model=Metric)
-def get_metric(model: str, name: str, request: Request) -> Metric:
+def get_metric(
+    model: str, name: str, request: Request, requesting_user: str | None = None
+) -> Metric:
     """Get a metric by name within a model."""
     svc = _get_service(request)
-    return Metric.model_validate(_run(lambda: svc.get_metric(model, name)))
+    return Metric.model_validate(_run(lambda: svc.get_metric(model, name, requesting_user=requesting_user)))
 
 
 @router.put("/{model}/metrics/{name}", response_model=Metric)

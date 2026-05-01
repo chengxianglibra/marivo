@@ -561,7 +561,7 @@ class TestDatasetCRUD(unittest.TestCase):
     def test_get_dataset(self) -> None:
         svc = _make_svc()
         svc.create_semantic_model(_make_model_dict(visibility="private", owner_user="alice"))
-        result = svc.get_dataset("test_model", "orders")
+        result = svc.get_dataset("test_model", "orders", requesting_user="alice")
         self.assertEqual(result["name"], "orders")
 
     def test_get_nonexistent_dataset(self) -> None:
@@ -570,14 +570,14 @@ class TestDatasetCRUD(unittest.TestCase):
         svc = _make_svc()
         svc.create_semantic_model(_make_model_dict(visibility="private", owner_user="alice"))
         with self.assertRaises(HTTPException) as ctx:
-            svc.get_dataset("test_model", "nonexistent")
+            svc.get_dataset("test_model", "nonexistent", requesting_user="alice")
         self.assertEqual(ctx.exception.status_code, 404)
 
     def test_list_datasets(self) -> None:
         svc = _make_svc()
         svc.create_semantic_model(_make_model_dict(visibility="private", owner_user="alice"))
         svc.create_dataset("test_model", _make_dataset_dict())
-        results = svc.list_datasets("test_model")
+        results = svc.list_datasets("test_model", requesting_user="alice")
         names = [r["name"] for r in results]
         self.assertIn("orders", names)
         self.assertIn("customers", names)
@@ -595,13 +595,13 @@ class TestDatasetCRUD(unittest.TestCase):
         svc.create_semantic_model(_make_model_dict(visibility="private", owner_user="alice"))
         svc.delete_dataset("test_model", "orders")
         with self.assertRaises(HTTPException) as ctx:
-            svc.get_dataset("test_model", "orders")
+            svc.get_dataset("test_model", "orders", requesting_user="alice")
         self.assertEqual(ctx.exception.status_code, 404)
 
     def test_dataset_field_data_type_preserved(self) -> None:
         svc = _make_svc()
         svc.create_semantic_model(_make_model_dict(visibility="private", owner_user="alice"))
-        ds = svc.get_dataset("test_model", "orders")
+        ds = svc.get_dataset("test_model", "orders", requesting_user="alice")
         order_date = next(f for f in ds["fields"] if f["name"] == "order_date")
         marivo_ext = None
         for ext in order_date.get("custom_extensions", []):
@@ -679,7 +679,7 @@ class TestRelationshipCRUD(unittest.TestCase):
         model_data["datasets"].append(_make_dataset_dict())
         model_data["relationships"] = [_make_relationship_dict()]
         svc.create_semantic_model(model_data)
-        result = svc.get_relationship("test_model", "orders_to_customers")
+        result = svc.get_relationship("test_model", "orders_to_customers", requesting_user="alice")
         self.assertEqual(result["name"], "orders_to_customers")
 
     def test_list_relationships(self) -> None:
@@ -688,7 +688,7 @@ class TestRelationshipCRUD(unittest.TestCase):
         model_data["datasets"].append(_make_dataset_dict())
         model_data["relationships"] = [_make_relationship_dict()]
         svc.create_semantic_model(model_data)
-        results = svc.list_relationships("test_model")
+        results = svc.list_relationships("test_model", requesting_user="alice")
         self.assertEqual(len(results), 1)
 
     def test_update_relationship(self) -> None:
@@ -717,7 +717,7 @@ class TestRelationshipCRUD(unittest.TestCase):
         svc.create_semantic_model(model_data)
         svc.delete_relationship("test_model", "orders_to_customers")
         with self.assertRaises(HTTPException) as ctx:
-            svc.get_relationship("test_model", "orders_to_customers")
+            svc.get_relationship("test_model", "orders_to_customers", requesting_user="alice")
         self.assertEqual(ctx.exception.status_code, 404)
 
 
@@ -747,7 +747,7 @@ class TestMetricCRUD(unittest.TestCase):
         svc = _make_svc()
         svc.create_semantic_model(_make_model_dict(visibility="private", owner_user="alice"))
         svc.create_metric("test_model", _make_metric_dict())
-        result = svc.get_metric("test_model", "total_revenue")
+        result = svc.get_metric("test_model", "total_revenue", requesting_user="alice")
         self.assertEqual(result["name"], "total_revenue")
 
     def test_list_metrics(self) -> None:
@@ -758,7 +758,7 @@ class TestMetricCRUD(unittest.TestCase):
             "test_model",
             _make_metric_dict(name="order_count", observed_dataset="orders"),
         )
-        results = svc.list_metrics("test_model")
+        results = svc.list_metrics("test_model", requesting_user="alice")
         self.assertEqual(len(results), 2)
 
     def test_update_metric(self) -> None:
@@ -778,7 +778,7 @@ class TestMetricCRUD(unittest.TestCase):
         svc.create_metric("test_model", _make_metric_dict())
         svc.delete_metric("test_model", "total_revenue")
         with self.assertRaises(HTTPException) as ctx:
-            svc.get_metric("test_model", "total_revenue")
+            svc.get_metric("test_model", "total_revenue", requesting_user="alice")
         self.assertEqual(ctx.exception.status_code, 404)
 
 
@@ -1296,7 +1296,7 @@ class TestStorageRoundtrip(unittest.TestCase):
     def test_field_dimension_preserved(self) -> None:
         svc = _make_svc()
         svc.create_semantic_model(_make_model_dict(visibility="private", owner_user="alice"))
-        ds = svc.get_dataset("test_model", "orders")
+        ds = svc.get_dataset("test_model", "orders", requesting_user="alice")
         order_date = next(f for f in ds["fields"] if f["name"] == "order_date")
         self.assertEqual(order_date["dimension"], {"is_time": True})
 
