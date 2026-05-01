@@ -1,0 +1,1093 @@
+"""SemanticModelV2Service — CRUD operations for OSI-aligned semantic models.
+
+All data flows through the OSI Pydantic models on the write path and
+returns OSI-conformant dicts on the read path.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from fastapi import HTTPException
+
+from app.api.models.marivo_extensions import (
+    MarivoSemanticModelExtension,
+)
+from app.api.models.osi import (
+    Dataset,
+    Metric,
+    OSIDocument,
+    Relationship,
+    SemanticModel,
+)
+from app.semantic_service_v2.extensions import extract_marivo_extension
+from app.semantic_service_v2.storage import (
+    _storage_to_dataset,
+    _storage_to_metric,
+    _storage_to_relationship,
+    dataset_to_storage,
+    field_to_storage,
+    metric_to_storage,
+    model_to_storage,
+    relationship_to_storage,
+    storage_to_model,
+)
+from app.semantic_service_v2.validation import (
+    validate_semantic_model,
+)
+from app.storage.sqlite_metadata import SQLiteMetadataStore
+
+
+class SemanticModelV2Service:
+    """CRUD service for OSI-aligned semantic models."""
+
+    def __init__(self, store: SQLiteMetadataStore) -> None:
+        self.store = store
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    def _get_latest_version_id(self) -> int | None:
+        """Return the latest semantic_versions.version_id, or None."""
+        row = self.store.query_one(
+            "SELECT version_id FROM semantic_versions ORDER BY version_id DESC LIMIT 1"
+        )
+        return row["version_id"] if row else None
+
+    def _ensure_version(self) -> int:
+        """Return the latest version_id, creating one if needed."""
+        version_id = self._get_latest_version_id()
+        if version_id is not None:
+            return version_id
+        self.store.execute("INSERT INTO semantic_versions DEFAULT VALUES")
+        row = self.store.query_one(
+            "SELECT version_id FROM semantic_versions ORDER BY version_id DESC LIMIT 1"
+        )
+        assert row is not None  # just inserted
+        return int(row["version_id"])
+
+    def _get_model_row_by_name(self, name: str) -> dict[str, Any] | None:
+        """Look up a semantic_models row by name."""
+        return self.store.query_one("SELECT * FROM semantic_models WHERE name = ?", [name])
+
+    def _require_model_row(self, name: str) -> dict[str, Any]:
+        row = self._get_model_row_by_name(name)
+        if row is None:
+            raise HTTPException(status_code=404, detail=f"Semantic model '{name}' not found")
+        return row
+
+    def _assemble_model(self, model_row: dict[str, Any]) -> dict[str, Any]:
+        """Assemble a full OSI-conformant model dict from storage rows."""
+        model_id = model_row["model_id"]
+
+        # Datasets
+        ds_rows = self.store.query_rows(
+            "SELECT * FROM semantic_datasets WHERE model_id = ? ORDER BY dataset_id",
+            [model_id],
+        )
+        datasets: list[dict[str, Any]] = []
+        for ds_row in ds_rows:
+            field_rows = self.store.query_rows(
+                "SELECT * FROM semantic_fields WHERE dataset_id = ? ORDER BY position",
+                [ds_row["dataset_id"]],
+            )
+            ds_dict = dict(ds_row)
+            ds_dict["_fields"] = [dict(f) for f in field_rows]
+            datasets.append(_storage_to_dataset(ds_dict))
+
+        # Relationships
+        rel_rows = self.store.query_rows(
+            "SELECT * FROM semantic_relationships WHERE model_id = ? ORDER BY relationship_id",
+            [model_id],
+        )
+        relationships = [_storage_to_relationship(dict(r)) for r in rel_rows]
+
+        # Metrics
+        metric_rows = self.store.query_rows(
+            "SELECT * FROM semantic_metrics WHERE model_id = ? ORDER BY metric_id",
+            [model_id],
+        )
+        metrics = [_storage_to_metric(dict(r)) for r in metric_rows]
+
+        return storage_to_model(dict(model_row), datasets, relationships, metrics)
+
+    @staticmethod
+    def _parse_marivo_data(ext: dict[str, Any]) -> dict[str, Any] | None:
+        """Parse the 'data' field from a MARIVO custom_extension entry."""
+        import json
+
+        data = ext.get("data")
+        if data is None:
+            return None
+        parsed: dict[str, Any] = json.loads(data) if isinstance(data, str) else data
+        return parsed
+
+    @staticmethod
+    def _extract_marivo_from_exts(
+        custom_extensions: list[dict[str, Any]] | None,
+    ) -> dict[str, Any] | None:
+        """Find and parse the MARIVO vendor extension from a list."""
+        if not custom_extensions:
+            return None
+        for ext in custom_extensions:
+            if ext.get("vendor_name") == "MARIVO":
+                parsed = SemanticModelV2Service._parse_marivo_data(ext)
+                if parsed is not None:
+                    return parsed
+        return None
+
+    def _enrich_model_dict_with_marivo(self, model_data: dict[str, Any]) -> dict[str, Any]:
+        """Extract MARIVO extension data from custom_extensions and add as top-level
+        dict fields for validation.
+
+        This does NOT modify the original model_data; it returns a new dict.
+        """
+        enriched = dict(model_data)
+        marivo = self._extract_marivo_from_exts(model_data.get("custom_extensions"))
+        if marivo:
+            enriched["visibility"] = marivo.get("visibility", "public")
+            enriched["owner_user"] = marivo.get("owner_user")
+
+        # Enrich nested datasets
+        datasets = enriched.get("datasets") or []
+        enriched_datasets = []
+        for ds in datasets:
+            ds_enriched = dict(ds)
+            ds_marivo = self._extract_marivo_from_exts(ds.get("custom_extensions"))
+            if ds_marivo:
+                ds_enriched["datasource_id"] = ds_marivo.get("datasource_id")
+            # Enrich fields
+            fields = ds_enriched.get("fields") or []
+            enriched_fields = []
+            for field in fields:
+                f_enriched = dict(field)
+                f_marivo = self._extract_marivo_from_exts(field.get("custom_extensions"))
+                if f_marivo:
+                    f_enriched["data_type"] = f_marivo.get("data_type")
+                enriched_fields.append(f_enriched)
+            ds_enriched["fields"] = enriched_fields
+            enriched_datasets.append(ds_enriched)
+        enriched["datasets"] = enriched_datasets
+
+        # Enrich relationships
+        relationships = enriched.get("relationships") or []
+        enriched_relationships = []
+        for rel in relationships:
+            rel_enriched = dict(rel)
+            rel_marivo = self._extract_marivo_from_exts(rel.get("custom_extensions"))
+            if rel_marivo:
+                rel_enriched["cardinality"] = rel_marivo.get("cardinality")
+            enriched_relationships.append(rel_enriched)
+        enriched["relationships"] = enriched_relationships
+
+        # Enrich metrics
+        metrics = enriched.get("metrics") or []
+        enriched_metrics = []
+        for metric in metrics:
+            m_enriched = dict(metric)
+            m_marivo = self._extract_marivo_from_exts(metric.get("custom_extensions"))
+            if m_marivo:
+                m_enriched["observed_dataset"] = m_marivo.get("observed_dataset")
+                m_enriched["observation_grain"] = m_marivo.get("observation_grain")
+                m_enriched["primary_time_field"] = m_marivo.get("primary_time_field")
+                m_enriched["additivity"] = m_marivo.get("additivity")
+                m_enriched["filters"] = m_marivo.get("filters")
+            enriched_metrics.append(m_enriched)
+        enriched["metrics"] = enriched_metrics
+
+        return enriched
+
+    def _build_fields_by_dataset(
+        self, datasets: list[dict[str, Any]]
+    ) -> dict[str, dict[str, dict[str, Any]]]:
+        """Build a {dataset_name: {field_name: field_dict}} lookup."""
+        result: dict[str, dict[str, dict[str, Any]]] = {}
+        for ds in datasets:
+            fields: dict[str, dict[str, Any]] = {}
+            for field in ds.get("fields") or []:
+                fields[field["name"]] = field
+            result[ds["name"]] = fields
+        return result
+
+    # ------------------------------------------------------------------
+    # SemanticModel CRUD
+    # ------------------------------------------------------------------
+
+    def create_semantic_model(self, model_data: dict[str, Any]) -> dict[str, Any]:
+        """Create a semantic model from an OSI-conformant dict.
+
+        Validates, parses with Pydantic, extracts MARIVO extensions,
+        inserts into storage, and returns the assembled model.
+        """
+        # Enrich for validation (adds MARIVO fields as top-level dict keys)
+        enriched = self._enrich_model_dict_with_marivo(model_data)
+
+        # Validate
+        validate_semantic_model(enriched)
+
+        # Parse with Pydantic
+        model = SemanticModel.model_validate(model_data)
+
+        # Determine version association
+        visibility = enriched.get("visibility", "public")
+        version_id = self._ensure_version() if visibility == "public" else None
+
+        # Insert model row
+        storage_data = model_to_storage(model)
+        self.store.execute(
+            """
+            INSERT INTO semantic_models
+                (semantic_version_id, name, description, ai_context, visibility, owner_user)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            [
+                version_id,
+                storage_data["name"],
+                storage_data["description"],
+                storage_data["ai_context"],
+                storage_data["visibility"],
+                storage_data["owner_user"],
+            ],
+        )
+
+        model_row = self._require_model_row(model.name)
+        model_id = model_row["model_id"]
+
+        # Insert datasets + fields
+        for ds in model.datasets:
+            ds_storage = dataset_to_storage(ds, model_id)
+            self.store.execute(
+                """
+                INSERT INTO semantic_datasets
+                    (model_id, name, source, primary_key, unique_keys, description,
+                     ai_context, datasource_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    ds_storage["model_id"],
+                    ds_storage["name"],
+                    ds_storage["source"],
+                    ds_storage["primary_key"],
+                    ds_storage["unique_keys"],
+                    ds_storage["description"],
+                    ds_storage["ai_context"],
+                    ds_storage["datasource_id"],
+                ],
+            )
+
+            ds_row = self.store.query_one(
+                "SELECT dataset_id FROM semantic_datasets WHERE model_id = ? AND name = ?",
+                [model_id, ds.name],
+            )
+            assert ds_row is not None  # just inserted
+            dataset_id = ds_row["dataset_id"]
+
+            for pos, field in enumerate(ds.fields or []):
+                f_storage = field_to_storage(field, dataset_id, pos)
+                self.store.execute(
+                    """
+                    INSERT INTO semantic_fields
+                        (dataset_id, name, expression, is_time, label, description,
+                         ai_context, data_type, position)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        f_storage["dataset_id"],
+                        f_storage["name"],
+                        f_storage["expression"],
+                        f_storage["is_time"],
+                        f_storage["label"],
+                        f_storage["description"],
+                        f_storage["ai_context"],
+                        f_storage["data_type"],
+                        f_storage["position"],
+                    ],
+                )
+
+        # Insert relationships
+        for rel in model.relationships or []:
+            rel_storage = relationship_to_storage(rel, model_id)
+            self.store.execute(
+                """
+                INSERT INTO semantic_relationships
+                    (model_id, name, from_dataset, to_dataset, from_columns,
+                     to_columns, ai_context, cardinality)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    rel_storage["model_id"],
+                    rel_storage["name"],
+                    rel_storage["from_dataset"],
+                    rel_storage["to_dataset"],
+                    rel_storage["from_columns"],
+                    rel_storage["to_columns"],
+                    rel_storage["ai_context"],
+                    rel_storage["cardinality"],
+                ],
+            )
+
+        # Insert metrics
+        for metric in model.metrics or []:
+            metric_storage = metric_to_storage(metric, model_id)
+            self.store.execute(
+                """
+                INSERT INTO semantic_metrics
+                    (model_id, name, expression, description, ai_context,
+                     observed_dataset, observation_grain, primary_time_field,
+                     additivity, filters)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    metric_storage["model_id"],
+                    metric_storage["name"],
+                    metric_storage["expression"],
+                    metric_storage["description"],
+                    metric_storage["ai_context"],
+                    metric_storage["observed_dataset"],
+                    metric_storage["observation_grain"],
+                    metric_storage["primary_time_field"],
+                    metric_storage["additivity"],
+                    metric_storage["filters"],
+                ],
+            )
+
+        # Initialize readiness status
+        self.store.execute(
+            """
+            INSERT INTO semantic_readiness_status (model_id, status, blockers)
+            VALUES (?, 'not_ready', '[]')
+            """,
+            [model_id],
+        )
+
+        return self._assemble_model(model_row)
+
+    def get_semantic_model(self, name: str, requesting_user: str | None = None) -> dict[str, Any]:
+        """Get a semantic model by name with visibility filtering."""
+        model_row = self._require_model_row(name)
+
+        # Visibility check
+        if model_row["visibility"] == "private" and (
+            requesting_user is None or requesting_user != model_row["owner_user"]
+        ):
+            raise HTTPException(status_code=404, detail=f"Semantic model '{name}' not found")
+
+        return self._assemble_model(model_row)
+
+    def list_semantic_models(self, requesting_user: str | None = None) -> list[dict[str, Any]]:
+        """List semantic models with visibility filtering.
+
+        Returns public models from latest version + private models owned by
+        requesting_user.
+        """
+        latest_version_id = self._get_latest_version_id()
+
+        results: list[dict[str, Any]] = []
+
+        # Public models from latest version
+        if latest_version_id is not None:
+            public_rows = self.store.query_rows(
+                "SELECT * FROM semantic_models WHERE semantic_version_id = ? AND visibility = 'public' ORDER BY name",
+                [latest_version_id],
+            )
+            for row in public_rows:
+                results.append(self._assemble_model(row))
+
+        # Private models owned by requesting_user
+        if requesting_user:
+            private_rows = self.store.query_rows(
+                "SELECT * FROM semantic_models WHERE visibility = 'private' AND owner_user = ? ORDER BY name",
+                [requesting_user],
+            )
+            for row in private_rows:
+                # Avoid duplicates if somehow a model is both public and private (shouldn't happen)
+                if not any(r["name"] == row["name"] for r in results):
+                    results.append(self._assemble_model(row))
+
+        return results
+
+    def update_semantic_model(self, name: str, updates: dict[str, Any]) -> dict[str, Any]:
+        """Update top-level fields of a semantic model (description only for now)."""
+        model_row = self._require_model_row(name)
+        model_id = model_row["model_id"]
+
+        allowed_fields = {"description"}
+        update_parts: list[str] = []
+        params: list[Any] = []
+
+        for field in allowed_fields:
+            if field in updates:
+                update_parts.append(f"{field} = ?")
+                params.append(updates[field])
+
+        if not update_parts:
+            return self._assemble_model(model_row)
+
+        update_parts.append("updated_at = datetime('now')")
+        params.append(model_id)
+
+        self.store.execute(
+            f"UPDATE semantic_models SET {', '.join(update_parts)} WHERE model_id = ?",
+            params,
+        )
+
+        updated_row = self._require_model_row(name)
+        return self._assemble_model(updated_row)
+
+    def delete_semantic_model(self, name: str) -> None:
+        """Delete a semantic model and all children (CASCADE)."""
+        model_row = self._get_model_row_by_name(name)
+        if model_row is None:
+            raise HTTPException(status_code=404, detail=f"Semantic model '{name}' not found")
+        self.store.execute(
+            "DELETE FROM semantic_models WHERE model_id = ?",
+            [model_row["model_id"]],
+        )
+
+    # ------------------------------------------------------------------
+    # Dataset CRUD
+    # ------------------------------------------------------------------
+
+    def create_dataset(self, model_name: str, ds_data: dict[str, Any]) -> dict[str, Any]:
+        """Create a dataset within a model."""
+        model_row = self._require_model_row(model_name)
+        model_id = model_row["model_id"]
+
+        ds = Dataset.model_validate(ds_data)
+        ds_storage = dataset_to_storage(ds, model_id)
+
+        self.store.execute(
+            """
+            INSERT INTO semantic_datasets
+                (model_id, name, source, primary_key, unique_keys, description,
+                 ai_context, datasource_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                ds_storage["model_id"],
+                ds_storage["name"],
+                ds_storage["source"],
+                ds_storage["primary_key"],
+                ds_storage["unique_keys"],
+                ds_storage["description"],
+                ds_storage["ai_context"],
+                ds_storage["datasource_id"],
+            ],
+        )
+
+        ds_row = self.store.query_one(
+            "SELECT dataset_id FROM semantic_datasets WHERE model_id = ? AND name = ?",
+            [model_id, ds.name],
+        )
+        assert ds_row is not None  # just inserted
+        dataset_id = ds_row["dataset_id"]
+
+        for pos, field in enumerate(ds.fields or []):
+            f_storage = field_to_storage(field, dataset_id, pos)
+            self.store.execute(
+                """
+                INSERT INTO semantic_fields
+                    (dataset_id, name, expression, is_time, label, description,
+                     ai_context, data_type, position)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    f_storage["dataset_id"],
+                    f_storage["name"],
+                    f_storage["expression"],
+                    f_storage["is_time"],
+                    f_storage["label"],
+                    f_storage["description"],
+                    f_storage["ai_context"],
+                    f_storage["data_type"],
+                    f_storage["position"],
+                ],
+            )
+
+        return self.get_dataset(model_name, ds.name)
+
+    def get_dataset(self, model_name: str, dataset_name: str) -> dict[str, Any]:
+        """Get a dataset by name within a model."""
+        model_row = self._require_model_row(model_name)
+        ds_row = self.store.query_one(
+            "SELECT * FROM semantic_datasets WHERE model_id = ? AND name = ?",
+            [model_row["model_id"], dataset_name],
+        )
+        if ds_row is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Dataset '{dataset_name}' not found in model '{model_name}'",
+            )
+
+        field_rows = self.store.query_rows(
+            "SELECT * FROM semantic_fields WHERE dataset_id = ? ORDER BY position",
+            [ds_row["dataset_id"]],
+        )
+        ds_dict = dict(ds_row)
+        ds_dict["_fields"] = [dict(f) for f in field_rows]
+        return _storage_to_dataset(ds_dict)
+
+    def list_datasets(self, model_name: str) -> list[dict[str, Any]]:
+        """List all datasets in a model."""
+        model_row = self._require_model_row(model_name)
+        ds_rows = self.store.query_rows(
+            "SELECT * FROM semantic_datasets WHERE model_id = ? ORDER BY dataset_id",
+            [model_row["model_id"]],
+        )
+        result = []
+        for ds_row in ds_rows:
+            field_rows = self.store.query_rows(
+                "SELECT * FROM semantic_fields WHERE dataset_id = ? ORDER BY position",
+                [ds_row["dataset_id"]],
+            )
+            ds_dict = dict(ds_row)
+            ds_dict["_fields"] = [dict(f) for f in field_rows]
+            result.append(_storage_to_dataset(ds_dict))
+        return result
+
+    def update_dataset(
+        self, model_name: str, dataset_name: str, updates: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Update a dataset's top-level fields."""
+        model_row = self._require_model_row(model_name)
+        ds_row = self.store.query_one(
+            "SELECT * FROM semantic_datasets WHERE model_id = ? AND name = ?",
+            [model_row["model_id"], dataset_name],
+        )
+        if ds_row is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Dataset '{dataset_name}' not found in model '{model_name}'",
+            )
+
+        allowed_fields = {"description", "source", "primary_key", "unique_keys"}
+        import json
+
+        update_parts: list[str] = []
+        params: list[Any] = []
+
+        for field in allowed_fields:
+            if field in updates:
+                update_parts.append(f"{field} = ?")
+                value = updates[field]
+                if field in ("primary_key", "unique_keys") and value is not None:
+                    value = json.dumps(value)
+                params.append(value)
+
+        if not update_parts:
+            return self.get_dataset(model_name, dataset_name)
+
+        update_parts.append("updated_at = datetime('now')")
+        params.append(ds_row["dataset_id"])
+
+        self.store.execute(
+            f"UPDATE semantic_datasets SET {', '.join(update_parts)} WHERE dataset_id = ?",
+            params,
+        )
+
+        return self.get_dataset(model_name, dataset_name)
+
+    def delete_dataset(self, model_name: str, dataset_name: str) -> None:
+        """Delete a dataset and all its fields (CASCADE)."""
+        model_row = self._require_model_row(model_name)
+        ds_row = self.store.query_one(
+            "SELECT dataset_id FROM semantic_datasets WHERE model_id = ? AND name = ?",
+            [model_row["model_id"], dataset_name],
+        )
+        if ds_row is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Dataset '{dataset_name}' not found in model '{model_name}'",
+            )
+        self.store.execute(
+            "DELETE FROM semantic_datasets WHERE dataset_id = ?",
+            [ds_row["dataset_id"]],
+        )
+
+    # ------------------------------------------------------------------
+    # Relationship CRUD
+    # ------------------------------------------------------------------
+
+    def create_relationship(self, model_name: str, rel_data: dict[str, Any]) -> dict[str, Any]:
+        """Create a relationship within a model. Validates from/to datasets exist."""
+        model_row = self._require_model_row(model_name)
+        model_id = model_row["model_id"]
+
+        # Validate from/to datasets exist
+        datasets = self.list_datasets(model_name)
+        from_ds = rel_data.get("from") or rel_data.get("from_dataset")
+        to_ds = rel_data.get("to") or rel_data.get("to_dataset")
+        dataset_names = {ds["name"] for ds in datasets}
+
+        if from_ds and from_ds not in dataset_names:
+            raise HTTPException(
+                status_code=400,
+                detail=f"from_dataset '{from_ds}' does not exist in model '{model_name}'",
+            )
+        if to_ds and to_ds not in dataset_names:
+            raise HTTPException(
+                status_code=400,
+                detail=f"to_dataset '{to_ds}' does not exist in model '{model_name}'",
+            )
+
+        rel = Relationship.model_validate(rel_data)
+        rel_storage = relationship_to_storage(rel, model_id)
+
+        self.store.execute(
+            """
+            INSERT INTO semantic_relationships
+                (model_id, name, from_dataset, to_dataset, from_columns,
+                 to_columns, ai_context, cardinality)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                rel_storage["model_id"],
+                rel_storage["name"],
+                rel_storage["from_dataset"],
+                rel_storage["to_dataset"],
+                rel_storage["from_columns"],
+                rel_storage["to_columns"],
+                rel_storage["ai_context"],
+                rel_storage["cardinality"],
+            ],
+        )
+
+        return self.get_relationship(model_name, rel.name)
+
+    def get_relationship(self, model_name: str, rel_name: str) -> dict[str, Any]:
+        """Get a relationship by name within a model."""
+        model_row = self._require_model_row(model_name)
+        rel_row = self.store.query_one(
+            "SELECT * FROM semantic_relationships WHERE model_id = ? AND name = ?",
+            [model_row["model_id"], rel_name],
+        )
+        if rel_row is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Relationship '{rel_name}' not found in model '{model_name}'",
+            )
+        return _storage_to_relationship(dict(rel_row))
+
+    def list_relationships(self, model_name: str) -> list[dict[str, Any]]:
+        """List all relationships in a model."""
+        model_row = self._require_model_row(model_name)
+        rel_rows = self.store.query_rows(
+            "SELECT * FROM semantic_relationships WHERE model_id = ? ORDER BY relationship_id",
+            [model_row["model_id"]],
+        )
+        return [_storage_to_relationship(dict(r)) for r in rel_rows]
+
+    def update_relationship(
+        self, model_name: str, rel_name: str, updates: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Update a relationship's fields."""
+        model_row = self._require_model_row(model_name)
+        rel_row = self.store.query_one(
+            "SELECT * FROM semantic_relationships WHERE model_id = ? AND name = ?",
+            [model_row["model_id"], rel_name],
+        )
+        if rel_row is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Relationship '{rel_name}' not found in model '{model_name}'",
+            )
+
+        import json
+
+        allowed_fields = {"cardinality", "ai_context"}
+        update_parts: list[str] = []
+        params: list[Any] = []
+
+        for field in allowed_fields:
+            if field in updates:
+                update_parts.append(f"{field} = ?")
+                value = updates[field]
+                if field == "ai_context" and value is not None:
+                    value = json.dumps(value)
+                params.append(value)
+
+        if not update_parts:
+            return self.get_relationship(model_name, rel_name)
+
+        update_parts.append("updated_at = datetime('now')")
+        params.append(rel_row["relationship_id"])
+
+        self.store.execute(
+            f"UPDATE semantic_relationships SET {', '.join(update_parts)} WHERE relationship_id = ?",
+            params,
+        )
+
+        return self.get_relationship(model_name, rel_name)
+
+    def delete_relationship(self, model_name: str, rel_name: str) -> None:
+        """Delete a relationship."""
+        model_row = self._require_model_row(model_name)
+        rel_row = self.store.query_one(
+            "SELECT relationship_id FROM semantic_relationships WHERE model_id = ? AND name = ?",
+            [model_row["model_id"], rel_name],
+        )
+        if rel_row is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Relationship '{rel_name}' not found in model '{model_name}'",
+            )
+        self.store.execute(
+            "DELETE FROM semantic_relationships WHERE relationship_id = ?",
+            [rel_row["relationship_id"]],
+        )
+
+    # ------------------------------------------------------------------
+    # Metric CRUD
+    # ------------------------------------------------------------------
+
+    def create_metric(self, model_name: str, metric_data: dict[str, Any]) -> dict[str, Any]:
+        """Create a metric within a model."""
+        model_row = self._require_model_row(model_name)
+        model_id = model_row["model_id"]
+
+        metric = Metric.model_validate(metric_data)
+        metric_storage = metric_to_storage(metric, model_id)
+
+        self.store.execute(
+            """
+            INSERT INTO semantic_metrics
+                (model_id, name, expression, description, ai_context,
+                 observed_dataset, observation_grain, primary_time_field,
+                 additivity, filters)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                metric_storage["model_id"],
+                metric_storage["name"],
+                metric_storage["expression"],
+                metric_storage["description"],
+                metric_storage["ai_context"],
+                metric_storage["observed_dataset"],
+                metric_storage["observation_grain"],
+                metric_storage["primary_time_field"],
+                metric_storage["additivity"],
+                metric_storage["filters"],
+            ],
+        )
+
+        return self.get_metric(model_name, metric.name)
+
+    def get_metric(self, model_name: str, metric_name: str) -> dict[str, Any]:
+        """Get a metric by name within a model."""
+        model_row = self._require_model_row(model_name)
+        metric_row = self.store.query_one(
+            "SELECT * FROM semantic_metrics WHERE model_id = ? AND name = ?",
+            [model_row["model_id"], metric_name],
+        )
+        if metric_row is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Metric '{metric_name}' not found in model '{model_name}'",
+            )
+        return _storage_to_metric(dict(metric_row))
+
+    def list_metrics(self, model_name: str) -> list[dict[str, Any]]:
+        """List all metrics in a model."""
+        model_row = self._require_model_row(model_name)
+        metric_rows = self.store.query_rows(
+            "SELECT * FROM semantic_metrics WHERE model_id = ? ORDER BY metric_id",
+            [model_row["model_id"]],
+        )
+        return [_storage_to_metric(dict(r)) for r in metric_rows]
+
+    def update_metric(
+        self, model_name: str, metric_name: str, updates: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Update a metric's fields."""
+        model_row = self._require_model_row(model_name)
+        metric_row = self.store.query_one(
+            "SELECT * FROM semantic_metrics WHERE model_id = ? AND name = ?",
+            [model_row["model_id"], metric_name],
+        )
+        if metric_row is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Metric '{metric_name}' not found in model '{model_name}'",
+            )
+
+        import json
+
+        allowed_fields = {
+            "description",
+            "ai_context",
+            "observed_dataset",
+            "observation_grain",
+            "primary_time_field",
+            "additivity",
+            "filters",
+            "expression",
+        }
+        update_parts: list[str] = []
+        params: list[Any] = []
+
+        for field in allowed_fields:
+            if field in updates:
+                update_parts.append(f"{field} = ?")
+                value = updates[field]
+                if (
+                    field
+                    in (
+                        "ai_context",
+                        "observation_grain",
+                        "additivity",
+                        "filters",
+                        "expression",
+                    )
+                    and value is not None
+                    and isinstance(value, (dict, list))
+                ):
+                    value = json.dumps(value)
+                params.append(value)
+
+        if not update_parts:
+            return self.get_metric(model_name, metric_name)
+
+        update_parts.append("updated_at = datetime('now')")
+        params.append(metric_row["metric_id"])
+
+        self.store.execute(
+            f"UPDATE semantic_metrics SET {', '.join(update_parts)} WHERE metric_id = ?",
+            params,
+        )
+
+        return self.get_metric(model_name, metric_name)
+
+    def delete_metric(self, model_name: str, metric_name: str) -> None:
+        """Delete a metric."""
+        model_row = self._require_model_row(model_name)
+        metric_row = self.store.query_one(
+            "SELECT metric_id FROM semantic_metrics WHERE model_id = ? AND name = ?",
+            [model_row["model_id"], metric_name],
+        )
+        if metric_row is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Metric '{metric_name}' not found in model '{model_name}'",
+            )
+        self.store.execute(
+            "DELETE FROM semantic_metrics WHERE metric_id = ?",
+            [metric_row["metric_id"]],
+        )
+
+    # ------------------------------------------------------------------
+    # Import
+    # ------------------------------------------------------------------
+
+    def import_osi_document(self, doc_data: dict[str, Any]) -> list[dict[str, Any]]:
+        """Import an OSI document.
+
+        Validates as OSIDocument, rejects private models, creates a new
+        semantic_version, and inserts all models.
+        """
+        doc = OSIDocument.model_validate(doc_data)
+
+        # Reject private models in imported documents
+        for sm in doc.semantic_model:
+            marivo_ext = extract_marivo_extension(
+                sm.custom_extensions, MarivoSemanticModelExtension
+            )
+            if marivo_ext and marivo_ext.visibility == "private":
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Cannot import private model '{sm.name}' via OSI document",
+                )
+
+        # Create a new semantic_version for this import
+        self.store.execute("INSERT INTO semantic_versions DEFAULT VALUES")
+        new_version_row = self.store.query_one(
+            "SELECT version_id FROM semantic_versions ORDER BY version_id DESC LIMIT 1"
+        )
+        assert new_version_row is not None  # just inserted
+        new_version_id = new_version_row["version_id"]
+
+        results: list[dict[str, Any]] = []
+        for sm in doc.semantic_model:
+            # Convert to dict and force public visibility
+            model_dict = sm.model_dump(by_alias=True, exclude_none=True)
+
+            # Ensure MARIVO extension has visibility=public
+            custom_exts = model_dict.get("custom_extensions") or []
+            has_marivo_ext = False
+            for ext in custom_exts:
+                if ext.get("vendor_name") == "MARIVO":
+                    import json
+
+                    data = ext.get("data")
+                    parsed = json.loads(data) if isinstance(data, str) else data
+                    parsed["visibility"] = "public"
+                    parsed.pop("owner_user", None)
+                    ext["data"] = json.dumps(parsed)
+                    has_marivo_ext = True
+                    break
+
+            if not has_marivo_ext:
+                import json
+
+                custom_exts.append(
+                    {
+                        "vendor_name": "MARIVO",
+                        "data": json.dumps({"visibility": "public"}),
+                    }
+                )
+                model_dict["custom_extensions"] = custom_exts
+
+            # Enrich and validate
+            enriched = self._enrich_model_dict_with_marivo(model_dict)
+            validate_semantic_model(enriched)
+
+            # Parse with Pydantic
+            model = SemanticModel.model_validate(model_dict)
+            storage_data = model_to_storage(model)
+
+            self.store.execute(
+                """
+                INSERT INTO semantic_models
+                    (semantic_version_id, name, description, ai_context, visibility, owner_user)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    new_version_id,
+                    storage_data["name"],
+                    storage_data["description"],
+                    storage_data["ai_context"],
+                    "public",
+                    None,
+                ],
+            )
+
+            model_row = self._require_model_row(model.name)
+            model_id = model_row["model_id"]
+
+            # Insert datasets + fields
+            for ds in model.datasets:
+                ds_storage = dataset_to_storage(ds, model_id)
+                self.store.execute(
+                    """
+                    INSERT INTO semantic_datasets
+                        (model_id, name, source, primary_key, unique_keys, description,
+                         ai_context, datasource_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        ds_storage["model_id"],
+                        ds_storage["name"],
+                        ds_storage["source"],
+                        ds_storage["primary_key"],
+                        ds_storage["unique_keys"],
+                        ds_storage["description"],
+                        ds_storage["ai_context"],
+                        ds_storage["datasource_id"],
+                    ],
+                )
+                ds_row = self.store.query_one(
+                    "SELECT dataset_id FROM semantic_datasets WHERE model_id = ? AND name = ?",
+                    [model_id, ds.name],
+                )
+                assert ds_row is not None  # just inserted
+                dataset_id = ds_row["dataset_id"]
+                for pos, field in enumerate(ds.fields or []):
+                    f_storage = field_to_storage(field, dataset_id, pos)
+                    self.store.execute(
+                        """
+                        INSERT INTO semantic_fields
+                            (dataset_id, name, expression, is_time, label, description,
+                             ai_context, data_type, position)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        [
+                            f_storage["dataset_id"],
+                            f_storage["name"],
+                            f_storage["expression"],
+                            f_storage["is_time"],
+                            f_storage["label"],
+                            f_storage["description"],
+                            f_storage["ai_context"],
+                            f_storage["data_type"],
+                            f_storage["position"],
+                        ],
+                    )
+
+            for rel in model.relationships or []:
+                rel_storage = relationship_to_storage(rel, model_id)
+                self.store.execute(
+                    """
+                    INSERT INTO semantic_relationships
+                        (model_id, name, from_dataset, to_dataset, from_columns,
+                         to_columns, ai_context, cardinality)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        rel_storage["model_id"],
+                        rel_storage["name"],
+                        rel_storage["from_dataset"],
+                        rel_storage["to_dataset"],
+                        rel_storage["from_columns"],
+                        rel_storage["to_columns"],
+                        rel_storage["ai_context"],
+                        rel_storage["cardinality"],
+                    ],
+                )
+
+            for metric in model.metrics or []:
+                metric_storage = metric_to_storage(metric, model_id)
+                self.store.execute(
+                    """
+                    INSERT INTO semantic_metrics
+                        (model_id, name, expression, description, ai_context,
+                         observed_dataset, observation_grain, primary_time_field,
+                         additivity, filters)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        metric_storage["model_id"],
+                        metric_storage["name"],
+                        metric_storage["expression"],
+                        metric_storage["description"],
+                        metric_storage["ai_context"],
+                        metric_storage["observed_dataset"],
+                        metric_storage["observation_grain"],
+                        metric_storage["primary_time_field"],
+                        metric_storage["additivity"],
+                        metric_storage["filters"],
+                    ],
+                )
+
+            # Initialize readiness
+            self.store.execute(
+                """
+                INSERT INTO semantic_readiness_status (model_id, status, blockers)
+                VALUES (?, 'not_ready', '[]')
+                """,
+                [model_id],
+            )
+
+            results.append(self._assemble_model(model_row))
+
+        return results
+
+    # ------------------------------------------------------------------
+    # Readiness
+    # ------------------------------------------------------------------
+
+    def get_readiness(self, model_name: str) -> dict[str, Any]:
+        """Return readiness status/blockers for a model."""
+        model_row = self._require_model_row(model_name)
+        readiness_row = self.store.query_one(
+            "SELECT status, blockers FROM semantic_readiness_status WHERE model_id = ?",
+            [model_row["model_id"]],
+        )
+        if readiness_row is None:
+            return {"status": "not_ready", "blockers": []}
+        import json
+
+        blockers = readiness_row["blockers"]
+        return {
+            "status": readiness_row["status"],
+            "blockers": json.loads(blockers) if blockers else [],
+        }
