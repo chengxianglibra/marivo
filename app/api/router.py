@@ -14,6 +14,7 @@ from app.api import (
     openapi_fragments,
     routing,
     semantic,
+    semantic_v2,
     sessions,
 )
 
@@ -26,6 +27,7 @@ def include_api_routers(app: FastAPI) -> None:
         datasources.router,
         routing.router,
         semantic.router,
+        semantic_v2.router,
         catalog.router,
         governance.router,
         jobs.router,

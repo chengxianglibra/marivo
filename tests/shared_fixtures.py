@@ -484,7 +484,7 @@ _LOCK_FILE = _template_lock_path("default")
 # In-process flags: skip lock on repeated calls within the same worker.
 _TEMPLATE_READY: set[str] = set()
 
-_METADATA_TEMPLATE_VERSION = "sqlite_metadata_v15_datasource_domain_entity"
+_METADATA_TEMPLATE_VERSION = "sqlite_metadata_osi_v2_additive"
 _METADATA_TEMPLATE = Path(f"/tmp/marivo_test_{_METADATA_TEMPLATE_VERSION}.sqlite")
 _METADATA_LOCK = Path(f"/tmp/marivo_test_{_METADATA_TEMPLATE_VERSION}.lock")
 _METADATA_READY = False
@@ -574,6 +574,16 @@ def _metadata_template_valid(db_path: Path) -> bool:
                 "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('source_engine_bindings', 'sources', 'engines', 'source_execution_mappings')"
             ).fetchall()
         }
+        # OSI v2 tables
+        osi_v2_tables = {
+            str(row[0])
+            for row in con.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN "
+                "('semantic_versions', 'semantic_models', 'semantic_datasets', "
+                "'semantic_fields', 'semantic_relationships', 'semantic_metrics', "
+                "'semantic_readiness_status')"
+            ).fetchall()
+        }
         datasource_columns = {
             str(row[1]) for row in con.execute("PRAGMA table_info(datasources)").fetchall()
         }
@@ -634,6 +644,10 @@ def _metadata_template_valid(db_path: Path) -> bool:
             "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'typed_bindings'"
         ).fetchone()
         typed_bindings_sql = str(typed_bindings_sql_row[0] if typed_bindings_sql_row else "")
+        # OSI v2 model columns
+        osi_model_columns = {
+            str(row[1]) for row in con.execute("PRAGMA table_info(semantic_models)").fetchall()
+        }
         marker_rows = {
             str(row[0])
             for row in con.execute(
@@ -672,6 +686,16 @@ def _metadata_template_valid(db_path: Path) -> bool:
             "metadata_schema_marker",
         }
         and not legacy_tables
+        and osi_v2_tables
+        == {
+            "semantic_versions",
+            "semantic_models",
+            "semantic_datasets",
+            "semantic_fields",
+            "semantic_relationships",
+            "semantic_metrics",
+            "semantic_readiness_status",
+        }
         and {
             "datasource_type",
             "connection_json",
@@ -725,6 +749,7 @@ def _metadata_template_valid(db_path: Path) -> bool:
         and "substr(date_surface_ref, 1, 6) = 'field.'" not in time_bindings_sql
         and "substr(hour_surface_ref, 1, 6) = 'field.'" not in time_bindings_sql
         and "UNIQUE(binding_ref, revision)" in typed_bindings_sql
+        and {"visibility", "owner_user"}.issubset(osi_model_columns)
         and marker_rows == {"sqlite"}
         and actual_marker == expected_marker
     )

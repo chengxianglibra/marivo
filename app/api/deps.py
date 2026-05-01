@@ -15,6 +15,7 @@ from app.observability import MetricsCollector
 from app.routing import QueryRouter
 from app.semantic import SemanticService
 from app.semantic_runtime.catalog import CatalogRuntimeService
+from app.semantic_service_v2.service import SemanticModelV2Service
 from app.service import SemanticLayerService
 from app.storage.analytics import AnalyticsEngine
 from app.storage.metadata import MetadataStore
@@ -38,6 +39,7 @@ class AppServices:
     job_service: JobService
     job_repository: JobRepository
     semantic_service: SemanticService
+    semantic_v2_service: SemanticModelV2Service
     catalog_runtime: CatalogRuntimeService
 
 

@@ -7,7 +7,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Literal
 
-METADATA_SCHEMA_VERSION = "metadata.fresh_init.v1"
+METADATA_SCHEMA_VERSION = "metadata.osi_v2_additive.v1"
 METADATA_SCHEMA_MARKER_TABLE = "metadata_schema_marker"
 
 METADATA_DDL: list[str] = [
@@ -97,6 +97,106 @@ METADATA_DDL: list[str] = [
         synced_at       TEXT,
         created_at      TEXT NOT NULL,
         updated_at      TEXT NOT NULL
+    )
+    """,
+    # -------------------------------------------------------------------------
+    # OSI-aligned semantic layer tables (v2)
+    # -------------------------------------------------------------------------
+    """
+    CREATE TABLE IF NOT EXISTS semantic_versions (
+        version_id    INTEGER PRIMARY KEY AUTOINCREMENT,
+        created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS semantic_models (
+        model_id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        semantic_version_id  INTEGER REFERENCES semantic_versions(version_id),
+        name                 TEXT NOT NULL,
+        description          TEXT,
+        ai_context           TEXT,
+        visibility           TEXT NOT NULL DEFAULT 'public' CHECK (visibility IN ('public', 'private')),
+        owner_user           TEXT,
+        created_at           TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at           TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_semantic_models_version_visibility ON semantic_models(semantic_version_id, visibility)",
+    "CREATE INDEX IF NOT EXISTS idx_semantic_models_visibility_owner ON semantic_models(visibility, owner_user)",
+    """
+    CREATE TABLE IF NOT EXISTS semantic_datasets (
+        dataset_id     INTEGER PRIMARY KEY AUTOINCREMENT,
+        model_id       INTEGER NOT NULL REFERENCES semantic_models(model_id) ON DELETE CASCADE,
+        name           TEXT NOT NULL,
+        source         TEXT NOT NULL,
+        primary_key    TEXT,
+        unique_keys    TEXT,
+        description    TEXT,
+        ai_context     TEXT,
+        datasource_id  TEXT,
+        created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at     TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(model_id, name)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS semantic_fields (
+        field_id     INTEGER PRIMARY KEY AUTOINCREMENT,
+        dataset_id   INTEGER NOT NULL REFERENCES semantic_datasets(dataset_id) ON DELETE CASCADE,
+        name         TEXT NOT NULL,
+        expression   TEXT NOT NULL,
+        is_time      INTEGER NOT NULL DEFAULT 0,
+        label        TEXT,
+        description  TEXT,
+        ai_context   TEXT,
+        data_type    TEXT,
+        position     INTEGER NOT NULL,
+        created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at   TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(dataset_id, name)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS semantic_relationships (
+        relationship_id  INTEGER PRIMARY KEY AUTOINCREMENT,
+        model_id         INTEGER NOT NULL REFERENCES semantic_models(model_id) ON DELETE CASCADE,
+        name             TEXT NOT NULL,
+        from_dataset     TEXT NOT NULL,
+        to_dataset       TEXT NOT NULL,
+        from_columns     TEXT NOT NULL,
+        to_columns       TEXT NOT NULL,
+        ai_context       TEXT,
+        cardinality      TEXT,
+        created_at       TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at       TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(model_id, name)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS semantic_metrics (
+        metric_id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        model_id            INTEGER NOT NULL REFERENCES semantic_models(model_id) ON DELETE CASCADE,
+        name                TEXT NOT NULL,
+        expression          TEXT NOT NULL,
+        description         TEXT,
+        ai_context          TEXT,
+        observed_dataset    TEXT,
+        observation_grain   TEXT,
+        primary_time_field  TEXT,
+        additivity          TEXT,
+        filters             TEXT,
+        created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at          TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(model_id, name)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS semantic_readiness_status (
+        model_id                        INTEGER PRIMARY KEY REFERENCES semantic_models(model_id) ON DELETE CASCADE,
+        status                          TEXT NOT NULL CHECK (status IN ('ready', 'not_ready')),
+        blockers                        TEXT,
+        evaluated_semantic_version_id   INTEGER,
+        updated_at                      TEXT NOT NULL DEFAULT (datetime('now'))
     )
     """,
     """
@@ -1339,6 +1439,29 @@ def _mysql_table_line(
 
     column_match = re.match(r"([a-zA-Z_][a-zA-Z0-9_]*)\s+TEXT\b(.*)", stripped)
     if column_match is None:
+        # Also handle INTEGER (or INT) columns with inline REFERENCES
+        int_column_match = re.match(r"([a-zA-Z_][a-zA-Z0-9_]*)\s+(?:INTEGER|INT)\b(.*)", stripped)
+        if int_column_match is not None:
+            col_name, col_suffix = int_column_match.groups()
+            int_reference_match = re.search(
+                r"\s+REFERENCES\s+([a-zA-Z_][a-zA-Z0-9_]*)\(([^)]+)\)(\s+ON DELETE CASCADE)?",
+                col_suffix,
+            )
+            if int_reference_match is not None:
+                ref_table, ref_column, on_delete = int_reference_match.groups()
+                constraint_name = f"fk_{table_name}_{col_name}"
+                fk = (
+                    f"ALTER TABLE {table_name} ADD CONSTRAINT {constraint_name} "
+                    f"FOREIGN KEY ({col_name}) "
+                    f"REFERENCES {ref_table}({ref_column})"
+                )
+                if on_delete:
+                    fk = f"{fk}{on_delete}"
+                int_foreign_keys = [fk]
+                new_suffix = f"{col_suffix[: int_reference_match.start()]}{col_suffix[int_reference_match.end() :]}"
+                leading = line[: len(line) - len(line.lstrip())]
+                converted_line = f"{leading}{col_name}                            INT{new_suffix}"
+                return [converted_line], int_foreign_keys
         return [line], []
 
     column_name, suffix = column_match.groups()

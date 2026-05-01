@@ -1,0 +1,389 @@
+"""Tests for Semantic V2 API endpoints — OSI-aligned semantic layer routes."""
+
+from __future__ import annotations
+
+import json
+import tempfile
+import unittest
+from pathlib import Path
+
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from app.api.models.osi import OSI_SPEC_VERSION
+from app.api.semantic_v2 import router as semantic_v2_router
+from app.semantic_service_v2.service import SemanticModelV2Service
+from app.storage.sqlite_metadata import SQLiteMetadataStore
+
+
+class _TestMetadataStore(SQLiteMetadataStore):
+    """A SQLiteMetadataStore subclass that bypasses the conftest-patched initialize().
+
+    The conftest.py monkey-patches SQLiteMetadataStore.initialize() with a
+    fast-path that copies a stale cached template.  This subclass overrides
+    initialize() to always run the real DDL, ensuring the OSI v2 schema
+    is created correctly.
+    """
+
+    def initialize(self) -> None:
+        """Apply the current schema DDL directly, ignoring the conftest patch."""
+        import sqlite3
+
+        from app.storage.schema import METADATA_DDL, metadata_schema_marker_row
+
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+
+        if self.db_path.exists():
+            self.db_path.unlink()
+
+        con = sqlite3.connect(str(self.db_path))
+        try:
+            for ddl in METADATA_DDL:
+                con.execute(ddl)
+            marker = metadata_schema_marker_row("sqlite")
+            con.execute(
+                """
+                INSERT OR IGNORE INTO metadata_schema_marker (
+                    backend, schema_version, ddl_fingerprint
+                ) VALUES (?, ?, ?)
+                """,
+                [marker["backend"], marker["schema_version"], marker["ddl_fingerprint"]],
+            )
+            con.commit()
+        finally:
+            con.close()
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_app() -> TestClient:
+    """Create a FastAPI app with semantic_v2 router and an in-memory service."""
+    import uuid
+
+    tmp = tempfile.mkdtemp(prefix=f"marivo_v2_api_{uuid.uuid4().hex[:8]}_")
+    db_path = Path(tmp) / "meta.sqlite"
+    store = _TestMetadataStore(db_path)
+    store.initialize()
+    service = SemanticModelV2Service(store)
+
+    app = FastAPI()
+    app.include_router(semantic_v2_router)
+    app.state.semantic_v2_service = service
+
+    return TestClient(app)
+
+
+def _make_model_dict(
+    name: str = "test_model",
+    visibility: str = "public",
+    owner_user: str | None = None,
+) -> dict:
+    """Build a minimal OSI-conformant model dict for testing."""
+    marivo_data: dict = {"visibility": visibility}
+    if owner_user:
+        marivo_data["owner_user"] = owner_user
+    return {
+        "name": name,
+        "datasets": [
+            {
+                "name": "orders",
+                "source": "analytics.orders",
+                "primary_key": ["order_id"],
+                "fields": [
+                    {
+                        "name": "order_id",
+                        "expression": {
+                            "dialects": [{"dialect": "ANSI_SQL", "expression": "order_id"}]
+                        },
+                    },
+                    {
+                        "name": "order_date",
+                        "expression": {
+                            "dialects": [{"dialect": "ANSI_SQL", "expression": "order_date"}]
+                        },
+                        "dimension": {"is_time": True},
+                        "custom_extensions": [
+                            {
+                                "vendor_name": "MARIVO",
+                                "data": json.dumps({"data_type": "datetime"}),
+                            }
+                        ],
+                    },
+                    {
+                        "name": "amount",
+                        "expression": {
+                            "dialects": [{"dialect": "ANSI_SQL", "expression": "amount"}]
+                        },
+                        "custom_extensions": [
+                            {
+                                "vendor_name": "MARIVO",
+                                "data": json.dumps({"data_type": "number"}),
+                            }
+                        ],
+                    },
+                ],
+                "custom_extensions": [
+                    {
+                        "vendor_name": "MARIVO",
+                        "data": json.dumps({"datasource_id": "ds_001"}),
+                    }
+                ],
+            }
+        ],
+        "custom_extensions": [
+            {
+                "vendor_name": "MARIVO",
+                "data": json.dumps(marivo_data),
+            }
+        ],
+    }
+
+
+def _make_dataset_dict(
+    name: str = "customers",
+    source: str = "analytics.customers",
+) -> dict:
+    return {
+        "name": name,
+        "source": source,
+        "primary_key": ["customer_id"],
+        "fields": [
+            {
+                "name": "customer_id",
+                "expression": {"dialects": [{"dialect": "ANSI_SQL", "expression": "customer_id"}]},
+            },
+            {
+                "name": "customer_name",
+                "expression": {
+                    "dialects": [{"dialect": "ANSI_SQL", "expression": "customer_name"}]
+                },
+            },
+        ],
+    }
+
+
+# ---------------------------------------------------------------------------
+# POST /semantic-models — create semantic model
+# ---------------------------------------------------------------------------
+
+
+class TestCreateSemanticModelAPI(unittest.TestCase):
+    def test_create_returns_osi_envelope(self) -> None:
+        client = _make_app()
+        resp = client.post("/semantic-models", json=_make_model_dict())
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body["version"], OSI_SPEC_VERSION)
+        self.assertIsInstance(body["semantic_model"], list)
+        self.assertEqual(len(body["semantic_model"]), 1)
+        self.assertEqual(body["semantic_model"][0]["name"], "test_model")
+
+    def test_create_model_with_datasets(self) -> None:
+        client = _make_app()
+        resp = client.post("/semantic-models", json=_make_model_dict())
+        body = resp.json()
+        model = body["semantic_model"][0]
+        self.assertEqual(len(model["datasets"]), 1)
+        self.assertEqual(model["datasets"][0]["name"], "orders")
+
+    def test_create_private_model(self) -> None:
+        client = _make_app()
+        model_data = _make_model_dict(
+            name="private_model", visibility="private", owner_user="alice"
+        )
+        resp = client.post("/semantic-models", json=model_data)
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body["semantic_model"][0]["name"], "private_model")
+
+    def test_create_private_without_owner_returns_422(self) -> None:
+        client = _make_app()
+        model_data = _make_model_dict(visibility="private")
+        resp = client.post("/semantic-models", json=model_data)
+        self.assertIn(resp.status_code, (400, 422))
+
+
+# ---------------------------------------------------------------------------
+# GET /semantic-models — list semantic models
+# ---------------------------------------------------------------------------
+
+
+class TestListSemanticModelsAPI(unittest.TestCase):
+    def test_list_empty(self) -> None:
+        client = _make_app()
+        resp = client.get("/semantic-models")
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body["version"], OSI_SPEC_VERSION)
+        self.assertEqual(body["semantic_model"], [])
+
+    def test_list_after_create(self) -> None:
+        client = _make_app()
+        client.post("/semantic-models", json=_make_model_dict(name="model_a"))
+        client.post("/semantic-models", json=_make_model_dict(name="model_b"))
+        resp = client.get("/semantic-models")
+        body = resp.json()
+        names = [m["name"] for m in body["semantic_model"]]
+        self.assertIn("model_a", names)
+        self.assertIn("model_b", names)
+
+
+# ---------------------------------------------------------------------------
+# GET /semantic-models/{model} — get semantic model
+# ---------------------------------------------------------------------------
+
+
+class TestGetSemanticModelAPI(unittest.TestCase):
+    def test_get_existing(self) -> None:
+        client = _make_app()
+        client.post("/semantic-models", json=_make_model_dict())
+        resp = client.get("/semantic-models/test_model")
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body["version"], OSI_SPEC_VERSION)
+        self.assertEqual(body["semantic_model"][0]["name"], "test_model")
+
+    def test_get_nonexistent_returns_404(self) -> None:
+        client = _make_app()
+        resp = client.get("/semantic-models/nonexistent")
+        self.assertEqual(resp.status_code, 404)
+
+
+# ---------------------------------------------------------------------------
+# DELETE /semantic-models/{model} — delete semantic model
+# ---------------------------------------------------------------------------
+
+
+class TestDeleteSemanticModelAPI(unittest.TestCase):
+    def test_delete_then_get_404(self) -> None:
+        client = _make_app()
+        client.post("/semantic-models", json=_make_model_dict())
+        resp = client.delete("/semantic-models/test_model")
+        self.assertEqual(resp.status_code, 204)
+        resp = client.get("/semantic-models/test_model")
+        self.assertEqual(resp.status_code, 404)
+
+    def test_delete_nonexistent_returns_404(self) -> None:
+        client = _make_app()
+        resp = client.delete("/semantic-models/nonexistent")
+        self.assertEqual(resp.status_code, 404)
+
+
+# ---------------------------------------------------------------------------
+# POST /semantic-models/{model}/datasets — create dataset
+# ---------------------------------------------------------------------------
+
+
+class TestCreateDatasetAPI(unittest.TestCase):
+    def test_create_dataset_in_model(self) -> None:
+        client = _make_app()
+        client.post("/semantic-models", json=_make_model_dict())
+        resp = client.post("/semantic-models/test_model/datasets", json=_make_dataset_dict())
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body["name"], "customers")
+        self.assertEqual(len(body["fields"]), 2)
+
+    def test_create_dataset_in_nonexistent_model(self) -> None:
+        client = _make_app()
+        resp = client.post("/semantic-models/nonexistent/datasets", json=_make_dataset_dict())
+        self.assertEqual(resp.status_code, 404)
+
+
+# ---------------------------------------------------------------------------
+# GET /semantic-models/{model}/readiness — get readiness
+# ---------------------------------------------------------------------------
+
+
+class TestReadinessAPI(unittest.TestCase):
+    def test_get_readiness(self) -> None:
+        client = _make_app()
+        client.post("/semantic-models", json=_make_model_dict())
+        resp = client.get("/semantic-models/test_model/readiness")
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body["status"], "not_ready")
+        self.assertIsInstance(body["blockers"], list)
+
+    def test_readiness_nonexistent_model(self) -> None:
+        client = _make_app()
+        resp = client.get("/semantic-models/nonexistent/readiness")
+        self.assertEqual(resp.status_code, 404)
+
+
+# ---------------------------------------------------------------------------
+# POST /semantic-models/import — import OSI document
+# ---------------------------------------------------------------------------
+
+
+class TestImportOSIDocumentAPI(unittest.TestCase):
+    def test_import_osi_document(self) -> None:
+        client = _make_app()
+        doc = {
+            "version": OSI_SPEC_VERSION,
+            "semantic_model": [
+                {
+                    "name": "imported_model",
+                    "datasets": [
+                        {
+                            "name": "sales",
+                            "source": "analytics.sales",
+                            "fields": [
+                                {
+                                    "name": "sale_id",
+                                    "expression": {
+                                        "dialects": [
+                                            {"dialect": "ANSI_SQL", "expression": "sale_id"}
+                                        ]
+                                    },
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ],
+        }
+        resp = client.post("/semantic-models/import", json=doc)
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body["version"], OSI_SPEC_VERSION)
+        names = [m["name"] for m in body["semantic_model"]]
+        self.assertIn("imported_model", names)
+
+    def test_import_rejects_private_model(self) -> None:
+        client = _make_app()
+        doc = {
+            "version": OSI_SPEC_VERSION,
+            "semantic_model": [
+                {
+                    "name": "private_import",
+                    "datasets": [
+                        {
+                            "name": "sales",
+                            "source": "analytics.sales",
+                            "fields": [
+                                {
+                                    "name": "sale_id",
+                                    "expression": {
+                                        "dialects": [
+                                            {"dialect": "ANSI_SQL", "expression": "sale_id"}
+                                        ]
+                                    },
+                                }
+                            ],
+                        }
+                    ],
+                    "custom_extensions": [
+                        {
+                            "vendor_name": "MARIVO",
+                            "data": json.dumps({"visibility": "private", "owner_user": "alice"}),
+                        }
+                    ],
+                }
+            ],
+        }
+        resp = client.post("/semantic-models/import", json=doc)
+        self.assertEqual(resp.status_code, 400)

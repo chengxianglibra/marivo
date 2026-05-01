@@ -10,6 +10,7 @@ FORBIDDEN_PATTERNS = (
 )
 
 ALLOWED_APP_FILES = {
+    Path("app/semantic_service_v2/service.py"),
     Path("app/storage/dialect.py"),
     Path("app/storage/schema.py"),
     Path("app/storage/sqlite_metadata.py"),
@@ -21,6 +22,8 @@ ALLOWED_TEST_FILES = {
     Path("tests/test_mysql_metadata_ddl.py"),
     Path("tests/test_semantic_schema.py"),
     Path("tests/test_semantic_service.py"),
+    Path("tests/test_semantic_v2_api.py"),
+    Path("tests/test_semantic_v2_service.py"),
     Path("tests/test_static_sql_boundaries.py"),
     Path("tests/test_storage.py"),
     Path("tests/test_typed_bindings.py"),
