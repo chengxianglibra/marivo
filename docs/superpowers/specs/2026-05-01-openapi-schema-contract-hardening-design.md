@@ -94,6 +94,12 @@ schema violation categories and a proposed hardening order.
 The semantic-model API should use the existing OSI-aligned Pydantic models as
 the external contract instead of accepting generic dictionaries.
 
+Use `docs/api/osi-marivo-schema.json` as the reference schema for
+`/semantic-models/import` and the semantic object request/response models. The
+Pydantic models should align with that schema, including OSI 0.1.1 fields and
+MARIVO vendor extension structures, instead of defining an unrelated parallel
+shape.
+
 Target shape:
 
 - `POST /semantic-models/import` accepts `OSIDocument`.
@@ -232,6 +238,8 @@ The scoped OpenAPI quality test must pass before the work is complete.
 Manual validation should inspect at least:
 
 - `/semantic-models/import` request schema references `OSIDocument`.
+- `OSIDocument`, `SemanticModel`, `Dataset`, `Relationship`, and `Metric`
+  schemas align with `docs/api/osi-marivo-schema.json`.
 - `/sessions/{session_id}/intents/observe` response schema references
   `ObserveResponse`.
 - Scoped paths have no `additionalProperties: true`, empty `items`, or untyped
