@@ -455,6 +455,17 @@ class SemanticModelV2Service:
         model_id = model_row["model_id"]
 
         ds = Dataset.model_validate(ds_data)
+
+        # Validate dataset name is unique within the model
+        existing = self.store.query_one(
+            "SELECT 1 FROM semantic_datasets WHERE model_id = ? AND name = ?",
+            [model_id, ds.name],
+        )
+        if existing:
+            raise HTTPException(
+                status_code=409, detail=f"Dataset '{ds.name}' already exists in model"
+            )
+
         ds_storage = dataset_to_storage(ds, model_id)
 
         self.store.execute(
@@ -631,6 +642,16 @@ class SemanticModelV2Service:
                 detail=f"to_dataset '{to_ds}' does not exist in model '{model_name}'",
             )
 
+        # Validate from_columns and to_columns have matching lengths
+        from_cols = rel_data.get("from_columns")
+        to_cols = rel_data.get("to_columns")
+        if from_cols is not None and to_cols is not None and len(from_cols) != len(to_cols):
+            raise HTTPException(
+                status_code=400,
+                detail=f"from_columns and to_columns must have matching lengths, "
+                f"got {len(from_cols)} and {len(to_cols)}",
+            )
+
         rel = Relationship.model_validate(rel_data)
         rel_storage = relationship_to_storage(rel, model_id)
 
@@ -745,6 +766,24 @@ class SemanticModelV2Service:
         """Create a metric within a model."""
         model_row = self._require_model_row(model_name)
         model_id = model_row["model_id"]
+
+        # Enrich metric data with MARIVO extension fields for validation
+        enriched_metric = dict(metric_data)
+        marivo = self._extract_marivo_from_exts(metric_data.get("custom_extensions"))
+        if marivo:
+            enriched_metric["observed_dataset"] = marivo.get("observed_dataset")
+            enriched_metric["observation_grain"] = marivo.get("observation_grain")
+            enriched_metric["primary_time_field"] = marivo.get("primary_time_field")
+            enriched_metric["additivity"] = marivo.get("additivity")
+            enriched_metric["filters"] = marivo.get("filters")
+
+        # Validate metric fields against existing datasets
+        if enriched_metric.get("observed_dataset"):
+            from app.semantic_service_v2.validation import validate_metric
+
+            datasets = self.list_datasets(model_name)
+            fields_by_dataset = self._build_fields_by_dataset(datasets)
+            validate_metric(enriched_metric, datasets, fields_by_dataset)
 
         metric = Metric.model_validate(metric_data)
         metric_storage = metric_to_storage(metric, model_id)
@@ -1079,15 +1118,22 @@ class SemanticModelV2Service:
         """Return readiness status/blockers for a model."""
         model_row = self._require_model_row(model_name)
         readiness_row = self.store.query_one(
-            "SELECT status, blockers FROM semantic_readiness_status WHERE model_id = ?",
+            "SELECT status, blockers, evaluated_semantic_version_id FROM semantic_readiness_status WHERE model_id = ?",
             [model_row["model_id"]],
         )
         if readiness_row is None:
-            return {"status": "not_ready", "blockers": []}
+            return {
+                "status": "not_ready",
+                "semantic_version_id": model_row.get("semantic_version_id"),
+                "evaluated_semantic_version_id": None,
+                "blockers": [],
+            }
         import json
 
         blockers = readiness_row["blockers"]
         return {
             "status": readiness_row["status"],
+            "semantic_version_id": model_row.get("semantic_version_id"),
+            "evaluated_semantic_version_id": readiness_row.get("evaluated_semantic_version_id"),
             "blockers": json.loads(blockers) if blockers else [],
         }
