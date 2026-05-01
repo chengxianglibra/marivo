@@ -48,25 +48,6 @@ class SemanticModelV2Service:
     # Helpers
     # ------------------------------------------------------------------
 
-    def _get_latest_version_id(self) -> int | None:
-        """Return the latest semantic_versions.version_id, or None."""
-        row = self.store.query_one(
-            "SELECT version_id FROM semantic_versions ORDER BY version_id DESC LIMIT 1"
-        )
-        return row["version_id"] if row else None
-
-    def _ensure_version(self) -> int:
-        """Return the latest version_id, creating one if needed."""
-        version_id = self._get_latest_version_id()
-        if version_id is not None:
-            return version_id
-        self.store.execute("INSERT INTO semantic_versions DEFAULT VALUES")
-        row = self.store.query_one(
-            "SELECT version_id FROM semantic_versions ORDER BY version_id DESC LIMIT 1"
-        )
-        assert row is not None  # just inserted
-        return int(row["version_id"])
-
     def _get_model_row_by_name(self, name: str) -> dict[str, Any] | None:
         """Look up a semantic_models row by name."""
         return self.store.query_one("SELECT * FROM semantic_models WHERE name = ?", [name])
@@ -110,7 +91,9 @@ class SemanticModelV2Service:
         )
         metrics = [_storage_to_metric(dict(r)) for r in metric_rows]
 
-        return storage_to_model(dict(model_row), datasets, relationships, metrics)
+        return storage_to_model(
+            dict(model_row), datasets, relationships, metrics, revision=model_row["revision"]
+        )
 
     @staticmethod
     def _parse_marivo_data(ext: dict[str, Any]) -> dict[str, Any] | None:
@@ -229,20 +212,15 @@ class SemanticModelV2Service:
         # Parse with Pydantic
         model = SemanticModel.model_validate(model_data)
 
-        # Determine version association
-        visibility = enriched.get("visibility", "public")
-        version_id = self._ensure_version() if visibility == "public" else None
-
         # Insert model row
         storage_data = model_to_storage(model)
         self.store.execute(
             """
             INSERT INTO semantic_models
-                (semantic_version_id, name, description, ai_context, visibility, owner_user)
-            VALUES (?, ?, ?, ?, ?, ?)
+                (name, description, ai_context, visibility, owner_user)
+            VALUES (?, ?, ?, ?, ?)
             """,
             [
-                version_id,
                 storage_data["name"],
                 storage_data["description"],
                 storage_data["ai_context"],
@@ -378,21 +356,18 @@ class SemanticModelV2Service:
     def list_semantic_models(self, requesting_user: str | None = None) -> list[dict[str, Any]]:
         """List semantic models with visibility filtering.
 
-        Returns public models from latest version + private models owned by
-        requesting_user.
+        Returns all public models + private models owned by requesting_user.
+        Same-name models can appear twice (one official, one private).
+        No version-based filtering — semantic_models always contains the current state.
         """
-        latest_version_id = self._get_latest_version_id()
-
         results: list[dict[str, Any]] = []
 
-        # Public models from latest version
-        if latest_version_id is not None:
-            public_rows = self.store.query_rows(
-                "SELECT * FROM semantic_models WHERE semantic_version_id = ? AND visibility = 'public' ORDER BY name",
-                [latest_version_id],
-            )
-            for row in public_rows:
-                results.append(self._assemble_model(row))
+        # All public models
+        public_rows = self.store.query_rows(
+            "SELECT * FROM semantic_models WHERE visibility = 'public' ORDER BY name"
+        )
+        for row in public_rows:
+            results.append(self._assemble_model(row))
 
         # Private models owned by requesting_user
         if requesting_user:
@@ -401,9 +376,7 @@ class SemanticModelV2Service:
                 [requesting_user],
             )
             for row in private_rows:
-                # Avoid duplicates if somehow a model is both public and private (shouldn't happen)
-                if not any(r["name"] == row["name"] for r in results):
-                    results.append(self._assemble_model(row))
+                results.append(self._assemble_model(row))
 
         return results
 
@@ -919,10 +892,13 @@ class SemanticModelV2Service:
     # ------------------------------------------------------------------
 
     def import_osi_document(self, doc_data: dict[str, Any]) -> list[dict[str, Any]]:
-        """Import an OSI document.
+        """Import an OSI document with per-model upsert.
 
-        Validates as OSIDocument, rejects private models, creates a new
-        semantic_version, and inserts all models.
+        Each model in the document is independently imported:
+        - If an official model with the same name exists, UPDATE in place
+          (increment revision, replace all child entities).
+        - If no model with that name exists, INSERT with revision=1.
+        - Models NOT in the document are left untouched.
         """
         doc = OSIDocument.model_validate(doc_data)
 
@@ -936,14 +912,6 @@ class SemanticModelV2Service:
                     status_code=400,
                     detail=f"Cannot import private model '{sm.name}' via OSI document",
                 )
-
-        # Create a new semantic_version for this import
-        self.store.execute("INSERT INTO semantic_versions DEFAULT VALUES")
-        new_version_row = self.store.query_one(
-            "SELECT version_id FROM semantic_versions ORDER BY version_id DESC LIMIT 1"
-        )
-        assert new_version_row is not None  # just inserted
-        new_version_id = new_version_row["version_id"]
 
         results: list[dict[str, Any]] = []
         for sm in doc.semantic_model:
@@ -984,24 +952,78 @@ class SemanticModelV2Service:
             model = SemanticModel.model_validate(model_dict)
             storage_data = model_to_storage(model)
 
-            self.store.execute(
-                """
-                INSERT INTO semantic_models
-                    (semantic_version_id, name, description, ai_context, visibility, owner_user)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                [
-                    new_version_id,
-                    storage_data["name"],
-                    storage_data["description"],
-                    storage_data["ai_context"],
-                    "public",
-                    None,
-                ],
-            )
+            # Check if model with same name already exists
+            existing_row = self._get_model_row_by_name(sm.name)
 
-            model_row = self._require_model_row(model.name)
-            model_id = model_row["model_id"]
+            if existing_row is not None and existing_row["visibility"] == "public":
+                # Update existing official model — increment revision, replace children
+                model_id = existing_row["model_id"]
+                new_revision = existing_row["revision"] + 1
+
+                # Delete children (will re-insert below)
+                self.store.execute("DELETE FROM semantic_metrics WHERE model_id = ?", [model_id])
+                self.store.execute(
+                    "DELETE FROM semantic_relationships WHERE model_id = ?", [model_id]
+                )
+                self.store.execute(
+                    "DELETE FROM semantic_fields WHERE dataset_id IN (SELECT dataset_id FROM semantic_datasets WHERE model_id = ?)",
+                    [model_id],
+                )
+                self.store.execute("DELETE FROM semantic_datasets WHERE model_id = ?", [model_id])
+
+                # Update model row
+                self.store.execute(
+                    """
+                    UPDATE semantic_models
+                    SET description = ?, ai_context = ?, revision = ?, updated_at = datetime('now')
+                    WHERE model_id = ?
+                    """,
+                    [
+                        storage_data["description"],
+                        storage_data["ai_context"],
+                        new_revision,
+                        model_id,
+                    ],
+                )
+            elif existing_row is not None and existing_row["visibility"] == "private":
+                # Private model with same name exists — insert official model alongside it
+                self.store.execute(
+                    """
+                    INSERT INTO semantic_models
+                        (name, description, ai_context, visibility, owner_user, revision)
+                    VALUES (?, ?, ?, ?, ?, 1)
+                    """,
+                    [
+                        storage_data["name"],
+                        storage_data["description"],
+                        storage_data["ai_context"],
+                        "public",
+                        None,
+                    ],
+                )
+                official_row = self.store.query_one(
+                    "SELECT model_id FROM semantic_models WHERE name = ? AND visibility = 'public'",
+                    [sm.name],
+                )
+                assert official_row is not None
+                model_id = official_row["model_id"]
+            else:
+                # New model — insert with revision=1
+                self.store.execute(
+                    """
+                    INSERT INTO semantic_models
+                        (name, description, ai_context, visibility, owner_user, revision)
+                    VALUES (?, ?, ?, ?, ?, 1)
+                    """,
+                    [
+                        storage_data["name"],
+                        storage_data["description"],
+                        storage_data["ai_context"],
+                        "public",
+                        None,
+                    ],
+                )
+                model_id = self._require_model_row(sm.name)["model_id"]
 
             # Insert datasets + fields
             for ds in model.datasets:
@@ -1028,7 +1050,7 @@ class SemanticModelV2Service:
                     "SELECT dataset_id FROM semantic_datasets WHERE model_id = ? AND name = ?",
                     [model_id, ds.name],
                 )
-                assert ds_row is not None  # just inserted
+                assert ds_row is not None
                 dataset_id = ds_row["dataset_id"]
                 for pos, field in enumerate(ds.fields or []):
                     f_storage = field_to_storage(field, dataset_id, pos)
@@ -1097,15 +1119,22 @@ class SemanticModelV2Service:
                     ],
                 )
 
-            # Initialize readiness
-            self.store.execute(
-                """
-                INSERT INTO semantic_readiness_status (model_id, status, blockers)
-                VALUES (?, 'not_ready', '[]')
-                """,
-                [model_id],
+            # Upsert readiness status
+            existing_readiness = self.store.query_one(
+                "SELECT 1 FROM semantic_readiness_status WHERE model_id = ?", [model_id]
             )
+            if not existing_readiness:
+                self.store.execute(
+                    "INSERT INTO semantic_readiness_status (model_id, status, blockers) VALUES (?, 'not_ready', '[]')",
+                    [model_id],
+                )
 
+            # Re-fetch the official model row (may coexist with private same-name model)
+            model_row = self.store.query_one(
+                "SELECT * FROM semantic_models WHERE name = ? AND visibility = 'public'",
+                [sm.name],
+            )
+            assert model_row is not None
             results.append(self._assemble_model(model_row))
 
         return results
@@ -1118,14 +1147,12 @@ class SemanticModelV2Service:
         """Return readiness status/blockers for a model."""
         model_row = self._require_model_row(model_name)
         readiness_row = self.store.query_one(
-            "SELECT status, blockers, evaluated_semantic_version_id FROM semantic_readiness_status WHERE model_id = ?",
+            "SELECT status, blockers FROM semantic_readiness_status WHERE model_id = ?",
             [model_row["model_id"]],
         )
         if readiness_row is None:
             return {
                 "status": "not_ready",
-                "semantic_version_id": model_row.get("semantic_version_id"),
-                "evaluated_semantic_version_id": None,
                 "blockers": [],
             }
         import json
@@ -1133,7 +1160,5 @@ class SemanticModelV2Service:
         blockers = readiness_row["blockers"]
         return {
             "status": readiness_row["status"],
-            "semantic_version_id": model_row.get("semantic_version_id"),
-            "evaluated_semantic_version_id": readiness_row.get("evaluated_semantic_version_id"),
             "blockers": json.loads(blockers) if blockers else [],
         }

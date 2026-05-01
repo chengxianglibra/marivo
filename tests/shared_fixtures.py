@@ -579,9 +579,10 @@ def _metadata_template_valid(db_path: Path) -> bool:
             str(row[0])
             for row in con.execute(
                 "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN "
-                "('semantic_versions', 'semantic_models', 'semantic_datasets', "
+                "('semantic_models', 'semantic_datasets', "
                 "'semantic_fields', 'semantic_relationships', 'semantic_metrics', "
-                "'semantic_readiness_status')"
+                "'semantic_readiness_status', 'analysis_sessions', "
+                "'session_semantic_snapshots')"
             ).fetchall()
         }
         datasource_columns = {
@@ -688,13 +689,14 @@ def _metadata_template_valid(db_path: Path) -> bool:
         and not legacy_tables
         and osi_v2_tables
         == {
-            "semantic_versions",
             "semantic_models",
             "semantic_datasets",
             "semantic_fields",
             "semantic_relationships",
             "semantic_metrics",
             "semantic_readiness_status",
+            "analysis_sessions",
+            "session_semantic_snapshots",
         }
         and {
             "datasource_type",
@@ -749,7 +751,7 @@ def _metadata_template_valid(db_path: Path) -> bool:
         and "substr(date_surface_ref, 1, 6) = 'field.'" not in time_bindings_sql
         and "substr(hour_surface_ref, 1, 6) = 'field.'" not in time_bindings_sql
         and "UNIQUE(binding_ref, revision)" in typed_bindings_sql
-        and {"visibility", "owner_user"}.issubset(osi_model_columns)
+        and {"visibility", "owner_user", "revision"}.issubset(osi_model_columns)
         and marker_rows == {"sqlite"}
         and actual_marker == expected_marker
     )

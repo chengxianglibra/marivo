@@ -101,9 +101,26 @@ METADATA_DDL: list[str] = [
     """,
     # -------------------------------------------------------------------------
     # OSI-aligned semantic layer tables (v2)
-    # semantic_versions dropped — per-model revision replaces global versioning.
-    # semantic_models recreated with revision column at end of DDL (after DROP).
+    # Per-model revision replaces global semantic_versions.
+    # Destructive DDL: DROP before CREATE for changed schemas.
     # -------------------------------------------------------------------------
+    "DROP TABLE IF EXISTS semantic_versions",
+    "DROP TABLE IF EXISTS semantic_readiness_status",
+    "DROP TABLE IF EXISTS semantic_models",
+    """
+    CREATE TABLE semantic_models (
+        model_id    INTEGER PRIMARY KEY AUTOINCREMENT,
+        name        TEXT NOT NULL,
+        description TEXT,
+        ai_context  TEXT,
+        visibility  TEXT NOT NULL DEFAULT 'public' CHECK (visibility IN ('public', 'private')),
+        owner_user  TEXT,
+        revision    INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+        created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_semantic_models_visibility_owner ON semantic_models(visibility, owner_user)",
     """
     CREATE TABLE IF NOT EXISTS semantic_datasets (
         dataset_id     INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1253,33 +1270,10 @@ METADATA_DDL: list[str] = [
     )
     """,
     # -------------------------------------------------------------------------
-    # Dual-path semantic layer tables
-    # Per-model revision replaces global semantic_versions.
-    # Session tables support snapshot isolation for analysis sessions.
+    # Session snapshot tables for dual-path semantic layer
     # -------------------------------------------------------------------------
-    "DROP TABLE IF EXISTS semantic_versions",
-    """
-    CREATE TABLE semantic_models (
-        model_id    INTEGER PRIMARY KEY AUTOINCREMENT,
-        name        TEXT NOT NULL,
-        description TEXT,
-        ai_context  TEXT,
-        visibility  TEXT NOT NULL DEFAULT 'public' CHECK (visibility IN ('public', 'private')),
-        owner_user  TEXT,
-        revision    INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
-        created_at  TEXT NOT NULL DEFAULT (datetime('now')),
-        updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
-    )
-    """,
-    "CREATE INDEX IF NOT EXISTS idx_semantic_models_visibility_owner ON semantic_models(visibility, owner_user)",
-    """
-    CREATE TABLE semantic_readiness_status (
-        model_id    INTEGER PRIMARY KEY REFERENCES semantic_models(model_id) ON DELETE CASCADE,
-        status      TEXT NOT NULL CHECK (status IN ('ready', 'not_ready')),
-        blockers    TEXT,
-        updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
-    )
-    """,
+    "DROP TABLE IF EXISTS session_semantic_snapshots",
+    "DROP TABLE IF EXISTS analysis_sessions",
     """
     CREATE TABLE analysis_sessions (
         session_id          TEXT PRIMARY KEY,
@@ -1563,6 +1557,8 @@ def _mysql_text_type(column_name: str, suffix: str, indexed_columns: set[str]) -
         "synced_at",
         "resolved_at",
         "invalidated_at",
+        "snapshot_frozen_at",
+        "frozen_at",
     }:
         return "DATETIME(6)"
     if column_name in indexed_columns:

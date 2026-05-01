@@ -247,6 +247,7 @@ def storage_to_model(
     datasets: list[dict[str, Any]],
     relationships: list[dict[str, Any]],
     metrics: list[dict[str, Any]],
+    revision: int | None = None,
 ) -> dict[str, Any]:
     """Assemble a full OSI-conformant SemanticModel dict from storage rows.
 
@@ -269,4 +270,6 @@ def storage_to_model(
         result["relationships"] = relationships
     if metrics:
         result["metrics"] = metrics
+    if revision is not None:
+        result["revision"] = revision
     return result
