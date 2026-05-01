@@ -33,7 +33,7 @@ Top-level structure follows OSI exactly:
 
 Defines the structure of `custom_extensions[].data` when `vendor_name: "MARIVO"`. These are the fields that Marivo needs beyond OSI core for safe analysis. The extension schema is versioned alongside the OSI spec version.
 
-Machine-readable schema: [`2026-04-30-osi-marivo-schema.json`](./2026-04-30-osi-marivo-schema.json).
+Machine-readable schema: [`2026-04-30-osi-marivo-schema.json`](../../api/2026-04-30-osi-marivo-schema.json).
 
 Extension fields are only added when they serve a harness purpose: preventing silent wrong numbers, enabling validation, or providing explicit references that cannot be safely inferred from SQL expressions.
 
@@ -297,7 +297,7 @@ List and read endpoints apply model visibility before returning results:
 
 Imports an OSI document as the latest public Marivo semantic layer. The input may be either:
 - A standard OSI v0.1.1 document with no MARIVO extensions
-- A Marivo-extended OSI document that passes [`2026-04-30-osi-marivo-schema.json`](./2026-04-30-osi-marivo-schema.json)
+- A Marivo-extended OSI document that passes [`2026-04-30-osi-marivo-schema.json`](../../api/2026-04-30-osi-marivo-schema.json)
 
 Import semantics:
 1. Validate the input as OSI JSON. If MARIVO extensions exist, validate their decoded `data` payloads against the Marivo extension schema.
