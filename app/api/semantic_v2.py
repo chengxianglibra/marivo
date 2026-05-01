@@ -40,6 +40,22 @@ class SemanticModelReadinessResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class SemanticModelUpdateRequest(BaseModel):
+    """Partial update for a semantic model's top-level fields."""
+
+    description: str | None = None
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class DatasetUpdateRequest(BaseModel):
+    """Partial update for a dataset's top-level fields."""
+
+    description: str | None = None
+
+    model_config = ConfigDict(extra="forbid")
+
+
 def _get_service(request: Request) -> SemanticModelV2Service:
     return cast("SemanticModelV2Service", request.app.state.semantic_v2_service)
 
@@ -125,7 +141,9 @@ def get_semantic_model(
 
 
 @router.put("/{model}", response_model=OSIDocument)
-def update_semantic_model(model: str, request: Request, payload: SemanticModel) -> OSIDocument:
+def update_semantic_model(
+    model: str, request: Request, payload: SemanticModelUpdateRequest
+) -> OSIDocument:
     """Update top-level fields of a semantic model."""
     svc = _get_service(request)
     result = _run(lambda: svc.update_semantic_model(model, _dump_model(payload)))
@@ -157,7 +175,10 @@ def list_datasets(
 ) -> list[Dataset]:
     """List datasets in a model."""
     svc = _get_service(request)
-    return [Dataset.model_validate(item) for item in svc.list_datasets(model, requesting_user=requesting_user)]
+    return [
+        Dataset.model_validate(item)
+        for item in svc.list_datasets(model, requesting_user=requesting_user)
+    ]
 
 
 @router.get("/{model}/datasets/{name}", response_model=Dataset)
@@ -166,11 +187,15 @@ def get_dataset(
 ) -> Dataset:
     """Get a dataset by name within a model."""
     svc = _get_service(request)
-    return Dataset.model_validate(_run(lambda: svc.get_dataset(model, name, requesting_user=requesting_user)))
+    return Dataset.model_validate(
+        _run(lambda: svc.get_dataset(model, name, requesting_user=requesting_user))
+    )
 
 
 @router.put("/{model}/datasets/{name}", response_model=Dataset)
-def update_dataset(model: str, name: str, request: Request, payload: Dataset) -> Dataset:
+def update_dataset(
+    model: str, name: str, request: Request, payload: DatasetUpdateRequest
+) -> Dataset:
     """Update a dataset's top-level fields."""
     svc = _get_service(request)
     return Dataset.model_validate(
@@ -205,7 +230,10 @@ def list_relationships(
 ) -> list[Relationship]:
     """List relationships in a model."""
     svc = _get_service(request)
-    return [Relationship.model_validate(item) for item in svc.list_relationships(model, requesting_user=requesting_user)]
+    return [
+        Relationship.model_validate(item)
+        for item in svc.list_relationships(model, requesting_user=requesting_user)
+    ]
 
 
 @router.get("/{model}/relationships/{name}", response_model=Relationship)
@@ -214,7 +242,9 @@ def get_relationship(
 ) -> Relationship:
     """Get a relationship by name within a model."""
     svc = _get_service(request)
-    return Relationship.model_validate(_run(lambda: svc.get_relationship(model, name, requesting_user=requesting_user)))
+    return Relationship.model_validate(
+        _run(lambda: svc.get_relationship(model, name, requesting_user=requesting_user))
+    )
 
 
 @router.put("/{model}/relationships/{name}", response_model=Relationship)
@@ -248,12 +278,13 @@ def create_metric(model: str, request: Request, payload: Metric) -> Metric:
 
 
 @router.get("/{model}/metrics", response_model=list[Metric])
-def list_metrics(
-    model: str, request: Request, requesting_user: str | None = None
-) -> list[Metric]:
+def list_metrics(model: str, request: Request, requesting_user: str | None = None) -> list[Metric]:
     """List metrics in a model."""
     svc = _get_service(request)
-    return [Metric.model_validate(item) for item in svc.list_metrics(model, requesting_user=requesting_user)]
+    return [
+        Metric.model_validate(item)
+        for item in svc.list_metrics(model, requesting_user=requesting_user)
+    ]
 
 
 @router.get("/{model}/metrics/{name}", response_model=Metric)
@@ -262,7 +293,9 @@ def get_metric(
 ) -> Metric:
     """Get a metric by name within a model."""
     svc = _get_service(request)
-    return Metric.model_validate(_run(lambda: svc.get_metric(model, name, requesting_user=requesting_user)))
+    return Metric.model_validate(
+        _run(lambda: svc.get_metric(model, name, requesting_user=requesting_user))
+    )
 
 
 @router.put("/{model}/metrics/{name}", response_model=Metric)

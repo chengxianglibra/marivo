@@ -138,6 +138,15 @@ def _make_model_dict(
     }
 
 
+def _get_revision(model_dict: dict) -> int | None:
+    """Extract revision from a semantic model dict's MARIVO custom_extension."""
+    for ext in model_dict.get("custom_extensions", []):
+        if ext.get("vendor_name") == "MARIVO":
+            data = json.loads(ext["data"])
+            return data.get("revision")
+    return None
+
+
 def _make_relationship_dict(
     name: str = "orders_to_customers",
     from_ds: str = "orders",
@@ -266,7 +275,7 @@ class TestCreateSemanticModel(unittest.TestCase):
         svc = SemanticModelV2Service(store)
         model_data = _make_model_dict(visibility="private", owner_user="alice")
         result = svc.create_semantic_model(model_data)
-        self.assertEqual(result["revision"], 1)
+        self.assertEqual(_get_revision(result), 1)
         model_row = store.query_one(
             "SELECT revision FROM semantic_models WHERE name = 'test_model'"
         )
@@ -977,7 +986,7 @@ class TestPerModelRevision(unittest.TestCase):
         result = svc.create_semantic_model(
             _make_model_dict(name="model_a", visibility="private", owner_user="alice")
         )
-        self.assertEqual(result["revision"], 1)
+        self.assertEqual(_get_revision(result), 1)
         model_row = store.query_one("SELECT revision FROM semantic_models WHERE name = 'model_a'")
         self.assertEqual(model_row["revision"], 1)
 
@@ -990,8 +999,8 @@ class TestPerModelRevision(unittest.TestCase):
         result_b = svc.create_semantic_model(
             _make_model_dict(name="model_b", visibility="private", owner_user="alice")
         )
-        self.assertEqual(result_a["revision"], 1)
-        self.assertEqual(result_b["revision"], 1)
+        self.assertEqual(_get_revision(result_a), 1)
+        self.assertEqual(_get_revision(result_b), 1)
         # Revisions are independent — no shared version row
 
 
@@ -1148,7 +1157,7 @@ class TestImportOSIDocument(unittest.TestCase):
         }
         results = svc.import_osi_document(doc)
         self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["revision"], 2)
+        self.assertEqual(_get_revision(results[0]), 2)
 
         model_row_after = store.query_one(
             "SELECT revision FROM semantic_models WHERE name = 'existing'"
@@ -1198,7 +1207,7 @@ class TestImportOSIDocument(unittest.TestCase):
         }
         results = svc.import_osi_document(doc)
         self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["revision"], 1)
+        self.assertEqual(_get_revision(results[0]), 1)
 
         # Both models should now exist
         rows_after = store.query_rows(
@@ -1241,7 +1250,7 @@ class TestImportOSIDocument(unittest.TestCase):
         }
         results = svc.import_osi_document(doc)
         self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["revision"], 1)
+        self.assertEqual(_get_revision(results[0]), 1)
         model_row = store.query_one("SELECT revision FROM semantic_models WHERE name = 'brand_new'")
         self.assertEqual(model_row["revision"], 1)
 
