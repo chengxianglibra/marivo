@@ -7,20 +7,39 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from app.api.deps import get_services, http_error
 from app.api.models import (
     ArtifactRef,
+    ArtifactRuntimeStatusResponse,
     AttributeRequest,
+    AttributeResponse,
     CompareRequest,
+    CompareResponse,
     CorrelateRequest,
+    CorrelateResponse,
     DecomposeRequest,
+    DecomposeResponse,
     DetectRequest,
+    DetectResponse,
     DiagnoseRequest,
+    DiagnoseResponse,
     ForecastRequest,
+    ForecastResponse,
     IntentTestRequest,
+    IntentTestResponse,
     ObservationRef,
     ObserveRequest,
+    ObserveResponse,
+    PropositionContextView,
+    PropositionRuntimeStatusResponse,
     SessionCreateRequest,
+    SessionCreateResponse,
+    SessionDetailResponse,
+    SessionListResponse,
+    SessionRuntimeStatusResponse,
     SessionStateQueryRequest,
+    SessionStateView,
     SessionTerminateRequest,
+    SessionTerminateResponse,
     ValidateRequest,
+    ValidateResponse,
 )
 from app.execution.errors import ExecutionError
 from app.semantic_runtime.errors import SemanticRuntimeNotReadyError
@@ -31,64 +50,87 @@ router = APIRouter()
 # ── Session lifecycle ─────────────────────────────────────────────────────────
 
 
-@router.post("/sessions")
-def create_session(payload: SessionCreateRequest, request: Request) -> dict[str, object]:
+@router.post(
+    "/sessions",
+    response_model=SessionCreateResponse,
+)
+def create_session(payload: SessionCreateRequest, request: Request) -> SessionCreateResponse:
     try:
-        return get_services(request).service.create_session(
+        result = get_services(request).service.create_session(
             goal=payload.goal,
-            budget=payload.budget,
-            policy=payload.policy,
+            budget=payload.budget.model_dump(exclude_none=True),
+            policy=payload.policy.model_dump(exclude_none=True),
             execution_identity=payload.execution_identity.model_dump(exclude_none=True),
         )
+        return SessionCreateResponse.model_validate(result)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
 
-@router.get("/sessions")
+@router.get(
+    "/sessions",
+    response_model=SessionListResponse,
+)
 def list_sessions(
     request: Request,
     status: str | None = Query(default=None),
     session_id: str | None = Query(default=None),
     limit: int | None = Query(default=None),
     page_token: str | None = Query(default=None),
-) -> dict[str, object]:
+) -> SessionListResponse:
     try:
-        return get_services(request).service.list_sessions(
+        result = get_services(request).service.list_sessions(
             status=status,
             session_id=session_id,
             limit=limit,
             page_token=page_token,
         )
+        return SessionListResponse.model_validate(result)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
 
-@router.get("/sessions/{session_id}")
-def get_session(session_id: str, request: Request) -> dict[str, object]:
+@router.get(
+    "/sessions/{session_id}",
+    response_model=SessionDetailResponse,
+)
+def get_session(session_id: str, request: Request) -> SessionDetailResponse:
     try:
-        return get_services(request).service.get_session(session_id)
+        return SessionDetailResponse.model_validate(
+            get_services(request).service.get_session(session_id)
+        )
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
 
 
-@router.get("/sessions/{session_id}/runtime-status")
-def get_session_runtime_status(session_id: str, request: Request) -> dict[str, object]:
+@router.get(
+    "/sessions/{session_id}/runtime-status",
+    response_model=SessionRuntimeStatusResponse,
+)
+def get_session_runtime_status(session_id: str, request: Request) -> SessionRuntimeStatusResponse:
     try:
-        return get_services(request).service.get_session_runtime_status(session_id)
+        return SessionRuntimeStatusResponse.model_validate(
+            get_services(request).service.get_session_runtime_status(session_id)
+        )
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
 
 
-@router.post("/sessions/{session_id}/terminate")
+@router.post(
+    "/sessions/{session_id}/terminate",
+    response_model=SessionTerminateResponse,
+)
 def terminate_session(
     session_id: str,
     payload: SessionTerminateRequest,
     request: Request,
-) -> dict[str, object]:
+) -> SessionTerminateResponse:
     """Terminate a session, preventing further intent write operations."""
     try:
-        return get_services(request).service.terminate_session(
-            session_id, terminal_reason=payload.terminal_reason
+        return SessionTerminateResponse.model_validate(
+            get_services(request).service.terminate_session(
+                session_id, terminal_reason=payload.terminal_reason
+            )
         )
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
@@ -102,7 +144,10 @@ def terminate_session(
 # Registered before parameterised intent routes to avoid routing ambiguity.
 
 
-@router.get("/sessions/{session_id}/state")
+@router.get(
+    "/sessions/{session_id}/state",
+    response_model=SessionStateView,
+)
 def get_session_state(
     session_id: str,
     request: Request,
@@ -115,7 +160,7 @@ def get_session_state(
     has_blocking_gaps: bool | None = Query(default=None),
     limit: int | None = Query(default=None),
     page_token: str | None = Query(default=None),
-) -> dict[str, object]:
+) -> SessionStateView:
     """Return the canonical SessionStateView for a session.
 
     ``slice`` is intentionally not supported on this endpoint.
@@ -153,35 +198,45 @@ def get_session_state(
             query["limit"] = limit
         if page_token is not None:
             query["page_token"] = page_token
-        return get_services(request).service.get_session_state(session_id, query)
+        return SessionStateView.model_validate(
+            get_services(request).service.get_session_state(session_id, query)
+        )
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
 
 
-@router.post("/sessions/{session_id}/state/query")
+@router.post(
+    "/sessions/{session_id}/state/query",
+    response_model=SessionStateView,
+)
 def query_session_state(
     session_id: str,
     payload: SessionStateQueryRequest,
     request: Request,
-) -> dict[str, object]:
+) -> SessionStateView:
     """Return the canonical SessionStateView with a structured query body.
 
     Use this endpoint when ``slice`` filtering or multi-axis query composition
     is required.  Supports all ``SessionStateQuery`` fields.
     """
     try:
-        query = {k: v for k, v in payload.model_dump().items() if v is not None}
-        return get_services(request).service.query_session_state(session_id, query)
+        query = payload.model_dump(exclude_none=True)
+        return SessionStateView.model_validate(
+            get_services(request).service.query_session_state(session_id, query)
+        )
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
 
 
-@router.get("/sessions/{session_id}/artifacts/{artifact_id}/runtime-status")
+@router.get(
+    "/sessions/{session_id}/artifacts/{artifact_id}/runtime-status",
+    response_model=ArtifactRuntimeStatusResponse,
+)
 def get_artifact_runtime_status(
     session_id: str,
     artifact_id: str,
     request: Request,
-) -> dict[str, object]:
+) -> ArtifactRuntimeStatusResponse:
     """Return the operator-facing runtime status for a single artifact.
 
     Explains whether the artifact has been extracted and handed off to
@@ -189,17 +244,22 @@ def get_artifact_runtime_status(
     canonical evidence read surface.
     """
     try:
-        return get_services(request).service.get_artifact_runtime_status(session_id, artifact_id)
+        return ArtifactRuntimeStatusResponse.model_validate(
+            get_services(request).service.get_artifact_runtime_status(session_id, artifact_id)
+        )
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
 
 
-@router.get("/sessions/{session_id}/propositions/{proposition_id}/context")
+@router.get(
+    "/sessions/{session_id}/propositions/{proposition_id}/context",
+    response_model=PropositionContextView,
+)
 def get_proposition_context(
     session_id: str,
     proposition_id: str,
     request: Request,
-) -> dict[str, object]:
+) -> PropositionContextView:
     """Return PropositionContextView — canonical proposition-level minimal closure (Phase 5c).
 
     Exposes the externally visible canonical context for a single proposition:
@@ -210,17 +270,22 @@ def get_proposition_context(
     Runtime scheduling truth must not be read from this endpoint.
     """
     try:
-        return get_services(request).service.get_proposition_context(session_id, proposition_id)
+        return PropositionContextView.model_validate(
+            get_services(request).service.get_proposition_context(session_id, proposition_id)
+        )
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
 
 
-@router.get("/sessions/{session_id}/propositions/{proposition_id}/runtime-status")
+@router.get(
+    "/sessions/{session_id}/propositions/{proposition_id}/runtime-status",
+    response_model=PropositionRuntimeStatusResponse,
+)
 def get_proposition_runtime_status(
     session_id: str,
     proposition_id: str,
     request: Request,
-) -> dict[str, object]:
+) -> PropositionRuntimeStatusResponse:
     """Return operator-facing runtime status for a single proposition (Phase 5c).
 
     Explains which pipeline stage the proposition is currently at and, in future
@@ -228,8 +293,8 @@ def get_proposition_runtime_status(
     runtime truth only; do not use it as a canonical evidence read surface.
     """
     try:
-        return get_services(request).service.get_proposition_runtime_status(
-            session_id, proposition_id
+        return PropositionRuntimeStatusResponse.model_validate(
+            get_services(request).service.get_proposition_runtime_status(session_id, proposition_id)
         )
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
@@ -281,96 +346,116 @@ def _run_intent(
         raise HTTPException(status_code=502, detail=f"Intent execution error: {error}") from error
 
 
-@router.post("/sessions/{session_id}/intents/observe")
+@router.post("/sessions/{session_id}/intents/observe", response_model=ObserveResponse)
 def intent_observe(
     session_id: str,
     payload: ObserveRequest,
     request: Request,
-) -> dict[str, object]:
-    return _run_intent(session_id, "observe", payload.model_dump(exclude_none=True), request)
+) -> ObserveResponse:
+    return ObserveResponse.model_validate(
+        _run_intent(session_id, "observe", payload.model_dump(exclude_none=True), request)
+    )
 
 
-@router.post("/sessions/{session_id}/intents/compare")
+@router.post("/sessions/{session_id}/intents/compare", response_model=CompareResponse)
 def intent_compare(
     session_id: str,
     payload: CompareRequest,
     request: Request,
-) -> dict[str, object]:
+) -> CompareResponse:
     _assert_same_session(session_id, payload.left_ref, payload.right_ref)
-    return _run_intent(session_id, "compare", payload.model_dump(exclude_none=True), request)
+    return CompareResponse.model_validate(
+        _run_intent(session_id, "compare", payload.model_dump(exclude_none=True), request)
+    )
 
 
-@router.post("/sessions/{session_id}/intents/decompose")
+@router.post("/sessions/{session_id}/intents/decompose", response_model=DecomposeResponse)
 def intent_decompose(
     session_id: str,
     payload: DecomposeRequest,
     request: Request,
-) -> dict[str, object]:
+) -> DecomposeResponse:
     _assert_same_session(session_id, payload.compare_ref)
-    return _run_intent(session_id, "decompose", payload.model_dump(exclude_none=True), request)
+    return DecomposeResponse.model_validate(
+        _run_intent(session_id, "decompose", payload.model_dump(exclude_none=True), request)
+    )
 
 
-@router.post("/sessions/{session_id}/intents/correlate")
+@router.post("/sessions/{session_id}/intents/correlate", response_model=CorrelateResponse)
 def intent_correlate(
     session_id: str,
     payload: CorrelateRequest,
     request: Request,
-) -> dict[str, object]:
+) -> CorrelateResponse:
     _assert_same_session(session_id, payload.left_ref, payload.right_ref)
-    return _run_intent(session_id, "correlate", payload.model_dump(exclude_none=True), request)
+    return CorrelateResponse.model_validate(
+        _run_intent(session_id, "correlate", payload.model_dump(exclude_none=True), request)
+    )
 
 
-@router.post("/sessions/{session_id}/intents/detect")
+@router.post("/sessions/{session_id}/intents/detect", response_model=DetectResponse)
 def intent_detect(
     session_id: str,
     payload: DetectRequest,
     request: Request,
-) -> dict[str, object]:
-    return _run_intent(session_id, "detect", payload.model_dump(exclude_none=True), request)
+) -> DetectResponse:
+    return DetectResponse.model_validate(
+        _run_intent(session_id, "detect", payload.model_dump(exclude_none=True), request)
+    )
 
 
-@router.post("/sessions/{session_id}/intents/test")
+@router.post("/sessions/{session_id}/intents/test", response_model=IntentTestResponse)
 def intent_test(
     session_id: str,
     payload: IntentTestRequest,
     request: Request,
-) -> dict[str, object]:
+) -> IntentTestResponse:
     _assert_same_session(session_id, payload.left_ref, payload.right_ref)
-    return _run_intent(session_id, "test", payload.model_dump(exclude_none=True), request)
+    return IntentTestResponse.model_validate(
+        _run_intent(session_id, "test", payload.model_dump(exclude_none=True), request)
+    )
 
 
-@router.post("/sessions/{session_id}/intents/forecast")
+@router.post("/sessions/{session_id}/intents/forecast", response_model=ForecastResponse)
 def intent_forecast(
     session_id: str,
     payload: ForecastRequest,
     request: Request,
-) -> dict[str, object]:
+) -> ForecastResponse:
     _assert_same_session(session_id, payload.source_ref)
-    return _run_intent(session_id, "forecast", payload.model_dump(exclude_none=True), request)
+    return ForecastResponse.model_validate(
+        _run_intent(session_id, "forecast", payload.model_dump(exclude_none=True), request)
+    )
 
 
-@router.post("/sessions/{session_id}/intents/attribute")
+@router.post("/sessions/{session_id}/intents/attribute", response_model=AttributeResponse)
 def intent_attribute(
     session_id: str,
     payload: AttributeRequest,
     request: Request,
-) -> dict[str, object]:
-    return _run_intent(session_id, "attribute", payload.model_dump(exclude_none=True), request)
+) -> AttributeResponse:
+    return AttributeResponse.model_validate(
+        _run_intent(session_id, "attribute", payload.model_dump(exclude_none=True), request)
+    )
 
 
-@router.post("/sessions/{session_id}/intents/diagnose")
+@router.post("/sessions/{session_id}/intents/diagnose", response_model=DiagnoseResponse)
 def intent_diagnose(
     session_id: str,
     payload: DiagnoseRequest,
     request: Request,
-) -> dict[str, object]:
-    return _run_intent(session_id, "diagnose", payload.model_dump(exclude_none=True), request)
+) -> DiagnoseResponse:
+    return DiagnoseResponse.model_validate(
+        _run_intent(session_id, "diagnose", payload.model_dump(exclude_none=True), request)
+    )
 
 
-@router.post("/sessions/{session_id}/intents/validate")
+@router.post("/sessions/{session_id}/intents/validate", response_model=ValidateResponse)
 def intent_validate(
     session_id: str,
     payload: ValidateRequest,
     request: Request,
-) -> dict[str, object]:
-    return _run_intent(session_id, "validate", payload.model_dump(exclude_none=True), request)
+) -> ValidateResponse:
+    return ValidateResponse.model_validate(
+        _run_intent(session_id, "validate", payload.model_dump(exclude_none=True), request)
+    )
