@@ -221,6 +221,18 @@ class SemanticModelV2Service:
                 detail="Cannot create official semantic model via CRUD; use /semantic-models/import",
             )
 
+        # Reject private model name that conflicts with another private model for same owner
+        if enriched_pre.get("visibility") == "private" and enriched_pre.get("owner_user"):
+            private_conflict = self.store.query_one(
+                "SELECT 1 FROM semantic_models WHERE name = ? AND visibility = 'private' AND owner_user = ? LIMIT 1",
+                [model_data.get("name"), enriched_pre.get("owner_user")],
+            )
+            if private_conflict:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Private model '{model_data.get('name')}' already exists for user '{enriched_pre.get('owner_user')}'",
+                )
+
         # Enrich for validation (adds MARIVO fields as top-level dict keys)
         enriched = self._enrich_model_dict_with_marivo(model_data)
 
@@ -247,7 +259,12 @@ class SemanticModelV2Service:
             ],
         )
 
-        model_row = self._require_model_row(model.name)
+        # Look up the just-inserted private model (name may not be unique across visibilities)
+        model_row = self.store.query_one(
+            "SELECT * FROM semantic_models WHERE name = ? AND visibility = 'private' AND owner_user = ?",
+            [model.name, storage_data["owner_user"]],
+        )
+        assert model_row is not None  # just inserted
         model_id = model_row["model_id"]
 
         # Insert datasets + fields
