@@ -76,10 +76,25 @@ def _run(fn: Callable[[], _T]) -> _T:  # noqa: UP047
 
 
 @router.post("", response_model=OSIDocument)
-def create_semantic_model(request: Request, payload: SemanticModel) -> OSIDocument:
+def create_semantic_model(
+    request: Request, payload: SemanticModel, session_id: str | None = None
+) -> OSIDocument:
     """Create a semantic model from an OSI document fragment."""
     svc = _get_service(request)
     result = _run(lambda: svc.create_semantic_model(_dump_model(payload)))
+    if session_id and hasattr(request.app.state, "session_service"):
+        from app.semantic_service_v2.session import SessionService
+
+        session_svc: SessionService = request.app.state.session_service
+        model_row = svc._get_model_row_by_name(result["name"])
+        if model_row:
+            session_svc.add_model_to_snapshot(
+                session_id=session_id,
+                model_name=result["name"],
+                revision=model_row["revision"],
+                visibility=model_row["visibility"],
+                owner_user=model_row["owner_user"],
+            )
     return _osi_model_wrap(result)
 
 
