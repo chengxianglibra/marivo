@@ -267,31 +267,16 @@ class TestCreateSemanticModel(unittest.TestCase):
         self.assertEqual(len(result["metrics"]), 1)
         self.assertEqual(result["metrics"][0]["name"], "total_revenue")
 
-    def test_create_public_model_associated_with_version(self) -> None:
+    def test_create_model_revision_starts_at_1(self) -> None:
         store = _make_store()
         svc = SemanticModelV2Service(store)
         model_data = _make_model_dict()
-        svc.create_semantic_model(model_data)
-        version = store.query_one(
-            "SELECT version_id FROM semantic_versions ORDER BY version_id DESC LIMIT 1"
-        )
-        self.assertIsNotNone(version)
+        result = svc.create_semantic_model(model_data)
+        self.assertEqual(result["revision"], 1)
         model_row = store.query_one(
-            "SELECT semantic_version_id FROM semantic_models WHERE name = 'test_model'"
+            "SELECT revision FROM semantic_models WHERE name = 'test_model'"
         )
-        self.assertEqual(model_row["semantic_version_id"], version["version_id"])
-
-    def test_create_private_model_not_associated_with_version(self) -> None:
-        store = _make_store()
-        svc = SemanticModelV2Service(store)
-        model_data = _make_model_dict(
-            name="private_model", visibility="private", owner_user="alice"
-        )
-        svc.create_semantic_model(model_data)
-        model_row = store.query_one(
-            "SELECT semantic_version_id FROM semantic_models WHERE name = 'private_model'"
-        )
-        self.assertIsNone(model_row["semantic_version_id"])
+        self.assertEqual(model_row["revision"], 1)
 
 
 class TestGetSemanticModel(unittest.TestCase):
@@ -817,35 +802,27 @@ class TestVisibilityFiltering(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Public model version association
+# Per-model revision
 # ---------------------------------------------------------------------------
 
 
-class TestPublicModelVersionAssociation(unittest.TestCase):
-    def test_public_model_linked_to_latest_version(self) -> None:
+class TestPerModelRevision(unittest.TestCase):
+    def test_new_model_revision_is_1(self) -> None:
         store = _make_store()
         svc = SemanticModelV2Service(store)
-        svc.create_semantic_model(_make_model_dict(name="model_v1"))
-        version_row = store.query_one(
-            "SELECT version_id FROM semantic_versions ORDER BY version_id DESC LIMIT 1"
-        )
-        model_row = store.query_one(
-            "SELECT semantic_version_id FROM semantic_models WHERE name = 'model_v1'"
-        )
-        self.assertEqual(model_row["semantic_version_id"], version_row["version_id"])
+        result = svc.create_semantic_model(_make_model_dict(name="model_a"))
+        self.assertEqual(result["revision"], 1)
+        model_row = store.query_one("SELECT revision FROM semantic_models WHERE name = 'model_a'")
+        self.assertEqual(model_row["revision"], 1)
 
-    def test_second_public_model_uses_same_version(self) -> None:
+    def test_each_model_has_independent_revision(self) -> None:
         store = _make_store()
         svc = SemanticModelV2Service(store)
-        svc.create_semantic_model(_make_model_dict(name="model_a"))
-        svc.create_semantic_model(_make_model_dict(name="model_b"))
-        row_a = store.query_one(
-            "SELECT semantic_version_id FROM semantic_models WHERE name = 'model_a'"
-        )
-        row_b = store.query_one(
-            "SELECT semantic_version_id FROM semantic_models WHERE name = 'model_b'"
-        )
-        self.assertEqual(row_a["semantic_version_id"], row_b["semantic_version_id"])
+        result_a = svc.create_semantic_model(_make_model_dict(name="model_a"))
+        result_b = svc.create_semantic_model(_make_model_dict(name="model_b"))
+        self.assertEqual(result_a["revision"], 1)
+        self.assertEqual(result_b["revision"], 1)
+        # Revisions are independent — no shared version row
 
 
 # ---------------------------------------------------------------------------
@@ -934,18 +911,22 @@ class TestImportOSIDocument(unittest.TestCase):
             svc.import_osi_document(doc)
         self.assertEqual(ctx.exception.status_code, 400)
 
-    def test_import_creates_new_version(self) -> None:
+    def test_import_increments_revision_on_reimport(self) -> None:
         store = _make_store()
         svc = SemanticModelV2Service(store)
+        # Create an initial official model
         svc.create_semantic_model(_make_model_dict(name="existing"))
-        versions_before = store.query_rows(
-            "SELECT version_id FROM semantic_versions ORDER BY version_id"
+        model_row_before = store.query_one(
+            "SELECT revision FROM semantic_models WHERE name = 'existing'"
         )
+        self.assertEqual(model_row_before["revision"], 1)
+
+        # Import a document that updates the same model
         doc = {
             "version": OSI_SPEC_VERSION,
             "semantic_model": [
                 {
-                    "name": "imported_model",
+                    "name": "existing",
                     "datasets": [
                         {
                             "name": "sales",
@@ -968,11 +949,104 @@ class TestImportOSIDocument(unittest.TestCase):
                 }
             ],
         }
-        svc.import_osi_document(doc)
-        versions_after = store.query_rows(
-            "SELECT version_id FROM semantic_versions ORDER BY version_id"
+        results = svc.import_osi_document(doc)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["revision"], 2)
+
+        model_row_after = store.query_one(
+            "SELECT revision FROM semantic_models WHERE name = 'existing'"
         )
-        self.assertEqual(len(versions_after), len(versions_before) + 1)
+        self.assertEqual(model_row_after["revision"], 2)
+
+    def test_import_official_coexists_with_same_name_private(self) -> None:
+        store = _make_store()
+        svc = SemanticModelV2Service(store)
+        # Create a private model first
+        svc.create_semantic_model(
+            _make_model_dict(name="shared_name", visibility="private", owner_user="alice")
+        )
+        rows_before = store.query_rows(
+            "SELECT visibility, revision FROM semantic_models WHERE name = 'shared_name'"
+        )
+        self.assertEqual(len(rows_before), 1)
+        self.assertEqual(rows_before[0]["visibility"], "private")
+
+        # Import an official model with the same name
+        doc = {
+            "version": OSI_SPEC_VERSION,
+            "semantic_model": [
+                {
+                    "name": "shared_name",
+                    "datasets": [
+                        {
+                            "name": "sales",
+                            "source": "analytics.sales",
+                            "fields": [
+                                {
+                                    "name": "sale_id",
+                                    "expression": {
+                                        "dialects": [
+                                            {
+                                                "dialect": "ANSI_SQL",
+                                                "expression": "sale_id",
+                                            }
+                                        ]
+                                    },
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ],
+        }
+        results = svc.import_osi_document(doc)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["revision"], 1)
+
+        # Both models should now exist
+        rows_after = store.query_rows(
+            "SELECT visibility, revision FROM semantic_models WHERE name = 'shared_name' ORDER BY visibility"
+        )
+        self.assertEqual(len(rows_after), 2)
+        visibilities = [r["visibility"] for r in rows_after]
+        self.assertIn("private", visibilities)
+        self.assertIn("public", visibilities)
+
+    def test_import_new_model_revision_starts_at_1(self) -> None:
+        store = _make_store()
+        svc = SemanticModelV2Service(store)
+        doc = {
+            "version": OSI_SPEC_VERSION,
+            "semantic_model": [
+                {
+                    "name": "brand_new",
+                    "datasets": [
+                        {
+                            "name": "sales",
+                            "source": "analytics.sales",
+                            "fields": [
+                                {
+                                    "name": "sale_id",
+                                    "expression": {
+                                        "dialects": [
+                                            {
+                                                "dialect": "ANSI_SQL",
+                                                "expression": "sale_id",
+                                            }
+                                        ]
+                                    },
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ],
+        }
+        results = svc.import_osi_document(doc)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["revision"], 1)
+        model_row = store.query_one("SELECT revision FROM semantic_models WHERE name = 'brand_new'")
+        self.assertEqual(model_row["revision"], 1)
 
 
 # ---------------------------------------------------------------------------
@@ -987,26 +1061,8 @@ class TestReadiness(unittest.TestCase):
         result = svc.get_readiness("test_model")
         self.assertEqual(result["status"], "not_ready")
         self.assertIsInstance(result["blockers"], list)
-        self.assertIn("semantic_version_id", result)
-        self.assertIn("evaluated_semantic_version_id", result)
-
-    def test_get_readiness_public_model_has_version_id(self) -> None:
-        store = _make_store()
-        svc = SemanticModelV2Service(store)
-        svc.create_semantic_model(_make_model_dict())
-        result = svc.get_readiness("test_model")
-        version_row = store.query_one(
-            "SELECT version_id FROM semantic_versions ORDER BY version_id DESC LIMIT 1"
-        )
-        self.assertEqual(result["semantic_version_id"], version_row["version_id"])
-
-    def test_get_readiness_private_model_version_id_is_none(self) -> None:
-        svc = _make_svc()
-        svc.create_semantic_model(
-            _make_model_dict(name="private_model", visibility="private", owner_user="alice")
-        )
-        result = svc.get_readiness("private_model")
-        self.assertIsNone(result["semantic_version_id"])
+        # Readiness only returns status and blockers (no version_id fields)
+        self.assertEqual(set(result.keys()), {"status", "blockers"})
 
     def test_get_readiness_nonexistent_model(self) -> None:
         from fastapi import HTTPException

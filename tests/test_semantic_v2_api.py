@@ -347,8 +347,6 @@ class TestReadinessAPI(unittest.TestCase):
         body = resp.json()
         self.assertEqual(body["status"], "not_ready")
         self.assertIsInstance(body["blockers"], list)
-        self.assertIn("semantic_version_id", body)
-        self.assertIn("evaluated_semantic_version_id", body)
 
     def test_readiness_nonexistent_model(self) -> None:
         client = _make_app()
@@ -429,3 +427,215 @@ class TestImportOSIDocumentAPI(unittest.TestCase):
         }
         resp = client.post("/semantic-models/import", json=doc)
         self.assertEqual(resp.status_code, 400)
+
+
+class TestPerModelImport(unittest.TestCase):
+    def test_import_updates_only_included_models(self) -> None:
+        """Import model A should not affect existing model B."""
+        client = _make_app()
+        doc = {
+            "version": OSI_SPEC_VERSION,
+            "semantic_model": [
+                {
+                    "name": "commerce",
+                    "datasets": [
+                        {
+                            "name": "orders",
+                            "source": "analytics.orders",
+                            "primary_key": ["order_id"],
+                            "fields": [
+                                {
+                                    "name": "order_id",
+                                    "expression": {
+                                        "dialects": [
+                                            {"dialect": "ANSI_SQL", "expression": "order_id"}
+                                        ]
+                                    },
+                                },
+                            ],
+                        }
+                    ],
+                },
+                {
+                    "name": "growth",
+                    "datasets": [
+                        {
+                            "name": "events",
+                            "source": "analytics.events",
+                            "primary_key": ["event_id"],
+                            "fields": [
+                                {
+                                    "name": "event_id",
+                                    "expression": {
+                                        "dialects": [
+                                            {"dialect": "ANSI_SQL", "expression": "event_id"}
+                                        ]
+                                    },
+                                },
+                            ],
+                        }
+                    ],
+                },
+            ],
+        }
+        client.post("/semantic-models/import", json=doc)
+        # Second import: only commerce updated
+        doc2 = {
+            "version": OSI_SPEC_VERSION,
+            "semantic_model": [
+                {
+                    "name": "commerce",
+                    "datasets": [
+                        {
+                            "name": "orders",
+                            "source": "analytics.orders_v2",
+                            "primary_key": ["order_id"],
+                            "fields": [
+                                {
+                                    "name": "order_id",
+                                    "expression": {
+                                        "dialects": [
+                                            {"dialect": "ANSI_SQL", "expression": "order_id"}
+                                        ]
+                                    },
+                                },
+                                {
+                                    "name": "amount",
+                                    "expression": {
+                                        "dialects": [
+                                            {"dialect": "ANSI_SQL", "expression": "amount"}
+                                        ]
+                                    },
+                                    "custom_extensions": [
+                                        {
+                                            "vendor_name": "MARIVO",
+                                            "data": json.dumps({"data_type": "number"}),
+                                        }
+                                    ],
+                                },
+                            ],
+                        }
+                    ],
+                },
+            ],
+        }
+        resp = client.post("/semantic-models/import", json=doc2)
+        self.assertEqual(resp.status_code, 200)
+        # commerce updated
+        commerce = client.get("/semantic-models/commerce").json()["semantic_model"][0]
+        self.assertEqual(commerce["datasets"][0]["source"], "analytics.orders_v2")
+        self.assertEqual(len(commerce["datasets"][0]["fields"]), 2)
+        # growth unchanged
+        growth = client.get("/semantic-models/growth").json()["semantic_model"][0]
+        self.assertEqual(growth["datasets"][0]["source"], "analytics.events")
+
+    def test_import_increments_revision(self) -> None:
+        client = _make_app()
+        doc = {
+            "version": OSI_SPEC_VERSION,
+            "semantic_model": [
+                {
+                    "name": "commerce",
+                    "datasets": [
+                        {
+                            "name": "orders",
+                            "source": "analytics.orders",
+                            "primary_key": ["order_id"],
+                            "fields": [
+                                {
+                                    "name": "order_id",
+                                    "expression": {
+                                        "dialects": [
+                                            {"dialect": "ANSI_SQL", "expression": "order_id"}
+                                        ]
+                                    },
+                                },
+                            ],
+                        }
+                    ],
+                },
+            ],
+        }
+        client.post("/semantic-models/import", json=doc)
+        self.assertEqual(
+            client.get("/semantic-models/commerce").json()["semantic_model"][0]["revision"], 1
+        )
+        client.post("/semantic-models/import", json=doc)
+        self.assertEqual(
+            client.get("/semantic-models/commerce").json()["semantic_model"][0]["revision"], 2
+        )
+
+    def test_import_official_model_with_same_name_as_private_succeeds(self) -> None:
+        """Importing official model when private model with same name exists should succeed."""
+        client = _make_app()
+        # Create private model first
+        client.post(
+            "/semantic-models",
+            json=_make_model_dict(name="commerce", visibility="private", owner_user="alice"),
+        )
+        # Import official model with same name
+        doc = {
+            "version": OSI_SPEC_VERSION,
+            "semantic_model": [
+                {
+                    "name": "commerce",
+                    "datasets": [
+                        {
+                            "name": "orders",
+                            "source": "analytics.orders",
+                            "primary_key": ["order_id"],
+                            "fields": [
+                                {
+                                    "name": "order_id",
+                                    "expression": {
+                                        "dialects": [
+                                            {"dialect": "ANSI_SQL", "expression": "order_id"}
+                                        ]
+                                    },
+                                },
+                            ],
+                        }
+                    ],
+                },
+            ],
+        }
+        resp = client.post("/semantic-models/import", json=doc)
+        self.assertEqual(resp.status_code, 200)
+        # Both models should exist
+        models = client.get("/semantic-models", params={"requesting_user": "alice"}).json()[
+            "semantic_model"
+        ]
+        commerce_models = [m for m in models if m["name"] == "commerce"]
+        self.assertEqual(len(commerce_models), 2)  # one official, one private
+
+    def test_import_new_model_revision_is_1(self) -> None:
+        client = _make_app()
+        doc = {
+            "version": OSI_SPEC_VERSION,
+            "semantic_model": [
+                {
+                    "name": "commerce",
+                    "datasets": [
+                        {
+                            "name": "orders",
+                            "source": "analytics.orders",
+                            "primary_key": ["order_id"],
+                            "fields": [
+                                {
+                                    "name": "order_id",
+                                    "expression": {
+                                        "dialects": [
+                                            {"dialect": "ANSI_SQL", "expression": "order_id"}
+                                        ]
+                                    },
+                                },
+                            ],
+                        }
+                    ],
+                },
+            ],
+        }
+        client.post("/semantic-models/import", json=doc)
+        self.assertEqual(
+            client.get("/semantic-models/commerce").json()["semantic_model"][0]["revision"], 1
+        )
