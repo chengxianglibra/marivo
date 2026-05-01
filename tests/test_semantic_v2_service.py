@@ -490,6 +490,17 @@ class TestDatasetCRUD(unittest.TestCase):
         self.assertIsNotNone(marivo_ext)
         self.assertEqual(marivo_ext["data_type"], "datetime")
 
+    def test_create_duplicate_dataset_returns_409(self) -> None:
+        from fastapi import HTTPException
+
+        svc = _make_svc()
+        svc.create_semantic_model(_make_model_dict())
+        # "orders" already exists in the model
+        ds_data = _make_dataset_dict(name="orders", source="analytics.orders_v2")
+        with self.assertRaises(HTTPException) as ctx:
+            svc.create_dataset("test_model", ds_data)
+        self.assertEqual(ctx.exception.status_code, 409)
+
 
 # ---------------------------------------------------------------------------
 # Relationship CRUD
@@ -524,6 +535,20 @@ class TestRelationshipCRUD(unittest.TestCase):
         svc = _make_svc()
         svc.create_semantic_model(_make_model_dict())
         rel_data = _make_relationship_dict(to_ds="nonexistent")
+        with self.assertRaises(HTTPException) as ctx:
+            svc.create_relationship("test_model", rel_data)
+        self.assertEqual(ctx.exception.status_code, 400)
+
+    def test_create_relationship_mismatched_column_lengths(self) -> None:
+        from fastapi import HTTPException
+
+        svc = _make_svc()
+        model_data = _make_model_dict()
+        model_data["datasets"].append(_make_dataset_dict())
+        svc.create_semantic_model(model_data)
+        rel_data = _make_relationship_dict()
+        rel_data["from_columns"] = ["customer_id", "region_id"]
+        rel_data["to_columns"] = ["customer_id"]
         with self.assertRaises(HTTPException) as ctx:
             svc.create_relationship("test_model", rel_data)
         self.assertEqual(ctx.exception.status_code, 400)
@@ -588,6 +613,15 @@ class TestMetricCRUD(unittest.TestCase):
         metric_data = _make_metric_dict()
         result = svc.create_metric("test_model", metric_data)
         self.assertEqual(result["name"], "total_revenue")
+
+    def test_create_metric_invalid_observed_dataset(self) -> None:
+        from app.semantic_service_v2.validation import SemanticValidationError
+
+        svc = _make_svc()
+        svc.create_semantic_model(_make_model_dict())
+        metric_data = _make_metric_dict(observed_dataset="nonexistent")
+        with self.assertRaises(SemanticValidationError):
+            svc.create_metric("test_model", metric_data)
 
     def test_get_metric(self) -> None:
         svc = _make_svc()
@@ -953,6 +987,26 @@ class TestReadiness(unittest.TestCase):
         result = svc.get_readiness("test_model")
         self.assertEqual(result["status"], "not_ready")
         self.assertIsInstance(result["blockers"], list)
+        self.assertIn("semantic_version_id", result)
+        self.assertIn("evaluated_semantic_version_id", result)
+
+    def test_get_readiness_public_model_has_version_id(self) -> None:
+        store = _make_store()
+        svc = SemanticModelV2Service(store)
+        svc.create_semantic_model(_make_model_dict())
+        result = svc.get_readiness("test_model")
+        version_row = store.query_one(
+            "SELECT version_id FROM semantic_versions ORDER BY version_id DESC LIMIT 1"
+        )
+        self.assertEqual(result["semantic_version_id"], version_row["version_id"])
+
+    def test_get_readiness_private_model_version_id_is_none(self) -> None:
+        svc = _make_svc()
+        svc.create_semantic_model(
+            _make_model_dict(name="private_model", visibility="private", owner_user="alice")
+        )
+        result = svc.get_readiness("private_model")
+        self.assertIsNone(result["semantic_version_id"])
 
     def test_get_readiness_nonexistent_model(self) -> None:
         from fastapi import HTTPException

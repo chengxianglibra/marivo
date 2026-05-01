@@ -60,18 +60,28 @@ def create_semantic_model(request: Request, payload: dict[str, Any] = Body(...))
 
 
 @router.get("")
-def list_semantic_models(request: Request) -> dict[str, Any]:
+def list_semantic_models(request: Request, requesting_user: str | None = None) -> dict[str, Any]:
     """List semantic models (summary)."""
     svc = _get_service(request)
-    results = svc.list_semantic_models()
+    results = svc.list_semantic_models(requesting_user=requesting_user)
+    return _osi_list_wrap(results)
+
+
+@router.post("/import")
+def import_osi_document(request: Request, payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """Import an OSI document as the latest public layer."""
+    svc = _get_service(request)
+    results = _run(lambda: svc.import_osi_document(payload))
     return _osi_list_wrap(results)
 
 
 @router.get("/{model}")
-def get_semantic_model(model: str, request: Request) -> dict[str, Any]:
+def get_semantic_model(
+    model: str, request: Request, requesting_user: str | None = None
+) -> dict[str, Any]:
     """Get a semantic model as an OSI document."""
     svc = _get_service(request)
-    result = _run(lambda: svc.get_semantic_model(model))
+    result = _run(lambda: svc.get_semantic_model(model, requesting_user=requesting_user))
     return _osi_model_wrap(result)
 
 
@@ -225,16 +235,8 @@ def delete_metric(model: str, name: str, request: Request) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Import & Readiness
+# Readiness
 # ---------------------------------------------------------------------------
-
-
-@router.post("/import")
-def import_osi_document(request: Request, payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
-    """Import an OSI document as the latest public layer."""
-    svc = _get_service(request)
-    results = _run(lambda: svc.import_osi_document(payload))
-    return _osi_list_wrap(results)
 
 
 @router.get("/{model}/readiness")

@@ -230,6 +230,29 @@ class TestListSemanticModelsAPI(unittest.TestCase):
         self.assertIn("model_a", names)
         self.assertIn("model_b", names)
 
+    def test_list_with_requesting_user(self) -> None:
+        client = _make_app()
+        client.post("/semantic-models", json=_make_model_dict(name="public_model"))
+        client.post(
+            "/semantic-models",
+            json=_make_model_dict(name="private_model", visibility="private", owner_user="alice"),
+        )
+        # Without requesting_user, only public models are visible
+        resp = client.get("/semantic-models")
+        names = [m["name"] for m in resp.json()["semantic_model"]]
+        self.assertIn("public_model", names)
+        self.assertNotIn("private_model", names)
+        # With requesting_user=alice, private model is also visible
+        resp = client.get("/semantic-models", params={"requesting_user": "alice"})
+        names = [m["name"] for m in resp.json()["semantic_model"]]
+        self.assertIn("public_model", names)
+        self.assertIn("private_model", names)
+        # With requesting_user=bob, private model is not visible
+        resp = client.get("/semantic-models", params={"requesting_user": "bob"})
+        names = [m["name"] for m in resp.json()["semantic_model"]]
+        self.assertIn("public_model", names)
+        self.assertNotIn("private_model", names)
+
 
 # ---------------------------------------------------------------------------
 # GET /semantic-models/{model} — get semantic model
@@ -249,6 +272,23 @@ class TestGetSemanticModelAPI(unittest.TestCase):
     def test_get_nonexistent_returns_404(self) -> None:
         client = _make_app()
         resp = client.get("/semantic-models/nonexistent")
+        self.assertEqual(resp.status_code, 404)
+
+    def test_get_private_model_with_requesting_user(self) -> None:
+        client = _make_app()
+        client.post(
+            "/semantic-models",
+            json=_make_model_dict(name="private_model", visibility="private", owner_user="alice"),
+        )
+        # Owner can see the model
+        resp = client.get("/semantic-models/private_model", params={"requesting_user": "alice"})
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["semantic_model"][0]["name"], "private_model")
+        # Non-owner gets 404
+        resp = client.get("/semantic-models/private_model", params={"requesting_user": "bob"})
+        self.assertEqual(resp.status_code, 404)
+        # No requesting_user gets 404
+        resp = client.get("/semantic-models/private_model")
         self.assertEqual(resp.status_code, 404)
 
 
@@ -307,6 +347,8 @@ class TestReadinessAPI(unittest.TestCase):
         body = resp.json()
         self.assertEqual(body["status"], "not_ready")
         self.assertIsInstance(body["blockers"], list)
+        self.assertIn("semantic_version_id", body)
+        self.assertIn("evaluated_semantic_version_id", body)
 
     def test_readiness_nonexistent_model(self) -> None:
         client = _make_app()
