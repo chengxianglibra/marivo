@@ -867,3 +867,71 @@ class TestVisibilityGuardOnSubEntityWrites(unittest.TestCase):
         }
         resp = client.post("/semantic-models/official_model/metrics", json=metric)
         self.assertEqual(resp.status_code, 403)
+
+
+# ---------------------------------------------------------------------------
+# Same-name validation for private model creation
+# ---------------------------------------------------------------------------
+
+
+class TestSameNameValidation(unittest.TestCase):
+    def test_duplicate_private_name_same_owner_returns_409(self) -> None:
+        """Two private models with same name for same owner is not allowed."""
+        client = _make_app()
+        client.post(
+            "/semantic-models",
+            json=_make_model_dict(name="explore", visibility="private", owner_user="alice"),
+        )
+        resp = client.post(
+            "/semantic-models",
+            json=_make_model_dict(name="explore", visibility="private", owner_user="alice"),
+        )
+        self.assertEqual(resp.status_code, 409)
+
+    def test_duplicate_private_name_different_owner_succeeds(self) -> None:
+        """Two private models with same name for different owners is allowed."""
+        client = _make_app()
+        client.post(
+            "/semantic-models",
+            json=_make_model_dict(name="explore", visibility="private", owner_user="alice"),
+        )
+        resp = client.post(
+            "/semantic-models",
+            json=_make_model_dict(name="explore", visibility="private", owner_user="bob"),
+        )
+        self.assertEqual(resp.status_code, 200)
+
+    def test_private_same_name_as_official_succeeds(self) -> None:
+        """Private model with same name as official model is allowed."""
+        client = _make_app()
+        doc = {
+            "version": OSI_SPEC_VERSION,
+            "semantic_model": [
+                {
+                    "name": "commerce",
+                    "datasets": [
+                        {
+                            "name": "orders",
+                            "source": "analytics.orders",
+                            "primary_key": ["order_id"],
+                            "fields": [
+                                {
+                                    "name": "order_id",
+                                    "expression": {
+                                        "dialects": [
+                                            {"dialect": "ANSI_SQL", "expression": "order_id"}
+                                        ]
+                                    },
+                                },
+                            ],
+                        }
+                    ],
+                }
+            ],
+        }
+        client.post("/semantic-models/import", json=doc)
+        resp = client.post(
+            "/semantic-models",
+            json=_make_model_dict(name="commerce", visibility="private", owner_user="alice"),
+        )
+        self.assertEqual(resp.status_code, 200)
