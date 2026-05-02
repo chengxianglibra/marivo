@@ -1,52 +1,73 @@
-# Sources
+# Datasources
 
-Sources represent metadata authority catalogs. In the current runtime, supported source types are
-`duckdb` and `trino` only. After registering a source, you trigger a sync to snapshot its schema
+Datasources represent metadata authority catalogs. In the current runtime, supported datasource types are
+`duckdb` and `trino` only. After registering a datasource, you trigger a sync to snapshot its schema
 and table metadata into Marivo's local metadata store. Post-sync, all stored metadata queries hit
 SQLite; the external system is not queried at read time.
 
-A source never declares execution-side catalog projection. Source-to-engine projection is governed
-only by [`/mappings`](mappings.md); source objects keep their source-side identity through
+A datasource never declares execution-side catalog projection. Datasource-to-engine projection is governed
+only by [`/mappings`](mappings.md); datasource objects keep their source-side identity through
 `authority_locator`.
 
-`marivo.yaml` does not carry source inventory. Sources are registered and managed only through the
+`marivo.yaml` does not carry datasource inventory. Datasources are registered and managed only through the
 HTTP API.
 
 ## Endpoints
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/sources` | Register a source |
-| `GET` | `/sources` | List sources |
-| `GET` | `/sources/{source_id}` | Get a source |
-| `PUT` | `/sources/{source_id}` | Update a source |
-| `DELETE` | `/sources/{source_id}` | Delete a source |
-| `POST` | `/sources/{source_id}/sync` | Trigger catalog sync |
-| `GET` | `/sources/{source_id}/sync/{job_id}` | Get sync job status |
-| `GET` | `/sources/{source_id}/sync/selections` | List sync selections |
-| `POST` | `/sources/{source_id}/sync/selections` | Set sync selections |
-| `DELETE` | `/sources/{source_id}/sync/selections` | Clear all sync selections |
-| `DELETE` | `/sources/{source_id}/sync/selections/{selection_id}` | Remove one sync selection |
-| `GET` | `/sources/{source_id}/catalog/schemas` | Browse source schemas (live) |
-| `GET` | `/sources/{source_id}/catalog/tables` | Browse source tables (live) |
-| `GET` | `/sources/{source_id}/objects` | List synced source objects |
-| `GET` | `/sources/{source_id}/objects/{object_id}` | Get one synced source object |
+| `POST` | `/datasources` | Register a datasource |
+| `GET` | `/datasources` | List datasources |
+| `GET` | `/datasources/{datasource_id}` | Get a datasource |
+| `PUT` | `/datasources/{datasource_id}` | Update a datasource |
+| `DELETE` | `/datasources/{datasource_id}` | Delete a datasource |
+| `POST` | `/datasources/{datasource_id}/sync` | Trigger catalog sync |
+| `GET` | `/datasources/{datasource_id}/sync/{job_id}` | Get sync job status |
+| `GET` | `/datasources/{datasource_id}/sync/selections` | List sync selections |
+| `POST` | `/datasources/{datasource_id}/sync/selections` | Set sync selections |
+| `DELETE` | `/datasources/{datasource_id}/sync/selections` | Clear all sync selections |
+| `DELETE` | `/datasources/{datasource_id}/sync/selections/{selection_id}` | Remove one sync selection |
+| `GET` | `/datasources/{datasource_id}/browse/schemas` | Browse datasource schemas (live) |
+| `GET` | `/datasources/{datasource_id}/browse/tables` | Browse datasource tables (live) |
+| `GET` | `/datasources/{datasource_id}/catalog/preview` | Preview table rows (live) |
+| `GET` | `/datasources/{datasource_id}/objects` | List synced source objects |
+| `GET` | `/datasources/{datasource_id}/objects/{object_id}` | Get one synced source object |
+| `PATCH` | `/datasources/{datasource_id}/objects/{object_id}/properties` | Update object properties |
+
+## Component Schemas
+
+| Schema name | Used by |
+|-------------|---------|
+| `DatasourceRegisterRequest` | `POST /datasources` request |
+| `DatasourceUpdateRequest` | `PUT /datasources/{id}` request |
+| `DatasourceResponse` | all datasource CRUD responses |
+| `DuckDbDatasourceConnection` | `connection` variant for `duckdb` |
+| `TrinoDatasourceConnection` | `connection` variant for `trino` |
+| `SyncTriggerResponse` | `POST /datasources/{id}/sync` |
+| `SyncJobStatusResponse` | `GET /datasources/{id}/sync/{job_id}` |
+| `SyncSelectionResponse` | selections list and create |
+| `BrowseSchemaItem` | schema browse list |
+| `BrowseTableItem` | table browse list |
+| `TablePreviewResponse` | catalog preview |
+| `SourceObjectResponse` | synced object list and detail |
+
+Retrieve a schema fragment: `GET /openapi/schemas/DatasourceResponse`
 
 ---
 
-## Register Source
+## Register Datasource
 
 ```
-POST /sources
+POST /datasources
 ```
 
-Registers a new data source. The source type determines which catalog adapter is used.
+Registers a new datasource. The datasource type determines which catalog adapter is used.
 
 ### Request Body
 
 ```json
 {
-  "source_type": "duckdb",
+  "datasource_type": "duckdb",
   "display_name": "Analytics DuckDB",
   "authority": {
     "catalog_system": "duckdb",
@@ -67,7 +88,7 @@ Registers a new data source. The source type determines which catalog adapter is
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `source_type` | string | yes | Adapter type: `"duckdb"` or `"trino"` |
+| `datasource_type` | string | yes | Adapter type: `"duckdb"` or `"trino"` |
 | `display_name` | string | yes | Human-readable name |
 | `authority` | object | yes | Metadata authority contract with `catalog_system`, `connection`, and optional `synthetic_catalog` |
 | `sync` | object | no | Sync policy (`selected`, `all`, `none`) |
@@ -96,8 +117,8 @@ Registers a new data source. The source type determines which catalog adapter is
 
 ```json
 {
-  "source_id": "src_a1b2c3d4e5f6",
-  "source_type": "duckdb",
+  "datasource_id": "src_a1b2c3d4e5f6",
+  "datasource_type": "duckdb",
   "display_name": "Analytics DuckDB",
   "authority": {
     "catalog_system": "duckdb",
@@ -119,17 +140,17 @@ Registers a new data source. The source type determines which catalog adapter is
 }
 ```
 
-The canonical response model is `SourceResponse`. `authority`, `sync`, `intrinsic_capabilities`,
+The canonical response model is `DatasourceResponse`. `authority`, `sync`, `intrinsic_capabilities`,
 `policy`, and `mappings` are structured sub-objects; `intrinsic_capabilities`,
 `readiness_status`, and `failure_code` are read-only derived fields.
 
-`mappings` is a summary of mapping objects that govern this source. It is not embedded source
-configuration and does not let a source carry execution namespace defaults.
+`mappings` is a summary of mapping objects that govern this datasource. It is not embedded datasource
+configuration and does not let a datasource carry execution namespace defaults.
 
-`readiness_status` is derived from source validation. A source stays `not_ready` when the
-authority connection is incomplete or when a source without a native catalog layer lacks a stable
+`readiness_status` is derived from datasource validation. A datasource stays `not_ready` when the
+authority connection is incomplete or when a datasource without a native catalog layer lacks a stable
 `synthetic_catalog`. `failure_code` exposes the current blocker, such as
-`source_invalid_connection` or `source_missing_synthetic_catalog`.
+`datasource_invalid_connection` or `datasource_missing_synthetic_catalog`.
 
 **Sync modes:**
 
@@ -141,36 +162,36 @@ authority connection is incomplete or when a source without a native catalog lay
 
 ---
 
-## List Sources
+## List Datasources
 
 ```
-GET /sources
+GET /datasources
 ```
 
-Returns all registered sources.
+Returns all registered datasources.
 
 ### Response
 
-Array of `SourceResponse` objects.
+Array of `DatasourceResponse` objects.
 
 ---
 
-## Get Source
+## Get Datasource
 
 ```
-GET /sources/{source_id}
+GET /datasources/{datasource_id}
 ```
 
 The detail surface includes a `mappings` array summarizing the mappings that currently govern the
-source. Each entry exposes `mapping_id`, `engine_id`, `status`, `readiness_status`,
+datasource. Each entry exposes `mapping_id`, `engine_id`, `status`, `readiness_status`,
 `failure_code`, and the mapping's `catalog_mappings`.
 
 ---
 
-## Update Source
+## Update Datasource
 
 ```
-PUT /sources/{source_id}
+PUT /datasources/{datasource_id}
 ```
 
 ### Request Body
@@ -206,22 +227,22 @@ All fields are optional; only provided fields are updated.
 
 ### Response
 
-Returns `SourceResponse`.
+Returns `DatasourceResponse`.
 
 ---
 
-## Delete Source
+## Delete Datasource
 
 ```
-DELETE /sources/{source_id}
+DELETE /datasources/{datasource_id}
 ```
 
-Deletes the source and its synced objects. Will fail if the source has dependent mappings.
+Deletes the datasource and its synced objects. Will fail if the datasource has dependent mappings.
 
 ### Response
 
 ```json
-{"status": "deleted", "source_id": "src_..."}
+{"status": "deleted", "datasource_id": "src_..."}
 ```
 
 ---
@@ -229,15 +250,15 @@ Deletes the source and its synced objects. Will fail if the source has dependent
 ## Trigger Sync
 
 ```
-POST /sources/{source_id}/sync
+POST /datasources/{datasource_id}/sync
 ```
 
-Triggers a catalog sync job. The job snapshots schemas, tables, and columns from the external source into the local metadata store. Stale objects (present in prior sync but absent from current sync) are automatically removed.
+Triggers a catalog sync job. The job snapshots schemas, tables, and columns from the external datasource into the local metadata store. Stale objects (present in prior sync but absent from current sync) are automatically removed.
 
 If `sync.mode` is `selected`, only tables listed in sync selections are synced. If it is `all`,
 Marivo syncs the full authority catalog.
 
-For Trino sources, table detail sync also attempts to capture table properties. Marivo reads both
+For Trino datasources, table detail sync also attempts to capture table properties. Marivo reads both
 connector hidden metadata tables such as `"table$properties"` and explicit `WITH (...)` properties
 from `SHOW CREATE TABLE` when available, so Hive and Iceberg-backed tables can both surface table
 property metadata in synced `source_objects`.
@@ -247,19 +268,19 @@ property metadata in synced `source_objects`.
 ```json
 {
   "job_id": "sync_a1b2c3d4e5f6",
-  "source_id": "src_...",
+  "datasource_id": "src_...",
   "status": "running"
 }
 ```
 
-The sync runs asynchronously. Poll `GET /sources/{source_id}/sync/{job_id}` for completion.
+The sync runs asynchronously. Poll `GET /datasources/{datasource_id}/sync/{job_id}` for completion.
 
 ---
 
 ## Get Sync Job Status
 
 ```
-GET /sources/{source_id}/sync/{job_id}
+GET /datasources/{datasource_id}/sync/{job_id}
 ```
 
 ### Response
@@ -267,7 +288,7 @@ GET /sources/{source_id}/sync/{job_id}
 ```json
 {
   "job_id": "sync_...",
-  "source_id": "src_...",
+  "datasource_id": "src_...",
   "job_type": "full_sync",
   "status": "completed",
   "started_at": "2024-01-15T10:01:00+00:00",
@@ -288,7 +309,7 @@ Sync selections allow fine-grained control over which tables to include when `sy
 ### List Sync Selections
 
 ```
-GET /sources/{source_id}/sync/selections
+GET /datasources/{datasource_id}/sync/selections
 ```
 
 **Response:**
@@ -297,7 +318,7 @@ GET /sources/{source_id}/sync/selections
 [
   {
     "selection_id": "sel_...",
-    "source_id": "src_...",
+    "datasource_id": "src_...",
     "schema_name": "events",
     "table_name": "user_video_watch",
     "created_at": "2024-01-15T10:00:00+00:00"
@@ -308,7 +329,7 @@ GET /sources/{source_id}/sync/selections
 ### Set Sync Selections
 
 ```
-POST /sources/{source_id}/sync/selections
+POST /datasources/{datasource_id}/sync/selections
 ```
 
 Adds new selections (non-destructive; existing selections are preserved). Duplicate entries are silently ignored.
@@ -329,21 +350,21 @@ Adds new selections (non-destructive; existing selections are preserved). Duplic
 ### Clear All Sync Selections
 
 ```
-DELETE /sources/{source_id}/sync/selections
+DELETE /datasources/{datasource_id}/sync/selections
 ```
 
-Removes all sync selections for the source.
+Removes all sync selections for the datasource.
 
 **Response:**
 
 ```json
-{"status": "cleared", "source_id": "src_..."}
+{"status": "cleared", "datasource_id": "src_..."}
 ```
 
 ### Remove One Selection
 
 ```
-DELETE /sources/{source_id}/sync/selections/{selection_id}
+DELETE /datasources/{datasource_id}/sync/selections/{selection_id}
 ```
 
 **Response:**
@@ -357,11 +378,11 @@ DELETE /sources/{source_id}/sync/selections/{selection_id}
 ## Browse Schemas (Live)
 
 ```
-GET /sources/{source_id}/catalog/schemas
+GET /datasources/{datasource_id}/browse/schemas
 ```
 
-Queries the external source directly (not the local snapshot) to list available schemas. Useful for exploring before configuring sync selections.
-For cataloged backends such as Trino, the live schema list is scoped to the source's configured
+Queries the external datasource directly (not the local snapshot) to list available schemas. Useful for exploring before configuring sync selections.
+For cataloged backends such as Trino, the live schema list is scoped to the datasource's configured
 catalog rather than aggregating every catalog visible to the connection.
 
 ### Response
@@ -378,12 +399,12 @@ catalog rather than aggregating every catalog visible to the connection.
 ## Browse Tables (Live)
 
 ```
-GET /sources/{source_id}/catalog/tables?schema=events
+GET /datasources/{datasource_id}/browse/tables?schema=events
 ```
 
-Queries the external source directly for tables in a specific schema.
-For Trino sources, live table browse should enumerate tables from the requested schema within the
-source's configured catalog; do not treat the connection's default schema as the browse target.
+Queries the external datasource directly for tables in a specific schema.
+For Trino datasources, live table browse should enumerate tables from the requested schema within the
+datasource's configured catalog; do not treat the connection's default schema as the browse target.
 Admin UI note: `Manage Selections` should treat the schema dropdown as the single source of truth
 and ignore stale table-list responses from earlier schema requests so the checklist always matches
 the currently selected schema.
@@ -412,10 +433,10 @@ the currently selected schema.
 ## Preview Table (Live)
 
 ```
-GET /sources/{source_id}/catalog/preview
+GET /datasources/{datasource_id}/catalog/preview
 ```
 
-Queries the external source directly to preview sample rows from a table.
+Queries the external datasource directly to preview sample rows from a table.
 Useful for inspecting actual data values when configuring semantic bindings,
 especially for determining timestamp formats and column data types.
 
@@ -433,7 +454,7 @@ especially for determining timestamp formats and column data types.
 
 ```json
 {
-  "source_id": "src_...",
+  "datasource_id": "src_...",
   "schema_name": "events",
   "table_name": "user_sessions",
   "columns": [
@@ -454,7 +475,7 @@ especially for determining timestamp formats and column data types.
 
 ### Error Responses
 
-- **404**: Source or table not found
+- **404**: Datasource or table not found
 - **400**: Invalid column names, filter columns, filter shape, or limit value
 
 ---
@@ -462,7 +483,7 @@ especially for determining timestamp formats and column data types.
 ## List Source Objects
 
 ```
-GET /sources/{source_id}/objects
+GET /datasources/{datasource_id}/objects
 ```
 
 Returns synced objects from the local metadata store. These are snapshots taken during the last sync.
@@ -482,7 +503,7 @@ Table objects expose table-level metadata only. Column metadata is exposed throu
 [
   {
     "object_id": "obj_...",
-    "source_id": "src_...",
+    "datasource_id": "src_...",
     "object_type": "table",
     "parent_id": "obj_...",
     "native_name": "user_video_watch",
@@ -512,7 +533,7 @@ Table objects expose table-level metadata only. Column metadata is exposed throu
 ]
 ```
 
-`authority_locator` is the stable source-side locator frozen during sync. `fqn` is derived from that
+`authority_locator` is the stable datasource-side locator frozen during sync. `fqn` is derived from that
 locator and uses the same `catalog.schema.table` prefix for tables.
 
 **Object types:**
@@ -524,24 +545,24 @@ locator and uses the same `catalog.schema.table` prefix for tables.
 | `column` | Column within a table |
 | `partition` | Partition (if supported by the adapter) |
 
-For typed time resolution, table-level `properties.time_capabilities` is the source-metadata hint consumed after semantic-entity overrides and before field-name heuristics.
+For typed time resolution, table-level `properties.time_capabilities` is the datasource-metadata hint consumed after semantic-entity overrides and before field-name heuristics.
 
 ---
 
 ## Get Source Object
 
 ```
-GET /sources/{source_id}/objects/{object_id}
+GET /datasources/{datasource_id}/objects/{object_id}
 ```
 
-Returns one synced source object from the local metadata store. This is the detail form of the list endpoint and returns the same payload shape as one item from `GET /sources/{source_id}/objects`.
+Returns one synced source object from the local metadata store. This is the detail form of the list endpoint and returns the same payload shape as one item from `GET /datasources/{datasource_id}/objects`.
 
 ### Response
 
 ```json
 {
   "object_id": "obj_...",
-  "source_id": "src_...",
+  "datasource_id": "src_...",
   "object_type": "table",
   "parent_id": "obj_...",
   "native_name": "user_video_watch",
@@ -561,4 +582,13 @@ Returns one synced source object from the local metadata store. This is the deta
 }
 ```
 
-Returns `404` if the source does not exist or if the object is not present under that source.
+Returns `404` if the datasource does not exist or if the object is not present under that datasource.
+
+---
+
+## Error semantics
+
+- `400`: sync disabled, no selections configured, invalid query parameters
+- `404`: datasource or object not found
+- `409`: datasource has dependent mappings (delete conflict)
+- `422`: request validation failed (malformed connection payload, unknown `datasource_type`)
