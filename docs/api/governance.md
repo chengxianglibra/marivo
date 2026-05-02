@@ -2,6 +2,28 @@
 
 Governance enforces data access policies and quality rules across all analysis sessions. Policies restrict what queries can be run (e.g., aggregate-only access, field masking, row filtering, row count limits). Quality rules assert expectations about data freshness, null rates, and minimum row counts.
 
+## Component Schemas
+
+| Schema name | Used by |
+|-------------|---------|
+| `PolicyCreateRequest` | `POST /policies` request |
+| `PolicyUpdateRequest` | `PUT /policies/{id}` request |
+| `PolicyResponse` | all policy CRUD responses |
+| `AggregateOnlyDefinition` | `definition` variant for `aggregate_only` policies |
+| `FieldMaskDefinition` | `definition` variant for `field_mask` policies |
+| `RowFilterDefinition` | `definition` variant for `row_filter` policies |
+| `MaxRowsDefinition` | `definition` variant for `max_rows` policies |
+| `PolicyScope` | `scope` sub-object on policy requests/responses |
+| `QualityRuleCreateRequest` | `POST /quality-rules` request |
+| `QualityRuleResponse` | quality rule responses |
+| `FreshnessThreshold` | `threshold` variant for `freshness` rules |
+| `NullRateThreshold` | `threshold` variant for `null_rate` rules |
+| `RowCountMinThreshold` | `threshold` variant for `row_count_min` rules |
+| `GovernanceCheckRequest` | `POST /governance/check` request |
+| `GovernanceCheckResponse` | governance check response |
+
+Retrieve a schema fragment: `GET /openapi/schemas/PolicyResponse`
+
 ## Endpoints
 
 ### Policies
@@ -58,6 +80,7 @@ POST /policies
   "name": "no_raw_pii",
   "policy_type": "aggregate_only",
   "definition": {
+    "policy_type": "aggregate_only",
     "min_group_size": 100
   },
   "scope": {
@@ -350,3 +373,10 @@ When passed:
 ```
 
 **Violations** block step execution. **Warnings** allow execution but are surfaced for awareness.
+
+## Error semantics
+
+- `400`: unknown policy type, invalid definition shape, missing required threshold fields
+- `404`: policy or quality rule not found
+- `422`: request validation failed
+- `503`: governance service not configured (policies/rules return empty lists; check returns `passed: true`)
