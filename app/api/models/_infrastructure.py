@@ -304,7 +304,60 @@ class RouteCapabilityProfileResponse(BaseModel):
         description="Minimum freshness lag tolerated by the engine profile.",
     )
     federation_support: str = Field(description="Federation capability advertised by the engine.")
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, str] = Field(default_factory=dict)
+
+
+class AuthorityLocatorDetail(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    catalog: str | None = None
+    schema_name: str | None = Field(default=None, alias="schema")
+    table: str | None = None
+
+
+class ExecutionLocatorEntry(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    catalog: str | None = None
+    schema_name: str | None = Field(default=None, alias="schema")
+    table: str | None = None
+    mapping_id: str | None = None
+    authority_catalog: str | None = None
+    execution_catalog: str | None = None
+    default_schema_applied: bool = False
+    readiness_blockers: list[str] = Field(default_factory=list)
+    authority_locator: AuthorityLocatorDetail | None = None
+
+
+class RoutingSourceSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    candidate_engine_ids: list[str] = Field(default_factory=list)
+    ready_mapping_ids: list[str] = Field(default_factory=list)
+    failed_mappings: list[str] = Field(default_factory=list)
+    readiness_blockers: list[str] = Field(default_factory=list)
+
+
+class RoutingCandidate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    engine_id: str
+    eligible: bool
+    covered_sources: list[str] = Field(default_factory=list)
+    missing_sources: list[str] = Field(default_factory=list)
+    mapping_ids: list[str] = Field(default_factory=list)
+
+
+class RoutingDetail(BaseModel):
+    model_config = ConfigDict(extra="ignore")  # routing engine may emit extra diagnostic keys
+
+    resolution_status: str = ""
+    selected_mapping_ids: list[str] = Field(default_factory=list)
+    execution_locators: dict[str, ExecutionLocatorEntry] = Field(default_factory=dict)
+    sources: dict[str, RoutingSourceSummary] = Field(default_factory=dict)
+    candidates: list[RoutingCandidate] = Field(default_factory=list)
+    readiness_blockers: list[str] = Field(default_factory=list)
+    unresolved_tables: list[str] = Field(default_factory=list)
 
 
 class RouteResolveResponse(BaseModel):
@@ -331,8 +384,8 @@ class RouteResolveResponse(BaseModel):
         default=None,
         description="Primary explanation for the selected engine or routing failure.",
     )
-    routing_detail: dict[str, Any] = Field(
-        default_factory=dict,
+    routing_detail: RoutingDetail = Field(
+        default_factory=RoutingDetail,
         description="Structured routing evidence covering mappings, candidates, and blockers.",
     )
     capability_profile: RouteCapabilityProfileResponse | None = Field(

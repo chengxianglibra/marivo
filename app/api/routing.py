@@ -7,6 +7,7 @@ from app.api.models import (
     RouteEngineResponse,
     RouteResolveRequest,
     RouteResolveResponse,
+    RoutingDetail,
 )
 from app.routing import RoutingIntent
 
@@ -38,7 +39,7 @@ def routing_resolve(payload: RouteResolveRequest, request: Request) -> RouteReso
             ),
             qualified_names=route.qualified_names,
             selection_reason=route.selection_reason,
-            routing_detail=route.routing_detail,
+            routing_detail=RoutingDetail.model_validate(route.routing_detail),
             capability_profile=None,
         )
 
@@ -50,6 +51,6 @@ def routing_resolve(payload: RouteResolveRequest, request: Request) -> RouteReso
         engine=None,
         qualified_names={},
         selection_reason=None if failure is None else failure.message,
-        routing_detail={} if failure is None else failure.routing_detail,
+        routing_detail=RoutingDetail.model_validate(failure.routing_detail if failure else {}),
         capability_profile=None,
     )
