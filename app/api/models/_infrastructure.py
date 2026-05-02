@@ -225,7 +225,7 @@ class TablePreviewResponse(BaseModel):
 
 
 class SourceObjectAuthorityLocator(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     catalog: str | None = None
     schema_name: str | None = Field(default=None, alias="schema")
@@ -256,6 +256,8 @@ class ObjectPropertiesResponse(BaseModel):
 
 
 class ColumnPropertiesUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     unit: str | None = None
 
 
