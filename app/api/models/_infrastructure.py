@@ -617,15 +617,11 @@ class GovernanceWarning(BaseModel):
 
 
 class GovernanceCheckResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
     passed: bool
     violations: list[GovernanceViolation] = Field(default_factory=list)
     warnings: list[GovernanceWarning] = Field(default_factory=list)
-    decisions: list[dict[str, Any]] = Field(default_factory=list)
-    transforms: dict[str, Any] = Field(default_factory=dict)
-    hard_constraints: list[dict[str, Any]] = Field(default_factory=list)
-    soft_signals: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class JobSubmitRequest(BaseModel):
