@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from typing import Any
 
+import pytest
 from fastapi import FastAPI
 
 from app.api.router import include_api_routers
@@ -11,6 +12,10 @@ SCOPED_PATH_PREFIXES = (
     "/semantic-models",  # fully typed, GREEN
     "/datasources",  # fully typed, GREEN
     "/routing",  # fully typed, GREEN
+    "/policies",
+    "/quality-rules",
+    "/governance",
+    "/approvals",
 )
 
 SCOPED_SESSION_PATHS = {
@@ -23,6 +28,7 @@ SCOPED_SESSION_PATHS = {
     "/sessions/{session_id}/propositions/{proposition_id}/context",
     "/sessions/{session_id}/propositions/{proposition_id}/runtime-status",
     "/sessions/{session_id}/terminate",
+    "/sessions/{session_id}/approvals/auto-flag",
 }
 
 SCHEMA_KEYS_THAT_MAKE_A_LEAF_TYPED = {
@@ -202,6 +208,11 @@ def _walk_schema(node: Any, pointer: str, violations: list[str]) -> None:
         _walk_schema(content_schema, f"{pointer}/contentSchema", violations)
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason="Wave 2 RED: /policies, /quality-rules, /governance, /approvals routes still return "
+    "dict[str, Any]; will pass once every endpoint under those prefixes declares a typed response_model.",
+)
 def test_scoped_openapi_schemas_are_agent_friendly() -> None:
     openapi = _router_only_openapi()
     violations: list[str] = []
