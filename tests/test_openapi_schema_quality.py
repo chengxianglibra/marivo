@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from typing import Any
 
-import pytest
 from fastapi import FastAPI
 
 from app.api.router import include_api_routers
@@ -208,11 +207,6 @@ def _walk_schema(node: Any, pointer: str, violations: list[str]) -> None:
         _walk_schema(content_schema, f"{pointer}/contentSchema", violations)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Wave 2 RED: /policies, /quality-rules, /governance, /approvals routes still return "
-    "dict[str, Any]; will pass once every endpoint under those prefixes declares a typed response_model.",
-)
 def test_scoped_openapi_schemas_are_agent_friendly() -> None:
     openapi = _router_only_openapi()
     violations: list[str] = []
