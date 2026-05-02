@@ -7,19 +7,23 @@ context, and intent routes.
 
 ## Current Phase Exclusions
 
-The following API groups remain outside the scoped quality gate:
+The following API groups have been closed in Waves 1–4 and are now fully
+covered by the scoped quality gate:
 
-- datasources
-- routing
-- governance
-- jobs
-- approvals
-- metrics
-- calendar
+- datasources (`/datasources/**`)
+- routing (`/routing/**`)
+- governance and approvals (`/policies/**`, `/quality-rules/**`, `/governance/**`, `/approvals/**`)
+- jobs (`/jobs/**`)
+- calendar (`/calendar/**`)
+
+The following remain outside the quality gate and are deferred to Wave 5:
+
+- `/engines/**` — engine inventory API (router not yet implemented)
+- `/mappings/**` — mapping API (router not yet implemented)
 - `/catalog` legacy and stub routes
 - `/openapi/*` meta routes
-- other `/sessions/{session_id}/...` routes not listed in the scoped contract,
-  such as approvals and planner-context surfaces
+- `/sessions/{session_id}/...` routes not listed in the scoped contract,
+  such as planner-context surfaces
 
 ## Violation Categories To Eliminate
 
