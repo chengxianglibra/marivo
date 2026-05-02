@@ -14,6 +14,8 @@ Modules:
 
 # Infrastructure models (datasource, routing, steps, signals, etc.)
 from ._infrastructure import (
+    # Policy models
+    AggregateOnlyDefinition,
     AggregateQueryStep,
     AnalysisTimeOverride,
     # Approval models
@@ -34,9 +36,11 @@ from ._infrastructure import (
     DatasourceUpdateRequest,
     DuckDbDatasourceConnection,
     ExecutionLocatorEntry,
+    FieldMaskDefinition,
     GovernanceCheckRequest,
     # Job models
     JobSubmitRequest,
+    MaxRowsDefinition,
     Measure,
     # Step models
     MetricQueryStep,
@@ -45,8 +49,11 @@ from ._infrastructure import (
     ObjectPropertiesResponse,
     PartitionPruningOverride,
     PlanPatchRequest,
-    # Policy models
     PolicyCreateRequest,
+    PolicyDefinition,
+    PolicyDeleteResponse,
+    PolicyResponse,
+    PolicyScope,
     PolicyUpdateRequest,
     QualityRuleCreateRequest,
     ReadinessSignal,
@@ -59,6 +66,7 @@ from ._infrastructure import (
     RoutingCandidate,
     RoutingDetail,
     RoutingSourceSummary,
+    RowFilterDefinition,
     Scope,
     # Source object models
     SourceObjectAuthorityLocator,
@@ -403,8 +411,16 @@ __all__ = [  # noqa: RUF022
     "PredicateTimePolicy",
     "PredicateUsage",
     "PlanPatchRequest",
+    "AggregateOnlyDefinition",
+    "FieldMaskDefinition",
+    "MaxRowsDefinition",
     "PolicyCreateRequest",
+    "PolicyDefinition",
+    "PolicyDeleteResponse",
+    "PolicyResponse",
+    "PolicyScope",
     "PolicyUpdateRequest",
+    "RowFilterDefinition",
     "ProcessType",
     "ProfileKind",
     "ProfileSchemaVersion",

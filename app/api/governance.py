@@ -22,8 +22,8 @@ def create_policy(payload: PolicyCreateRequest, request: Request) -> dict[str, A
         return governance.create_policy(
             name=payload.name,
             policy_type=payload.policy_type,
-            definition=payload.definition,
-            scope=payload.scope,
+            definition=payload.definition.model_dump(),
+            scope=payload.scope.model_dump(),
         )
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
@@ -53,7 +53,7 @@ def update_policy(policy_id: str, payload: PolicyUpdateRequest, request: Request
         return governance.update_policy(
             policy_id,
             enabled=payload.enabled,
-            definition=payload.definition,
+            definition=payload.definition.model_dump() if payload.definition is not None else None,
         )
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
