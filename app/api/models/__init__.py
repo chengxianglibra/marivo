@@ -21,6 +21,7 @@ from ._infrastructure import (
     # Approval models
     ApprovalCreateRequest,
     ApprovalDecisionRequest,
+    ApprovalResponse,
     AttributeChangeStep,
     AutoFlagRequest,
     # Browse models
@@ -298,6 +299,7 @@ __all__ = [  # noqa: RUF022
     "ApiErrorDetail",
     "ApprovalCreateRequest",
     "ApprovalDecisionRequest",
+    "ApprovalResponse",
     "ArtifactRef",
     "ArtifactRuntimeStatusResponse",
     "AttributeChangeStep",
