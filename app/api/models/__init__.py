@@ -20,7 +20,6 @@ from ._infrastructure import (
     ApprovalCreateRequest,
     ApprovalDecisionRequest,
     AttributeChangeStep,
-    AuthorityLocatorDetail,
     AutoFlagRequest,
     ColumnPropertiesUpdateRequest,
     # Datasource models
@@ -261,7 +260,6 @@ __all__ = [  # noqa: RUF022
     "AnalysisSession",
     "AnalysisTimeOverride",
     "ApiErrorDetail",
-    "AuthorityLocatorDetail",
     "ApprovalCreateRequest",
     "ApprovalDecisionRequest",
     "ArtifactRef",

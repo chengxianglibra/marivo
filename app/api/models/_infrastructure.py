@@ -267,6 +267,8 @@ class ColumnPropertiesUpdateRequest(BaseModel):
 
 
 class RouteIntentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     step_type: str | None = None
     metric_names: list[str] = Field(default_factory=list)
     requested_dimensions: list[str] = Field(default_factory=list)
@@ -276,6 +278,8 @@ class RouteIntentRequest(BaseModel):
 
 
 class RouteResolveRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     table_names: list[str]
     routing_intent: RouteIntentRequest | None = None
 
@@ -307,14 +311,6 @@ class RouteCapabilityProfileResponse(BaseModel):
     metadata: dict[str, str] = Field(default_factory=dict)
 
 
-class AuthorityLocatorDetail(BaseModel):
-    model_config = ConfigDict(extra="forbid", populate_by_name=True)
-
-    catalog: str | None = None
-    schema_name: str | None = Field(default=None, alias="schema")
-    table: str | None = None
-
-
 class ExecutionLocatorEntry(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
@@ -326,7 +322,7 @@ class ExecutionLocatorEntry(BaseModel):
     execution_catalog: str | None = None
     default_schema_applied: bool = False
     readiness_blockers: list[str] = Field(default_factory=list)
-    authority_locator: AuthorityLocatorDetail | None = None
+    authority_locator: SourceObjectAuthorityLocator | None = None
 
 
 class RoutingSourceSummary(BaseModel):
