@@ -7,9 +7,22 @@ background task progress and failure details for a session, but it is not the
 primary explanation path for canonical outcomes. The UI must not expose
 `POST /jobs` or `POST /jobs/{job_id}/cancel`.
 
+## Component Schemas
+
+| Schema name | Used by |
+|-------------|---------|
+| `JobResponse` | all job read responses |
+| `JobPayload` | `payload` sub-object on job responses |
+
+Retrieve a schema fragment: `GET /openapi/schemas/JobResponse`
+
 ## List Jobs
 
 `GET /jobs`
+
+Returns a typed list of `JobResponse` objects. `POST /jobs` and
+`POST /jobs/{job_id}/cancel` exist for internal use but should not be used by
+agents directly.
 
 Optional query parameters:
 
@@ -76,3 +89,8 @@ Failed example:
 
 Clients should treat this surface as inspection-only. It does not expose submit,
 cancel, retry, or any other job control.
+
+## Error semantics
+
+- `404`: job not found
+- `422`: request validation failed (invalid session_id or payload shape)
