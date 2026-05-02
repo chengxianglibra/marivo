@@ -8,10 +8,23 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from app.api.deps import get_services
 from app.api.models import (
     ColumnPropertiesUpdateRequest,
+    DatasourceDeleteResponse,
     DatasourceRegisterRequest,
     DatasourceResponse,
     DatasourceUpdateRequest,
     SyncSelectionRequest,
+)
+from app.api.models._infrastructure import (
+    BrowseSchemaItem,
+    BrowseTableItem,
+    ObjectPropertiesResponse,
+    SourceObjectResponse,
+    SyncClearedResponse,
+    SyncJobStatusResponse,
+    SyncSelectionDeletedResponse,
+    SyncSelectionResponse,
+    SyncTriggerResponse,
+    TablePreviewResponse,
 )
 from app.registry.datasource_registry import DependencyError
 
@@ -104,12 +117,12 @@ def update_datasource(
         raise _http_error(error) from error
 
 
-@router.delete("/datasources/{datasource_id}")
-def delete_datasource(datasource_id: str, request: Request) -> dict[str, Any]:
+@router.delete("/datasources/{datasource_id}", response_model=DatasourceDeleteResponse)
+def delete_datasource(datasource_id: str, request: Request) -> DatasourceDeleteResponse:
     services = get_services(request)
     try:
         services.datasource_service.delete_datasource(datasource_id)
-        return {"status": "deleted", "datasource_id": datasource_id}
+        return DatasourceDeleteResponse(datasource_id=datasource_id, deleted=True)
     except KeyError as error:
         raise _http_error(error) from error
     except DependencyError as error:
@@ -118,8 +131,8 @@ def delete_datasource(datasource_id: str, request: Request) -> dict[str, Any]:
         ) from error
 
 
-@router.post("/datasources/{datasource_id}/sync")
-def trigger_sync(datasource_id: str, request: Request) -> dict[str, object]:
+@router.post("/datasources/{datasource_id}/sync", response_model=SyncTriggerResponse)
+def trigger_sync(datasource_id: str, request: Request) -> SyncTriggerResponse:
     services = get_services(request)
     try:
         sync_mode = services.datasource_service.get_sync_mode(datasource_id)
@@ -150,98 +163,131 @@ def trigger_sync(datasource_id: str, request: Request) -> dict[str, object]:
                 status_code=400,
                 detail=f"Unknown sync_mode '{sync_mode}'. Supported modes: 'selected', 'all', 'none'",
             )
-        return {"job_id": job_id, "datasource_id": datasource_id, "status": "succeeded"}
+        return SyncTriggerResponse(job_id=job_id, datasource_id=datasource_id, status="succeeded")
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
 
 
 # These endpoints must stay ahead of /sync/{job_id} so that "selections"
 # does not get captured as a job id.
-@router.get("/datasources/{datasource_id}/sync/selections")
-def list_sync_selections(datasource_id: str, request: Request) -> list[dict[str, object]]:
+@router.get(
+    "/datasources/{datasource_id}/sync/selections", response_model=list[SyncSelectionResponse]
+)
+def list_sync_selections(datasource_id: str, request: Request) -> list[SyncSelectionResponse]:
     services = get_services(request)
     try:
         services.datasource_service.get_datasource(datasource_id)
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
-    return services.datasource_service.list_sync_selections(datasource_id)
+    return [
+        SyncSelectionResponse.model_validate(row)
+        for row in services.datasource_service.list_sync_selections(datasource_id)
+    ]
 
 
-@router.post("/datasources/{datasource_id}/sync/selections")
+@router.post(
+    "/datasources/{datasource_id}/sync/selections", response_model=list[SyncSelectionResponse]
+)
 def add_sync_selections(
     datasource_id: str, payload: SyncSelectionRequest, request: Request
-) -> list[dict[str, object]]:
+) -> list[SyncSelectionResponse]:
     services = get_services(request)
     try:
         services.datasource_service.get_datasource(datasource_id)
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
-    results: list[dict[str, object]] = []
+    results: list[SyncSelectionResponse] = []
     for selection in payload.selections:
         result = services.datasource_service.add_sync_selection(
             datasource_id,
             schema_name=selection.schema_name,
             table_name=selection.table_name,
         )
-        results.append(result)
+        results.append(SyncSelectionResponse.model_validate(result))
     return results
 
 
-@router.delete("/datasources/{datasource_id}/sync/selections")
-def clear_sync_selections(datasource_id: str, request: Request) -> dict[str, str]:
+@router.delete("/datasources/{datasource_id}/sync/selections", response_model=SyncClearedResponse)
+def clear_sync_selections(datasource_id: str, request: Request) -> SyncClearedResponse:
     try:
         get_services(request).datasource_service.clear_sync_selections(datasource_id)
-        return {"status": "cleared", "datasource_id": datasource_id}
+        return SyncClearedResponse(status="cleared", datasource_id=datasource_id)
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
 
 
-@router.delete("/datasources/{datasource_id}/sync/selections/{selection_id}")
+@router.delete(
+    "/datasources/{datasource_id}/sync/selections/{selection_id}",
+    response_model=SyncSelectionDeletedResponse,
+)
 def remove_sync_selection(
     datasource_id: str, selection_id: str, request: Request
-) -> dict[str, str]:
+) -> SyncSelectionDeletedResponse:
     services = get_services(request)
     try:
         services.datasource_service.get_datasource(datasource_id)
         services.datasource_service.remove_sync_selection(selection_id)
-        return {"status": "deleted", "selection_id": selection_id}
+        return SyncSelectionDeletedResponse(status="deleted", selection_id=selection_id)
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
 
 
-@router.get("/datasources/{datasource_id}/sync/{job_id}")
-def get_sync_status(datasource_id: str, job_id: str, request: Request) -> dict[str, object]:
+@router.get("/datasources/{datasource_id}/sync/{job_id}", response_model=SyncJobStatusResponse)
+def get_sync_status(datasource_id: str, job_id: str, request: Request) -> SyncJobStatusResponse:
     try:
-        return get_services(request).sync_engine.get_sync_status(job_id)
+        row = get_services(request).sync_engine.get_sync_status(job_id)
+        return SyncJobStatusResponse(
+            job_id=row["job_id"],
+            datasource_id=row["datasource_id"],
+            job_type=row["job_type"],
+            status=row["status"],
+            started_at=row.get("started_at"),
+            finished_at=row.get("finished_at"),
+            objects_synced=row.get("objects_synced"),
+            error_message=row.get("error_message"),
+        )
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
 
 
-@router.get("/datasources/{datasource_id}/browse/schemas")
-def browse_catalog_schemas(datasource_id: str, request: Request) -> list[dict[str, object]]:
+@router.get("/datasources/{datasource_id}/browse/schemas", response_model=list[BrowseSchemaItem])
+def browse_catalog_schemas(datasource_id: str, request: Request) -> list[BrowseSchemaItem]:
     try:
-        return get_services(request).datasource_service.browse_catalog_schemas(datasource_id)
+        rows = get_services(request).datasource_service.browse_catalog_schemas(datasource_id)
+        return [
+            BrowseSchemaItem(schema_name=row["name"], table_count=row.get("table_count", 0))
+            for row in rows
+        ]
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
 
 
-@router.get("/datasources/{datasource_id}/browse/tables")
+@router.get("/datasources/{datasource_id}/browse/tables", response_model=list[BrowseTableItem])
 def browse_catalog_tables(
     datasource_id: str, request: Request, schema_name: str | None = Query(None)
-) -> list[dict[str, object]]:
+) -> list[BrowseTableItem]:
     try:
         if schema_name is None:
             raise ValueError("schema_name query parameter is required")
-        return get_services(request).datasource_service.browse_catalog_tables(
+        rows = get_services(request).datasource_service.browse_catalog_tables(
             datasource_id, schema_name=schema_name
         )
+        return [
+            BrowseTableItem(
+                table_name=row["name"],
+                schema_name=row.get("schema", schema_name),
+                row_count=row.get("row_count"),
+                column_count=row.get("column_count"),
+            )
+            for row in rows
+        ]
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
 
-@router.get("/datasources/{datasource_id}/catalog/preview")
+@router.get("/datasources/{datasource_id}/catalog/preview", response_model=TablePreviewResponse)
 def preview_table(
     datasource_id: str,
     request: Request,
@@ -253,7 +299,7 @@ def preview_table(
         default=None,
         description="JSON object or array of {column,value} equality filters",
     ),
-) -> dict[str, object]:
+) -> TablePreviewResponse:
     """Preview sample rows from a datasource table (live query, no persistence).
 
     The limit is clamped to a maximum of 1000 rows at the adapter level.
@@ -267,7 +313,7 @@ def preview_table(
             column_list = None
     try:
         filter_map = _parse_preview_filters(filters)
-        return services.datasource_service.preview_table(
+        result = services.datasource_service.preview_table(
             datasource_id=datasource_id,
             schema_name=schema,
             table_name=table,
@@ -275,21 +321,29 @@ def preview_table(
             columns=column_list,
             filters=filter_map,
         )
+        return TablePreviewResponse.model_validate(result)
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
 
-@router.patch("/datasources/{datasource_id}/objects/{object_id}/properties")
+@router.patch(
+    "/datasources/{datasource_id}/objects/{object_id}/properties",
+    response_model=ObjectPropertiesResponse,
+)
 def patch_column_properties(
     datasource_id: str, object_id: str, payload: ColumnPropertiesUpdateRequest, request: Request
-) -> dict[str, object]:
+) -> ObjectPropertiesResponse:
     services = get_services(request)
     user_props = {k: v for k, v in payload.model_dump().items() if v is not None}
     try:
-        return services.datasource_service.patch_object_properties(
+        result = services.datasource_service.patch_object_properties(
             datasource_id, object_id, user_props
+        )
+        return ObjectPropertiesResponse(
+            object_id=result["object_id"],
+            properties=result["properties"],
         )
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
@@ -297,33 +351,38 @@ def patch_column_properties(
         raise HTTPException(status_code=400, detail=str(error)) from error
 
 
-@router.get("/datasources/{datasource_id}/objects/{object_id}")
+@router.get("/datasources/{datasource_id}/objects/{object_id}", response_model=SourceObjectResponse)
 def get_datasource_object(
     datasource_id: str, object_id: str, request: Request
-) -> dict[str, object]:
+) -> SourceObjectResponse:
     services = get_services(request)
     try:
         services.datasource_service.get_datasource(datasource_id)
-        return services.datasource_service.get_object(datasource_id, object_id)
+        return SourceObjectResponse.model_validate(
+            services.datasource_service.get_object(datasource_id, object_id)
+        )
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
 
 
-@router.get("/datasources/{datasource_id}/objects")
+@router.get("/datasources/{datasource_id}/objects", response_model=list[SourceObjectResponse])
 def list_datasource_objects(
     datasource_id: str,
     request: Request,
     type: str | None = Query(default=None),
     schema: str | None = Query(default=None, alias="schema"),
-) -> list[dict[str, object]]:
+) -> list[SourceObjectResponse]:
     services = get_services(request)
     try:
         services.datasource_service.get_datasource(datasource_id)
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
-    return services.datasource_service.list_objects(
-        datasource_id, object_type=type, schema_name=schema
-    )
+    return [
+        SourceObjectResponse.model_validate(obj)
+        for obj in services.datasource_service.list_objects(
+            datasource_id, object_type=type, schema_name=schema
+        )
+    ]
 
 
 def _http_error(error: KeyError | ValueError) -> HTTPException:
