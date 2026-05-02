@@ -165,7 +165,7 @@ def trigger_sync(datasource_id: str, request: Request) -> SyncTriggerResponse:
             )
         return SyncTriggerResponse(job_id=job_id, datasource_id=datasource_id, status="succeeded")
     except KeyError as error:
-        raise HTTPException(status_code=404, detail=str(error)) from error
+        raise _http_error(error) from error
 
 
 # These endpoints must stay ahead of /sync/{job_id} so that "selections"
@@ -178,7 +178,7 @@ def list_sync_selections(datasource_id: str, request: Request) -> list[SyncSelec
     try:
         services.datasource_service.get_datasource(datasource_id)
     except KeyError as error:
-        raise HTTPException(status_code=404, detail=str(error)) from error
+        raise _http_error(error) from error
     return [
         SyncSelectionResponse.model_validate(row)
         for row in services.datasource_service.list_sync_selections(datasource_id)
@@ -195,7 +195,7 @@ def add_sync_selections(
     try:
         services.datasource_service.get_datasource(datasource_id)
     except KeyError as error:
-        raise HTTPException(status_code=404, detail=str(error)) from error
+        raise _http_error(error) from error
     results: list[SyncSelectionResponse] = []
     for selection in payload.selections:
         result = services.datasource_service.add_sync_selection(
@@ -213,7 +213,7 @@ def clear_sync_selections(datasource_id: str, request: Request) -> SyncClearedRe
         get_services(request).datasource_service.clear_sync_selections(datasource_id)
         return SyncClearedResponse(status="cleared", datasource_id=datasource_id)
     except KeyError as error:
-        raise HTTPException(status_code=404, detail=str(error)) from error
+        raise _http_error(error) from error
 
 
 @router.delete(
@@ -229,7 +229,7 @@ def remove_sync_selection(
         services.datasource_service.remove_sync_selection(selection_id)
         return SyncSelectionDeletedResponse(status="deleted", selection_id=selection_id)
     except KeyError as error:
-        raise HTTPException(status_code=404, detail=str(error)) from error
+        raise _http_error(error) from error
 
 
 @router.get("/datasources/{datasource_id}/sync/{job_id}", response_model=SyncJobStatusResponse)
@@ -247,7 +247,7 @@ def get_sync_status(datasource_id: str, job_id: str, request: Request) -> SyncJo
             error_message=row.get("error_message"),
         )
     except KeyError as error:
-        raise HTTPException(status_code=404, detail=str(error)) from error
+        raise _http_error(error) from error
 
 
 @router.get("/datasources/{datasource_id}/browse/schemas", response_model=list[BrowseSchemaItem])
@@ -259,7 +259,7 @@ def browse_catalog_schemas(datasource_id: str, request: Request) -> list[BrowseS
             for row in rows
         ]
     except KeyError as error:
-        raise HTTPException(status_code=404, detail=str(error)) from error
+        raise _http_error(error) from error
 
 
 @router.get("/datasources/{datasource_id}/browse/tables", response_model=list[BrowseTableItem])
@@ -281,10 +281,8 @@ def browse_catalog_tables(
             )
             for row in rows
         ]
-    except KeyError as error:
-        raise HTTPException(status_code=404, detail=str(error)) from error
-    except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
+    except (KeyError, ValueError) as error:
+        raise _http_error(error) from error
 
 
 @router.get("/datasources/{datasource_id}/catalog/preview", response_model=TablePreviewResponse)
@@ -322,10 +320,8 @@ def preview_table(
             filters=filter_map,
         )
         return TablePreviewResponse.model_validate(result)
-    except KeyError as error:
-        raise HTTPException(status_code=404, detail=str(error)) from error
-    except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
+    except (KeyError, ValueError) as error:
+        raise _http_error(error) from error
 
 
 @router.patch(
@@ -345,10 +341,8 @@ def patch_column_properties(
             object_id=result["object_id"],
             properties=result["properties"],
         )
-    except KeyError as error:
-        raise HTTPException(status_code=404, detail=str(error)) from error
-    except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
+    except (KeyError, ValueError) as error:
+        raise _http_error(error) from error
 
 
 @router.get("/datasources/{datasource_id}/objects/{object_id}", response_model=SourceObjectResponse)
@@ -362,7 +356,7 @@ def get_datasource_object(
             services.datasource_service.get_object(datasource_id, object_id)
         )
     except KeyError as error:
-        raise HTTPException(status_code=404, detail=str(error)) from error
+        raise _http_error(error) from error
 
 
 @router.get("/datasources/{datasource_id}/objects", response_model=list[SourceObjectResponse])
@@ -376,7 +370,7 @@ def list_datasource_objects(
     try:
         services.datasource_service.get_datasource(datasource_id)
     except KeyError as error:
-        raise HTTPException(status_code=404, detail=str(error)) from error
+        raise _http_error(error) from error
     return [
         SourceObjectResponse.model_validate(obj)
         for obj in services.datasource_service.list_objects(
