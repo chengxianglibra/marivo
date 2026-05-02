@@ -404,16 +404,111 @@ class SyncSelectionRequest(BaseModel):
     selections: list[SyncSelectionItem]
 
 
+# --- Policy models ---
+
+
+class AggregateOnlyDefinition(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    policy_type: Literal["aggregate_only"]
+    min_group_size: int | None = None
+
+
+class FieldMaskDefinition(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    policy_type: Literal["field_mask"]
+    columns: list[str]
+    mask_value: str = "***"
+
+
+class RowFilterDefinition(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    policy_type: Literal["row_filter"]
+    filter_expr: str
+    reason: str = ""
+
+
+class MaxRowsDefinition(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    policy_type: Literal["max_rows"]
+    limit: int
+
+
+PolicyDefinition = Annotated[
+    AggregateOnlyDefinition | FieldMaskDefinition | RowFilterDefinition | MaxRowsDefinition,
+    Field(discriminator="policy_type"),
+]
+
+
+class PolicyScope(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tables: list[str] | None = None
+    sources: list[str] | None = None
+    step_types: list[str] | None = None
+
+
 class PolicyCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: str
-    policy_type: str
-    definition: dict[str, Any] = Field(default_factory=dict)
-    scope: dict[str, Any] = Field(default_factory=dict)
+    policy_type: Literal["aggregate_only", "field_mask", "row_filter", "max_rows"]
+    definition: PolicyDefinition
+    scope: PolicyScope = Field(default_factory=PolicyScope)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _inject_type_into_definition(cls, data: Any) -> Any:
+        if isinstance(data, dict) and "policy_type" in data:
+            defn = data.get("definition")
+            if isinstance(defn, dict) and "policy_type" not in defn:
+                data["definition"] = {**defn, "policy_type": data["policy_type"]}
+        return data
 
 
 class PolicyUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     enabled: bool | None = None
-    definition: dict[str, Any] | None = None
+    definition: PolicyDefinition | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _inject_type_into_definition(cls, data: Any) -> Any:
+        # When updating, callers may omit policy_type on definition if it's clear from context.
+        # Accept dicts that already have policy_type; do not inject from unknown context here.
+        return data
+
+
+class PolicyResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    policy_id: str
+    name: str
+    policy_type: Literal["aggregate_only", "field_mask", "row_filter", "max_rows"]
+    definition: PolicyDefinition
+    scope: PolicyScope
+    enabled: bool = True
+    created_at: str = ""
+    updated_at: str = ""
+
+    @model_validator(mode="before")
+    @classmethod
+    def _inject_type_into_definition(cls, data: Any) -> Any:
+        if isinstance(data, dict) and "policy_type" in data:
+            defn = data.get("definition")
+            if isinstance(defn, dict) and "policy_type" not in defn:
+                data["definition"] = {**defn, "policy_type": data["policy_type"]}
+            sc = data.get("scope")
+            if sc is None:
+                data["scope"] = {}
+        return data
+
+
+class PolicyDeleteResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["deleted"]
+    policy_id: str
 
 
 class QualityRuleCreateRequest(BaseModel):

@@ -148,6 +148,7 @@ class GovernanceAPITests(unittest.TestCase):
             json={
                 "name": "api_test_pol",
                 "policy_type": "aggregate_only",
+                "definition": {},
             },
         )
         self.assertEqual(resp.status_code, 200)
