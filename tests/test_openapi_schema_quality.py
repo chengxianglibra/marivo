@@ -15,6 +15,7 @@ SCOPED_PATH_PREFIXES = (
     "/quality-rules",
     "/governance",
     "/approvals",
+    "/jobs",
 )
 
 SCOPED_SESSION_PATHS = {
