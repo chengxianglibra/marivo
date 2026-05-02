@@ -511,18 +511,116 @@ class PolicyDeleteResponse(BaseModel):
     policy_id: str
 
 
+# --- Quality rule models ---
+
+
+class FreshnessThreshold(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    rule_type: Literal["freshness"]
+    max_age_hours: int
+
+
+class NullRateThreshold(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    rule_type: Literal["null_rate"]
+    column: str
+    max_null_rate: float
+
+
+class RowCountMinThreshold(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    rule_type: Literal["row_count_min"]
+    min_rows: int
+
+
+QualityRuleThreshold = Annotated[
+    FreshnessThreshold | NullRateThreshold | RowCountMinThreshold,
+    Field(discriminator="rule_type"),
+]
+
+
 class QualityRuleCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: str
-    rule_type: str
+    rule_type: Literal["freshness", "null_rate", "row_count_min"]
     table_name: str
-    threshold: dict[str, Any]
-    severity: str = "warn"
+    threshold: QualityRuleThreshold
+    severity: Literal["warn", "error"] = "warn"
+
+    @model_validator(mode="before")
+    @classmethod
+    def _inject_type_into_threshold(cls, data: Any) -> Any:
+        if isinstance(data, dict) and "rule_type" in data:
+            thresh = data.get("threshold")
+            if isinstance(thresh, dict) and "rule_type" not in thresh:
+                data["threshold"] = {**thresh, "rule_type": data["rule_type"]}
+        return data
+
+
+class QualityRuleResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    rule_id: str
+    name: str
+    rule_type: Literal["freshness", "null_rate", "row_count_min"]
+    table_name: str
+    threshold: QualityRuleThreshold
+    severity: Literal["warn", "error"] = "warn"
+    enabled: bool = True
+    created_at: str = ""
+
+    @model_validator(mode="before")
+    @classmethod
+    def _inject_type_into_threshold(cls, data: Any) -> Any:
+        if isinstance(data, dict) and "rule_type" in data:
+            thresh = data.get("threshold")
+            if isinstance(thresh, dict) and "rule_type" not in thresh:
+                data["threshold"] = {**thresh, "rule_type": data["rule_type"]}
+        return data
+
+
+class QualityRuleDeleteResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["deleted"]
+    rule_id: str
+
+
+# --- Governance check models ---
 
 
 class GovernanceCheckRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     session_id: str
     step_type: str
-    params: dict[str, Any] = Field(default_factory=dict)
+    params: dict[str, str | int | float | bool | None] = Field(default_factory=dict)
+
+
+class GovernanceViolation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    policy_id: str
+    policy_name: str
+    policy_type: str
+    message: str
+
+
+class GovernanceWarning(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    policy_id: str
+    policy_name: str
+    message: str
+
+
+class GovernanceCheckResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    passed: bool
+    violations: list[GovernanceViolation] = Field(default_factory=list)
+    warnings: list[GovernanceWarning] = Field(default_factory=list)
 
 
 class JobSubmitRequest(BaseModel):
