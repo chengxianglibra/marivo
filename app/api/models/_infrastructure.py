@@ -141,6 +141,120 @@ class DatasourceDeleteResponse(BaseModel):
     deleted: bool = True
 
 
+class SyncTriggerResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    job_id: str
+    datasource_id: str
+    status: Literal["succeeded"]
+
+
+class SyncJobStatusResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    job_id: str
+    datasource_id: str
+    job_type: str
+    status: Literal["pending", "running", "succeeded", "failed"]
+    started_at: str | None = None
+    finished_at: str | None = None
+    objects_synced: int | None = None
+    error_message: str | None = None
+
+
+class SyncSelectionResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    selection_id: str
+    datasource_id: str
+    schema_name: str
+    table_name: str
+    created_at: str
+
+
+class SyncClearedResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["cleared"]
+    datasource_id: str
+
+
+class SyncSelectionDeletedResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["deleted"]
+    selection_id: str
+
+
+class BrowseSchemaItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_name: str
+    table_count: int
+
+
+class BrowseTableItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    table_name: str
+    schema_name: str
+    row_count: int | None = None
+    column_count: int | None = None
+
+
+class TablePreviewColumn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    type: str
+
+
+class TablePreviewResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    datasource_id: str
+    schema_name: str
+    table_name: str
+    columns: list[TablePreviewColumn]
+    rows: list[dict[str, str | int | float | bool | None]]
+    row_count: int
+    truncated: bool
+    limit_requested: int
+    limit_applied: int
+    filters_applied: dict[str, str | int | float | bool | None] | None = None
+
+
+class SourceObjectAuthorityLocator(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    catalog: str | None = None
+    schema_name: str | None = Field(default=None, alias="schema")
+    table: str | None = None
+
+
+class SourceObjectResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    object_id: str
+    datasource_id: str
+    object_type: str
+    parent_id: str | None = None
+    native_name: str
+    native_id: str | None = None
+    fqn: str | None = None
+    authority_locator: SourceObjectAuthorityLocator | None = None
+    properties: dict[str, str | int | float | bool | None] = Field(default_factory=dict)
+    sync_version: str | None = None
+    synced_at: str | None = None
+
+
+class ObjectPropertiesResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    object_id: str
+    properties: dict[str, str | int | float | bool | None]
+
+
 class ColumnPropertiesUpdateRequest(BaseModel):
     unit: str | None = None
 
