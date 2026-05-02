@@ -93,7 +93,10 @@ class DatasourceUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     display_name: str | None = None
-    connection: DatasourceConnection | None = None
+    connection: DatasourceConnection | None = Field(
+        default=None,
+        description="Full connection object including datasource_type; required when provided.",
+    )
     sync_mode: Literal["selected", "all", "none"] | None = None
     policy: DatasourcePolicyPayload | None = None
 
