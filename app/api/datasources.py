@@ -54,7 +54,7 @@ def register_datasource(payload: DatasourceRegisterRequest, request: Request) ->
             services.datasource_service.register_datasource(
                 datasource_type=payload.datasource_type,
                 display_name=payload.display_name,
-                connection=payload.connection,
+                connection=payload.connection.model_dump(),
                 sync_mode=payload.sync_mode,
                 policy=payload.policy.model_dump(),
             )
@@ -93,7 +93,7 @@ def update_datasource(
             services.datasource_service.update_datasource(
                 datasource_id=datasource_id,
                 display_name=payload.display_name,
-                connection=payload.connection,
+                connection=payload.connection.model_dump() if payload.connection else None,
                 sync_mode=payload.sync_mode,
                 policy=payload.policy.model_dump() if payload.policy else None,
             )
