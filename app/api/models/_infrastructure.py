@@ -20,7 +20,7 @@ Session constraints summary:
 from __future__ import annotations
 
 import re
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import (
     BaseModel,
@@ -45,21 +45,55 @@ class DatasourcePolicyPayload(BaseModel):
     allow_identity_reuse: bool = False
 
 
+class DuckDbDatasourceConnection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    datasource_type: Literal["duckdb"]
+    path: str | None = None
+    database: str | None = None
+    db_path: str | None = None
+
+
+class TrinoDatasourceConnection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    datasource_type: Literal["trino"]
+    host: str
+    port: int = 8080
+    user: str | None = None
+    catalog: str | None = None
+    http_scheme: Literal["http", "https"] = "http"
+    session_properties: dict[str, str] = Field(default_factory=dict)
+
+
+DatasourceConnection = Annotated[
+    DuckDbDatasourceConnection | TrinoDatasourceConnection,
+    Field(discriminator="datasource_type"),
+]
+
+
 class DatasourceRegisterRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     datasource_type: Literal["duckdb", "trino"]
     display_name: str
-    connection: dict[str, Any] = Field(default_factory=dict)
+    connection: DatasourceConnection
     sync_mode: Literal["selected", "all", "none"] = "selected"
     policy: DatasourcePolicyPayload = Field(default_factory=DatasourcePolicyPayload)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _inject_type_into_connection(cls, data: Any) -> Any:
+        if isinstance(data, dict) and "datasource_type" in data:
+            conn = data.get("connection")
+            if isinstance(conn, dict) and "datasource_type" not in conn:
+                data["connection"] = {**conn, "datasource_type": data["datasource_type"]}
+        return data
 
 
 class DatasourceUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     display_name: str | None = None
-    connection: dict[str, Any] | None = None
+    connection: DatasourceConnection | None = None
     sync_mode: Literal["selected", "all", "none"] | None = None
     policy: DatasourcePolicyPayload | None = None
 
@@ -78,14 +112,23 @@ class DatasourceResponse(BaseModel):
     datasource_id: str
     datasource_type: Literal["duckdb", "trino"]
     display_name: str
-    connection: dict[str, Any] = Field(default_factory=dict)
-    sync_mode: str = "selected"
+    connection: DatasourceConnection
+    sync_mode: Literal["selected", "all", "none"] = "selected"
     policy: DatasourcePolicyResponse
     status: Literal["active", "inactive", "deprecated"] = "active"
     readiness_status: Literal["not_ready", "ready"] = "not_ready"
     failure_code: str | None = None
     created_at: str = ""
     updated_at: str = ""
+
+    @model_validator(mode="before")
+    @classmethod
+    def _inject_type_into_connection(cls, data: Any) -> Any:
+        if isinstance(data, dict) and "datasource_type" in data:
+            conn = data.get("connection")
+            if isinstance(conn, dict) and "datasource_type" not in conn:
+                data["connection"] = {**conn, "datasource_type": data["datasource_type"]}
+        return data
 
 
 class DatasourceDeleteResponse(BaseModel):
