@@ -569,6 +569,7 @@ class QualityRuleResponse(BaseModel):
     severity: Literal["warn", "error"] = "warn"
     enabled: bool = True
     created_at: str = ""
+    updated_at: str = ""
 
     @model_validator(mode="before")
     @classmethod
@@ -621,6 +622,10 @@ class GovernanceCheckResponse(BaseModel):
     passed: bool
     violations: list[GovernanceViolation] = Field(default_factory=list)
     warnings: list[GovernanceWarning] = Field(default_factory=list)
+    decisions: list[dict[str, Any]] = Field(default_factory=list)
+    transforms: dict[str, Any] = Field(default_factory=dict)
+    hard_constraints: list[dict[str, Any]] = Field(default_factory=list)
+    soft_signals: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class JobSubmitRequest(BaseModel):
