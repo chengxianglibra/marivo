@@ -76,7 +76,7 @@ def create_quality_rule(payload: QualityRuleCreateRequest, request: Request) -> 
             name=payload.name,
             rule_type=payload.rule_type,
             table_name=payload.table_name,
-            threshold=payload.threshold,
+            threshold=payload.threshold.model_dump(),
             severity=payload.severity,
         )
     except ValueError as error:
