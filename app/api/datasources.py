@@ -7,21 +7,19 @@ from fastapi import APIRouter, HTTPException, Query, Request
 
 from app.api.deps import get_services
 from app.api.models import (
+    BrowseSchemaItem,
+    BrowseTableItem,
     ColumnPropertiesUpdateRequest,
     DatasourceDeleteResponse,
     DatasourceRegisterRequest,
     DatasourceResponse,
     DatasourceUpdateRequest,
-    SyncSelectionRequest,
-)
-from app.api.models._infrastructure import (
-    BrowseSchemaItem,
-    BrowseTableItem,
     ObjectPropertiesResponse,
     SourceObjectResponse,
     SyncClearedResponse,
     SyncJobStatusResponse,
     SyncSelectionDeletedResponse,
+    SyncSelectionRequest,
     SyncSelectionResponse,
     SyncTriggerResponse,
     TablePreviewResponse,
