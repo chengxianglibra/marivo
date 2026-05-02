@@ -3,15 +3,14 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from typing import Any
 
-import pytest
 from fastapi import FastAPI
 
 from app.api.router import include_api_routers
 
 SCOPED_PATH_PREFIXES = (
     "/semantic-models",  # fully typed, GREEN
-    "/datasources",  # Wave 1 RED: typed response_model pending
-    "/routing",  # Wave 1 RED: typed response_model pending
+    "/datasources",  # fully typed, GREEN
+    "/routing",  # fully typed, GREEN
 )
 
 SCOPED_SESSION_PATHS = {
@@ -203,11 +202,6 @@ def _walk_schema(node: Any, pointer: str, violations: list[str]) -> None:
         _walk_schema(content_schema, f"{pointer}/contentSchema", violations)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Wave 1 RED: /datasources and /routing routes still return dict[str, Any]; "
-    "will pass once every endpoint under those prefixes declares a typed response_model.",
-)
 def test_scoped_openapi_schemas_are_agent_friendly() -> None:
     openapi = _router_only_openapi()
     violations: list[str] = []
