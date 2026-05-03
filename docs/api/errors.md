@@ -10,7 +10,7 @@ Marivo uses standard HTTP status codes. Error responses include a `detail` field
 | `201` | Created | Resource created successfully (some POST endpoints) |
 | `400` | Bad Request | Invalid request body, missing required fields, or invalid parameter values |
 | `404` | Not Found | Resource ID does not exist |
-| `409` | Conflict | Duplicate unique constraint (e.g., duplicate binding, duplicate policy name), or invalid state transition |
+| `409` | Conflict | Duplicate unique constraint (e.g., duplicate policy name), or invalid state transition |
 | `422` | Unprocessable Entity | FastAPI/Pydantic validation error — request body fails schema validation |
 | `500` | Internal Server Error | Engine error, unexpected exception |
 | `503` | Service Unavailable | Metadata store or analytics engine unreachable |
@@ -99,11 +99,11 @@ Common typed semantic `422` patterns:
 | metric create uses the wrong payload shape for the family | `count_metric` uses `count_target`, `sum_metric` uses `measure`, and `average_metric` or `rate_metric` use `numerator` plus `denominator` |
 | dimension create is missing `value_domain` | place it at `interface_contract.value_domain` |
 | time create sends `interface_contract` | remove it; `/semantic/time` is header-only |
-| binding create omits grounding structure | create an entity binding with `interface_contract.carrier_bindings`, declare `field_surfaces`, then reference them from `field_bindings[*].surface_ref` |
-| binding uses a short `carrier_locator` such as `schema.table` | use the resolved synced source object's full FQN in `carrier_locator` |
-| binding uses `binding_scope=metric` or `binding_scope=process_object` | use `binding_scope=entity`; metric/process physical grounding must go through `entity.field` |
-| entity binding uses a metric/process target kind | use one of `identity_key`, `primary_time`, or `stable_descriptor` |
-| time binding references `field.*` | declare `carrier_bindings[*].time_surfaces[]` and reference `time_surface.*` from `timestamp_surface_ref`, `date_surface_ref`, or `hour_surface_ref` |
+| dataset create/import is missing MARIVO datasource id | add `dataset.custom_extensions[].data.datasource_id` |
+| dataset create/import has an empty `source` | set `dataset.source` to the datasource-local relation FQN from live browse |
+| readiness reports `datasource_not_found` | create/select a datasource and put its id in the MARIVO dataset extension |
+| readiness reports `relation_not_found` | browse schemas/tables and update `dataset.source` to the live FQN |
+| readiness reports `field_expression_invalid` | update `field.expression.dialects[]` for the target datasource dialect |
 
 Semantic service validation errors use the same guided envelope shape as request validation where possible. The `detail` object includes `message`, `code`, `category`, optional `field_path`, and nested `guidance` with docs/schema/contract links plus remediation examples.
 
@@ -194,7 +194,7 @@ Optional fields that may appear on step-submission errors:
 
 ```json
 {
-  "detail": "No single engine has bindings covering all requested tables: ['events.user_video_watch', 'other.unknown_table']"
+  "detail": "Dataset orders source analytics.orders was not found in datasource ds_..."
 }
 ```
 
@@ -220,7 +220,6 @@ Optional fields that may appear on step-submission errors:
 ### Duplicate Resource (409)
 
 ```json
-{"detail": "Binding already exists for source_id=src_abc and engine_id=eng_xyz (binding_id: bind_...)"}
 {"detail": "A policy named 'no_raw_pii' already exists"}
 ```
 
@@ -272,5 +271,5 @@ When using a Trino engine, query errors from the Trino coordinator are wrapped a
 | Trino Error | Cause | Resolution |
 |-------------|-------|------------|
 | `QUERY_REJECTED: Missing required partition filter` | Table requires a partition column in WHERE clause | Ensure the step uses typed `time_scope`; Marivo will resolve partition pruning automatically when time metadata or heuristics can identify the partition columns |
-| `Table ... does not exist` | Table not found in Trino catalog | Check the namespace configuration in the engine binding |
+| `Table ... does not exist` | Table not found in Trino catalog | Browse the datasource and update `dataset.source` to a live relation FQN |
 | `identityAccountPassword can't be empty` | Wrong Trino user | Use the correct user in engine connection config |

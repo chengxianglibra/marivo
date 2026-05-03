@@ -4,7 +4,8 @@ Use this file when the task is about **data-plane setup or operational troublesh
 
 Skip this file if the task is mainly about session evidence, proposition explanation, or semantic contract design.
 
-This file owns operational setup, source sync, mappings, engines, execution auth, jobs, and observability guidance. Canonical evidence behavior lives in `steps.md`.
+This file owns operational setup, datasource registration, live browse, engines, execution auth,
+jobs, and observability guidance. Canonical evidence behavior lives in `steps.md`.
 
 ## Shared Entry Points
 
@@ -15,24 +16,24 @@ These surfaces often bridge semantic discovery and operational work:
 - typed ref resolution
 - graph exploration when relationship context matters
 
-## Sources
+## Datasources
 
-Use sources to register external catalogs and snapshot metadata into Marivo.
+Use datasources to register external catalogs and inspect live metadata.
 
-Typical source work:
+Typical datasource work:
 
 - register or update an external catalog
-- choose sync selections
-- start and inspect sync jobs
-- inspect discovered source objects after sync
+- browse schemas, tables, and columns live
+- preview bounded table rows
+- choose `dataset.source` and `field.expression` values for semantic grounding
 
 Key distinction:
 
-- synced source-object reads show what Marivo currently knows after sync
 - live catalog browse inspects the external system directly
-- do not present live browse as canonical synced metadata
+- semantic model datasets and fields are the persisted physical grounding contract
+- do not invent a sync/cache step before semantic authoring
 
-## Engines, Mappings, And Bindings
+## Engines, Mappings, And Semantic Grounding
 
 ### Engines
 
@@ -64,26 +65,26 @@ Mapping structure:
 - `readiness_status`: derived — `not_ready` or `ready`
 - `failure_code`: stable blocker code when not ready (e.g., `mapping_inactive`, `mapping_incomplete`)
 
-### Bindings
+### Semantic Grounding
 
-Bindings belong to the semantic layer and are distinct from mappings. In the target-state
-entity-centric model, direct physical grounding is authored on entity fields and
-`entity.interface_contract.binding`; metric/time/process/dimension/predicate objects reference
-entity fields instead of owning physical bindings.
+Dataset-native physical grounding belongs to the OSI semantic model:
 
-Use entity grounding when:
+- `dataset.custom_extensions[].data.datasource_id` selects the datasource
+- `dataset.source` names the datasource-local relation FQN
+- `field.expression` names physical columns or computed SQL expressions
+- metrics, dimensions, predicates, and relationships reference datasets and fields
+
+Use semantic grounding work when:
 
 - the problem is semantic grounding rather than source-to-engine routing
-- an entity field cannot resolve to the expected source column or controlled expression
-- a downstream metric/time/process object cannot consume data because its referenced entity field,
-  relationship, or compatibility profile is missing
+- a dataset cannot resolve its datasource or relation
+- a field cannot resolve to the expected source column or computed expression
+- a downstream metric or relationship cannot consume data because its referenced dataset/field is missing
 
 Key distinction:
 
 - **mappings** = source-to-engine routing (which engine, which catalog)
-- **entity grounding** = semantic-to-column grounding owned by entity fields
-- legacy `/semantic/bindings` = compatibility/diagnostic surface, not the target-state metric or
-  process authoring path
+- **dataset grounding** = semantic-to-relation grounding owned by OSI datasets and fields
 
 ## Execution Auth
 
@@ -111,7 +112,7 @@ Treat routing as an operational capability, not an evidence surface.
 
 Use it when:
 
-- you need to understand how a table or source object will map to an execution backend
+- you need to understand how a dataset relation will map to an execution backend
 - a source, engine, or mapping change may have altered routing behavior
 - an execution failure suggests the wrong backend was selected
 
@@ -130,12 +131,12 @@ Use local runtime when:
 
 ## Jobs
 
-Jobs are for asynchronous operational work such as sync or background execution.
+Jobs are for asynchronous operational work such as background execution.
 
 Use jobs when:
 
 - a background task is still running
-- a sync or execution task failed and needs inspection
+- an execution task failed and needs inspection
 - you need operational progress, not analytical evidence
 
 ## Observability

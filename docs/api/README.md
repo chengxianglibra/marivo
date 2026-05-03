@@ -37,7 +37,6 @@ All resource IDs follow the pattern `{prefix}_{12-char hex}`:
 | `bind_` | Source-engine binding |
 | `obj_` | Source object (synced catalog item) |
 | `sel_` | Sync selection |
-| `sync_` | Sync job |
 | `ent_` | Semantic entity |
 | `met_` | Semantic metric |
 | `map_` | Semantic mapping |
@@ -63,7 +62,6 @@ Fields that store structured data are represented as JSON objects in responses. 
 | Semantic objects | Storage `status`: `draft` → `published` → `deprecated`; public `lifecycle_status`: `draft` → `active` → `deprecated`; public `readiness_status`: `not_ready` / `ready` / `stale` |
 | Job | `pending` → `running` → `completed` / `failed` / `cancelled` |
 | Approval request | `pending` → `approved` / `rejected` |
-| Sync job | `pending` → `running` → `completed` / `failed` |
 
 For the semantic layer, callers must treat `status` as a storage compatibility field only.
 Runtime/catalog availability is gated by `lifecycle_status` and `readiness_status`, so
@@ -79,10 +77,10 @@ Runtime/catalog availability is gated by `lifecycle_status` and `readiness_statu
 | [Context Surface](context-surface.md) | `/sessions/{id}/propositions/{pid}/context` | Canonical proposition-level minimal closure |
 | [Runtime Status Surface](runtime-status.md) | `/sessions/{id}/**/runtime-status` | Operator-facing runtime stage, attempt, failure, and backlog status |
 | [Progressive OpenAPI Access](openapi.md) | `/openapi/*`, `/openapi.json` | Progressive machine-readable contract retrieval derived from the canonical OpenAPI schema |
-| [Sources](sources.md) | `/sources` | Data source registration and catalog sync |
+| [Datasources](sources.md) | `/datasources` | Datasource registration, live browse, and preview |
 | [Engines](engines.md) | `/engines` | Analytics engine registration and execution capability surfaces |
 | [Mappings](mappings.md) | `/mappings` | Operator-managed authority-to-execution projection for source-engine routing |
-| [Semantic Layer](semantic.md) | `/semantic` | Typed semantic objects, typed bindings, runtime catalog resolve, and compiler profiles |
+| [Semantic Layer](semantic.md) | `/semantic-models` | OSI semantic models with dataset-native physical grounding |
 | [Governance](governance.md) | `/policies`, `/quality-rules`, `/governance` | Data policies and quality rules |
 | [Jobs](jobs.md) | `/jobs` | Async job submission and tracking |
 | [Approvals](approvals.md) | `/approvals` | Approval workflow for high-risk recommendations |
@@ -170,12 +168,14 @@ Artifacts → Observations → Claims → Recommendations
 - **Evidence edge** — typed relationship: `supports`, `contradicts`, `justifies`
 - **Recommendation** — action proposal backed by claims, with priority, risk, and validation metric
 
-### Source-Engine Model
+### Datasource-Grounding Model
 
 ```
-Source (external data catalog)
-  └─ Source objects (synced schema/table/column snapshots)
-  └─ Mapping → Engine (DuckDB / Trino)
+Datasource (external data catalog)
+  └─ Live browse / preview
+  └─ OSI Dataset + Field grounding
 ```
 
-The **QueryRouter** resolves table names at step execution time: table name → source object → mapping → engine.
+Marivo persists physical grounding in the semantic model: `dataset.datasource_id`, `dataset.source`,
+and `field.expression`. Live browse helps authors choose those values; it is not a persisted catalog
+snapshot.
