@@ -70,8 +70,6 @@ def test_registers_t9_resources_and_scaffold_config_resource() -> None:
         "marivo://sessions/{session_id}/state",
         "marivo://sessions/{session_id}/propositions/{proposition_id}/context",
         "marivo://semantic/{family}",
-        "marivo://datasources/{datasource_id}/objects",
-        "marivo://datasources/{datasource_id}/objects/{object_id}",
     }
 
 
@@ -146,39 +144,6 @@ def test_semantic_family_resource_rejects_unknown_families() -> None:
         )
 
 
-def test_datasource_objects_resource_reads_synced_metadata_listing() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.method == "GET"
-        assert request.url.path == "/datasources/ds_123/objects"
-        assert dict(request.url.params) == {}
-        return httpx.Response(200, json=[{"object_id": "obj_123"}], request=request)
-
-    result = _invoke_registered_resource(
-        "marivo://datasources/{datasource_id}/objects",
-        handler,
-        datasource_id="ds_123",
-    )
-
-    assert result == [{"object_id": "obj_123"}]
-
-
-def test_datasource_object_resource_reads_one_canonical_object_body() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.method == "GET"
-        assert request.url.path == "/datasources/ds_123/objects/obj_456"
-        assert dict(request.url.params) == {}
-        return httpx.Response(200, json={"object_id": "obj_456"}, request=request)
-
-    result = _invoke_registered_resource(
-        "marivo://datasources/{datasource_id}/objects/{object_id}",
-        handler,
-        datasource_id="ds_123",
-        object_id="obj_456",
-    )
-
-    assert result == {"object_id": "obj_456"}
-
-
 def test_catalog_summary_resource_aggregates_fixed_read_surfaces() -> None:
     responses = {
         "/openapi/index": {"revision": "rev_123", "paths": [{"path": "/sessions"}], "schemas": []},
@@ -189,7 +154,6 @@ def test_catalog_summary_resource_aggregates_fixed_read_surfaces() -> None:
         "/semantic/dimensions": [{"dimension_contract_id": "dim_123"}],
         "/semantic/time": [{"time_contract_id": "time_123"}],
         "/semantic/enum-sets": [{"enum_set_contract_id": "enum_123"}],
-        "/semantic/bindings": [{"binding_id": "bind_123"}],
         "/semantic/relationships": [{"relationship_id": "rel_123"}],
         "/compiler/compatibility-profiles": [{"profile_id": "cprof_123"}],
     }
@@ -210,7 +174,6 @@ def test_catalog_summary_resource_aggregates_fixed_read_surfaces() -> None:
         "/semantic/dimensions",
         "/semantic/time",
         "/semantic/enum-sets",
-        "/semantic/bindings",
         "/semantic/relationships",
         "/compiler/compatibility-profiles",
     ]
@@ -224,7 +187,6 @@ def test_catalog_summary_resource_aggregates_fixed_read_surfaces() -> None:
             "dimensions": responses["/semantic/dimensions"],
             "time": responses["/semantic/time"],
             "enum-sets": responses["/semantic/enum-sets"],
-            "bindings": responses["/semantic/bindings"],
             "relationships": responses["/semantic/relationships"],
             "compatibility-profiles": responses["/compiler/compatibility-profiles"],
         },

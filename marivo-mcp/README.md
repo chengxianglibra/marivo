@@ -38,15 +38,15 @@ Implemented but non-P0 surfaces remain available for source admin and routing
 workflows:
 
 - `get_openapi_path_fragment`
-- `list_sources`
-- `register_source`
-- `sync_source`
-- `get_source_objects`
-- `get_source_object`
+- `list_datasources`
+- `create_datasource`
+- `browse_catalogs`
+- `browse_schemas`
+- `browse_tables`
+- `browse_columns`
+- `preview_table`
 - `resolve_routing`
 - `marivo://catalog/summary`
-- `marivo://sources/{source_id}/objects`
-- `marivo://sources/{source_id}/objects/{object_id}`
 - `marivo://server/config`
 
 The executable support inventory lives in `marivo_mcp.inventory`. Tests use that
@@ -313,8 +313,6 @@ reads:
 - `marivo://sessions/{session_id}/state`
 - `marivo://sessions/{session_id}/propositions/{proposition_id}/context`
 - `marivo://semantic/{family}`
-- `marivo://sources/{source_id}/objects`
-- `marivo://sources/{source_id}/objects/{object_id}`
 - `marivo://server/config`
 
 Resource rules:
@@ -323,10 +321,6 @@ Resource rules:
 - resources do not wrap responses in the tool envelope
 - `marivo://catalog/summary` is a fixed aggregate snapshot over canonical read
   surfaces; it does not become a search API
-- `marivo://sources/{source_id}/objects` reads synced metadata only, not live
-  external catalog browse endpoints
-- `marivo://sources/{source_id}/objects/{object_id}` reads one synced source
-  object detail only, not live external catalog browse endpoints
 - `marivo://semantic/{family}` only supports public semantic families
 - **MCP resources do not support query parameters** (e.g., `{?status}`, `{?type}`).
   The HTTP endpoints remain the authoritative surface for filtering; MCP resources
@@ -338,7 +332,7 @@ Resource rules:
 - MCP resources mirror canonical HTTP reads and do not become a second source
   of evidence.
 - MCP tool schemas are adapter-facing projections of HTTP request payloads; they
-  must not define alternate semantic object models, physical binding semantics,
+  must not define alternate semantic object models, physical grounding semantics,
   or relationship/profile repair flows.
 - The adapter does not invent planner-style tools, generic step submission, or
   SQL execution surfaces.
@@ -520,16 +514,6 @@ Current semantic-layer coverage:
 - `activate_enum_set(enum_set_contract_id)` -> `POST /semantic/enum-sets/{enum_set_contract_id}/activate`
 - `deprecate_enum_set(enum_set_contract_id)` -> `POST /semantic/enum-sets/{enum_set_contract_id}/deprecate`
 - `publish_enum_set(enum_set_contract_id)` -> `POST /semantic/enum-sets/{enum_set_contract_id}/publish`
-- Binding tools mirror the legacy/diagnostic compatibility `/semantic/bindings` route. Target-state
-  authoring uses entity payload fields and `entity.interface_contract.binding`.
-- `create_binding(header, interface_contract)` -> `POST /semantic/bindings`
-- `list_bindings(status=None, lifecycle_status=None, readiness_status=None, detail=None)` -> `GET /semantic/bindings`
-- `get_binding(object_id=None, binding_id=None)` -> `GET /semantic/bindings/{binding_id}`
-- `update_binding(binding_id, display_name=None, description=None, interface_contract=None)` -> `PUT /semantic/bindings/{binding_id}`
-- `validate_binding(binding_id)` -> `POST /semantic/bindings/{binding_id}/validate`
-- `activate_binding(binding_id)` -> `POST /semantic/bindings/{binding_id}/activate`
-- `deprecate_binding(binding_id)` -> `POST /semantic/bindings/{binding_id}/deprecate`
-- `publish_binding(binding_id)` -> `POST /semantic/bindings/{binding_id}/publish`
 - `create_relationship(relationship_ref, left_entity_ref, right_entity_ref, key_alignment, cardinality, display_name=None, description=None, time_alignment=None, grain_compatibility=None, snapshot_effective_window_alignment=None)` -> `POST /semantic/relationships`
 - `list_relationships(status=None, lifecycle_status=None, readiness_status=None, detail=None, left_entity_ref=None, right_entity_ref=None)` -> `GET /semantic/relationships`
 - `get_relationship(relationship_id)` -> `GET /semantic/relationships/{relationship_id}`
@@ -567,16 +551,14 @@ Boundary notes:
 - entity fields are the only physical grounding owner. `dimension.*` uses
   `interface_contract.source_field_ref`, `time.*` uses `header.source_field_ref`, and predicate atoms
   use `target_ref` to reference `entity.<entity>.field.<field>` when they need data fields.
-- do not pass `physical_column`, carrier locators, or binding target fields to dimension/time/predicate
-  create/update tools; those physical locators belong on entity fields or entity bindings.
-- `key.*` is used in entity identity declarations and binding targets such as `identity_key` or
+- do not pass `physical_column` or carrier locators to dimension/time/predicate create/update tools;
+  physical grounding belongs on semantic v2 datasets and fields.
+- `key.*` is used in entity identity declarations such as `identity_key` or
   `population_subject`; do not invent `create_key`-style flows
 - `grain.*` is a contract value such as `metric.header.observation_grain_ref`; do not treat it as a
   semantic object family
-- `metric_input.*` only appears in legacy metric binding records; new metric inputs should reference
-  entity fields from the metric contract and resolve through entity grounding
-- public binding authoring is entity-only. Metric/process physical bindings are legacy read/history
-  records and should not be created by agents.
+- metric inputs should reference semantic fields from the model contract and resolve through
+  dataset-native grounding.
 - compiler and step metadata may expose `resolved_entity_field_refs` and
   `resolved_entity_field_sources`; use these snapshots to audit which entity fields, entity
   revisions, and physical locators grounded the analysis result.
@@ -584,70 +566,67 @@ Boundary notes:
   `resolved_relationship_sources` for cross-entity analysis audits.
 - relationships/profiles must stay semantic: no raw SQL, optimizer hints, arbitrary join graph, CTE
   shape, or generic rule-engine fields
-- binding target kinds are stricter than semantic-role labels; for public authoring use
-  `entity -> {identity_key, primary_time, stable_descriptor}`
-- `/semantic/bindings` remains a legacy/diagnostic compatibility surface. Target-state authoring
-  grounds physical data on `entity.interface_contract.fields[]` and
-  `entity.interface_contract.binding`, not on standalone carrier/surface binding payloads.
-- `create_binding()` and `update_binding()` are retained for existing typed-binding records; do not
-  use them to author metric/process physical bindings or new carrier/surface mappings.
-- `time.semantic_roles` are time-object capability labels, not a 1:1 binding target map; only
-  `primary_time` and `analysis_window_anchor` are direct binding target kinds today
+- time semantic roles are capability labels, not a physical binding target map.
 - on publish failures, inspect `error.code`, `error.message`, and the preserved `error.detail` object before falling back to raw OpenAPI discovery
 
-Minimal entity payload with physical grounding:
+Minimal semantic model payload with dataset-native grounding:
 
 ```json
 {
-  "header": {
-    "entity_ref": "entity.user",
-    "display_name": "User",
-    "entity_contract_version": "entity.v4"
-  },
-  "interface_contract": {
-    "identity": {
-      "key_refs": ["key.user_id"],
-      "uniqueness_scope": "global",
-      "id_stability": "stable"
-    },
-    "primary_time_ref": "time.event_date",
-    "fields": [
-      {"field_ref": "field.user_id", "value_type": "string", "physical_column": "user_id"},
-      {"field_ref": "field.event_date", "value_type": "date", "physical_column": "event_date"}
-    ],
-    "binding": {
-      "source_object_ref": "obj_user_events",
-      "source_object_fqn": "analytics.user_events",
-      "carrier_kind": "table"
+  "name": "commerce",
+  "datasets": [
+    {
+      "name": "orders",
+      "source": "analytics.orders",
+      "fields": [
+        {
+          "name": "order_id",
+          "expression": {
+            "dialects": [{"dialect": "ANSI_SQL", "expression": "order_id"}]
+          }
+        },
+        {
+          "name": "amount",
+          "expression": {
+            "dialects": [{"dialect": "ANSI_SQL", "expression": "amount"}]
+          }
+        }
+      ],
+      "custom_extensions": [
+        {
+          "vendor_name": "MARIVO",
+          "data": "{\"datasource_id\":\"ds_orders\"}"
+        }
+      ]
     }
-  }
+  ]
 }
 ```
 
 ## T8 Tools
 
-Current source metadata and routing coverage:
+Current datasource metadata and routing coverage:
 
-- `list_sources()` -> `GET /sources`
-- `register_source(source_type, display_name, connection=None, capabilities=None)` -> `POST /sources`
-- `sync_source(source_id)` -> `POST /sources/{source_id}/sync`
-- `get_source_objects(source_id, type=None, schema=None)` -> `GET /sources/{source_id}/objects`
-- `get_source_object(source_id, object_id)` -> `GET /sources/{source_id}/objects/{object_id}`
+- `list_datasources()` -> `GET /datasources`
+- `create_datasource(datasource_type, display_name, connection=None, capabilities=None)` -> `POST /datasources`
+- `get_datasource(datasource_id)` -> `GET /datasources/{datasource_id}`
+- `update_datasource(datasource_id, display_name=None, connection=None, capabilities=None)` -> `PUT /datasources/{datasource_id}`
+- `delete_datasource(datasource_id)` -> `DELETE /datasources/{datasource_id}`
+- `browse_catalogs(datasource_id)` -> `GET /datasources/{datasource_id}/browse/catalogs`
+- `browse_schemas(datasource_id, catalog=None)` -> `GET /datasources/{datasource_id}/browse/schemas`
+- `browse_tables(datasource_id, catalog=None, schema=None)` -> `GET /datasources/{datasource_id}/browse/tables`
+- `browse_columns(datasource_id, schema_name, table_name)` -> `GET /datasources/{datasource_id}/browse/columns`
+- `preview_table(datasource_id, schema, table, limit=100, columns=None, filters=None)` -> `POST /datasources/{datasource_id}/preview`
 - `resolve_routing(table_names, routing_intent=None)` -> `POST /routing/resolve`
 
 Boundary notes:
 
-- `get_source_objects()` reads synced source metadata from Marivo's local store; it does not browse the live external catalog
-- `get_source_object()` reads one synced source object from Marivo's local store; it does not browse the live external catalog
-- live catalog browse remains under `/sources/{source_id}/catalog/schemas` and `/sources/{source_id}/catalog/tables`, and is intentionally not wrapped by T8
-- `sync_source()` preserves the current HTTP response body as-is; the MCP adapter does not invent a separate async status model
+- datasource browse tools read live external catalog metadata; they do not read a synced local cache
 - `resolve_routing()` is a planning and debugging aid over the public routing contract; it does not expose a second routing schema
-- tool `data` remains the raw Marivo canonical body for both source and routing tools
-- create tools for metrics, enum sets, and bindings expose MCP-side Pydantic schemas for common
-  authoring mistakes: enum headers require `enum_set_ref`, binding time surface declarations require
-  `surface_ref`, time bindings use `*_surface_ref`, and metric input mappings use
-  `semantic_ref=metric_input.<slot>`.
-- `preview_source_table(..., filters={...})` forwards safe equality filters to the HTTP preview API;
+- tool `data` remains the raw Marivo canonical body for datasource and routing tools
+- create tools for metrics and enum sets expose MCP-side Pydantic schemas for common authoring
+  mistakes such as enum headers requiring `enum_set_ref`
+- `preview_table(..., filters={...})` forwards safe equality filters to the HTTP preview API;
   raw SQL predicates are not accepted.
 
 ## Minimal Examples
@@ -1023,27 +1002,9 @@ Create an entity with physical grounding:
 
 ```json
 {
-  "header": {
-    "entity_ref": "entity.user",
-    "display_name": "User",
-    "entity_contract_version": "entity.v4"
-  },
-  "interface_contract": {
-    "identity": {
-      "key_refs": ["key.user_id"],
-      "uniqueness_scope": "global",
-      "id_stability": "stable"
-    },
-    "fields": [
-      {"field_ref": "field.user_id", "value_type": "string", "physical_column": "user_id"},
-      {"field_ref": "field.watch_time", "value_type": "number", "physical_column": "watch_time"}
-    ],
-    "binding": {
-      "source_object_ref": "obj_user_events",
-      "source_object_fqn": "analytics.user_events",
-      "carrier_kind": "table"
-    }
-  }
+  "datasource_id": "ds_orders",
+  "schema_name": "analytics",
+  "table_name": "orders"
 }
 ```
 
@@ -1054,4 +1015,3 @@ Common failure examples:
 - `get_proposition_context(...)` for a missing or cross-session proposition -> `404` with the original Marivo error message
 - `observe(request=...)` with an invalid or incomplete body -> `422` with canonical `guidance` preserved under `error.guidance`; start with `error.guidance.examples`, then inspect `error.guidance.schema_url` or `error.guidance.contract_url`
 - `publish_entity(...)` after the object is already published -> `422` with structured `error.detail`, `error.code = "publish_state_error"`, and a message explaining the draft-state violation
-- `publish_binding(...)` before required semantic imports are published -> `422` with structured `error.detail` and a publish-specific validation code such as `reference_validation_error`
