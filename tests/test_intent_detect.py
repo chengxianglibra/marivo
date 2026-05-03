@@ -67,32 +67,18 @@ def _seed_metadata(
 ) -> str:
     """Insert minimal metadata records so detect can resolve metric → table."""
     now = datetime.now(UTC).isoformat()
-    existing_object = meta.query_one(
-        """
-        SELECT object_id, datasource_id
-        FROM source_objects
-        WHERE object_type = 'table' AND fqn = ?
-        ORDER BY updated_at DESC, object_id
-        LIMIT 1
-        """,
-        [table_fqn],
+    src_id = f"ds_detecttest{src_suffix}"
+    obj_id = f"obj_detecttest{src_suffix}"
+    seed_duckdb_source_object(
+        meta,
+        source_id=src_id,
+        object_id=obj_id,
+        display_name="Detect Test Source",
+        table_name=native_name,
+        table_fqn=table_fqn,
+        now=now,
+        db_path=db_path,
     )
-    if existing_object is None:
-        src_id = f"src_detecttest{src_suffix}"
-        obj_id = f"obj_detecttest{src_suffix}"
-        seed_duckdb_source_object(
-            meta,
-            source_id=src_id,
-            object_id=obj_id,
-            display_name="Detect Test Source",
-            table_name=native_name,
-            table_fqn=table_fqn,
-            now=now,
-            db_path=db_path,
-        )
-    else:
-        src_id = str(existing_object["datasource_id"])
-        obj_id = str(existing_object["object_id"])
     ensure_published_typed_metric(
         meta,
         metric_name=metric_name,
@@ -571,14 +557,15 @@ class DetectIntentEndpointTests(unittest.TestCase):
         db_path = Path(cls.temp_dir.name) / "detect_http.duckdb"
         _seed_detect_tables(db_path)
 
-        # Create the metadata store separately so we can seed it before the app starts.
+        # Create the metadata store separately so the app and fixtures share one store.
         meta_path = db_path.with_suffix(".meta.sqlite")
         metadata = SQLiteMetadataStore(str(meta_path))
         metadata.initialize()
+        cls.client = TestClient(create_app(db_path=db_path, metadata_store=metadata))
 
         # Register metric pointing to analytics.uniform_events.
         _seed_metadata(
-            metadata,
+            cls.client.app.state.service.metadata,
             db_path=db_path,
             src_suffix="http01",
             metric_name="http_detect_metric",
@@ -587,7 +574,7 @@ class DetectIntentEndpointTests(unittest.TestCase):
             dimensions=["event_date", "dimension.cluster"],
         )
         _seed_metadata(
-            metadata,
+            cls.client.app.state.service.metadata,
             db_path=db_path,
             src_suffix="http02",
             metric_name="http_detect_split_metric",
@@ -596,7 +583,6 @@ class DetectIntentEndpointTests(unittest.TestCase):
             dimensions=["event_date", "dimension.cluster"],
         )
 
-        cls.client = TestClient(create_app(db_path=db_path, metadata_store=metadata))
         r = cls.client.post("/sessions", json={"goal": "detect HTTP test"})
         cls.session_id = r.json()["session_id"]
 
@@ -645,11 +631,19 @@ class DetectIntentEndpointTests(unittest.TestCase):
             db_path=self.client.app.state.services.resolved_path,
             src_suffix="http_not_ready",
             metric_name="http_detect_not_ready_metric",
-            table_fqn="analytics.uniform_events",
-            native_name="uniform_events",
+            table_fqn="analytics.not_ready_events",
+            native_name="not_ready_events",
             metric_input_target_keys=["numerator"],
             measure_type="average",
             dimensions=["event_date", "dimension.cluster"],
+        )
+        metadata.execute(
+            """
+            UPDATE semantic_datasets
+            SET datasource_id = NULL
+            WHERE source = ?
+            """,
+            ["analytics.not_ready_events"],
         )
 
         response = self.client.post(
@@ -663,7 +657,7 @@ class DetectIntentEndpointTests(unittest.TestCase):
         detail = response.json()["detail"]
         self.assertEqual(detail["code"], "semantic_not_ready")
         self.assertEqual(detail["category"], "readiness")
-        self.assertEqual(detail["subject_ref"], "binding.http_detect_not_ready_metric_primary")
+        self.assertEqual(detail["subject_ref"], "metric.http_detect_not_ready_metric")
         self.assertEqual(detail["readiness_status"], "not_ready")
 
     def test_detect_ready_metric_with_auxiliary_binding_returns_200(self) -> None:

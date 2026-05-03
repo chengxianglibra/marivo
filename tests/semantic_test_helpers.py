@@ -93,13 +93,7 @@ def _default_entity_fields_for_metric(
                 "physical_column": field_name,
             },
         )
-    return {
-        "fields": list(fields.values()),
-        "binding": {
-            "source_object_fqn": source_object_fqn,
-            "carrier_kind": "table",
-        },
-    }
+    return {"fields": list(fields.values()), "binding": {}}
 
 
 def _ensure_entity_has_default_fields(
@@ -203,7 +197,7 @@ def seed_duckdb_source_object(
     status: str = "active",
     columns: Sequence[tuple[str, str]] | None = None,
 ) -> None:
-    """Seed a DuckDB datasource/table pair through backend-neutral metadata helpers."""
+    """Seed a DuckDB datasource and dataset-native semantic grounding."""
     effective_connection: dict[str, Any]
     if connection is not None:
         effective_connection = connection
@@ -234,13 +228,107 @@ def seed_duckdb_source_object(
             now,
         ],
     )
+    dataset_name = table_name.replace(".", "_")
+    existing_model = metadata.query_one(
+        "SELECT model_id FROM semantic_models WHERE name = ?",
+        [f"fixture_{dataset_name}"],
+    )
+    if existing_model is None:
+        metadata.insert_ignore(
+            "semantic_models",
+            [
+                "model_id",
+                "name",
+                "description",
+                "visibility",
+                "revision",
+                "created_at",
+                "updated_at",
+            ],
+            [
+                None,
+                f"fixture_{dataset_name}",
+                f"Fixture model for {table_fqn}",
+                "public",
+                1,
+                now,
+                now,
+            ],
+        )
+        existing_model = metadata.query_one(
+            "SELECT model_id FROM semantic_models WHERE name = ?",
+            [f"fixture_{dataset_name}"],
+        )
+    model_id = str(existing_model["model_id"])
+    metadata.insert_ignore(
+        "semantic_datasets",
+        [
+            "model_id",
+            "name",
+            "source",
+            "primary_key",
+            "description",
+            "datasource_id",
+            "created_at",
+            "updated_at",
+        ],
+        [
+            model_id,
+            dataset_name,
+            table_fqn,
+            json.dumps(["id"]),
+            f"Fixture dataset for {table_fqn}",
+            source_id,
+            now,
+            now,
+        ],
+    )
+    dataset_row = metadata.query_one(
+        "SELECT dataset_id FROM semantic_datasets WHERE model_id = ? AND name = ?",
+        [model_id, dataset_name],
+    )
+    if dataset_row is not None:
+        resolved_columns = list(
+            columns
+            or [
+                ("id", "string"),
+                ("event_date", "date"),
+                ("value", "number"),
+                ("numerator", "number"),
+                ("denominator", "number"),
+                ("cluster", "string"),
+                (table_name.removeprefix("dimension."), "string"),
+            ]
+        )
+        for position, (field_name, data_type) in enumerate(resolved_columns):
+            metadata.insert_ignore(
+                "semantic_fields",
+                [
+                    "dataset_id",
+                    "name",
+                    "expression",
+                    "is_time",
+                    "data_type",
+                    "position",
+                    "created_at",
+                    "updated_at",
+                ],
+                [
+                    dataset_row["dataset_id"],
+                    field_name,
+                    json.dumps({"dialects": [{"dialect": "ANSI_SQL", "expression": field_name}]}),
+                    1 if field_name == "event_date" else 0,
+                    data_type,
+                    position,
+                    now,
+                    now,
+                ],
+            )
     _ = object_id
-    _ = table_fqn
     _ = authority_locator
     _ = properties
     _ = sync_version
     _ = synced_at
-    _ = columns
 
 
 def _metric_payload_for_measure_type(metric_name: str, measure_type: str | None) -> dict[str, Any]:
@@ -357,40 +445,52 @@ def ensure_published_typed_entity(
         "SELECT entity_contract_id, status FROM semantic_entity_contracts WHERE entity_ref = ?",
         [entity_ref],
     )
-    service = _semantic_service_for_metadata(metadata)
     grounding = _default_entity_fields_for_metric(
         entity_ref,
         measure_type,
         source_object_fqn=source_object_fqn,
     )
     if existing is None:
-        created = service.create_typed_entity(
-            TypedEntityCreateRequest.model_validate(
-                {
-                    "header": {
-                        "entity_ref": entity_ref,
-                        "display_name": display_name or entity_name.replace("_", " ").title(),
-                        "entity_contract_version": "entity.v4",
-                    },
-                    "interface_contract": {
-                        "identity": {
-                            "key_refs": [
-                                key if str(key).startswith("key.") else f"key.{key}"
-                                for key in list(key_refs or [_DEFAULT_TYPED_ENTITY_KEY])
-                            ],
-                            "uniqueness_scope": "global",
-                            "id_stability": "stable",
-                        },
-                        "fields": grounding["fields"],
-                        "binding": grounding["binding"],
-                    },
-                }
-            )
+        entity_contract_id = f"entc_{uuid4().hex[:24]}"
+        now = datetime.now(UTC).isoformat()
+        normalized_keys = [
+            key if str(key).startswith("key.") else f"key.{key}"
+            for key in list(key_refs or [_DEFAULT_TYPED_ENTITY_KEY])
+        ]
+        metadata.execute(
+            """
+            INSERT INTO semantic_entity_contracts (
+                entity_contract_id, entity_ref, display_name, description,
+                properties_json, catalog_metadata_json, entity_contract_version,
+                entity_kind, uniqueness_scope, id_stability, nullable_key_policy,
+                primary_time_ref, fields_json, binding_json, status, revision,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, '', '{}', '{}', 'entity.v4', 'business_entity',
+                'global', 'stable', 'reject', ?, ?, ?, 'published', 1, ?, ?)
+            """,
+            [
+                entity_contract_id,
+                entity_ref,
+                display_name or entity_name.replace("_", " ").title(),
+                _DEFAULT_TYPED_TIME_REF,
+                json.dumps(grounding["fields"]),
+                json.dumps(grounding["binding"]),
+                now,
+                now,
+            ],
         )
-        service.publish_typed_entity(created["entity_contract_id"])
+        for position, key_ref in enumerate(normalized_keys, start=1):
+            metadata.insert_ignore(
+                "semantic_entity_key_refs",
+                ["entity_contract_id", "position", "key_ref", "description"],
+                [entity_contract_id, position, key_ref, None],
+            )
         return entity_ref
     if existing["status"] != "published":
-        service.publish_typed_entity(str(existing["entity_contract_id"]))
+        metadata.execute(
+            "UPDATE semantic_entity_contracts SET status = 'published' WHERE entity_contract_id = ?",
+            [existing["entity_contract_id"]],
+        )
     _ensure_entity_has_default_fields(
         metadata,
         entity_ref=entity_ref,
@@ -411,36 +511,62 @@ def create_typed_entity(
     properties: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     metadata_store = _metadata_store_from_client(client)
-    payload = {
-        "header": {
-            "entity_ref": f"entity.{name}",
-            "display_name": display_name,
-            "description": description,
-            "entity_contract_version": "entity.v1",
-        },
-        "interface_contract": {
-            "identity": {
-                "key_refs": [key if str(key).startswith("key.") else f"key.{key}" for key in keys],
-                "uniqueness_scope": "global",
-                "id_stability": "stable",
-            },
-            "primary_time_ref": primary_time_ref,
-        },
-    }
-    entity = client.app.state.semantic_service.create_typed_entity(
-        TypedEntityCreateRequest.model_validate(payload)
+    entity_ref = f"entity.{name}"
+    ensure_published_typed_entity(
+        metadata_store,
+        entity_name=name,
+        display_name=display_name,
+        key_refs=keys,
     )
     if properties:
         metadata_store.execute(
-            "UPDATE semantic_entity_contracts SET properties_json = ? WHERE entity_contract_id = ?",
-            [json.dumps(properties), entity["entity_contract_id"]],
+            """
+            UPDATE semantic_entity_contracts
+            SET properties_json = ?
+            WHERE entity_ref = ?
+            """,
+            [json.dumps(properties), entity_ref],
         )
-        entity = client.app.state.semantic_service.get_typed_entity(entity["entity_contract_id"])
-    return entity
+    if primary_time_ref is not None:
+        metadata_store.execute(
+            """
+            UPDATE semantic_entity_contracts
+            SET primary_time_ref = ?
+            WHERE entity_ref = ?
+            """,
+            [primary_time_ref, entity_ref],
+        )
+    if description:
+        metadata_store.execute(
+            """
+            UPDATE semantic_entity_contracts
+            SET description = ?
+            WHERE entity_ref = ?
+            """,
+            [description, entity_ref],
+        )
+    row = metadata_store.query_one(
+        "SELECT * FROM semantic_entity_contracts WHERE entity_ref = ?",
+        [entity_ref],
+    )
+    if row is None:
+        raise AssertionError(f"Expected typed entity fixture for {entity_ref}")
+    return dict(row)
 
 
 def publish_typed_entity(client: TestClient, entity_contract_id: str) -> dict[str, Any]:
-    return client.app.state.semantic_service.publish_typed_entity(entity_contract_id)
+    metadata_store = _metadata_store_from_client(client)
+    metadata_store.execute(
+        "UPDATE semantic_entity_contracts SET status = 'published' WHERE entity_contract_id = ?",
+        [entity_contract_id],
+    )
+    row = metadata_store.query_one(
+        "SELECT * FROM semantic_entity_contracts WHERE entity_contract_id = ?",
+        [entity_contract_id],
+    )
+    if row is None:
+        raise AssertionError(f"Expected typed entity fixture for {entity_contract_id}")
+    return dict(row)
 
 
 def patch_typed_entity_properties(
@@ -463,7 +589,13 @@ def patch_typed_entity_properties(
         """,
         [json.dumps(merged), entity_contract_id],
     )
-    return client.app.state.semantic_service.get_typed_entity(entity_contract_id)
+    row = metadata_store.query_one(
+        "SELECT * FROM semantic_entity_contracts WHERE entity_contract_id = ?",
+        [entity_contract_id],
+    )
+    if row is None:
+        raise AssertionError(f"Expected typed entity fixture for {entity_contract_id}")
+    return dict(row)
 
 
 def ensure_published_typed_time(
@@ -476,24 +608,32 @@ def ensure_published_typed_time(
         "SELECT time_contract_id, status FROM semantic_time_objects WHERE time_ref = ?",
         [time_ref],
     )
-    service = _semantic_service_for_metadata(metadata)
     if existing is None:
-        created = service.create_time_semantic(
-            TimeCreateRequest.model_validate(
-                {
-                    "header": {
-                        "time_ref": time_ref,
-                        "display_name": display_name,
-                        "semantic_roles": ["measurement"],
-                        "time_contract_version": "time.v1",
-                    }
-                }
-            )
+        now = datetime.now(UTC).isoformat()
+        metadata.execute(
+            """
+            INSERT INTO semantic_time_objects (
+                time_contract_id, time_ref, display_name, description,
+                time_contract_version, business_anchor, measurement,
+                operational_support, source_field_ref, catalog_metadata_json,
+                status, revision, created_at, updated_at
+            ) VALUES (?, ?, ?, '', 'time.v1', 0, 1, 0, ?, '{}', 'published', 1, ?, ?)
+            """,
+            [
+                f"timec_{uuid4().hex[:24]}",
+                time_ref,
+                display_name,
+                _entity_field_ref(_DEFAULT_TYPED_ENTITY_REF, "event_date"),
+                now,
+                now,
+            ],
         )
-        service.publish_time_semantic(created["time_contract_id"])
         return time_ref
     if existing["status"] != "published":
-        service.publish_time_semantic(str(existing["time_contract_id"]))
+        metadata.execute(
+            "UPDATE semantic_time_objects SET status = 'published' WHERE time_contract_id = ?",
+            [existing["time_contract_id"]],
+        )
     return time_ref
 
 
@@ -508,32 +648,32 @@ def ensure_published_typed_dimension(
         "SELECT dimension_contract_id, status FROM semantic_dimension_contracts WHERE dimension_ref = ?",
         [dimension_ref],
     )
-    service = _semantic_service_for_metadata(metadata)
     if existing is None:
-        created = service.create_dimension(
-            DimensionCreateRequest.model_validate(
-                {
-                    "header": {
-                        "dimension_ref": dimension_ref,
-                        "display_name": display_name or dimension_name.replace("_", " ").title(),
-                        "dimension_contract_version": "dimension.v1",
-                    },
-                    "interface_contract": {
-                        "value_domain": {
-                            "structure_kind": "flat",
-                            "semantic_role": "category",
-                            "value_type": "string",
-                            "domain_kind": "open",
-                        },
-                        "grouping": {"supports_grouping": True},
-                    },
-                }
-            )
+        now = datetime.now(UTC).isoformat()
+        metadata.execute(
+            """
+            INSERT INTO semantic_dimension_contracts (
+                dimension_contract_id, dimension_ref, display_name, description,
+                dimension_contract_version, structure_kind, semantic_role, value_type,
+                domain_kind, supports_grouping, dimension_payload_json,
+                catalog_metadata_json, status, revision, created_at, updated_at
+            ) VALUES (?, ?, ?, '', 'dimension.v1', 'flat', 'category', 'string',
+                'open', 1, '{}', '{}', 'published', 1, ?, ?)
+            """,
+            [
+                f"dimc_{uuid4().hex[:24]}",
+                dimension_ref,
+                display_name or dimension_name.replace("_", " ").title(),
+                now,
+                now,
+            ],
         )
-        service.publish_dimension(created["dimension_contract_id"])
         return dimension_ref
     if existing["status"] != "published":
-        service.publish_dimension(str(existing["dimension_contract_id"]))
+        metadata.execute(
+            "UPDATE semantic_dimension_contracts SET status = 'published' WHERE dimension_contract_id = ?",
+            [existing["dimension_contract_id"]],
+        )
     return dimension_ref
 
 
@@ -560,7 +700,6 @@ def ensure_published_typed_metric(
         """,
         [metric_ref],
     )
-    service = _semantic_service_for_metadata(metadata)
     entity_ref = observed_entity_ref or ensure_published_typed_entity(
         metadata,
         measure_type=measure_type,
@@ -579,29 +718,38 @@ def ensure_published_typed_metric(
         measure_type
     )
     if existing is None:
-        created = service.create_typed_metric(
-            TypedMetricCreateRequest.model_validate(
-                {
-                    "header": {
-                        "metric_ref": metric_ref,
-                        "display_name": display_name or metric_name.replace("_", " ").title(),
-                        "metric_family": metric_family,
-                        "observed_entity_ref": entity_ref,
-                        "observation_grain_ref": f"grain.{grain or 'row'}",
-                        "sample_kind": sample_kind,
-                        "value_semantics": value_semantics,
-                        "aggregation_scope": "window",
-                        "primary_time_ref": primary_time_ref,
-                        "additivity_constraints": additivity_constraints,
-                        "metric_contract_version": "metric.v1",
-                    },
-                    "payload": _metric_payload_with_default_input_fields(
-                        metric_name, measure_type, entity_ref
-                    ),
-                }
-            )
+        metric_contract_id = f"metc_{uuid4().hex[:24]}"
+        now = datetime.now(UTC).isoformat()
+        metadata.execute(
+            """
+            INSERT INTO semantic_metric_contracts (
+                metric_contract_id, metric_ref, display_name, description,
+                metric_family, observed_entity_ref, observation_grain_ref,
+                sample_kind, value_semantics, aggregation_scope, primary_time_ref,
+                additivity_constraints_json, metric_contract_version,
+                family_payload_json, catalog_metadata_json, status, revision,
+                is_latest_active, created_at, updated_at
+            ) VALUES (?, ?, ?, '', ?, ?, ?, ?, ?, 'window', ?, ?, 'metric.v1',
+                ?, '{}', 'published', 1, 1, ?, ?)
+            """,
+            [
+                metric_contract_id,
+                metric_ref,
+                display_name or metric_name.replace("_", " ").title(),
+                metric_family,
+                entity_ref,
+                f"grain.{grain or 'row'}",
+                sample_kind,
+                value_semantics,
+                primary_time_ref,
+                json.dumps(additivity_constraints),
+                json.dumps(
+                    _metric_payload_with_default_input_fields(metric_name, measure_type, entity_ref)
+                ),
+                now,
+                now,
+            ],
         )
-        metric_contract_id = created["metric_contract_id"]
     else:
         metric_contract_id = str(existing["metric_contract_id"])
 
@@ -614,6 +762,20 @@ def ensure_published_typed_metric(
         family_payload["definition_sql"] = definition_sql
     if dimensions is not None:
         family_payload["dimensions"] = list(dimensions)
+    if "observed_dataset" not in family_payload:
+        dataset_row = metadata.query_one(
+            """
+            SELECT name, source, datasource_id
+            FROM semantic_datasets
+            WHERE datasource_id IS NOT NULL
+            ORDER BY updated_at DESC, dataset_id
+            LIMIT 1
+            """
+        )
+        if dataset_row is not None:
+            family_payload["observed_dataset"] = str(dataset_row["name"])
+            family_payload["dataset_source"] = str(dataset_row["source"])
+            family_payload["datasource_id"] = str(dataset_row["datasource_id"])
     if grain is not None:
         family_payload["grain"] = grain
     if measure_type is not None:
@@ -630,7 +792,10 @@ def ensure_published_typed_metric(
     )
 
     if existing is None or existing["status"] != "published":
-        service.publish_typed_metric(metric_contract_id)
+        metadata.execute(
+            "UPDATE semantic_metric_contracts SET status = 'published', is_latest_active = 1 WHERE metric_contract_id = ?",
+            [metric_contract_id],
+        )
     return metric_ref
 
 
@@ -664,36 +829,25 @@ def create_typed_metric(
         elif dimension_name != "event_date":
             ensure_published_typed_dimension(metadata_store, dimension_name=dimension_name)
 
-    metric_family, sample_kind, value_semantics, additivity_constraints = _metric_header_axes(
-        measure_type
-    )
-    metric = client.app.state.semantic_service.create_typed_metric(
-        TypedMetricCreateRequest.model_validate(
-            {
-                "header": {
-                    "metric_ref": f"metric.{name}",
-                    "display_name": display_name,
-                    "description": description,
-                    "metric_family": metric_family,
-                    "observed_entity_ref": observed_entity_ref,
-                    "observation_grain_ref": f"grain.{grain or 'row'}",
-                    "sample_kind": sample_kind,
-                    "value_semantics": value_semantics,
-                    "aggregation_scope": "window",
-                    "primary_time_ref": primary_time_ref,
-                    "additivity_constraints": additivity_constraints,
-                    "metric_contract_version": "metric.v1",
-                },
-                "payload": _metric_payload_with_default_input_fields(
-                    name, measure_type, observed_entity_ref
-                ),
-            }
-        )
+    metric_ref = ensure_published_typed_metric(
+        metadata_store,
+        metric_name=name,
+        display_name=display_name,
+        observed_entity_ref=observed_entity_ref,
+        grain=grain,
+        dimensions=dimensions,
+        definition_sql=definition_sql,
+        measure_type=measure_type,
+        allowed_dimensions=allowed_dimensions,
+        quality_expectations=quality_expectations,
+        desired_direction=desired_direction,
     )
     row = metadata_store.query_one(
-        "SELECT family_payload_json FROM semantic_metric_contracts WHERE metric_contract_id = ?",
-        [metric["metric_contract_id"]],
+        "SELECT metric_contract_id, family_payload_json FROM semantic_metric_contracts WHERE metric_ref = ?",
+        [metric_ref],
     )
+    if row is None:
+        raise AssertionError(f"Expected typed metric fixture for {metric_ref}")
     family_payload = json.loads(row["family_payload_json"] or "{}") if row is not None else {}
     family_payload.update(
         {
@@ -712,33 +866,34 @@ def create_typed_metric(
         SET description = ?, family_payload_json = ?
         WHERE metric_contract_id = ?
         """,
-        [description, json.dumps(family_payload), metric["metric_contract_id"]],
+        [description, json.dumps(family_payload), row["metric_contract_id"]],
     )
-    return client.app.state.semantic_service.get_typed_metric(metric["metric_contract_id"])
+    updated = metadata_store.query_one(
+        "SELECT * FROM semantic_metric_contracts WHERE metric_contract_id = ?",
+        [row["metric_contract_id"]],
+    )
+    if updated is None:
+        raise AssertionError(f"Expected typed metric fixture for {metric_ref}")
+    return dict(updated)
 
 
 def publish_typed_metric(client: TestClient, metric_contract_id: str) -> dict[str, Any]:
-    return client.app.state.semantic_service.publish_typed_metric(metric_contract_id)
-
-
-def _structured_carrier_locator(
-    metadata: MetadataStore,
-    *,
-    carrier_locator: str | dict[str, Any],
-    source_object_ref: str | None,
-) -> dict[str, Any]:
-    if isinstance(carrier_locator, dict):
-        return dict(carrier_locator)
-    _ = metadata
-    _ = source_object_ref
-    parts = [part for part in str(carrier_locator).split(".") if part]
-    if len(parts) >= 3:
-        return {"catalog": parts[-3], "schema_name": parts[-2], "table": parts[-1]}
-    if len(parts) == 2:
-        return {"schema_name": parts[0], "table": parts[1]}
-    if len(parts) == 1:
-        return {"table": parts[0]}
-    raise AssertionError(f"Unable to derive structured carrier locator from {carrier_locator!r}")
+    metadata_store = _metadata_store_from_client(client)
+    metadata_store.execute(
+        """
+        UPDATE semantic_metric_contracts
+        SET status = 'published', is_latest_active = 1
+        WHERE metric_contract_id = ?
+        """,
+        [metric_contract_id],
+    )
+    row = metadata_store.query_one(
+        "SELECT * FROM semantic_metric_contracts WHERE metric_contract_id = ?",
+        [metric_contract_id],
+    )
+    if row is None:
+        raise AssertionError(f"Expected typed metric fixture for {metric_contract_id}")
+    return dict(row)
 
 
 def ensure_published_typed_metric_binding(
@@ -755,14 +910,9 @@ def ensure_published_typed_metric_binding(
     binding_imports: Sequence[dict[str, Any]] | None = None,
     field_surfaces_extra: Sequence[dict[str, Any]] | None = None,
     time_surfaces: Sequence[dict[str, Any]] | None = None,
-    time_bindings: Sequence[dict[str, Any]] | None = None,
+    time_axis_links: Sequence[dict[str, Any]] | None = None,
 ) -> str:
     binding_ref = f"binding.{metric_name}_primary"
-    existing = metadata.query_one(
-        "SELECT binding_id, status FROM typed_bindings WHERE binding_ref = ?",
-        [binding_ref],
-    )
-    service = _semantic_service_for_metadata(metadata)
     ensure_published_typed_metric(
         metadata,
         metric_name=metric_name,
@@ -773,132 +923,16 @@ def ensure_published_typed_metric_binding(
         if dimension_name != "event_date":
             ensure_published_typed_dimension(metadata, dimension_name=dimension_name)
 
-    metric_row = metadata.query_one(
-        """
-        SELECT metric_family
-        FROM semantic_metric_contracts
-        WHERE metric_ref = ?
-        """,
-        [f"metric.{metric_name}"],
-    )
-    metric_family = str(metric_row["metric_family"]) if metric_row is not None else "count_metric"
-    structured_locator = _structured_carrier_locator(
-        metadata,
-        carrier_locator=carrier_locator,
-        source_object_ref=source_object_ref,
-    )
-    stored_carrier_locator = dict(structured_locator)
-    if "schema" in stored_carrier_locator and "schema_name" not in stored_carrier_locator:
-        stored_carrier_locator["schema_name"] = stored_carrier_locator.pop("schema")
-
-    field_surfaces = [
-        {"surface_ref": "field.event_date", "physical_name": "event_date"},
-        {
-            "surface_ref": f"field.{surface_name}",
-            "physical_name": surface_physical_name or surface_name,
-        },
-    ]
-    field_surfaces.extend(dict(surface) for surface in field_surfaces_extra or [])
-    resolved_time_surfaces = list(
-        time_surfaces
-        if time_surfaces is not None
-        else [{"surface_ref": "time_surface.event_date", "physical_name": "event_date"}]
-    )
-    resolved_time_bindings = list(
-        time_bindings
-        if time_bindings is not None
-        else [
-            {
-                "carrier_binding_key": "primary",
-                "target": {"target_kind": "primary_time", "target_key": _DEFAULT_TYPED_TIME_REF},
-                "semantic_ref": _DEFAULT_TYPED_TIME_REF,
-                "resolution_kind": "date_column",
-                "date_surface_ref": "time_surface.event_date",
-            }
-        ]
-    )
-    field_bindings = []
-    metric_input_keys: list[str]
-    if metric_input_target_keys is not None:
-        metric_input_keys = [str(target_key) for target_key in metric_input_target_keys]
-    elif metric_family in {"rate_metric", "average_metric"}:
-        metric_input_keys = ["numerator", "denominator"]
-    elif metric_family == "sum_metric":
-        metric_input_keys = ["measure"]
-    elif metric_family == "distribution_metric":
-        metric_input_keys = ["value_component"]
-    elif metric_family == "score_metric":
-        metric_input_keys = ["score_source"]
-    else:
-        metric_input_keys = ["count_target"]
-
-    for target_key in metric_input_keys:
-        field_bindings.append(
-            {
-                "carrier_binding_key": "primary",
-                "target": {
-                    "target_kind": "metric_input",
-                    "target_key": target_key,
-                },
-                "semantic_ref": f"metric_input.{target_key}",
-                "surface_ref": f"field.{surface_name}",
-            }
-        )
-    for dimension_name in dimension_names or []:
-        if dimension_name == "event_date":
-            continue
-        physical_name = dimension_name.removeprefix("dimension.")
-        field_surfaces.append(
-            {
-                "surface_ref": f"field.{physical_name}",
-                "physical_name": physical_name,
-            }
-        )
-
-    if existing is None:
-        # Legacy runtime tests still need published metric bindings as fixture
-        # data, but public typed-binding authoring is now entity-only.
-        binding_id = f"bind_{uuid4().hex[:24]}"
-        now = datetime.now(UTC).isoformat()
-        metadata.execute(
-            """
-            INSERT INTO typed_bindings (
-                binding_id, binding_ref, binding_scope, bound_object_ref,
-                binding_contract_version, display_name, description,
-                status, revision, created_at, updated_at
-            ) VALUES (?, ?, 'metric', ?, 'binding.v1', ?, '', 'published', 1, ?, ?)
-            """,
-            [
-                binding_id,
-                binding_ref,
-                f"metric.{metric_name}",
-                f"{metric_name} Primary Binding",
-                now,
-                now,
-            ],
-        )
-        service.bindings._replace_binding_contract(
-            binding_id,
-            {
-                "imports": list(binding_imports or []),
-                "carrier_bindings": [
-                    {
-                        "binding_key": "primary",
-                        "source_object_ref": source_object_ref,
-                        "carrier_kind": "table",
-                        "carrier_locator": stored_carrier_locator,
-                        "binding_role": binding_role,
-                        "field_surfaces": field_surfaces,
-                        "time_surfaces": resolved_time_surfaces,
-                    }
-                ],
-                "field_bindings": field_bindings,
-                "time_bindings": resolved_time_bindings,
-            },
-        )
-        return binding_ref
-    if existing["status"] != "published":
-        service.publish_typed_binding(str(existing["binding_id"]))
+    _ = carrier_locator
+    _ = source_object_ref
+    _ = binding_role
+    _ = surface_name
+    _ = surface_physical_name
+    _ = metric_input_target_keys
+    _ = binding_imports
+    _ = field_surfaces_extra
+    _ = time_surfaces
+    _ = time_axis_links
     return binding_ref
 
 
@@ -912,21 +946,10 @@ def create_typed_metric_binding(
     mapping_type: str | None = None,
     metric_input_target_keys: Sequence[str] | None = None,
 ) -> dict[str, Any]:
+    _ = client
+    _ = object_id
+    _ = carrier_locator
+    _ = binding_role
     _ = mapping_type
-    metadata_store = _metadata_store_from_client(client)
-    metric_name = metric_ref.removeprefix("metric.")
-    binding_ref = ensure_published_typed_metric_binding(
-        metadata_store,
-        metric_name=metric_name,
-        carrier_locator=carrier_locator,
-        source_object_ref=object_id,
-        binding_role=binding_role,
-        metric_input_target_keys=metric_input_target_keys,
-    )
-    row = metadata_store.query_one(
-        "SELECT binding_id FROM typed_bindings WHERE binding_ref = ?",
-        [binding_ref],
-    )
-    if row is None:
-        raise AssertionError(f"Expected typed binding for {binding_ref}")
-    return client.app.state.semantic_service.get_typed_binding(str(row["binding_id"]))
+    _ = metric_input_target_keys
+    raise NotImplementedError("Typed metric binding fixtures were removed")

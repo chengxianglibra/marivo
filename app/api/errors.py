@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
 _DOCS_BY_PATH_PREFIX: tuple[tuple[str, str], ...] = (
+    ("/semantic-models", "docs/api/semantic.md"),
     ("/semantic/", "docs/api/semantic.md"),
     ("/catalog/", "docs/api/semantic.md"),
     ("/compiler/", "docs/api/semantic.md"),
@@ -285,84 +286,6 @@ _GUIDED_EXAMPLES: dict[tuple[str, str], list[dict[str, Any]]] = {
     ],
     (
         "POST",
-        "/semantic/bindings",
-    ): [
-        {
-            "summary": "Minimal typed binding create payload",
-            "complexity": "minimal",
-            "payload": {
-                "header": {
-                    "binding_ref": "binding.user_identity",
-                    "display_name": "User Identity Binding",
-                    "binding_scope": "entity",
-                    "bound_object_ref": "entity.user",
-                    "binding_contract_version": "binding.v1",
-                },
-                "interface_contract": {
-                    "carrier_bindings": [
-                        {
-                            "binding_key": "users",
-                            "carrier_kind": "table",
-                            "carrier_locator": "analytics.users",
-                            "binding_role": "primary",
-                            "field_surfaces": [
-                                {
-                                    "surface_ref": "field.user_id",
-                                    "physical_name": "user_id",
-                                }
-                            ],
-                        }
-                    ],
-                    "field_bindings": [
-                        {
-                            "carrier_binding_key": "users",
-                            "target": {
-                                "target_kind": "identity_key",
-                                "target_key": "key.user_id",
-                            },
-                            "semantic_ref": "key.user_id",
-                            "surface_ref": "field.user_id",
-                        }
-                    ],
-                },
-            },
-        },
-    ],
-    (
-        "PUT",
-        "/semantic/bindings/{binding_id}",
-    ): [
-        {
-            "summary": "Minimal typed binding update payload",
-            "complexity": "minimal",
-            "payload": {
-                "display_name": "User Identity Binding",
-                "interface_contract": {
-                    "carrier_bindings": [
-                        {
-                            "binding_key": "users",
-                            "carrier_kind": "table",
-                            "carrier_locator": "analytics.users",
-                            "binding_role": "primary",
-                        }
-                    ],
-                    "field_bindings": [
-                        {
-                            "carrier_binding_key": "users",
-                            "target": {
-                                "target_kind": "identity_key",
-                                "target_key": "key.user_id",
-                            },
-                            "semantic_ref": "key.user_id",
-                            "surface_ref": "field.user_id",
-                        }
-                    ],
-                },
-            },
-        }
-    ],
-    (
-        "POST",
         "/semantic/relationships",
     ): [
         {
@@ -481,9 +404,7 @@ _SCHEMA_NAME_BY_ROUTE: dict[tuple[str, str], str] = {
     ("PUT", "/semantic/enum-sets/{enum_set_contract_id}"): "EnumSetUpdateRequest",
     ("POST", "/semantic/process-objects"): "ProcessObjectCreateRequest",
     ("PUT", "/semantic/process-objects/{process_contract_id}"): "ProcessObjectUpdateRequest",
-    ("POST", "/semantic/bindings"): "TypedBindingCreateRequest",
     ("POST", "/semantic/batch"): "SemanticBatchRequest",
-    ("PUT", "/semantic/bindings/{binding_id}"): "TypedBindingUpdateRequest",
     ("POST", "/semantic/relationships"): "EntityRelationshipCreateRequest",
     ("PUT", "/semantic/relationships/{relationship_id}"): "EntityRelationshipUpdateRequest",
     ("POST", "/compiler/compatibility-profiles"): "CompatibilityProfileCreateRequest",
@@ -547,17 +468,12 @@ def _docs_url_for_path(path: str) -> str:
     return "docs/api/errors.md"
 
 
-_LEGACY_PHYSICAL_BINDING_FIELDS = frozenset(
+_LEGACY_PHYSICAL_GROUNDING_FIELDS = frozenset(
     {
-        "binding",
-        "binding_ref",
-        "carrier_binding_key",
-        "carrier_bindings",
-        "field_bindings",
+        "carrier_locator",
         "physical_column",
         "physical_name",
-        "surface_ref",
-        "time_bindings",
+        "source_object_ref",
     }
 )
 
@@ -569,15 +485,15 @@ _ENTITY_FIELD_AUTHORING_ERROR_MARKERS = frozenset(
 )
 
 
-def _detail_mentions_legacy_physical_binding(detail: list[dict[str, Any]]) -> bool:
+def _detail_mentions_legacy_physical_grounding(detail: list[dict[str, Any]]) -> bool:
     for item in detail:
         loc = item.get("loc")
         if isinstance(loc, list | tuple) and any(
-            str(part) in _LEGACY_PHYSICAL_BINDING_FIELDS for part in loc
+            str(part) in _LEGACY_PHYSICAL_GROUNDING_FIELDS for part in loc
         ):
             return True
         message = str(item.get("msg") or "")
-        if any(field in message for field in _LEGACY_PHYSICAL_BINDING_FIELDS):
+        if any(field in message for field in _LEGACY_PHYSICAL_GROUNDING_FIELDS):
             return True
     return False
 
@@ -606,15 +522,15 @@ def _add_entity_first_authoring_guidance(
     if route_path not in semantic_routes:
         return
     if detail is not None and not (
-        _detail_mentions_legacy_physical_binding(detail)
+        _detail_mentions_legacy_physical_grounding(detail)
         or _detail_mentions_entity_field_authoring(detail)
     ):
         return
-    guidance["authoring_model"] = "entity_first"
-    guidance["legacy_physical_binding_fields"] = sorted(_LEGACY_PHYSICAL_BINDING_FIELDS)
-    guidance["entity_first_next_action"] = (
-        "Move physical table/view and column grounding to the entity interface_contract "
-        "fields/binding, then reference entity.<entity>.field.<field> from semantic objects."
+    guidance["authoring_model"] = "dataset_native"
+    guidance["legacy_physical_grounding_fields"] = sorted(_LEGACY_PHYSICAL_GROUNDING_FIELDS)
+    guidance["dataset_native_next_action"] = (
+        "Move physical table/view and column grounding to OSI datasets and fields: "
+        "dataset.custom_extensions[].data.datasource_id, dataset.source, and field.expression."
     )
 
 
@@ -638,21 +554,6 @@ def build_validation_error_payload(
     examples = _GUIDED_EXAMPLES.get((method, route_path))
     if examples is not None:
         guidance["examples"] = examples
-    if (method, route_path) == ("POST", "/semantic/bindings"):
-        guidance["field_name_hints"] = [
-            {
-                "expected": "carrier_bindings[].time_surfaces[].surface_ref",
-                "common_mistake": "time_surface_ref",
-            },
-            {
-                "expected": "time_bindings[].date_surface_ref / timestamp_surface_ref / hour_surface_ref",
-                "common_mistake": "surface_ref inside time_bindings",
-            },
-            {
-                "expected": "entity binding targets: identity_key, primary_time, stable_descriptor",
-                "common_mistake": "metric_input targets on POST /semantic/bindings",
-            },
-        ]
     _add_entity_first_authoring_guidance(guidance, detail=detail, route_path=route_path)
     guidance["next_action"] = (
         "Start with guidance.examples, then inspect guidance.schema_url for the exact request model, "
@@ -706,21 +607,6 @@ def build_service_validation_error_payload(
         guidance["schema_url"] = f"/openapi/schemas/{schema_name}?depth=6"
     else:
         guidance["schema_url"] = "/openapi/schemas"
-    if request is not None and (method, route_path) == ("POST", "/semantic/bindings"):
-        guidance["field_name_hints"] = [
-            {
-                "expected": "carrier_bindings[].time_surfaces[].surface_ref",
-                "common_mistake": "time_surface_ref",
-            },
-            {
-                "expected": "time_bindings[].date_surface_ref / timestamp_surface_ref / hour_surface_ref",
-                "common_mistake": "surface_ref inside time_bindings",
-            },
-            {
-                "expected": "entity binding targets: identity_key, primary_time, stable_descriptor",
-                "common_mistake": "metric_input targets on POST /semantic/bindings",
-            },
-        ]
     _add_entity_first_authoring_guidance(guidance, route_path=route_path if request else None)
     return {
         "message": message,
