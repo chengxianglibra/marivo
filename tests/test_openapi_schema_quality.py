@@ -64,6 +64,30 @@ def test_legacy_catalog_routes_are_not_registered() -> None:
     assert paths.isdisjoint(legacy_paths)
 
 
+def test_dataset_native_grounding_removed_routes_are_not_registered() -> None:
+    openapi = _router_only_openapi()
+    paths = set(openapi["paths"])
+
+    removed_paths = {
+        "/datasources/{datasource_id}/sync",
+        "/datasources/{datasource_id}/sync/{job_id}",
+        "/datasources/{datasource_id}/sync/selections",
+        "/datasources/{datasource_id}/sync/selections/{selection_id}",
+        "/datasources/{datasource_id}/objects",
+        "/datasources/{datasource_id}/objects/{object_id}",
+        "/datasources/{datasource_id}/objects/{object_id}/properties",
+        "/semantic/bindings",
+        "/semantic/bindings/{binding_id}",
+        "/semantic/bindings/{binding_id}/validate",
+        "/semantic/bindings/{binding_id}/activate",
+        "/semantic/bindings/{binding_id}/deprecate",
+        "/semantic/bindings/{binding_id}/publish",
+    }
+
+    assert paths.isdisjoint(removed_paths)
+    assert "/datasources/{datasource_id}/browse/columns" in paths
+
+
 def _is_scoped_path(path: str) -> bool:
     return (
         path.startswith(SCOPED_PATH_PREFIXES)

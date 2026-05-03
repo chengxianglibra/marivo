@@ -74,6 +74,27 @@ class MetadataSchemaBootstrapTests(unittest.TestCase):
         self.assertEqual(marker["schema_version"], METADATA_SCHEMA_VERSION)
         self.assertEqual(marker["ddl_fingerprint"], metadata_ddl_fingerprint("mysql"))
 
+    def test_dataset_native_grounding_removed_tables_are_not_expected(self) -> None:
+        removed_tables = {
+            "source_objects",
+            "sync_jobs",
+            "sync_selections",
+            "typed_bindings",
+            "binding_imports",
+            "carrier_bindings",
+            "carrier_field_surfaces",
+            "carrier_time_surfaces",
+            "field_bindings",
+            "time_bindings",
+            "join_relations",
+            "consumption_policies",
+        }
+
+        expected_tables = expected_metadata_tables("sqlite")
+
+        self.assertTrue(removed_tables.isdisjoint(expected_tables))
+        self.assertIn("datasources", expected_tables)
+
 
 if __name__ == "__main__":
     unittest.main()
