@@ -99,32 +99,15 @@ class SQLiteMetadataStore(MetadataStore):
             for table_name in (
                 "source_engine_bindings",
                 "sources__legacy",
-                "source_objects__legacy_fk",
                 "source_execution_mappings__legacy_fk",
-                "sync_jobs__legacy_fk",
-                "sync_selections__legacy_fk",
                 "sources",
                 "engines",
                 "source_execution_mappings",
+                "source_objects",
+                "sync_jobs",
+                "sync_selections",
             ):
                 con.execute(f"DROP TABLE IF EXISTS {table_name}")
-
-            # Drop source_objects / sync_jobs / sync_selections only when they
-            # still use the pre-merge schema (source_id column instead of
-            # datasource_id).  When the current schema is already in place we
-            # must NOT drop them because the DDL uses CREATE TABLE IF NOT
-            # EXISTS and the data would be lost.
-            for table_name in ("source_objects", "sync_jobs", "sync_selections"):
-                try:
-                    col_rows = con.execute(f"PRAGMA table_info({table_name})").fetchall()
-                except Exception:
-                    col_rows = []
-                if not col_rows:
-                    continue
-                col_names = {row[1] for row in col_rows}
-                # Legacy schema uses source_id; current uses datasource_id.
-                if "source_id" in col_names and "datasource_id" not in col_names:
-                    con.execute(f"DROP TABLE IF EXISTS {table_name}")
         finally:
             con.execute("PRAGMA foreign_keys=ON")
 

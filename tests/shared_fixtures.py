@@ -484,7 +484,7 @@ _LOCK_FILE = _template_lock_path("default")
 # In-process flags: skip lock on repeated calls within the same worker.
 _TEMPLATE_READY: set[str] = set()
 
-_METADATA_TEMPLATE_VERSION = "sqlite_metadata_osi_v2_additive"
+_METADATA_TEMPLATE_VERSION = "sqlite_metadata_dataset_native_grounding_v1"
 _METADATA_TEMPLATE = Path(f"/tmp/marivo_test_{_METADATA_TEMPLATE_VERSION}.sqlite")
 _METADATA_LOCK = Path(f"/tmp/marivo_test_{_METADATA_TEMPLATE_VERSION}.lock")
 _METADATA_READY = False
@@ -565,7 +565,7 @@ def _metadata_template_valid(db_path: Path) -> bool:
         tables = {
             str(row[0])
             for row in con.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('sessions', 'steps', 'artifacts', 'datasources', 'source_objects', 'semantic_domain_catalog', 'time_bindings', 'metadata_schema_marker')"
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('sessions', 'steps', 'artifacts', 'datasources', 'semantic_domain_catalog', 'metadata_schema_marker')"
             ).fetchall()
         }
         legacy_tables = {
@@ -588,12 +588,6 @@ def _metadata_template_valid(db_path: Path) -> bool:
         datasource_columns = {
             str(row[1]) for row in con.execute("PRAGMA table_info(datasources)").fetchall()
         }
-        source_object_columns = {
-            str(row[1]) for row in con.execute("PRAGMA table_info(source_objects)").fetchall()
-        }
-        source_object_indexes = {
-            str(row[1]) for row in con.execute("PRAGMA index_list(source_objects)").fetchall()
-        }
         session_columns = {
             str(row[1]) for row in con.execute("PRAGMA table_info(sessions)").fetchall()
         }
@@ -613,9 +607,6 @@ def _metadata_template_valid(db_path: Path) -> bool:
             str(row[1])
             for row in con.execute("PRAGMA table_info(semantic_time_objects)").fetchall()
         }
-        typed_binding_columns = {
-            str(row[1]) for row in con.execute("PRAGMA table_info(typed_bindings)").fetchall()
-        }
         catalog_metadata_tables = (
             "semantic_entity_contracts",
             "semantic_metric_contracts",
@@ -631,20 +622,6 @@ def _metadata_template_valid(db_path: Path) -> bool:
             if "catalog_metadata_json"
             in {str(row[1]) for row in con.execute(f"PRAGMA table_info({table_name})").fetchall()}
         }
-        carrier_binding_columns = {
-            str(row[1]) for row in con.execute("PRAGMA table_info(carrier_bindings)").fetchall()
-        }
-        field_binding_columns = {
-            str(row[1]) for row in con.execute("PRAGMA table_info(field_bindings)").fetchall()
-        }
-        time_bindings_sql_row = con.execute(
-            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'time_bindings'"
-        ).fetchone()
-        time_bindings_sql = str(time_bindings_sql_row[0] if time_bindings_sql_row else "")
-        typed_bindings_sql_row = con.execute(
-            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'typed_bindings'"
-        ).fetchone()
-        typed_bindings_sql = str(typed_bindings_sql_row[0] if typed_bindings_sql_row else "")
         # OSI v2 model columns
         osi_model_columns = {
             str(row[1]) for row in con.execute("PRAGMA table_info(semantic_models)").fetchall()
@@ -681,9 +658,7 @@ def _metadata_template_valid(db_path: Path) -> bool:
             "steps",
             "artifacts",
             "datasources",
-            "source_objects",
             "semantic_domain_catalog",
-            "time_bindings",
             "metadata_schema_marker",
         }
         and not legacy_tables
@@ -701,17 +676,11 @@ def _metadata_template_valid(db_path: Path) -> bool:
         and {
             "datasource_type",
             "connection_json",
-            "sync_mode",
             "policy_json",
         }.issubset(datasource_columns)
-        and {"datasource_id", "authority_locator_json"}.issubset(source_object_columns)
         and {
             "execution_identity_json",
         }.issubset(session_columns)
-        and {
-            "idx_source_objects_datasource_type_fqn",
-            "idx_source_objects_datasource_fqn",
-        }.issubset(source_object_indexes)
         and {
             "default_predicate_refs_json",
             "base_revision",
@@ -722,35 +691,7 @@ def _metadata_template_valid(db_path: Path) -> bool:
         and {"entity_kind", "fields_json", "binding_json"}.issubset(entity_columns)
         and {"source_field_ref"}.issubset(dimension_columns)
         and {"source_field_ref"}.issubset(time_columns)
-        and {
-            "binding_ref",
-            "binding_scope",
-            "bound_object_ref",
-            "binding_contract_version",
-            "status",
-        }.issubset(typed_binding_columns)
         and tables_with_catalog_metadata == set(catalog_metadata_tables)
-        and {
-            "binding_id",
-            "binding_key",
-            "source_object_ref",
-            "carrier_kind",
-            "carrier_locator",
-            "binding_role",
-        }.issubset(carrier_binding_columns)
-        and {
-            "binding_id",
-            "carrier_binding_key",
-            "target_kind",
-            "target_key",
-            "semantic_ref",
-            "surface_ref",
-        }.issubset(field_binding_columns)
-        and "time_surface." in time_bindings_sql
-        and "substr(timestamp_surface_ref, 1, 6) = 'field.'" not in time_bindings_sql
-        and "substr(date_surface_ref, 1, 6) = 'field.'" not in time_bindings_sql
-        and "substr(hour_surface_ref, 1, 6) = 'field.'" not in time_bindings_sql
-        and "UNIQUE(binding_ref, revision)" in typed_bindings_sql
         and {"visibility", "owner_user", "revision"}.issubset(osi_model_columns)
         and marker_rows == {"sqlite"}
         and actual_marker == expected_marker
