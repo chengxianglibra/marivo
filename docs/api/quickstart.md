@@ -1,228 +1,181 @@
 # Quickstart
 
-This guide walks through a complete end-to-end analysis workflow using the Marivo API: registering a data source, publishing a metric, creating a session, and running analysis steps to produce evidence-backed recommendations.
+This guide walks through a minimal Marivo workflow: register a datasource, inspect the live catalog,
+publish dataset-native semantic grounding, create a session, and run an analysis step.
 
 ## Prerequisites
 
 - Marivo service running at `http://localhost:8000`
-- A DuckDB database with data to analyze
+- A DuckDB database with an `analytics.orders` table
 
-## Step 1 - Register a Source
-
-Register the DuckDB database as a data source:
+## Step 1 - Register a Datasource
 
 ```bash
-curl -s -X POST http://localhost:8000/sources \
+curl -s -X POST http://localhost:8000/datasources \
   -H "Content-Type: application/json" \
   -d '{
-    "source_type": "duckdb",
+    "datasource_type": "duckdb",
     "display_name": "Analytics DB",
-    "connection": {"db_path": "/data/analytics.duckdb"}
+    "connection": {"path": "/data/analytics.duckdb"},
+    "policy": {
+      "allow_live_browse": true,
+      "allow_identity_reuse": false
+    }
   }' | jq .
 ```
 
-Save the returned `source_id`.
+Save the returned `datasource_id`.
 
-## Step 2 - Register an Engine
+## Step 2 - Browse The Live Catalog
 
-Register an analytics engine (can share the same DuckDB file):
+List schemas:
 
 ```bash
-curl -s -X POST http://localhost:8000/engines \
-  -H "Content-Type: application/json" \
-  -d '{
-    "engine_type": "duckdb",
-    "display_name": "DuckDB Engine",
-    "connection": {"db_path": "/data/analytics.duckdb"}
-  }' | jq .
+curl -s "http://localhost:8000/datasources/ds_.../browse/schemas" | jq .
 ```
 
-Save the returned `engine_id`.
-
-## Step 3 - Create a Mapping
-
-Link the source to the engine with an explicit authority-to-execution mapping:
+List tables:
 
 ```bash
-curl -s -X POST http://localhost:8000/mappings \
+curl -s "http://localhost:8000/datasources/ds_.../browse/tables?schema_name=analytics" | jq .
+```
+
+List columns:
+
+```bash
+curl -s "http://localhost:8000/datasources/ds_.../browse/columns?schema_name=analytics&table_name=orders" | jq .
+```
+
+Use the live browse output to choose:
+
+- `dataset.source`: `analytics.orders`
+- `field.expression`: physical columns such as `order_id`, `order_date`, and `amount`
+
+## Step 3 - Import A Dataset-Native Semantic Model
+
+Dataset and Field are the only persisted physical grounding contract:
+
+- `dataset.custom_extensions[].data.datasource_id` selects the datasource
+- `dataset.source` names the datasource-local relation FQN
+- `field.expression` names a physical column or computed SQL expression
+- metrics, dimensions, predicates, and relationships reference datasets and fields
+
+```bash
+curl -s -X POST http://localhost:8000/semantic-models/import \
   -H "Content-Type: application/json" \
   -d '{
-    "source_id": "src_...",
-    "engine_id": "eng_...",
-    "priority": 10,
-    "catalog_mappings": [
+    "version": "0.1.1",
+    "semantic_model": [
       {
-        "authority_catalog": "main",
-        "execution_catalog": "main"
+        "name": "commerce",
+        "description": "Commerce analytics model",
+        "custom_extensions": [
+          {
+            "vendor_name": "MARIVO",
+            "data": "{\"visibility\":\"private\",\"owner_user\":\"alice\"}"
+          }
+        ],
+        "datasets": [
+          {
+            "name": "orders",
+            "source": "analytics.orders",
+            "primary_key": ["order_id"],
+            "custom_extensions": [
+              {
+                "vendor_name": "MARIVO",
+                "data": "{\"datasource_id\":\"ds_...\"}"
+              }
+            ],
+            "fields": [
+              {
+                "name": "order_id",
+                "expression": {
+                  "dialects": [
+                    {"dialect": "ANSI_SQL", "expression": "order_id"}
+                  ]
+                }
+              },
+              {
+                "name": "order_date",
+                "expression": {
+                  "dialects": [
+                    {"dialect": "ANSI_SQL", "expression": "order_date"}
+                  ]
+                },
+                "dimension": {"is_time": true},
+                "custom_extensions": [
+                  {
+                    "vendor_name": "MARIVO",
+                    "data": "{\"data_type\":\"date\"}"
+                  }
+                ]
+              },
+              {
+                "name": "amount",
+                "expression": {
+                  "dialects": [
+                    {"dialect": "ANSI_SQL", "expression": "amount"}
+                  ]
+                },
+                "custom_extensions": [
+                  {
+                    "vendor_name": "MARIVO",
+                    "data": "{\"data_type\":\"number\"}"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "metrics": [
+          {
+            "name": "order_revenue",
+            "expression": {
+              "dialects": [
+                {"dialect": "ANSI_SQL", "expression": "SUM(amount)"}
+              ]
+            },
+            "custom_extensions": [
+              {
+                "vendor_name": "MARIVO",
+                "data": "{\"observed_dataset\":\"orders\",\"observation_grain\":[\"day\"],\"primary_time_field\":\"order_date\",\"additivity\":{\"dimension_policy\":\"all\",\"time_axis_policy\":\"additive\"}}"
+              }
+            ]
+          }
+        ]
       }
     ]
   }' | jq .
 ```
 
-## Step 4 - Sync the Catalog
-
-Trigger a catalog sync to snapshot the source's schemas and tables:
+## Step 4 - Check Semantic Readiness
 
 ```bash
-# Trigger sync
-curl -s -X POST http://localhost:8000/sources/src_.../sync | jq .
-
-# Poll for completion
-curl -s http://localhost:8000/sources/src_.../sync/sync_... | jq .status
+curl -s http://localhost:8000/semantic-models/commerce/readiness | jq .
 ```
 
-## Step 5 - Create the Semantic Closure
+Common readiness blockers:
 
-Build a minimal reusable semantic layer before running analysis. This example uses one `time`,
-one `entity`, one `metric`, and one typed `binding`.
+| Code | Recovery |
+|------|----------|
+| `datasource_not_found` | Create/select a datasource and put its id in the dataset MARIVO extension |
+| `relation_not_found` | Browse schemas/tables and update `dataset.source` to the live FQN |
+| `field_expression_invalid` | Update `field.expression.dialects[]` for the target datasource dialect |
 
-Create a time semantic:
+## Step 5 - Preview The Grounded Dataset
 
 ```bash
-curl -s -X POST http://localhost:8000/semantic/time \
-  -H "Content-Type: application/json" \
-  -d '{
-    "header": {
-      "time_ref": "time.watch_event_date",
-      "display_name": "Watch Event Date",
-      "semantic_roles": ["measurement"],
-      "time_contract_version": "time.v1"
-    }
-  }' | jq .
+curl -s "http://localhost:8000/datasources/ds_.../catalog/preview?schema=analytics&table=orders&limit=20" | jq .
 ```
 
-Create an entity:
-
-```bash
-curl -s -X POST http://localhost:8000/semantic/entities \
-  -H "Content-Type: application/json" \
-  -d '{
-    "header": {
-      "entity_ref": "entity.user",
-      "display_name": "User",
-      "entity_contract_version": "entity.v1"
-    },
-    "interface_contract": {
-      "identity": {
-        "key_refs": ["key.user_id"],
-        "uniqueness_scope": "global",
-        "id_stability": "stable"
-      },
-      "primary_time_ref": "time.watch_event_date"
-    }
-  }' | jq .
-```
-
-Create a metric:
-
-```bash
-curl -s -X POST http://localhost:8000/semantic/metrics \
-  -H "Content-Type: application/json" \
-  -d '{
-    "header": {
-      "metric_ref": "metric.daily_active_users",
-      "display_name": "Daily Active Users",
-      "metric_family": "count_metric",
-      "observed_entity_ref": "entity.user",
-      "observation_grain_ref": "grain.day",
-      "sample_kind": "numeric",
-      "value_semantics": "count",
-      "aggregation_scope": "window",
-      "primary_time_ref": "time.watch_event_date",
-      "additivity_constraints": {
-        "dimension_policy": "none",
-        "time_axis_policy": "non_additive"
-      },
-      "metric_contract_version": "metric.v1"
-    },
-    "payload": {
-      "metric_family": "count_metric",
-      "count_target": {
-        "name": "active_users",
-        "semantics": "Distinct active users",
-        "aggregation": "count_distinct"
-      }
-    }
-  }' | jq .
-```
-
-Save the returned `time_contract_id`, `entity_contract_id`, and `metric_contract_id`.
-
-## Step 6 - Create an Entity Typed Binding
-
-Link the entity to the physical table with a typed binding. Metric and process objects no longer
-submit their own physical carrier bindings; they resolve physical fields through the entity surface.
-Use the table FQN or `object_id` from Step 4 sync results:
-
-```bash
-curl -s -X POST http://localhost:8000/semantic/bindings \
-  -H "Content-Type: application/json" \
-  -d '{
-    "header": {
-      "binding_ref": "binding.user_watch_events_primary",
-      "display_name": "User Watch Events Binding",
-      "binding_scope": "entity",
-      "bound_object_ref": "entity.user",
-      "binding_contract_version": "binding.v1"
-    },
-    "interface_contract": {
-      "carrier_bindings": [
-        {
-          "binding_key": "primary",
-          "carrier_kind": "table",
-          "carrier_locator": "analytics.watch_events",
-          "binding_role": "primary",
-          "field_surfaces": [
-            { "surface_ref": "field.user_id", "physical_name": "user_id" },
-            { "surface_ref": "field.event_date", "physical_name": "event_date" }
-          ]
-        }
-      ],
-      "field_bindings": [
-        {
-          "carrier_binding_key": "primary",
-          "target": {
-            "target_kind": "primary_time",
-            "target_key": "time.watch_event_date"
-          },
-          "semantic_ref": "time.watch_event_date",
-          "surface_ref": "field.event_date"
-        },
-        {
-          "carrier_binding_key": "primary",
-          "target": {
-            "target_kind": "identity_key",
-            "target_key": "key.user_id"
-          },
-          "semantic_ref": "key.user_id",
-          "surface_ref": "field.user_id"
-        }
-      ]
-    }
-  }' | jq .
-```
-
-## Step 7 - Publish the Semantic Closure
-
-```bash
-curl -s -X POST http://localhost:8000/semantic/time/timec_.../publish | jq .
-curl -s -X POST http://localhost:8000/semantic/entities/entc_.../publish | jq .
-curl -s -X POST http://localhost:8000/semantic/metrics/metc_.../publish | jq .
-curl -s -X POST http://localhost:8000/semantic/bindings/bind_.../publish | jq .
-```
-
-Current metric readiness may still report legacy binding blockers until the compiler/readiness
-cutover is completed. Do not create `binding_scope=metric` or `binding_scope=process_object`
-payloads as a workaround; those scopes are rejected by the public typed binding authoring path.
-
-## Step 8 - Create a Session
+## Step 6 - Create a Session
 
 ```bash
 curl -s -X POST http://localhost:8000/sessions \
   -H "Content-Type: application/json" \
   -d '{
     "goal": {
-      "question": "Investigate watch time drop in January 2024"
+      "question": "Investigate revenue movement in January 2026"
     },
     "governance": {
       "budget": {
@@ -238,78 +191,40 @@ curl -s -X POST http://localhost:8000/sessions \
 
 Save the returned `session_id`.
 
-## Step 9 - Run Analysis Steps
+## Step 7 - Run Analysis Steps
 
-The examples in this section use currently implemented step endpoints. For the target-state per-intent write contract, see [Intent Step Submission](intent-steps.md).
-
-**Compare the metric:**
+The examples in this section use currently implemented step endpoints. For the target-state
+per-intent write contract, see [Intent Step Submission](intent-steps.md).
 
 ```bash
 curl -s -X POST http://localhost:8000/sessions/sess_.../steps/metric_query \
   -H "Content-Type: application/json" \
   -d '{
-    "table": "events.user_video_watch",
-    "metric": "avg_watch_time_minutes",
-    "dimensions": ["device_type"],
+    "table": "analytics.orders",
+    "metric": "order_revenue",
+    "dimensions": ["order_date"],
     "time_scope": {
       "mode": "compare",
       "grain": "day",
       "current": {
-        "start": "2024-01-24",
-        "end": "2024-01-31"
+        "start": "2026-01-01",
+        "end": "2026-02-01"
       },
       "baseline": {
-        "start": "2024-01-17",
-        "end": "2024-01-24"
+        "start": "2025-01-01",
+        "end": "2025-02-01"
       }
-    },
-    "scope": {
-      "constraints": {"region": "us"}
     }
   }' | jq .
 ```
 
-**Run an aggregate query:**
+Record returned artifact and finding refs for follow-up state/context reads.
 
-```bash
-curl -s -X POST http://localhost:8000/sessions/sess_.../steps/aggregate_query \
-  -H "Content-Type: application/json" \
-  -d '{
-    "table": "events.user_video_watch",
-    "group_by": ["device_type", "os_version"],
-    "measures": [
-      {"expr": "AVG(watch_duration_sec)", "as": "avg_watch_sec"},
-      {"expr": "COUNT(*)", "as": "session_count"}
-    ],
-    "time_scope": {
-      "mode": "single_window",
-      "grain": "day",
-      "current": {
-        "start": "2024-01-24",
-        "end": "2024-01-31"
-      }
-    },
-    "scope": {
-      "predicate": "watch_duration_sec > 30"
-    }
-  }' | jq .
-```
-
-## Step 10 - Review Canonical State
+## Step 8 - Read Session Evidence
 
 ```bash
 curl -s http://localhost:8000/sessions/sess_.../state | jq .
 ```
 
----
-
-## Next Steps
-
-- [Intent Step Submission](intent-steps.md) - target-state per-intent step write contract
-- [Session Lifecycle](session-lifecycle.md) - session root lifecycle contract
-- [Session State Surface](session-state.md) - canonical session-level decision surface
-- [Context Surface](context-surface.md) - canonical proposition-level minimal closure
-- [Progressive OpenAPI Access](openapi.md) - path- and schema-focused contract retrieval
-- [Mappings](mappings.md) - minimal source-to-engine projection write/read surface
-- [Semantic Layer](semantic.md) - entities, metrics, mappings, and catalog search
-- [Governance](governance.md) - policies and quality rules
+Use evidence refs from session state and proposition context as the durable output surface. Live
+catalog browse is for grounding and inspection, not for replacing session evidence.

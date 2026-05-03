@@ -1,16 +1,19 @@
 # Datasources
 
-Datasources represent metadata authority catalogs. In the current runtime, supported datasource types are
-`duckdb` and `trino` only. After registering a datasource, you trigger a sync to snapshot its schema
-and table metadata into Marivo's local metadata store. Post-sync, all stored metadata queries hit
-SQLite; the external system is not queried at read time.
+Datasources register external catalog connections for Marivo. The current runtime supports
+`duckdb` and `trino`.
 
-A datasource never declares execution-side catalog projection. Datasource-to-engine projection is governed
-only by [`/mappings`](mappings.md); datasource objects keep their source-side identity through
-`authority_locator`.
+Datasource metadata is live. Marivo does not snapshot schemas, tables, columns, or table
+properties into a persisted catalog cache. Use the browse and preview endpoints to inspect the
+external datasource directly, then persist physical grounding in the semantic model through:
 
-`marivo.yaml` does not carry datasource inventory. Datasources are registered and managed only through the
-HTTP API.
+- `dataset.custom_extensions[].data.datasource_id`: selects the datasource
+- `dataset.source`: datasource-local relation FQN, usually `schema.table` or `catalog.schema.table`
+- `field.expression`: physical column name or computed SQL expression for the field
+
+Datasources do not declare execution-side catalog projection. In the dataset-native runtime,
+execution is resolved from datasource-backed dataset context. `marivo.yaml` does not carry
+datasource inventory; datasources are registered and managed through the HTTP API.
 
 ## Endpoints
 
@@ -21,18 +24,10 @@ HTTP API.
 | `GET` | `/datasources/{datasource_id}` | Get a datasource |
 | `PUT` | `/datasources/{datasource_id}` | Update a datasource |
 | `DELETE` | `/datasources/{datasource_id}` | Delete a datasource |
-| `POST` | `/datasources/{datasource_id}/sync` | Trigger catalog sync |
-| `GET` | `/datasources/{datasource_id}/sync/{job_id}` | Get sync job status |
-| `GET` | `/datasources/{datasource_id}/sync/selections` | List sync selections |
-| `POST` | `/datasources/{datasource_id}/sync/selections` | Set sync selections |
-| `DELETE` | `/datasources/{datasource_id}/sync/selections` | Clear all sync selections |
-| `DELETE` | `/datasources/{datasource_id}/sync/selections/{selection_id}` | Remove one sync selection |
-| `GET` | `/datasources/{datasource_id}/browse/schemas` | Browse datasource schemas (live) |
-| `GET` | `/datasources/{datasource_id}/browse/tables` | Browse datasource tables (live) |
-| `GET` | `/datasources/{datasource_id}/catalog/preview` | Preview table rows (live) |
-| `GET` | `/datasources/{datasource_id}/objects` | List synced source objects |
-| `GET` | `/datasources/{datasource_id}/objects/{object_id}` | Get one synced source object |
-| `PATCH` | `/datasources/{datasource_id}/objects/{object_id}/properties` | Update object properties |
+| `GET` | `/datasources/{datasource_id}/browse/schemas` | Browse schemas live |
+| `GET` | `/datasources/{datasource_id}/browse/tables?schema_name=...` | Browse tables live |
+| `GET` | `/datasources/{datasource_id}/browse/columns?schema_name=...&table_name=...` | Browse columns live |
+| `GET` | `/datasources/{datasource_id}/catalog/preview?schema=...&table=...` | Preview rows live |
 
 ## Component Schemas
 
@@ -40,20 +35,16 @@ HTTP API.
 |-------------|---------|
 | `DatasourceRegisterRequest` | `POST /datasources` request |
 | `DatasourceUpdateRequest` | `PUT /datasources/{id}` request |
-| `DatasourceResponse` | all datasource CRUD responses |
+| `DatasourceResponse` | datasource CRUD responses |
+| `DatasourceDeleteResponse` | `DELETE /datasources/{id}` response |
 | `DuckDbDatasourceConnection` | `connection` variant for `duckdb` |
 | `TrinoDatasourceConnection` | `connection` variant for `trino` |
-| `SyncTriggerResponse` | `POST /datasources/{id}/sync` |
-| `SyncJobStatusResponse` | `GET /datasources/{id}/sync/{job_id}` |
-| `SyncSelectionResponse` | selections list and create |
 | `BrowseSchemaItem` | schema browse list |
 | `BrowseTableItem` | table browse list |
+| `DatasourceColumnResponse` | column browse list |
 | `TablePreviewResponse` | catalog preview |
-| `SourceObjectResponse` | synced object list and detail |
 
 Retrieve a schema fragment: `GET /openapi/schemas/DatasourceResponse`
-
----
 
 ## Register Datasource
 
@@ -61,27 +52,41 @@ Retrieve a schema fragment: `GET /openapi/schemas/DatasourceResponse`
 POST /datasources
 ```
 
-Registers a new datasource. The datasource type determines which catalog adapter is used.
+Registers a datasource. The datasource type determines which live catalog adapter is used.
 
-### Request Body
+### DuckDB Request
 
 ```json
 {
   "datasource_type": "duckdb",
   "display_name": "Analytics DuckDB",
-  "authority": {
-    "catalog_system": "duckdb",
-    "connection": {
-      "path": "/data/analytics.duckdb"
-    },
-    "synthetic_catalog": "main"
-  },
-  "sync": {
-    "mode": "selected"
+  "connection": {
+    "path": "/data/analytics.duckdb"
   },
   "policy": {
     "allow_live_browse": true,
-    "allow_sync": true
+    "allow_identity_reuse": false
+  }
+}
+```
+
+### Trino Request
+
+```json
+{
+  "datasource_type": "trino",
+  "display_name": "Warehouse Trino",
+  "connection": {
+    "host": "trino.example.com",
+    "port": 8080,
+    "user": "analyst",
+    "catalog": "iceberg",
+    "http_scheme": "https",
+    "session_properties": {}
+  },
+  "policy": {
+    "allow_live_browse": true,
+    "allow_identity_reuse": false
   }
 }
 ```
@@ -90,77 +95,37 @@ Registers a new datasource. The datasource type determines which catalog adapter
 |-------|------|----------|-------------|
 | `datasource_type` | string | yes | Adapter type: `"duckdb"` or `"trino"` |
 | `display_name` | string | yes | Human-readable name |
-| `authority` | object | yes | Metadata authority contract with `catalog_system`, `connection`, and optional `synthetic_catalog` |
-| `sync` | object | no | Sync policy (`selected`, `all`, `none`) |
-| `policy` | object | no | Operator control-plane flags |
+| `connection` | object | yes | Datasource connection payload; the service injects `datasource_type` for response validation |
+| `policy.allow_live_browse` | boolean | no | Allows live schema/table/column browse |
+| `policy.allow_identity_reuse` | boolean | no | Operator flag for future identity reuse control |
 
-**DuckDB connection parameters:**
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `path` | string | Recommended absolute path to the `.duckdb` file |
-| `database` | string | Supported alias for `path` |
-| `db_path` | string | Supported alias for `path` |
-
-**Trino connection parameters:**
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `host` | string | Trino coordinator host |
-| `port` | integer | Port (default: `8080`) |
-| `user` | string | Trino user |
-| `catalog` | string | Default Trino catalog |
-| `schema` | string | Default Trino schema |
-| `http_scheme` | string | `"http"` or `"https"` (default: `"http"`) |
+DuckDB accepts `path`, `database`, or `db_path`; prefer an absolute `path`.
 
 ### Response
 
 ```json
 {
-  "datasource_id": "src_a1b2c3d4e5f6",
+  "datasource_id": "ds_a1b2c3d4e5f6",
   "datasource_type": "duckdb",
   "display_name": "Analytics DuckDB",
-  "authority": {
-    "catalog_system": "duckdb",
-    "connection": {"path": "/data/analytics.duckdb"},
-    "synthetic_catalog": "main"
+  "connection": {
+    "datasource_type": "duckdb",
+    "path": "/data/analytics.duckdb"
   },
-  "sync": {"mode": "selected"},
-  "intrinsic_capabilities": {"supports_partitions": false},
   "policy": {
     "allow_live_browse": true,
-    "allow_sync": true
+    "allow_identity_reuse": false
   },
   "status": "active",
   "readiness_status": "ready",
   "failure_code": null,
-  "mappings": [],
-  "created_at": "2024-01-15T10:00:00+00:00",
-  "updated_at": "2024-01-15T10:00:00+00:00"
+  "created_at": "2026-05-03T10:00:00+00:00",
+  "updated_at": "2026-05-03T10:00:00+00:00"
 }
 ```
 
-The canonical response model is `DatasourceResponse`. `authority`, `sync`, `intrinsic_capabilities`,
-`policy`, and `mappings` are structured sub-objects; `intrinsic_capabilities`,
-`readiness_status`, and `failure_code` are read-only derived fields.
-
-`mappings` is a summary of mapping objects that govern this datasource. It is not embedded datasource
-configuration and does not let a datasource carry execution namespace defaults.
-
-`readiness_status` is derived from datasource validation. A datasource stays `not_ready` when the
-authority connection is incomplete or when a datasource without a native catalog layer lacks a stable
-`synthetic_catalog`. `failure_code` exposes the current blocker, such as
-`datasource_invalid_connection` or `datasource_missing_synthetic_catalog`.
-
-**Sync modes:**
-
-| Value | Description |
-|-------|-------------|
-| `selected` | Sync only tables listed in sync selections (default) |
-| `all` | Sync the full authority catalog |
-| `none` | Disable automatic sync |
-
----
+`readiness_status` is derived from datasource validation. A datasource can be `not_ready` when
+its connection is incomplete or the live adapter cannot be constructed.
 
 ## List Datasources
 
@@ -168,13 +133,7 @@ authority connection is incomplete or when a datasource without a native catalog
 GET /datasources
 ```
 
-Returns all registered datasources.
-
-### Response
-
-Array of `DatasourceResponse` objects.
-
----
+Returns all registered datasources as `DatasourceResponse` objects.
 
 ## Get Datasource
 
@@ -182,11 +141,8 @@ Array of `DatasourceResponse` objects.
 GET /datasources/{datasource_id}
 ```
 
-The detail surface includes a `mappings` array summarizing the mappings that currently govern the
-datasource. Each entry exposes `mapping_id`, `engine_id`, `status`, `readiness_status`,
-`failure_code`, and the mapping's `catalog_mappings`.
-
----
+Returns one datasource. This response does not include catalog tables or columns; browse endpoints
+query the datasource live when that information is needed.
 
 ## Update Datasource
 
@@ -194,42 +150,22 @@ datasource. Each entry exposes `mapping_id`, `engine_id`, `status`, `readiness_s
 PUT /datasources/{datasource_id}
 ```
 
-### Request Body
-
-All fields are optional; only provided fields are updated.
+All fields are optional. When `connection` is provided, send the full connection object for the
+target datasource type.
 
 ```json
 {
   "display_name": "Production Analytics DuckDB",
-  "authority": {
-    "catalog_system": "duckdb",
-    "connection": {
-      "path": "/data/prod_analytics.duckdb"
-    },
-    "synthetic_catalog": "main"
-  },
-  "sync": {
-    "mode": "selected"
+  "connection": {
+    "datasource_type": "duckdb",
+    "path": "/data/prod_analytics.duckdb"
   },
   "policy": {
     "allow_live_browse": true,
-    "allow_sync": true
+    "allow_identity_reuse": false
   }
 }
 ```
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `display_name` | string | New display name |
-| `authority` | object | Updated authority contract |
-| `sync` | object | Updated sync contract |
-| `policy` | object | Updated operator policy |
-
-### Response
-
-Returns `DatasourceResponse`.
-
----
 
 ## Delete Datasource
 
@@ -237,358 +173,168 @@ Returns `DatasourceResponse`.
 DELETE /datasources/{datasource_id}
 ```
 
-Deletes the datasource and its synced objects. Will fail if the datasource has dependent mappings.
-
-### Response
-
-```json
-{"status": "deleted", "datasource_id": "src_..."}
-```
-
----
-
-## Trigger Sync
-
-```
-POST /datasources/{datasource_id}/sync
-```
-
-Triggers a catalog sync job. The job snapshots schemas, tables, and columns from the external datasource into the local metadata store. Stale objects (present in prior sync but absent from current sync) are automatically removed.
-
-If `sync.mode` is `selected`, only tables listed in sync selections are synced. If it is `all`,
-Marivo syncs the full authority catalog.
-
-For Trino datasources, table detail sync also attempts to capture table properties. Marivo reads both
-connector hidden metadata tables such as `"table$properties"` and explicit `WITH (...)` properties
-from `SHOW CREATE TABLE` when available, so Hive and Iceberg-backed tables can both surface table
-property metadata in synced `source_objects`.
-
-### Response
+Deletes the datasource registration.
 
 ```json
 {
-  "job_id": "sync_a1b2c3d4e5f6",
-  "datasource_id": "src_...",
-  "status": "running"
+  "datasource_id": "ds_a1b2c3d4e5f6",
+  "deleted": true
 }
 ```
 
-The sync runs asynchronously. Poll `GET /datasources/{datasource_id}/sync/{job_id}` for completion.
-
----
-
-## Get Sync Job Status
-
-```
-GET /datasources/{datasource_id}/sync/{job_id}
-```
-
-### Response
-
-```json
-{
-  "job_id": "sync_...",
-  "datasource_id": "src_...",
-  "job_type": "full_sync",
-  "status": "completed",
-  "started_at": "2024-01-15T10:01:00+00:00",
-  "finished_at": "2024-01-15T10:01:08+00:00",
-  "objects_synced": 142,
-  "error_message": null
-}
-```
-
-**Sync job status values:** `pending`, `running`, `completed`, `failed`
-
----
-
-## Sync Selections
-
-Sync selections allow fine-grained control over which tables to include when `sync.mode` is `selected`. Each selection specifies a schema + table pair.
-
-### List Sync Selections
-
-```
-GET /datasources/{datasource_id}/sync/selections
-```
-
-**Response:**
-
-```json
-[
-  {
-    "selection_id": "sel_...",
-    "datasource_id": "src_...",
-    "schema_name": "events",
-    "table_name": "user_video_watch",
-    "created_at": "2024-01-15T10:00:00+00:00"
-  }
-]
-```
-
-### Set Sync Selections
-
-```
-POST /datasources/{datasource_id}/sync/selections
-```
-
-Adds new selections (non-destructive; existing selections are preserved). Duplicate entries are silently ignored.
-
-**Request body:**
-
-```json
-{
-  "selections": [
-    {"schema_name": "events", "table_name": "user_video_watch"},
-    {"schema_name": "events", "table_name": "user_sessions"}
-  ]
-}
-```
-
-**Response:** Array of created selection objects.
-
-### Clear All Sync Selections
-
-```
-DELETE /datasources/{datasource_id}/sync/selections
-```
-
-Removes all sync selections for the datasource.
-
-**Response:**
-
-```json
-{"status": "cleared", "datasource_id": "src_..."}
-```
-
-### Remove One Selection
-
-```
-DELETE /datasources/{datasource_id}/sync/selections/{selection_id}
-```
-
-**Response:**
-
-```json
-{"status": "deleted", "selection_id": "sel_..."}
-```
-
----
-
-## Browse Schemas (Live)
+## Browse Schemas
 
 ```
 GET /datasources/{datasource_id}/browse/schemas
 ```
 
-Queries the external datasource directly (not the local snapshot) to list available schemas. Useful for exploring before configuring sync selections.
-For cataloged backends such as Trino, the live schema list is scoped to the datasource's configured
-catalog rather than aggregating every catalog visible to the connection.
-
-### Response
-
-```json
-[
-  {"schema_name": "events", "table_count": 12},
-  {"schema_name": "dimensions", "table_count": 5}
-]
-```
-
----
-
-## Browse Tables (Live)
-
-```
-GET /datasources/{datasource_id}/browse/tables?schema=events
-```
-
-Queries the external datasource directly for tables in a specific schema.
-For Trino datasources, live table browse should enumerate tables from the requested schema within the
-datasource's configured catalog; do not treat the connection's default schema as the browse target.
-Admin UI note: `Manage Selections` should treat the schema dropdown as the single source of truth
-and ignore stale table-list responses from earlier schema requests so the checklist always matches
-the currently selected schema.
-
-### Query Parameters
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `schema` | string | yes | Schema name to browse |
-
-### Response
+Queries the external datasource directly.
 
 ```json
 [
   {
-    "table_name": "user_video_watch",
-    "schema_name": "events",
-    "row_count": 15234891,
-    "column_count": 18
+    "schema_name": "analytics",
+    "table_count": 12
   }
 ]
 ```
 
----
-
-## Preview Table (Live)
+## Browse Tables
 
 ```
-GET /datasources/{datasource_id}/catalog/preview
+GET /datasources/{datasource_id}/browse/tables?schema_name=analytics
 ```
 
-Queries the external datasource directly to preview sample rows from a table.
-Useful for inspecting actual data values when configuring semantic bindings,
-especially for determining timestamp formats and column data types.
+Returns tables in one live schema.
 
-### Query Parameters
+```json
+[
+  {
+    "schema_name": "analytics",
+    "table_name": "orders",
+    "row_count": null,
+    "column_count": 8
+  }
+]
+```
 
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `schema` | string | yes | Schema name |
-| `table` | string | yes | Table name |
-| `limit` | integer | no | Max rows to return (default 100, max 1000) |
-| `columns` | string | no | Comma-separated column names to select |
-| `filters` | string | no | JSON object or array of `{column,value}` equality filters. Column names must exist on the table; values must be scalar. Raw SQL predicates are rejected. |
+## Browse Columns
 
-### Response
+```
+GET /datasources/{datasource_id}/browse/columns?schema_name=analytics&table_name=orders
+```
+
+Returns live columns for one relation. Use this endpoint to choose `field.expression` values in
+the semantic model.
+
+```json
+[
+  {
+    "name": "order_id",
+    "schema_name": "analytics",
+    "table_name": "orders",
+    "data_type": "VARCHAR",
+    "properties": {}
+  },
+  {
+    "name": "order_date",
+    "schema_name": "analytics",
+    "table_name": "orders",
+    "data_type": "DATE",
+    "properties": {}
+  }
+]
+```
+
+## Preview Table
+
+```
+GET /datasources/{datasource_id}/catalog/preview?schema=analytics&table=orders&limit=20
+```
+
+Runs a bounded live preview query. Use it to inspect example values before publishing semantic
+datasets and fields.
+
+Optional query parameters:
+
+| Parameter | Description |
+|-----------|-------------|
+| `limit` | requested row limit; adapters clamp to a maximum |
+| `columns` | comma-separated column list |
+| `filters` | JSON object, or array of `{column,value}` equality filters |
 
 ```json
 {
-  "datasource_id": "src_...",
-  "schema_name": "events",
-  "table_name": "user_sessions",
+  "datasource_id": "ds_a1b2c3d4e5f6",
+  "schema_name": "analytics",
+  "table_name": "orders",
   "columns": [
-    {"name": "user_id", "type": "VARCHAR"},
-    {"name": "event_time", "type": "TIMESTAMP"}
+    {"name": "order_id", "type": "VARCHAR"},
+    {"name": "amount", "type": "DOUBLE"}
   ],
   "rows": [
-    {"user_id": "user_001", "event_time": "2024-01-15T10:30:00"},
-    {"user_id": "user_002", "event_time": "2024-01-15T11:45:00"}
+    {"order_id": "o_001", "amount": 42.5}
   ],
-  "row_count": 2,
+  "row_count": 1,
   "truncated": false,
-  "limit_requested": 100,
-  "limit_applied": 100,
-  "filters_applied": {"event_state": "FAILED"}
+  "limit_requested": 20,
+  "limit_applied": 20,
+  "filters_applied": null
 }
 ```
 
-### Error Responses
+## Dataset-Native Grounding Flow
 
-- **404**: Datasource or table not found
-- **400**: Invalid column names, filter columns, filter shape, or limit value
+1. Register a datasource.
+2. Browse schemas, tables, and columns live.
+3. Create or import an OSI semantic model.
+4. Put the datasource id in the dataset MARIVO extension.
+5. Put the datasource-local relation FQN in `dataset.source`.
+6. Put column names or computed expressions in each `field.expression`.
+7. Define metrics, dimensions, predicates, and relationships against datasets and fields.
+8. Check semantic model readiness; repair datasource, relation, or field-expression blockers.
 
----
-
-## List Source Objects
-
-```
-GET /datasources/{datasource_id}/objects
-```
-
-Returns synced objects from the local metadata store. These are snapshots taken during the last sync.
-Table objects expose table-level metadata only. Column metadata is exposed through child
-`object_type: "column"` objects instead of being duplicated in `table.properties.columns`.
-
-### Query Parameters
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `type` | string | Filter by object type: `schema`, `table`, `column` |
-| `schema` | string | Filter by authority schema name from `authority_locator.schema` |
-
-### Response
-
-```json
-[
-  {
-    "object_id": "obj_...",
-    "datasource_id": "src_...",
-    "object_type": "table",
-    "parent_id": "obj_...",
-    "native_name": "user_video_watch",
-    "fqn": "main.events.user_video_watch",
-    "authority_locator": {
-      "catalog": "main",
-      "schema": "events",
-      "table": "user_video_watch"
-    },
-    "properties": {
-      "row_count": 15234891,
-      "column_count": 42,
-      "partition_columns": ["event_date"],
-      "time_capabilities": {
-        "analysis_time": {
-          "timestamp_column": "event_time",
-          "fallback_date_column": "event_date"
-        },
-        "partition_time": {
-          "date_column": "event_date"
-        },
-        "default_compare_grain": "day"
-      }
-    },
-    "synced_at": "2024-01-15T10:01:08+00:00"
-  }
-]
-```
-
-`authority_locator` is the stable datasource-side locator frozen during sync. `fqn` is derived from that
-locator and uses the same `catalog.schema.table` prefix for tables.
-
-**Object types:**
-
-| Type | Description |
-|------|-------------|
-| `schema` | Database schema |
-| `table` | Table or view |
-| `column` | Column within a table |
-| `partition` | Partition (if supported by the adapter) |
-
-For typed time resolution, table-level `properties.time_capabilities` is the datasource-metadata hint consumed after semantic-entity overrides and before field-name heuristics.
-
----
-
-## Get Source Object
-
-```
-GET /datasources/{datasource_id}/objects/{object_id}
-```
-
-Returns one synced source object from the local metadata store. This is the detail form of the list endpoint and returns the same payload shape as one item from `GET /datasources/{datasource_id}/objects`.
-
-### Response
+Example dataset fragment:
 
 ```json
 {
-  "object_id": "obj_...",
-  "datasource_id": "src_...",
-  "object_type": "table",
-  "parent_id": "obj_...",
-  "native_name": "user_video_watch",
-  "native_id": null,
-  "fqn": "main.events.user_video_watch",
-  "authority_locator": {
-    "catalog": "main",
-    "schema": "events",
-    "table": "user_video_watch"
-  },
-  "properties": {
-    "row_count": 15234891,
-    "partition_columns": ["event_date"]
-  },
-  "sync_version": "sync_a1b2c3d4e5f6",
-  "synced_at": "2024-01-15T10:01:08+00:00"
+  "name": "orders",
+  "source": "analytics.orders",
+  "primary_key": ["order_id"],
+  "custom_extensions": [
+    {
+      "vendor_name": "MARIVO",
+      "data": "{\"datasource_id\":\"ds_a1b2c3d4e5f6\"}"
+    }
+  ],
+  "fields": [
+    {
+      "name": "order_id",
+      "expression": {
+        "dialects": [
+          {"dialect": "ANSI_SQL", "expression": "order_id"}
+        ]
+      }
+    },
+    {
+      "name": "amount",
+      "expression": {
+        "dialects": [
+          {"dialect": "ANSI_SQL", "expression": "amount"}
+        ]
+      }
+    }
+  ]
 }
 ```
 
-Returns `404` if the datasource does not exist or if the object is not present under that datasource.
+## Error Semantics
 
----
+Common datasource and dataset-native readiness failures:
 
-## Error semantics
-
-- `400`: sync disabled, no selections configured, invalid query parameters
-- `404`: datasource or object not found
-- `409`: datasource has dependent mappings (delete conflict)
-- `422`: request validation failed (malformed connection payload, unknown `datasource_type`)
+| Code | Meaning | Recovery |
+|------|---------|----------|
+| `datasource_not_found` | A dataset references a missing datasource id | Create/select a datasource and put its id in the dataset MARIVO extension |
+| `relation_not_found` | `dataset.source` does not resolve through live browse | Browse schemas/tables and update `dataset.source` to the live FQN |
+| `field_expression_invalid` | A field expression cannot be compiled or resolved | Update `field.expression.dialects[]` for the target datasource dialect |
+| `datasource_not_ready` | The datasource adapter cannot currently browse or execute | Repair the datasource connection or adapter configuration |

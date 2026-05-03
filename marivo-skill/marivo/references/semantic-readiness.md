@@ -58,23 +58,23 @@ Main readiness-facing fields:
 - `dependent_refs`
 - `field_dependency_graph` on entity detail when a blocker names an entity field
 
-Legacy binding readiness capabilities:
+Legacy coverage readiness capabilities:
 
 - `required_targets`: target coverage required by the bound semantic contract
-- `covered_targets`: targets covered locally by the binding
+- `covered_targets`: targets covered locally by older semantic records
 - `imported_covered_targets`: targets covered through eligible published same-source imports
 - `missing_required_targets`: required coverage that is still absent
 - `covers_required_targets`: true only when required coverage is complete
 
 Use these fields when they appear on older objects. For entity-centric metrics, missing component
 `input_field_ref` values such as `numerator.input_field_ref` or `denominator.input_field_ref`
-are metric contract problems, not source sync problems. The referenced entity fields must resolve
-through published entity grounding before runtime validation can use the metric.
+are metric contract problems, not catalog-cache problems. In the current dataset-native path, the
+referenced fields must resolve through OSI datasets and fields before runtime validation can use the metric.
 
 Entity-field readiness checks:
 
 - `missing_entity_field`: inspect the entity `fields[]`; add or correct the field there
-- `missing_entity_binding`: inspect `entity.interface_contract.binding` and synced source metadata
+- `missing_entity_binding`: older blocker name; inspect dataset/field grounding before adding any compatibility object
 - `ambiguous_field_ref`: replace local or shorthand refs with `entity.<entity>.field.<field>`
 - invalid field type blockers: fix the entity field `value_type` or the dependent time/dimension/predicate/metric contract
 
@@ -161,10 +161,9 @@ the new entity-field grounding path:
 
 ## Typical Troubleshooting Order
 
-- missing grounding or binding coverage: inspect entity field blockers first, then entity detail
-  `interface_contract.binding` / `fields`; do not add metric/time/process-owned grounding
+- missing grounding or coverage: inspect dataset/field blockers first; do not add metric/time/process-owned grounding
 - incomplete entity grounding coverage: inspect `capabilities.missing_required_targets`, the
-  entity-owned `fields` / `interface_contract.binding`, and any missing relationship/profile
+  dataset-owned `fields`, and any missing relationship/profile
   alignment before changing downstream metric/time/process contracts
 - predicate gate failure: inspect predicate detail for contract/usage/scope gate blockers
 - mapping readiness failure: inspect mapping detail for failure_code and source/engine status
@@ -183,4 +182,4 @@ the new entity-field grounding path:
 ## Read Next
 
 - Read `semantic-layer.md` when the blocker requires a semantic design or dependency-order change.
-- Read `infrastructure.md` when the blocker is really a sync, routing, mapping, or grounding problem.
+- Read `infrastructure.md` when the blocker is really a datasource browse, routing, mapping, or grounding problem.
