@@ -66,11 +66,6 @@ class MySQLMetadataDDLTests(unittest.TestCase):
         ddl = "\n".join(MYSQL_METADATA_DDL)
 
         self.assertIn(
-            "ALTER TABLE source_objects ADD CONSTRAINT fk_source_objects_datasource_id "
-            "FOREIGN KEY (datasource_id) REFERENCES datasources(datasource_id)",
-            ddl,
-        )
-        self.assertIn(
             "ALTER TABLE step_metadata ADD CONSTRAINT fk_step_metadata_step_id "
             "FOREIGN KEY (step_id) REFERENCES steps(step_id) ON DELETE CASCADE",
             ddl,

@@ -322,7 +322,8 @@ class SQLiteMetadataStoreTests(unittest.TestCase):
             """
             SELECT name
             FROM sqlite_master
-            WHERE type = 'table' AND (name LIKE '%legacy%' OR sql LIKE '%__legacy%')
+            WHERE type = 'table'
+              AND (name LIKE '%legacy%' OR sql LIKE '%__legacy%')
             """
         )
         self.assertEqual(legacy_rows, [])
@@ -337,6 +338,9 @@ class SQLiteMetadataStoreTests(unittest.TestCase):
         self.assertNotIn("sources", tables)
         self.assertNotIn("engines", tables)
         self.assertNotIn("source_execution_mappings", tables)
+        self.assertNotIn("source_objects", tables)
+        self.assertNotIn("sync_jobs", tables)
+        self.assertNotIn("sync_selections", tables)
 
     def test_execute_and_query(self) -> None:
         self.store.execute(
@@ -371,16 +375,6 @@ class SQLiteMetadataStoreTests(unittest.TestCase):
         rows = self.store.query_rows("SELECT * FROM sessions")
         self.assertEqual(len(rows), 2)
 
-    def test_initialize_creates_source_object_lookup_index(self) -> None:
-        rows = self.store.query_rows("PRAGMA index_list(source_objects)")
-        index_names = {str(row["name"]) for row in rows}
-        self.assertIn("idx_source_objects_datasource_fqn", index_names)
-
-    def test_initialize_uses_current_source_object_schema(self) -> None:
-        rows = self.store.query_rows("PRAGMA table_info(source_objects)")
-        column_names = {str(row["name"]) for row in rows}
-        self.assertIn("authority_locator_json", column_names)
-
     def test_initialize_uses_current_metric_schema(self) -> None:
         rows = self.store.query_rows("PRAGMA table_info(semantic_metric_contracts)")
         column_names = {str(row["name"]) for row in rows}
@@ -390,19 +384,9 @@ class SQLiteMetadataStoreTests(unittest.TestCase):
         self.assertIn("revision_compatibility", column_names)
         self.assertIn("is_latest_active", column_names)
 
-    def test_initialize_uses_current_time_binding_schema(self) -> None:
-        create_sql_row = self.store.query_one(
-            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'time_bindings'"
-        )
-        self.assertIsNotNone(create_sql_row)
-        create_sql = " ".join(str(create_sql_row["sql"]).split())
-        self.assertIn("timestamp_format TEXT", create_sql)
-        self.assertNotIn("timestamp_format TEXT CHECK", create_sql)
-
     def test_new_tables_exist(self) -> None:
         for table in [
             "datasources",
-            "source_objects",
             "semantic_entity_contracts",
             "semantic_entity_key_refs",
             "semantic_entity_stable_descriptors",
@@ -414,7 +398,6 @@ class SQLiteMetadataStoreTests(unittest.TestCase):
             "semantic_enum_sets",
             "semantic_enum_set_versions",
             "semantic_enum_set_values",
-            "sync_jobs",
         ]:
             row = self.store.query_one(f"SELECT COUNT(*) AS cnt FROM {table}")
             self.assertIsNotNone(row, f"Table {table} should exist")
