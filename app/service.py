@@ -622,6 +622,9 @@ class SemanticLayerService:
         )
         metric_header = dict(availability.resolved.semantic_object.get("header") or {})
         metric_additivity_constraints = metric_header.get("additivity_constraints")
+        dataset_resolution = self._dataset_native_metric_resolution(metric_ref)
+        if dataset_resolution is not None:
+            return dataset_resolution
         if resolution is not None and resolution.table_name is not None:
             return MetricExecutionContext(
                 metric_ref=metric_ref,
@@ -696,6 +699,88 @@ class SemanticLayerService:
     ) -> list[dict[str, Any]]:
         _ = (metric_ref, session_id)
         return []
+
+    def _dataset_native_metric_resolution(self, metric_ref: str) -> MetricExecutionContext | None:
+        resolved = self._resolve_runtime_metric_contract(metric_ref)
+        if resolved is None:
+            return None
+        payload = resolved.semantic_object.get("payload") or {}
+        dataset_source = _optional_str(payload.get("dataset_source"))
+        datasource_id = _optional_str(payload.get("datasource_id"))
+        if dataset_source is None or datasource_id is None:
+            return None
+        metric_family = self._metric_family_for_ref(metric_ref)
+        if metric_family is None:
+            return None
+        input_field_map = self._dataset_native_metric_input_field_map(metric_family, payload)
+        authority_locator = self._dataset_source_to_authority_locator(dataset_source)
+        return MetricExecutionContext(
+            metric_ref=metric_ref,
+            table_name=dataset_source,
+            binding_ref=metric_ref,
+            carrier_binding_key=None,
+            source_object_ref=None,
+            carrier_locator=authority_locator,
+            authority_locator=authority_locator,
+            mapping_id=None,
+            execution_locator={**authority_locator, "datasource_id": datasource_id},
+            routing_detail={"resolution_status": "dataset_native", "datasource_id": datasource_id},
+            input_field_map=input_field_map,
+            additivity_constraints=resolved.semantic_object.get("header", {}).get(
+                "additivity_constraints"
+            ),
+        )
+
+    @staticmethod
+    def _dataset_source_to_authority_locator(source: str) -> dict[str, Any]:
+        parts = [part for part in source.split(".") if part]
+        if len(parts) >= 3:
+            return {"catalog": parts[-3], "schema": parts[-2], "table": parts[-1]}
+        if len(parts) == 2:
+            return {"catalog": None, "schema": parts[0], "table": parts[1]}
+        return {"catalog": None, "schema": None, "table": source}
+
+    def _dataset_native_metric_input_field_map(
+        self,
+        metric_family: str,
+        payload: dict[str, Any],
+    ) -> dict[str, str]:
+        fields = payload.get("dataset_fields")
+        available = set(fields) if isinstance(fields, dict) else set()
+        measure_type = _optional_str(payload.get("measure_type"))
+        dimensions = [str(item) for item in list(payload.get("dimensions") or [])]
+
+        def choose(*names: str, default: str) -> str:
+            for name in names:
+                if name in available:
+                    return name
+            return default
+
+        if metric_family == "count_metric":
+            return {"count_target": choose("id", "session_id", default="*")}
+        if metric_family == "sum_metric":
+            return {"measure": choose("value", "play_duration_seconds", default="value")}
+        if metric_family == "average_metric":
+            if measure_type == "average":
+                return {
+                    "numerator": choose("play_duration_seconds", "value", default="value"),
+                    "denominator": choose("session_id", "id", default="id"),
+                }
+            return {
+                "numerator": choose("numerator", "value", default="numerator"),
+                "denominator": choose("denominator", "id", default="denominator"),
+            }
+        if metric_family == "rate_metric":
+            return {
+                "numerator": choose("numerator", "value", default="numerator"),
+                "denominator": choose("denominator", "id", default="denominator"),
+            }
+        if metric_family == "distribution_metric":
+            return {"value_component": choose("value", "play_duration_seconds", default="value")}
+        if metric_family == "score_metric":
+            return {"score_source": choose("value", default="value")}
+        _ = dimensions
+        return {}
 
     def _metric_family_for_ref(self, metric_ref: str) -> str | None:
         resolved = self._resolve_runtime_metric_contract(metric_ref)
@@ -1218,8 +1303,27 @@ class SemanticLayerService:
         metric_ref: str,
         table_name: str,
     ) -> dict[str, set[str]]:
-        _ = (metric_ref, table_name)
-        return {}
+        resolved = self._resolve_runtime_metric_contract(metric_ref)
+        if resolved is None:
+            return {}
+        payload = resolved.semantic_object.get("payload") or {}
+        dataset_source = _optional_str(payload.get("dataset_source"))
+        if dataset_source is not None and not self._table_name_matches_locator(
+            table_name,
+            dataset_source,
+        ):
+            return {}
+        fields = payload.get("dataset_fields")
+        available = set(fields) if isinstance(fields, dict) else set()
+        dimensions = [str(item) for item in list(payload.get("dimensions") or [])]
+        result: dict[str, set[str]] = {}
+        for dimension in dimensions:
+            if dimension == "event_date":
+                continue
+            physical_name = dimension.removeprefix("dimension.")
+            if not available or physical_name in available:
+                result.setdefault(dimension, set()).add(physical_name)
+        return result
 
     def _resolve_scope_constraint_column(
         self,

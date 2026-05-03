@@ -103,9 +103,6 @@ class SQLiteMetadataStore(MetadataStore):
                 "sources",
                 "engines",
                 "source_execution_mappings",
-                "source_objects",
-                "sync_jobs",
-                "sync_selections",
             ):
                 con.execute(f"DROP TABLE IF EXISTS {table_name}")
         finally:

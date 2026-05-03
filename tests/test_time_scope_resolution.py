@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -25,9 +24,9 @@ from tests.semantic_test_helpers import (
     create_typed_metric,
     ensure_published_typed_dimension,
     ensure_published_typed_metric_binding,
-    patch_typed_entity_properties,
     publish_typed_entity,
     publish_typed_metric,
+    seed_duckdb_source_object,
 )
 from tests.shared_fixtures import get_seeded_duckdb_path
 
@@ -631,32 +630,26 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
         from fastapi.testclient import TestClient
 
         cls.client = TestClient(cls.app)
-        source_id = cls.client.post(
-            "/datasources",
-            json={
-                "datasource_type": "duckdb",
-                "display_name": "TSU-05 Datasource",
-                "connection": {"path": str(db_path), "catalog": "main"},
-            },
-        ).json()["datasource_id"]
-        cls.client.post(
-            f"/datasources/{source_id}/sync/selections",
-            json={
-                "selections": [
-                    {"schema_name": "analytics", "table_name": "watch_events"},
-                    {"schema_name": "analytics", "table_name": "player_qoe"},
-                    {"schema_name": "analytics", "table_name": "ad_events"},
-                    {"schema_name": "analytics", "table_name": "recommendation_events"},
-                ]
-            },
+        source_id = "ds_tsu02"
+        cls.watch_events_object_id = "obj_tsu02_watch_events"
+        cls.watch_events_fqn = "analytics.watch_events"
+        seed_duckdb_source_object(
+            cls.service.metadata,
+            source_id=str(source_id),
+            object_id=cls.watch_events_object_id,
+            display_name="TSU-05 Datasource",
+            table_name="watch_events",
+            table_fqn=cls.watch_events_fqn,
+            now="2026-01-01T00:00:00+00:00",
+            db_path=db_path,
+            columns=[
+                ("session_id", "string"),
+                ("event_date", "date"),
+                ("platform", "string"),
+                ("cluster", "string"),
+                ("play_duration_seconds", "number"),
+            ],
         )
-        cls.client.post(f"/datasources/{source_id}/sync")
-        table_objects = {
-            table["native_name"]: table
-            for table in cls.client.get(f"/datasources/{source_id}/objects?type=table").json()
-        }
-        cls.watch_events_object_id = table_objects["watch_events"]["object_id"]
-        cls.watch_events_fqn = str(table_objects["watch_events"]["fqn"])
         cls._setup_semantic_scope()
 
     @classmethod
@@ -682,94 +675,12 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
             name=f"watch_time_tsu02_{suffix}",
             display_name="Watch Time",
             definition_sql="avg(play_duration_seconds)",
-            dimensions=["platform", "event_date"],
+            dimensions=["platform", "event_date", "dimension.cluster"],
             entity_ref=entity_ref,
         )
         metric_id = metric["metric_contract_id"]
         publish_typed_metric(cls.client, metric_id)
         ensure_published_typed_dimension(cls.service.metadata, dimension_name="cluster")
-
-        entity_binding_resp = cls.client.post(
-            "/semantic/bindings",
-            json={
-                "header": {
-                    "binding_ref": f"binding.session_tsu02_{suffix}_entity",
-                    "display_name": "TSU-02 Entity Binding",
-                    "binding_scope": "entity",
-                    "bound_object_ref": entity_ref,
-                    "binding_contract_version": "binding.v1",
-                },
-                "interface_contract": {
-                    "carrier_bindings": [
-                        {
-                            "binding_key": "primary",
-                            "source_object_ref": cls.watch_events_object_id,
-                            "carrier_kind": "table",
-                            "carrier_locator": cls.watch_events_fqn,
-                            "binding_role": "primary",
-                            "field_surfaces": [
-                                {
-                                    "surface_ref": "field.event_date",
-                                    "physical_name": "event_date",
-                                },
-                                {
-                                    "surface_ref": "field.session_id",
-                                    "physical_name": "session_id",
-                                },
-                                {
-                                    "surface_ref": "field.cluster",
-                                    "physical_name": "cluster",
-                                },
-                            ],
-                            "time_surfaces": [
-                                {
-                                    "surface_ref": "time_surface.event_date",
-                                    "physical_name": "event_date",
-                                }
-                            ],
-                        }
-                    ],
-                    "field_bindings": [
-                        {
-                            "carrier_binding_key": "primary",
-                            "target": {
-                                "target_kind": "identity_key",
-                                "target_key": "key.session_id",
-                            },
-                            "semantic_ref": "key.session_id",
-                            "surface_ref": "field.session_id",
-                        },
-                        {
-                            "carrier_binding_key": "primary",
-                            "target": {
-                                "target_kind": "stable_descriptor",
-                                "target_key": "dimension.cluster",
-                            },
-                            "semantic_ref": "dimension.cluster",
-                            "surface_ref": "field.cluster",
-                        },
-                    ],
-                    "time_bindings": [
-                        {
-                            "carrier_binding_key": "primary",
-                            "target": {
-                                "target_kind": "primary_time",
-                                "target_key": "time.event_date",
-                            },
-                            "semantic_ref": "time.event_date",
-                            "resolution_kind": "date_column",
-                            "date_surface_ref": "time_surface.event_date",
-                        }
-                    ],
-                },
-            },
-        )
-        assert entity_binding_resp.status_code == 200, entity_binding_resp.text
-        entity_binding_id = entity_binding_resp.json()["binding_id"]
-        publish_entity_binding_resp = cls.client.post(
-            f"/semantic/bindings/{entity_binding_id}/publish"
-        )
-        assert publish_entity_binding_resp.status_code == 200, publish_entity_binding_resp.text
 
         ensure_published_typed_metric_binding(
             cls.service.metadata,
@@ -779,13 +690,6 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
             surface_name="value",
             surface_physical_name="play_duration_seconds",
             metric_input_target_keys=["count_target"],
-            binding_imports=[
-                {
-                    "import_key": "entity_bridge",
-                    "binding_ref": f"binding.session_tsu02_{suffix}_entity",
-                    "required_ref_prefixes": ["dimension."],
-                }
-            ],
         )
 
         cls.metric_name = f"watch_time_tsu02_{suffix}"
@@ -1440,69 +1344,3 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
         self.assertNotIn("period", result["summary"].lower())
         self.assertIn("current_window", result["debug"])
         self.assertIn("baseline_window", result["debug"])
-
-    def test_service_resolver_ignores_legacy_time_capabilities_when_binding_exists(self) -> None:
-        client = self.client
-        try:
-            table_row = self.service.metadata.query_one(
-                "SELECT object_id, properties_json FROM source_objects WHERE object_type = 'table' AND native_name = ?",
-                ["watch_events"],
-            )
-            self.assertIsNotNone(table_row)
-            original_table_props = table_row["properties_json"] or "{}"
-            table_props = json.loads(original_table_props)
-            table_props["time_capabilities"] = {
-                "analysis_time": {"fallback_date_column": "platform"},
-            }
-            self.service.metadata.execute(
-                "UPDATE source_objects SET properties_json = ? WHERE object_id = ?",
-                [json.dumps(table_props), table_row["object_id"]],
-            )
-
-            entity_row = self.service.metadata.query_one(
-                "SELECT properties_json FROM semantic_entity_contracts WHERE entity_contract_id = ?",
-                [self.entity_id],
-            )
-            self.assertIsNotNone(entity_row)
-            original_entity_props = entity_row["properties_json"] or "{}"
-            patch_typed_entity_properties(
-                client,
-                self.entity_id,
-                {"time_capabilities": {"analysis_time": {"fallback_date_column": "platform"}}},
-            )
-
-            request = normalize_metric_query_request(
-                {
-                    "table": "analytics.watch_events",
-                    "metric": self.metric_name,
-                    "time_scope": {
-                        "mode": "compare",
-                        "grain": "day",
-                        "current": {"start": "2026-03-10", "end": "2026-03-17"},
-                        "baseline": {"start": "2026-03-03", "end": "2026-03-10"},
-                    },
-                }
-            )
-            self.service._resolve_windowed_query_time_axis(
-                request,
-                engine_type="duckdb",
-                metric_name=self.metric_name,
-                fallback_columns=["event_date", "platform"],
-            )
-        finally:
-            self.service.metadata.execute(
-                "UPDATE source_objects SET properties_json = ? WHERE object_id = ?",
-                [original_table_props, table_row["object_id"]],
-            )
-            self.service.metadata.execute(
-                "UPDATE semantic_entity_contracts SET properties_json = ? WHERE entity_contract_id = ?",
-                [original_entity_props, self.entity_id],
-            )
-
-        self.assertEqual(request.resolved_time_axis.analysis_time_kind, "date_field")
-        self.assertEqual(request.resolved_time_axis.analysis_time_expr, "CAST(event_date AS DATE)")
-        self.assertIsNone(request.resolved_time_axis.analysis_time_format)
-        self.assertEqual(
-            request.resolved_time_axis.partition_pruning_predicate,
-            "event_date >= '2026-03-03' AND event_date < '2026-03-17'",
-        )

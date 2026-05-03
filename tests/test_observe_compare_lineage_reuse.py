@@ -10,88 +10,12 @@ import tempfile
 import unittest
 from pathlib import Path
 from typing import Any
-from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
 from app.intents.predicate_lineage_reuse import assert_predicate_lineage_refs_only
 from app.main import create_app
-from app.storage.sqlite_metadata import SQLiteMetadataStore
 from tests.shared_fixtures import get_seeded_duckdb_path
-
-
-def _metadata_from_client(client: TestClient) -> SQLiteMetadataStore:
-    store = getattr(client.app.state, "metadata_store", None)
-    if store is None:
-        store = client.app.state.service.metadata
-    return store
-
-
-def _register_duckdb_runtime(
-    client: TestClient,
-    *,
-    db_path: Path,
-    source_display_name: str,
-    engine_display_name: str,
-) -> str:
-    datasource = client.post(
-        "/datasources",
-        json={
-            "datasource_type": "duckdb",
-            "display_name": source_display_name,
-            "connection": {"path": str(db_path), "catalog": "main"},
-        },
-    ).json()
-    return str(datasource["datasource_id"])
-
-
-def _ensure_source_object(
-    metadata: SQLiteMetadataStore,
-    *,
-    source_id: str,
-    native_name: str,
-    fqn: str,
-    now: str = "2026-01-01T00:00:00",
-) -> str:
-    existing = metadata.query_one(
-        "SELECT object_id FROM source_objects WHERE datasource_id = ? AND fqn = ?",
-        [source_id, fqn],
-    )
-    if existing is not None:
-        return str(existing["object_id"])
-    parent_id: str | None = None
-    fqn_parts = [part for part in fqn.split(".") if part]
-    if len(fqn_parts) >= 2:
-        schema_name = fqn_parts[-2]
-        schema_fqn = ".".join(fqn_parts[:-1])
-        existing_schema = metadata.query_one(
-            "SELECT object_id FROM source_objects WHERE datasource_id = ? AND object_type = 'schema' AND fqn = ?",
-            [source_id, schema_fqn],
-        )
-        if existing_schema is not None:
-            parent_id = str(existing_schema["object_id"])
-        else:
-            parent_id = f"obj_{uuid4().hex[:12]}"
-            metadata.execute(
-                """
-                INSERT INTO source_objects
-                    (object_id, datasource_id, object_type, native_name, fqn,
-                     properties_json, created_at, updated_at)
-                VALUES (?, ?, 'schema', ?, ?, '{}', ?, ?)
-                """,
-                [parent_id, source_id, schema_name, schema_fqn, now, now],
-            )
-    object_id = f"obj_{uuid4().hex[:12]}"
-    metadata.execute(
-        """
-        INSERT INTO source_objects
-            (object_id, datasource_id, object_type, parent_id, native_name, fqn,
-             properties_json, created_at, updated_at)
-        VALUES (?, ?, 'table', ?, ?, ?, '{}', ?, ?)
-        """,
-        [object_id, source_id, parent_id, native_name, fqn, now, now],
-    )
-    return object_id
 
 
 def _insert_observe_artifact(

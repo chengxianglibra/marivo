@@ -61,7 +61,7 @@ Returns operational metrics collected since service startup. Supports JSON and P
     "steps_executed": 318,
     "steps_failed": 7,
     "plans_executed": 15,
-    "sync_jobs_completed": 8
+    "datasource_live_browse_completed": 8
   },
   "histograms": {
     "step_duration_sec": {

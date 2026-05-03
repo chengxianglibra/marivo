@@ -4,10 +4,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from app.datasources import DatasourceService
-from app.source_object_locator import (
-    normalize_source_object_authority_locator,
-    qualify_execution_locator,
-)
+from app.source_object_locator import qualify_execution_locator
 from app.storage.analytics import AnalyticsEngine
 from app.storage.metadata import MetadataStore
 
@@ -95,7 +92,7 @@ class QueryRouter:
     ) -> AnalyticsEngine:
         """Given table names, find a common engine that can query all of them.
 
-        Raises KeyError if a table is not found in source_objects.
+        Raises KeyError if a table is not grounded by a semantic dataset.
         Raises ValueError if no single engine covers all tables.
         """
         route = self.resolve_tables(
@@ -117,7 +114,7 @@ class QueryRouter:
         Returns a ResolvedRoute with the engine, datasource_id, and a mapping
         from native table names to engine-qualified names.
 
-        Raises KeyError if a table is not found in source_objects.
+        Raises KeyError if a table is not grounded by a semantic dataset.
         Raises ValueError if tables belong to different datasources.
         """
         return self.resolve_route(
@@ -146,7 +143,7 @@ class QueryRouter:
         datasource_tables: dict[str, list[str]] = {}
         for table_name in table_names:
             try:
-                resolved_table = self._resolve_table_source_object(table_name)
+                resolved_table = self._resolve_table_dataset(table_name)
             except KeyError as error:
                 return self._failure(
                     code="routing_table_not_found",
@@ -285,14 +282,14 @@ class QueryRouter:
 
     def resolve_execution_locator(
         self,
-        table_source_object: dict[str, Any],
+        table_dataset: dict[str, Any],
     ) -> dict[str, Any]:
-        authority_locator = dict(table_source_object.get("authority_locator") or {})
+        authority_locator = self._source_to_authority_locator(str(table_dataset["source"]))
         return {
             "catalog": authority_locator.get("catalog"),
             "schema": authority_locator.get("schema"),
-            "table": authority_locator.get("table") or table_source_object.get("native_name"),
-            "datasource_id": table_source_object["datasource_id"],
+            "table": authority_locator.get("table"),
+            "datasource_id": table_dataset["datasource_id"],
             "readiness_blockers": [],
             "authority_locator": authority_locator,
         }
@@ -312,108 +309,64 @@ class QueryRouter:
             engine_type=str(datasource.get("datasource_type") or ""),
         )
 
-    def _resolve_table_source_object(self, table_name: str) -> dict[str, Any]:
-        locator_rows = self._lookup_table_rows_by_authority_locator(table_name)
-        if locator_rows:
-            return self._select_table_row_for_locator_lookup(table_name, locator_rows)
+    def _resolve_table_dataset(self, table_name: str) -> dict[str, Any]:
+        source_rows = self._lookup_dataset_rows_by_source(table_name)
+        if source_rows:
+            return self._select_dataset_row(table_name, source_rows)
 
-        short_name = table_name.split(".")[-1]
+        table = table_name.split(".")[-1]
         rows = self.metadata.query_rows(
             """
-            SELECT object_id, datasource_id, parent_id, native_name, fqn, authority_locator_json, updated_at
-            FROM source_objects
-            WHERE object_type = 'table' AND (fqn = ? OR native_name = ?)
-            ORDER BY CASE WHEN fqn = ? THEN 0 ELSE 1 END, updated_at DESC, object_id
+            SELECT dataset_id, model_id, name, source, datasource_id, updated_at
+            FROM semantic_datasets
+            WHERE datasource_id IS NOT NULL
+              AND (
+                  name = ?
+                  OR substr(source, length(source) - length(?) + 1) = ?
+              )
+            ORDER BY CASE WHEN source = ? THEN 0 ELSE 1 END, updated_at DESC, dataset_id
             """,
-            [table_name, short_name, table_name],
+            [table_name, table, table, table_name],
         )
         if not rows:
-            raise KeyError(f"Table not found in source_objects: {table_name}")
+            raise KeyError(f"Table is not grounded by a semantic dataset: {table_name}")
+        return self._select_dataset_row(table_name, [dict(row) for row in rows])
 
-        matched_fqn_rows = [dict(row) for row in rows if str(row["fqn"]) == table_name]
-        if matched_fqn_rows:
-            return self._row_to_source_object(matched_fqn_rows[0])
-
-        if len(rows) > 1:
-            if len({str(row["fqn"]) for row in rows}) == 1:
-                return self._row_to_source_object(dict(rows[0]))
-            matching_fqns = ", ".join(str(row["fqn"]) for row in rows)
-            raise ValueError(
-                "Ambiguous table name in source_objects; use full FQN: "
-                f"{table_name} -> {matching_fqns}"
+    def _lookup_dataset_rows_by_source(self, table_name: str) -> list[dict[str, Any]]:
+        return [
+            dict(row)
+            for row in self.metadata.query_rows(
+                """
+                SELECT dataset_id, model_id, name, source, datasource_id, updated_at
+                FROM semantic_datasets
+                WHERE datasource_id IS NOT NULL AND source = ?
+                ORDER BY updated_at DESC, dataset_id
+                """,
+                [table_name],
             )
+        ]
 
-        return self._row_to_source_object(dict(rows[0]))
-
-    def _lookup_table_rows_by_authority_locator(self, table_name: str) -> list[dict[str, Any]]:
-        parts = table_name.split(".")
-        if len(parts) == 3:
-            sql = """
-                SELECT object_id, datasource_id, parent_id, native_name, fqn, authority_locator_json, updated_at
-                FROM source_objects
-                WHERE object_type = 'table'
-                  AND json_extract(authority_locator_json, '$.catalog') = ?
-                  AND json_extract(authority_locator_json, '$.schema') = ?
-                  AND json_extract(authority_locator_json, '$.table') = ?
-                ORDER BY updated_at DESC, object_id
-            """
-            params: list[Any] = parts
-        elif len(parts) == 2:
-            sql = """
-                SELECT object_id, datasource_id, parent_id, native_name, fqn, authority_locator_json, updated_at
-                FROM source_objects
-                WHERE object_type = 'table'
-                  AND json_extract(authority_locator_json, '$.schema') = ?
-                  AND json_extract(authority_locator_json, '$.table') = ?
-                ORDER BY updated_at DESC, object_id
-            """
-            params = parts
-        elif len(parts) == 1:
-            sql = """
-                SELECT object_id, datasource_id, parent_id, native_name, fqn, authority_locator_json, updated_at
-                FROM source_objects
-                WHERE object_type = 'table'
-                  AND json_extract(authority_locator_json, '$.table') = ?
-                ORDER BY updated_at DESC, object_id
-            """
-            params = parts
-        else:
-            return []
-        return [dict(row) for row in self.metadata.query_rows(sql, params)]
-
-    def _select_table_row_for_locator_lookup(
-        self, table_name: str, rows: list[dict[str, Any]]
-    ) -> dict[str, Any]:
+    def _select_dataset_row(self, table_name: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
         if len(rows) == 1:
-            return self._row_to_source_object(rows[0])
+            return rows[0]
 
-        if len(table_name.split(".")) == 3:
-            matching_datasources = ", ".join(sorted({str(row["datasource_id"]) for row in rows}))
-            raise ValueError(
-                "Ambiguous table name in source_objects; full authority locator matches multiple "
-                f"datasources: {table_name} -> {matching_datasources}"
-            )
-
-        unique_locators = {
-            self.qualify_table_name(self._row_to_source_object(row)["authority_locator"])
-            for row in rows
-        }
-        if len(unique_locators) == 1:
-            return self._row_to_source_object(rows[0])
-
-        matching_locators = ", ".join(sorted(unique_locators))
+        matching_sources = ", ".join(
+            sorted({f"{row['datasource_id']}:{row['source']}" for row in rows})
+        )
         raise ValueError(
-            "Ambiguous table name in source_objects; use full authority locator FQN: "
-            f"{table_name} -> {matching_locators}"
+            "Ambiguous table name in semantic datasets; use a full dataset.source FQN: "
+            f"{table_name} -> {matching_sources}"
         )
 
-    def _row_to_source_object(self, row: dict[str, Any]) -> dict[str, Any]:
-        source_object = dict(row)
-        source_object["authority_locator"] = normalize_source_object_authority_locator(
-            self.metadata,
-            source_object,
-        )
-        return source_object
+    def _source_to_authority_locator(self, source: str) -> dict[str, str | None]:
+        parts = [part for part in source.split(".") if part]
+        if len(parts) == 3:
+            catalog, schema, table = parts
+            return {"catalog": catalog, "schema": schema, "table": table}
+        if len(parts) == 2:
+            schema, table = parts
+            return {"catalog": None, "schema": schema, "table": table}
+        return {"catalog": None, "schema": None, "table": source}
 
     def _failure(
         self,
