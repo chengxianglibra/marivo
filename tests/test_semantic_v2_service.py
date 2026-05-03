@@ -88,6 +88,12 @@ def _make_model_dict(
                 "name": "orders",
                 "source": "analytics.orders",
                 "primary_key": ["order_id"],
+                "custom_extensions": [
+                    {
+                        "vendor_name": "MARIVO",
+                        "data": json.dumps({"datasource_id": "ds_001"}),
+                    }
+                ],
                 "fields": [
                     {
                         "name": "order_id",
@@ -120,12 +126,6 @@ def _make_model_dict(
                             }
                         ],
                     },
-                ],
-                "custom_extensions": [
-                    {
-                        "vendor_name": "MARIVO",
-                        "data": json.dumps({"datasource_id": "ds_001"}),
-                    }
                 ],
             }
         ],
@@ -188,6 +188,12 @@ def _make_dataset_dict(
         "name": name,
         "source": source,
         "primary_key": ["customer_id"],
+        "custom_extensions": [
+            {
+                "vendor_name": "MARIVO",
+                "data": json.dumps({"datasource_id": "ds_001"}),
+            }
+        ],
         "fields": [
             {
                 "name": "customer_id",
@@ -342,6 +348,12 @@ class TestListSemanticModels(unittest.TestCase):
                             "name": "orders",
                             "source": "analytics.orders",
                             "primary_key": ["order_id"],
+                            "custom_extensions": [
+                                {
+                                    "vendor_name": "MARIVO",
+                                    "data": json.dumps({"datasource_id": "ds_001"}),
+                                }
+                            ],
                             "fields": [
                                 {
                                     "name": "order_id",
@@ -362,6 +374,12 @@ class TestListSemanticModels(unittest.TestCase):
                             "name": "orders",
                             "source": "analytics.orders",
                             "primary_key": ["order_id"],
+                            "custom_extensions": [
+                                {
+                                    "vendor_name": "MARIVO",
+                                    "data": json.dumps({"datasource_id": "ds_001"}),
+                                }
+                            ],
                             "fields": [
                                 {
                                     "name": "order_id",
@@ -396,6 +414,12 @@ class TestListSemanticModels(unittest.TestCase):
                             "name": "orders",
                             "source": "analytics.orders",
                             "primary_key": ["order_id"],
+                            "custom_extensions": [
+                                {
+                                    "vendor_name": "MARIVO",
+                                    "data": json.dumps({"datasource_id": "ds_001"}),
+                                }
+                            ],
                             "fields": [
                                 {
                                     "name": "order_id",
@@ -469,6 +493,12 @@ class TestUpdateSemanticModel(unittest.TestCase):
                             "name": "orders",
                             "source": "analytics.orders",
                             "primary_key": ["order_id"],
+                            "custom_extensions": [
+                                {
+                                    "vendor_name": "MARIVO",
+                                    "data": json.dumps({"datasource_id": "ds_001"}),
+                                }
+                            ],
                             "fields": [
                                 {
                                     "name": "order_id",
@@ -524,6 +554,12 @@ class TestDeleteSemanticModel(unittest.TestCase):
                             "name": "orders",
                             "source": "analytics.orders",
                             "primary_key": ["order_id"],
+                            "custom_extensions": [
+                                {
+                                    "vendor_name": "MARIVO",
+                                    "data": json.dumps({"datasource_id": "ds_001"}),
+                                }
+                            ],
                             "fields": [
                                 {
                                     "name": "order_id",
@@ -945,6 +981,12 @@ class TestVisibilityFiltering(unittest.TestCase):
                             "name": "orders",
                             "source": "analytics.orders",
                             "primary_key": ["order_id"],
+                            "custom_extensions": [
+                                {
+                                    "vendor_name": "MARIVO",
+                                    "data": json.dumps({"datasource_id": "ds_001"}),
+                                }
+                            ],
                             "fields": [
                                 {
                                     "name": "order_id",
@@ -1021,6 +1063,12 @@ class TestImportOSIDocument(unittest.TestCase):
                         {
                             "name": "sales",
                             "source": "analytics.sales",
+                            "custom_extensions": [
+                                {
+                                    "vendor_name": "MARIVO",
+                                    "data": json.dumps({"datasource_id": "ds_001"}),
+                                }
+                            ],
                             "fields": [
                                 {
                                     "name": "sale_id",
@@ -1062,6 +1110,12 @@ class TestImportOSIDocument(unittest.TestCase):
                         {
                             "name": "sales",
                             "source": "analytics.sales",
+                            "custom_extensions": [
+                                {
+                                    "vendor_name": "MARIVO",
+                                    "data": json.dumps({"datasource_id": "ds_001"}),
+                                }
+                            ],
                             "fields": [
                                 {
                                     "name": "sale_id",
@@ -1103,6 +1157,12 @@ class TestImportOSIDocument(unittest.TestCase):
                         {
                             "name": "sales",
                             "source": "analytics.sales",
+                            "custom_extensions": [
+                                {
+                                    "vendor_name": "MARIVO",
+                                    "data": json.dumps({"datasource_id": "ds_001"}),
+                                }
+                            ],
                             "fields": [
                                 {
                                     "name": "sale_id",
@@ -1137,6 +1197,12 @@ class TestImportOSIDocument(unittest.TestCase):
                         {
                             "name": "sales",
                             "source": "analytics.sales",
+                            "custom_extensions": [
+                                {
+                                    "vendor_name": "MARIVO",
+                                    "data": json.dumps({"datasource_id": "ds_001"}),
+                                }
+                            ],
                             "fields": [
                                 {
                                     "name": "sale_id",
@@ -1187,6 +1253,12 @@ class TestImportOSIDocument(unittest.TestCase):
                         {
                             "name": "sales",
                             "source": "analytics.sales",
+                            "custom_extensions": [
+                                {
+                                    "vendor_name": "MARIVO",
+                                    "data": json.dumps({"datasource_id": "ds_001"}),
+                                }
+                            ],
                             "fields": [
                                 {
                                     "name": "sale_id",
@@ -1230,6 +1302,12 @@ class TestImportOSIDocument(unittest.TestCase):
                         {
                             "name": "sales",
                             "source": "analytics.sales",
+                            "custom_extensions": [
+                                {
+                                    "vendor_name": "MARIVO",
+                                    "data": json.dumps({"datasource_id": "ds_001"}),
+                                }
+                            ],
                             "fields": [
                                 {
                                     "name": "sale_id",
@@ -1265,10 +1343,10 @@ class TestReadiness(unittest.TestCase):
         svc = _make_svc()
         svc.create_semantic_model(_make_model_dict(visibility="private", owner_user="alice"))
         result = svc.get_readiness("test_model")
-        self.assertEqual(result["status"], "not_ready")
+        self.assertEqual(result["status"], "ready")
         self.assertIsInstance(result["blockers"], list)
-        # Readiness only returns status and blockers (no version_id fields)
-        self.assertEqual(set(result.keys()), {"status", "blockers"})
+        self.assertEqual(result["semantic_version_id"], None)
+        self.assertEqual(result["evaluated_semantic_version_id"], None)
 
     def test_get_readiness_nonexistent_model(self) -> None:
         from fastapi import HTTPException
