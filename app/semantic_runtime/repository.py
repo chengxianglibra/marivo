@@ -45,7 +45,10 @@ class SemanticRuntimeRepository:
         raise KeyError(f"Time ref not found: {time_ref}")
 
     def resolve_binding_ref(self, binding_ref: str) -> ResolvedSemanticObject:
-        raise KeyError(f"Binding ref not found: {binding_ref}")
+        raise NotImplementedError(
+            "binding_grounding_removed: v2 runtime uses dataset.datasource_id, "
+            "dataset.source, and field.expression"
+        )
 
     def resolve_relationship_ref(self, relationship_ref: str) -> ResolvedSemanticObject:
         raise KeyError(f"Relationship ref not found: {relationship_ref}")

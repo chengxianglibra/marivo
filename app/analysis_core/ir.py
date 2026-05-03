@@ -53,11 +53,6 @@ class ProcessRefSnapshot(TypedDict):
     resolved_anchor_time_ref: NotRequired[str | None]
 
 
-class BindingRefSnapshot(TypedDict):
-    binding_ref: str
-    bound_object_ref: str
-
-
 class EntityFieldRefSnapshot(TypedDict):
     field_ref: str
     entity_ref: str
@@ -95,10 +90,8 @@ class IntentRequestSnapshot(TypedDict):
 class IrInputSnapshot(TypedDict):
     metric_ref: NotRequired[str | None]
     process_refs: NotRequired[list[str] | None]
-    binding_refs: NotRequired[list[str] | None]
     resolved_metric: NotRequired[MetricRefSnapshot | None]
     resolved_processes: NotRequired[list[ProcessRefSnapshot] | None]
-    resolved_bindings: NotRequired[list[BindingRefSnapshot] | None]
     resolved_entity_fields: NotRequired[list[EntityFieldRefSnapshot] | None]
     resolved_relationships: NotRequired[list[RelationshipRefSnapshot] | None]
     intent_request: IntentRequestSnapshot
@@ -167,20 +160,12 @@ class OutputBinding(TypedDict):
     artifact_kind: str
 
 
-class CarrierBinding(TypedDict):
-    binding_ref: str
-    source_object_ref: NotRequired[str | None]
-    carrier_locator: NotRequired[dict[str, str | None] | str | None]
-    consumed_surface_refs: NotRequired[list[str] | None]
-
-
 class IrNodeHeader(TypedDict):
     node_id: str
     node_type: Literal["measurement", "process", "intent"]
     depends_on: NotRequired[list[str] | None]
     input_bindings: NotRequired[list[InputBinding] | None]
     output_bindings: NotRequired[list[OutputBinding] | None]
-    carrier_bindings: NotRequired[list[CarrierBinding] | None]
 
 
 class MeasurementNode(TypedDict):
@@ -197,7 +182,6 @@ class MeasurementNode(TypedDict):
     depends_on: NotRequired[list[str] | None]
     input_bindings: NotRequired[list[InputBinding] | None]
     output_bindings: NotRequired[list[OutputBinding] | None]
-    carrier_bindings: NotRequired[list[CarrierBinding] | None]
     inferential_summary_mode: NotRequired[str | None]
     predicate_filter_lineage: NotRequired[PredicateFilterLineage | None]
     component_lowering_inputs: NotRequired[list[dict[str, Any]] | None]
@@ -213,7 +197,6 @@ class ProcessNode(TypedDict):
     depends_on: NotRequired[list[str] | None]
     input_bindings: NotRequired[list[InputBinding] | None]
     output_bindings: NotRequired[list[OutputBinding] | None]
-    carrier_bindings: NotRequired[list[CarrierBinding] | None]
     context_kind: NotRequired[str | None]
     entity_ref: NotRequired[str | None]
     emitted_grain_ref: NotRequired[str | None]
@@ -229,7 +212,6 @@ class IntentNode(TypedDict):
     depends_on: NotRequired[list[str] | None]
     input_bindings: NotRequired[list[InputBinding] | None]
     output_bindings: NotRequired[list[OutputBinding] | None]
-    carrier_bindings: NotRequired[list[CarrierBinding] | None]
     requested_dimensions: NotRequired[list[str] | None]
     requested_result_mode: NotRequired[str | None]
 

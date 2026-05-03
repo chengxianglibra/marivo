@@ -208,7 +208,7 @@ def seed_duckdb_source_object(
     if connection is not None:
         effective_connection = connection
     elif db_path is not None:
-        effective_connection = {"path": str(db_path), "catalog": "main"}
+        effective_connection = {"path": str(db_path)}
     else:
         effective_connection = {}
     metadata.insert_ignore(
@@ -218,7 +218,6 @@ def seed_duckdb_source_object(
             "datasource_type",
             "display_name",
             "connection_json",
-            "sync_mode",
             "policy_json",
             "status",
             "created_at",
@@ -229,92 +228,19 @@ def seed_duckdb_source_object(
             "duckdb",
             display_name,
             json.dumps(effective_connection),
-            "selected",
-            json.dumps({"allow_live_browse": True, "allow_sync": True}),
+            json.dumps({"allow_live_browse": True}),
             status,
             now,
             now,
         ],
     )
-    metadata.insert_ignore(
-        "source_objects",
-        [
-            "object_id",
-            "datasource_id",
-            "object_type",
-            "parent_id",
-            "native_name",
-            "native_id",
-            "fqn",
-            "authority_locator_json",
-            "properties_json",
-            "sync_version",
-            "synced_at",
-            "created_at",
-            "updated_at",
-        ],
-        [
-            object_id,
-            source_id,
-            "table",
-            None,
-            table_name,
-            None,
-            table_fqn,
-            json.dumps(
-                authority_locator or {"catalog": "main", "schema": "analytics", "table": table_name}
-            ),
-            json.dumps(properties or {}),
-            sync_version,
-            synced_at,
-            now,
-            now,
-        ],
-    )
-    default_columns = columns or (
-        ("user_id", "varchar"),
-        ("event_date", "date"),
-        ("value", "double"),
-        ("numerator", "double"),
-        ("denominator", "double"),
-    )
-    for column_name, data_type in default_columns:
-        metadata.insert_ignore(
-            "source_objects",
-            [
-                "object_id",
-                "datasource_id",
-                "object_type",
-                "parent_id",
-                "native_name",
-                "native_id",
-                "fqn",
-                "authority_locator_json",
-                "properties_json",
-                "sync_version",
-                "synced_at",
-                "created_at",
-                "updated_at",
-            ],
-            [
-                f"{object_id}_{column_name}",
-                source_id,
-                "column",
-                object_id,
-                column_name,
-                None,
-                f"{table_fqn}.{column_name}",
-                json.dumps(
-                    authority_locator
-                    or {"catalog": "main", "schema": "analytics", "table": table_name}
-                ),
-                json.dumps({"data_type": data_type}),
-                sync_version,
-                synced_at,
-                now,
-                now,
-            ],
-        )
+    _ = object_id
+    _ = table_fqn
+    _ = authority_locator
+    _ = properties
+    _ = sync_version
+    _ = synced_at
+    _ = columns
 
 
 def _metric_payload_for_measure_type(metric_name: str, measure_type: str | None) -> dict[str, Any]:
@@ -803,19 +729,15 @@ def _structured_carrier_locator(
 ) -> dict[str, Any]:
     if isinstance(carrier_locator, dict):
         return dict(carrier_locator)
-    if source_object_ref is not None:
-        row = metadata.query_one(
-            "SELECT authority_locator_json FROM source_objects WHERE object_id = ?",
-            [source_object_ref],
-        )
-        if row is not None:
-            return json.loads(str(row["authority_locator_json"]))
-    row = metadata.query_one(
-        "SELECT authority_locator_json FROM source_objects WHERE fqn = ?",
-        [carrier_locator],
-    )
-    if row is not None:
-        return json.loads(str(row["authority_locator_json"]))
+    _ = metadata
+    _ = source_object_ref
+    parts = [part for part in str(carrier_locator).split(".") if part]
+    if len(parts) >= 3:
+        return {"catalog": parts[-3], "schema_name": parts[-2], "table": parts[-1]}
+    if len(parts) == 2:
+        return {"schema_name": parts[0], "table": parts[1]}
+    if len(parts) == 1:
+        return {"table": parts[0]}
     raise AssertionError(f"Unable to derive structured carrier locator from {carrier_locator!r}")
 
 

@@ -57,10 +57,6 @@ from app.semantic_runtime.errors import (
 )
 from app.semantic_runtime.resolution import ResolvedSemanticObject
 from app.session import SessionManager
-from app.source_object_locator import (
-    normalize_source_object_authority_locator,
-    qualify_execution_locator,
-)
 from app.storage.analytics import AnalyticsEngine
 from app.storage.evidence_repositories import (
     ActionProposalRepository,
@@ -698,85 +694,8 @@ class SemanticLayerService:
         *,
         session_id: str | None = None,
     ) -> list[dict[str, Any]]:
-        metric_ref = _coerce_metric_ref(metric_ref)
-        metric_family = self._metric_family_for_ref(metric_ref)
-        required_slots = self._required_metric_input_slots(metric_family) if metric_family else ()
-        candidates: list[dict[str, Any]] = []
-        for binding in self._published_bindings_for_object_ref(metric_ref):
-            interface_contract = dict(binding.semantic_object.get("interface_contract") or {})
-            carriers = list(interface_contract.get("carrier_bindings") or [])
-            input_field_map = self._metric_input_field_map_from_binding(binding)
-            missing_slots = [
-                required_slot
-                for required_slot in required_slots
-                if input_field_map.get(required_slot) is None
-            ]
-            ordered_carriers = sorted(
-                carriers,
-                key=lambda carrier: str(carrier.get("binding_role") or "") != "primary",
-            )
-            for carrier in ordered_carriers:
-                source_row = self._resolve_metric_carrier_source_object(carrier)
-                route_resolution = (
-                    self._resolve_metric_binding_route(session_id, source_row)
-                    if source_row is not None
-                    else None
-                )
-                runtime_table_name = (
-                    route_resolution.table_name if route_resolution is not None else None
-                )
-                authority_locator = (
-                    dict(source_row["authority_locator"]) if source_row is not None else None
-                )
-                candidates.append(
-                    {
-                        "binding_ref": binding.ref,
-                        "carrier_binding_key": carrier.get("binding_key"),
-                        "binding_role": carrier.get("binding_role"),
-                        "source_object_ref": carrier.get("source_object_ref"),
-                        "carrier_locator": carrier.get("carrier_locator"),
-                        "authority_locator": authority_locator,
-                        "resolved_source_object_ref": (
-                            str(source_row["object_id"]) if source_row is not None else None
-                        ),
-                        "resolved_table_name": runtime_table_name,
-                        "mapping_id": (
-                            route_resolution.mapping_id if route_resolution is not None else None
-                        ),
-                        "execution_locator": (
-                            dict(route_resolution.execution_locator)
-                            if route_resolution is not None
-                            and route_resolution.execution_locator is not None
-                            else None
-                        ),
-                        "routing_detail": (
-                            dict(route_resolution.routing_detail)
-                            if route_resolution is not None and route_resolution.routing_detail
-                            else None
-                        ),
-                        "readiness_blockers": (
-                            list(route_resolution.readiness_blockers)
-                            if route_resolution is not None
-                            else None
-                        ),
-                        "metric_input_slots": dict(input_field_map),
-                        "missing_metric_input_slots": missing_slots,
-                        "failure_stage": (
-                            "metric_input_coverage"
-                            if missing_slots
-                            else "source_object_lookup"
-                            if source_row is None
-                            else "mapping_route_preflight"
-                            if (
-                                route_resolution is None
-                                or route_resolution.table_name is None
-                                or route_resolution.execution_locator is None
-                            )
-                            else None
-                        ),
-                    }
-                )
-        return candidates
+        _ = (metric_ref, session_id)
+        return []
 
     def _metric_family_for_ref(self, metric_ref: str) -> str | None:
         resolved = self._resolve_runtime_metric_contract(metric_ref)
@@ -791,20 +710,8 @@ class SemanticLayerService:
     def _metric_input_field_map_from_binding(
         self, binding: ResolvedSemanticObject
     ) -> dict[str, str]:
-        interface_contract = dict(binding.semantic_object.get("interface_contract") or {})
-        field_bindings = list(interface_contract.get("field_bindings") or [])
-        input_field_map: dict[str, str] = {}
-        for field_binding in field_bindings:
-            target = field_binding.get("target") or {}
-            if target.get("target_kind") != "metric_input":
-                continue
-            target_key = _optional_str(target.get("target_key"))
-            surface_ref = _optional_str(field_binding.get("surface_ref"))
-            if target_key is None or surface_ref is None:
-                continue
-            physical_name = surface_ref.split(".", 1)[-1] if "." in surface_ref else surface_ref
-            input_field_map[target_key] = physical_name
-        return input_field_map
+        _ = binding
+        return {}
 
     def _select_metric_binding_resolution(
         self,
@@ -813,114 +720,13 @@ class SemanticLayerService:
         required_slots: tuple[str, ...] = (),
         session_id: str | None = None,
     ) -> MetricBindingResolution | None:
-        metric_ref = _coerce_metric_ref(metric_ref)
-        viable_resolutions: list[MetricBindingResolution] = []
-        ambiguous_resolutions: list[MetricBindingResolution] = []
-        preferred_order_seen = False
-        for binding in self._published_bindings_for_object_ref(metric_ref):
-            if binding.object_kind != "binding":
-                continue
-            binding_header = dict(binding.semantic_object.get("header") or {})
-            if _optional_str(binding_header.get("binding_scope")) != "metric":
-                continue
-            if _optional_str(binding_header.get("bound_object_ref")) != metric_ref:
-                continue
-            input_field_map = self._metric_input_field_map_from_binding(binding)
-            if any(input_field_map.get(required_slot) is None for required_slot in required_slots):
-                continue
-            interface_contract = dict(binding.semantic_object.get("interface_contract") or {})
-            carriers = sorted(
-                interface_contract.get("carrier_bindings") or [],
-                key=lambda carrier: str(carrier.get("binding_role") or "") != "primary",
-            )
-            for carrier in carriers:
-                source_row = self._resolve_metric_carrier_source_object(carrier)
-                route_resolution = (
-                    self._resolve_metric_binding_route(session_id, source_row)
-                    if source_row is not None
-                    else None
-                )
-                if (
-                    source_row is None
-                    or route_resolution is None
-                    or route_resolution.table_name is None
-                    or route_resolution.execution_locator is None
-                ):
-                    continue
-                resolution = MetricBindingResolution(
-                    metric_ref=metric_ref,
-                    binding_ref=binding.ref,
-                    carrier_binding_key=_optional_str(carrier.get("binding_key")),
-                    source_object_ref=_optional_str(carrier.get("source_object_ref")),
-                    carrier_locator=_carrier_locator_dict(carrier.get("carrier_locator")),
-                    authority_locator=dict(source_row["authority_locator"]),
-                    mapping_id=route_resolution.mapping_id,
-                    execution_locator=dict(route_resolution.execution_locator),
-                    routing_detail=dict(route_resolution.routing_detail),
-                    table_name=route_resolution.table_name,
-                    input_field_map=input_field_map,
-                )
-                is_primary = _optional_str(carrier.get("binding_role")) == "primary"
-                if is_primary:
-                    if not preferred_order_seen:
-                        viable_resolutions.clear()
-                        preferred_order_seen = True
-                    ambiguous_resolutions.append(resolution)
-                elif not preferred_order_seen:
-                    viable_resolutions.append(resolution)
-                break
-
-        selected_pool = ambiguous_resolutions if preferred_order_seen else viable_resolutions
-        if not selected_pool:
-            return None
-        if len(selected_pool) > 1:
-            binding_refs = sorted({resolution.binding_ref for resolution in selected_pool})
-            raise ValueError(
-                "Metric execution binding is ambiguous for "
-                f"{metric_ref}: multiple published bindings satisfy typed execution "
-                f"requirements ({', '.join(binding_refs)})"
-            )
-        return selected_pool[0]
+        _ = (metric_ref, required_slots, session_id)
+        return None
 
     def _resolve_metric_carrier_source_object(
         self, carrier_binding: dict[str, Any]
     ) -> dict[str, Any] | None:
-        source_object_ref = _optional_str(carrier_binding.get("source_object_ref"))
-        if source_object_ref is not None:
-            row = self.metadata.query_one(
-                "SELECT * FROM source_objects WHERE object_id = ? OR fqn = ?",
-                [source_object_ref, source_object_ref],
-            )
-            if row is not None:
-                source_object = dict(row)
-                source_object["authority_locator"] = normalize_source_object_authority_locator(
-                    self.metadata,
-                    source_object,
-                )
-                return source_object
-
-        carrier_locator = _carrier_locator_dict(carrier_binding.get("carrier_locator"))
-        if carrier_locator is None:
-            return None
-        rows = self.metadata.query_rows(
-            "SELECT * FROM source_objects WHERE object_type = ?", ["table"]
-        )
-        matches: list[dict[str, Any]] = []
-        for row in rows:
-            source_object = dict(row)
-            source_object["authority_locator"] = normalize_source_object_authority_locator(
-                self.metadata,
-                source_object,
-            )
-            authority_locator = source_object["authority_locator"]
-            if all(
-                carrier_locator.get(key) is None
-                or authority_locator.get(key) == carrier_locator.get(key)
-                for key in ("catalog", "schema", "table")
-            ):
-                matches.append(source_object)
-        if len(matches) == 1:
-            return matches[0]
+        _ = carrier_binding
         return None
 
     def _resolve_metric_binding_route(
@@ -928,77 +734,16 @@ class SemanticLayerService:
         session_id: str | None,
         source_object: dict[str, Any],
     ) -> MetricCarrierRoutePreflight | None:
-        query_router = self.routing_runtime.query_router
-        if query_router is None:
-            return None
-        authority_locator = normalize_source_object_authority_locator(
-            self.metadata,
-            source_object,
-        )
-        authority_table_name = ".".join(
-            value
-            for value in [
-                _optional_str(authority_locator.get("catalog")),
-                _optional_str(authority_locator.get("schema")),
-                _optional_str(authority_locator.get("table")),
-            ]
-            if value is not None
-        )
-        if not authority_table_name:
-            return None
-        route_resolution = query_router.resolve_route(
-            [authority_table_name],
-            session_id=session_id,
-        )
-        route_detail = (
-            dict(route_resolution.route.routing_detail)
-            if route_resolution.route is not None
-            else dict(route_resolution.failure.routing_detail)
-            if route_resolution.failure is not None
-            else {}
-        )
-        execution_locator = dict(
-            route_detail.get("execution_locators", {}).get(authority_table_name) or {}
-        )
-        readiness_blockers = [
-            blocker
-            for blocker in list(route_detail.get("readiness_blockers") or [])
-            if isinstance(blocker, dict)
-        ]
-        selected_mapping_ids = [
-            str(mapping_id)
-            for mapping_id in list(route_detail.get("selected_mapping_ids") or [])
-            if str(mapping_id).strip()
-        ]
-        return MetricCarrierRoutePreflight(
-            table_name=(
-                self._executable_metric_table_name(
-                    route_resolution.route.datasource_id,
-                    execution_locator,
-                )
-                if route_resolution.route is not None
-                else None
-            ),
-            mapping_id=_optional_str(execution_locator.get("mapping_id"))
-            or (selected_mapping_ids[0] if selected_mapping_ids else None),
-            execution_locator=execution_locator or None,
-            routing_detail=route_detail,
-            readiness_blockers=readiness_blockers,
-        )
+        _ = (session_id, source_object)
+        return None
 
     def _executable_metric_table_name(
         self,
         datasource_id: str,
         execution_locator: dict[str, Any],
     ) -> str:
-        datasource = self.metadata.query_one(
-            "SELECT datasource_type FROM datasources WHERE datasource_id = ?",
-            [datasource_id],
-        )
-        engine_type = (
-            _optional_str(datasource["datasource_type"]) if datasource is not None else None
-        )
-        return qualify_execution_locator(execution_locator, engine_type=engine_type)
+        _ = (datasource_id, execution_locator)
+        return ""
 
     # ── Metric resolution ────────────────────────────────────────────
 
@@ -1358,9 +1103,6 @@ class SemanticLayerService:
         effective_semantic_context = dict(semantic_context or {})
         effective_semantic_context.setdefault("semantic_repository", self.semantic_repository)
         effective_semantic_context.setdefault(
-            "binding_reader", self._published_bindings_for_object_ref
-        )
-        effective_semantic_context.setdefault(
             "compatibility_profile_reader",
             self._published_compatibility_profiles_for_subject_ref,
         )
@@ -1381,11 +1123,6 @@ class SemanticLayerService:
             if isinstance(execution_context, MetricExecutionContext):
                 compiled.metadata["metric_execution_context"] = {
                     "metric_ref": execution_context.metric_ref,
-                    "binding_ref": execution_context.binding_ref,
-                    "carrier_binding_key": execution_context.carrier_binding_key,
-                    "source_object_ref": execution_context.source_object_ref,
-                    "carrier_locator": dict(execution_context.carrier_locator or {}),
-                    "authority_locator": dict(execution_context.authority_locator or {}),
                     "mapping_id": execution_context.mapping_id,
                     "execution_locator": dict(execution_context.execution_locator or {}),
                     "routing_detail": dict(execution_context.routing_detail or {}),
@@ -1404,19 +1141,8 @@ class SemanticLayerService:
             ) from error
 
     def _published_bindings_for_object_ref(self, object_ref: str) -> list[ResolvedSemanticObject]:
-        rows = self.metadata.query_rows(
-            """
-            SELECT binding_ref, MAX(revision) AS revision
-            FROM typed_bindings
-            WHERE bound_object_ref = ? AND status = 'published'
-            GROUP BY binding_ref
-            ORDER BY binding_ref
-            """,
-            [object_ref],
-        )
-        return [
-            self.semantic_repository.resolve_binding_ref(str(row["binding_ref"])) for row in rows
-        ]
+        _ = object_ref
+        return []
 
     def _published_compatibility_profiles_for_subject_ref(
         self, subject_ref: str
@@ -1479,90 +1205,21 @@ class SemanticLayerService:
         )
 
     def _binding_matches_table(self, binding: ResolvedSemanticObject, table_name: str) -> bool:
-        interface_contract = dict(binding.semantic_object.get("interface_contract") or {})
-        carrier_bindings = list(interface_contract.get("carrier_bindings") or [])
-        if not carrier_bindings:
-            return False
-        return any(
-            self._table_name_matches_locator(
-                table_name,
-                carrier_binding.get("carrier_locator")
-                or _optional_str(carrier_binding.get("source_object_ref")),
-            )
-            for carrier_binding in carrier_bindings
-        )
+        _ = (binding, table_name)
+        return False
 
     @staticmethod
     def _binding_dimension_sources(binding: ResolvedSemanticObject) -> dict[str, set[str]]:
-        interface_contract = dict(binding.semantic_object.get("interface_contract") or {})
-        carrier_surfaces: dict[tuple[str, str], str] = {}
-        for carrier_binding in interface_contract.get("carrier_bindings") or []:
-            binding_key = _optional_str(carrier_binding.get("binding_key"))
-            if binding_key is None:
-                continue
-            for field_surface in carrier_binding.get("field_surfaces") or []:
-                surface_ref = _optional_str(field_surface.get("surface_ref"))
-                physical_name = _optional_str(field_surface.get("physical_name"))
-                if surface_ref is None or physical_name is None:
-                    continue
-                carrier_surfaces[(binding_key, surface_ref)] = physical_name
-
-        dimension_sources: dict[str, set[str]] = {}
-        for field_binding in interface_contract.get("field_bindings") or []:
-            target = dict(field_binding.get("target") or {})
-            if _optional_str(target.get("target_kind")) != "stable_descriptor":
-                continue
-            dimension_ref = _optional_str(field_binding.get("semantic_ref"))
-            carrier_binding_key = _optional_str(field_binding.get("carrier_binding_key"))
-            surface_ref = _optional_str(field_binding.get("surface_ref"))
-            if (
-                dimension_ref is None
-                or not dimension_ref.startswith("dimension.")
-                or carrier_binding_key is None
-                or surface_ref is None
-            ):
-                continue
-            physical_name = carrier_surfaces.get((carrier_binding_key, surface_ref))
-            if physical_name is None:
-                continue
-            dimension_sources.setdefault(dimension_ref, set()).add(physical_name)
-        return dimension_sources
+        _ = binding
+        return {}
 
     def _metric_scope_dimension_sources(
         self,
         metric_ref: str,
         table_name: str,
     ) -> dict[str, set[str]]:
-        metric_ref = _coerce_metric_ref(metric_ref)
-        metric_bindings = list(self._published_bindings_for_object_ref(metric_ref))
-        matching_bindings = [
-            binding
-            for binding in metric_bindings
-            if self._binding_matches_table(binding, table_name)
-        ]
-        candidate_bindings = matching_bindings or metric_bindings
-        dimension_sources: dict[str, set[str]] = {}
-
-        for binding in candidate_bindings:
-            for dimension_ref, physical_names in self._binding_dimension_sources(binding).items():
-                dimension_sources.setdefault(dimension_ref, set()).update(physical_names)
-
-            interface_contract = dict(binding.semantic_object.get("interface_contract") or {})
-            for binding_import in interface_contract.get("imports") or []:
-                imported_binding_ref = _optional_str(
-                    binding_import.get("binding_ref") or binding_import.get("imported_binding_ref")
-                )
-                if imported_binding_ref is None:
-                    continue
-                imported_binding = self.semantic_repository.resolve_binding_ref(
-                    imported_binding_ref
-                )
-                for dimension_ref, physical_names in self._binding_dimension_sources(
-                    imported_binding
-                ).items():
-                    dimension_sources.setdefault(dimension_ref, set()).update(physical_names)
-
-        return dimension_sources
+        _ = (metric_ref, table_name)
+        return {}
 
     def _resolve_scope_constraint_column(
         self,
@@ -1692,27 +1349,8 @@ class SemanticLayerService:
                 metric_ref=metric_ref,
                 table_name=table_name,
             )
-        # For entity.*, key.*, field.*, etc. — resolve via binding field surfaces.
-        if metric_ref is not None:
-            metric_ref = _coerce_metric_ref(metric_ref)
-            metric_bindings = list(self._published_bindings_for_object_ref(metric_ref))
-            if table_name is not None:
-                metric_bindings = [
-                    b for b in metric_bindings if self._binding_matches_table(b, table_name)
-                ] or metric_bindings
-            for binding in metric_bindings:
-                for surface in (binding.semantic_object.get("interface_contract") or {}).get(
-                    "carrier_bindings"
-                ) or []:
-                    for fs in surface.get("field_surfaces") or []:
-                        if fs.get("semantic_ref") == target_ref:
-                            return str(fs.get("physical_name", target_ref))
-                for fb in (binding.semantic_object.get("interface_contract") or {}).get(
-                    "field_bindings"
-                ) or []:
-                    if fb.get("semantic_ref") == target_ref:
-                        return str(fb.get("surface_ref", target_ref))
-        # Fall back: strip prefix and use as column hint (entity.user → user)
+        _ = (metric_ref, table_name)
+        # Fall back: strip prefix and use as column hint (entity.user -> user).
         return target_ref.split(".", 1)[-1].replace(".", "_")
 
     def _predicate_expression_to_sql(
@@ -2253,30 +1891,8 @@ class SemanticLayerService:
     def _fetch_column_metadata(
         self, short_name: str, columns: list[str]
     ) -> dict[str, dict[str, str]]:
-        """Look up synced column source_objects to get data_type and unit.
-
-        Uses the table short_name (last FQN segment) for a LIKE lookup.
-        Returns {} gracefully if no column objects are synced.
-        """
-        if not columns:
-            return {}
-        try:
-            rows = self.metadata.query_rows(
-                "SELECT native_name, properties_json FROM source_objects "
-                "WHERE object_type = 'column' AND fqn LIKE ?",
-                [f"%.{short_name}.%"],
-            )
-            result: dict[str, dict[str, str]] = {}
-            for row in rows:
-                col_name = row["native_name"]
-                if col_name in columns:
-                    props = json.loads(row["properties_json"])
-                    entry = {k: props[k] for k in ("data_type", "unit") if k in props}
-                    if entry:
-                        result[col_name] = entry
-            return result
-        except Exception:
-            return {}
+        _ = (short_name, columns)
+        return {}
 
     def _run_profile_table(self, session_id: str, params: dict[str, Any]) -> dict[str, Any]:
         """Profile a table: row count, column stats (null rate, distinct count).
@@ -3296,13 +2912,6 @@ class SemanticLayerService:
                 for compiled in compiled_list
             ]
         )
-        binding_refs = self._merge_unique_str(
-            [
-                binding_ref
-                for compiled in compiled_list
-                for binding_ref in list(compiled.metadata.get("resolved_binding_refs") or [])
-            ]
-        )
         entity_field_refs = self._merge_unique_str(
             [
                 field_ref
@@ -3440,7 +3049,6 @@ class SemanticLayerService:
                 metric_object_ids,
                 process_refs,
                 filter_time_refs,
-                binding_refs,
                 entity_field_refs,
                 entity_field_sources,
                 relationship_refs,
@@ -3476,7 +3084,6 @@ class SemanticLayerService:
                 ),
                 "request_classes": request_classes,
             },
-            "binding_refs": binding_refs,
             "entity_field_refs": entity_field_refs,
             "relationship_refs": relationship_refs,
             "compile_context": {

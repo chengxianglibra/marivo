@@ -27,8 +27,6 @@ from app.analysis_core.ir import (
     STEP_ARTIFACT_KINDS,
     AnalysisStepIR,
     ArtifactLineageEntry,
-    BindingRefSnapshot,
-    CarrierBinding,
     CompileReport,
     EntityFieldRefSnapshot,
     IntentNode,
@@ -855,143 +853,35 @@ def _resolve_imported_dimension_physical_sources(
 ) -> tuple[list[dict[str, Any]], list[ValidationIssue]]:
     if not _requests_imported_dimensions(resolved_inputs):
         return [], []
-    if semantic_repository is None:
-        return [], [
-            ValidationIssue(
-                code="COMPILER_DIMENSION_IMPORT_PHYSICAL_UNRESOLVED",
-                gate="dimension_compatibility",
-                category="compatibility",
-                severity="error",
-                message="Imported dimension physical source resolution requires semantic_repository",
-                subject_ref=resolved_inputs.resolved_metric.ref
-                if resolved_inputs.resolved_metric is not None
-                else None,
-            )
-        ]
-
+    _ = semantic_repository
     requested_dimension_refs = set(resolved_inputs.normalized_request.request_dimensions)
     imported_dimension_refs = {
         bridge.dimension_ref: bridge
         for bridge in resolved_inputs.resolved_imported_dimensions
         if bridge.dimension_ref in requested_dimension_refs
     }
-    resolved_sources: list[dict[str, Any]] = []
-    issues: list[ValidationIssue] = []
-    for dimension_ref, bridge in sorted(imported_dimension_refs.items()):
-        imported_binding = semantic_repository.resolve_binding_ref(bridge.source_binding_ref)
-        interface_contract = dict(imported_binding.semantic_object.get("interface_contract") or {})
-        matching_field_bindings = [
-            dict(field_binding)
-            for field_binding in interface_contract.get("field_bindings") or []
-            if str(field_binding.get("semantic_ref") or "").strip() == dimension_ref
-            and str((field_binding.get("target") or {}).get("target_kind") or "").strip()
-            == "stable_descriptor"
-        ]
-        if len(matching_field_bindings) != 1:
-            issues.append(
-                ValidationIssue(
-                    code="COMPILER_DIMENSION_IMPORT_LINEAGE_MISSING",
-                    gate="dimension_compatibility",
-                    category="compatibility",
-                    severity="error",
-                    message="Imported dimension bridge does not resolve to a unique field lineage",
-                    subject_ref=dimension_ref,
-                    details={
-                        "metric_ref": resolved_inputs.resolved_metric.ref
-                        if resolved_inputs.resolved_metric is not None
-                        else None,
-                        "source_binding_ref": bridge.source_binding_ref,
-                        "source_entity_ref": bridge.source_entity_ref,
-                        "import_key": bridge.import_key,
-                        "match_count": len(matching_field_bindings),
-                    },
-                )
-            )
-            continue
-
-        field_binding = matching_field_bindings[0]
-        carrier_binding_key = _optional_str(field_binding.get("carrier_binding_key"))
-        surface_ref = _optional_str(field_binding.get("surface_ref"))
-        carrier_bindings = {
-            _optional_str(carrier_binding.get("binding_key")): dict(carrier_binding)
-            for carrier_binding in interface_contract.get("carrier_bindings") or []
-            if _optional_str(carrier_binding.get("binding_key")) is not None
-        }
-        carrier_binding = carrier_bindings.get(carrier_binding_key)
-        carrier_locator: dict[str, Any] | str | None = None
-        if carrier_binding is not None:
-            raw_carrier_locator = carrier_binding.get("carrier_locator")
-            if isinstance(raw_carrier_locator, dict):
-                carrier_locator = dict(cast("dict[str, Any]", raw_carrier_locator))
-            elif isinstance(raw_carrier_locator, str) and raw_carrier_locator.strip():
-                carrier_locator = raw_carrier_locator.strip()
-        physical_name = None
-        if carrier_binding is not None:
-            for field_surface in carrier_binding.get("field_surfaces") or []:
-                if _optional_str(field_surface.get("surface_ref")) == surface_ref:
-                    physical_name = _optional_str(field_surface.get("physical_name"))
-                    break
-        if carrier_binding_key is None or surface_ref is None or carrier_binding is None:
-            issues.append(
-                ValidationIssue(
-                    code="COMPILER_DIMENSION_IMPORT_LINEAGE_MISSING",
-                    gate="dimension_compatibility",
-                    category="compatibility",
-                    severity="error",
-                    message="Imported dimension bridge lineage is incomplete",
-                    subject_ref=dimension_ref,
-                    details={
-                        "metric_ref": resolved_inputs.resolved_metric.ref
-                        if resolved_inputs.resolved_metric is not None
-                        else None,
-                        "source_binding_ref": bridge.source_binding_ref,
-                        "source_entity_ref": bridge.source_entity_ref,
-                        "import_key": bridge.import_key,
-                        "carrier_binding_key": carrier_binding_key,
-                        "surface_ref": surface_ref,
-                    },
-                )
-            )
-            continue
-        if carrier_locator is None or physical_name is None:
-            issues.append(
-                ValidationIssue(
-                    code="COMPILER_DIMENSION_IMPORT_PHYSICAL_UNRESOLVED",
-                    gate="dimension_compatibility",
-                    category="compatibility",
-                    severity="error",
-                    message="Imported dimension bridge cannot resolve a physical carrier source",
-                    subject_ref=dimension_ref,
-                    details={
-                        "metric_ref": resolved_inputs.resolved_metric.ref
-                        if resolved_inputs.resolved_metric is not None
-                        else None,
-                        "source_binding_ref": bridge.source_binding_ref,
-                        "source_entity_ref": bridge.source_entity_ref,
-                        "import_key": bridge.import_key,
-                        "carrier_binding_key": carrier_binding_key,
-                        "surface_ref": surface_ref,
-                        "physical_name": physical_name,
-                    },
-                )
-            )
-            continue
-        resolved_source: dict[str, Any] = {
-            "dimension_ref": dimension_ref,
-            "source_binding_ref": bridge.source_binding_ref,
-            "source_entity_ref": bridge.source_entity_ref,
-            "import_key": bridge.import_key,
-            "carrier_binding_key": carrier_binding_key,
-            "carrier_locator": carrier_locator,
-            "surface_ref": surface_ref,
-            "physical_name": physical_name,
-        }
-        source_object_ref = _optional_str(carrier_binding.get("source_object_ref"))
-        if source_object_ref is not None:
-            resolved_source["source_object_ref"] = source_object_ref
-        resolved_sources.append(resolved_source)
-
-    return resolved_sources, issues
+    return [], [
+        ValidationIssue(
+            code="COMPILER_DIMENSION_IMPORT_PHYSICAL_UNRESOLVED",
+            gate="dimension_compatibility",
+            category="compatibility",
+            severity="error",
+            message=(
+                "Imported dimension physical source resolution through persisted bindings "
+                "has been removed; use dataset-native field grounding instead"
+            ),
+            subject_ref=dimension_ref,
+            details={
+                "metric_ref": resolved_inputs.resolved_metric.ref
+                if resolved_inputs.resolved_metric is not None
+                else None,
+                "source_binding_ref": bridge.source_binding_ref,
+                "source_entity_ref": bridge.source_entity_ref,
+                "import_key": bridge.import_key,
+            },
+        )
+        for dimension_ref, bridge in sorted(imported_dimension_refs.items())
+    ]
 
 
 def _build_validation_trace(validation_result: Any) -> list[ValidationRecord]:
@@ -1068,13 +958,6 @@ def _build_lowering_requirements(
         requirements.append(
             {
                 "requirement_kind": "entity_field_grounding",
-                "source_node_id": f"measurement:{step.index}",
-            }
-        )
-    elif resolved_inputs.resolved_bindings and resolved_inputs.resolved_metric is not None:
-        requirements.append(
-            {
-                "requirement_kind": "semantic_binding_grounding",
                 "source_node_id": f"measurement:{step.index}",
             }
         )
@@ -1310,13 +1193,6 @@ def _process_snapshot(process: ResolvedSemanticObject) -> ProcessRefSnapshot:
     return snapshot
 
 
-def _binding_snapshot(binding: ResolvedSemanticObject) -> BindingRefSnapshot:
-    return {
-        "binding_ref": binding.ref,
-        "bound_object_ref": str(binding.semantic_object.get("bound_object_ref") or ""),
-    }
-
-
 def _entity_field_snapshot(field: Any) -> EntityFieldRefSnapshot:
     snapshot: EntityFieldRefSnapshot = {
         "field_ref": field.field_ref,
@@ -1396,13 +1272,6 @@ def _build_ir_inputs(
     ]
     if process_refs:
         input_snapshot["process_refs"] = process_refs
-    if resolved_inputs.resolved_bindings:
-        input_snapshot["binding_refs"] = [
-            binding.ref for binding in resolved_inputs.resolved_bindings
-        ]
-        input_snapshot["resolved_bindings"] = [
-            _binding_snapshot(binding) for binding in resolved_inputs.resolved_bindings
-        ]
     if resolved_inputs.resolved_entity_fields:
         input_snapshot["resolved_entity_fields"] = [
             _entity_field_snapshot(field)
@@ -1435,36 +1304,12 @@ def _measurement_node(
     *,
     step: AnalysisStepIR,
     resolved_metric: ResolvedSemanticObject,
-    resolved_bindings: list[ResolvedSemanticObject],
     output_binding: OutputBinding,
     resolved_inputs: ResolvedCompilerInputs | None = None,
     semantic_repository: Any | None = None,
     governance_repository: Any | None = None,
 ) -> tuple[MeasurementNode, NormalizedPredicateInput | None]:
     header = dict(resolved_metric.semantic_object.get("header") or {})
-    carrier_bindings: list[CarrierBinding] = []
-    for binding in resolved_bindings:
-        interface_contract = dict(binding.semantic_object.get("interface_contract") or {})
-        surfaces = [
-            str(field_binding.get("surface_ref") or "")
-            for field_binding in interface_contract.get("field_bindings") or []
-            if str(field_binding.get("surface_ref") or "").strip()
-        ]
-        for carrier_binding in interface_contract.get("carrier_bindings") or []:
-            binding_payload: CarrierBinding = {
-                "binding_ref": binding.ref,
-            }
-            source_object_ref = _optional_str(carrier_binding.get("source_object_ref"))
-            carrier_locator = carrier_binding.get("carrier_locator")
-            if source_object_ref is not None:
-                binding_payload["source_object_ref"] = source_object_ref
-            if isinstance(carrier_locator, dict):
-                binding_payload["carrier_locator"] = dict(cast("dict[str, Any]", carrier_locator))
-            elif isinstance(carrier_locator, str) and carrier_locator.strip():
-                binding_payload["carrier_locator"] = carrier_locator.strip()
-            if surfaces:
-                binding_payload["consumed_surface_refs"] = sorted(set(surfaces))
-            carrier_bindings.append(binding_payload)
     sample_kind = cast(
         "Literal['numeric', 'rate', 'binary', 'survival']",
         _optional_str(header.get("sample_kind")) or "numeric",
@@ -1490,8 +1335,6 @@ def _measurement_node(
     inferential_summary_mode = _optional_str(header.get("inferential_summary_mode"))
     if inferential_summary_mode is not None:
         node["inferential_summary_mode"] = inferential_summary_mode
-    if carrier_bindings:
-        node["carrier_bindings"] = carrier_bindings
     # Attach predicate filter lineage if repository is available
     normalized_predicate_input: NormalizedPredicateInput | None = None
     if semantic_repository is not None and resolved_inputs is not None:
@@ -1513,15 +1356,6 @@ def _measurement_node(
             resolver=semantic_repository,
             component_fields=component_fields or None,
         )
-    if normalized_predicate_input is not None and carrier_bindings:
-        from app.analysis_core.predicate_validator import build_component_lowering_inputs
-
-        component_lowering_inputs = build_component_lowering_inputs(
-            normalized_predicate_input=normalized_predicate_input,
-            resolved_bindings=resolved_bindings,
-        )
-        if component_lowering_inputs:
-            node["component_lowering_inputs"] = component_lowering_inputs  # type: ignore[typeddict-item]
     return node, normalized_predicate_input
 
 
@@ -1604,7 +1438,6 @@ def _build_ir_bundle(
         measurement_node, normalized_predicate_input = _measurement_node(
             step=step,
             resolved_metric=resolved_inputs.resolved_metric,
-            resolved_bindings=resolved_inputs.resolved_bindings,
             output_binding=output_binding,
             resolved_inputs=resolved_inputs,
             semantic_repository=semantic_context.get("semantic_repository")
@@ -1715,7 +1548,6 @@ def compile_step(
 
     semantic_context = semantic_context or {}
     semantic_repository = semantic_context.get("semantic_repository")
-    binding_reader = semantic_context.get("binding_reader")
     compatibility_profile_reader = semantic_context.get("compatibility_profile_reader")
     if semantic_repository is not None and not isinstance(
         semantic_repository, SemanticRuntimeRepository
@@ -1725,13 +1557,11 @@ def compile_step(
     resolved_inputs = resolve_compiler_inputs(
         normalized_request,
         semantic_repository=semantic_repository,
-        binding_reader=binding_reader,
     )
     derived_state = derive_compiler_state(
         intent_kind=step.step_type,
         resolved_metric=resolved_inputs.resolved_metric,
         resolved_process=resolved_inputs.resolved_process,
-        resolved_bindings=resolved_inputs.resolved_bindings,
         profile_reader=compatibility_profile_reader,
     )
     validation_result = validate_compiler_inputs(
@@ -1830,7 +1660,6 @@ def compile_step(
         if resolved_inputs.resolved_filter_time is not None
         else None,
         "resolved_dimension_refs": resolved_inputs.resolved_dimension_refs,
-        "resolved_binding_refs": [binding.ref for binding in resolved_inputs.resolved_bindings],
         "resolved_entity_field_refs": resolved_inputs.resolved_entity_field_refs,
         "resolved_entity_field_sources": [
             {

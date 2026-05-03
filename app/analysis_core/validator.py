@@ -342,75 +342,13 @@ def _gate_binding_compatibility(
     resolved_inputs: ResolvedCompilerInputs,
 ) -> list[ValidationIssue]:
     _ = step_type
-    issues: list[ValidationIssue] = []
-    if (
-        resolved_inputs.resolved_metric is not None
-        and not resolved_inputs.resolved_bindings
-        and not resolved_inputs.resolved_entity_fields
-    ):
-        issues.append(
-            ValidationIssue(
-                code="COMPILER_BINDING_MISSING",
-                gate="binding_grounding",
-                category="readiness",
-                severity="error",
-                message="Resolved metric is not grounded by any published binding",
-                subject_ref=resolved_inputs.resolved_metric.ref,
-            )
-        )
-    for binding in resolved_inputs.resolved_bindings:
-        interface_contract = dict(binding.semantic_object.get("interface_contract") or {})
-        carrier_bindings = list(interface_contract.get("carrier_bindings") or [])
-        field_bindings = list(interface_contract.get("field_bindings") or [])
-        if not carrier_bindings:
-            issues.append(
-                ValidationIssue(
-                    code="COMPILER_BINDING_INVALID",
-                    gate="binding_grounding",
-                    category="readiness",
-                    severity="error",
-                    message="Binding must declare at least one carrier_binding",
-                    subject_ref=binding.ref,
-                )
-            )
-            continue
-        binding_keys = {str(item.get("binding_key") or "") for item in carrier_bindings}
-        if not field_bindings:
-            issues.append(
-                ValidationIssue(
-                    code="COMPILER_BINDING_INVALID",
-                    gate="binding_grounding",
-                    category="readiness",
-                    severity="error",
-                    message="Binding must declare at least one field_binding",
-                    subject_ref=binding.ref,
-                )
-            )
-        for field_binding in field_bindings:
-            carrier_binding_key = str(field_binding.get("carrier_binding_key") or "").strip()
-            if carrier_binding_key not in binding_keys:
-                issues.append(
-                    ValidationIssue(
-                        code="COMPILER_BINDING_INVALID",
-                        gate="binding_grounding",
-                        category="readiness",
-                        severity="error",
-                        message="field_binding references an unknown carrier_binding_key",
-                        subject_ref=binding.ref,
-                        details={"carrier_binding_key": carrier_binding_key},
-                    )
-                )
-    return issues
+    _ = resolved_inputs
+    return []
 
 
 def _gate_entity_field_resolution(resolved_inputs: ResolvedCompilerInputs) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
     for field_issue in resolved_inputs.field_resolution_issues:
-        if resolved_inputs.resolved_bindings and field_issue.code in {
-            "missing_entity_binding",
-            "missing_entity_field",
-        }:
-            continue
         issues.append(
             ValidationIssue(
                 code=field_issue.code,
@@ -908,12 +846,6 @@ def _collect_predicate_refs(
                 for ref in component.get("qualifier_refs") or []:
                     _add(ref, "metric_qualifier")
 
-    for binding in resolved_inputs.resolved_bindings:
-        interface_contract = dict(binding.semantic_object.get("interface_contract") or {})
-        for carrier in interface_contract.get("carrier_bindings") or []:
-            for ref in carrier.get("row_filter_refs") or []:
-                _add(ref, "carrier_row_filter")
-
     request_predicate = resolved_inputs.normalized_request.request_scope_predicate_ref
     _add(request_predicate, "request_scope")
 
@@ -1244,7 +1176,7 @@ def _gate_lowering_precheck(
     )
     return run_lowering_precheck(
         normalized_predicate_input=normalized_input,
-        resolved_bindings=resolved_inputs.resolved_bindings,
+        resolved_bindings=[],
         component_fields=component_fields or [],
         resolved_entity_field_refs=resolved_inputs.resolved_entity_field_refs,
     )
