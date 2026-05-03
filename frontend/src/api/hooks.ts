@@ -11,7 +11,6 @@ export const semanticKinds = [
   { key: "time", label: "Time", path: "/semantic/time" },
   { key: "enum-sets", label: "Enum Sets", path: "/semantic/enum-sets" },
   { key: "predicates", label: "Predicates", path: "/semantic/predicates" },
-  { key: "bindings", label: "Bindings", path: "/semantic/bindings" },
   { key: "compatibility-profiles", label: "Compiler Profiles", path: "/compiler/compatibility-profiles" },
 ] as const;
 
@@ -48,14 +47,6 @@ export function useSources() {
   });
 }
 
-export function useSourceObjects(sourceId?: string, enabled = true) {
-  return useQuery({
-    queryKey: queryKeys.sourceObjects(sourceId),
-    enabled: Boolean(sourceId) && enabled,
-    queryFn: async () => unwrapList(await apiClient.get(`/sources/${sourceId}/objects`)),
-  });
-}
-
 export function useCreateSource() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -81,38 +72,6 @@ export function useDeleteSource() {
   });
 }
 
-export function useSyncSource() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (sourceId: string) => apiClient.post<JsonRecord>(`/sources/${sourceId}/sync`),
-    onSuccess: (_, sourceId) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.sources });
-      queryClient.invalidateQueries({ queryKey: ["jobs"] });
-      queryClient.invalidateQueries({ queryKey: queryKeys.sourceObjects(sourceId) });
-    },
-  });
-}
-
-export function useSourceSyncSelections(sourceId?: string, enabled = true) {
-  return useQuery({
-    queryKey: queryKeys.sourceSyncSelections(sourceId),
-    enabled: Boolean(sourceId) && enabled,
-    queryFn: async () => unwrapList(await apiClient.get(`/sources/${sourceId}/sync/selections`)),
-  });
-}
-
-export function useSetSourceSyncSelections() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ sourceId, selections }: { sourceId: string; selections: JsonRecord[] }) =>
-      apiClient.post<JsonRecord[]>(`/sources/${sourceId}/sync/selections`, { selections }),
-    onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.sources });
-      queryClient.invalidateQueries({ queryKey: queryKeys.sourceSyncSelections(variables.sourceId) });
-    },
-  });
-}
-
 export function useSourceCatalogSchemas(sourceId?: string, enabled = true) {
   return useQuery({
     queryKey: queryKeys.sourceCatalogSchemas(sourceId),
@@ -126,6 +85,20 @@ export function useSourceCatalogTables(sourceId?: string, schema?: string, enabl
     queryKey: queryKeys.sourceCatalogTables(sourceId, schema),
     enabled: Boolean(sourceId && schema) && enabled,
     queryFn: async () => unwrapList(await apiClient.get(`/sources/${sourceId}/catalog/tables`, { schema })),
+  });
+}
+
+export function useDatasourceColumns(sourceId?: string, schemaName?: string, tableName?: string, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.datasourceColumns(sourceId, schemaName, tableName),
+    enabled: Boolean(sourceId && schemaName && tableName && enabled),
+    queryFn: async () =>
+      unwrapList(
+        await apiClient.get(`/sources/${sourceId}/browse/columns`, {
+          schema_name: schemaName,
+          table_name: tableName,
+        }),
+      ),
   });
 }
 
