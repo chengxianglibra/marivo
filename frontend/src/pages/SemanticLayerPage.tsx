@@ -1,6 +1,6 @@
-import { Button, Card, Descriptions, Drawer, Form, Input, List, Select, Space, Table, Tabs, Typography } from "antd";
+import { Button, Card, Descriptions, Drawer, List, Space, Table, Tabs, Typography } from "antd";
 import { useMemo, useState } from "react";
-import { semanticKinds, useSemanticAction, useSemanticList, useSources } from "../api/hooks";
+import { semanticKinds, useSemanticAction, useSemanticList } from "../api/hooks";
 import type { EntityRow, JsonRecord } from "../api/types";
 import { TaskEmpty } from "../components/EmptyState";
 import { BlockerPanel, InlineState, JsonPreview, SectionHeader, StatusBadge } from "../components/StatusBadge";
@@ -36,9 +36,6 @@ function semanticId(row: EntityRow): string {
       header.enum_set_ref,
       row.predicate_contract_id,
       header.predicate_ref,
-      row.binding_id,
-      row.binding_contract_id,
-      header.binding_ref,
       row.profile_id,
       header.profile_ref,
       row.id,
@@ -190,58 +187,6 @@ function ReadinessQueueSection({
   );
 }
 
-function SourceObjectBrowser() {
-  const sources = useSources();
-  return (
-    <Space direction="vertical" size="middle" className="full-width">
-      <Typography.Paragraph type="secondary">
-        Source Object Browser starts from synced source summaries. Real column and table metadata depends on the source object detail API.
-      </Typography.Paragraph>
-      <Table
-        rowKey={(row) => row.source_id}
-        size="small"
-        dataSource={sources.data}
-        columns={[
-          { title: "Source", render: (_, row) => row.display_name ?? row.source_id },
-          { title: "Type", dataIndex: "source_type" },
-          { title: "Readiness", render: (_, row) => <InlineState readiness={row.readiness_status} failure={row.failure_code} /> },
-          { title: "Synced Objects", dataIndex: "synced_object_count" },
-          { title: "Modeling entry", render: () => "Create binding from source object" },
-        ]}
-      />
-    </Space>
-  );
-}
-
-function BindingWizard() {
-  const [preview, setPreview] = useState<JsonRecord | null>(null);
-  return (
-    <Space direction="vertical" size="middle" className="full-width">
-      <Typography.Paragraph type="secondary">
-        Binding Wizard v1 only builds a typed contract preview. Submission and persistence must go through the HTTP typed semantic API and must not fake backend state.
-      </Typography.Paragraph>
-      <Form layout="vertical" onFinish={(values) => setPreview(values)}>
-        <Form.Item label="Carrier source object" name="carrier_source_object_ref" rules={[{ required: true }]}>
-          <Input placeholder="source_object.sales.orders" />
-        </Form.Item>
-        <Form.Item label="Metric refs" name="metric_refs">
-          <Select mode="tags" placeholder="metric.gmv" />
-        </Form.Item>
-        <Form.Item label="Key refs" name="key_refs">
-          <Select mode="tags" placeholder="entity.customer" />
-        </Form.Item>
-        <Form.Item label="Time bindings" name="time_bindings">
-          <Select mode="tags" placeholder="time.order_created_at" />
-        </Form.Item>
-        <Button type="primary" htmlType="submit">
-          Preview Contract
-        </Button>
-      </Form>
-      {preview ? <JsonPreview payload={preview} /> : null}
-    </Space>
-  );
-}
-
 function DetailDrawer({
   selected,
   onClose,
@@ -295,8 +240,6 @@ export function SemanticLayerPage() {
     () => [
       { key: "inventory", label: "Object Inventory", children: <SemanticInventory onInspect={(kind, row) => setSelected({ kind, row })} /> },
       { key: "readiness", label: "Readiness Queue", children: <ReadinessQueue onInspect={(kind, row) => setSelected({ kind, row })} /> },
-      { key: "source-objects", label: "Source Object Browser", children: <SourceObjectBrowser /> },
-      { key: "binding-wizard", label: "Binding Wizard", children: <BindingWizard /> },
     ],
     [],
   );

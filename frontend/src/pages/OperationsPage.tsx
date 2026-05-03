@@ -30,13 +30,7 @@ import {
   usePolicies,
   useQualityRules,
   useRoutingResolve,
-  useSetSourceSyncSelections,
   useSources,
-  useSourceObjects,
-  useSourceCatalogSchemas,
-  useSourceCatalogTables,
-  useSourceSyncSelections,
-  useSyncSource,
   useUpdateEngine,
   useUpdateMapping,
   useUpdateSource,
@@ -88,11 +82,6 @@ function splitCsv(value: string | undefined): string[] {
     .filter(Boolean);
 }
 
-function sourceObjectLocator(row: EntityRow, key: "catalog" | "schema" | "table" | "column"): string {
-  const locator = row.authority_locator as JsonRecord | undefined;
-  return String(locator?.[key] ?? row[key] ?? "-");
-}
-
 function apiErrorMessage(error: unknown): string {
   if (error && typeof error === "object" && "message" in error) {
     return String((error as { message?: unknown }).message);
@@ -106,22 +95,14 @@ function ObjectTable({
   onInspect,
   onEdit,
   onDelete,
-  onSync,
-  onSelections,
-  onObjects,
   deleting,
-  syncing,
 }: {
   rows?: EntityRow[];
   kind: InventoryKind;
   onInspect: (row: EntityRow) => void;
   onEdit: (row: EntityRow) => void;
   onDelete: (row: EntityRow) => void;
-  onSync?: (row: EntityRow) => void;
-  onSelections?: (row: EntityRow) => void;
-  onObjects?: (row: EntityRow) => void;
   deleting?: boolean;
-  syncing?: boolean;
 }) {
   return (
     <Table
@@ -142,15 +123,6 @@ function ObjectTable({
           title: "Actions",
           render: (_, row) => (
             <Space>
-              {kind === "source" ? (
-                <>
-                  <Button loading={syncing} onClick={() => onSync?.(row)}>
-                    Sync
-                  </Button>
-                  <Button onClick={() => onSelections?.(row)}>Selections</Button>
-                  <Button onClick={() => onObjects?.(row)}>Synced Objects</Button>
-                </>
-              ) : null}
               <Button onClick={() => onInspect(row)}>Details</Button>
               <Button onClick={() => onEdit(row)}>Edit</Button>
               <Popconfirm
@@ -169,50 +141,6 @@ function ObjectTable({
         },
       ]}
     />
-  );
-}
-
-function SourceObjectsDrawer({
-  row,
-  open,
-  onClose,
-}: {
-  row?: EntityRow;
-  open: boolean;
-  onClose: () => void;
-}) {
-  const sourceId = row?.source_id ? String(row.source_id) : undefined;
-  const objects = useSourceObjects(sourceId, open);
-
-  return (
-    <Drawer title="Synced Source Objects" open={open} onClose={onClose} width={920}>
-      <Space direction="vertical" size="middle" className="full-width">
-        <Descriptions bordered size="small" column={2}>
-          <Descriptions.Item label="Source">{row?.display_name ?? row?.source_id}</Descriptions.Item>
-          <Descriptions.Item label="Synced objects">{row?.synced_object_count ?? objects.data?.length ?? 0}</Descriptions.Item>
-        </Descriptions>
-        <Table
-          rowKey={(object) => String(object.object_id ?? object.fqn ?? JSON.stringify(object))}
-          size="small"
-          loading={objects.isFetching}
-          dataSource={objects.data}
-          locale={{ emptyText: <TaskEmpty kind="sourceObject" /> }}
-          expandable={{ expandedRowRender: (object) => <JsonPreview payload={object} /> }}
-          columns={[
-            { title: "Type", dataIndex: "object_type" },
-            { title: "FQN", render: (_, object) => object.fqn ?? object.name ?? "-" },
-            { title: "Catalog", render: (_, object) => sourceObjectLocator(object, "catalog") },
-            { title: "Schema", render: (_, object) => sourceObjectLocator(object, "schema") },
-            { title: "Table", render: (_, object) => sourceObjectLocator(object, "table") },
-            {
-              title: "Columns",
-              render: (_, object) => object.properties?.column_count ?? object.columns?.length ?? "-",
-            },
-            { title: "Synced", dataIndex: "synced_at" },
-          ]}
-        />
-      </Space>
-    </Drawer>
   );
 }
 
@@ -235,9 +163,7 @@ function SourceDrawer({
     form.setFieldsValue({
       source_type: row?.source_type ?? "duckdb",
       display_name: row?.display_name ?? "",
-      sync_mode: row?.sync?.mode ?? "selected",
       allow_live_browse: row?.policy?.allow_live_browse ?? true,
-      allow_sync: row?.policy?.allow_sync ?? true,
       connection_json: formatJson(row?.authority?.connection, {}),
     });
   }, [form, open, row]);
@@ -253,10 +179,8 @@ function SourceDrawer({
       const payload = {
         display_name: values.display_name,
         authority,
-        sync: { mode: values.sync_mode },
         policy: {
           allow_live_browse: Boolean(values.allow_live_browse),
-          allow_sync: Boolean(values.allow_sync),
         },
         ...(row ? {} : { source_type: type }),
       };
@@ -280,17 +204,9 @@ function SourceDrawer({
         <Form.Item label="Display name" name="display_name" rules={[{ required: true }]}>
           <Input />
         </Form.Item>
-        <Form.Item label="Sync mode" name="sync_mode">
-          <Select options={["selected", "all", "none"].map((value) => ({ value }))} />
+        <Form.Item name="allow_live_browse" valuePropName="checked">
+          <Checkbox>Allow live browse</Checkbox>
         </Form.Item>
-        <Space>
-          <Form.Item name="allow_live_browse" valuePropName="checked">
-            <Checkbox>Allow live browse</Checkbox>
-          </Form.Item>
-          <Form.Item name="allow_sync" valuePropName="checked">
-            <Checkbox>Allow sync</Checkbox>
-          </Form.Item>
-        </Space>
         <Form.Item
           label={`${sourceType === "trino" ? "Trino" : "DuckDB"} connection JSON`}
           name="connection_json"
@@ -565,163 +481,17 @@ function MappingDrawer({
   );
 }
 
-function SourceSelectionsDrawer({
-  row,
-  open,
-  onClose,
-}: {
-  row?: EntityRow;
-  open: boolean;
-  onClose: () => void;
-}) {
-  const [form] = Form.useForm();
-  const [schemaName, setSchemaName] = useState<string>();
-  const [tableName, setTableName] = useState<string>();
-  const sourceId = row?.source_id ? String(row.source_id) : undefined;
-  const selections = useSourceSyncSelections(sourceId, open);
-  const schemas = useSourceCatalogSchemas(sourceId, open);
-  const tables = useSourceCatalogTables(sourceId, schemaName, open);
-  const setSelections = useSetSourceSyncSelections();
-
-  useEffect(() => {
-    if (!open) return;
-    form.setFieldsValue({
-      selections:
-        selections.data && selections.data.length > 0
-          ? selections.data
-          : [{ schema_name: "", table_name: "" }],
-    });
-  }, [form, open, selections.data]);
-
-  useEffect(() => {
-    if (open) return;
-    setSchemaName(undefined);
-    setTableName(undefined);
-  }, [open]);
-
-  async function submit(values: JsonRecord) {
-    if (!sourceId) return;
-    try {
-      const nextSelections = ((values.selections ?? []) as JsonRecord[])
-        .map((selection) =>
-          compactRecord({
-            schema_name: selection.schema_name,
-            table_name: selection.table_name,
-          }),
-        )
-        .filter((selection) => selection.schema_name && selection.table_name);
-      await setSelections.mutateAsync({ sourceId, selections: nextSelections });
-      onClose();
-    } catch (error) {
-      message.error(apiErrorMessage(error));
-    }
-  }
-
-  function addBrowsedSelection() {
-    if (!schemaName || !tableName) return;
-    const current = (form.getFieldValue("selections") ?? []) as JsonRecord[];
-    const exists = current.some(
-      (selection) => selection.schema_name === schemaName && selection.table_name === tableName,
-    );
-    if (!exists) {
-      form.setFieldValue("selections", [...current, { schema_name: schemaName, table_name: tableName }]);
-    }
-  }
-
-  return (
-    <Drawer title="Sync Selections" open={open} onClose={onClose} width={720}>
-      <Space direction="vertical" size="middle" className="full-width">
-        <Descriptions bordered size="small" column={1}>
-          <Descriptions.Item label="Source">{row?.display_name ?? row?.source_id}</Descriptions.Item>
-          <Descriptions.Item label="Sync mode">{row?.sync?.mode ?? "selected"}</Descriptions.Item>
-        </Descriptions>
-        <Space wrap align="end">
-          <Form.Item label="Schema" style={{ marginBottom: 0 }}>
-            <Select
-              showSearch
-              allowClear
-              loading={schemas.isFetching}
-              style={{ width: 220 }}
-              value={schemaName}
-              onChange={(value) => {
-                setSchemaName(value);
-                setTableName(undefined);
-              }}
-              options={(schemas.data ?? []).map((schema) => ({
-                value: schema.schema_name ?? schema.name,
-                label: schema.schema_name ?? schema.name,
-              }))}
-            />
-          </Form.Item>
-          <Form.Item label="Table" style={{ marginBottom: 0 }}>
-            <Select
-              showSearch
-              allowClear
-              loading={tables.isFetching}
-              disabled={!schemaName}
-              style={{ width: 260 }}
-              value={tableName}
-              onChange={setTableName}
-              options={(tables.data ?? []).map((table) => ({
-                value: table.table_name ?? table.name,
-                label: table.table_name ?? table.name,
-              }))}
-            />
-          </Form.Item>
-          <Button onClick={addBrowsedSelection} disabled={!schemaName || !tableName}>
-            Add Selection
-          </Button>
-        </Space>
-        <Form form={form} layout="vertical" onFinish={submit}>
-          <Form.List name="selections">
-            {(fields, { add, remove }) => (
-              <Space direction="vertical" className="full-width">
-                {fields.map((field) => (
-                  <Space key={field.key} align="start">
-                    <Form.Item label="Schema" name={[field.name, "schema_name"]} rules={[{ required: true }]}>
-                      <Input />
-                    </Form.Item>
-                    <Form.Item label="Table" name={[field.name, "table_name"]} rules={[{ required: true }]}>
-                      <Input />
-                    </Form.Item>
-                    <Button aria-label="Remove sync selection" icon={<Trash2 size={16} />} onClick={() => remove(field.name)} />
-                  </Space>
-                ))}
-                <Button icon={<Plus size={16} />} onClick={() => add({ schema_name: "", table_name: "" })}>
-                  Add Manual Selection
-                </Button>
-              </Space>
-            )}
-          </Form.List>
-          <Button type="primary" htmlType="submit" loading={setSelections.isPending} style={{ marginTop: 16 }}>
-            Save Selections
-          </Button>
-        </Form>
-      </Space>
-    </Drawer>
-  );
-}
-
 function SourcesTab({ onInspect, onEdit }: { onInspect: (row: EntityRow) => void; onEdit: (row?: EntityRow) => void }) {
   const sources = useSources();
   const deleteSource = useDeleteSource();
-  const syncSource = useSyncSource();
-  const [selectionSource, setSelectionSource] = useState<EntityRow>();
-  const [objectSource, setObjectSource] = useState<EntityRow>();
   return (
     <Space direction="vertical" size="middle" className="full-width">
       <Typography.Paragraph type="secondary">
-        Source inventory comes from the HTTP API. Sync selections are represented as structured tables instead of handwritten JSON.
+        Source inventory comes from the HTTP API. Live catalog browsing is used for table and column discovery.
       </Typography.Paragraph>
       <Space wrap>
         <Button type="primary" icon={<Plus size={16} />} onClick={() => onEdit()}>
           New Source
-        </Button>
-        <Button
-          disabled={!sources.data?.length}
-          onClick={() => setSelectionSource(sources.data?.[0])}
-        >
-          Manage Selections
         </Button>
       </Space>
       <ObjectTable
@@ -729,27 +499,8 @@ function SourcesTab({ onInspect, onEdit }: { onInspect: (row: EntityRow) => void
         kind="source"
         onInspect={onInspect}
         onEdit={(row) => onEdit(row)}
-        onSync={(row) =>
-          syncSource.mutate(String(row.source_id), {
-            onSuccess: () => message.success("Source metadata sync completed."),
-            onError: (error) => message.error(apiErrorMessage(error)),
-          })
-        }
-        onSelections={setSelectionSource}
-        onObjects={setObjectSource}
         onDelete={(row) => deleteSource.mutate(String(row.source_id), { onError: (error) => message.error(apiErrorMessage(error)) })}
         deleting={deleteSource.isPending}
-        syncing={syncSource.isPending}
-      />
-      <SourceSelectionsDrawer
-        row={selectionSource}
-        open={Boolean(selectionSource)}
-        onClose={() => setSelectionSource(undefined)}
-      />
-      <SourceObjectsDrawer
-        row={objectSource}
-        open={Boolean(objectSource)}
-        onClose={() => setObjectSource(undefined)}
       />
     </Space>
   );

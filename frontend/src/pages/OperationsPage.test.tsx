@@ -42,21 +42,12 @@ describe("operations inventory CRUD", () => {
     expect(within(dialog).getByRole("button", { name: "Save Source" })).toBeInTheDocument();
   });
 
-  it("shows source sync controls", async () => {
+  it("does not show removed datasource sync controls", async () => {
     renderOperations();
 
-    expect(await screen.findByRole("button", { name: /Manage Selections/i })).toBeInTheDocument();
-  });
-
-  it("opens the synced source objects drawer", async () => {
-    renderOperations();
-
-    const objectButtons = await screen.findAllByRole("button", { name: /Synced Objects/i });
-    fireEvent.click(objectButtons[0]);
-
-    expect(await screen.findByText("Synced Source Objects")).toBeInTheDocument();
-    expect(await screen.findByText("sales.analytics.orders")).toBeInTheDocument();
-    expect(screen.getByText("sales.analytics.revenue_daily")).toBeInTheDocument();
+    await screen.findByRole("button", { name: /New Source/i });
+    expect(screen.queryByText(/Sync mode/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Synced Objects/i })).not.toBeInTheDocument();
   });
 
   it("opens mapping drawer with catalog row controls", async () => {

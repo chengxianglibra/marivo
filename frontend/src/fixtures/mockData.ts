@@ -11,7 +11,6 @@ export const metrics = {
   active_sessions: 3,
   pending_jobs: 1,
   steps_failed: 2,
-  sync_jobs_completed: 8,
   routing_failures: 2,
 };
 
@@ -23,8 +22,6 @@ export const sources = [
     status: "active",
     readiness_status: "ready",
     failure_code: null,
-    sync: { mode: "selected" },
-    synced_object_count: 42,
     related_mappings_count: 1,
     updated_at: "2026-04-25T10:12:00+08:00",
   },
@@ -34,42 +31,12 @@ export const sources = [
     source_type: "trino",
     status: "active",
     readiness_status: "not_ready",
-    failure_code: "source_sync_selection_empty",
-    sync: { mode: "selected" },
-    synced_object_count: 0,
+    failure_code: "source_connection_invalid",
     related_mappings_count: 0,
     updated_at: "2026-04-25T09:00:00+08:00",
-    blocking_requirements: ["Configure sync selections", "Trigger source sync"],
+    blocking_requirements: ["Fix connection.host", "Confirm live browse access"],
   },
 ];
-
-export const sourceObjects: Record<string, JsonRecord[]> = {
-  src_sales_duckdb: [
-    {
-      object_id: "obj_sales_orders",
-      source_id: "src_sales_duckdb",
-      object_type: "table",
-      name: "orders",
-      fqn: "sales.analytics.orders",
-      authority_locator: { catalog: "sales", schema: "analytics", table: "orders" },
-      properties: { column_count: 12, table_type: "BASE TABLE" },
-      sync_version: "v_sales_20260425",
-      synced_at: "2026-04-25T10:12:00+08:00",
-    },
-    {
-      object_id: "obj_sales_revenue_daily",
-      source_id: "src_sales_duckdb",
-      object_type: "table",
-      name: "revenue_daily",
-      fqn: "sales.analytics.revenue_daily",
-      authority_locator: { catalog: "sales", schema: "analytics", table: "revenue_daily" },
-      properties: { column_count: 9, table_type: "BASE TABLE" },
-      sync_version: "v_sales_20260425",
-      synced_at: "2026-04-25T10:12:00+08:00",
-    },
-  ],
-  src_lake_trino: [],
-};
 
 export const engines = [
   {
@@ -130,13 +97,13 @@ export const mappings = [
 
 export const jobs = [
   {
-    job_id: "job_sync_001",
+    job_id: "job_routing_001",
     session_id: null,
-    job_type: "source_sync",
+    job_type: "routing_check",
     status: "failed",
     created_at: "2026-04-25T09:48:00+08:00",
     updated_at: "2026-04-25T09:50:00+08:00",
-    error_message: "No sync selections configured",
+    error_message: "Datasource connection invalid",
   },
   {
     job_id: "job_runtime_031",
@@ -177,7 +144,7 @@ export const semantic: Record<string, JsonRecord[]> = {
       lifecycle_status: "active",
       readiness_status: "ready",
       capabilities: ["lookup", "aggregate"],
-      dependency_refs: ["binding.customer_profile"],
+      dependency_refs: ["dataset.customer_profile"],
     },
   ],
   metrics: [
@@ -186,9 +153,9 @@ export const semantic: Record<string, JsonRecord[]> = {
       name: "gmv",
       lifecycle_status: "active",
       readiness_status: "not_ready",
-      failure_code: "binding_missing_time",
-      blocking_requirements: ["Bind a time grain", "Confirm source object readiness"],
-      dependency_refs: ["binding.sales_orders"],
+      failure_code: "dataset_time_missing",
+      blocking_requirements: ["Configure primary time field", "Confirm datasource readiness"],
+      dependency_refs: ["dataset.sales_orders"],
       capabilities: ["observe", "compare"],
     },
   ],
@@ -210,16 +177,6 @@ export const semantic: Record<string, JsonRecord[]> = {
       name: "cn_public_holiday",
       lifecycle_status: "active",
       readiness_status: "ready",
-    },
-  ],
-  bindings: [
-    {
-      binding_id: "binding.sales_orders",
-      name: "sales_orders",
-      lifecycle_status: "draft",
-      readiness_status: "not_ready",
-      failure_code: "source_object_not_ready",
-      carrier_source_object_ref: "source_object.sales.orders",
     },
   ],
   "compatibility-profiles": [

@@ -13,7 +13,6 @@ import {
   semantic,
   sessionState,
   sessions,
-  sourceObjects,
   sources,
 } from "./mockData";
 import type { JsonRecord } from "../api/types";
@@ -46,22 +45,6 @@ export function mockGet(path: string, query?: Record<string, unknown>): unknown 
   if (clean === "/metrics") return metrics;
   if (clean === "/openapi/index") return openapiIndex;
   if (clean === "/sources") return sources;
-  const objectsMatch = clean.match(/^\/sources\/([^/]+)\/objects$/);
-  if (objectsMatch) return sourceObjects[objectsMatch[1]] ?? [];
-  const selectionMatch = clean.match(/^\/sources\/([^/]+)\/sync\/selections$/);
-  if (selectionMatch) {
-    if (selectionMatch[1] === "src_sales_duckdb") {
-      return [
-        {
-          selection_id: "sel_sales_orders",
-          source_id: selectionMatch[1],
-          schema_name: "analytics",
-          table_name: "orders",
-        },
-      ];
-    }
-    return [];
-  }
   const schemaMatch = clean.match(/^\/sources\/([^/]+)\/catalog\/schemas$/);
   if (schemaMatch) {
     return [{ schema_name: "analytics" }, { schema_name: "iceberg_inf" }];
@@ -72,6 +55,13 @@ export function mockGet(path: string, query?: Record<string, unknown>): unknown 
     return schema === "iceberg_inf"
       ? [{ table_name: "public_holiday_events" }, { table_name: "v_ott_user_profile_wide" }]
       : [{ table_name: "orders" }, { table_name: "watch_events" }];
+  }
+  const columnsMatch = clean.match(/^\/sources\/([^/]+)\/browse\/columns$/);
+  if (columnsMatch) {
+    return [
+      { name: "order_id", schema_name: query?.schema_name ?? "analytics", table_name: query?.table_name ?? "orders", data_type: "string", properties: {} },
+      { name: "amount", schema_name: query?.schema_name ?? "analytics", table_name: query?.table_name ?? "orders", data_type: "number", properties: {} },
+    ];
   }
   if (clean === "/engines") return engines;
   if (clean === "/mappings") return mappings;
@@ -98,40 +88,6 @@ export function mockGet(path: string, query?: Record<string, unknown>): unknown 
 }
 
 export function mockPost(path: string, body: unknown): unknown {
-  const sourceSyncMatch = path.match(/^\/sources\/([^/]+)\/sync$/);
-  if (sourceSyncMatch) {
-    const source = sources.find((item) => item.source_id === sourceSyncMatch[1]);
-    if (source) {
-      source.synced_object_count = Math.max(Number(source.synced_object_count ?? 0), 2);
-      source.readiness_status = "ready";
-      source.failure_code = null;
-      source.updated_at = now();
-      if (!sourceObjects[sourceSyncMatch[1]]?.length) {
-        sourceObjects[sourceSyncMatch[1]] = [
-          {
-            object_id: `obj_${sourceSyncMatch[1]}_analytics_orders`,
-            source_id: sourceSyncMatch[1],
-            object_type: "table",
-            name: "orders",
-            fqn: "main.analytics.orders",
-            authority_locator: { catalog: "main", schema: "analytics", table: "orders" },
-            properties: { column_count: 8 },
-            sync_version: `v_${Math.random().toString(16).slice(2, 8)}`,
-            synced_at: now(),
-          },
-        ];
-      }
-    }
-    return { job_id: `job_sync_${Math.random().toString(16).slice(2, 8)}`, source_id: sourceSyncMatch[1], status: "succeeded" };
-  }
-  const selectionMatch = path.match(/^\/sources\/([^/]+)\/sync\/selections$/);
-  if (selectionMatch) {
-    return ((body as { selections?: JsonRecord[] })?.selections ?? []).map((selection, index) => ({
-      selection_id: `sel_${index + 1}`,
-      source_id: selectionMatch[1],
-      ...selection,
-    }));
-  }
   if (path === "/sources") {
     const payload = body as Record<string, unknown>;
     const source = readiness({
@@ -139,8 +95,7 @@ export function mockPost(path: string, body: unknown): unknown {
       display_name: payload.display_name,
       source_type: payload.source_type,
       authority: payload.authority,
-      sync: payload.sync ?? { mode: "selected" },
-      policy: payload.policy ?? { allow_live_browse: true, allow_sync: true },
+      policy: payload.policy ?? { allow_live_browse: true },
       mappings: [],
       created_at: now(),
     });
