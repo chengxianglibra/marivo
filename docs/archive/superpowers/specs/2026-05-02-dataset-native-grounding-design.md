@@ -1,3 +1,9 @@
+---
+status: archived
+canonical-path: docs/api/semantic.md
+created: 2026-05-02
+---
+
 # Dataset-Native Grounding Design
 
 Date: 2026-05-02

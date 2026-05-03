@@ -1,3 +1,9 @@
+---
+status: completed
+canonical-path: spec/service/data-plane/ (pending update for datasource merge)
+created: 2026-04-30
+---
+
 # Datasource 合并设计：Source + Engine + Mapping → Datasource
 
 **Date:** 2026-04-30

@@ -1,3 +1,9 @@
+---
+status: completed
+canonical-path: spec/semantic/ (pending update for calendar redesign)
+created: 2026-04-29
+---
+
 # Calendar Data/Policy Redesign
 
 Date: 2026-04-29

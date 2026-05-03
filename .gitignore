@@ -91,5 +91,5 @@ marivo.yaml
 # Plan
 plan/
 
-# Superpowers (working docs)
-docs/superpowers/
+# Superpowers (working docs — tracked selectively via frontmatter convention)
+# docs/superpowers/ is no longer fully ignored; active specs/plans are tracked
