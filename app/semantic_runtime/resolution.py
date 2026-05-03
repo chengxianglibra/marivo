@@ -117,7 +117,10 @@ class SemanticResolver:
         raise NotImplementedError("SemanticResolver.resolve_time_ref is removed")
 
     def resolve_binding_ref(self, binding_ref: str) -> ResolvedSemanticObject:
-        raise NotImplementedError("SemanticResolver.resolve_binding_ref is removed")
+        raise NotImplementedError(
+            "binding_grounding_removed: v2 runtime uses dataset.datasource_id, "
+            "dataset.source, and field.expression"
+        )
 
     def resolve_relationship_ref(self, relationship_ref: str) -> ResolvedSemanticObject:
         raise NotImplementedError("SemanticResolver.resolve_relationship_ref is removed")

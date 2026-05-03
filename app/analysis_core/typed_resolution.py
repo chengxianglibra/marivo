@@ -111,7 +111,6 @@ class ResolvedCompilerInputs:
     resolved_right_process: ResolvedSemanticObject | None = None
     resolved_filter_time: ResolvedSemanticObject | None = None
     resolved_dimensions: list[ResolvedSemanticObject] = field(default_factory=list)
-    resolved_bindings: list[ResolvedSemanticObject] = field(default_factory=list)
     metric_entity_anchor_ref: str | None = None
     resolved_imported_dimensions: list[ResolvedImportedDimensionBridge] = field(
         default_factory=list
@@ -298,7 +297,6 @@ def resolve_compiler_inputs(
     normalized_request: NormalizedCompilerRequest,
     *,
     semantic_repository: SemanticRuntimeRepository | None,
-    binding_reader: Any = None,
 ) -> ResolvedCompilerInputs:
     resolved = ResolvedCompilerInputs(normalized_request=normalized_request)
     if semantic_repository is None:
@@ -383,10 +381,6 @@ def resolve_compiler_inputs(
                 }
             )
 
-    resolved.resolved_bindings = _resolve_bindings_for_inputs(
-        resolved,
-        binding_reader=binding_reader,
-    )
     (
         resolved.metric_entity_anchor_ref,
         resolved.resolved_imported_dimensions,
@@ -507,31 +501,6 @@ def _resolved_filter_time_ref(
     return None
 
 
-def _resolve_bindings_for_inputs(
-    resolved: ResolvedCompilerInputs,
-    *,
-    binding_reader: Any,
-) -> list[ResolvedSemanticObject]:
-    if binding_reader is None:
-        return []
-    object_refs: list[str] = []
-    if resolved.resolved_metric is not None:
-        object_refs.append(resolved.resolved_metric.ref)
-    if resolved.resolved_process is not None:
-        object_refs.append(resolved.resolved_process.ref)
-    if not object_refs:
-        return []
-    bindings: list[ResolvedSemanticObject] = []
-    seen: set[str] = set()
-    for object_ref in object_refs:
-        for binding in list(binding_reader(object_ref) or []):
-            if binding.ref in seen:
-                continue
-            bindings.append(binding)
-            seen.add(binding.ref)
-    return bindings
-
-
 def _resolve_imported_dimension_bridges(
     resolved: ResolvedCompilerInputs,
     *,
@@ -549,65 +518,8 @@ def _resolve_imported_dimension_bridges(
     if entity_anchor_ref is None:
         return None, [], {}
 
-    metric_bindings = [
-        binding
-        for binding in resolved.resolved_bindings
-        if binding.object_kind == "binding"
-        and _binding_scope(binding) == "metric"
-        and _bound_object_ref(binding) == metric.ref
-    ]
-    if not metric_bindings:
-        return entity_anchor_ref, [], {}
-
-    grouped_bridges: dict[str, list[ResolvedImportedDimensionBridge]] = {}
-    for metric_binding in metric_bindings:
-        interface_contract = dict(metric_binding.semantic_object.get("interface_contract") or {})
-        for binding_import in interface_contract.get("imports") or []:
-            imported_binding_ref = str(binding_import.get("binding_ref") or "").strip()
-            if not imported_binding_ref:
-                continue
-            import_key = str(binding_import.get("import_key") or "").strip()
-            imported_binding = _resolve_imported_binding(
-                imported_binding_ref,
-                metric_ref=metric.ref,
-                import_key=import_key,
-                semantic_repository=semantic_repository,
-                warnings=resolved.warnings,
-            )
-            if imported_binding is None:
-                continue
-            if _binding_scope(imported_binding) != "entity":
-                continue
-            source_entity_ref = _bound_object_ref(imported_binding)
-            if source_entity_ref != entity_anchor_ref:
-                continue
-            for bridge in _bridges_from_imported_binding(
-                imported_binding,
-                source_entity_ref=source_entity_ref,
-                import_key=import_key,
-            ):
-                grouped_bridges.setdefault(bridge.dimension_ref, []).append(bridge)
-
-    resolved_bridges: list[ResolvedImportedDimensionBridge] = []
-    conflicts: dict[str, list[ResolvedImportedDimensionBridge]] = {}
-    for dimension_ref, dimension_bridges in grouped_bridges.items():
-        if len(dimension_bridges) == 1:
-            resolved_bridges.append(dimension_bridges[0])
-            continue
-        conflicts[dimension_ref] = dimension_bridges
-
-    resolved_bridges.sort(key=lambda bridge: bridge.dimension_ref)
-    sorted_conflicts = {
-        dimension_ref: sorted(
-            dimension_bridges,
-            key=lambda bridge: (
-                bridge.source_binding_ref,
-                bridge.import_key,
-            ),
-        )
-        for dimension_ref, dimension_bridges in sorted(conflicts.items())
-    }
-    return entity_anchor_ref, resolved_bridges, sorted_conflicts
+    _ = (semantic_repository, metric)
+    return entity_anchor_ref, [], {}
 
 
 def _metric_entity_anchor_ref(metric: ResolvedSemanticObject) -> str | None:
@@ -616,71 +528,6 @@ def _metric_entity_anchor_ref(metric: ResolvedSemanticObject) -> str | None:
     if observed_entity_ref is not None:
         return observed_entity_ref
     return _optional_str(header.get("population_subject_ref"))
-
-
-def _resolve_imported_binding(
-    imported_binding_ref: str,
-    *,
-    metric_ref: str,
-    import_key: str,
-    semantic_repository: SemanticRuntimeRepository | None,
-    warnings: list[dict[str, Any]],
-) -> ResolvedSemanticObject | None:
-    if semantic_repository is None:
-        warnings.append(
-            {
-                "code": "binding_import_unresolved",
-                "message": "Cannot resolve imported binding_ref without semantic_repository",
-                "metric_ref": metric_ref,
-                "binding_ref": imported_binding_ref,
-                "import_key": import_key,
-            }
-        )
-        return None
-    try:
-        return _resolve_runtime_ref(
-            semantic_repository.resolve_binding_ref,
-            imported_binding_ref,
-            label="binding",
-        )
-    except ValueError as error:
-        warnings.append(
-            {
-                "code": "binding_import_unresolved",
-                "message": str(error),
-                "metric_ref": metric_ref,
-                "binding_ref": imported_binding_ref,
-                "import_key": import_key,
-            }
-        )
-        return None
-
-
-def _bridges_from_imported_binding(
-    imported_binding: ResolvedSemanticObject,
-    *,
-    source_entity_ref: str,
-    import_key: str,
-) -> list[ResolvedImportedDimensionBridge]:
-    interface_contract = dict(imported_binding.semantic_object.get("interface_contract") or {})
-    bridges: dict[str, ResolvedImportedDimensionBridge] = {}
-    for field_binding in interface_contract.get("field_bindings") or []:
-        target = dict(field_binding.get("target") or {})
-        if str(target.get("target_kind") or "").strip() != "stable_descriptor":
-            continue
-        dimension_ref = str(field_binding.get("semantic_ref") or "").strip()
-        if not dimension_ref.startswith("dimension."):
-            continue
-        bridges.setdefault(
-            dimension_ref,
-            ResolvedImportedDimensionBridge(
-                dimension_ref=dimension_ref,
-                source_binding_ref=imported_binding.ref,
-                source_entity_ref=source_entity_ref,
-                import_key=import_key,
-            ),
-        )
-    return list(bridges.values())
 
 
 def _resolve_entity_field_groundings(
@@ -1000,16 +847,6 @@ def _split_entity_field_ref(value: str) -> tuple[str | None, str]:
         entity_ref, field_name = value.split(".field.", 1)
         return entity_ref, f"field.{field_name}"
     return None, value
-
-
-def _binding_scope(binding: ResolvedSemanticObject) -> str | None:
-    header = dict(binding.semantic_object.get("header") or {})
-    return _optional_str(header.get("binding_scope"))
-
-
-def _bound_object_ref(binding: ResolvedSemanticObject) -> str | None:
-    header = dict(binding.semantic_object.get("header") or {})
-    return _optional_str(header.get("bound_object_ref"))
 
 
 def _optional_str(value: Any) -> str | None:
