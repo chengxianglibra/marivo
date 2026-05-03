@@ -41,7 +41,6 @@ class DatasourcePolicyPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     allow_live_browse: bool = True
-    allow_sync: bool = True
     allow_identity_reuse: bool = False
 
 
@@ -76,7 +75,6 @@ class DatasourceRegisterRequest(BaseModel):
     datasource_type: Literal["duckdb", "trino"]
     display_name: str
     connection: DatasourceConnection
-    sync_mode: Literal["selected", "all", "none"] = "selected"
     policy: DatasourcePolicyPayload = Field(default_factory=DatasourcePolicyPayload)
 
     @model_validator(mode="before")
@@ -97,7 +95,6 @@ class DatasourceUpdateRequest(BaseModel):
         default=None,
         description="Full connection object including datasource_type; required when provided.",
     )
-    sync_mode: Literal["selected", "all", "none"] | None = None
     policy: DatasourcePolicyPayload | None = None
 
 
@@ -105,7 +102,6 @@ class DatasourcePolicyResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     allow_live_browse: bool = True
-    allow_sync: bool = True
     allow_identity_reuse: bool = False
 
 
@@ -116,7 +112,6 @@ class DatasourceResponse(BaseModel):
     datasource_type: Literal["duckdb", "trino"]
     display_name: str
     connection: DatasourceConnection
-    sync_mode: Literal["selected", "all", "none"] = "selected"
     policy: DatasourcePolicyResponse
     status: Literal["active", "inactive", "deprecated"] = "active"
     readiness_status: Literal["not_ready", "ready"] = "not_ready"
@@ -141,51 +136,6 @@ class DatasourceDeleteResponse(BaseModel):
     deleted: bool = True
 
 
-class SyncTriggerResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    job_id: str
-    datasource_id: str
-    status: Literal["succeeded"]
-
-
-class SyncJobStatusResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    job_id: str
-    datasource_id: str
-    job_type: str
-    status: Literal["pending", "running", "succeeded", "failed"]
-    started_at: str | None = None
-    finished_at: str | None = None
-    objects_synced: int | None = None
-    error_message: str | None = None
-
-
-class SyncSelectionResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    selection_id: str
-    datasource_id: str
-    schema_name: str
-    table_name: str
-    created_at: str
-
-
-class SyncClearedResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    status: Literal["cleared"]
-    datasource_id: str
-
-
-class SyncSelectionDeletedResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    status: Literal["deleted"]
-    selection_id: str
-
-
 class BrowseSchemaItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -200,6 +150,16 @@ class BrowseTableItem(BaseModel):
     schema_name: str
     row_count: int | None = None
     column_count: int | None = None
+
+
+class DatasourceColumnResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    schema_name: str
+    table_name: str
+    data_type: str | None = None
+    properties: dict[str, str | int | float | bool | None] = Field(default_factory=dict)
 
 
 class TablePreviewColumn(BaseModel):
@@ -224,41 +184,11 @@ class TablePreviewResponse(BaseModel):
     filters_applied: dict[str, str | int | float | bool | None] | None = None
 
 
-class SourceObjectAuthorityLocator(BaseModel):
-    model_config = ConfigDict(extra="forbid", populate_by_name=True)
-
-    catalog: str | None = None
-    schema_name: str | None = Field(default=None, alias="schema")
-    table: str | None = None
-
-
-class SourceObjectResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    object_id: str
-    datasource_id: str
-    object_type: str
-    parent_id: str | None = None
-    native_name: str
-    native_id: str | None = None
-    fqn: str | None = None
-    authority_locator: SourceObjectAuthorityLocator | None = None
-    properties: dict[str, str | int | float | bool | None] = Field(default_factory=dict)
-    sync_version: str | None = None
-    synced_at: str | None = None
-
-
 class ObjectPropertiesResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     object_id: str
     properties: dict[str, str | int | float | bool | None]
-
-
-class ColumnPropertiesUpdateRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    unit: str | None = None
 
 
 # =============================================================================
@@ -322,7 +252,7 @@ class ExecutionLocatorEntry(BaseModel):
     execution_catalog: str | None = None
     default_schema_applied: bool = False
     readiness_blockers: list[str] = Field(default_factory=list)
-    authority_locator: SourceObjectAuthorityLocator | None = None
+    authority_locator: dict[str, str | None] | None = None
 
 
 class RoutingSourceSummary(BaseModel):
@@ -393,15 +323,6 @@ class RouteResolveResponse(BaseModel):
 # =============================================================================
 # Sync / Policy / Quality / Governance / Job / Approval models
 # =============================================================================
-
-
-class SyncSelectionItem(BaseModel):
-    schema_name: str
-    table_name: str
-
-
-class SyncSelectionRequest(BaseModel):
-    selections: list[SyncSelectionItem]
 
 
 # --- Policy models ---

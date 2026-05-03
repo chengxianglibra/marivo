@@ -12,12 +12,12 @@ from app.storage.sqlite_metadata import SQLiteMetadataStore
 from tests.shared_fixtures import get_seeded_duckdb_path
 
 
-def _build_duckdb_datasource_payload(path: str, display_name: str, mode: str = "selected") -> dict:
+def _build_duckdb_datasource_payload(path: str, display_name: str) -> dict:
     return {
         "datasource_type": "duckdb",
         "display_name": display_name,
-        "connection": {"path": path, "catalog": "main"},
-        "sync_mode": mode,
+        "connection": {"path": path},
+        "policy": {"allow_live_browse": True},
     }
 
 
@@ -36,7 +36,6 @@ def _build_trino_datasource_payload(
         "datasource_type": "trino",
         "display_name": display_name,
         "connection": connection,
-        "sync_mode": "selected",
         "policy": {"allow_identity_reuse": allow_identity_reuse},
     }
 
@@ -73,9 +72,7 @@ class DatasourceServiceUnitTests(unittest.TestCase):
         self.assertEqual(ds["datasource_type"], "duckdb")
         self.assertEqual(ds["display_name"], "Test DuckDB")
         self.assertEqual(ds["connection"], {"path": "/tmp/test.duckdb"})
-        self.assertEqual(ds["sync_mode"], "selected")
         self.assertEqual(ds["policy"]["allow_live_browse"], True)
-        self.assertEqual(ds["policy"]["allow_sync"], True)
         self.assertNotIn("allow_identity_reuse", ds["policy"])
         self.assertEqual(ds["status"], "active")
         self.assertEqual(ds["readiness_status"], "ready")
@@ -242,17 +239,6 @@ class DatasourceServiceUnitTests(unittest.TestCase):
         engine = self.service.build_analytics_engine(ds["datasource_id"])
         self.assertEqual(engine.user, "svc_marivo")
 
-    # -- Sync mode validation ---------------------------------------------
-
-    def test_sync_mode_validation(self) -> None:
-        ds = self.service.register_datasource(
-            datasource_type="duckdb",
-            display_name="Sync Mode DS",
-            connection={"path": "/tmp/test.duckdb"},
-            sync_mode="all",
-        )
-        self.assertEqual(ds["sync_mode"], "all")
-
     # -- Datasource type validation ----------------------------------------
 
     def test_datasource_type_validation(self) -> None:
@@ -353,9 +339,7 @@ class DatasourceAPITests(unittest.TestCase):
         ds = resp.json()
         self.assertEqual(ds["datasource_type"], "duckdb")
         self.assertEqual(ds["display_name"], "Demo Local")
-        self.assertEqual(ds["sync_mode"], "selected")
         self.assertEqual(ds["policy"]["allow_live_browse"], True)
-        self.assertEqual(ds["policy"]["allow_sync"], True)
         self.assertEqual(ds["readiness_status"], "ready")
         self.assertIsNone(ds["failure_code"])
 
@@ -386,8 +370,6 @@ class DatasourceAPITests(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["datasource_id"], datasource_id)
         self.assertEqual(resp.json()["datasource_type"], "duckdb")
-        self.assertEqual(resp.json()["sync_mode"], "selected")
-        self.assertEqual(resp.json()["policy"]["allow_sync"], True)
         self.assertEqual(resp.json()["readiness_status"], "ready")
         self.assertIsNone(resp.json()["failure_code"])
 
@@ -462,7 +444,7 @@ class DatasourceAPITests(unittest.TestCase):
         datasource_id = resp.json()["datasource_id"]
         resp = self.client.delete(f"/datasources/{datasource_id}")
         self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.json()["status"], "deleted")
+        self.assertEqual(resp.json()["deleted"], True)
         resp = self.client.get(f"/datasources/{datasource_id}")
         self.assertEqual(resp.status_code, 404)
 
@@ -484,52 +466,6 @@ class DatasourceAPITests(unittest.TestCase):
         resp = self.client.put("/datasources/ds_nonexistent", json={"display_name": "x"})
         self.assertEqual(resp.status_code, 404)
 
-    # -- Delete blocked by typed binding ----------------------------------
-
-    def test_delete_datasource_blocked_by_typed_binding(self) -> None:
-        """DELETE returns 409 when typed bindings reference source objects."""
-        from tests.semantic_test_helpers import create_typed_metric, create_typed_metric_binding
-
-        resp = self.client.post(
-            "/datasources",
-            json=_build_duckdb_datasource_payload(str(self.db_path), "Bound DS"),
-        )
-        datasource_id = resp.json()["datasource_id"]
-        # Sync to get source_objects
-        self.client.post(
-            f"/datasources/{datasource_id}/sync/selections",
-            json={
-                "selections": [
-                    {"schema_name": "analytics", "table_name": "watch_events"},
-                    {"schema_name": "analytics", "table_name": "player_qoe"},
-                    {"schema_name": "analytics", "table_name": "ad_events"},
-                    {"schema_name": "analytics", "table_name": "recommendation_events"},
-                ]
-            },
-        )
-        self.client.post(f"/datasources/{datasource_id}/sync")
-        objects = self.client.get(f"/datasources/{datasource_id}/objects?type=table").json()
-        object_id = objects[0]["object_id"]
-        metric = create_typed_metric(
-            self.client,
-            name="ds_test_metric",
-            display_name="DS Test Metric",
-            definition_sql="COUNT(*)",
-            dimensions=["event_date"],
-        )
-        create_typed_metric_binding(
-            self.client,
-            metric_ref="metric.ds_test_metric",
-            object_id=object_id,
-            carrier_locator=str(objects[0]["fqn"]),
-        )
-
-        resp = self.client.delete(f"/datasources/{datasource_id}")
-        self.assertEqual(resp.status_code, 409)
-        detail = resp.json()["detail"]
-        self.assertIn("binding", detail["message"].lower())
-        self.assertIn("binding.ds_test_metric_primary", detail["dependencies"][0])
-
     # -- OpenAPI uses explicit response model -----------------------------
 
     def test_datasource_openapi_uses_explicit_response_model(self) -> None:
@@ -549,150 +485,6 @@ class DatasourceAPITests(unittest.TestCase):
             "application/json"
         ]["schema"]
         self.assertEqual(ds_post["$ref"], "#/components/schemas/DatasourceResponse")
-
-
-# ---------------------------------------------------------------------------
-# Sync mode and selection tests via API
-# ---------------------------------------------------------------------------
-
-
-class DatasourceSyncModeTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls.temp_dir = tempfile.TemporaryDirectory()
-        cls.db_path = Path(cls.temp_dir.name) / "test_ds_sync_mode.duckdb"
-        cls.meta_path = Path(cls.temp_dir.name) / "test_ds_sync_mode.meta.sqlite"
-        get_seeded_duckdb_path(cls.db_path)
-        cls.client = TestClient(
-            create_app(cls.db_path, metadata_store=SQLiteMetadataStore(cls.meta_path))
-        )
-
-    @classmethod
-    def tearDownClass(cls) -> None:
-        cls.client.close()
-        cls.temp_dir.cleanup()
-
-    def _create_datasource(self, name: str, mode: str = "selected") -> dict:
-        resp = self.client.post(
-            "/datasources",
-            json=_build_duckdb_datasource_payload(str(self.db_path), name, mode=mode),
-        )
-        self.assertEqual(resp.status_code, 200)
-        return resp.json()
-
-    def test_sync_mode_none_returns_400(self) -> None:
-        ds = self._create_datasource("None Mode DS", mode="none")
-        datasource_id = ds["datasource_id"]
-
-        resp = self.client.post(f"/datasources/{datasource_id}/sync")
-        self.assertEqual(resp.status_code, 400)
-        self.assertIn("disabled", resp.json()["detail"].lower())
-
-    def test_sync_mode_selected_no_selections_returns_400(self) -> None:
-        ds = self._create_datasource("Selected No Sel DS")
-        datasource_id = ds["datasource_id"]
-        store = self.client.app.state.metadata_store
-        store.execute(
-            "UPDATE datasources SET sync_mode = 'selected' WHERE datasource_id = ?",
-            [datasource_id],
-        )
-
-        resp = self.client.post(f"/datasources/{datasource_id}/sync")
-        self.assertEqual(resp.status_code, 400)
-        self.assertIn("no sync selections", resp.json()["detail"].lower())
-
-    def test_selection_crud(self) -> None:
-        ds = self._create_datasource("Selection CRUD DS")
-        datasource_id = ds["datasource_id"]
-
-        # Initially empty
-        resp = self.client.get(f"/datasources/{datasource_id}/sync/selections")
-        self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.json(), [])
-
-        # Add selections
-        resp = self.client.post(
-            f"/datasources/{datasource_id}/sync/selections",
-            json={
-                "selections": [
-                    {"schema_name": "analytics", "table_name": "watch_events"},
-                    {"schema_name": "analytics", "table_name": "ad_events"},
-                ]
-            },
-        )
-        self.assertEqual(resp.status_code, 200)
-        sels = resp.json()
-        self.assertEqual(len(sels), 2)
-
-        # List
-        resp = self.client.get(f"/datasources/{datasource_id}/sync/selections")
-        self.assertEqual(len(resp.json()), 2)
-
-        # Remove one
-        sel_id = sels[0]["selection_id"]
-        resp = self.client.delete(f"/datasources/{datasource_id}/sync/selections/{sel_id}")
-        self.assertEqual(resp.status_code, 200)
-
-        resp = self.client.get(f"/datasources/{datasource_id}/sync/selections")
-        self.assertEqual(len(resp.json()), 1)
-
-        # Clear all
-        resp = self.client.delete(f"/datasources/{datasource_id}/sync/selections")
-        self.assertEqual(resp.status_code, 200)
-        resp = self.client.get(f"/datasources/{datasource_id}/sync/selections")
-        self.assertEqual(resp.json(), [])
-
-    def test_sync_and_browse_objects(self) -> None:
-        resp = self.client.post(
-            "/datasources",
-            json=_build_duckdb_datasource_payload(str(self.db_path), "Sync Browse DS"),
-        )
-        datasource_id = resp.json()["datasource_id"]
-
-        # Add selections for all tables
-        self.client.post(
-            f"/datasources/{datasource_id}/sync/selections",
-            json={
-                "selections": [
-                    {"schema_name": "analytics", "table_name": "watch_events"},
-                    {"schema_name": "analytics", "table_name": "player_qoe"},
-                    {"schema_name": "analytics", "table_name": "ad_events"},
-                    {"schema_name": "analytics", "table_name": "recommendation_events"},
-                ]
-            },
-        )
-        sync_resp = self.client.post(f"/datasources/{datasource_id}/sync")
-        self.assertEqual(sync_resp.status_code, 200)
-        self.assertEqual(sync_resp.json()["status"], "succeeded")
-
-        # Browse objects
-        resp = self.client.get(f"/datasources/{datasource_id}/objects?type=table")
-        self.assertEqual(resp.status_code, 200)
-        tables = resp.json()
-        self.assertEqual(len(tables), 4)
-        table_names = {t["native_name"] for t in tables}
-        self.assertIn("watch_events", table_names)
-
-    def test_browse_catalog_schemas(self) -> None:
-        ds = self._create_datasource("Browse Schema DS")
-        datasource_id = ds["datasource_id"]
-
-        resp = self.client.get(f"/datasources/{datasource_id}/browse/schemas")
-        self.assertEqual(resp.status_code, 200)
-        schemas = resp.json()
-        self.assertGreater(len(schemas), 0)
-        self.assertEqual(schemas[0]["name"], "analytics")
-
-    def test_browse_catalog_tables(self) -> None:
-        ds = self._create_datasource("Browse Table DS")
-        datasource_id = ds["datasource_id"]
-
-        resp = self.client.get(f"/datasources/{datasource_id}/browse/tables?schema_name=analytics")
-        self.assertEqual(resp.status_code, 200)
-        tables = resp.json()
-        self.assertEqual(len(tables), 4)
-        names = {t["name"] for t in tables}
-        self.assertIn("watch_events", names)
 
 
 # ---------------------------------------------------------------------------
@@ -726,6 +518,40 @@ class DatasourcePreviewTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         return resp.json()
 
+    def test_browse_catalog_schemas(self) -> None:
+        ds = self._create_datasource("Browse Schema DS")
+
+        resp = self.client.get(f"/datasources/{ds['datasource_id']}/browse/schemas")
+
+        self.assertEqual(resp.status_code, 200)
+        schemas = resp.json()
+        self.assertGreater(len(schemas), 0)
+        self.assertEqual(schemas[0]["schema_name"], "analytics")
+
+    def test_browse_catalog_tables(self) -> None:
+        ds = self._create_datasource("Browse Table DS")
+
+        resp = self.client.get(
+            f"/datasources/{ds['datasource_id']}/browse/tables",
+            params={"schema_name": "analytics"},
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        names = {item["table_name"] for item in resp.json()}
+        self.assertIn("watch_events", names)
+
+    def test_browse_columns_live_without_sync(self) -> None:
+        ds = self._create_datasource("Browse Columns DS")
+
+        resp = self.client.get(
+            f"/datasources/{ds['datasource_id']}/browse/columns",
+            params={"schema_name": "analytics", "table_name": "watch_events"},
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        names = {item["name"] for item in resp.json()}
+        self.assertIn("user_id", names)
+
     def test_preview_table_basic(self) -> None:
         ds = self._create_datasource("Preview Basic DS")
         resp = self.client.get(
@@ -746,126 +572,3 @@ class DatasourcePreviewTests(unittest.TestCase):
             params={"schema": "analytics", "table": "watch_events"},
         )
         self.assertEqual(resp.status_code, 404)
-
-
-# ---------------------------------------------------------------------------
-# Column properties tests via /datasources API
-# ---------------------------------------------------------------------------
-
-
-class DatasourceColumnPropertiesTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls.temp_dir = tempfile.TemporaryDirectory()
-        cls.db_path = Path(cls.temp_dir.name) / "col_props_ds.duckdb"
-        cls.meta_path = Path(cls.temp_dir.name) / "col_props_ds.meta.sqlite"
-        get_seeded_duckdb_path(cls.db_path)
-        cls.client = TestClient(
-            create_app(cls.db_path, metadata_store=SQLiteMetadataStore(cls.meta_path))
-        )
-
-        # Register and sync a DuckDB datasource
-        resp = cls.client.post(
-            "/datasources",
-            json=_build_duckdb_datasource_payload(str(cls.db_path), "ColProps DS"),
-        )
-        cls.datasource_id = resp.json()["datasource_id"]
-        # Add sync selections for all tables and sync
-        cls.client.post(
-            f"/datasources/{cls.datasource_id}/sync/selections",
-            json={
-                "selections": [
-                    {"schema_name": "analytics", "table_name": "watch_events"},
-                    {"schema_name": "analytics", "table_name": "player_qoe"},
-                    {"schema_name": "analytics", "table_name": "ad_events"},
-                    {"schema_name": "analytics", "table_name": "recommendation_events"},
-                ]
-            },
-        )
-        cls.client.post(f"/datasources/{cls.datasource_id}/sync")
-
-    @classmethod
-    def tearDownClass(cls) -> None:
-        cls.client.close()
-        cls.temp_dir.cleanup()
-
-    def _get_column_object_id(self) -> str:
-        resp = self.client.get(
-            f"/datasources/{self.datasource_id}/objects", params={"type": "column"}
-        )
-        objects = resp.json()
-        self.assertGreater(len(objects), 0, "No column objects found after sync")
-        return objects[0]["object_id"]
-
-    def _get_table_object_id(self) -> str:
-        resp = self.client.get(
-            f"/datasources/{self.datasource_id}/objects", params={"type": "table"}
-        )
-        objects = resp.json()
-        self.assertGreater(len(objects), 0, "No table objects found after sync")
-        return objects[0]["object_id"]
-
-    def test_patch_unit_on_column(self) -> None:
-        object_id = self._get_column_object_id()
-        resp = self.client.patch(
-            f"/datasources/{self.datasource_id}/objects/{object_id}/properties",
-            json={"unit": "seconds"},
-        )
-        self.assertEqual(resp.status_code, 200)
-        result = resp.json()
-        self.assertEqual(result["properties"]["unit"], "seconds")
-        self.assertIn("data_type", result["properties"])
-
-    def test_patch_unit_400_non_column(self) -> None:
-        table_object_id = self._get_table_object_id()
-        resp = self.client.patch(
-            f"/datasources/{self.datasource_id}/objects/{table_object_id}/properties",
-            json={"unit": "seconds"},
-        )
-        self.assertEqual(resp.status_code, 400)
-
-
-# ---------------------------------------------------------------------------
-# Trino-specific adapter tests (mock-based, no real Trino needed)
-# ---------------------------------------------------------------------------
-
-
-class TrinoCatalogAdapterDatasourceTests(unittest.TestCase):
-    """Unit tests for TrinoCatalogAdapter in the datasource context."""
-
-    def _make_cursor(self, rows: list[tuple], columns: list[str]):
-        from unittest.mock import MagicMock
-
-        cur = MagicMock()
-        cur.description = [(col,) for col in columns]
-        cur.fetchall.return_value = rows
-        return cur
-
-    def _make_conn(self, cursor):
-        from unittest.mock import MagicMock
-
-        conn = MagicMock()
-        conn.cursor.return_value = cursor
-        return conn
-
-    def test_adapter_source_type_and_capabilities(self) -> None:
-        from app.adapters.trino_adapter import TrinoCatalogAdapter
-
-        adapter = TrinoCatalogAdapter(host="localhost")
-        self.assertEqual(adapter.source_type(), "trino")
-        caps = adapter.capabilities()
-        self.assertTrue(caps.supports_schemas)
-        self.assertTrue(caps.supports_column_stats)
-        self.assertFalse(caps.supports_partitions)
-
-    def test_build_adapter_trino(self) -> None:
-        from app.registry.factories import build_catalog_adapter
-
-        adapter = build_catalog_adapter("trino", {"host": "trino.example.com", "port": 9090})
-        from app.adapters.trino_adapter import TrinoCatalogAdapter
-
-        self.assertIsInstance(adapter, TrinoCatalogAdapter)
-
-
-if __name__ == "__main__":
-    unittest.main()

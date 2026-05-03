@@ -239,13 +239,11 @@ class EnsureDatasourceTests(unittest.TestCase):
             "trino",
             "Local Demo",
             {"host": "trino.local"},
-            sync_mode="selected",
         )
 
         self.assertEqual(updated["datasource_id"], existing["datasource_id"])
         self.assertEqual(updated["datasource_type"], "trino")
         self.assertEqual(updated["connection"]["host"], "trino.local")
-        self.assertEqual(updated["sync_mode"], "selected")
         persisted = self.datasource_service.get_datasource(existing["datasource_id"])
         self.assertEqual(persisted["datasource_type"], "trino")
 

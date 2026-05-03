@@ -19,7 +19,6 @@ from app.service import SemanticLayerService
 from app.storage.analytics import AnalyticsEngine
 from app.storage.metadata import MetadataStore
 from app.storage.repositories import JobRepository
-from app.sync import SyncEngine
 
 
 @dataclass(slots=True)
@@ -28,7 +27,6 @@ class AppServices:
     config: MarivoConfig
     service: SemanticLayerService
     datasource_service: DatasourceService
-    sync_engine: SyncEngine
     query_router: QueryRouter
     metadata_store: MetadataStore
     analytics_engine: AnalyticsEngine
