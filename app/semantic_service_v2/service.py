@@ -41,8 +41,9 @@ from app.storage.sqlite_metadata import SQLiteMetadataStore
 class SemanticModelV2Service:
     """CRUD service for OSI-aligned semantic models."""
 
-    def __init__(self, store: SQLiteMetadataStore) -> None:
+    def __init__(self, store: SQLiteMetadataStore, datasource_service: Any = None) -> None:
         self.store = store
+        self.datasource_service = datasource_service
 
     # ------------------------------------------------------------------
     # Helpers
@@ -1206,19 +1207,96 @@ class SemanticModelV2Service:
     def get_readiness(self, model_name: str) -> dict[str, Any]:
         """Return readiness status/blockers for a model."""
         model_row = self._require_model_row(model_name)
+        model = self._assemble_model(model_row)
+        live_blockers: list[dict[str, Any]] = []
+        for dataset in model.get("datasets") or []:
+            live_blockers.extend(self._check_dataset_live_readiness(dataset))
+
         readiness_row = self.store.query_one(
             "SELECT status, blockers FROM semantic_readiness_status WHERE model_id = ?",
             [model_row["model_id"]],
         )
+        stored_blockers: list[dict[str, Any]] = []
         if readiness_row is None:
+            blockers = live_blockers
             return {
-                "status": "not_ready",
-                "blockers": [],
+                "status": "ready" if not blockers else "not_ready",
+                "semantic_version_id": None,
+                "evaluated_semantic_version_id": None,
+                "blockers": blockers,
             }
         import json
 
-        blockers = readiness_row["blockers"]
+        blockers_raw = readiness_row["blockers"]
+        stored_blockers = json.loads(blockers_raw) if blockers_raw else []
+        blockers = [*stored_blockers, *live_blockers]
         return {
-            "status": readiness_row["status"],
-            "blockers": json.loads(blockers) if blockers else [],
+            "status": "ready" if not blockers else "not_ready",
+            "semantic_version_id": None,
+            "evaluated_semantic_version_id": None,
+            "blockers": blockers,
         }
+
+    def _check_dataset_live_readiness(self, dataset: dict[str, Any]) -> list[dict[str, Any]]:
+        datasource_id = str(dataset.get("datasource_id") or "").strip()
+        if not datasource_id:
+            marivo = self._extract_marivo_from_exts(dataset.get("custom_extensions"))
+            if marivo:
+                datasource_id = str(marivo.get("datasource_id") or "").strip()
+        source = str(dataset.get("source") or "").strip()
+        dataset_name = str(dataset.get("name") or "")
+        if not datasource_id or not source:
+            return []
+        datasource_service = self.datasource_service
+        if datasource_service is None:
+            return []
+        try:
+            datasource_service.get_datasource(datasource_id)
+        except KeyError:
+            return [
+                {
+                    "code": "datasource_not_found",
+                    "message": f"Dataset {dataset_name} references missing datasource {datasource_id}",
+                    "dataset": dataset_name,
+                    "datasource_id": datasource_id,
+                    "source": source,
+                }
+            ]
+        parts = source.split(".")
+        if len(parts) == 2:
+            schema_name, table_name = parts
+        elif len(parts) == 3:
+            _, schema_name, table_name = parts
+        else:
+            return [
+                {
+                    "code": "relation_not_found",
+                    "message": f"Dataset {dataset_name} source {source} is not a schema.table or catalog.schema.table FQN",
+                    "dataset": dataset_name,
+                    "datasource_id": datasource_id,
+                    "source": source,
+                }
+            ]
+        try:
+            datasource_service.browse_catalog_columns(datasource_id, schema_name, table_name)
+        except KeyError:
+            return [
+                {
+                    "code": "relation_not_found",
+                    "message": f"Dataset {dataset_name} source {source} was not found in datasource {datasource_id}",
+                    "dataset": dataset_name,
+                    "datasource_id": datasource_id,
+                    "source": source,
+                }
+            ]
+        except ValueError as error:
+            return [
+                {
+                    "code": "datasource_not_ready",
+                    "message": str(error),
+                    "dataset": dataset_name,
+                    "datasource_id": datasource_id,
+                    "source": source,
+                }
+            ]
+        return []

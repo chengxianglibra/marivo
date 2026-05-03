@@ -73,6 +73,12 @@ def _make_model_dict(
                 "name": "orders",
                 "source": "analytics.orders",
                 "primary_key": ["order_id"],
+                "custom_extensions": [
+                    {
+                        "vendor_name": "MARIVO",
+                        "data": json.dumps({"datasource_id": "ds_001"}),
+                    }
+                ],
                 "fields": [
                     {
                         "name": "order_id",
@@ -110,6 +116,12 @@ class TestCreateSession(unittest.TestCase):
                             "name": "orders",
                             "source": "analytics.orders",
                             "primary_key": ["order_id"],
+                            "custom_extensions": [
+                                {
+                                    "vendor_name": "MARIVO",
+                                    "data": json.dumps({"datasource_id": "ds_001"}),
+                                }
+                            ],
                             "fields": [
                                 {
                                     "name": "order_id",

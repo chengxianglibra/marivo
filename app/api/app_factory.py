@@ -160,7 +160,10 @@ def _build_services(
     query_router = QueryRouter(metadata_store, datasource_service)
     service.query_router = query_router
     _register_configured_governance(config, metadata_store, governance_service)
-    semantic_v2_service = SemanticModelV2Service(cast("SQLiteMetadataStore", metadata_store))
+    semantic_v2_service = SemanticModelV2Service(
+        cast("SQLiteMetadataStore", metadata_store),
+        datasource_service=datasource_service,
+    )
     session_service = SessionService(cast("SQLiteMetadataStore", metadata_store))
     job_repository = JobRepository(metadata_store)
     job_service = JobService(

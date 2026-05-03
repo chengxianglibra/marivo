@@ -66,6 +66,23 @@ def validate_semantic_model(model_data: dict[str, Any]) -> None:
     # Build field lookup: dataset_name -> {field_name: field_dict}
     fields_by_dataset: dict[str, dict[str, dict[str, Any]]] = {}
     for ds in datasets_list:
+        dataset_name = str(ds.get("name") or "<unnamed>")
+        source = str(ds.get("source") or "").strip()
+        if not source:
+            errors.append(
+                {
+                    "message": "Dataset source is required and must be a non-empty relation FQN",
+                    "path": f"datasets[{dataset_name}].source",
+                }
+            )
+        datasource_id = ds.get("datasource_id")
+        if not isinstance(datasource_id, str) or not datasource_id.strip():
+            errors.append(
+                {
+                    "message": "Dataset MARIVO extension datasource_id is required",
+                    "path": f"datasets[{dataset_name}].custom_extensions.datasource_id",
+                }
+            )
         fields_by_dataset[ds["name"]] = {}
         for field in ds.get("fields") or []:
             fields_by_dataset[ds["name"]][field["name"]] = field
