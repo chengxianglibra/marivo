@@ -33,7 +33,6 @@ from app.storage.metadata import MetadataStore
 from app.storage.mysql_metadata import MySQLMetadataStore
 from app.storage.repositories import JobRepository
 from app.storage.sqlite_metadata import SQLiteMetadataStore
-from app.sync import SyncEngine
 
 logger = logging.getLogger(__name__)
 
@@ -158,7 +157,6 @@ def _build_services(
         approvals=approval_service,
     )
     datasource_service = DatasourceService(metadata_store)
-    sync_engine = SyncEngine(metadata_store)
     query_router = QueryRouter(metadata_store, datasource_service)
     service.query_router = query_router
     _register_configured_governance(config, metadata_store, governance_service)
@@ -176,7 +174,6 @@ def _build_services(
         config=config,
         service=service,
         datasource_service=datasource_service,
-        sync_engine=sync_engine,
         query_router=query_router,
         metadata_store=metadata_store,
         analytics_engine=analytics_engine,
@@ -195,7 +192,6 @@ def _attach_state(app: FastAPI, services: AppServices) -> None:
     app.state.config = services.config
     app.state.service = services.service
     app.state.datasource_service = services.datasource_service
-    app.state.sync_engine = services.sync_engine
     app.state.query_router = services.query_router
     app.state.metadata_store = services.metadata_store
     app.state.analytics_engine = services.analytics_engine

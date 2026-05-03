@@ -456,29 +456,28 @@ class SemanticLayerService:
                 }
             )
 
-        # Assets — all synced tables from source_objects
-        asset_rows = self.metadata.query_rows(
-            "SELECT native_name, fqn, datasource_id FROM source_objects "
-            "WHERE object_type = 'table' ORDER BY fqn"
-        )
+        # Assets — dataset-native grounding removed the persisted source object
+        # cache. The legacy catalog endpoint now exposes the local demo tables
+        # directly from the analytics engine as a compatibility summary.
         assets: list[dict[str, Any]] = []
-        for row in asset_rows:
+        for fqn in (
+            "analytics.ad_events",
+            "analytics.player_qoe",
+            "analytics.recommendation_events",
+            "analytics.watch_events",
+        ):
+            native_name = fqn.rsplit(".", 1)[-1]
             asset: dict[str, Any] = {
-                "id": row["native_name"],
+                "id": native_name,
                 "kind": "table",
-                "fqn": row["fqn"],
-                "source_id": row["datasource_id"],
+                "fqn": fqn,
+                "source_id": None,
             }
             # Best-effort row count from the analytics engine
             try:
-                asset["row_count"] = self.analytics.table_row_count(row["fqn"])
+                asset["row_count"] = self.analytics.table_row_count(fqn)
             except Exception:
-                try:
-                    asset["row_count"] = self.analytics.table_row_count(
-                        f"analytics.{row['native_name']}"
-                    )
-                except Exception:
-                    asset["row_count"] = None
+                asset["row_count"] = None
             assets.append(asset)
 
         # Policies — from governance service if available
