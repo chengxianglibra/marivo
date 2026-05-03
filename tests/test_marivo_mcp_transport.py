@@ -182,9 +182,9 @@ def test_not_found_and_conflict_are_distinguished() -> None:
             404,
             json={"detail": "Session sess_missing not found"},
         ),
-        "/semantic/bindings": httpx.Response(
+        "/semantic/relationships": httpx.Response(
             409,
-            json={"detail": "Binding already exists"},
+            json={"detail": "Relationship already exists"},
         ),
     }
 
@@ -199,7 +199,7 @@ def test_not_found_and_conflict_are_distinguished() -> None:
 
     client = MarivoHttpClient(_build_config(), transport=httpx.MockTransport(handler))
     not_found = client.request_envelope("GET", "/sessions/missing")
-    conflict = client.request_envelope("POST", "/semantic/bindings", json_body={})
+    conflict = client.request_envelope("POST", "/semantic/relationships", json_body={})
 
     assert not_found.error is not None
     assert not_found.error.category == "not_found"
@@ -375,14 +375,6 @@ def test_registers_t4_discovery_tools() -> None:
         "activate_enum_set",
         "deprecate_enum_set",
         "publish_enum_set",
-        "create_binding",
-        "list_bindings",
-        "get_binding",
-        "update_binding",
-        "validate_binding",
-        "activate_binding",
-        "deprecate_binding",
-        "publish_binding",
         "create_compatibility_profile",
         "list_compatibility_profiles",
         "get_compatibility_profile",
@@ -395,8 +387,7 @@ def test_registers_t4_discovery_tools() -> None:
     assert set(server.tools) >= {
         "list_datasources",
         "create_datasource",
-        "sync_datasource",
-        "get_datasource_objects",
+        "browse_columns",
         "resolve_routing",
     }
 
@@ -1499,14 +1490,6 @@ def test_semantic_create_tools_use_inventory_names_and_canonical_paths() -> None
             },
         ),
         (
-            "create_binding",
-            "/semantic/bindings",
-            {
-                "header": {"binding_ref": "binding.user_events"},
-                "interface_contract": {"carrier_bindings": [], "field_bindings": []},
-            },
-        ),
-        (
             "create_compatibility_profile",
             "/compiler/compatibility-profiles",
             {
@@ -1549,7 +1532,6 @@ def test_semantic_list_and_get_tools_forward_canonical_status_and_path_parameter
         ("list_dimensions", "/semantic/dimensions", {"status": "draft"}),
         ("list_time_semantics", "/semantic/time", {"status": "published"}),
         ("list_enum_sets", "/semantic/enum-sets", {"status": "draft"}),
-        ("list_bindings", "/semantic/bindings", {"status": "published"}),
         ("list_compatibility_profiles", "/compiler/compatibility-profiles", {"status": "draft"}),
         ("get_entity", "/semantic/entities/ent_123", {"entity_id": "ent_123"}),
         ("get_metric", "/semantic/metrics/met_123", {"metric_id": "met_123"}),
@@ -1561,7 +1543,6 @@ def test_semantic_list_and_get_tools_forward_canonical_status_and_path_parameter
         ("get_dimension", "/semantic/dimensions/dim_123", {"dimension_contract_id": "dim_123"}),
         ("get_time_semantic", "/semantic/time/time_123", {"time_contract_id": "time_123"}),
         ("get_enum_set", "/semantic/enum-sets/enum_123", {"enum_set_contract_id": "enum_123"}),
-        ("get_binding", "/semantic/bindings/bind_123", {"binding_id": "bind_123"}),
         (
             "get_compatibility_profile",
             "/compiler/compatibility-profiles/cprof_123",
@@ -1603,7 +1584,6 @@ def test_semantic_list_tools_forward_detail_query_parameter_when_requested() -> 
         ("list_dimensions", "/semantic/dimensions", {"status": "draft", "detail": True}),
         ("list_time_semantics", "/semantic/time", {"status": "published", "detail": True}),
         ("list_enum_sets", "/semantic/enum-sets", {"status": "draft", "detail": True}),
-        ("list_bindings", "/semantic/bindings", {"status": "published", "detail": True}),
         (
             "list_compatibility_profiles",
             "/compiler/compatibility-profiles",
@@ -1636,11 +1616,11 @@ def test_semantic_list_tools_forward_detail_query_parameter_when_requested() -> 
 def test_semantic_list_tools_omit_detail_query_parameter_by_default() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.method == "GET"
-        assert request.url.path == "/semantic/bindings"
+        assert request.url.path == "/semantic/relationships"
         assert dict(request.url.params) == {"status": "published"}
         return httpx.Response(200, json={"items": []}, request=request)
 
-    result = _invoke_registered_tool("list_bindings", handler, status="published")
+    result = _invoke_registered_tool("list_relationships", handler, status="published")
 
     assert result["ok"] is True
     assert result["data"] == {"items": []}
@@ -1689,12 +1669,6 @@ def test_semantic_update_tools_send_only_canonical_body_fields() -> None:
             "/semantic/enum-sets/enum_123",
             {"enum_set_contract_id": "enum_123", "display_name": "Country Code"},
             {"display_name": "Country Code"},
-        ),
-        (
-            "update_binding",
-            "/semantic/bindings/bind_123",
-            {"binding_id": "bind_123", "description": "Updated"},
-            {"description": "Updated"},
         ),
         (
             "update_compatibility_profile",
@@ -1753,7 +1727,6 @@ def test_semantic_publish_tools_use_canonical_publish_paths() -> None:
             "/semantic/enum-sets/enum_123/publish",
             {"enum_set_contract_id": "enum_123"},
         ),
-        ("publish_binding", "/semantic/bindings/bind_123/publish", {"binding_id": "bind_123"}),
         (
             "publish_compatibility_profile",
             "/compiler/compatibility-profiles/cprof_123/publish",
@@ -1803,7 +1776,6 @@ def test_semantic_lifecycle_tools_use_canonical_validate_activate_and_deprecate_
             "/semantic/enum-sets/enum_123/deprecate",
             {"enum_set_contract_id": "enum_123"},
         ),
-        ("validate_binding", "/semantic/bindings/bind_123/validate", {"binding_id": "bind_123"}),
         (
             "activate_compatibility_profile",
             "/compiler/compatibility-profiles/cprof_123/activate",
@@ -1862,35 +1834,6 @@ def test_publish_errors_extract_message_and_code_from_structured_detail() -> Non
         "code": "publish_state_error",
         "category": "state",
     }
-
-
-def test_publish_binding_preserves_reference_validation_failure_shape() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/semantic/bindings/bind_123/publish"
-        return httpx.Response(
-            422,
-            json={
-                "detail": {
-                    "message": "All imported semantic refs must be published before binding publish.",
-                    "code": "reference_validation_error",
-                    "category": "validation",
-                }
-            },
-            request=request,
-        )
-
-    result = _invoke_registered_tool(
-        "publish_binding",
-        handler,
-        binding_id="bind_123",
-    )
-
-    assert result["ok"] is False
-    assert result["status_code"] == 422
-    assert result["error"]["message"] == (
-        "All imported semantic refs must be published before binding publish."
-    )
-    assert result["error"]["code"] == "reference_validation_error"
 
 
 def test_publish_compatibility_profile_preserves_not_found() -> None:
@@ -1969,134 +1912,33 @@ def test_create_datasource_omits_none_optional_fields() -> None:
     assert result["data"] == {"datasource_id": "ds_456"}
 
 
-def test_sync_datasource_uses_canonical_sync_route_without_body() -> None:
+def test_browse_columns_uses_live_columns_route() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        assert request.method == "POST"
-        assert request.url.path == "/datasources/ds_123/sync"
-        assert request.read() == b""
+        assert request.method == "GET"
+        assert request.url.path == "/datasources/ds_123/browse/columns"
+        assert dict(request.url.params) == {
+            "schema_name": "events",
+            "table_name": "watch_events",
+        }
         return httpx.Response(
             200,
-            json={"job_id": "sync_123", "datasource_id": "ds_123", "status": "succeeded"},
+            json=[{"name": "event_id", "schema_name": "events", "table_name": "watch_events"}],
             request=request,
         )
 
-    result = _invoke_registered_tool("sync_datasource", handler, datasource_id="ds_123")
-
-    assert result["ok"] is True
-    assert result["data"] == {
-        "job_id": "sync_123",
-        "datasource_id": "ds_123",
-        "status": "succeeded",
-    }
-    assert result["meta"]["marivo_path"] == "/datasources/ds_123/sync"
-
-
-def test_sync_datasource_preserves_not_found_and_client_failure_shapes() -> None:
-    def not_found_handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/datasources/ds_missing/sync"
-        return httpx.Response(404, json={"detail": "'ds_missing' not found"}, request=request)
-
-    not_found = _invoke_registered_tool(
-        "sync_datasource", not_found_handler, datasource_id="ds_missing"
-    )
-
-    assert not_found["ok"] is False
-    assert not_found["status_code"] == 404
-    assert not_found["error"]["category"] == "not_found"
-    assert not_found["error"]["message"] == "'ds_missing' not found"
-
-    def client_error_handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/datasources/ds_disabled/sync"
-        return httpx.Response(
-            400,
-            json={"detail": "Sync disabled for this datasource (mode=none)"},
-            request=request,
-        )
-
-    client_error = _invoke_registered_tool(
-        "sync_datasource",
-        client_error_handler,
-        datasource_id="ds_disabled",
-    )
-
-    assert client_error["ok"] is False
-    assert client_error["status_code"] == 400
-    assert client_error["error"]["category"] == "server_error"
-    assert client_error["error"]["message"] == "Sync disabled for this datasource (mode=none)"
-
-
-def test_get_datasource_objects_uses_only_canonical_type_and_schema_filters() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.method == "GET"
-        assert request.url.path == "/datasources/ds_123/objects"
-        assert dict(request.url.params) == {"type": "table", "schema": "events"}
-        return httpx.Response(200, json=[{"object_id": "obj_123"}], request=request)
-
     result = _invoke_registered_tool(
-        "get_datasource_objects",
+        "browse_columns",
         handler,
         datasource_id="ds_123",
-        type="table",
-        schema="events",
+        schema_name="events",
+        table_name="watch_events",
     )
 
     assert result["ok"] is True
-    assert result["data"] == [{"object_id": "obj_123"}]
-    assert result["meta"]["marivo_path"] == "/datasources/ds_123/objects"
-
-
-def test_get_datasource_objects_preserves_missing_datasource_not_found() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/datasources/ds_missing/objects"
-        return httpx.Response(404, json={"detail": "'ds_missing' not found"}, request=request)
-
-    result = _invoke_registered_tool(
-        "get_datasource_objects",
-        handler,
-        datasource_id="ds_missing",
-    )
-
-    assert result["ok"] is False
-    assert result["status_code"] == 404
-    assert result["error"]["category"] == "not_found"
-    assert result["error"]["message"] == "'ds_missing' not found"
-
-
-def test_get_datasource_object_reads_one_synced_object_detail() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.method == "GET"
-        assert request.url.path == "/datasources/ds_123/objects/obj_456"
-        assert dict(request.url.params) == {}
-        return httpx.Response(200, json={"object_id": "obj_456"}, request=request)
-
-    result = _invoke_registered_tool(
-        "get_datasource_object",
-        handler,
-        datasource_id="ds_123",
-        object_id="obj_456",
-    )
-
-    assert result["ok"] is True
-    assert result["data"] == {"object_id": "obj_456"}
-    assert result["meta"]["marivo_path"] == "/datasources/ds_123/objects/obj_456"
-
-
-def test_get_datasource_object_preserves_missing_object_not_found() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/datasources/ds_123/objects/obj_missing"
-        return httpx.Response(404, json={"detail": "'obj_missing' not found"}, request=request)
-
-    result = _invoke_registered_tool(
-        "get_datasource_object",
-        handler,
-        datasource_id="ds_123",
-        object_id="obj_missing",
-    )
-
-    assert result["ok"] is False
-    assert result["status_code"] == 404
-    assert result["error"]["category"] == "not_found"
-    assert result["error"]["message"] == "'obj_missing' not found"
+    assert result["data"] == [
+        {"name": "event_id", "schema_name": "events", "table_name": "watch_events"}
+    ]
+    assert result["meta"]["marivo_path"] == "/datasources/ds_123/browse/columns"
 
 
 def test_resolve_routing_uses_canonical_nested_payload() -> None:

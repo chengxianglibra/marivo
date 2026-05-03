@@ -185,173 +185,6 @@ class McpEnumSetHeader(BaseModel):
         return value
 
 
-class McpBindingHeader(BaseModel):
-    """MCP-side early validation for legacy typed binding header fields.
-
-    Target-state physical grounding belongs on entity.interface_contract fields and binding.
-    The MCP write schema only permits entity-scoped legacy/diagnostic binding records.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    binding_ref: str
-    display_name: str | None = None
-    description: str | None = None
-    binding_scope: Literal["entity"] = Field(
-        description=(
-            "Only entity-scoped legacy/diagnostic bindings are accepted. "
-            "Metric/process physical binding authoring is unsupported; ground those objects through "
-            "entity.interface_contract.fields[] and entity.interface_contract.binding."
-        )
-    )
-    bound_object_ref: str
-    binding_contract_version: str
-
-    @field_validator("binding_ref")
-    @classmethod
-    def _validate_binding_ref(cls, value: str) -> str:
-        if not value.startswith("binding."):
-            raise ValueError("binding_ref must start with 'binding.'")
-        return value
-
-    @field_validator("binding_contract_version")
-    @classmethod
-    def _validate_binding_contract_version(cls, value: str) -> str:
-        if not value.startswith("binding."):
-            raise ValueError("binding_contract_version must start with 'binding.'")
-        return value
-
-    @model_validator(mode="after")
-    def _validate_bound_object_prefix(self) -> McpBindingHeader:
-        if not self.bound_object_ref.startswith("entity."):
-            raise ValueError(
-                "bound_object_ref must start with 'entity.' for binding_scope='entity'"
-            )
-        return self
-
-
-class McpBindingImport(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    import_key: str
-    binding_ref: str
-    required_ref_prefixes: list[str] | None = None
-
-
-class McpFieldSurface(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    surface_ref: str
-    physical_name: str
-    field_type: str | None = None
-
-
-class McpTimeSurface(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    surface_ref: str
-    physical_name: str
-    resolution_hint: str | None = None
-    time_format: str | None = None
-
-
-class McpCarrierBinding(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    binding_key: str
-    source_object_ref: str | None = None
-    carrier_kind: str
-    carrier_locator: str | dict[str, object]
-    binding_role: str
-    semantic_role_ref: str | None = None
-    grain_ref: str | None = None
-    primary_entity_ref: str | None = None
-    row_filter_refs: list[str] | None = None
-    freshness_policy_ref: str | None = None
-    field_surfaces: list[McpFieldSurface] | None = None
-    time_surfaces: list[McpTimeSurface] | None = None
-
-
-class McpBindingTarget(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    target_kind: str
-    target_key: str
-    context_ref: str | None = None
-
-
-class McpFieldBinding(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    carrier_binding_key: str
-    target: McpBindingTarget
-    semantic_ref: str
-    surface_ref: str
-    field_type_ref: str | None = None
-    nullability_policy: str | None = None
-    repeated_value_policy: str | None = None
-
-    @model_validator(mode="after")
-    def _validate_metric_input_ref(self) -> McpFieldBinding:
-        if self.target.target_kind == "metric_input" and not self.semantic_ref.startswith(
-            "metric_input."
-        ):
-            raise ValueError(
-                "metric_input field_bindings require semantic_ref to start with 'metric_input.'"
-            )
-        return self
-
-
-class McpTimeBinding(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    carrier_binding_key: str
-    target: McpBindingTarget
-    semantic_ref: str
-    resolution_kind: Literal["timestamp_column", "date_column", "date_hour_columns"]
-    timestamp_surface_ref: str | None = None
-    timestamp_format: str | None = None
-    date_surface_ref: str | None = None
-    date_format: str | None = None
-    hour_surface_ref: str | None = None
-    hour_format: str | None = None
-    timezone_strategy: str | None = None
-
-
-class McpJoinRelation(BaseModel):
-    model_config = ConfigDict(extra="allow")
-
-    relation_key: str
-    left_binding_key: str
-    right_binding_key: str
-
-
-class McpConsumptionPolicy(BaseModel):
-    model_config = ConfigDict(extra="allow")
-
-    policy_key: str
-    policy_type: str
-    policy_target_path: str
-
-
-class McpBindingInterfaceContract(BaseModel):
-    """Legacy/diagnostic typed-binding payload.
-
-    New authoring should put physical grounding on entity.interface_contract.fields[] and
-    entity.interface_contract.binding. Metric/process carrier, field, and time binding writes are
-    intentionally outside this MCP target-state schema.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    imports: list[McpBindingImport] = Field(default_factory=list)
-    carrier_bindings: list[McpCarrierBinding] = Field(default_factory=list)
-    field_bindings: list[McpFieldBinding] = Field(default_factory=list)
-    time_bindings: list[McpTimeBinding] = Field(default_factory=list)
-    join_relations: list[McpJoinRelation] = Field(default_factory=list)
-    consumption_policies: list[McpConsumptionPolicy] = Field(default_factory=list)
-
-
 class ObserveScope(BaseModel):
     """Non-time population scope accepted by typed intent MCP tools."""
 
@@ -1061,7 +894,7 @@ def register_tools(
     @server.tool()
     @_tool_metadata("GET", "/semantic/grains")
     def list_grains() -> dict[str, object]:
-        """List grain refs observed in metric headers, process objects, and carrier bindings."""
+        """List grain refs observed in metric headers and process objects."""
         return client.request_envelope("GET", "/semantic/grains").model_dump()
 
     @server.tool()
@@ -1633,104 +1466,6 @@ def register_tools(
         return _semantic_publish_request(client, f"/semantic/enum-sets/{resolved_id}/publish")
 
     @server.tool()
-    @_tool_metadata("POST", "/semantic/bindings")
-    def create_binding(
-        header: McpBindingHeader,
-        interface_contract: McpBindingInterfaceContract,
-    ) -> dict[str, object]:
-        """Legacy/diagnostic compatibility only: create one entity-scoped binding via POST /semantic/bindings. Target-state authoring grounds physical data on entity.interface_contract fields and binding."""
-        return _semantic_write_request(
-            client,
-            "POST",
-            "/semantic/bindings",
-            header=header,
-            interface_contract=interface_contract,
-        )
-
-    @server.tool()
-    @_tool_metadata("GET", "/semantic/bindings")
-    def list_bindings(
-        status: str | None = None,
-        lifecycle_status: str | None = None,
-        readiness_status: str | None = None,
-        detail: bool | None = None,
-    ) -> dict[str, object]:
-        """List bindings via GET /semantic/bindings; prefer lifecycle_status/readiness_status over legacy status."""
-        return _semantic_read_request(
-            client,
-            "/semantic/bindings",
-            status=status,
-            lifecycle_status=lifecycle_status,
-            readiness_status=readiness_status,
-            detail=detail,
-        )
-
-    @server.tool()
-    @_tool_metadata("GET", "/semantic/bindings/{binding_id}")
-    def get_binding(
-        object_id: str | None = None, binding_id: str | None = None
-    ) -> dict[str, object]:
-        """Read one binding via GET /semantic/bindings/{binding_id}; accepts an internal contract id or canonical binding ref, and prefers object_id over the legacy binding_id name."""
-        resolved_id = _resolve_object_id(object_id, binding_id, legacy_name="binding_id")
-        return _semantic_read_request(client, f"/semantic/bindings/{resolved_id}")
-
-    @server.tool()
-    @_tool_metadata("PUT", "/semantic/bindings/{binding_id}")
-    def update_binding(
-        object_id: str | None = None,
-        binding_id: str | None = None,
-        display_name: str | None = None,
-        description: str | None = None,
-        interface_contract: dict[str, object] | None = None,
-    ) -> dict[str, object]:
-        """Legacy/diagnostic compatibility only: update one entity-scoped binding via PUT /semantic/bindings/{binding_id}. Target-state authoring grounds physical data on entity.interface_contract fields and binding."""
-        resolved_id = _resolve_object_id(object_id, binding_id, legacy_name="binding_id")
-        return _semantic_write_request(
-            client,
-            "PUT",
-            f"/semantic/bindings/{resolved_id}",
-            display_name=display_name,
-            description=description,
-            interface_contract=interface_contract,
-        )
-
-    @server.tool()
-    @_tool_metadata("POST", "/semantic/bindings/{binding_id}/validate")
-    def validate_binding(
-        object_id: str | None = None, binding_id: str | None = None
-    ) -> dict[str, object]:
-        """Validate one binding via POST /semantic/bindings/{binding_id}/validate without changing stored lifecycle state."""
-        resolved_id = _resolve_object_id(object_id, binding_id, legacy_name="binding_id")
-        return _semantic_action_request(client, f"/semantic/bindings/{resolved_id}/validate")
-
-    @server.tool()
-    @_tool_metadata("POST", "/semantic/bindings/{binding_id}/activate")
-    def activate_binding(
-        object_id: str | None = None, binding_id: str | None = None
-    ) -> dict[str, object]:
-        """Activate one binding via POST /semantic/bindings/{binding_id}/activate; activation adds it to the formal catalog but does not imply ready."""
-        resolved_id = _resolve_object_id(object_id, binding_id, legacy_name="binding_id")
-        return _semantic_action_request(client, f"/semantic/bindings/{resolved_id}/activate")
-
-    @server.tool()
-    @_tool_metadata("POST", "/semantic/bindings/{binding_id}/deprecate")
-    def deprecate_binding(
-        object_id: str | None = None, binding_id: str | None = None
-    ) -> dict[str, object]:
-        """Deprecate one binding via POST /semantic/bindings/{binding_id}/deprecate."""
-        resolved_id = _resolve_object_id(object_id, binding_id, legacy_name="binding_id")
-        return _semantic_action_request(client, f"/semantic/bindings/{resolved_id}/deprecate")
-
-    @server.tool()
-    @_tool_metadata("POST", "/semantic/bindings/{binding_id}/publish")
-    def publish_binding(
-        object_id: str | None = None, binding_id: str | None = None
-    ) -> dict[str, object]:
-        """Compatibility alias for activate_binding via POST /semantic/bindings/{binding_id}/publish."""
-        resolved_id = _resolve_object_id(object_id, binding_id, legacy_name="binding_id")
-        return _semantic_publish_request(client, f"/semantic/bindings/{resolved_id}/publish")
-
-    @server.tool()
     @_tool_metadata("POST", "/semantic/relationships")
     def create_relationship(
         relationship_ref: str,
@@ -2054,12 +1789,6 @@ def register_tools(
         return client.request_envelope("DELETE", f"/datasources/{datasource_id}").model_dump()
 
     @server.tool()
-    @_tool_metadata("POST", "/datasources/{datasource_id}/sync")
-    def sync_datasource(datasource_id: str) -> dict[str, object]:
-        """Trigger synced metadata refresh via POST /datasources/{datasource_id}/sync; this operates on stored datasource metadata, not live catalog browse endpoints."""
-        return client.request_envelope("POST", f"/datasources/{datasource_id}/sync").model_dump()
-
-    @server.tool()
     @_tool_metadata("GET", "/datasources/{datasource_id}/browse/catalogs")
     def browse_catalogs(
         datasource_id: str,
@@ -2098,6 +1827,20 @@ def register_tools(
         ).model_dump()
 
     @server.tool()
+    @_tool_metadata("GET", "/datasources/{datasource_id}/browse/columns")
+    def browse_columns(
+        datasource_id: str,
+        schema_name: str,
+        table_name: str,
+    ) -> dict[str, object]:
+        """Browse live table columns via GET /datasources/{datasource_id}/browse/columns."""
+        return client.request_envelope(
+            "GET",
+            f"/datasources/{datasource_id}/browse/columns",
+            params=_compact_params(schema_name=schema_name, table_name=table_name),
+        ).model_dump()
+
+    @server.tool()
     @_tool_metadata("POST", "/datasources/{datasource_id}/preview")
     def preview_table(
         datasource_id: str,
@@ -2109,8 +1852,8 @@ def register_tools(
     ) -> dict[str, object]:
         """Preview sample rows from a table via POST /datasources/{datasource_id}/preview.
 
-        Use this to inspect actual data values when configuring semantic bindings,
-        especially for determining timestamp formats and column data types.
+        Use this to inspect actual data values when configuring dataset-native
+        semantic models and field expressions.
 
         Args:
             datasource_id: Registered datasource identifier
@@ -2130,38 +1873,6 @@ def register_tools(
                 columns=columns,
                 filters=filters,
             ),
-        ).model_dump()
-
-    @server.tool()
-    @_tool_metadata("GET", "/datasources/{datasource_id}/objects")
-    def get_datasource_objects(
-        datasource_id: str,
-        type: str | None = None,
-        schema: str | None = None,
-    ) -> dict[str, object]:
-        """Read synced source objects via GET /datasources/{datasource_id}/objects using only the canonical type and schema filters; for live external catalog browse, use /datasources/{datasource_id}/browse/* instead."""
-        return client.request_envelope(
-            "GET",
-            f"/datasources/{datasource_id}/objects",
-            params=_compact_params(type=type, schema=schema),
-        ).model_dump()
-
-    @server.tool()
-    @_tool_metadata("GET", "/datasources/{datasource_id}/objects/{object_id}")
-    def get_datasource_object(datasource_id: str, object_id: str) -> dict[str, object]:
-        """Read one synced source object via GET /datasources/{datasource_id}/objects/{object_id}; this mirrors Marivo's stored metadata detail and does not browse live external catalogs."""
-        return client.request_envelope(
-            "GET",
-            f"/datasources/{datasource_id}/objects/{object_id}",
-        ).model_dump()
-
-    @server.tool()
-    @_tool_metadata("GET", "/datasources/{datasource_id}/sync/selections")
-    def get_sync_selections(datasource_id: str) -> dict[str, object]:
-        """Read sync selections via GET /datasources/{datasource_id}/sync/selections."""
-        return client.request_envelope(
-            "GET",
-            f"/datasources/{datasource_id}/sync/selections",
         ).model_dump()
 
     @server.tool()

@@ -17,7 +17,6 @@ _SEMANTIC_RESOURCE_PATHS = {
     "dimensions": "/semantic/dimensions",
     "time": "/semantic/time",
     "enum-sets": "/semantic/enum-sets",
-    "bindings": "/semantic/bindings",
     "relationships": "/semantic/relationships",
     "compatibility-profiles": "/compiler/compatibility-profiles",
 }
@@ -68,7 +67,6 @@ def register_resources(
             "/semantic/dimensions",
             "/semantic/time",
             "/semantic/enum-sets",
-            "/semantic/bindings",
             "/semantic/relationships",
             "/compiler/compatibility-profiles",
         ),
@@ -111,7 +109,6 @@ def register_resources(
             "/semantic/dimensions",
             "/semantic/time",
             "/semantic/enum-sets",
-            "/semantic/bindings",
             "/semantic/relationships",
             "/compiler/compatibility-profiles",
         ),
@@ -125,21 +122,6 @@ def register_resources(
                 f"Unsupported semantic family {family!r}. Supported families: {supported}."
             )
         return _read_resource(client, path)
-
-    @server.resource("marivo://datasources/{datasource_id}/objects")
-    @_resource_metadata(http_method="GET", http_paths=("/datasources/{datasource_id}/objects",))
-    def datasource_objects(datasource_id: str) -> object:
-        """Mirror synced source metadata reads via GET /datasources/{datasource_id}/objects only."""
-        return _read_resource(client, f"/datasources/{datasource_id}/objects")
-
-    @server.resource("marivo://datasources/{datasource_id}/objects/{object_id}")
-    @_resource_metadata(
-        http_method="GET",
-        http_paths=("/datasources/{datasource_id}/objects/{object_id}",),
-    )
-    def datasource_object(datasource_id: str, object_id: str) -> object:
-        """Mirror synced source metadata detail via GET /datasources/{datasource_id}/objects/{object_id} only."""
-        return _read_resource(client, f"/datasources/{datasource_id}/objects/{object_id}")
 
 
 def _read_resource(

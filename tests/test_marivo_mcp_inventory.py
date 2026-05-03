@@ -136,6 +136,22 @@ def test_inventory_tracks_known_http_contracts_not_yet_wrapped() -> None:
     assert get_surface_spec("list_sessions").implemented is False
 
 
+def test_dataset_native_grounding_removed_mcp_surfaces_absent() -> None:
+    removed_fragments = {
+        "/semantic/bindings",
+        "/datasources/{datasource_id}/objects",
+        "/datasources/{datasource_id}/sync",
+    }
+    surface_blob = "\n".join(
+        path
+        for surface in inventory_module.get_surface_specs()
+        for path in getattr(surface, "http_paths", ())
+    )
+
+    for fragment in removed_fragments:
+        assert fragment not in surface_blob
+
+
 def test_observe_tool_time_scope_annotation_exposes_discriminator_schema() -> None:
     server = cast("Any", _FakeServer())
     register_tools(server, _build_config())
@@ -182,7 +198,6 @@ def test_semantic_create_tools_expose_authoring_models() -> None:
 
     enum_hints = get_type_hints(server.tools["create_enum_set"])
     metric_hints = get_type_hints(server.tools["create_metric"])
-    binding_hints = get_type_hints(server.tools["create_binding"])
 
     enum_header_schema = TypeAdapter(enum_hints["header"]).json_schema()
     assert enum_header_schema["additionalProperties"] is False
@@ -191,18 +206,6 @@ def test_semantic_create_tools_expose_authoring_models() -> None:
     metric_header_schema = TypeAdapter(metric_hints["header"]).json_schema()
     assert "observation_grain_ref" in metric_header_schema["required"]
     assert "metric_contract_version" in metric_header_schema["required"]
-
-    binding_contract_schema = TypeAdapter(binding_hints["interface_contract"]).json_schema()
-    defs = binding_contract_schema["$defs"]
-    assert defs["McpTimeSurface"]["additionalProperties"] is False
-    assert "surface_ref" in defs["McpTimeSurface"]["required"]
-    assert "date_surface_ref" in defs["McpTimeBinding"]["properties"]
-
-    binding_header_schema = TypeAdapter(binding_hints["header"]).json_schema()
-    binding_scope_schema = binding_header_schema["properties"]["binding_scope"]
-    assert binding_scope_schema["const"] == "entity"
-    assert "process_object" not in str(binding_scope_schema)
-    assert "metric" not in str(binding_scope_schema)
 
 
 def test_create_enum_set_rejects_common_header_typos() -> None:
@@ -224,92 +227,6 @@ def test_create_enum_set_rejects_common_header_typos() -> None:
     assert "enum_set_ref" in message
     assert "enum_ref" in message
     assert "enum_contract_version" in message
-
-
-def test_create_binding_rejects_time_surface_ref_typo() -> None:
-    server = cast("Any", _FakeServer())
-    register_tools(server, _build_config())
-    hints = get_type_hints(server.tools["create_binding"])
-    adapter = TypeAdapter(hints["interface_contract"])
-
-    with pytest.raises(Exception) as exc_info:
-        adapter.validate_python(
-            {
-                "carrier_bindings": [
-                    {
-                        "binding_key": "primary",
-                        "carrier_kind": "table",
-                        "carrier_locator": "analytics.trino_queries",
-                        "binding_role": "primary",
-                        "time_surfaces": [
-                            {
-                                "time_surface_ref": "time_surface.created_at",
-                                "physical_name": "created_at",
-                            }
-                        ],
-                    }
-                ],
-                "field_bindings": [],
-            }
-        )
-
-    message = str(exc_info.value)
-    assert "surface_ref" in message
-    assert "time_surface_ref" in message
-
-
-def test_create_binding_rejects_metric_input_metric_ref() -> None:
-    server = cast("Any", _FakeServer())
-    register_tools(server, _build_config())
-    hints = get_type_hints(server.tools["create_binding"])
-    adapter = TypeAdapter(hints["interface_contract"])
-
-    with pytest.raises(Exception) as exc_info:
-        adapter.validate_python(
-            {
-                "carrier_bindings": [
-                    {
-                        "binding_key": "primary",
-                        "carrier_kind": "table",
-                        "carrier_locator": "analytics.trino_queries",
-                        "binding_role": "primary",
-                        "field_surfaces": [
-                            {"surface_ref": "field.count", "physical_name": "query_id"}
-                        ],
-                    }
-                ],
-                "field_bindings": [
-                    {
-                        "carrier_binding_key": "primary",
-                        "target": {"target_kind": "metric_input", "target_key": "count_target"},
-                        "semantic_ref": "metric.trino_query_count",
-                        "surface_ref": "field.count",
-                    }
-                ],
-            }
-        )
-
-    assert "metric_input." in str(exc_info.value)
-
-
-def test_create_binding_rejects_batch_only_default_refs() -> None:
-    server = cast("Any", _FakeServer())
-    register_tools(server, _build_config())
-    hints = get_type_hints(server.tools["create_binding"])
-    adapter = TypeAdapter(hints["interface_contract"])
-
-    with pytest.raises(Exception) as exc_info:
-        adapter.validate_python(
-            {
-                "carrier_binding_refs": ["shared_primary"],
-                "time_binding_refs": ["shared_time"],
-                "field_bindings": [],
-            }
-        )
-
-    message = str(exc_info.value)
-    assert "carrier_binding_refs" in message
-    assert "time_binding_refs" in message
 
 
 def test_typed_intent_tools_expose_top_level_session_id() -> None:
