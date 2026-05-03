@@ -1,3 +1,9 @@
+---
+status: archived
+canonical-path: superseded by osi-alignment-v2
+created: 2026-04-30
+---
+
 # OSI Alignment Design: Marivo Semantic Layer
 
 **Date:** 2026-04-30

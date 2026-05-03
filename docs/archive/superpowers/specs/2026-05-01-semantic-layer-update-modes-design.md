@@ -1,3 +1,9 @@
+---
+status: archived
+canonical-path: docs/api/semantic.md
+created: 2026-05-01
+---
+
 # Semantic Layer Dual-Path Update Modes Design
 
 Date: 2026-05-01

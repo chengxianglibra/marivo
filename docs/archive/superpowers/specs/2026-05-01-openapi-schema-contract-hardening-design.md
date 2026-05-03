@@ -1,3 +1,9 @@
+---
+status: archived
+canonical-path: docs/api/openapi.md
+created: 2026-05-01
+---
+
 # OpenAPI Schema Contract Hardening Design
 
 ## Context
