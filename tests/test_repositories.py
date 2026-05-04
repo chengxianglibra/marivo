@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from app.storage.repositories import JobRepository, SessionRepository
+from app.storage.repositories import SessionRepository
 from app.storage.sqlite_metadata import SQLiteMetadataStore
 
 
@@ -26,13 +26,3 @@ class RepositorySeamTests(unittest.TestCase):
         session = repository.get("sess_test")
         self.assertIsNotNone(session)
         self.assertEqual(session["goal"], "repo session")
-
-    def test_job_repository_round_trip(self) -> None:
-        repository = JobRepository(self.store)
-        repository.create("job_test", "sess_test", "step", {"step_type": "metric_query"})
-        repository.mark_running("job_test")
-        repository.mark_completed("job_test", {"status": "ok"})
-        job = repository.get("job_test")
-        self.assertIsNotNone(job)
-        self.assertEqual(job["status"], "completed")
-        self.assertEqual(job["result"]["status"], "ok")

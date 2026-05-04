@@ -14,7 +14,6 @@ SCOPED_PATH_PREFIXES = (
     "/policies",
     "/quality-rules",
     "/governance",
-    "/jobs",
     "/calendar",
 )
 

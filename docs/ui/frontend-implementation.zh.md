@@ -10,14 +10,14 @@
 - 前端只访问 Marivo HTTP API，不假设 MCP 层存在。
 - `marivo.yaml` 仍然只作为 runtime 配置入口；source、engine、mapping inventory 通过 HTTP API 管理。
 - v1 角色只用于导航分组、默认入口和信息优先级，不表达真实认证 / RBAC。
-- Jobs 与 runtime status 是只读排障面；UI 不提供 submit / cancel / retry 操作。
+- Runtime status 是只读排障面；UI 不提供 submit / cancel / retry 操作。
 - 不提供自由 raw SQL workbench。SQL 如由后端作为 provenance 返回，只能折叠为审计细节。
 
 ## 目录结构
 
 - `frontend/src/api/`：API base URL、统一 HTTP client、错误归一化、TanStack Query hooks、OpenAPI 类型生成占位。
 - `frontend/src/components/`：readiness / failure、runtime、evidence closure、empty state、diagnostic drawer 等共享组件。
-- `frontend/src/fixtures/`：mock API 数据，覆盖 ready / not_ready source、mapping blocker、semantic stale、session gaps、proposition evidence、runtime failure、empty jobs 等闭环。
+- `frontend/src/fixtures/`：mock API 数据，覆盖 ready / not_ready source、mapping blocker、semantic stale、session gaps、proposition evidence、runtime failure 等闭环。
 - Operations / Sources 使用 datasource live browse 查看 schema、table、column 与 preview 信息；前端不再展示本地同步对象缓存或 sync 操作入口。
 - `frontend/src/pages/`：Overview、Operations、Semantic Layer、Analysis、API Contract 页面。
 - `frontend/tests/e2e/`：Playwright 关键流程。
@@ -38,7 +38,7 @@ MARIVO_OPENAPI_URL=http://localhost:8000/openapi.json npm run openapi:types
 ## Query Key 规范
 
 - 全局服务面：`health`、`metrics`、`openapi/index`。
-- 管理员面：`sources`、`engines`、`mappings`、`jobs(filters)`、`policies`、`quality-rules`。
+- 管理员面：`sources`、`engines`、`mappings`、`policies`、`quality-rules`。
 - 语义面：`semanticList(kind)`。
 - 分析面：`sessions(filters)`、`sessionState(sessionId)`、`sessionRuntime(sessionId)`、`propositionContext(sessionId, propositionId)`、`propositionRuntime(sessionId, propositionId)`。
 
@@ -48,13 +48,13 @@ MARIVO_OPENAPI_URL=http://localhost:8000/openapi.json npm run openapi:types
 - `BlockerPanel` 统一展示 `failure_code`、`blocking_requirements`、`readiness_blockers`。
 - `RuntimeStatusWidget` 明确 runtime status 只解释运行过程，不替代 evidence conclusion。
 - `EvidenceClosure` 围绕 proposition context 展示 seed entries、support / oppose findings、assessment、gaps、inference records。
-- `TaskEmpty` 为 source、engine、mapping、semantic、session、evidence、jobs 提供差异化空态，不诱导用户写 raw SQL 或编辑 `marivo.yaml`。
+- `TaskEmpty` 为 source、engine、mapping、semantic、session、evidence 提供差异化空态，不诱导用户写 raw SQL 或编辑 `marivo.yaml`。
 - `DiagnosticDrawer` 提供原始 API 摘要和 copy JSON 能力，但主页面仍展示任务摘要。
 
 ## 页面 Ownership
 
 - Overview：管理员系统可用性首页。
-- Operations：Sources、Engines、Mappings、Routing Debugger、Governance、Jobs / Runtime。
+- Operations：Sources、Engines、Mappings、Routing Debugger、Governance、Runtime。
 - Semantic Layer：Semantic Inventory、Readiness Queue、dataset-native grounding 摘要、对象详情与 lifecycle actions。
 - Analysis：Session Inbox、Session Detail、Proposition Detail、Evidence Timeline、Evidence Inspector、Gap View。
 - API Contract：OpenAPI index、前端 API 依赖缺口、v1 交付边界。

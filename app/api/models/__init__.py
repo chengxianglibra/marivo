@@ -39,10 +39,6 @@ from ._infrastructure import (
     GovernanceCheckResponse,
     GovernanceViolation,
     GovernanceWarning,
-    # Job models
-    JobPayload,
-    JobResponse,
-    JobSubmitRequest,
     MaxRowsDefinition,
     Measure,
     # Step models
@@ -357,9 +353,6 @@ __all__ = [  # noqa: RUF022
     "IntentTestRequest",
     "IntentPayload",
     "IntentTestResponse",
-    "JobPayload",
-    "JobResponse",
-    "JobSubmitRequest",
     "JoinKind",
     "JsonScalar",
     "JsonObject",

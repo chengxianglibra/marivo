@@ -64,7 +64,6 @@ class MetricsCollectorTests(unittest.TestCase):
         self.assertIn("step_count", snap)
         self.assertIn("execution_stage_count", snap)
         self.assertIn("active_sessions", snap)
-        self.assertIn("active_jobs", snap)
 
 
 class JSONFormatterTests(unittest.TestCase):

@@ -51,13 +51,13 @@ UI 不按 API 资源机械平铺，而按用户任务组织页面。用户进入
 
 ### 6. 操作诊断与证据结论分离
 
-`runtime-status`、`Jobs` 和 observability 页面用于解释执行进度、队列、失败与排障。它们不是证据结论面，不能替代 session state 或 proposition context。
+`runtime-status` 和 observability 页面用于解释执行进度、队列、失败与排障。它们不是证据结论面，不能替代 session state 或 proposition context。
 
 ## 用户角色
 
 | 角色 | 核心问题 | 主要对象 | 默认判断标准 |
 | --- | --- | --- | --- |
-| Marivo 管理员 | 系统是否能稳定执行？ | sources、engines、mappings、policies、quality rules、jobs、runtime status | source / engine / mapping ready，routing 可解释，治理规则生效 |
+| Marivo 管理员 | 系统是否能稳定执行？ | sources、engines、mappings、policies、quality rules、runtime status | source / engine / mapping ready，routing 可解释，治理规则生效 |
 | 业务专家 / 语义建模者 | 业务语义是否可被 agent 稳定使用？ | semantic models、datasets、fields、metrics、relationships、readiness | semantic model ready，dataset / field grounding 完整，能力符合分析场景 |
 | 分析人员 | 这次分析查了什么、证据是什么、还缺什么？ | sessions、state view、proposition context、findings、assessments、gaps、artifacts | 证据链可解释，blocking gaps 清晰，运行状态可诊断 |
 
@@ -74,7 +74,7 @@ UI 不按 API 资源机械平铺，而按用户任务组织页面。用户进入
 5. 建立 source 到 engine 的 mapping。
 6. 使用 Routing Debugger 验证 table names 能路由到正确 engine。
 7. 配置 policies 和 quality rules。
-8. 查看 health、metrics、runtime status 和 Jobs，定位失败原因。
+8. 查看 health、metrics、runtime status，定位失败原因。
 
 ### 运行总览
 
@@ -83,9 +83,9 @@ UI 不按 API 资源机械平铺，而按用户任务组织页面。用户进入
 页面内容：
 
 - `/health` 当前状态。
-- `/metrics` 中的 active sessions、pending jobs、steps failed、datasource browse failures 等摘要。
+- `/metrics` 中的 active sessions、steps failed、datasource browse failures 等摘要。
 - source、engine、mapping 的 ready / not_ready 分布。
-- 最近失败的 jobs、datasource browse failures、routing failures。
+- 最近失败的 datasource browse failures、routing failures。
 - 主要 blocker 列表，按影响范围排序。
 
 展示方式：
@@ -237,15 +237,9 @@ Quality Rules 默认字段：
 - quality rule 按 table name 分组，便于管理员从数据对象角度排查质量约束。
 - governance check 可作为调试抽屉，不作为分析结论页面。
 
-### Jobs / Runtime
+### Runtime Status
 
-Jobs 和 runtime status 是只读排障面。
-
-Jobs 页面：
-
-- 支持按 session_id、status 过滤。
-- 展示 job_id、session_id、job_type、status、submitted_at、started_at、completed_at、error_message。
-- 不设计 submit、cancel、retry 操作。
+Runtime status 是只读排障面。
 
 Runtime 页面：
 
@@ -399,7 +393,7 @@ Dataset Grounding Browser 服务语义建模，不是管理员 catalog 管理页
 3. 查看 session state，理解当前 active propositions、latest assessments 和 blocking gaps。
 4. 点开 proposition context，查看 seed findings、relevant findings、support / oppose、inference records 和 artifact refs。
 5. 查看 runtime status，判断空结果或延迟是未触发、运行中、等待 publish 还是失败。
-6. 查看 Evidence Timeline、Artifacts 和 Jobs。
+6. 查看 Evidence Timeline、Artifacts。
 7. 必要时发起受约束的 typed follow-up intent，而不是写 raw SQL。
 
 ### Session Inbox
@@ -435,7 +429,7 @@ Session Detail 是分析上下文主页。
 - Session State：active propositions、latest assessments、blocking gaps、artifact refs。
 - Runtime Summary：session runtime status。
 - Evidence Timeline：按 step / artifact / finding / proposition 的时间或 lineage 展示进展。
-- Related Jobs：该 session 下的 jobs。
+- Related Jobs：该 session 下的运行记录（已移除，可查看 runtime status）。
 
 用户友好性要求：
 
@@ -544,7 +538,6 @@ Operations
   Mappings
   Routing Debugger
   Governance
-  Jobs
 
 Semantic Layer
   Readiness Queue
@@ -588,7 +581,6 @@ API Contract
 - Mappings 列表 / 详情 / catalog mapping 编辑。
 - Routing Debugger。
 - Governance policies / quality rules。
-- Jobs 只读列表 / 详情。
 
 业务专家：
 
@@ -618,7 +610,6 @@ API Contract
 - 任意 DAG 手工编排。
 - 在 UI 中直接编辑 `marivo.yaml` 的 source / engine / mapping inventory。
 - 恢复旧内置 `/ui` 或 `/admin`。
-- 把 Jobs 暴露为 submit / cancel / retry 控制面。
 
 ## 前端技术基线
 
