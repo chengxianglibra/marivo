@@ -8,14 +8,15 @@ export const queryKeys = {
   health: ["health"] as const,
   metrics: ["metrics"] as const,
   openapiIndex: ["openapi", "index"] as const,
-  sources: ["sources"] as const,
-  sourceCatalogSchemas: (sourceId?: string) => ["sources", sourceId, "catalog", "schemas"] as const,
-  sourceCatalogTables: (sourceId?: string, schema?: string) =>
-    ["sources", sourceId, "catalog", "tables", schema] as const,
-  datasourceColumns: (sourceId?: string, schema?: string, table?: string) =>
-    ["sources", sourceId, "browse", "columns", schema, table] as const,
-  engines: ["engines"] as const,
-  mappings: ["mappings"] as const,
+  datasources: ["datasources"] as const,
+  datasourceBrowseSchemas: (datasourceId?: string) =>
+    ["datasources", datasourceId, "browse", "schemas"] as const,
+  datasourceBrowseTables: (datasourceId?: string, schema?: string) =>
+    ["datasources", datasourceId, "browse", "tables", schema] as const,
+  datasourceBrowseColumns: (datasourceId?: string, schema?: string, table?: string) =>
+    ["datasources", datasourceId, "browse", "columns", schema, table] as const,
+  datasourceCatalogPreview: (datasourceId?: string, schema?: string, table?: string) =>
+    ["datasources", datasourceId, "catalog", "preview", schema, table] as const,
   jobs: (filters?: Record<string, string | undefined>) => ["jobs", filters ?? {}] as const,
   policies: ["policies"] as const,
   qualityRules: ["quality-rules"] as const,

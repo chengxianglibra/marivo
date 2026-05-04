@@ -6,7 +6,6 @@ import {
   Drawer,
   Form,
   Input,
-  InputNumber,
   Popconfirm,
   Select,
   Space,
@@ -15,27 +14,19 @@ import {
   Typography,
   message,
 } from "antd";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import {
-  useCreateEngine,
-  useCreateMapping,
-  useCreateSource,
-  useDeleteEngine,
-  useDeleteMapping,
-  useDeleteSource,
-  useEngines,
+  useCreateDatasource,
+  useDeleteDatasource,
+  useDatasources,
   useJobs,
-  useMappings,
   usePolicies,
   useQualityRules,
   useRoutingResolve,
-  useSources,
-  useUpdateEngine,
-  useUpdateMapping,
-  useUpdateSource,
+  useUpdateDatasource,
 } from "../api/hooks";
-import type { EntityRow, JsonRecord } from "../api/types";
+import type { DatasourceRow, EntityRow, JsonRecord } from "../api/types";
 import { DiagnosticDrawer } from "../components/DiagnosticDrawer";
 import { TaskEmpty } from "../components/EmptyState";
 import {
@@ -47,14 +38,7 @@ import {
   StatusBadge,
 } from "../components/StatusBadge";
 
-type InventoryKind = "source" | "engine" | "mapping";
-type EditState = { kind: InventoryKind; row?: EntityRow } | null;
-
-function objectId(row: EntityRow, kind: InventoryKind): string {
-  if (kind === "source") return String(row.source_id ?? row.id ?? "");
-  if (kind === "engine") return String(row.engine_id ?? row.id ?? "");
-  return String(row.mapping_id ?? row.id ?? "");
-}
+type EditState = { kind: "datasource"; row?: DatasourceRow } | null;
 
 function formatJson(value: unknown, fallback: unknown): string {
   return JSON.stringify(value ?? fallback, null, 2);
@@ -69,19 +53,6 @@ function parseJsonObject(value: string | undefined, fieldName: string): JsonReco
   return parsed as JsonRecord;
 }
 
-function compactRecord(payload: JsonRecord): JsonRecord {
-  return Object.fromEntries(
-    Object.entries(payload).filter(([, value]) => value !== undefined && value !== ""),
-  );
-}
-
-function splitCsv(value: string | undefined): string[] {
-  return String(value ?? "")
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
 function apiErrorMessage(error: unknown): string {
   if (error && typeof error === "object" && "message" in error) {
     return String((error as { message?: unknown }).message);
@@ -89,34 +60,35 @@ function apiErrorMessage(error: unknown): string {
   return "Operation failed.";
 }
 
+const DUCKDB_CONNECTION_DEFAULT = JSON.stringify({ datasource_type: "duckdb", path: null, database: null, db_path: "" }, null, 2);
+const TRINO_CONNECTION_DEFAULT = JSON.stringify({ datasource_type: "trino", host: "", port: 8080, catalog: "", http_scheme: "http" }, null, 2);
+
 function ObjectTable({
   rows,
-  kind,
   onInspect,
   onEdit,
   onDelete,
   deleting,
 }: {
-  rows?: EntityRow[];
-  kind: InventoryKind;
-  onInspect: (row: EntityRow) => void;
-  onEdit: (row: EntityRow) => void;
-  onDelete: (row: EntityRow) => void;
+  rows?: DatasourceRow[];
+  onInspect: (row: DatasourceRow) => void;
+  onEdit: (row: DatasourceRow) => void;
+  onDelete: (row: DatasourceRow) => void;
   deleting?: boolean;
 }) {
   return (
     <Table
-      rowKey={(row) => objectId(row, kind) || JSON.stringify(row)}
+      rowKey={(row) => row.datasource_id}
       size="small"
       dataSource={rows}
-      locale={{ emptyText: <TaskEmpty kind={kind} /> }}
+      locale={{ emptyText: <TaskEmpty kind="datasource" /> }}
       columns={[
         {
           title: "ID",
-          render: (_, row) => objectId(row, kind),
+          dataIndex: "datasource_id",
         },
-        { title: "Name", render: (_, row) => row.display_name ?? row.name ?? "-" },
-        { title: "Type", render: (_, row) => row.source_type ?? row.engine_type ?? "mapping" },
+        { title: "Name", render: (_, row) => row.display_name ?? "-" },
+        { title: "Type", dataIndex: "datasource_type" },
         { title: "State", render: (_, row) => <InlineState readiness={row.readiness_status} failure={row.failure_code} /> },
         { title: "Updated", dataIndex: "updated_at" },
         {
@@ -126,7 +98,7 @@ function ObjectTable({
               <Button onClick={() => onInspect(row)}>Details</Button>
               <Button onClick={() => onEdit(row)}>Edit</Button>
               <Popconfirm
-                title={`Delete this ${kind}?`}
+                title="Delete this datasource?"
                 description="The backend will reject the request if dependencies still exist."
                 okText="Delete"
                 okButtonProps={{ danger: true }}
@@ -144,50 +116,57 @@ function ObjectTable({
   );
 }
 
-function SourceDrawer({
+function DatasourceDrawer({
   row,
   open,
   onClose,
 }: {
-  row?: EntityRow;
+  row?: DatasourceRow;
   open: boolean;
   onClose: () => void;
 }) {
   const [form] = Form.useForm();
-  const createSource = useCreateSource();
-  const updateSource = useUpdateSource();
-  const sourceType = Form.useWatch("source_type", form);
+  const createDatasource = useCreateDatasource();
+  const updateDatasource = useUpdateDatasource();
+  const datasourceType = Form.useWatch("datasource_type", form);
 
   useEffect(() => {
     if (!open) return;
+    const type = row?.datasource_type ?? "duckdb";
     form.setFieldsValue({
-      source_type: row?.source_type ?? "duckdb",
+      datasource_type: type,
       display_name: row?.display_name ?? "",
       allow_live_browse: row?.policy?.allow_live_browse ?? true,
-      connection_json: formatJson(row?.authority?.connection, {}),
+      allow_identity_reuse: row?.policy?.allow_identity_reuse ?? false,
+      connection_json: row?.connection ? formatJson(row.connection, {}) : (type === "trino" ? TRINO_CONNECTION_DEFAULT : DUCKDB_CONNECTION_DEFAULT),
     });
   }, [form, open, row]);
 
   async function submit(values: JsonRecord) {
     try {
-      const type = String(values.source_type);
-      const authority: JsonRecord = {
-        catalog_system: type,
-        connection: parseJsonObject(values.connection_json, "authority.connection"),
+      const type = String(values.datasource_type);
+      const connection = parseJsonObject(values.connection_json, "connection");
+      if (!connection.datasource_type) connection.datasource_type = type;
+
+      const policy: JsonRecord = {
+        allow_live_browse: Boolean(values.allow_live_browse),
       };
-      if (type === "duckdb") authority.synthetic_catalog = "main";
-      const payload = {
-        display_name: values.display_name,
-        authority,
-        policy: {
-          allow_live_browse: Boolean(values.allow_live_browse),
-        },
-        ...(row ? {} : { source_type: type }),
-      };
-      if (row?.source_id) {
-        await updateSource.mutateAsync({ sourceId: String(row.source_id), payload });
+      if (type === "trino" && values.allow_identity_reuse !== undefined) {
+        policy.allow_identity_reuse = Boolean(values.allow_identity_reuse);
+      }
+
+      if (row?.datasource_id) {
+        await updateDatasource.mutateAsync({
+          datasourceId: String(row.datasource_id),
+          payload: { display_name: values.display_name, connection, policy },
+        });
       } else {
-        await createSource.mutateAsync(payload);
+        await createDatasource.mutateAsync({
+          datasource_type: type,
+          display_name: values.display_name,
+          connection,
+          policy,
+        });
       }
       onClose();
     } catch (error) {
@@ -196,9 +175,9 @@ function SourceDrawer({
   }
 
   return (
-    <Drawer title={row ? "Edit Source" : "New Source"} open={open} onClose={onClose} width={560}>
+    <Drawer title={row ? "Edit Datasource" : "New Datasource"} open={open} onClose={onClose} width={560}>
       <Form form={form} layout="vertical" onFinish={submit}>
-        <Form.Item label="Type" name="source_type" rules={[{ required: true }]}>
+        <Form.Item label="Type" name="datasource_type" rules={[{ required: true }]}>
           <Select disabled={Boolean(row)} options={["duckdb", "trino"].map((value) => ({ value }))} />
         </Form.Item>
         <Form.Item label="Display name" name="display_name" rules={[{ required: true }]}>
@@ -207,346 +186,45 @@ function SourceDrawer({
         <Form.Item name="allow_live_browse" valuePropName="checked">
           <Checkbox>Allow live browse</Checkbox>
         </Form.Item>
+        {datasourceType === "trino" ? (
+          <Form.Item name="allow_identity_reuse" valuePropName="checked">
+            <Checkbox>Allow identity reuse</Checkbox>
+          </Form.Item>
+        ) : null}
         <Form.Item
-          label={`${sourceType === "trino" ? "Trino" : "DuckDB"} connection JSON`}
+          label={`${datasourceType === "trino" ? "Trino" : "DuckDB"} connection JSON`}
           name="connection_json"
           rules={[{ required: true }]}
         >
           <Input.TextArea rows={8} />
         </Form.Item>
-        <Button type="primary" htmlType="submit" loading={createSource.isPending || updateSource.isPending}>
-          Save Source
+        <Button type="primary" htmlType="submit" loading={createDatasource.isPending || updateDatasource.isPending}>
+          Save Datasource
         </Button>
       </Form>
     </Drawer>
   );
 }
 
-function EngineDrawer({
-  row,
-  open,
-  onClose,
-}: {
-  row?: EntityRow;
-  open: boolean;
-  onClose: () => void;
-}) {
-  const [form] = Form.useForm();
-  const createEngine = useCreateEngine();
-  const updateEngine = useUpdateEngine();
-  const engineType = Form.useWatch("engine_type", form);
-  const authMode = Form.useWatch("auth_mode", form);
-
-  useEffect(() => {
-    if (!open) return;
-    form.setFieldsValue({
-      engine_type: row?.engine_type ?? "duckdb",
-      display_name: row?.display_name ?? "",
-      connection_json: formatJson(row?.connection, {}),
-      auth_mode: row?.auth?.mode ?? "none",
-      username_source: row?.auth?.username_source,
-      fallback_username: row?.auth?.fallback_username,
-      default_catalog: row?.default_namespace?.catalog,
-      default_schema: row?.default_namespace?.schema,
-      deployment_capabilities_json: formatJson(row?.deployment_capabilities, {}),
-      allowed_step_types: (row?.policy?.allowed_step_types ?? []).join(", "),
-      required_policy_support: (row?.policy?.required_policy_support ?? []).join(", "),
-    });
-  }, [form, open, row]);
-
-  async function submit(values: JsonRecord) {
-    try {
-      const auth =
-        values.auth_mode === "none"
-          ? { mode: "none" }
-          : compactRecord({
-              mode: "username_only",
-              username_source: values.username_source,
-              fallback_username: values.fallback_username,
-            });
-      const namespace = compactRecord({
-        catalog: values.default_catalog,
-        schema: values.default_schema,
-      });
-      const payload = compactRecord({
-        display_name: values.display_name,
-        connection: parseJsonObject(values.connection_json, "connection"),
-        auth,
-        default_namespace: Object.keys(namespace).length > 0 ? namespace : null,
-        deployment_capabilities: parseJsonObject(
-          values.deployment_capabilities_json,
-          "deployment_capabilities",
-        ),
-        policy: {
-          allowed_step_types: splitCsv(values.allowed_step_types),
-          required_policy_support: splitCsv(values.required_policy_support),
-        },
-        ...(row ? {} : { engine_type: values.engine_type }),
-      });
-      if (row?.engine_id) {
-        await updateEngine.mutateAsync({ engineId: String(row.engine_id), payload });
-      } else {
-        await createEngine.mutateAsync(payload);
-      }
-      onClose();
-    } catch (error) {
-      message.error(apiErrorMessage(error));
-    }
-  }
-
-  return (
-    <Drawer title={row ? "Edit Engine" : "New Engine"} open={open} onClose={onClose} width={600}>
-      <Form form={form} layout="vertical" onFinish={submit}>
-        <Form.Item label="Type" name="engine_type" rules={[{ required: true }]}>
-          <Select disabled={Boolean(row)} options={["duckdb", "trino"].map((value) => ({ value }))} />
-        </Form.Item>
-        <Form.Item label="Display name" name="display_name" rules={[{ required: true }]}>
-          <Input />
-        </Form.Item>
-        <Form.Item label={`${engineType === "trino" ? "Trino" : "DuckDB"} connection JSON`} name="connection_json">
-          <Input.TextArea rows={7} />
-        </Form.Item>
-        <Form.Item label="Auth mode" name="auth_mode">
-          <Select
-            options={[
-              { value: "none", label: "none" },
-              { value: "username_only", label: "username_only" },
-            ]}
-          />
-        </Form.Item>
-        {authMode === "username_only" ? (
-          <Space className="full-width" align="start">
-            <Form.Item label="Username source" name="username_source" rules={[{ required: true }]}>
-              <Select style={{ width: 180 }} options={["session_user", "fixed"].map((value) => ({ value }))} />
-            </Form.Item>
-            <Form.Item label="Fallback username" name="fallback_username">
-              <Input />
-            </Form.Item>
-          </Space>
-        ) : null}
-        <Space className="full-width" align="start">
-          <Form.Item label="Default catalog" name="default_catalog">
-            <Input disabled={engineType === "duckdb"} />
-          </Form.Item>
-          <Form.Item label="Default schema" name="default_schema">
-            <Input disabled={engineType === "duckdb"} />
-          </Form.Item>
-        </Space>
-        <Form.Item label="Deployment capabilities JSON" name="deployment_capabilities_json">
-          <Input.TextArea rows={5} />
-        </Form.Item>
-        <Form.Item label="Allowed step types" name="allowed_step_types">
-          <Input placeholder="observe, compare" />
-        </Form.Item>
-        <Form.Item label="Required policy support" name="required_policy_support">
-          <Input placeholder="row_filter" />
-        </Form.Item>
-        <Button type="primary" htmlType="submit" loading={createEngine.isPending || updateEngine.isPending}>
-          Save Engine
-        </Button>
-      </Form>
-    </Drawer>
-  );
-}
-
-function MappingDrawer({
-  row,
-  open,
-  onClose,
-}: {
-  row?: EntityRow;
-  open: boolean;
-  onClose: () => void;
-}) {
-  const [form] = Form.useForm();
-  const sources = useSources();
-  const engines = useEngines();
-  const createMapping = useCreateMapping();
-  const updateMapping = useUpdateMapping();
-
-  useEffect(() => {
-    if (!open) return;
-    const catalogMappings = Array.isArray(row?.catalog_mappings) ? row.catalog_mappings : [];
-    form.setFieldsValue({
-      source_id: row?.source_id,
-      engine_id: row?.engine_id,
-      priority: row?.priority ?? 0,
-      status: row?.status ?? "active",
-      catalog_mappings:
-        catalogMappings.length > 0
-          ? catalogMappings
-          : [{ authority_catalog: "", execution_catalog: "", default_schema: undefined }],
-    });
-  }, [form, open, row]);
-
-  async function submit(values: JsonRecord) {
-    try {
-      const catalogMappings = (values.catalog_mappings ?? []).map((entry: JsonRecord) =>
-        compactRecord({
-          authority_catalog: entry.authority_catalog,
-          execution_catalog: entry.execution_catalog,
-          default_schema: entry.default_schema,
-        }),
-      );
-      if (row?.mapping_id) {
-        await updateMapping.mutateAsync({
-          mappingId: String(row.mapping_id),
-          payload: {
-            priority: values.priority ?? 0,
-            status: values.status,
-            catalog_mappings: catalogMappings,
-          },
-        });
-      } else {
-        await createMapping.mutateAsync({
-          source_id: values.source_id,
-          engine_id: values.engine_id,
-          priority: values.priority ?? 0,
-          status: values.status,
-          catalog_mappings: catalogMappings,
-        });
-      }
-      onClose();
-    } catch (error) {
-      message.error(apiErrorMessage(error));
-    }
-  }
-
-  return (
-    <Drawer title={row ? "Edit Mapping" : "New Mapping"} open={open} onClose={onClose} width={680}>
-      <Form form={form} layout="vertical" onFinish={submit}>
-        <Space className="full-width" align="start">
-          <Form.Item label="Source" name="source_id" rules={[{ required: true }]}>
-            <Select
-              disabled={Boolean(row)}
-              style={{ width: 260 }}
-              options={(sources.data ?? []).map((source) => ({
-                value: source.source_id,
-                label: `${source.display_name ?? source.source_id} (${source.source_id})`,
-              }))}
-            />
-          </Form.Item>
-          <Form.Item label="Engine" name="engine_id" rules={[{ required: true }]}>
-            <Select
-              disabled={Boolean(row)}
-              style={{ width: 260 }}
-              options={(engines.data ?? []).map((engine) => ({
-                value: engine.engine_id,
-                label: `${engine.display_name ?? engine.engine_id} (${engine.engine_id})`,
-              }))}
-            />
-          </Form.Item>
-        </Space>
-        <Space className="full-width" align="start">
-          <Form.Item label="Priority" name="priority">
-            <InputNumber />
-          </Form.Item>
-          <Form.Item label="Status" name="status">
-            <Select style={{ width: 180 }} options={["active", "inactive", "deprecated"].map((value) => ({ value }))} />
-          </Form.Item>
-        </Space>
-        <Form.List name="catalog_mappings">
-          {(fields, { add, remove }) => (
-            <Space direction="vertical" className="full-width">
-              {fields.map((field) => (
-                <Space key={field.key} align="start">
-                  <Form.Item label="Authority catalog" name={[field.name, "authority_catalog"]} rules={[{ required: true }]}>
-                    <Input />
-                  </Form.Item>
-                  <Form.Item label="Execution catalog" name={[field.name, "execution_catalog"]} rules={[{ required: true }]}>
-                    <Input />
-                  </Form.Item>
-                  <Form.Item label="Default schema" name={[field.name, "default_schema"]}>
-                    <Input />
-                  </Form.Item>
-                  <Button aria-label="Remove catalog mapping" icon={<Trash2 size={16} />} onClick={() => remove(field.name)} />
-                </Space>
-              ))}
-              <Button icon={<Plus size={16} />} onClick={() => add({ authority_catalog: "", execution_catalog: "" })}>
-                Add Catalog Mapping
-              </Button>
-            </Space>
-          )}
-        </Form.List>
-        <Button
-          type="primary"
-          htmlType="submit"
-          loading={createMapping.isPending || updateMapping.isPending}
-          style={{ marginTop: 16 }}
-        >
-          Save Mapping
-        </Button>
-      </Form>
-    </Drawer>
-  );
-}
-
-function SourcesTab({ onInspect, onEdit }: { onInspect: (row: EntityRow) => void; onEdit: (row?: EntityRow) => void }) {
-  const sources = useSources();
-  const deleteSource = useDeleteSource();
+function DatasourcesTab({ onInspect, onEdit }: { onInspect: (row: DatasourceRow) => void; onEdit: (row?: DatasourceRow) => void }) {
+  const datasources = useDatasources();
+  const deleteDatasource = useDeleteDatasource();
   return (
     <Space direction="vertical" size="middle" className="full-width">
       <Typography.Paragraph type="secondary">
-        Source inventory comes from the HTTP API. Live catalog browsing is used for table and column discovery.
+        Datasource inventory comes from the HTTP API. Live catalog browsing is used for table and column discovery.
       </Typography.Paragraph>
       <Space wrap>
         <Button type="primary" icon={<Plus size={16} />} onClick={() => onEdit()}>
-          New Source
+          New Datasource
         </Button>
       </Space>
       <ObjectTable
-        rows={sources.data}
-        kind="source"
+        rows={datasources.data}
         onInspect={onInspect}
         onEdit={(row) => onEdit(row)}
-        onDelete={(row) => deleteSource.mutate(String(row.source_id), { onError: (error) => message.error(apiErrorMessage(error)) })}
-        deleting={deleteSource.isPending}
-      />
-    </Space>
-  );
-}
-
-function EnginesTab({ onInspect, onEdit }: { onInspect: (row: EntityRow) => void; onEdit: (row?: EntityRow) => void }) {
-  const engines = useEngines();
-  const deleteEngine = useDeleteEngine();
-  return (
-    <Space direction="vertical" size="middle" className="full-width">
-      <Typography.Paragraph type="secondary">
-        Engine readiness is configuration validation. It does not imply that the UI ran an online SELECT 1 probe. DuckDB ignores session execution identity; Trino can use username_only.
-      </Typography.Paragraph>
-      <Button type="primary" icon={<Plus size={16} />} onClick={() => onEdit()}>
-        New Engine
-      </Button>
-      <ObjectTable
-        rows={engines.data}
-        kind="engine"
-        onInspect={onInspect}
-        onEdit={(row) => onEdit(row)}
-        onDelete={(row) => deleteEngine.mutate(String(row.engine_id), { onError: (error) => message.error(apiErrorMessage(error)) })}
-        deleting={deleteEngine.isPending}
-      />
-    </Space>
-  );
-}
-
-function MappingsTab({ onInspect, onEdit }: { onInspect: (row: EntityRow) => void; onEdit: (row?: EntityRow) => void }) {
-  const mappings = useMappings();
-  const deleteMapping = useDeleteMapping();
-  return (
-    <Space direction="vertical" size="middle" className="full-width">
-      <Typography.Paragraph type="secondary">
-        Mapping gaps are shown through coverage summaries and failure codes. `mapping_incomplete` and `mapping_inactive_dependency` point to actionable blockers first.
-      </Typography.Paragraph>
-      <Button type="primary" icon={<Plus size={16} />} onClick={() => onEdit()}>
-        New Mapping
-      </Button>
-      <ObjectTable
-        rows={mappings.data}
-        kind="mapping"
-        onInspect={onInspect}
-        onEdit={(row) => onEdit(row)}
-        onDelete={(row) => deleteMapping.mutate(String(row.mapping_id), { onError: (error) => message.error(apiErrorMessage(error)) })}
-        deleting={deleteMapping.isPending}
+        onDelete={(row) => deleteDatasource.mutate(String(row.datasource_id), { onError: (error) => message.error(apiErrorMessage(error)) })}
+        deleting={deleteDatasource.isPending}
       />
     </Space>
   );
@@ -666,20 +344,18 @@ function JobsRuntimeTab() {
 }
 
 export function OperationsPage() {
-  const [selected, setSelected] = useState<EntityRow | null>(null);
+  const [selected, setSelected] = useState<DatasourceRow | null>(null);
   const [diagnostic, setDiagnostic] = useState<JsonRecord | null>(null);
   const [editState, setEditState] = useState<EditState>(null);
   return (
     <Space direction="vertical" size="large" className="page">
       <SectionHeader
         title="Operations"
-        description="Operations workflows for sources, engines, mappings, routing, governance, jobs, and runtime diagnostics."
+        description="Operations workflows for datasources, routing, governance, jobs, and runtime diagnostics."
       />
       <Tabs
         items={[
-          { key: "sources", label: "Sources", children: <SourcesTab onInspect={setSelected} onEdit={(row) => setEditState({ kind: "source", row })} /> },
-          { key: "engines", label: "Engines", children: <EnginesTab onInspect={setSelected} onEdit={(row) => setEditState({ kind: "engine", row })} /> },
-          { key: "mappings", label: "Mappings", children: <MappingsTab onInspect={setSelected} onEdit={(row) => setEditState({ kind: "mapping", row })} /> },
+          { key: "datasources", label: "Datasources", children: <DatasourcesTab onInspect={setSelected} onEdit={(row) => setEditState({ kind: "datasource", row })} /> },
           { key: "routing", label: "Routing Debugger", children: <RoutingDebugger /> },
           { key: "governance", label: "Governance", children: <GovernanceTab /> },
           { key: "jobs", label: "Jobs / Runtime", children: <JobsRuntimeTab /> },
@@ -688,15 +364,17 @@ export function OperationsPage() {
       <Drawer title="Object Detail" open={Boolean(selected)} onClose={() => setSelected(null)} width={640}>
         {selected ? (
           <Space direction="vertical" size="middle" className="full-width">
-            <BlockerPanel record={selected} />
-            <Button onClick={() => setDiagnostic(selected)}>Open Diagnostic Payload</Button>
+            <BlockerPanel record={selected as EntityRow} />
+            <Button onClick={() => setDiagnostic(selected as EntityRow)}>Open Diagnostic Payload</Button>
             <JsonPreview payload={selected} />
           </Space>
         ) : null}
       </Drawer>
-      <SourceDrawer row={editState?.kind === "source" ? editState.row : undefined} open={editState?.kind === "source"} onClose={() => setEditState(null)} />
-      <EngineDrawer row={editState?.kind === "engine" ? editState.row : undefined} open={editState?.kind === "engine"} onClose={() => setEditState(null)} />
-      <MappingDrawer row={editState?.kind === "mapping" ? editState.row : undefined} open={editState?.kind === "mapping"} onClose={() => setEditState(null)} />
+      <DatasourceDrawer
+        row={editState?.kind === "datasource" ? editState.row : undefined}
+        open={editState?.kind === "datasource"}
+        onClose={() => setEditState(null)}
+      />
       <DiagnosticDrawer open={Boolean(diagnostic)} onClose={() => setDiagnostic(null)} title="Operations Diagnostic" payload={diagnostic} />
     </Space>
   );

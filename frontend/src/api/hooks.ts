@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "./client";
 import { queryKeys } from "./config";
-import type { EntityRow, JsonRecord, RuntimeStatus } from "./types";
+import type { DatasourceRow, EntityRow, JsonRecord, RuntimeStatus } from "./types";
 
 export const semanticKinds = [
   { key: "entities", label: "Entities", path: "/semantic/entities" },
@@ -40,61 +40,67 @@ export function useOpenApiIndex() {
   });
 }
 
-export function useSources() {
+export function useDatasources() {
   return useQuery({
-    queryKey: queryKeys.sources,
-    queryFn: async () => unwrapList(await apiClient.get("/sources")),
+    queryKey: queryKeys.datasources,
+    queryFn: async () => unwrapList(await apiClient.get("/datasources")) as DatasourceRow[],
   });
 }
 
-export function useCreateSource() {
+export function useCreateDatasource() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (payload: JsonRecord) => apiClient.post<JsonRecord>("/sources", payload),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.sources }),
+    mutationFn: (payload: JsonRecord) => apiClient.post<JsonRecord>("/datasources", payload),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.datasources }),
   });
 }
 
-export function useUpdateSource() {
+export function useUpdateDatasource() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ sourceId, payload }: { sourceId: string; payload: JsonRecord }) =>
-      apiClient.put<JsonRecord>(`/sources/${sourceId}`, payload),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.sources }),
+    mutationFn: ({ datasourceId, payload }: { datasourceId: string; payload: JsonRecord }) =>
+      apiClient.put<JsonRecord>(`/datasources/${datasourceId}`, payload),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.datasources }),
   });
 }
 
-export function useDeleteSource() {
+export function useDeleteDatasource() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (sourceId: string) => apiClient.delete<JsonRecord>(`/sources/${sourceId}`),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.sources }),
+    mutationFn: (datasourceId: string) => apiClient.delete<JsonRecord>(`/datasources/${datasourceId}`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.datasources }),
   });
 }
 
-export function useSourceCatalogSchemas(sourceId?: string, enabled = true) {
+export function useDatasourceBrowseSchemas(datasourceId?: string, enabled = true) {
   return useQuery({
-    queryKey: queryKeys.sourceCatalogSchemas(sourceId),
-    enabled: Boolean(sourceId) && enabled,
-    queryFn: async () => unwrapList(await apiClient.get(`/sources/${sourceId}/catalog/schemas`)),
+    queryKey: queryKeys.datasourceBrowseSchemas(datasourceId),
+    enabled: Boolean(datasourceId) && enabled,
+    queryFn: async () => unwrapList(await apiClient.get(`/datasources/${datasourceId}/browse/schemas`)),
   });
 }
 
-export function useSourceCatalogTables(sourceId?: string, schema?: string, enabled = true) {
+export function useDatasourceBrowseTables(datasourceId?: string, schema?: string, enabled = true) {
   return useQuery({
-    queryKey: queryKeys.sourceCatalogTables(sourceId, schema),
-    enabled: Boolean(sourceId && schema) && enabled,
-    queryFn: async () => unwrapList(await apiClient.get(`/sources/${sourceId}/catalog/tables`, { schema })),
+    queryKey: queryKeys.datasourceBrowseTables(datasourceId, schema),
+    enabled: Boolean(datasourceId && schema) && enabled,
+    queryFn: async () =>
+      unwrapList(await apiClient.get(`/datasources/${datasourceId}/browse/tables`, { schema_name: schema })),
   });
 }
 
-export function useDatasourceColumns(sourceId?: string, schemaName?: string, tableName?: string, enabled = true) {
+export function useDatasourceBrowseColumns(
+  datasourceId?: string,
+  schemaName?: string,
+  tableName?: string,
+  enabled = true,
+) {
   return useQuery({
-    queryKey: queryKeys.datasourceColumns(sourceId, schemaName, tableName),
-    enabled: Boolean(sourceId && schemaName && tableName && enabled),
+    queryKey: queryKeys.datasourceBrowseColumns(datasourceId, schemaName, tableName),
+    enabled: Boolean(datasourceId && schemaName && tableName && enabled),
     queryFn: async () =>
       unwrapList(
-        await apiClient.get(`/sources/${sourceId}/browse/columns`, {
+        await apiClient.get(`/datasources/${datasourceId}/browse/columns`, {
           schema_name: schemaName,
           table_name: tableName,
         }),
@@ -102,73 +108,16 @@ export function useDatasourceColumns(sourceId?: string, schemaName?: string, tab
   });
 }
 
-export function useEngines() {
+export function useDatasourceCatalogPreview(
+  datasourceId?: string,
+  schema?: string,
+  table?: string,
+  enabled = true,
+) {
   return useQuery({
-    queryKey: queryKeys.engines,
-    queryFn: async () => unwrapList(await apiClient.get("/engines")),
-  });
-}
-
-export function useCreateEngine() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (payload: JsonRecord) => apiClient.post<JsonRecord>("/engines", payload),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.engines }),
-  });
-}
-
-export function useUpdateEngine() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ engineId, payload }: { engineId: string; payload: JsonRecord }) =>
-      apiClient.put<JsonRecord>(`/engines/${engineId}`, payload),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.engines }),
-  });
-}
-
-export function useDeleteEngine() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (engineId: string) => apiClient.delete<JsonRecord>(`/engines/${engineId}`),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.engines }),
-  });
-}
-
-export function useMappings() {
-  return useQuery({
-    queryKey: queryKeys.mappings,
-    queryFn: async () => unwrapList(await apiClient.get("/mappings")),
-  });
-}
-
-function invalidateMappingSurfaces(queryClient: ReturnType<typeof useQueryClient>) {
-  queryClient.invalidateQueries({ queryKey: queryKeys.mappings });
-  queryClient.invalidateQueries({ queryKey: queryKeys.sources });
-  queryClient.invalidateQueries({ queryKey: queryKeys.engines });
-}
-
-export function useCreateMapping() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (payload: JsonRecord) => apiClient.post<JsonRecord>("/mappings", payload),
-    onSuccess: () => invalidateMappingSurfaces(queryClient),
-  });
-}
-
-export function useUpdateMapping() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ mappingId, payload }: { mappingId: string; payload: JsonRecord }) =>
-      apiClient.put<JsonRecord>(`/mappings/${mappingId}`, payload),
-    onSuccess: () => invalidateMappingSurfaces(queryClient),
-  });
-}
-
-export function useDeleteMapping() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (mappingId: string) => apiClient.delete<JsonRecord>(`/mappings/${mappingId}`),
-    onSuccess: () => invalidateMappingSurfaces(queryClient),
+    queryKey: queryKeys.datasourceCatalogPreview(datasourceId, schema, table),
+    enabled: Boolean(datasourceId && schema && table && enabled),
+    queryFn: () => apiClient.get<JsonRecord>(`/datasources/${datasourceId}/catalog/preview`, { schema, table }),
   });
 }
 

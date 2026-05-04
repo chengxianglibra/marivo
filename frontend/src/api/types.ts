@@ -14,6 +14,45 @@ export interface EntityRow extends JsonRecord {
   updated_at?: string;
 }
 
+export interface DuckDbConnection {
+  datasource_type: "duckdb";
+  path?: string | null;
+  database?: string | null;
+  db_path?: string;
+}
+
+export interface TrinoConnection {
+  datasource_type: "trino";
+  host: string;
+  port?: number;
+  user?: string;
+  catalog?: string;
+  http_scheme?: "http" | "https";
+  session_properties?: Record<string, string>;
+}
+
+export type DatasourceConnection = DuckDbConnection | TrinoConnection;
+
+export interface DatasourcePolicy {
+  allow_live_browse?: boolean;
+  allow_identity_reuse?: boolean;
+}
+
+export interface DatasourceRow {
+  datasource_id: string;
+  datasource_type: "duckdb" | "trino";
+  display_name: string;
+  connection: DatasourceConnection;
+  policy?: DatasourcePolicy;
+  status?: string;
+  readiness_status?: string;
+  failure_code?: string | null;
+  capabilities?: string[];
+  blocking_requirements?: string[];
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface ApiErrorShape {
   kind:
     | "network"

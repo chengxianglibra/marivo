@@ -1,6 +1,6 @@
 import { Alert, Card, Col, List, Row, Space, Statistic, Table, Typography } from "antd";
-import { Activity, Database, GitBranch, Route, Server, ShieldAlert } from "lucide-react";
-import { useEngines, useHealth, useJobs, useMappings, useMetrics, useSources } from "../api/hooks";
+import { Activity, Database, Route, ShieldAlert } from "lucide-react";
+import { useDatasources, useHealth, useJobs, useMetrics } from "../api/hooks";
 import type { EntityRow } from "../api/types";
 import { BlockerPanel, InlineState, SectionHeader, StatusBadge } from "../components/StatusBadge";
 
@@ -11,11 +11,9 @@ function notReady(rows: EntityRow[] | undefined) {
 export function OverviewPage() {
   const health = useHealth();
   const metrics = useMetrics();
-  const sources = useSources();
-  const engines = useEngines();
-  const mappings = useMappings();
+  const datasources = useDatasources();
   const jobs = useJobs();
-  const blockers = [...notReady(sources.data), ...notReady(engines.data), ...notReady(mappings.data)];
+  const blockers = [...notReady(datasources.data)];
 
   return (
     <Space direction="vertical" size="large" className="page">
@@ -35,34 +33,24 @@ export function OverviewPage() {
         }
       />
       <Row gutter={[12, 12]}>
-        <Col xs={24} md={8} xl={4}>
+        <Col xs={24} md={8} xl={6}>
           <Card size="small">
             <Statistic title="Active Sessions" value={metrics.data?.active_sessions ?? 0} prefix={<Activity size={16} />} />
           </Card>
         </Col>
-        <Col xs={24} md={8} xl={4}>
+        <Col xs={24} md={8} xl={6}>
           <Card size="small">
-            <Statistic title="Pending Jobs" value={metrics.data?.pending_jobs ?? 0} prefix={<Server size={16} />} />
+            <Statistic title="Pending Jobs" value={metrics.data?.pending_jobs ?? 0} prefix={<Route size={16} />} />
           </Card>
         </Col>
-        <Col xs={24} md={8} xl={4}>
+        <Col xs={24} md={8} xl={6}>
           <Card size="small">
             <Statistic title="Steps Failed" value={metrics.data?.steps_failed ?? 0} prefix={<ShieldAlert size={16} />} />
           </Card>
         </Col>
-        <Col xs={24} md={8} xl={4}>
+        <Col xs={24} md={8} xl={6}>
           <Card size="small">
-            <Statistic title="Sources" value={sources.data?.length ?? 0} prefix={<Database size={16} />} />
-          </Card>
-        </Col>
-        <Col xs={24} md={8} xl={4}>
-          <Card size="small">
-            <Statistic title="Engines" value={engines.data?.length ?? 0} prefix={<Server size={16} />} />
-          </Card>
-        </Col>
-        <Col xs={24} md={8} xl={4}>
-          <Card size="small">
-            <Statistic title="Mappings" value={mappings.data?.length ?? 0} prefix={<GitBranch size={16} />} />
+            <Statistic title="Datasources" value={datasources.data?.length ?? 0} prefix={<Database size={16} />} />
           </Card>
         </Col>
       </Row>
@@ -70,16 +58,16 @@ export function OverviewPage() {
         <Col xs={24} xl={15}>
           <Card title="Readiness Blockers" size="small">
             <Table
-              rowKey={(row) => row.source_id ?? row.engine_id ?? row.mapping_id ?? row.name ?? JSON.stringify(row)}
+              rowKey={(row) => row.datasource_id ?? row.name ?? JSON.stringify(row)}
               size="small"
               dataSource={blockers}
               pagination={false}
               columns={[
                 {
                   title: "Object",
-                  render: (_, row) => row.display_name ?? row.name ?? row.source_id ?? row.engine_id ?? row.mapping_id,
+                  render: (_, row) => row.display_name ?? row.name ?? row.datasource_id,
                 },
-                { title: "Type", render: (_, row) => row.source_type ?? row.engine_type ?? "mapping" },
+                { title: "Type", render: (_, row) => row.datasource_type ?? "-" },
                 {
                   title: "State",
                   render: (_, row) => <InlineState readiness={row.readiness_status} failure={row.failure_code} />,
