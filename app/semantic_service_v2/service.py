@@ -230,7 +230,11 @@ class SemanticModelV2Service:
         if enriched_pre.get("visibility", "public") != "private":
             raise HTTPException(
                 status_code=403,
-                detail="Cannot create official semantic model via CRUD; use /semantic-models/import",
+                detail=(
+                    "Public (official) models must be created via POST /semantic-models/import. "
+                    "Private models can be created via POST /semantic-models with visibility='private' "
+                    "and an owner_user in the MARIVO extension."
+                ),
             )
 
         # Reject private model name that conflicts with another private model for same owner
@@ -313,15 +317,16 @@ class SemanticModelV2Service:
                 self.store.execute(
                     """
                     INSERT INTO semantic_fields
-                        (dataset_id, name, expression, is_time, label, description,
+                        (dataset_id, name, expression, is_time, is_dimension, label, description,
                          ai_context, data_type, position)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     [
                         f_storage["dataset_id"],
                         f_storage["name"],
                         f_storage["expression"],
                         f_storage["is_time"],
+                        f_storage["is_dimension"],
                         f_storage["label"],
                         f_storage["description"],
                         f_storage["ai_context"],
@@ -517,15 +522,16 @@ class SemanticModelV2Service:
             self.store.execute(
                 """
                 INSERT INTO semantic_fields
-                    (dataset_id, name, expression, is_time, label, description,
+                    (dataset_id, name, expression, is_time, is_dimension, label, description,
                      ai_context, data_type, position)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     f_storage["dataset_id"],
                     f_storage["name"],
                     f_storage["expression"],
                     f_storage["is_time"],
+                    f_storage["is_dimension"],
                     f_storage["label"],
                     f_storage["description"],
                     f_storage["ai_context"],
@@ -971,7 +977,12 @@ class SemanticModelV2Service:
             if marivo_ext and marivo_ext.visibility == "private":
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Cannot import private model '{sm.name}' via OSI document",
+                    detail=(
+                        f"Private model '{sm.name}' cannot be imported via OSI document. "
+                        "The import endpoint creates public (official) models only. "
+                        "To create a private model, use POST /semantic-models with visibility='private' "
+                        "and an owner_user in the MARIVO extension."
+                    ),
                 )
 
         results: list[dict[str, Any]] = []

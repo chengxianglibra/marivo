@@ -176,6 +176,14 @@ def _validate_metric_refs(
 
     # observation_grain fields must exist in observed_dataset
     observation_grain = metric.get("observation_grain")
+    if observation_grain is not None and not isinstance(observation_grain, list):
+        errors.append(
+            {
+                "message": f"metric '{metric_name}' observation_grain must be a list of field names, got {type(observation_grain).__name__}",
+                "path": f"metrics[{metric_name}].observation_grain",
+            }
+        )
+        observation_grain = None
     if observation_grain:
         ds_fields = fields_by_dataset.get(observed_dataset, {})
         for grain_field in observation_grain:
@@ -218,6 +226,14 @@ def _validate_metric_refs(
     if isinstance(additivity, dict):
         dimension_policy = additivity.get("dimension_policy")
         additive_dimensions = additivity.get("additive_dimensions")
+        if additive_dimensions is not None and not isinstance(additive_dimensions, list):
+            errors.append(
+                {
+                    "message": f"metric '{metric_name}' additive_dimensions must be a list of field names, got {type(additive_dimensions).__name__}",
+                    "path": f"metrics[{metric_name}].additivity.additive_dimensions",
+                }
+            )
+            additive_dimensions = None
         if dimension_policy == "subset" and additive_dimensions:
             ds_fields = fields_by_dataset.get(observed_dataset, {})
             for dim in additive_dimensions:

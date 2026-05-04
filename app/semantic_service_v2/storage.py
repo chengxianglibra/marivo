@@ -77,7 +77,8 @@ def field_to_storage(field: Field, dataset_id: int, position: int) -> dict[str, 
     """Extract fields for a ``semantic_fields`` row."""
     marivo_ext = extract_marivo_extension(field.custom_extensions, MarivoFieldExtension)
     data_type = marivo_ext.data_type if marivo_ext else None
-    is_time = field.dimension.is_time if field.dimension is not None else False
+    is_dimension = field.dimension is not None
+    is_time = field.dimension.is_time if field.dimension else False
     expression = json.dumps(field.expression.model_dump(exclude_none=True))
     ai_context = json.dumps(field.ai_context.root) if field.ai_context is not None else None
     return {
@@ -85,6 +86,7 @@ def field_to_storage(field: Field, dataset_id: int, position: int) -> dict[str, 
         "name": field.name,
         "expression": expression,
         "is_time": 1 if is_time else 0,
+        "is_dimension": 1 if is_dimension else 0,
         "label": field.label,
         "description": field.description,
         "ai_context": ai_context,
@@ -189,8 +191,11 @@ def _storage_to_field(row: dict[str, Any]) -> dict[str, Any]:
         "custom_extensions": _ext_to_dicts(build_custom_extensions(marivo_ext)),
     }
     is_time = bool(row.get("is_time", 0))
+    is_dimension = bool(row.get("is_dimension", 0))
     if is_time:
         result["dimension"] = {"is_time": True}
+    elif is_dimension:
+        result["dimension"] = {"is_time": False}
     if row.get("label") is not None:
         result["label"] = row["label"]
     if row.get("description") is not None:
