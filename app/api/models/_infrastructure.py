@@ -60,6 +60,8 @@ class TrinoDatasourceConnection(BaseModel):
     user: str | None = None
     catalog: str | None = None
     http_scheme: Literal["http", "https"] = "http"
+    source: str | None = None
+    client_tags: str | None = None
     session_properties: dict[str, str] = Field(default_factory=dict)
 
 
