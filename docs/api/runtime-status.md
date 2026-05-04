@@ -2,7 +2,7 @@
 
 This document defines the target-state external HTTP contract for Marivo's operator-facing runtime status surface.
 
-It binds the design in [`spec/analysis/evidence-engine/runtime-status-surface.md`](../spec/analysis/evidence-engine/runtime-status-surface.md) to stable HTTP resources. This is a target-state wire specification and does not describe or depend on the current implementation.
+It binds the design in [`spec/analysis/evidence-engine/runtime-status-surface.md`](../specs/analysis/evidence-engine/runtime-status-surface.md) to stable HTTP resources. This is a target-state wire specification and does not describe or depend on the current implementation.
 
 ## Purpose
 

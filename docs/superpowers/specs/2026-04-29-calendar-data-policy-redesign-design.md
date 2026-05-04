@@ -1,6 +1,6 @@
 ---
 status: completed
-canonical-path: spec/semantic/ (pending update for calendar redesign)
+canonical-path: specs/semantic/ (pending update for calendar redesign)
 created: 2026-04-29
 ---
 

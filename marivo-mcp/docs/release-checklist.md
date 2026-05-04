@@ -66,7 +66,7 @@ The object model is entity-centric:
   `binding_scope=process_object` writes must be rejected rather than silently
   converted.
 - Documentation examples must use the entity-first shape in `docs/api/semantic.md`,
-  `spec/semantic/*`, `marivo-skill/marivo/references/*`, and
+  `specs/semantic/*`, `marivo-skill/marivo/references/*`, and
   `marivo-mcp/README.md`.
 
 Use repository entrypoints or explicit virtualenv paths for verification, for
@@ -169,7 +169,7 @@ invalid `MARIVO_WORKSPACE_ROOT` fails closed with `workspace_root_required`.
 - Root `README.md` still reflects Marivo's typed-intent and state/context model.
 - `agent-guide.md` stays limited to repository-wide coding and testing rules
   instead of duplicating product usage or MCP implementation details.
-- `spec/service/agent-runtime/troubleshooting.zh.md` still
+- `specs/service/agent-runtime/troubleshooting.zh.md` still
   matches the implemented local runtime, remote fail-closed, and HTTP MCP guard
   behavior.
 

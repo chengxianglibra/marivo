@@ -1750,10 +1750,10 @@ git commit -m "test: update remaining tests for calendar redesign"
 ### Task 13: Update existing spec documents to reflect redesign
 
 **Files:**
-- Modify: `spec/semantic/calendar-data-contract.zh.md` — update schema to single table
-- Modify: `spec/semantic/calendar-version-freeze-policy.zh.md` — simplify version model
-- Modify: `spec/semantic/calendar-data-v1-source-note.zh.md` — remove source dependency
-- Modify: `spec/semantic/calendar-alignment-policy.zh.md` — update policy catalog
+- Modify: `specs/semantic/calendar-data-contract.zh.md` — update schema to single table
+- Modify: `specs/semantic/calendar-version-freeze-policy.zh.md` — simplify version model
+- Modify: `specs/semantic/calendar-data-v1-source-note.zh.md` — remove source dependency
+- Modify: `specs/semantic/calendar-alignment-policy.zh.md` — update policy catalog
 
 - [ ] **Step 1: Add deprecation notices to existing specs**
 
@@ -1767,7 +1767,7 @@ At the top of each affected spec file, add a note:
 - [ ] **Step 2: Commit**
 
 ```bash
-git add spec/semantic/
+git add specs/semantic/
 git commit -m "docs: add deprecation notices to pre-redesign calendar specs"
 ```
 

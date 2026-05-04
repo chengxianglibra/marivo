@@ -2,7 +2,7 @@
 
 This document defines the target-state external HTTP contract for Marivo's canonical session state surface.
 
-It binds the canonical schema from [`spec/analysis/evidence-engine/schemas/state-surface-schema.md`](../spec/analysis/evidence-engine/schemas/state-surface-schema.md) to stable HTTP resources. This is a target-state wire specification and does not describe or depend on the current implementation.
+It binds the canonical schema from [`spec/analysis/evidence-engine/schemas/state-surface-schema.md`](../specs/analysis/evidence-engine/schemas/state-surface-schema.md) to stable HTTP resources. This is a target-state wire specification and does not describe or depend on the current implementation.
 
 ## Purpose
 
@@ -155,7 +155,7 @@ Rules:
 - `truncation.is_truncated = true` means the returned `active_propositions` page is partial, even if `truncation.total_count` is `null`
 - `truncation.total_count = null` means total count was not computed; it does not mean the result is unbounded
 
-The default `active_propositions` sort key is fixed as `default_active_proposition_order_v1`, which maps to the canonical ordering defined in [`spec/analysis/evidence-engine/schemas/state-surface-schema.md`](../spec/analysis/evidence-engine/schemas/state-surface-schema.md).
+The default `active_propositions` sort key is fixed as `default_active_proposition_order_v1`, which maps to the canonical ordering defined in [`spec/analysis/evidence-engine/schemas/state-surface-schema.md`](../specs/analysis/evidence-engine/schemas/state-surface-schema.md).
 
 ## Errors
 
