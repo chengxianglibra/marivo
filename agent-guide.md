@@ -42,7 +42,9 @@ make format
   [`.agents/skills/marivo-test-fixtures/SKILL.md`](.agents/skills/marivo-test-fixtures/SKILL.md).
 - Claude review instructions live in
   [`.agents/skills/claude-review/SKILL.md`](.agents/skills/claude-review/SKILL.md).
-- Commit attribution rules live in
+- **Mandatory:** When creating a git commit, always invoke the
+  `commit-attribution` skill first. Follow its pre-commit scope check and
+  attribution rules on every commit — no exceptions. The skill lives in
   [`.agents/skills/commit-attribution/SKILL.md`](.agents/skills/commit-attribution/SKILL.md).
 
 ## Documentation Routing
