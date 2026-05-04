@@ -79,7 +79,6 @@ from app.time_scope import (
 )
 
 if TYPE_CHECKING:
-    from app.approvals import ApprovalService
     from app.governance import GovernanceService
     from app.observability import MetricsCollector
     from app.routing import QueryRouter
@@ -242,7 +241,6 @@ class SemanticLayerService:
         config: MarivoConfig | None = None,
         governance: GovernanceService | None = None,
         metrics: MetricsCollector | None = None,
-        approvals: ApprovalService | None = None,
     ) -> None:
         self.metadata = metadata_store
         self.analytics = analytics_engine
@@ -251,7 +249,6 @@ class SemanticLayerService:
         self.calendar_data_reader: CalendarDataReader | None = None
         self.governance = governance
         self.metrics = metrics
-        self.approvals = approvals
         self.session_manager = SessionManager(metadata_store)
         self.step_registry = build_service_step_registry(self)
         self.intent_registry = IntentRunnerRegistry()
@@ -292,7 +289,6 @@ class SemanticLayerService:
         self.workflow_orchestrator = WorkflowOrchestrator(
             workflow_runtime=self.workflow_runtime,
             step_executor=_ServiceWorkflowStepExecutor(self),
-            approval_service=self.approvals,
         )
         self._refresh_calendar_data_reader()
 

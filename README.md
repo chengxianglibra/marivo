@@ -132,7 +132,6 @@ curl -s http://127.0.0.1:8000/sessions/<id>/state | python3 -m json.tool
 | Catalog | `GET /catalog/search`, `GET /semantic/resolve/{name}`, `GET /catalog/graph` |
 | Governance | `/policies`, `/quality-rules`, `POST /governance/check` |
 | Jobs | `POST/GET /jobs`, `POST /jobs/{id}/cancel` |
-| Approvals | `POST/GET /approvals`, `POST .../approve|reject` |
 | Observability | `GET /metrics`, `GET /health` |
 
 **Typed intents**: `observe`, `compare`, `decompose`, `correlate`, `detect`, `test`, `forecast`, `attribute`, `diagnose`, `validate`

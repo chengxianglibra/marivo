@@ -1,12 +1,9 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import Any, Protocol
 
 from app.analysis_core.ir import AnalysisStepIR
 from app.analysis_core.workflows.workflow_runtime import CompositeWorkflowRuntime
-
-if TYPE_CHECKING:
-    from app.approvals import ApprovalService
 
 
 class WorkflowStepExecutor(Protocol):
@@ -20,14 +17,9 @@ class WorkflowOrchestrator:
         self,
         workflow_runtime: CompositeWorkflowRuntime,
         step_executor: WorkflowStepExecutor,
-        *,
-        approval_service: ApprovalService | None = None,
-        auto_flag: bool = False,
     ) -> None:
         self.workflow_runtime = workflow_runtime
         self.step_executor = step_executor
-        self.approval_service = approval_service
-        self._auto_flag = auto_flag
 
     def execute_workflow(
         self,
@@ -44,9 +36,6 @@ class WorkflowOrchestrator:
             results.append(result)
 
         final_result = results[-1]
-
-        if self.approval_service and self._auto_flag:
-            self.approval_service.auto_flag_recommendations(session_id, risk_threshold="P0")
 
         return {
             "session_id": session_id,

@@ -43,7 +43,6 @@ All resource IDs follow the pattern `{prefix}_{12-char hex}`:
 | `pol_` | Policy |
 | `qr_` | Quality rule |
 | `job_` | Async job |
-| `apr_` | Approval request |
 | `evt_` | Governance event |
 
 ### Timestamps
@@ -61,7 +60,6 @@ Fields that store structured data are represented as JSON objects in responses. 
 | Session | `open`, `closed`, `aborted` |
 | Semantic objects | Storage `status`: `draft` → `published` → `deprecated`; public `lifecycle_status`: `draft` → `active` → `deprecated`; public `readiness_status`: `not_ready` / `ready` / `stale` |
 | Job | `pending` → `running` → `completed` / `failed` / `cancelled` |
-| Approval request | `pending` → `approved` / `rejected` |
 
 For the semantic layer, callers must treat `status` as a storage compatibility field only.
 Runtime/catalog availability is gated by `lifecycle_status` and `readiness_status`, so
@@ -83,7 +81,6 @@ Runtime/catalog availability is gated by `lifecycle_status` and `readiness_statu
 | [Semantic Layer](semantic.md) | `/semantic-models` | OSI semantic models with dataset-native physical grounding |
 | [Governance](governance.md) | `/policies`, `/quality-rules`, `/governance` | Data policies and quality rules |
 | [Jobs](jobs.md) | `/jobs` | Async job submission and tracking |
-| [Approvals](approvals.md) | `/approvals` | Approval workflow for high-risk recommendations |
 | [Health & Observability](observability.md) | `/health`, `/metrics` | Service health and operational metrics |
 
 ## Additional Guides

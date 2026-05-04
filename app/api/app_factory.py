@@ -17,7 +17,6 @@ from app.api.errors import (
     request_validation_exception_handler,
 )
 from app.api.router import include_api_routers
-from app.approvals import ApprovalService
 from app.config import MarivoConfig, load_config, resolve_config_path, resolve_metadata_path
 from app.datasources import DatasourceService
 from app.governance import GovernanceService
@@ -146,14 +145,12 @@ def _build_services(
         if config.governance.enabled
         else None
     )
-    approval_service = ApprovalService(metadata_store)
     service = SemanticLayerService(
         metadata_store,
         analytics_engine,
         config=config,
         governance=governance_service,
         metrics=metrics_collector,
-        approvals=approval_service,
     )
     datasource_service = DatasourceService(metadata_store)
     query_router = QueryRouter(metadata_store, datasource_service)
@@ -179,7 +176,6 @@ def _build_services(
         metadata_store=metadata_store,
         analytics_engine=analytics_engine,
         governance_service=governance_service,
-        approval_service=approval_service,
         metrics=metrics_collector,
         job_service=job_service,
         job_repository=job_repository,
@@ -196,7 +192,6 @@ def _attach_state(app: FastAPI, services: AppServices) -> None:
     app.state.metadata_store = services.metadata_store
     app.state.analytics_engine = services.analytics_engine
     app.state.governance_service = services.governance_service
-    app.state.approval_service = services.approval_service
     app.state.metrics = services.metrics
     app.state.job_service = services.job_service
     app.state.job_repository = services.job_repository

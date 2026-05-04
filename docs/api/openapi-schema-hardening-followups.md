@@ -12,7 +12,7 @@ covered by the scoped quality gate:
 
 - datasources (`/datasources/**`)
 - routing (`/routing/**`)
-- governance and approvals (`/policies/**`, `/quality-rules/**`, `/governance/**`, `/approvals/**`)
+- governance (`/policies/**`, `/quality-rules/**`, `/governance/**`)
 - jobs (`/jobs/**`)
 - calendar (`/calendar/**`)
 
@@ -42,7 +42,7 @@ The following remain outside the quality gate and are deferred to Wave 5:
 
 1. Datasources and routing, because they are foundational setup surfaces for
    agents.
-2. Governance and approvals, because agents need clear policy and decision
+2. Governance, because agents need clear policy and decision
    contracts.
 3. Jobs and metrics, because they expose operational state.
 4. Calendar, because the data model is already mostly typed and should be

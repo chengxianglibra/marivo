@@ -59,7 +59,7 @@ UI 不按 API 资源机械平铺，而按用户任务组织页面。用户进入
 | --- | --- | --- | --- |
 | Marivo 管理员 | 系统是否能稳定执行？ | sources、engines、mappings、policies、quality rules、jobs、runtime status | source / engine / mapping ready，routing 可解释，治理规则生效 |
 | 业务专家 / 语义建模者 | 业务语义是否可被 agent 稳定使用？ | semantic models、datasets、fields、metrics、relationships、readiness | semantic model ready，dataset / field grounding 完整，能力符合分析场景 |
-| 分析人员 | 这次分析查了什么、证据是什么、还缺什么？ | sessions、state view、proposition context、findings、assessments、gaps、artifacts、approvals | 证据链可解释，blocking gaps 清晰，运行状态可诊断 |
+| 分析人员 | 这次分析查了什么、证据是什么、还缺什么？ | sessions、state view、proposition context、findings、assessments、gaps、artifacts | 证据链可解释，blocking gaps 清晰，运行状态可诊断 |
 
 ## 管理员工作流与页面
 
@@ -399,7 +399,7 @@ Dataset Grounding Browser 服务语义建模，不是管理员 catalog 管理页
 3. 查看 session state，理解当前 active propositions、latest assessments 和 blocking gaps。
 4. 点开 proposition context，查看 seed findings、relevant findings、support / oppose、inference records 和 artifact refs。
 5. 查看 runtime status，判断空结果或延迟是未触发、运行中、等待 publish 还是失败。
-6. 查看 Evidence Timeline、Artifacts、Jobs 和 Approvals。
+6. 查看 Evidence Timeline、Artifacts 和 Jobs。
 7. 必要时发起受约束的 typed follow-up intent，而不是写 raw SQL。
 
 ### Session Inbox
@@ -436,7 +436,6 @@ Session Detail 是分析上下文主页。
 - Runtime Summary：session runtime status。
 - Evidence Timeline：按 step / artifact / finding / proposition 的时间或 lineage 展示进展。
 - Related Jobs：该 session 下的 jobs。
-- Related Approvals：该 session 下的 approvals。
 
 用户友好性要求：
 
@@ -485,7 +484,6 @@ Evidence Timeline 用于让人理解 agent 的分析路径。
 - finding extracted。
 - proposition seeded。
 - assessment committed。
-- proposal / approval 事件。
 
 用户友好性要求：
 
@@ -530,27 +528,7 @@ Gap View 聚合一个 session 中的 blocking 和 non-blocking gaps。
 
 - blocking gaps 优先排序。
 - 支持从 gap 跳转到 proposition detail。
-- gap 文案应回答“缺什么证据或前置条件”，而不是只显示内部 ID。
-
-### Approvals
-
-Approvals 页面用于查看和处理高风险 recommendation 的审批。
-
-列表默认字段：
-
-- request id。
-- session id。
-- recommendation id。
-- status。
-- reviewer。
-- reason。
-- created_at / updated_at。
-
-用户友好性要求：
-
-- pending / approved / rejected 分组展示。
-- approve / reject 前展示 recommendation、risk、关联证据和 session context。
-- auto-flag 可以作为 session detail 的辅助动作，但审批列表仍是主入口。
+- gap 文案应回答”缺什么证据或前置条件”，而不是只显示内部 ID。
 
 ## 导航结构
 
@@ -583,7 +561,6 @@ Semantic Layer
 Analysis
   Sessions
   Gaps
-  Approvals
   Evidence Search
 
 API Contract
@@ -631,7 +608,6 @@ API Contract
 - Evidence Timeline。
 - Evidence Inspector。
 - Gap View。
-- Approvals。
 
 ### v1 暂缓
 

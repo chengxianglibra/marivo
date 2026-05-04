@@ -786,19 +786,6 @@ METADATA_DDL: list[str] = [
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_jobs_session_status_submitted ON jobs(session_id, status, submitted_at DESC)",
-    # -- Approval requests --
-    """
-    CREATE TABLE IF NOT EXISTS approval_requests (
-        request_id      TEXT PRIMARY KEY,
-        session_id      TEXT NOT NULL,
-        rec_id          TEXT NOT NULL,
-        status          TEXT NOT NULL DEFAULT 'pending',
-        reason          TEXT NOT NULL DEFAULT '',
-        reviewer        TEXT NOT NULL DEFAULT '',
-        submitted_at    TEXT NOT NULL,
-        decided_at      TEXT
-    )
-    """,
     # -- Governance audit events --
     """
     CREATE TABLE IF NOT EXISTS governance_events (

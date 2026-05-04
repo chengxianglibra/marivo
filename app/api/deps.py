@@ -6,7 +6,6 @@ from typing import cast
 
 from fastapi import HTTPException, Request
 
-from app.approvals import ApprovalService
 from app.config import MarivoConfig
 from app.datasources import DatasourceService
 from app.governance import GovernanceService
@@ -30,7 +29,6 @@ class AppServices:
     metadata_store: MetadataStore
     analytics_engine: AnalyticsEngine
     governance_service: GovernanceService | None
-    approval_service: ApprovalService
     metrics: MetricsCollector | None
     job_service: JobService
     job_repository: JobRepository

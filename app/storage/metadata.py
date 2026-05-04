@@ -10,7 +10,7 @@ from app.storage.dialect import MetadataDialect
 
 class MetadataStore(ABC):
     """Pluggable backend for Marivo control-plane tables (sessions, steps,
-    artifacts, observations, claims, edges, recommendations, sources,
+    artifacts, observations, claims, edges, sources,
     semantic objects, etc.)."""
 
     @property

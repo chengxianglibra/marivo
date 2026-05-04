@@ -5,7 +5,6 @@ from typing import Any
 from fastapi import FastAPI
 
 from app.api import (
-    approvals,
     calendar,
     datasources,
     governance,
@@ -75,7 +74,6 @@ def include_api_routers(app: FastAPI) -> None:
         semantic_v2.router,
         governance.router,
         jobs.router,
-        approvals.router,
         metrics.router,
         calendar.router,
     ):

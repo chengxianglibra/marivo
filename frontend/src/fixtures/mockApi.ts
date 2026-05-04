@@ -1,5 +1,4 @@
 import {
-  approvals,
   datasources,
   health,
   jobs,
@@ -78,7 +77,6 @@ export function mockGet(path: string, query?: Record<string, unknown>): unknown 
   if (clean.endsWith("/state")) return sessionState;
   if (clean.endsWith("/runtime-status")) return runtimeStatus;
   if (clean.endsWith("/context")) return propositionContext;
-  if (clean === "/approvals") return approvals;
 
   const semanticMatch = clean.match(/^\/semantic\/([^/]+)$/);
   if (semanticMatch) return { items: semantic[semanticMatch[1]] ?? [] };

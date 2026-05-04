@@ -349,36 +349,6 @@ SURFACE_SPECS: tuple[McpSurfaceSpec, ...] = (
     McpSurfaceSpec("get_job", "tool", "p1", True, "GET", ("/jobs/{job_id}",)),
     McpSurfaceSpec("cancel_job", "tool", "p1", True, "POST", ("/jobs/{job_id}/cancel",)),
     # ------------------------------------------------------------------
-    # Approvals
-    # ------------------------------------------------------------------
-    McpSurfaceSpec("create_approval", "tool", "p1", True, "POST", ("/approvals",)),
-    McpSurfaceSpec("list_approvals", "tool", "p1", True, "GET", ("/approvals",)),
-    McpSurfaceSpec("get_approval", "tool", "p1", True, "GET", ("/approvals/{request_id}",)),
-    McpSurfaceSpec(
-        "approve_request",
-        "tool",
-        "p1",
-        True,
-        "POST",
-        ("/approvals/{request_id}/approve",),
-    ),
-    McpSurfaceSpec(
-        "reject_request",
-        "tool",
-        "p1",
-        True,
-        "POST",
-        ("/approvals/{request_id}/reject",),
-    ),
-    McpSurfaceSpec(
-        "auto_flag_approvals",
-        "tool",
-        "p1",
-        True,
-        "POST",
-        ("/sessions/{session_id}/approvals/auto-flag",),
-    ),
-    # ------------------------------------------------------------------
     # Datasources
     # ------------------------------------------------------------------
     McpSurfaceSpec("list_datasources", "tool", "p1", True, "GET", ("/datasources",)),
