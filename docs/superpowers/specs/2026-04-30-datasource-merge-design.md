@@ -1,6 +1,6 @@
 ---
 status: completed
-canonical-path: spec/service/data-plane/ (pending update for datasource merge)
+canonical-path: specs/service/data-plane/ (pending update for datasource merge)
 created: 2026-04-30
 ---
 
@@ -176,8 +176,8 @@ created: 2026-04-30
 
 ## 7. 现有 Spec 处理
 
-- `spec/service/data-plane/source-engine-mapping-contract.md` — 直接删除
-- `spec/service/data-plane/execution-auth-contract.md` — 直接删除
+- `specs/service/data-plane/source-engine-mapping-contract.md` — 直接删除
+- `specs/service/data-plane/execution-auth-contract.md` — 直接删除
 - 新建 datasource spec 覆盖所有行为
 
 ## 8. 不变的部分

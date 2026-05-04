@@ -51,9 +51,9 @@ When working on a task, read the right docs first:
 
 | Task Type | Read First | Then |
 |-----------|-----------|------|
-| Analysis engine / evidence / intents | `spec/analysis/README.md` | Subtopic files |
-| Semantic layer / objects / compiler | `spec/semantic/overview.md` | Schema contract files |
-| Service runtime / agent runtime / data plane | `spec/service/README.md` | Subtopic files |
+| Analysis engine / evidence / intents | `specs/analysis/README.md` | Subtopic files |
+| Semantic layer / objects / compiler | `specs/semantic/overview.md` | Schema contract files |
+| Service runtime / agent runtime / data plane | `specs/service/README.md` | Subtopic files |
 | HTTP API endpoint | `docs/api/README.md` | Endpoint-specific doc |
 | Frontend UI | `docs/ui/frontend-design.zh.md` | `frontend/README.md` |
 | Adding or modifying tests | `.agents/skills/marivo-test-fixtures/SKILL.md` | Spec docs for the domain |

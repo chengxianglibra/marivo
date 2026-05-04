@@ -1504,19 +1504,19 @@ git commit -m "refactor: update MCP adapter to use datasource endpoints"
 ## Task 18: Delete Legacy Spec Docs
 
 **Files:**
-- Delete: `spec/service/data-plane/source-engine-mapping-contract.md`
-- Delete: `spec/service/data-plane/execution-auth-contract.md`
+- Delete: `specs/service/data-plane/source-engine-mapping-contract.md`
+- Delete: `specs/service/data-plane/execution-auth-contract.md`
 
 - [ ] **Step 1: Delete the files**
 
 ```bash
-rm spec/service/data-plane/source-engine-mapping-contract.md spec/service/data-plane/execution-auth-contract.md
+rm specs/service/data-plane/source-engine-mapping-contract.md specs/service/data-plane/execution-auth-contract.md
 ```
 
 - [ ] **Step 2: Commit**
 
 ```bash
-git rm spec/service/data-plane/source-engine-mapping-contract.md spec/service/data-plane/execution-auth-contract.md
+git rm specs/service/data-plane/source-engine-mapping-contract.md specs/service/data-plane/execution-auth-contract.md
 git commit -m "docs: delete legacy source-engine-mapping and execution-auth specs"
 ```
 

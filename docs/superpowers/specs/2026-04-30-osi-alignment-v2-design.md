@@ -1,6 +1,6 @@
 ---
 status: completed
-canonical-path: spec/semantic/ (pending update for dataset-native OSI alignment)
+canonical-path: specs/semantic/ (pending update for dataset-native OSI alignment)
 created: 2026-04-30
 ---
 

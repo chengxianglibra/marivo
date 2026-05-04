@@ -3,22 +3,22 @@
 ## For Agents
 
 - [`agent-guide.md`](../agent-guide.md) — Coding rules and entry points (AI must-read)
-- [`spec/analysis/README.md`](../spec/analysis/README.md) — Analysis engine and intent system
-- [`spec/semantic/overview.md`](../spec/semantic/overview.md) — Semantic layer object model
-- [`spec/service/README.md`](../spec/service/README.md) — Service runtime and operator design
+- [`specs/analysis/README.md`](specs/analysis/README.md) — Analysis engine and intent system
+- [`specs/semantic/overview.md`](specs/semantic/overview.md) — Semantic layer object model
+- [`specs/service/README.md`](specs/service/README.md) — Service runtime and operator design
 
 ## For Developers
 
-### Internal Design Specs (`spec/`)
+### Internal Design Specs (`specs/`)
 
 Long-lived, canonical design documents. These are the authoritative source for
 system architecture decisions.
 
 | Directory | Scope | Entry Point |
 |-----------|-------|-------------|
-| `spec/analysis/` | Evidence Engine, typed intents, canonical schemas | [`README.md`](../spec/analysis/README.md) |
-| `spec/semantic/` | Semantic objects, binding, compiler, IR | [`overview.md`](../spec/semantic/overview.md) |
-| `spec/service/` | Agent runtime, data plane, MySQL metadata | [`README.md`](../spec/service/README.md) |
+| `specs/analysis/` | Evidence Engine, typed intents, canonical schemas | [`README.md`](specs/analysis/README.md) |
+| `specs/semantic/` | Semantic objects, compiler, IR | [`overview.md`](specs/semantic/overview.md) |
+| `specs/service/` | Agent runtime, data plane, MySQL metadata | [`README.md`](specs/service/README.md) |
 
 ### HTTP API Reference (`docs/api/`)
 
@@ -35,7 +35,7 @@ External-facing HTTP wire contracts. The public API boundary.
 ### Active Development (`docs/superpowers/`)
 
 Implementation plans and draft design specs from active development cycles.
-These are **ephemeral** — stable designs should converge into `spec/` or
+These are **ephemeral** — stable designs should converge into `specs/` or
 `docs/api/`, and completed work should move to `docs/archive/`.
 
 - [`docs/superpowers/README.md`](superpowers/README.md) — Lifecycle rules and status tracking
@@ -64,6 +64,6 @@ reference; the code and canonical specs are the authority.
 ## Language Convention
 
 - `.zh.md` suffix = Chinese-language document
-- `spec/` internal docs: author's choice of language
+- `specs/` internal docs: author's choice of language
 - `docs/api/`: English (public API contract)
 - `docs/user/`: bilingual (parallel `en.md` / `zh.md` files)
