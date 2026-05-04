@@ -28,5 +28,4 @@ export const queryKeys = {
     ["sessions", sessionId, "propositions", propositionId, "context"] as const,
   propositionRuntime: (sessionId?: string, propositionId?: string) =>
     ["sessions", sessionId, "propositions", propositionId, "runtime-status"] as const,
-  approvals: (filters?: Record<string, string | undefined>) => ["approvals", filters ?? {}] as const,
 };

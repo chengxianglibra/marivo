@@ -1,7 +1,6 @@
 import { Button, Card, Descriptions, Input, List, Select, Space, Table, Tabs, Typography } from "antd";
 import { useState } from "react";
 import {
-  useApprovals,
   useJobs,
   usePropositionContext,
   usePropositionRuntime,
@@ -149,25 +148,6 @@ function GapView({ sessionId }: { sessionId?: string }) {
   );
 }
 
-function ApprovalsPage() {
-  const approvals = useApprovals();
-  return (
-    <Table
-      rowKey={(row) => row.request_id}
-      size="small"
-      dataSource={approvals.data}
-      columns={[
-        { title: "request_id", dataIndex: "request_id" },
-        { title: "session_id", dataIndex: "session_id" },
-        { title: "recommendation", dataIndex: "recommendation_id" },
-        { title: "status", render: (_, row) => <StatusBadge value={row.status} /> },
-        { title: "risk", dataIndex: "risk" },
-        { title: "reason", dataIndex: "reason" },
-      ]}
-    />
-  );
-}
-
 function EvidenceInspector({ payload }: { payload?: unknown }) {
   return (
     <Space direction="vertical" size="middle" className="full-width">
@@ -213,7 +193,6 @@ export function AnalysisPage() {
           { key: "timeline", label: "Evidence Timeline", children: <EvidenceTimeline sessionId={sessionId} /> },
           { key: "inspector", label: "Evidence Inspector", children: <EvidenceInspector payload={context.data} /> },
           { key: "gaps", label: "Gap View", children: <GapView sessionId={sessionId} /> },
-          { key: "approvals", label: "Approvals", children: <ApprovalsPage /> },
         ]}
       />
     </Space>

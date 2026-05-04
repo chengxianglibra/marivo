@@ -578,36 +578,6 @@ class JobResponse(BaseModel):
     completed_at: str | None = None
 
 
-# --- Approval models ---
-
-
-class ApprovalCreateRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    session_id: str
-    rec_id: str
-
-
-class ApprovalDecisionRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    reviewer: str
-    reason: str = ""
-
-
-class ApprovalResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    request_id: str
-    session_id: str
-    rec_id: str
-    status: str
-    reviewer: str | None = None
-    reason: str | None = None
-    created_at: str = ""
-    updated_at: str = ""
-
-
 # =============================================================================
 # Time / Scope / Measure models
 # =============================================================================
@@ -825,10 +795,6 @@ class AttributeChangeStep(BaseModel):
 # =============================================================================
 # Signal / Plan models
 # =============================================================================
-
-
-class AutoFlagRequest(BaseModel):
-    risk_threshold: str = "P0"
 
 
 class ReadinessSignal(BaseModel):

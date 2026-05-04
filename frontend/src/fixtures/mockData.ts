@@ -230,18 +230,6 @@ export const propositionContext = {
   artifact_refs: ["artifact.obs_001", "artifact.obs_002"],
 };
 
-export const approvals = [
-  {
-    request_id: "appr_001",
-    session_id: "sess_growth_review",
-    recommendation_id: "rec_publish_summary",
-    status: "pending",
-    reviewer: null,
-    reason: "P1 blocking gap remains open",
-    risk: "P1",
-  },
-];
-
 export const runtimeStatus = {
   schema_version: "session_runtime_status.v1",
   status: "blocked",

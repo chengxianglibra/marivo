@@ -370,15 +370,6 @@ def test_registers_core_tool_groups() -> None:
         "get_job",
         "cancel_job",
     }
-    # Approvals tools
-    assert set(server.tools) >= {
-        "create_approval",
-        "list_approvals",
-        "get_approval",
-        "approve_request",
-        "reject_request",
-        "auto_flag_approvals",
-    }
     # Calendar tools (removed from MCP surface)
     assert "load_calendar_data" not in server.tools
     assert "list_calendar_versions" not in server.tools
@@ -1674,32 +1665,6 @@ def test_submit_job_sends_canonical_body() -> None:
 
     assert result["ok"] is True
     assert result["meta"]["marivo_path"] == "/jobs"
-
-
-# ------------------------------------------------------------------
-# Approvals tests
-# ------------------------------------------------------------------
-
-
-def test_approve_request_sends_reviewer_and_reason() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.method == "POST"
-        assert request.url.path == "/approvals/req_123/approve"
-        assert request.read() == b'{"reviewer":"alice","reason":"Looks good"}'
-        return httpx.Response(
-            200, json={"request_id": "req_123", "status": "approved"}, request=request
-        )
-
-    result = _invoke_registered_tool(
-        "approve_request",
-        handler,
-        request_id="req_123",
-        reviewer="alice",
-        reason="Looks good",
-    )
-
-    assert result["ok"] is True
-    assert result["meta"]["marivo_path"] == "/approvals/req_123/approve"
 
 
 def _invoke_registered_tool(

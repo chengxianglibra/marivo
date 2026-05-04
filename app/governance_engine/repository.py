@@ -9,7 +9,7 @@ from app.storage.metadata import MetadataStore
 
 
 class GovernanceRepository:
-    """Persistence boundary for policy, quality, approval, and audit state."""
+    """Persistence boundary for policy, quality, and audit state."""
 
     def __init__(self, metadata: MetadataStore) -> None:
         self.metadata = metadata
@@ -114,78 +114,6 @@ class GovernanceRepository:
         self.metadata.execute("DELETE FROM quality_rules WHERE rule_id = ?", [rule_id])
         return {"status": "deleted", "rule_id": rule_id}
 
-    def get_recommendation(self, rec_id: str) -> dict[str, Any]:
-        row = self.metadata.query_one("SELECT * FROM recommendations WHERE rec_id = ?", [rec_id])
-        if row is None:
-            raise KeyError(f"Unknown recommendation: {rec_id}")
-        return dict(row)
-
-    def list_session_recommendations(self, session_id: str) -> list[dict[str, Any]]:
-        rows = self.metadata.query_rows(
-            "SELECT rec_id, risk, type FROM recommendations WHERE session_id = ? ORDER BY created_at",
-            [session_id],
-        )
-        return [dict(row) for row in rows]
-
-    def find_pending_approval_request(self, rec_id: str) -> dict[str, Any] | None:
-        row = self.metadata.query_one(
-            "SELECT * FROM approval_requests WHERE rec_id = ? AND status = 'pending'",
-            [rec_id],
-        )
-        return self._deserialize_request(row) if row is not None else None
-
-    def create_approval_request(self, session_id: str, rec_id: str) -> dict[str, Any]:
-        request_id = f"apr_{uuid4().hex[:12]}"
-        now = now_iso()
-        self.metadata.execute(
-            """
-            INSERT INTO approval_requests (request_id, session_id, rec_id, status, reason, reviewer, submitted_at)
-            VALUES (?, ?, ?, 'pending', '', '', ?)
-            """,
-            [request_id, session_id, rec_id, now],
-        )
-        return self.get_approval_request(request_id)
-
-    def list_approval_requests(
-        self,
-        session_id: str | None = None,
-        status: str | None = None,
-    ) -> list[dict[str, Any]]:
-        query = "SELECT * FROM approval_requests WHERE 1=1"
-        params: list[Any] = []
-        if session_id:
-            query += " AND session_id = ?"
-            params.append(session_id)
-        if status:
-            query += " AND status = ?"
-            params.append(status)
-        query += " ORDER BY submitted_at DESC"
-        rows = self.metadata.query_rows(query, params)
-        return [self._deserialize_request(row) for row in rows]
-
-    def get_approval_request(self, request_id: str) -> dict[str, Any]:
-        row = self.metadata.query_one(
-            "SELECT * FROM approval_requests WHERE request_id = ?", [request_id]
-        )
-        if row is None:
-            raise KeyError(f"Unknown approval request: {request_id}")
-        return self._deserialize_request(row)
-
-    def set_approval_decision(
-        self,
-        request_id: str,
-        status: str,
-        reviewer: str,
-        reason: str,
-    ) -> dict[str, Any]:
-        _ = self.get_approval_request(request_id)  # Validate request exists
-        now = now_iso()
-        self.metadata.execute(
-            "UPDATE approval_requests SET status = ?, reviewer = ?, reason = ?, decided_at = ? WHERE request_id = ?",
-            [status, reviewer, reason, now, request_id],
-        )
-        return self.get_approval_request(request_id)
-
     def record_event(
         self,
         *,
@@ -271,18 +199,6 @@ class GovernanceRepository:
             "enabled": bool(row["enabled"]),
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
-        }
-
-    def _deserialize_request(self, row: dict[str, Any]) -> dict[str, Any]:
-        return {
-            "request_id": row["request_id"],
-            "session_id": row["session_id"],
-            "rec_id": row["rec_id"],
-            "status": row["status"],
-            "reason": row["reason"],
-            "reviewer": row["reviewer"],
-            "submitted_at": row["submitted_at"],
-            "decided_at": row.get("decided_at"),
         }
 
     def _deserialize_event(self, row: dict[str, Any]) -> dict[str, Any]:

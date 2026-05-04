@@ -14,7 +14,6 @@ SCOPED_PATH_PREFIXES = (
     "/policies",
     "/quality-rules",
     "/governance",
-    "/approvals",
     "/jobs",
     "/calendar",
 )
@@ -29,7 +28,6 @@ SCOPED_SESSION_PATHS = {
     "/sessions/{session_id}/propositions/{proposition_id}/context",
     "/sessions/{session_id}/propositions/{proposition_id}/runtime-status",
     "/sessions/{session_id}/terminate",
-    "/sessions/{session_id}/approvals/auto-flag",
 }
 
 SCHEMA_KEYS_THAT_MAKE_A_LEAF_TYPED = {

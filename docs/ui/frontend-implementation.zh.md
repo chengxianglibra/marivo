@@ -40,7 +40,7 @@ MARIVO_OPENAPI_URL=http://localhost:8000/openapi.json npm run openapi:types
 - 全局服务面：`health`、`metrics`、`openapi/index`。
 - 管理员面：`sources`、`engines`、`mappings`、`jobs(filters)`、`policies`、`quality-rules`。
 - 语义面：`semanticList(kind)`。
-- 分析面：`sessions(filters)`、`sessionState(sessionId)`、`sessionRuntime(sessionId)`、`propositionContext(sessionId, propositionId)`、`propositionRuntime(sessionId, propositionId)`、`approvals(filters)`。
+- 分析面：`sessions(filters)`、`sessionState(sessionId)`、`sessionRuntime(sessionId)`、`propositionContext(sessionId, propositionId)`、`propositionRuntime(sessionId, propositionId)`。
 
 ## 状态表达
 
@@ -56,7 +56,7 @@ MARIVO_OPENAPI_URL=http://localhost:8000/openapi.json npm run openapi:types
 - Overview：管理员系统可用性首页。
 - Operations：Sources、Engines、Mappings、Routing Debugger、Governance、Jobs / Runtime。
 - Semantic Layer：Semantic Inventory、Readiness Queue、dataset-native grounding 摘要、对象详情与 lifecycle actions。
-- Analysis：Session Inbox、Session Detail、Proposition Detail、Evidence Timeline、Evidence Inspector、Gap View、Approvals。
+- Analysis：Session Inbox、Session Detail、Proposition Detail、Evidence Timeline、Evidence Inspector、Gap View。
 - API Contract：OpenAPI index、前端 API 依赖缺口、v1 交付边界。
 
 ## API 依赖缺口

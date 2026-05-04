@@ -189,13 +189,6 @@ export function usePropositionRuntime(sessionId?: string, propositionId?: string
   });
 }
 
-export function useApprovals(filters?: { session_id?: string; status?: string }) {
-  return useQuery({
-    queryKey: queryKeys.approvals(filters),
-    queryFn: async () => unwrapList(await apiClient.get("/approvals", filters)),
-  });
-}
-
 export function useRoutingResolve() {
   return useMutation({
     mutationFn: (payload: { table_names: string[]; routing_intent?: JsonRecord }) =>
