@@ -51,23 +51,6 @@ def register_resources(
             f"default_datasource_id={config.default_datasource_id or ''}\n"
         )
 
-    @server.resource("marivo://catalog/summary")
-    @_resource_metadata(
-        http_method="GET",
-        http_paths=(
-            "/openapi/index",
-            "/datasources",
-            "/semantic-models",
-        ),
-    )
-    def catalog_summary() -> dict[str, object]:
-        """Expose a fixed catalog summary snapshot assembled from canonical HTTP read surfaces."""
-        return {
-            "openapi_index": _read_resource(client, "/openapi/index"),
-            "datasources": _read_resource(client, "/datasources"),
-            "semantic_models": _read_resource(client, "/semantic-models"),
-        }
-
     @server.resource("marivo://sessions/{session_id}/state")
     @_resource_metadata(http_method="GET", http_paths=("/sessions/{session_id}/state",))
     def session_state(session_id: str) -> object:

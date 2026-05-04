@@ -66,7 +66,6 @@ def test_registers_resources_and_scaffold_config_resource() -> None:
 
     assert set(server.resources) == {
         "marivo://server/config",
-        "marivo://catalog/summary",
         "marivo://sessions/{session_id}/state",
         "marivo://sessions/{session_id}/propositions/{proposition_id}/context",
         "marivo://semantic/{family}",
@@ -142,32 +141,6 @@ def test_semantic_family_resource_rejects_unknown_families() -> None:
             lambda request: httpx.Response(200, json={}, request=request),
             family="keys",
         )
-
-
-def test_catalog_summary_resource_aggregates_fixed_read_surfaces() -> None:
-    responses = {
-        "/openapi/index": {"revision": "rev_123", "paths": [{"path": "/sessions"}], "schemas": []},
-        "/datasources": [{"datasource_id": "ds_123"}],
-        "/semantic-models": [{"name": "model_123"}],
-    }
-    seen_paths: list[str] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        seen_paths.append(request.url.path)
-        return httpx.Response(200, json=responses[request.url.path], request=request)
-
-    result = _invoke_registered_resource("marivo://catalog/summary", handler)
-
-    assert seen_paths == [
-        "/openapi/index",
-        "/datasources",
-        "/semantic-models",
-    ]
-    assert result == {
-        "openapi_index": responses["/openapi/index"],
-        "datasources": responses["/datasources"],
-        "semantic_models": responses["/semantic-models"],
-    }
 
 
 def test_resource_failures_raise_structured_http_client_error() -> None:
