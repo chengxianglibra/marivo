@@ -581,8 +581,7 @@ def _metadata_template_valid(db_path: Path) -> bool:
                 "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN "
                 "('semantic_models', 'semantic_datasets', "
                 "'semantic_fields', 'semantic_relationships', 'semantic_metrics', "
-                "'semantic_readiness_status', 'analysis_sessions', "
-                "'session_semantic_snapshots')"
+                "'semantic_readiness_status')"
             ).fetchall()
         }
         datasource_columns = {
@@ -670,8 +669,6 @@ def _metadata_template_valid(db_path: Path) -> bool:
             "semantic_relationships",
             "semantic_metrics",
             "semantic_readiness_status",
-            "analysis_sessions",
-            "session_semantic_snapshots",
         }
         and {
             "datasource_type",

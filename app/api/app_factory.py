@@ -25,7 +25,6 @@ from app.jobs import JobService
 from app.observability import MetricsCollector, TimingMiddleware, setup_logging
 from app.routing import QueryRouter
 from app.semantic_service_v2.service import SemanticModelV2Service
-from app.semantic_service_v2.session import SessionService
 from app.service import SemanticLayerService
 from app.storage.analytics import AnalyticsEngine
 from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
@@ -164,7 +163,6 @@ def _build_services(
         cast("SQLiteMetadataStore", metadata_store),
         datasource_service=datasource_service,
     )
-    session_service = SessionService(cast("SQLiteMetadataStore", metadata_store))
     job_repository = JobRepository(metadata_store)
     job_service = JobService(
         metadata_store,
@@ -186,7 +184,6 @@ def _build_services(
         job_service=job_service,
         job_repository=job_repository,
         semantic_v2_service=semantic_v2_service,
-        session_service=session_service,
     )
 
 
@@ -204,7 +201,6 @@ def _attach_state(app: FastAPI, services: AppServices) -> None:
     app.state.job_service = services.job_service
     app.state.job_repository = services.job_repository
     app.state.semantic_v2_service = services.semantic_v2_service
-    app.state.session_service = services.session_service
 
 
 def create_app(

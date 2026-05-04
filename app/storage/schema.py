@@ -1015,33 +1015,6 @@ METADATA_DDL: list[str] = [
         ddl_fingerprint TEXT NOT NULL
     )
     """,
-    # -------------------------------------------------------------------------
-    # Session snapshot tables for dual-path semantic layer
-    # -------------------------------------------------------------------------
-    "DROP TABLE IF EXISTS session_semantic_snapshots",
-    "DROP TABLE IF EXISTS analysis_sessions",
-    """
-    CREATE TABLE analysis_sessions (
-        session_id          TEXT PRIMARY KEY,
-        requesting_user     TEXT NOT NULL,
-        snapshot_frozen_at  TEXT NOT NULL DEFAULT (datetime('now')),
-        status              TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'ended')),
-        created_at          TEXT NOT NULL DEFAULT (datetime('now')),
-        ended_at            TEXT
-    )
-    """,
-    """
-    CREATE TABLE session_semantic_snapshots (
-        snapshot_id         INTEGER PRIMARY KEY AUTOINCREMENT,
-        session_id          TEXT NOT NULL REFERENCES analysis_sessions(session_id),
-        model_name          TEXT NOT NULL,
-        revision            INTEGER NOT NULL CHECK (revision >= 1),
-        visibility          TEXT NOT NULL CHECK (visibility IN ('public', 'private')),
-        owner_user          TEXT,
-        frozen_at           TEXT NOT NULL DEFAULT (datetime('now'))
-    )
-    """,
-    "CREATE INDEX IF NOT EXISTS idx_session_snapshots_session ON session_semantic_snapshots(session_id)",
 ]
 
 MetadataBackend = Literal["sqlite", "mysql"]
