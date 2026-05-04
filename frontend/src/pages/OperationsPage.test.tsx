@@ -20,44 +20,36 @@ function renderOperations() {
 }
 
 describe("operations inventory CRUD", () => {
-  it("shows create actions for sources, engines, and mappings", async () => {
+  it("shows create action for datasources", async () => {
     renderOperations();
 
-    expect(await screen.findByRole("button", { name: /New Source/i })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("tab", { name: "Engines" }));
-    expect(await screen.findByRole("button", { name: /New Engine/i })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("tab", { name: "Mappings" }));
-    expect(await screen.findByRole("button", { name: /New Mapping/i })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /New Datasource/i })).toBeInTheDocument();
   });
 
-  it("opens the source create drawer with structured and JSON fields", async () => {
+  it("does not show engine or mapping tabs", async () => {
+    renderOperations();
+    await screen.findByRole("tab", { name: "Datasources" });
+    expect(screen.queryByRole("tab", { name: "Engines" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "Mappings" })).not.toBeInTheDocument();
+  });
+
+  it("opens the datasource create drawer with structured and JSON fields", async () => {
     renderOperations();
 
-    fireEvent.click(await screen.findByRole("button", { name: /New Source/i }));
-    await screen.findAllByText("New Source");
+    fireEvent.click(await screen.findByRole("button", { name: /New Datasource/i }));
+    await screen.findAllByText("New Datasource");
     const dialog = document.querySelector(".ant-drawer") as HTMLElement;
 
     expect(within(dialog).getByLabelText("Display name")).toBeInTheDocument();
     expect(within(dialog).getByLabelText("DuckDB connection JSON")).toBeInTheDocument();
-    expect(within(dialog).getByRole("button", { name: "Save Source" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Save Datasource" })).toBeInTheDocument();
   });
 
-  it("does not show removed datasource sync controls", async () => {
+  it("does not show removed source sync controls", async () => {
     renderOperations();
 
-    await screen.findByRole("button", { name: /New Source/i });
+    await screen.findByRole("button", { name: /New Datasource/i });
     expect(screen.queryByText(/Sync mode/i)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Synced Objects/i })).not.toBeInTheDocument();
-  });
-
-  it("opens mapping drawer with catalog row controls", async () => {
-    renderOperations();
-
-    fireEvent.click(screen.getByRole("tab", { name: "Mappings" }));
-    const newMappingButton = await screen.findByRole("button", { name: /New Mapping/i });
-    fireEvent.click(newMappingButton);
-
-    expect(await screen.findAllByText("New Mapping")).toHaveLength(2);
-    expect(screen.getByRole("button", { name: /Add Catalog Mapping/i })).toBeInTheDocument();
   });
 });

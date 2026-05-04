@@ -6,7 +6,7 @@ import { operationLabel } from "./apiContractRows";
 const dependencies = [
   {
     area: "Operations",
-    need: "source / engine / mapping list fields should keep readiness_status and failure_code stable",
+    need: "datasource list fields should keep readiness_status and failure_code stable",
     severity: "blocker",
   },
   {

@@ -1,9 +1,8 @@
 import {
   approvals,
-  engines,
+  datasources,
   health,
   jobs,
-  mappings,
   metrics,
   openapiIndex,
   policies,
@@ -13,7 +12,6 @@ import {
   semantic,
   sessionState,
   sessions,
-  sources,
 } from "./mockData";
 import type { JsonRecord } from "../api/types";
 
@@ -21,8 +19,8 @@ function stripQuery(path: string): string {
   return path.split("?")[0] ?? path;
 }
 
-function idFor(kind: "source" | "engine" | "mapping"): string {
-  return `${kind.slice(0, 3)}_${Math.random().toString(16).slice(2, 10)}`;
+function idFor(kind: "datasource"): string {
+  return `ds_${Math.random().toString(16).slice(2, 10)}`;
 }
 
 function now(): string {
@@ -44,27 +42,29 @@ export function mockGet(path: string, query?: Record<string, unknown>): unknown 
   if (clean === "/health") return health;
   if (clean === "/metrics") return metrics;
   if (clean === "/openapi/index") return openapiIndex;
-  if (clean === "/sources") return sources;
-  const schemaMatch = clean.match(/^\/sources\/([^/]+)\/catalog\/schemas$/);
+  if (clean === "/datasources") return datasources;
+  const schemaMatch = clean.match(/^\/datasources\/([^/]+)\/browse\/schemas$/);
   if (schemaMatch) {
     return [{ schema_name: "analytics" }, { schema_name: "iceberg_inf" }];
   }
-  const tableMatch = clean.match(/^\/sources\/([^/]+)\/catalog\/tables$/);
+  const tableMatch = clean.match(/^\/datasources\/([^/]+)\/browse\/tables$/);
   if (tableMatch) {
-    const schema = String(query?.schema ?? "");
+    const schema = String(query?.schema_name ?? query?.schema ?? "");
     return schema === "iceberg_inf"
       ? [{ table_name: "public_holiday_events" }, { table_name: "v_ott_user_profile_wide" }]
       : [{ table_name: "orders" }, { table_name: "watch_events" }];
   }
-  const columnsMatch = clean.match(/^\/sources\/([^/]+)\/browse\/columns$/);
+  const columnsMatch = clean.match(/^\/datasources\/([^/]+)\/browse\/columns$/);
   if (columnsMatch) {
     return [
       { name: "order_id", schema_name: query?.schema_name ?? "analytics", table_name: query?.table_name ?? "orders", data_type: "string", properties: {} },
       { name: "amount", schema_name: query?.schema_name ?? "analytics", table_name: query?.table_name ?? "orders", data_type: "number", properties: {} },
     ];
   }
-  if (clean === "/engines") return engines;
-  if (clean === "/mappings") return mappings;
+  const previewMatch = clean.match(/^\/datasources\/([^/]+)\/catalog\/preview$/);
+  if (previewMatch) {
+    return { columns: ["order_id", "amount"], rows: [["ord_001", 42.5]], total_rows: 1 };
+  }
   if (clean === "/jobs") {
     return jobs.filter((job) => {
       return (!query?.session_id || job.session_id === query.session_id) && (!query?.status || job.status === query.status);
@@ -88,50 +88,19 @@ export function mockGet(path: string, query?: Record<string, unknown>): unknown 
 }
 
 export function mockPost(path: string, body: unknown): unknown {
-  if (path === "/sources") {
+  if (path === "/datasources") {
     const payload = body as Record<string, unknown>;
-    const source = readiness({
-      source_id: idFor("source"),
+    const datasource = readiness({
+      datasource_id: idFor("datasource"),
+      datasource_type: payload.datasource_type,
       display_name: payload.display_name,
-      source_type: payload.source_type,
-      authority: payload.authority,
-      policy: payload.policy ?? { allow_live_browse: true },
-      mappings: [],
-      created_at: now(),
-    });
-    (sources as JsonRecord[]).push(source);
-    return source;
-  }
-  if (path === "/engines") {
-    const payload = body as Record<string, unknown>;
-    const engine = readiness({
-      engine_id: idFor("engine"),
-      display_name: payload.display_name,
-      engine_type: payload.engine_type,
       connection: payload.connection ?? {},
-      auth: payload.auth ?? { mode: "none" },
-      default_namespace: payload.default_namespace ?? { catalog: null, schema: null },
-      deployment_capabilities: payload.deployment_capabilities ?? {},
-      policy: payload.policy ?? { allowed_step_types: [], required_policy_support: [] },
-      mappings: [],
+      policy: payload.policy ?? { allow_live_browse: true },
+      capabilities: ["browse", "execute"],
       created_at: now(),
     });
-    (engines as JsonRecord[]).push(engine);
-    return engine;
-  }
-  if (path === "/mappings") {
-    const payload = body as Record<string, unknown>;
-    const mapping = readiness({
-      mapping_id: idFor("mapping"),
-      source_id: payload.source_id,
-      engine_id: payload.engine_id,
-      priority: payload.priority ?? 0,
-      catalog_mappings: payload.catalog_mappings ?? [],
-      status: payload.status ?? "active",
-      created_at: now(),
-    });
-    (mappings as JsonRecord[]).push(mapping);
-    return mapping;
+    (datasources as JsonRecord[]).push(datasource);
+    return datasource;
   }
   if (path === "/routing/resolve") {
     const tableNames = ((body as { table_names?: string[] })?.table_names ?? []).filter(Boolean);
@@ -139,14 +108,14 @@ export function mockPost(path: string, body: unknown): unknown {
     if (unresolved) {
       return {
         resolved: false,
-        failure_code: "mapping_incomplete",
+        failure_code: "datasource_unreachable",
         table_names: tableNames,
-        engine: null,
+        datasource: null,
         qualified_names: {},
-        selection_reason: "No ready mapping covers every requested authority table.",
+        selection_reason: "No ready datasource covers every requested table.",
         routing_detail: {
-          candidates: ["map_lake_trino"],
-          readiness_blockers: ["source not ready", "engine not ready", "catalog mapping is empty"],
+          candidates: ["ds_lake_trino"],
+          readiness_blockers: ["Fix connection.host", "Confirm live browse access"],
         },
       };
     }
@@ -154,10 +123,10 @@ export function mockPost(path: string, body: unknown): unknown {
       resolved: true,
       failure_code: null,
       table_names: tableNames,
-      engine: { engine_id: "eng_duckdb_runtime", engine_type: "duckdb", display_name: "DuckDB Runtime" },
-      qualified_names: Object.fromEntries(tableNames.map((name) => [name, `duckdb_runtime.analytics.${name.split(".").pop()}`])),
-      selection_reason: "Selected highest-priority ready mapping covering all requested tables.",
-      routing_detail: { selected_mapping: "map_sales_duckdb", candidates: ["map_sales_duckdb"] },
+      datasource: { datasource_id: "ds_sales_duckdb", datasource_type: "duckdb", display_name: "Sales DuckDB Datasource" },
+      qualified_names: Object.fromEntries(tableNames.map((name) => [name, `analytics.${name.split(".").pop()}`])),
+      selection_reason: "Selected ready datasource covering all requested tables.",
+      routing_detail: { selected_datasource: "ds_sales_duckdb", candidates: ["ds_sales_duckdb"] },
     };
   }
   if (path.endsWith("/validate")) return { valid: false, readiness_status: "not_ready", blockers: ["source_object_not_ready"] };
@@ -168,51 +137,23 @@ export function mockPost(path: string, body: unknown): unknown {
 
 export function mockPut(path: string, body: unknown): unknown {
   const payload = body as Record<string, unknown>;
-  const sourceMatch = path.match(/^\/sources\/([^/]+)$/);
-  if (sourceMatch) {
-    const index = sources.findIndex((source) => source.source_id === sourceMatch[1]);
+  const dsMatch = path.match(/^\/datasources\/([^/]+)$/);
+  if (dsMatch) {
+    const index = datasources.findIndex((ds) => ds.datasource_id === dsMatch[1]);
     if (index >= 0) {
-      (sources as JsonRecord[])[index] = readiness({ ...sources[index], ...payload });
-      return sources[index];
-    }
-  }
-  const engineMatch = path.match(/^\/engines\/([^/]+)$/);
-  if (engineMatch) {
-    const index = engines.findIndex((engine) => engine.engine_id === engineMatch[1]);
-    if (index >= 0) {
-      (engines as JsonRecord[])[index] = readiness({ ...engines[index], ...payload });
-      return engines[index];
-    }
-  }
-  const mappingMatch = path.match(/^\/mappings\/([^/]+)$/);
-  if (mappingMatch) {
-    const index = mappings.findIndex((mapping) => mapping.mapping_id === mappingMatch[1]);
-    if (index >= 0) {
-      (mappings as JsonRecord[])[index] = readiness({ ...mappings[index], ...payload });
-      return mappings[index];
+      (datasources as JsonRecord[])[index] = readiness({ ...datasources[index], ...payload });
+      return datasources[index];
     }
   }
   return { status: "not_found" };
 }
 
 export function mockDelete(path: string): unknown {
-  const sourceMatch = path.match(/^\/sources\/([^/]+)$/);
-  if (sourceMatch) {
-    const index = sources.findIndex((source) => source.source_id === sourceMatch[1]);
-    if (index >= 0) sources.splice(index, 1);
-    return { status: "deleted", source_id: sourceMatch[1] };
-  }
-  const engineMatch = path.match(/^\/engines\/([^/]+)$/);
-  if (engineMatch) {
-    const index = engines.findIndex((engine) => engine.engine_id === engineMatch[1]);
-    if (index >= 0) engines.splice(index, 1);
-    return { status: "deleted", engine_id: engineMatch[1] };
-  }
-  const mappingMatch = path.match(/^\/mappings\/([^/]+)$/);
-  if (mappingMatch) {
-    const index = mappings.findIndex((mapping) => mapping.mapping_id === mappingMatch[1]);
-    if (index >= 0) mappings.splice(index, 1);
-    return { status: "deleted", mapping_id: mappingMatch[1] };
+  const dsMatch = path.match(/^\/datasources\/([^/]+)$/);
+  if (dsMatch) {
+    const index = datasources.findIndex((ds) => ds.datasource_id === dsMatch[1]);
+    if (index >= 0) datasources.splice(index, 1);
+    return { datasource_id: dsMatch[1], deleted: true };
   }
   return { status: "not_found" };
 }

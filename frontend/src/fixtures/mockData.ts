@@ -14,84 +14,39 @@ export const metrics = {
   routing_failures: 2,
 };
 
-export const sources = [
+export const datasources = [
   {
-    source_id: "src_sales_duckdb",
-    display_name: "Sales DuckDB Authority",
-    source_type: "duckdb",
+    datasource_id: "ds_sales_duckdb",
+    display_name: "Sales DuckDB Datasource",
+    datasource_type: "duckdb",
+    connection: { datasource_type: "duckdb", path: null, database: null, db_path: "./sales.duckdb" },
+    policy: { allow_live_browse: true },
     status: "active",
     readiness_status: "ready",
     failure_code: null,
-    related_mappings_count: 1,
+    capabilities: ["browse", "execute"],
+    created_at: "2026-04-25T10:12:00+08:00",
     updated_at: "2026-04-25T10:12:00+08:00",
   },
   {
-    source_id: "src_lake_trino",
-    display_name: "Lakehouse Trino Authority",
-    source_type: "trino",
+    datasource_id: "ds_lake_trino",
+    display_name: "Lakehouse Trino Datasource",
+    datasource_type: "trino",
+    connection: {
+      datasource_type: "trino",
+      host: "trino.example.com",
+      port: 8080,
+      catalog: "iceberg",
+      http_scheme: "https",
+    },
+    policy: { allow_live_browse: true, allow_identity_reuse: false },
     status: "active",
     readiness_status: "not_ready",
-    failure_code: "source_connection_invalid",
-    related_mappings_count: 0,
+    failure_code: "datasource_invalid_connection",
+    capabilities: ["browse", "execute"],
+    created_at: "2026-04-25T09:00:00+08:00",
     updated_at: "2026-04-25T09:00:00+08:00",
     blocking_requirements: ["Fix connection.host", "Confirm live browse access"],
-  },
-];
-
-export const engines = [
-  {
-    engine_id: "eng_duckdb_runtime",
-    display_name: "DuckDB Runtime",
-    engine_type: "duckdb",
-    status: "active",
-    readiness_status: "ready",
-    failure_code: null,
-    auth: { mode: "none" },
-    default_namespace: { catalog: "duckdb_runtime", schema: "analytics" },
-    related_mappings_count: 1,
-    updated_at: "2026-04-24T20:30:00+08:00",
-  },
-  {
-    engine_id: "eng_trino_lake",
-    display_name: "Trino Lake Runtime",
-    engine_type: "trino",
-    status: "active",
-    readiness_status: "not_ready",
-    failure_code: "engine_invalid_connection",
-    auth: { mode: "username_only", username_source: "session_user" },
-    related_mappings_count: 0,
-    updated_at: "2026-04-24T21:10:00+08:00",
-    blocking_requirements: ["Fix connection.host", "Confirm default_namespace"],
-  },
-];
-
-export const mappings = [
-  {
-    mapping_id: "map_sales_duckdb",
-    source_id: "src_sales_duckdb",
-    engine_id: "eng_duckdb_runtime",
-    priority: 10,
-    status: "active",
-    readiness_status: "ready",
-    failure_code: null,
-    catalog_mappings: [
-      { authority_catalog: "sales", execution_catalog: "duckdb_runtime", default_schema: "analytics" },
-    ],
-    coverage_summary: "sales catalog covered",
-    updated_at: "2026-04-25T10:30:00+08:00",
-  },
-  {
-    mapping_id: "map_lake_trino",
-    source_id: "src_lake_trino",
-    engine_id: "eng_trino_lake",
-    priority: 20,
-    status: "active",
-    readiness_status: "not_ready",
-    failure_code: "mapping_inactive_dependency",
-    catalog_mappings: [],
-    coverage_summary: "catalog coverage missing",
-    blocking_requirements: ["source not ready", "engine not ready", "catalog mapping is empty"],
-    updated_at: "2026-04-25T10:33:00+08:00",
   },
 ];
 
@@ -298,11 +253,10 @@ export const runtimeStatus = {
 export const openapiIndex = {
   revision: "mock-revision",
   paths: [
-    { path: "/sources", operations: ["get", "post"] },
-    { path: "/engines", operations: ["get", "post"] },
-    { path: "/mappings", operations: ["get", "post"] },
+    { path: "/datasources", operations: ["get", "post"] },
+    { path: "/datasources/{datasource_id}", operations: ["get", "put", "delete"] },
     { path: "/sessions/{session_id}/state", operations: ["get", "post"] },
     { path: "/sessions/{session_id}/propositions/{proposition_id}/context", operations: ["get"] },
   ],
-  schemas: ["SourceResponse", "EngineResponse", "MappingResponse", "SessionStateView"],
+  schemas: ["DatasourceResponse", "SessionStateView"],
 };
