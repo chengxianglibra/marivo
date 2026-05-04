@@ -1263,57 +1263,6 @@ def register_tools(
         ).model_dump()
 
     # ------------------------------------------------------------------
-    # Calendar
-    # ------------------------------------------------------------------
-
-    @server.tool()
-    @_tool_metadata("POST", "/calendar/data")
-    def load_calendar_data(
-        calendar_version: str,
-        rows: list[McpStructuredObject],
-    ) -> dict[str, object]:
-        """Load calendar data via POST /calendar/data."""
-        return client.request_envelope(
-            "POST",
-            "/calendar/data",
-            json_body=_compact_body(calendar_version=calendar_version, rows=rows),
-        ).model_dump()
-
-    @server.tool()
-    @_tool_metadata("GET", "/calendar/versions")
-    def list_calendar_versions() -> dict[str, object]:
-        """List calendar versions via GET /calendar/versions."""
-        return client.request_envelope("GET", "/calendar/versions").model_dump()
-
-    # ------------------------------------------------------------------
-    # Analysis Sessions
-    # ------------------------------------------------------------------
-
-    @server.tool()
-    @_tool_metadata("POST", "/analysis-sessions")
-    def create_analysis_session(
-        requesting_user: str | None = None,
-    ) -> dict[str, object]:
-        """Create an analysis session via POST /analysis-sessions."""
-        return client.request_envelope(
-            "POST",
-            "/analysis-sessions",
-            json_body=_compact_body(requesting_user=requesting_user),
-        ).model_dump()
-
-    @server.tool()
-    @_tool_metadata("GET", "/analysis-sessions/{session_id}")
-    def get_analysis_session(session_id: str) -> dict[str, object]:
-        """Read one analysis session via GET /analysis-sessions/{session_id}."""
-        return client.request_envelope("GET", f"/analysis-sessions/{session_id}").model_dump()
-
-    @server.tool()
-    @_tool_metadata("POST", "/analysis-sessions/{session_id}/end")
-    def end_analysis_session(session_id: str) -> dict[str, object]:
-        """End an analysis session via POST /analysis-sessions/{session_id}/end."""
-        return client.request_envelope("POST", f"/analysis-sessions/{session_id}/end").model_dump()
-
-    # ------------------------------------------------------------------
     # Datasources
     # ------------------------------------------------------------------
 
@@ -1448,23 +1397,6 @@ def register_tools(
                 columns=columns,
                 filters=filters,
             ),
-        ).model_dump()
-
-    # ------------------------------------------------------------------
-    # Routing
-    # ------------------------------------------------------------------
-
-    @server.tool()
-    @_tool_metadata("POST", "/routing/resolve")
-    def resolve_routing(
-        table_names: list[str],
-        routing_intent: dict[str, object] | None = None,
-    ) -> dict[str, object]:
-        """Resolve table routing via POST /routing/resolve using the canonical nested routing_intent object when hints are needed."""
-        return client.request_envelope(
-            "POST",
-            "/routing/resolve",
-            json_body=_compact_body(table_names=table_names, routing_intent=routing_intent),
         ).model_dump()
 
 

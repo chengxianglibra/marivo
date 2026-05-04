@@ -379,23 +379,20 @@ def test_registers_core_tool_groups() -> None:
         "reject_request",
         "auto_flag_approvals",
     }
-    # Calendar tools
-    assert set(server.tools) >= {
-        "load_calendar_data",
-        "list_calendar_versions",
-    }
-    # Analysis session tools
-    assert set(server.tools) >= {
-        "create_analysis_session",
-        "get_analysis_session",
-        "end_analysis_session",
-    }
-    # Datasource & routing tools
+    # Calendar tools (removed from MCP surface)
+    assert "load_calendar_data" not in server.tools
+    assert "list_calendar_versions" not in server.tools
+    # Analysis session tools (removed from MCP surface)
+    assert "create_analysis_session" not in server.tools
+    assert "get_analysis_session" not in server.tools
+    assert "end_analysis_session" not in server.tools
+    # Routing tool (removed from MCP surface)
+    assert "resolve_routing" not in server.tools
+    # Datasource tools
     assert set(server.tools) >= {
         "list_datasources",
         "create_datasource",
         "browse_columns",
-        "resolve_routing",
     }
 
 
@@ -1632,34 +1629,6 @@ def test_preview_table_uses_get_and_catalog_preview_path() -> None:
 
     assert result["ok"] is True
     assert result["meta"]["marivo_path"] == "/datasources/ds_123/catalog/preview"
-
-
-def test_resolve_routing_uses_canonical_nested_payload() -> None:
-    tool_kwargs = {
-        "table_names": ["events.user_video_watch", "dimensions.video_metadata"],
-        "routing_intent": {
-            "step_type": "aggregate_query",
-            "requested_dimensions": ["device_type"],
-            "compatible_dimensions": ["device_type", "region"],
-            "legal_grains": ["daily"],
-            "policy_hints": ["aggregate_only"],
-        },
-    }
-    expected_body = httpx.Request("POST", "http://marivo.test", json=tool_kwargs).read()
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.method == "POST"
-        assert request.url.path == "/routing/resolve"
-        assert request.read() == expected_body
-        return httpx.Response(
-            200, json={"resolved": True, "engine": {"engine_id": "eng_123"}}, request=request
-        )
-
-    result = _invoke_registered_tool("resolve_routing", handler, **tool_kwargs)
-
-    assert result["ok"] is True
-    assert result["data"] == {"resolved": True, "engine": {"engine_id": "eng_123"}}
-    assert result["meta"]["marivo_path"] == "/routing/resolve"
 
 
 # ------------------------------------------------------------------

@@ -379,31 +379,6 @@ SURFACE_SPECS: tuple[McpSurfaceSpec, ...] = (
         ("/sessions/{session_id}/approvals/auto-flag",),
     ),
     # ------------------------------------------------------------------
-    # Calendar
-    # ------------------------------------------------------------------
-    McpSurfaceSpec("load_calendar_data", "tool", "p1", True, "POST", ("/calendar/data",)),
-    McpSurfaceSpec("list_calendar_versions", "tool", "p1", True, "GET", ("/calendar/versions",)),
-    # ------------------------------------------------------------------
-    # Analysis Sessions
-    # ------------------------------------------------------------------
-    McpSurfaceSpec("create_analysis_session", "tool", "p1", True, "POST", ("/analysis-sessions",)),
-    McpSurfaceSpec(
-        "get_analysis_session",
-        "tool",
-        "p1",
-        True,
-        "GET",
-        ("/analysis-sessions/{session_id}",),
-    ),
-    McpSurfaceSpec(
-        "end_analysis_session",
-        "tool",
-        "p1",
-        True,
-        "POST",
-        ("/analysis-sessions/{session_id}/end",),
-    ),
-    # ------------------------------------------------------------------
     # Datasources
     # ------------------------------------------------------------------
     McpSurfaceSpec("list_datasources", "tool", "p1", True, "GET", ("/datasources",)),
@@ -448,25 +423,9 @@ SURFACE_SPECS: tuple[McpSurfaceSpec, ...] = (
         ("/datasources/{datasource_id}/catalog/preview",),
     ),
     # ------------------------------------------------------------------
-    # Routing
-    # ------------------------------------------------------------------
-    McpSurfaceSpec("resolve_routing", "tool", "p1", True, "POST", ("/routing/resolve",)),
-    # ------------------------------------------------------------------
     # Resources
     # ------------------------------------------------------------------
     McpSurfaceSpec("marivo://server/config", "resource", "p1", True),
-    McpSurfaceSpec(
-        "marivo://catalog/summary",
-        "resource",
-        "p1",
-        True,
-        "GET",
-        (
-            "/openapi/index",
-            "/datasources",
-            "/semantic-models",
-        ),
-    ),
     McpSurfaceSpec(
         "marivo://sessions/{session_id}/state",
         "resource",
