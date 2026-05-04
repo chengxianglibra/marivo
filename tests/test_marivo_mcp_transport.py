@@ -382,10 +382,6 @@ def test_registers_core_tool_groups() -> None:
     # Calendar tools (removed from MCP surface)
     assert "load_calendar_data" not in server.tools
     assert "list_calendar_versions" not in server.tools
-    # Analysis session tools (removed from MCP surface)
-    assert "create_analysis_session" not in server.tools
-    assert "get_analysis_session" not in server.tools
-    assert "end_analysis_session" not in server.tools
     # Routing tool (removed from MCP surface)
     assert "resolve_routing" not in server.tools
     # Datasource tools

@@ -14,7 +14,6 @@ from app.jobs import JobService
 from app.observability import MetricsCollector
 from app.routing import QueryRouter
 from app.semantic_service_v2.service import SemanticModelV2Service
-from app.semantic_service_v2.session import SessionService
 from app.service import SemanticLayerService
 from app.storage.analytics import AnalyticsEngine
 from app.storage.metadata import MetadataStore
@@ -36,7 +35,6 @@ class AppServices:
     job_service: JobService
     job_repository: JobRepository
     semantic_v2_service: SemanticModelV2Service
-    session_service: SessionService
 
 
 def get_services(request: Request) -> AppServices:
