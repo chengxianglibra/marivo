@@ -1138,54 +1138,6 @@ def register_tools(
         ).model_dump()
 
     # ------------------------------------------------------------------
-    # Jobs
-    # ------------------------------------------------------------------
-
-    @server.tool()
-    @_tool_metadata("POST", "/jobs")
-    def submit_job(
-        session_id: str,
-        job_type: str,
-        payload: McpStructuredObject,
-    ) -> dict[str, object]:
-        """Submit a job via POST /jobs."""
-        _require_structured_object(payload, field_name="payload")
-        return client.request_envelope(
-            "POST",
-            "/jobs",
-            json_body=_compact_body(
-                session_id=session_id,
-                job_type=job_type,
-                payload=payload,
-            ),
-        ).model_dump()
-
-    @server.tool()
-    @_tool_metadata("GET", "/jobs")
-    def list_jobs(
-        session_id: str | None = None,
-        status: str | None = None,
-    ) -> dict[str, object]:
-        """List jobs via GET /jobs."""
-        return client.request_envelope(
-            "GET",
-            "/jobs",
-            params=_compact_params(session_id=session_id, status=status),
-        ).model_dump()
-
-    @server.tool()
-    @_tool_metadata("GET", "/jobs/{job_id}")
-    def get_job(job_id: str) -> dict[str, object]:
-        """Read one job via GET /jobs/{job_id}."""
-        return client.request_envelope("GET", f"/jobs/{job_id}").model_dump()
-
-    @server.tool()
-    @_tool_metadata("POST", "/jobs/{job_id}/cancel")
-    def cancel_job(job_id: str) -> dict[str, object]:
-        """Cancel a job via POST /jobs/{job_id}/cancel."""
-        return client.request_envelope("POST", f"/jobs/{job_id}/cancel").model_dump()
-
-    # ------------------------------------------------------------------
     # Datasources
     # ------------------------------------------------------------------
 

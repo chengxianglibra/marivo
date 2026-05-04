@@ -342,13 +342,6 @@ SURFACE_SPECS: tuple[McpSurfaceSpec, ...] = (
     ),
     McpSurfaceSpec("governance_check", "tool", "p1", True, "POST", ("/governance/check",)),
     # ------------------------------------------------------------------
-    # Jobs
-    # ------------------------------------------------------------------
-    McpSurfaceSpec("submit_job", "tool", "p1", True, "POST", ("/jobs",)),
-    McpSurfaceSpec("list_jobs", "tool", "p1", True, "GET", ("/jobs",)),
-    McpSurfaceSpec("get_job", "tool", "p1", True, "GET", ("/jobs/{job_id}",)),
-    McpSurfaceSpec("cancel_job", "tool", "p1", True, "POST", ("/jobs/{job_id}/cancel",)),
-    # ------------------------------------------------------------------
     # Datasources
     # ------------------------------------------------------------------
     McpSurfaceSpec("list_datasources", "tool", "p1", True, "GET", ("/datasources",)),

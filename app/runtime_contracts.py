@@ -1,13 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from typing import Any, Protocol
-
-
-class JobExecutor(Protocol):
-    def run_step(
-        self, session_id: str, step_type: str, params: dict[str, Any] | None = None
-    ) -> dict[str, Any]: ...
+from typing import Any
 
 
 @dataclass

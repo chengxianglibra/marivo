@@ -20,7 +20,6 @@ from app.api.router import include_api_routers
 from app.config import MarivoConfig, load_config, resolve_config_path, resolve_metadata_path
 from app.datasources import DatasourceService
 from app.governance import GovernanceService
-from app.jobs import JobService
 from app.observability import MetricsCollector, TimingMiddleware, setup_logging
 from app.routing import QueryRouter
 from app.semantic_service_v2.service import SemanticModelV2Service
@@ -29,7 +28,6 @@ from app.storage.analytics import AnalyticsEngine
 from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
 from app.storage.metadata import MetadataStore
 from app.storage.mysql_metadata import MySQLMetadataStore
-from app.storage.repositories import JobRepository
 from app.storage.sqlite_metadata import SQLiteMetadataStore
 
 logger = logging.getLogger(__name__)
@@ -160,13 +158,6 @@ def _build_services(
         cast("SQLiteMetadataStore", metadata_store),
         datasource_service=datasource_service,
     )
-    job_repository = JobRepository(metadata_store)
-    job_service = JobService(
-        metadata_store,
-        service,
-        job_repository=job_repository,
-        metrics=metrics_collector,
-    )
     return AppServices(
         resolved_path=resolved_path,
         config=config,
@@ -177,8 +168,6 @@ def _build_services(
         analytics_engine=analytics_engine,
         governance_service=governance_service,
         metrics=metrics_collector,
-        job_service=job_service,
-        job_repository=job_repository,
         semantic_v2_service=semantic_v2_service,
     )
 
@@ -193,8 +182,6 @@ def _attach_state(app: FastAPI, services: AppServices) -> None:
     app.state.analytics_engine = services.analytics_engine
     app.state.governance_service = services.governance_service
     app.state.metrics = services.metrics
-    app.state.job_service = services.job_service
-    app.state.job_repository = services.job_repository
     app.state.semantic_v2_service = services.semantic_v2_service
 
 

@@ -547,37 +547,6 @@ class GovernanceCheckResponse(BaseModel):
     warnings: list[GovernanceWarning] = Field(default_factory=list)
 
 
-class JobPayload(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    step_type: str
-    params: dict[str, str | int | float | bool | None] = Field(default_factory=dict)
-
-
-class JobSubmitRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    session_id: str
-    job_type: str
-    payload: JobPayload
-
-
-class JobResponse(BaseModel):
-    model_config = ConfigDict(extra="ignore")  # job service may emit extra keys like 'result'
-
-    job_id: str
-    session_id: str
-    job_type: str
-    status: Literal["pending", "running", "completed", "failed", "cancelled"]
-    payload: JobPayload
-    error_message: str | None = None
-    created_at: str = ""
-    updated_at: str = ""
-    submitted_at: str | None = None
-    started_at: str | None = None
-    completed_at: str | None = None
-
-
 # =============================================================================
 # Time / Scope / Measure models
 # =============================================================================

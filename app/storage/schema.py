@@ -770,22 +770,6 @@ METADATA_DDL: list[str] = [
         updated_at      TEXT NOT NULL
     )
     """,
-    # -- Async jobs --
-    """
-    CREATE TABLE IF NOT EXISTS jobs (
-        job_id          TEXT PRIMARY KEY,
-        session_id      TEXT NOT NULL,
-        job_type        TEXT NOT NULL,
-        payload_json    TEXT NOT NULL,
-        status          TEXT NOT NULL DEFAULT 'pending',
-        result_json     TEXT,
-        error_message   TEXT,
-        submitted_at    TEXT NOT NULL,
-        started_at      TEXT,
-        completed_at    TEXT
-    )
-    """,
-    "CREATE INDEX IF NOT EXISTS idx_jobs_session_status_submitted ON jobs(session_id, status, submitted_at DESC)",
     # -- Governance audit events --
     """
     CREATE TABLE IF NOT EXISTS governance_events (

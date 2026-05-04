@@ -167,7 +167,6 @@ class MetricsCollector:
         self.execution_stage_count: dict[str, int] = {}
         self.execution_stage_duration_sum: dict[str, float] = {}
         self.active_sessions: int = 0
-        self.active_jobs: int = 0
 
     def record_request(self, method: str, path: str, status_code: int, duration_ms: float) -> None:
         key = f"{method}:{path}"
@@ -243,7 +242,6 @@ class MetricsCollector:
             "execution_stage_count": dict(self.execution_stage_count),
             "execution_stage_duration_sum_ms": dict(self.execution_stage_duration_sum),
             "active_sessions": self.active_sessions,
-            "active_jobs": self.active_jobs,
         }
 
     def prometheus(self) -> str:
@@ -324,9 +322,6 @@ class MetricsCollector:
                 "# HELP marivo_active_sessions Current active sessions",
                 "# TYPE marivo_active_sessions gauge",
                 f"marivo_active_sessions {self.active_sessions}",
-                "# HELP marivo_active_jobs Current active jobs",
-                "# TYPE marivo_active_jobs gauge",
-                f"marivo_active_jobs {self.active_jobs}",
             ]
         )
         return "\n".join(lines) + "\n"

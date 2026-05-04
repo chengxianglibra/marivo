@@ -172,7 +172,6 @@ Optional fields that may appear on step-submission errors:
 ```json
 {"detail": "Cannot approve plan in 'draft' status. Validate the plan first."}
 {"detail": "Cannot execute plan in 'draft' status. Plan must be approved."}
-{"detail": "Cannot cancel job in 'running' status. Only pending jobs can be cancelled."}
 ```
 
 ### Governance Violation (400)

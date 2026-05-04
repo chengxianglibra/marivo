@@ -215,7 +215,7 @@ def test_server_error_with_text_body_preserves_raw_body() -> None:
         )
 
     client = MarivoHttpClient(_build_config(), transport=httpx.MockTransport(handler))
-    envelope = client.request_envelope("GET", "/jobs")
+    envelope = client.request_envelope("GET", "/datasources")
 
     assert envelope.error is not None
     assert envelope.error.category == "server_error"
@@ -362,13 +362,6 @@ def test_registers_core_tool_groups() -> None:
         "list_quality_rules",
         "delete_quality_rule",
         "governance_check",
-    }
-    # Jobs tools
-    assert set(server.tools) >= {
-        "submit_job",
-        "list_jobs",
-        "get_job",
-        "cancel_job",
     }
     # Calendar tools (removed from MCP surface)
     assert "load_calendar_data" not in server.tools
@@ -1642,29 +1635,6 @@ def test_create_policy_sends_canonical_body() -> None:
 
     assert result["ok"] is True
     assert result["meta"]["marivo_path"] == "/policies"
-
-
-# ------------------------------------------------------------------
-# Jobs tests
-# ------------------------------------------------------------------
-
-
-def test_submit_job_sends_canonical_body() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.method == "POST"
-        assert request.url.path == "/jobs"
-        return httpx.Response(200, json={"job_id": "job_123", "status": "pending"}, request=request)
-
-    result = _invoke_registered_tool(
-        "submit_job",
-        handler,
-        session_id="sess_123",
-        job_type="semantic_model_import",
-        payload={"step_type": "import"},
-    )
-
-    assert result["ok"] is True
-    assert result["meta"]["marivo_path"] == "/jobs"
 
 
 def _invoke_registered_tool(

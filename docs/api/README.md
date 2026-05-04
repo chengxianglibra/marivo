@@ -42,7 +42,6 @@ All resource IDs follow the pattern `{prefix}_{12-char hex}`:
 | `map_` | Semantic mapping |
 | `pol_` | Policy |
 | `qr_` | Quality rule |
-| `job_` | Async job |
 | `evt_` | Governance event |
 
 ### Timestamps
@@ -59,7 +58,6 @@ Fields that store structured data are represented as JSON objects in responses. 
 |----------|---------------|
 | Session | `open`, `closed`, `aborted` |
 | Semantic objects | Storage `status`: `draft` → `published` → `deprecated`; public `lifecycle_status`: `draft` → `active` → `deprecated`; public `readiness_status`: `not_ready` / `ready` / `stale` |
-| Job | `pending` → `running` → `completed` / `failed` / `cancelled` |
 
 For the semantic layer, callers must treat `status` as a storage compatibility field only.
 Runtime/catalog availability is gated by `lifecycle_status` and `readiness_status`, so
@@ -80,7 +78,6 @@ Runtime/catalog availability is gated by `lifecycle_status` and `readiness_statu
 | [Mappings](mappings.md) | `/mappings` | Operator-managed authority-to-execution projection for source-engine routing |
 | [Semantic Layer](semantic.md) | `/semantic-models` | OSI semantic models with dataset-native physical grounding |
 | [Governance](governance.md) | `/policies`, `/quality-rules`, `/governance` | Data policies and quality rules |
-| [Jobs](jobs.md) | `/jobs` | Async job submission and tracking |
 | [Health & Observability](observability.md) | `/health`, `/metrics` | Service health and operational metrics |
 
 ## Additional Guides
@@ -91,7 +88,6 @@ Runtime/catalog availability is gated by `lifecycle_status` and `readiness_statu
 - [Context Surface](context-surface.md) — canonical proposition-level minimal closure HTTP contract
 - [Runtime Status Surface](runtime-status.md) — operator-facing runtime stage and failure HTTP contract
 - [Progressive OpenAPI Access](openapi.md) — path- and schema-focused contract retrieval over the canonical OpenAPI document
-- [Jobs](jobs.md) — read-only job inspection contract for the query workbench
 - [Quickstart](quickstart.md) — end-to-end walkthrough with `curl` examples
 - [Error Reference](errors.md) — HTTP status codes, error formats, and common error scenarios
 
