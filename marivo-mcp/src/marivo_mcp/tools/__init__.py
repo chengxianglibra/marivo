@@ -5,7 +5,7 @@ from collections.abc import Callable
 from copy import deepcopy
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_validator
 from pydantic_core import PydanticCustomError
 
 from marivo_mcp.config import MarivoMcpConfig
@@ -120,71 +120,6 @@ class McpDetectTimeScope(BaseModel):
     end: str = Field(description="Exclusive end of the range, ISO-8601 date or datetime.")
 
 
-class McpMetricHeader(BaseModel):
-    """MCP-side early validation for metric header fields."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    metric_ref: str
-    display_name: str | None = None
-    description: str | None = None
-    metric_family: str
-    population_subject_ref: str | None = None
-    observed_entity_ref: str
-    observation_grain_ref: str
-    sample_kind: str
-    value_semantics: str
-    aggregation_scope: str | None = None
-    primary_time_ref: str | None = None
-    additivity_constraints: dict[str, object]
-    default_predicate_refs: list[str] | None = None
-    metric_contract_version: str
-
-    @field_validator("metric_ref")
-    @classmethod
-    def _validate_metric_ref(cls, value: str) -> str:
-        if not value.startswith("metric."):
-            raise ValueError("metric_ref must start with 'metric.'")
-        return value
-
-    @field_validator("observed_entity_ref")
-    @classmethod
-    def _validate_observed_entity_ref(cls, value: str) -> str:
-        if not value.startswith("entity."):
-            raise ValueError("observed_entity_ref must start with 'entity.'")
-        return value
-
-    @field_validator("observation_grain_ref")
-    @classmethod
-    def _validate_observation_grain_ref(cls, value: str) -> str:
-        if not value.startswith("grain."):
-            raise ValueError("observation_grain_ref must start with 'grain.'")
-        return value
-
-    @field_validator("metric_contract_version")
-    @classmethod
-    def _validate_metric_contract_version(cls, value: str) -> str:
-        if not value.startswith("metric."):
-            raise ValueError("metric_contract_version must start with 'metric.'")
-        return value
-
-
-class McpEnumSetHeader(BaseModel):
-    """MCP-side early validation for enum set header fields."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    enum_set_ref: str
-    value_type: str
-
-    @field_validator("enum_set_ref")
-    @classmethod
-    def _validate_enum_set_ref(cls, value: str) -> str:
-        if not value.startswith("enum."):
-            raise ValueError("enum_set_ref must start with 'enum.'")
-        return value
-
-
 class ObserveScope(BaseModel):
     """Non-time population scope accepted by typed intent MCP tools."""
 
@@ -192,18 +127,10 @@ class ObserveScope(BaseModel):
         default=None,
         description="Scalar equality constraints on semantic dimensions.",
     )
-    predicate: dict[str, Any] | None = Field(
-        default=None,
-        description=(
-            "DEPRECATED: Use predicate_ref instead. Structured non-time predicate AST. "
-            "Must not contain time conditions."
-        ),
-    )
     predicate_ref: str | None = Field(
         default=None,
         description=(
-            "Reference to a governed predicate (predicate.*) declaring request_scope usage. "
-            "Mutually exclusive with predicate."
+            "Reference to a governed predicate (predicate.*) declaring request_scope usage."
         ),
     )
 
@@ -213,12 +140,6 @@ class ObserveScope(BaseModel):
         if value is not None and not value.startswith("predicate."):
             raise ValueError("predicate_ref must start with 'predicate.'")
         return value
-
-    @model_validator(mode="after")
-    def _validate_mutual_exclusion(self) -> ObserveScope:
-        if self.predicate is not None and self.predicate_ref is not None:
-            raise ValueError("predicate and predicate_ref are mutually exclusive")
-        return self
 
 
 def _tool_metadata(
@@ -280,6 +201,10 @@ def register_tools(
     client = resolved_client_factory(config)
     discovery_cache = openapi_cache or OpenApiResponseCache(config.openapi_cache_ttl_sec)
 
+    # ------------------------------------------------------------------
+    # Sessions & Intents
+    # ------------------------------------------------------------------
+
     @server.tool()
     @_tool_metadata("POST", "/sessions")
     def create_session(
@@ -295,6 +220,26 @@ def register_tools(
                 goal=goal,
                 budget=budget,
                 policy=policy,
+            ),
+        ).model_dump()
+
+    @server.tool()
+    @_tool_metadata("GET", "/sessions")
+    def list_sessions(
+        status: str | None = None,
+        session_id: str | None = None,
+        limit: int | None = None,
+        page_token: str | None = None,
+    ) -> dict[str, object]:
+        """List investigation sessions via GET /sessions."""
+        return client.request_envelope(
+            "GET",
+            "/sessions",
+            params=_compact_params(
+                status=status,
+                session_id=session_id,
+                limit=limit,
+                page_token=page_token,
             ),
         ).model_dump()
 
@@ -708,11 +653,21 @@ def register_tools(
             method=method,
         )
 
+    # ------------------------------------------------------------------
+    # Health & OpenAPI Discovery
+    # ------------------------------------------------------------------
+
     @server.tool()
     @_tool_metadata("GET", "/health")
     def health_check() -> dict[str, object]:
         """Check Marivo service health via GET /health using the shared MCP HTTP envelope."""
         return client.request_envelope("GET", "/health").model_dump()
+
+    @server.tool()
+    @_tool_metadata("GET", "/catalog")
+    def get_catalog() -> dict[str, object]:
+        """Read the API catalog via GET /catalog."""
+        return client.request_envelope("GET", "/catalog").model_dump()
 
     @server.tool()
     @_tool_metadata("GET", "/openapi/index")
@@ -785,956 +740,587 @@ def register_tools(
             params=_compact_params(expand=request_expand, depth=depth),
         )
 
+    # ------------------------------------------------------------------
+    # Semantic Models V2 (OSI-aligned)
+    # ------------------------------------------------------------------
+
     @server.tool()
-    @_tool_metadata("POST", "/semantic/entities")
-    def create_entity(
-        header: dict[str, object],
-        interface_contract: dict[str, object],
+    @_tool_metadata("POST", "/semantic-models")
+    def create_semantic_model(
+        payload: McpStructuredObject,
+        session_id: str | None = None,
     ) -> dict[str, object]:
-        """Create one draft entity via POST /semantic/entities using the canonical TypedEntityCreateRequest fields."""
-        return _semantic_write_request(
-            client,
-            "POST",
-            "/semantic/entities",
-            header=header,
-            interface_contract=interface_contract,
-        )
-
-    @server.tool()
-    @_tool_metadata("GET", "/semantic/entities")
-    def list_entities(
-        status: str | None = None,
-        lifecycle_status: str | None = None,
-        readiness_status: str | None = None,
-        detail: bool | None = None,
-    ) -> dict[str, object]:
-        """List entities via GET /semantic/entities; prefer lifecycle_status/readiness_status over legacy status."""
-        return _semantic_read_request(
-            client,
-            "/semantic/entities",
-            status=status,
-            lifecycle_status=lifecycle_status,
-            readiness_status=readiness_status,
-            detail=detail,
-        )
-
-    @server.tool()
-    @_tool_metadata("GET", "/semantic/entities/{entity_id}")
-    def get_entity(object_id: str | None = None, entity_id: str | None = None) -> dict[str, object]:
-        """Read one entity via GET /semantic/entities/{entity_id}; accepts an internal contract id or canonical entity ref, and prefers object_id over the legacy entity_id name."""
-        resolved_id = _resolve_object_id(object_id, entity_id, legacy_name="entity_id")
-        return _semantic_read_request(client, f"/semantic/entities/{resolved_id}")
-
-    @server.tool()
-    @_tool_metadata("PUT", "/semantic/entities/{entity_id}")
-    def update_entity(
-        object_id: str | None = None,
-        entity_id: str | None = None,
-        display_name: str | None = None,
-        description: str | None = None,
-        interface_contract: dict[str, object] | None = None,
-    ) -> dict[str, object]:
-        """Update one draft entity via PUT /semantic/entities/{entity_id} using the canonical TypedEntityUpdateRequest fields."""
-        resolved_id = _resolve_object_id(object_id, entity_id, legacy_name="entity_id")
-        return _semantic_write_request(
-            client,
-            "PUT",
-            f"/semantic/entities/{resolved_id}",
-            display_name=display_name,
-            description=description,
-            interface_contract=interface_contract,
-        )
-
-    @server.tool()
-    @_tool_metadata("POST", "/semantic/entities/{entity_id}/validate")
-    def validate_entity(
-        object_id: str | None = None, entity_id: str | None = None
-    ) -> dict[str, object]:
-        """Validate one entity via POST /semantic/entities/{entity_id}/validate without changing stored lifecycle state."""
-        resolved_id = _resolve_object_id(object_id, entity_id, legacy_name="entity_id")
-        return _semantic_action_request(client, f"/semantic/entities/{resolved_id}/validate")
-
-    @server.tool()
-    @_tool_metadata("POST", "/semantic/entities/{entity_id}/activate")
-    def activate_entity(
-        object_id: str | None = None, entity_id: str | None = None
-    ) -> dict[str, object]:
-        """Activate one entity via POST /semantic/entities/{entity_id}/activate; activation adds it to the formal catalog but does not imply ready."""
-        resolved_id = _resolve_object_id(object_id, entity_id, legacy_name="entity_id")
-        return _semantic_action_request(client, f"/semantic/entities/{resolved_id}/activate")
-
-    @server.tool()
-    @_tool_metadata("POST", "/semantic/entities/{entity_id}/deprecate")
-    def deprecate_entity(
-        object_id: str | None = None, entity_id: str | None = None
-    ) -> dict[str, object]:
-        """Deprecate one entity via POST /semantic/entities/{entity_id}/deprecate."""
-        resolved_id = _resolve_object_id(object_id, entity_id, legacy_name="entity_id")
-        return _semantic_action_request(client, f"/semantic/entities/{resolved_id}/deprecate")
-
-    @server.tool()
-    @_tool_metadata("POST", "/semantic/entities/{entity_id}/publish")
-    def publish_entity(
-        object_id: str | None = None, entity_id: str | None = None
-    ) -> dict[str, object]:
-        """Compatibility alias for activate_entity via POST /semantic/entities/{entity_id}/publish."""
-        resolved_id = _resolve_object_id(object_id, entity_id, legacy_name="entity_id")
-        return _semantic_publish_request(client, f"/semantic/entities/{resolved_id}/publish")
-
-    @server.tool()
-    @_tool_metadata("POST", "/semantic/batch")
-    def semantic_batch(request: McpStructuredObject) -> dict[str, object]:
-        """Run semantic authoring operations via POST /semantic/batch."""
+        """Create a semantic model via POST /semantic-models from an OSI document fragment."""
+        _require_structured_object(payload, field_name="payload")
         return client.request_envelope(
             "POST",
-            "/semantic/batch",
-            json_body=_compact_body(**request),
+            "/semantic-models",
+            params=_compact_params(session_id=session_id),
+            json_body=_compact_body(**payload),
         ).model_dump()
 
     @server.tool()
-    @_tool_metadata("GET", "/semantic/grains")
-    def list_grains() -> dict[str, object]:
-        """List grain refs observed in metric headers and process objects."""
-        return client.request_envelope("GET", "/semantic/grains").model_dump()
+    @_tool_metadata("GET", "/semantic-models")
+    def list_semantic_models(
+        requesting_user: str | None = None,
+    ) -> dict[str, object]:
+        """List semantic models via GET /semantic-models."""
+        return client.request_envelope(
+            "GET",
+            "/semantic-models",
+            params=_compact_params(requesting_user=requesting_user),
+        ).model_dump()
 
     @server.tool()
-    @_tool_metadata("POST", "/semantic/metrics")
-    def create_metric(
-        header: McpMetricHeader,
+    @_tool_metadata("POST", "/semantic-models/import")
+    def import_osi_document(
         payload: McpStructuredObject,
     ) -> dict[str, object]:
-        """Create one draft metric via POST /semantic/metrics using the canonical TypedMetricCreateRequest fields."""
-        return _semantic_write_request(
-            client,
+        """Import an OSI document as the latest public layer via POST /semantic-models/import."""
+        _require_structured_object(payload, field_name="payload")
+        return client.request_envelope(
             "POST",
-            "/semantic/metrics",
-            header=header,
-            payload=payload,
-        )
+            "/semantic-models/import",
+            json_body=_compact_body(**payload),
+        ).model_dump()
 
     @server.tool()
-    @_tool_metadata("GET", "/semantic/metrics")
-    def list_metrics(
-        status: str | None = None,
-        lifecycle_status: str | None = None,
-        readiness_status: str | None = None,
-        detail: bool | None = None,
+    @_tool_metadata("GET", "/semantic-models/{model}")
+    def get_semantic_model(
+        model: str,
+        requesting_user: str | None = None,
     ) -> dict[str, object]:
-        """List metrics via GET /semantic/metrics; prefer lifecycle_status/readiness_status over legacy status."""
-        return _semantic_read_request(
-            client,
-            "/semantic/metrics",
-            status=status,
-            lifecycle_status=lifecycle_status,
-            readiness_status=readiness_status,
-            detail=detail,
-        )
+        """Get a semantic model as an OSI document via GET /semantic-models/{model}."""
+        return client.request_envelope(
+            "GET",
+            f"/semantic-models/{model}",
+            params=_compact_params(requesting_user=requesting_user),
+        ).model_dump()
 
     @server.tool()
-    @_tool_metadata("GET", "/semantic/metrics/{metric_id}")
-    def get_metric(object_id: str | None = None, metric_id: str | None = None) -> dict[str, object]:
-        """Read one metric via GET /semantic/metrics/{metric_id}; accepts an internal contract id or canonical metric ref, and prefers object_id over the legacy metric_id name."""
-        resolved_id = _resolve_object_id(object_id, metric_id, legacy_name="metric_id")
-        return _semantic_read_request(client, f"/semantic/metrics/{resolved_id}")
-
-    @server.tool()
-    @_tool_metadata("PUT", "/semantic/metrics/{metric_id}")
-    def update_metric(
-        object_id: str | None = None,
-        metric_id: str | None = None,
-        display_name: str | None = None,
+    @_tool_metadata("PUT", "/semantic-models/{model}")
+    def update_semantic_model(
+        model: str,
         description: str | None = None,
-        payload: dict[str, object] | None = None,
     ) -> dict[str, object]:
-        """Update one draft metric via PUT /semantic/metrics/{metric_id} using the canonical TypedMetricUpdateRequest fields."""
-        resolved_id = _resolve_object_id(object_id, metric_id, legacy_name="metric_id")
-        return _semantic_write_request(
-            client,
+        """Update top-level fields of a semantic model via PUT /semantic-models/{model}."""
+        return client.request_envelope(
             "PUT",
-            f"/semantic/metrics/{resolved_id}",
-            display_name=display_name,
-            description=description,
-            payload=payload,
-        )
+            f"/semantic-models/{model}",
+            json_body=_compact_body(description=description),
+        ).model_dump()
 
     @server.tool()
-    @_tool_metadata("POST", "/semantic/metrics/{metric_id}/validate")
-    def validate_metric(
-        object_id: str | None = None, metric_id: str | None = None
-    ) -> dict[str, object]:
-        """Validate one metric via POST /semantic/metrics/{metric_id}/validate without changing stored lifecycle state."""
-        resolved_id = _resolve_object_id(object_id, metric_id, legacy_name="metric_id")
-        return _semantic_action_request(client, f"/semantic/metrics/{resolved_id}/validate")
+    @_tool_metadata("DELETE", "/semantic-models/{model}")
+    def delete_semantic_model(model: str) -> dict[str, object]:
+        """Delete a semantic model via DELETE /semantic-models/{model}."""
+        return client.request_envelope("DELETE", f"/semantic-models/{model}").model_dump()
 
     @server.tool()
-    @_tool_metadata("POST", "/semantic/metrics/{metric_id}/activate")
-    def activate_metric(
-        object_id: str | None = None, metric_id: str | None = None
-    ) -> dict[str, object]:
-        """Activate one metric via POST /semantic/metrics/{metric_id}/activate; activation adds it to the formal catalog but does not imply ready."""
-        resolved_id = _resolve_object_id(object_id, metric_id, legacy_name="metric_id")
-        return _semantic_action_request(client, f"/semantic/metrics/{resolved_id}/activate")
+    @_tool_metadata("GET", "/semantic-models/{model}/readiness")
+    def get_semantic_model_readiness(model: str) -> dict[str, object]:
+        """Get readiness status for a semantic model via GET /semantic-models/{model}/readiness."""
+        return client.request_envelope("GET", f"/semantic-models/{model}/readiness").model_dump()
+
+    # -- Datasets within a model --
 
     @server.tool()
-    @_tool_metadata("POST", "/semantic/metrics/{metric_id}/deprecate")
-    def deprecate_metric(
-        object_id: str | None = None, metric_id: str | None = None
+    @_tool_metadata("POST", "/semantic-models/{model}/datasets")
+    def create_dataset(
+        model: str,
+        payload: McpStructuredObject,
     ) -> dict[str, object]:
-        """Deprecate one metric via POST /semantic/metrics/{metric_id}/deprecate."""
-        resolved_id = _resolve_object_id(object_id, metric_id, legacy_name="metric_id")
-        return _semantic_action_request(client, f"/semantic/metrics/{resolved_id}/deprecate")
-
-    @server.tool()
-    @_tool_metadata("POST", "/semantic/metrics/{metric_id}/publish")
-    def publish_metric(
-        object_id: str | None = None, metric_id: str | None = None
-    ) -> dict[str, object]:
-        """Compatibility alias for activate_metric via POST /semantic/metrics/{metric_id}/publish."""
-        resolved_id = _resolve_object_id(object_id, metric_id, legacy_name="metric_id")
-        return _semantic_publish_request(client, f"/semantic/metrics/{resolved_id}/publish")
-
-    @server.tool()
-    @_tool_metadata("POST", "/semantic/process-objects")
-    def create_process_object(
-        header: dict[str, object],
-        interface_contract: dict[str, object],
-        payload: dict[str, object],
-    ) -> dict[str, object]:
-        """Create one draft process object via POST /semantic/process-objects using the canonical ProcessObjectCreateRequest fields."""
-        return _semantic_write_request(
-            client,
+        """Create a dataset within a model via POST /semantic-models/{model}/datasets."""
+        _require_structured_object(payload, field_name="payload")
+        return client.request_envelope(
             "POST",
-            "/semantic/process-objects",
-            header=header,
-            interface_contract=interface_contract,
-            payload=payload,
-        )
+            f"/semantic-models/{model}/datasets",
+            json_body=_compact_body(**payload),
+        ).model_dump()
 
     @server.tool()
-    @_tool_metadata("GET", "/semantic/process-objects")
-    def list_process_objects(
-        status: str | None = None,
-        lifecycle_status: str | None = None,
-        readiness_status: str | None = None,
-        detail: bool | None = None,
+    @_tool_metadata("GET", "/semantic-models/{model}/datasets")
+    def list_datasets(
+        model: str,
+        requesting_user: str | None = None,
     ) -> dict[str, object]:
-        """List process objects via GET /semantic/process-objects; prefer lifecycle_status/readiness_status over legacy status."""
-        return _semantic_read_request(
-            client,
-            "/semantic/process-objects",
-            status=status,
-            lifecycle_status=lifecycle_status,
-            readiness_status=readiness_status,
-            detail=detail,
-        )
+        """List datasets in a model via GET /semantic-models/{model}/datasets."""
+        return client.request_envelope(
+            "GET",
+            f"/semantic-models/{model}/datasets",
+            params=_compact_params(requesting_user=requesting_user),
+        ).model_dump()
 
     @server.tool()
-    @_tool_metadata("GET", "/semantic/process-objects/{process_contract_id}")
-    def get_process_object(
-        object_id: str | None = None,
-        process_contract_id: str | None = None,
+    @_tool_metadata("GET", "/semantic-models/{model}/datasets/{name}")
+    def get_dataset(
+        model: str,
+        name: str,
+        requesting_user: str | None = None,
     ) -> dict[str, object]:
-        """Read one process object via GET /semantic/process-objects/{process_contract_id}; prefer object_id over the legacy process_contract_id name."""
-        resolved_id = _resolve_object_id(
-            object_id, process_contract_id, legacy_name="process_contract_id"
-        )
-        return _semantic_read_request(
-            client,
-            f"/semantic/process-objects/{resolved_id}",
-        )
+        """Get a dataset by name within a model via GET /semantic-models/{model}/datasets/{name}."""
+        return client.request_envelope(
+            "GET",
+            f"/semantic-models/{model}/datasets/{name}",
+            params=_compact_params(requesting_user=requesting_user),
+        ).model_dump()
 
     @server.tool()
-    @_tool_metadata("PUT", "/semantic/process-objects/{process_contract_id}")
-    def update_process_object(
-        object_id: str | None = None,
-        process_contract_id: str | None = None,
-        display_name: str | None = None,
+    @_tool_metadata("PUT", "/semantic-models/{model}/datasets/{name}")
+    def update_dataset(
+        model: str,
+        name: str,
         description: str | None = None,
-        interface_contract: dict[str, object] | None = None,
-        payload: dict[str, object] | None = None,
     ) -> dict[str, object]:
-        """Update one draft process object via PUT /semantic/process-objects/{process_contract_id} using the canonical ProcessObjectUpdateRequest fields."""
-        resolved_id = _resolve_object_id(
-            object_id, process_contract_id, legacy_name="process_contract_id"
-        )
-        return _semantic_write_request(
-            client,
+        """Update a dataset's top-level fields via PUT /semantic-models/{model}/datasets/{name}."""
+        return client.request_envelope(
             "PUT",
-            f"/semantic/process-objects/{resolved_id}",
-            display_name=display_name,
-            description=description,
-            interface_contract=interface_contract,
-            payload=payload,
-        )
+            f"/semantic-models/{model}/datasets/{name}",
+            json_body=_compact_body(description=description),
+        ).model_dump()
 
     @server.tool()
-    @_tool_metadata("POST", "/semantic/process-objects/{process_contract_id}/validate")
-    def validate_process_object(
-        object_id: str | None = None,
-        process_contract_id: str | None = None,
-    ) -> dict[str, object]:
-        """Validate one process object via POST /semantic/process-objects/{process_contract_id}/validate without changing stored lifecycle state."""
-        resolved_id = _resolve_object_id(
-            object_id, process_contract_id, legacy_name="process_contract_id"
-        )
-        return _semantic_action_request(client, f"/semantic/process-objects/{resolved_id}/validate")
+    @_tool_metadata("DELETE", "/semantic-models/{model}/datasets/{name}")
+    def delete_dataset(model: str, name: str) -> dict[str, object]:
+        """Delete a dataset via DELETE /semantic-models/{model}/datasets/{name}."""
+        return client.request_envelope(
+            "DELETE", f"/semantic-models/{model}/datasets/{name}"
+        ).model_dump()
+
+    # -- Relationships within a model --
 
     @server.tool()
-    @_tool_metadata("POST", "/semantic/process-objects/{process_contract_id}/activate")
-    def activate_process_object(
-        object_id: str | None = None,
-        process_contract_id: str | None = None,
-    ) -> dict[str, object]:
-        """Activate one process object via POST /semantic/process-objects/{process_contract_id}/activate; activation adds it to the formal catalog but does not imply ready."""
-        resolved_id = _resolve_object_id(
-            object_id, process_contract_id, legacy_name="process_contract_id"
-        )
-        return _semantic_action_request(client, f"/semantic/process-objects/{resolved_id}/activate")
-
-    @server.tool()
-    @_tool_metadata("POST", "/semantic/process-objects/{process_contract_id}/deprecate")
-    def deprecate_process_object(
-        object_id: str | None = None,
-        process_contract_id: str | None = None,
-    ) -> dict[str, object]:
-        """Deprecate one process object via POST /semantic/process-objects/{process_contract_id}/deprecate."""
-        resolved_id = _resolve_object_id(
-            object_id, process_contract_id, legacy_name="process_contract_id"
-        )
-        return _semantic_action_request(
-            client, f"/semantic/process-objects/{resolved_id}/deprecate"
-        )
-
-    @server.tool()
-    @_tool_metadata("POST", "/semantic/process-objects/{process_contract_id}/publish")
-    def publish_process_object(
-        object_id: str | None = None,
-        process_contract_id: str | None = None,
-    ) -> dict[str, object]:
-        """Compatibility alias for activate_process_object via POST /semantic/process-objects/{process_contract_id}/publish."""
-        resolved_id = _resolve_object_id(
-            object_id, process_contract_id, legacy_name="process_contract_id"
-        )
-        return _semantic_publish_request(
-            client,
-            f"/semantic/process-objects/{resolved_id}/publish",
-        )
-
-    @server.tool()
-    @_tool_metadata("POST", "/semantic/dimensions")
-    def create_dimension(
-        header: dict[str, object],
-        interface_contract: dict[str, object],
-    ) -> dict[str, object]:
-        """Create one draft dimension via POST /semantic/dimensions using the canonical DimensionCreateRequest fields."""
-        return _semantic_write_request(
-            client,
-            "POST",
-            "/semantic/dimensions",
-            header=header,
-            interface_contract=interface_contract,
-        )
-
-    @server.tool()
-    @_tool_metadata("GET", "/semantic/dimensions")
-    def list_dimensions(
-        status: str | None = None,
-        lifecycle_status: str | None = None,
-        readiness_status: str | None = None,
-        detail: bool | None = None,
-    ) -> dict[str, object]:
-        """List dimensions via GET /semantic/dimensions; prefer lifecycle_status/readiness_status over legacy status."""
-        return _semantic_read_request(
-            client,
-            "/semantic/dimensions",
-            status=status,
-            lifecycle_status=lifecycle_status,
-            readiness_status=readiness_status,
-            detail=detail,
-        )
-
-    @server.tool()
-    @_tool_metadata("GET", "/semantic/dimensions/{dimension_contract_id}")
-    def get_dimension(
-        object_id: str | None = None,
-        dimension_contract_id: str | None = None,
-    ) -> dict[str, object]:
-        """Read one dimension via GET /semantic/dimensions/{dimension_contract_id}; prefer object_id over the legacy dimension_contract_id name."""
-        resolved_id = _resolve_object_id(
-            object_id, dimension_contract_id, legacy_name="dimension_contract_id"
-        )
-        return _semantic_read_request(client, f"/semantic/dimensions/{resolved_id}")
-
-    @server.tool()
-    @_tool_metadata("PUT", "/semantic/dimensions/{dimension_contract_id}")
-    def update_dimension(
-        object_id: str | None = None,
-        dimension_contract_id: str | None = None,
-        display_name: str | None = None,
-        description: str | None = None,
-        interface_contract: dict[str, object] | None = None,
-    ) -> dict[str, object]:
-        """Update one draft dimension via PUT /semantic/dimensions/{dimension_contract_id} using the canonical DimensionUpdateRequest fields."""
-        resolved_id = _resolve_object_id(
-            object_id, dimension_contract_id, legacy_name="dimension_contract_id"
-        )
-        return _semantic_write_request(
-            client,
-            "PUT",
-            f"/semantic/dimensions/{resolved_id}",
-            display_name=display_name,
-            description=description,
-            interface_contract=interface_contract,
-        )
-
-    @server.tool()
-    @_tool_metadata("POST", "/semantic/dimensions/{dimension_contract_id}/validate")
-    def validate_dimension(
-        object_id: str | None = None,
-        dimension_contract_id: str | None = None,
-    ) -> dict[str, object]:
-        """Validate one dimension via POST /semantic/dimensions/{dimension_contract_id}/validate without changing stored lifecycle state."""
-        resolved_id = _resolve_object_id(
-            object_id, dimension_contract_id, legacy_name="dimension_contract_id"
-        )
-        return _semantic_action_request(client, f"/semantic/dimensions/{resolved_id}/validate")
-
-    @server.tool()
-    @_tool_metadata("POST", "/semantic/dimensions/{dimension_contract_id}/activate")
-    def activate_dimension(
-        object_id: str | None = None,
-        dimension_contract_id: str | None = None,
-    ) -> dict[str, object]:
-        """Activate one dimension via POST /semantic/dimensions/{dimension_contract_id}/activate; activation adds it to the formal catalog but does not imply ready."""
-        resolved_id = _resolve_object_id(
-            object_id, dimension_contract_id, legacy_name="dimension_contract_id"
-        )
-        return _semantic_action_request(client, f"/semantic/dimensions/{resolved_id}/activate")
-
-    @server.tool()
-    @_tool_metadata("POST", "/semantic/dimensions/{dimension_contract_id}/deprecate")
-    def deprecate_dimension(
-        object_id: str | None = None,
-        dimension_contract_id: str | None = None,
-    ) -> dict[str, object]:
-        """Deprecate one dimension via POST /semantic/dimensions/{dimension_contract_id}/deprecate."""
-        resolved_id = _resolve_object_id(
-            object_id, dimension_contract_id, legacy_name="dimension_contract_id"
-        )
-        return _semantic_action_request(client, f"/semantic/dimensions/{resolved_id}/deprecate")
-
-    @server.tool()
-    @_tool_metadata("POST", "/semantic/dimensions/{dimension_contract_id}/publish")
-    def publish_dimension(
-        object_id: str | None = None,
-        dimension_contract_id: str | None = None,
-    ) -> dict[str, object]:
-        """Compatibility alias for activate_dimension via POST /semantic/dimensions/{dimension_contract_id}/publish."""
-        resolved_id = _resolve_object_id(
-            object_id, dimension_contract_id, legacy_name="dimension_contract_id"
-        )
-        return _semantic_publish_request(client, f"/semantic/dimensions/{resolved_id}/publish")
-
-    @server.tool()
-    @_tool_metadata("POST", "/semantic/time")
-    def create_time_semantic(header: dict[str, object]) -> dict[str, object]:
-        """Create one draft time semantic via POST /semantic/time using the canonical TimeCreateRequest fields."""
-        return _semantic_write_request(
-            client,
-            "POST",
-            "/semantic/time",
-            header=header,
-        )
-
-    @server.tool()
-    @_tool_metadata("GET", "/semantic/time")
-    def list_time_semantics(
-        status: str | None = None,
-        lifecycle_status: str | None = None,
-        readiness_status: str | None = None,
-        detail: bool | None = None,
-    ) -> dict[str, object]:
-        """List time semantics via GET /semantic/time; prefer lifecycle_status/readiness_status over legacy status."""
-        return _semantic_read_request(
-            client,
-            "/semantic/time",
-            status=status,
-            lifecycle_status=lifecycle_status,
-            readiness_status=readiness_status,
-            detail=detail,
-        )
-
-    @server.tool()
-    @_tool_metadata("GET", "/semantic/time/{time_contract_id}")
-    def get_time_semantic(
-        object_id: str | None = None,
-        time_contract_id: str | None = None,
-    ) -> dict[str, object]:
-        """Read one time semantic via GET /semantic/time/{time_contract_id}; prefer object_id over the legacy time_contract_id name."""
-        resolved_id = _resolve_object_id(
-            object_id, time_contract_id, legacy_name="time_contract_id"
-        )
-        return _semantic_read_request(client, f"/semantic/time/{resolved_id}")
-
-    @server.tool()
-    @_tool_metadata("PUT", "/semantic/time/{time_contract_id}")
-    def update_time_semantic(
-        object_id: str | None = None,
-        time_contract_id: str | None = None,
-        display_name: str | None = None,
-        description: str | None = None,
-        semantic_roles: list[str] | None = None,
-    ) -> dict[str, object]:
-        """Update one draft time semantic via PUT /semantic/time/{time_contract_id} using the canonical TimeUpdateRequest fields."""
-        resolved_id = _resolve_object_id(
-            object_id, time_contract_id, legacy_name="time_contract_id"
-        )
-        return _semantic_write_request(
-            client,
-            "PUT",
-            f"/semantic/time/{resolved_id}",
-            display_name=display_name,
-            description=description,
-            semantic_roles=semantic_roles,
-        )
-
-    @server.tool()
-    @_tool_metadata("POST", "/semantic/time/{time_contract_id}/validate")
-    def validate_time_semantic(
-        object_id: str | None = None,
-        time_contract_id: str | None = None,
-    ) -> dict[str, object]:
-        """Validate one time semantic via POST /semantic/time/{time_contract_id}/validate without changing stored lifecycle state."""
-        resolved_id = _resolve_object_id(
-            object_id, time_contract_id, legacy_name="time_contract_id"
-        )
-        return _semantic_action_request(client, f"/semantic/time/{resolved_id}/validate")
-
-    @server.tool()
-    @_tool_metadata("POST", "/semantic/time/{time_contract_id}/activate")
-    def activate_time_semantic(
-        object_id: str | None = None,
-        time_contract_id: str | None = None,
-    ) -> dict[str, object]:
-        """Activate one time semantic via POST /semantic/time/{time_contract_id}/activate; activation adds it to the formal catalog but does not imply ready."""
-        resolved_id = _resolve_object_id(
-            object_id, time_contract_id, legacy_name="time_contract_id"
-        )
-        return _semantic_action_request(client, f"/semantic/time/{resolved_id}/activate")
-
-    @server.tool()
-    @_tool_metadata("POST", "/semantic/time/{time_contract_id}/deprecate")
-    def deprecate_time_semantic(
-        object_id: str | None = None,
-        time_contract_id: str | None = None,
-    ) -> dict[str, object]:
-        """Deprecate one time semantic via POST /semantic/time/{time_contract_id}/deprecate."""
-        resolved_id = _resolve_object_id(
-            object_id, time_contract_id, legacy_name="time_contract_id"
-        )
-        return _semantic_action_request(client, f"/semantic/time/{resolved_id}/deprecate")
-
-    @server.tool()
-    @_tool_metadata("POST", "/semantic/time/{time_contract_id}/publish")
-    def publish_time_semantic(
-        object_id: str | None = None,
-        time_contract_id: str | None = None,
-    ) -> dict[str, object]:
-        """Compatibility alias for activate_time_semantic via POST /semantic/time/{time_contract_id}/publish."""
-        resolved_id = _resolve_object_id(
-            object_id, time_contract_id, legacy_name="time_contract_id"
-        )
-        return _semantic_publish_request(client, f"/semantic/time/{resolved_id}/publish")
-
-    @server.tool()
-    @_tool_metadata("POST", "/semantic/enum-sets")
-    def create_enum_set(
-        header: McpEnumSetHeader,
-        display_name: str,
-        versions: list[dict[str, object]],
-        description: str | None = None,
-    ) -> dict[str, object]:
-        """Create one draft enum set via POST /semantic/enum-sets using the canonical EnumSetCreateRequest fields."""
-        return _semantic_write_request(
-            client,
-            "POST",
-            "/semantic/enum-sets",
-            header=header,
-            display_name=display_name,
-            description=description,
-            versions=versions,
-        )
-
-    @server.tool()
-    @_tool_metadata("GET", "/semantic/enum-sets")
-    def list_enum_sets(
-        status: str | None = None,
-        lifecycle_status: str | None = None,
-        readiness_status: str | None = None,
-        detail: bool | None = None,
-    ) -> dict[str, object]:
-        """List enum sets via GET /semantic/enum-sets; prefer lifecycle_status/readiness_status over legacy status."""
-        return _semantic_read_request(
-            client,
-            "/semantic/enum-sets",
-            status=status,
-            lifecycle_status=lifecycle_status,
-            readiness_status=readiness_status,
-            detail=detail,
-        )
-
-    @server.tool()
-    @_tool_metadata("GET", "/semantic/enum-sets/{enum_set_contract_id}")
-    def get_enum_set(
-        object_id: str | None = None,
-        enum_set_contract_id: str | None = None,
-    ) -> dict[str, object]:
-        """Read one enum set via GET /semantic/enum-sets/{enum_set_contract_id}; prefer object_id over the legacy enum_set_contract_id name."""
-        resolved_id = _resolve_object_id(
-            object_id, enum_set_contract_id, legacy_name="enum_set_contract_id"
-        )
-        return _semantic_read_request(client, f"/semantic/enum-sets/{resolved_id}")
-
-    @server.tool()
-    @_tool_metadata("PUT", "/semantic/enum-sets/{enum_set_contract_id}")
-    def update_enum_set(
-        object_id: str | None = None,
-        enum_set_contract_id: str | None = None,
-        display_name: str | None = None,
-        description: str | None = None,
-        versions: list[dict[str, object]] | None = None,
-    ) -> dict[str, object]:
-        """Update one draft enum set via PUT /semantic/enum-sets/{enum_set_contract_id} using the canonical EnumSetUpdateRequest fields."""
-        resolved_id = _resolve_object_id(
-            object_id, enum_set_contract_id, legacy_name="enum_set_contract_id"
-        )
-        return _semantic_write_request(
-            client,
-            "PUT",
-            f"/semantic/enum-sets/{resolved_id}",
-            display_name=display_name,
-            description=description,
-            versions=versions,
-        )
-
-    @server.tool()
-    @_tool_metadata("POST", "/semantic/enum-sets/{enum_set_contract_id}/validate")
-    def validate_enum_set(
-        object_id: str | None = None,
-        enum_set_contract_id: str | None = None,
-    ) -> dict[str, object]:
-        """Validate one enum set via POST /semantic/enum-sets/{enum_set_contract_id}/validate without changing stored lifecycle state."""
-        resolved_id = _resolve_object_id(
-            object_id, enum_set_contract_id, legacy_name="enum_set_contract_id"
-        )
-        return _semantic_action_request(client, f"/semantic/enum-sets/{resolved_id}/validate")
-
-    @server.tool()
-    @_tool_metadata("POST", "/semantic/enum-sets/{enum_set_contract_id}/activate")
-    def activate_enum_set(
-        object_id: str | None = None,
-        enum_set_contract_id: str | None = None,
-    ) -> dict[str, object]:
-        """Activate one enum set via POST /semantic/enum-sets/{enum_set_contract_id}/activate; activation adds it to the formal catalog but does not imply ready."""
-        resolved_id = _resolve_object_id(
-            object_id, enum_set_contract_id, legacy_name="enum_set_contract_id"
-        )
-        return _semantic_action_request(client, f"/semantic/enum-sets/{resolved_id}/activate")
-
-    @server.tool()
-    @_tool_metadata("POST", "/semantic/enum-sets/{enum_set_contract_id}/deprecate")
-    def deprecate_enum_set(
-        object_id: str | None = None,
-        enum_set_contract_id: str | None = None,
-    ) -> dict[str, object]:
-        """Deprecate one enum set via POST /semantic/enum-sets/{enum_set_contract_id}/deprecate."""
-        resolved_id = _resolve_object_id(
-            object_id, enum_set_contract_id, legacy_name="enum_set_contract_id"
-        )
-        return _semantic_action_request(client, f"/semantic/enum-sets/{resolved_id}/deprecate")
-
-    @server.tool()
-    @_tool_metadata("POST", "/semantic/enum-sets/{enum_set_contract_id}/publish")
-    def publish_enum_set(
-        object_id: str | None = None,
-        enum_set_contract_id: str | None = None,
-    ) -> dict[str, object]:
-        """Compatibility alias for activate_enum_set via POST /semantic/enum-sets/{enum_set_contract_id}/publish."""
-        resolved_id = _resolve_object_id(
-            object_id, enum_set_contract_id, legacy_name="enum_set_contract_id"
-        )
-        return _semantic_publish_request(client, f"/semantic/enum-sets/{resolved_id}/publish")
-
-    @server.tool()
-    @_tool_metadata("POST", "/semantic/relationships")
+    @_tool_metadata("POST", "/semantic-models/{model}/relationships")
     def create_relationship(
-        relationship_ref: str,
-        left_entity_ref: str,
-        right_entity_ref: str,
-        key_alignment: dict[str, object],
-        cardinality: str,
-        display_name: str | None = None,
-        description: str | None = None,
-        time_alignment: dict[str, object] | None = None,
-        grain_compatibility: dict[str, object] | None = None,
-        snapshot_effective_window_alignment: dict[str, object] | None = None,
-        catalog_metadata: dict[str, object] | None = None,
+        model: str,
+        payload: McpStructuredObject,
     ) -> dict[str, object]:
-        """Create one draft entity relationship via POST /semantic/relationships."""
-        return _semantic_write_request(
-            client,
+        """Create a relationship within a model via POST /semantic-models/{model}/relationships."""
+        _require_structured_object(payload, field_name="payload")
+        return client.request_envelope(
             "POST",
-            "/semantic/relationships",
-            relationship_ref=relationship_ref,
-            display_name=display_name,
-            description=description,
-            left_entity_ref=left_entity_ref,
-            right_entity_ref=right_entity_ref,
-            key_alignment=key_alignment,
-            time_alignment=time_alignment,
-            cardinality=cardinality,
-            grain_compatibility=grain_compatibility,
-            snapshot_effective_window_alignment=snapshot_effective_window_alignment,
-            catalog_metadata=catalog_metadata,
-        )
+            f"/semantic-models/{model}/relationships",
+            json_body=_compact_body(**payload),
+        ).model_dump()
 
     @server.tool()
-    @_tool_metadata("GET", "/semantic/relationships")
+    @_tool_metadata("GET", "/semantic-models/{model}/relationships")
     def list_relationships(
-        status: str | None = None,
-        lifecycle_status: str | None = None,
-        readiness_status: str | None = None,
-        detail: bool | None = None,
-        left_entity_ref: str | None = None,
-        right_entity_ref: str | None = None,
+        model: str,
+        requesting_user: str | None = None,
     ) -> dict[str, object]:
-        """List entity relationships via GET /semantic/relationships."""
-        return _semantic_read_request(
-            client,
-            "/semantic/relationships",
-            status=status,
-            lifecycle_status=lifecycle_status,
-            readiness_status=readiness_status,
-            detail=detail,
-            extra_params={
-                "left_entity_ref": left_entity_ref,
-                "right_entity_ref": right_entity_ref,
-            },
-        )
+        """List relationships in a model via GET /semantic-models/{model}/relationships."""
+        return client.request_envelope(
+            "GET",
+            f"/semantic-models/{model}/relationships",
+            params=_compact_params(requesting_user=requesting_user),
+        ).model_dump()
 
     @server.tool()
-    @_tool_metadata("GET", "/semantic/relationships/{relationship_id}")
+    @_tool_metadata("GET", "/semantic-models/{model}/relationships/{name}")
     def get_relationship(
-        object_id: str | None = None,
-        relationship_id: str | None = None,
+        model: str,
+        name: str,
+        requesting_user: str | None = None,
     ) -> dict[str, object]:
-        """Read one entity relationship via GET /semantic/relationships/{relationship_id}."""
-        resolved_id = _resolve_object_id(object_id, relationship_id, legacy_name="relationship_id")
-        return _semantic_read_request(client, f"/semantic/relationships/{resolved_id}")
+        """Get a relationship by name within a model via GET /semantic-models/{model}/relationships/{name}."""
+        return client.request_envelope(
+            "GET",
+            f"/semantic-models/{model}/relationships/{name}",
+            params=_compact_params(requesting_user=requesting_user),
+        ).model_dump()
 
     @server.tool()
-    @_tool_metadata("PUT", "/semantic/relationships/{relationship_id}")
+    @_tool_metadata("PUT", "/semantic-models/{model}/relationships/{name}")
     def update_relationship(
-        object_id: str | None = None,
-        relationship_id: str | None = None,
-        display_name: str | None = None,
-        description: str | None = None,
-        key_alignment: dict[str, object] | None = None,
-        time_alignment: dict[str, object] | None = None,
-        cardinality: str | None = None,
-        grain_compatibility: dict[str, object] | None = None,
-        snapshot_effective_window_alignment: dict[str, object] | None = None,
-        catalog_metadata: dict[str, object] | None = None,
+        model: str,
+        name: str,
+        payload: McpStructuredObject,
     ) -> dict[str, object]:
-        """Update one draft entity relationship via PUT /semantic/relationships/{relationship_id}."""
-        resolved_id = _resolve_object_id(object_id, relationship_id, legacy_name="relationship_id")
-        return _semantic_write_request(
-            client,
+        """Update a relationship's fields via PUT /semantic-models/{model}/relationships/{name}."""
+        _require_structured_object(payload, field_name="payload")
+        return client.request_envelope(
             "PUT",
-            f"/semantic/relationships/{resolved_id}",
-            display_name=display_name,
-            description=description,
-            key_alignment=key_alignment,
-            time_alignment=time_alignment,
-            cardinality=cardinality,
-            grain_compatibility=grain_compatibility,
-            snapshot_effective_window_alignment=snapshot_effective_window_alignment,
-            catalog_metadata=catalog_metadata,
-        )
+            f"/semantic-models/{model}/relationships/{name}",
+            json_body=_compact_body(**payload),
+        ).model_dump()
 
     @server.tool()
-    @_tool_metadata("POST", "/semantic/relationships/{relationship_id}/validate")
-    def validate_relationship(
-        object_id: str | None = None,
-        relationship_id: str | None = None,
-    ) -> dict[str, object]:
-        """Validate one entity relationship via POST /semantic/relationships/{relationship_id}/validate."""
-        resolved_id = _resolve_object_id(object_id, relationship_id, legacy_name="relationship_id")
-        return _semantic_action_request(client, f"/semantic/relationships/{resolved_id}/validate")
+    @_tool_metadata("DELETE", "/semantic-models/{model}/relationships/{name}")
+    def delete_relationship(model: str, name: str) -> dict[str, object]:
+        """Delete a relationship via DELETE /semantic-models/{model}/relationships/{name}."""
+        return client.request_envelope(
+            "DELETE", f"/semantic-models/{model}/relationships/{name}"
+        ).model_dump()
+
+    # -- Metrics within a model --
 
     @server.tool()
-    @_tool_metadata("POST", "/semantic/relationships/{relationship_id}/activate")
-    def activate_relationship(
-        object_id: str | None = None,
-        relationship_id: str | None = None,
+    @_tool_metadata("POST", "/semantic-models/{model}/metrics")
+    def create_metric(
+        model: str,
+        payload: McpStructuredObject,
     ) -> dict[str, object]:
-        """Activate one entity relationship via POST /semantic/relationships/{relationship_id}/activate."""
-        resolved_id = _resolve_object_id(object_id, relationship_id, legacy_name="relationship_id")
-        return _semantic_action_request(client, f"/semantic/relationships/{resolved_id}/activate")
-
-    @server.tool()
-    @_tool_metadata("POST", "/semantic/relationships/{relationship_id}/deprecate")
-    def deprecate_relationship(
-        object_id: str | None = None,
-        relationship_id: str | None = None,
-    ) -> dict[str, object]:
-        """Deprecate one entity relationship via POST /semantic/relationships/{relationship_id}/deprecate."""
-        resolved_id = _resolve_object_id(object_id, relationship_id, legacy_name="relationship_id")
-        return _semantic_action_request(client, f"/semantic/relationships/{resolved_id}/deprecate")
-
-    @server.tool()
-    @_tool_metadata("POST", "/semantic/relationships/{relationship_id}/publish")
-    def publish_relationship(
-        object_id: str | None = None,
-        relationship_id: str | None = None,
-    ) -> dict[str, object]:
-        """Compatibility alias for activate_relationship via POST /semantic/relationships/{relationship_id}/publish."""
-        resolved_id = _resolve_object_id(object_id, relationship_id, legacy_name="relationship_id")
-        return _semantic_publish_request(client, f"/semantic/relationships/{resolved_id}/publish")
-
-    @server.tool()
-    @_tool_metadata("POST", "/compiler/compatibility-profiles")
-    def create_compatibility_profile(
-        profile_ref: str,
-        profile_kind: str,
-        subject_kind: str,
-        subject_ref: str,
-        schema_version: str = "v1",
-        requirement: dict[str, object] | None = None,
-        capability: dict[str, object] | None = None,
-    ) -> dict[str, object]:
-        """Create one draft compatibility profile via POST /compiler/compatibility-profiles using the canonical CompatibilityProfileCreateRequest fields."""
-        return _semantic_write_request(
-            client,
+        """Create a metric within a model via POST /semantic-models/{model}/metrics."""
+        _require_structured_object(payload, field_name="payload")
+        return client.request_envelope(
             "POST",
-            "/compiler/compatibility-profiles",
-            profile_ref=profile_ref,
-            profile_kind=profile_kind,
-            schema_version=schema_version,
-            subject_kind=subject_kind,
-            subject_ref=subject_ref,
-            requirement=requirement,
-            capability=capability,
-        )
+            f"/semantic-models/{model}/metrics",
+            json_body=_compact_body(**payload),
+        ).model_dump()
 
     @server.tool()
-    @_tool_metadata("GET", "/compiler/compatibility-profiles")
-    def list_compatibility_profiles(
-        status: str | None = None,
-        lifecycle_status: str | None = None,
-        readiness_status: str | None = None,
-        detail: bool | None = None,
-        subject_kind: str | None = None,
-        subject_ref: str | None = None,
-        left_entity_ref: str | None = None,
-        right_entity_ref: str | None = None,
+    @_tool_metadata("GET", "/semantic-models/{model}/metrics")
+    def list_metrics(
+        model: str,
+        requesting_user: str | None = None,
     ) -> dict[str, object]:
-        """List compatibility profiles via GET /compiler/compatibility-profiles; prefer lifecycle_status/readiness_status over legacy status."""
-        return _semantic_read_request(
-            client,
-            "/compiler/compatibility-profiles",
-            status=status,
-            lifecycle_status=lifecycle_status,
-            readiness_status=readiness_status,
-            detail=detail,
-            extra_params={
-                "subject_kind": subject_kind,
-                "subject_ref": subject_ref,
-                "left_entity_ref": left_entity_ref,
-                "right_entity_ref": right_entity_ref,
-            },
-        )
+        """List metrics in a model via GET /semantic-models/{model}/metrics."""
+        return client.request_envelope(
+            "GET",
+            f"/semantic-models/{model}/metrics",
+            params=_compact_params(requesting_user=requesting_user),
+        ).model_dump()
 
     @server.tool()
-    @_tool_metadata("GET", "/compiler/compatibility-profiles/{profile_id}")
-    def get_compatibility_profile(
-        object_id: str | None = None,
-        profile_id: str | None = None,
+    @_tool_metadata("GET", "/semantic-models/{model}/metrics/{name}")
+    def get_metric(
+        model: str,
+        name: str,
+        requesting_user: str | None = None,
     ) -> dict[str, object]:
-        """Read one compatibility profile via GET /compiler/compatibility-profiles/{profile_id}; accepts an internal profile id or canonical compiler_profile ref, and prefers object_id over the legacy profile_id name."""
-        resolved_id = _resolve_object_id(object_id, profile_id, legacy_name="profile_id")
-        return _semantic_read_request(client, f"/compiler/compatibility-profiles/{resolved_id}")
+        """Get a metric by name within a model via GET /semantic-models/{model}/metrics/{name}."""
+        return client.request_envelope(
+            "GET",
+            f"/semantic-models/{model}/metrics/{name}",
+            params=_compact_params(requesting_user=requesting_user),
+        ).model_dump()
 
     @server.tool()
-    @_tool_metadata("PUT", "/compiler/compatibility-profiles/{profile_id}")
-    def update_compatibility_profile(
-        object_id: str | None = None,
-        profile_id: str | None = None,
-        requirement: dict[str, object] | None = None,
-        capability: dict[str, object] | None = None,
+    @_tool_metadata("PUT", "/semantic-models/{model}/metrics/{name}")
+    def update_metric(
+        model: str,
+        name: str,
+        payload: McpStructuredObject,
     ) -> dict[str, object]:
-        """Update one draft compatibility profile via PUT /compiler/compatibility-profiles/{profile_id} using the canonical CompatibilityProfileUpdateRequest fields."""
-        resolved_id = _resolve_object_id(object_id, profile_id, legacy_name="profile_id")
-        return _semantic_write_request(
-            client,
+        """Update a metric's fields via PUT /semantic-models/{model}/metrics/{name}."""
+        _require_structured_object(payload, field_name="payload")
+        return client.request_envelope(
             "PUT",
-            f"/compiler/compatibility-profiles/{resolved_id}",
-            requirement=requirement,
-            capability=capability,
-        )
+            f"/semantic-models/{model}/metrics/{name}",
+            json_body=_compact_body(**payload),
+        ).model_dump()
 
     @server.tool()
-    @_tool_metadata("POST", "/compiler/compatibility-profiles/{profile_id}/validate")
-    def validate_compatibility_profile(
-        object_id: str | None = None,
-        profile_id: str | None = None,
-    ) -> dict[str, object]:
-        """Validate one compatibility profile via POST /compiler/compatibility-profiles/{profile_id}/validate without changing stored lifecycle state."""
-        resolved_id = _resolve_object_id(object_id, profile_id, legacy_name="profile_id")
-        return _semantic_action_request(
-            client, f"/compiler/compatibility-profiles/{resolved_id}/validate"
-        )
+    @_tool_metadata("DELETE", "/semantic-models/{model}/metrics/{name}")
+    def delete_metric(model: str, name: str) -> dict[str, object]:
+        """Delete a metric via DELETE /semantic-models/{model}/metrics/{name}."""
+        return client.request_envelope(
+            "DELETE", f"/semantic-models/{model}/metrics/{name}"
+        ).model_dump()
+
+    # ------------------------------------------------------------------
+    # Governance
+    # ------------------------------------------------------------------
 
     @server.tool()
-    @_tool_metadata("POST", "/compiler/compatibility-profiles/{profile_id}/activate")
-    def activate_compatibility_profile(
-        object_id: str | None = None,
-        profile_id: str | None = None,
+    @_tool_metadata("POST", "/policies")
+    def create_policy(
+        name: str,
+        policy_type: str,
+        definition: McpStructuredObject,
+        scope: McpStructuredObject | None = None,
     ) -> dict[str, object]:
-        """Activate one compatibility profile via POST /compiler/compatibility-profiles/{profile_id}/activate; activation adds it to the formal catalog but does not imply ready."""
-        resolved_id = _resolve_object_id(object_id, profile_id, legacy_name="profile_id")
-        return _semantic_action_request(
-            client, f"/compiler/compatibility-profiles/{resolved_id}/activate"
-        )
+        """Create a governance policy via POST /policies."""
+        _require_structured_object(definition, field_name="definition")
+        return client.request_envelope(
+            "POST",
+            "/policies",
+            json_body=_compact_body(
+                name=name,
+                policy_type=policy_type,
+                definition=definition,
+                scope=scope,
+            ),
+        ).model_dump()
 
     @server.tool()
-    @_tool_metadata("POST", "/compiler/compatibility-profiles/{profile_id}/deprecate")
-    def deprecate_compatibility_profile(
-        object_id: str | None = None,
-        profile_id: str | None = None,
-    ) -> dict[str, object]:
-        """Deprecate one compatibility profile via POST /compiler/compatibility-profiles/{profile_id}/deprecate."""
-        resolved_id = _resolve_object_id(object_id, profile_id, legacy_name="profile_id")
-        return _semantic_action_request(
-            client, f"/compiler/compatibility-profiles/{resolved_id}/deprecate"
-        )
+    @_tool_metadata("GET", "/policies")
+    def list_policies() -> dict[str, object]:
+        """List governance policies via GET /policies."""
+        return client.request_envelope("GET", "/policies").model_dump()
 
     @server.tool()
-    @_tool_metadata("POST", "/compiler/compatibility-profiles/{profile_id}/publish")
-    def publish_compatibility_profile(
-        object_id: str | None = None,
-        profile_id: str | None = None,
+    @_tool_metadata("GET", "/policies/{policy_id}")
+    def get_policy(policy_id: str) -> dict[str, object]:
+        """Read one governance policy via GET /policies/{policy_id}."""
+        return client.request_envelope("GET", f"/policies/{policy_id}").model_dump()
+
+    @server.tool()
+    @_tool_metadata("PUT", "/policies/{policy_id}")
+    def update_policy(
+        policy_id: str,
+        enabled: bool | None = None,
+        definition: McpStructuredObject | None = None,
     ) -> dict[str, object]:
-        """Compatibility alias for activate_compatibility_profile via POST /compiler/compatibility-profiles/{profile_id}/publish."""
-        resolved_id = _resolve_object_id(object_id, profile_id, legacy_name="profile_id")
-        return _semantic_publish_request(
-            client, f"/compiler/compatibility-profiles/{resolved_id}/publish"
-        )
+        """Update a governance policy via PUT /policies/{policy_id}."""
+        if definition is not None:
+            _require_structured_object(definition, field_name="definition")
+        return client.request_envelope(
+            "PUT",
+            f"/policies/{policy_id}",
+            json_body=_compact_body(enabled=enabled, definition=definition),
+        ).model_dump()
+
+    @server.tool()
+    @_tool_metadata("DELETE", "/policies/{policy_id}")
+    def delete_policy(policy_id: str) -> dict[str, object]:
+        """Delete a governance policy via DELETE /policies/{policy_id}."""
+        return client.request_envelope("DELETE", f"/policies/{policy_id}").model_dump()
+
+    @server.tool()
+    @_tool_metadata("POST", "/quality-rules")
+    def create_quality_rule(
+        name: str,
+        rule_type: str,
+        table_name: str,
+        threshold: McpStructuredObject,
+        severity: str = "warn",
+    ) -> dict[str, object]:
+        """Create a quality rule via POST /quality-rules."""
+        _require_structured_object(threshold, field_name="threshold")
+        return client.request_envelope(
+            "POST",
+            "/quality-rules",
+            json_body=_compact_body(
+                name=name,
+                rule_type=rule_type,
+                table_name=table_name,
+                threshold=threshold,
+                severity=severity,
+            ),
+        ).model_dump()
+
+    @server.tool()
+    @_tool_metadata("GET", "/quality-rules")
+    def list_quality_rules(table: str | None = None) -> dict[str, object]:
+        """List quality rules via GET /quality-rules."""
+        return client.request_envelope(
+            "GET",
+            "/quality-rules",
+            params=_compact_params(table=table),
+        ).model_dump()
+
+    @server.tool()
+    @_tool_metadata("DELETE", "/quality-rules/{rule_id}")
+    def delete_quality_rule(rule_id: str) -> dict[str, object]:
+        """Delete a quality rule via DELETE /quality-rules/{rule_id}."""
+        return client.request_envelope("DELETE", f"/quality-rules/{rule_id}").model_dump()
+
+    @server.tool()
+    @_tool_metadata("POST", "/governance/check")
+    def governance_check(
+        session_id: str,
+        step_type: str,
+        params: McpStructuredObject | None = None,
+    ) -> dict[str, object]:
+        """Run a governance check via POST /governance/check."""
+        if params is not None:
+            _require_structured_object(params, field_name="params")
+        return client.request_envelope(
+            "POST",
+            "/governance/check",
+            json_body=_compact_body(
+                session_id=session_id,
+                step_type=step_type,
+                params=params,
+            ),
+        ).model_dump()
+
+    # ------------------------------------------------------------------
+    # Jobs
+    # ------------------------------------------------------------------
+
+    @server.tool()
+    @_tool_metadata("POST", "/jobs")
+    def submit_job(
+        session_id: str,
+        job_type: str,
+        payload: McpStructuredObject,
+    ) -> dict[str, object]:
+        """Submit a job via POST /jobs."""
+        _require_structured_object(payload, field_name="payload")
+        return client.request_envelope(
+            "POST",
+            "/jobs",
+            json_body=_compact_body(
+                session_id=session_id,
+                job_type=job_type,
+                payload=payload,
+            ),
+        ).model_dump()
+
+    @server.tool()
+    @_tool_metadata("GET", "/jobs")
+    def list_jobs(
+        session_id: str | None = None,
+        status: str | None = None,
+    ) -> dict[str, object]:
+        """List jobs via GET /jobs."""
+        return client.request_envelope(
+            "GET",
+            "/jobs",
+            params=_compact_params(session_id=session_id, status=status),
+        ).model_dump()
+
+    @server.tool()
+    @_tool_metadata("GET", "/jobs/{job_id}")
+    def get_job(job_id: str) -> dict[str, object]:
+        """Read one job via GET /jobs/{job_id}."""
+        return client.request_envelope("GET", f"/jobs/{job_id}").model_dump()
+
+    @server.tool()
+    @_tool_metadata("POST", "/jobs/{job_id}/cancel")
+    def cancel_job(job_id: str) -> dict[str, object]:
+        """Cancel a job via POST /jobs/{job_id}/cancel."""
+        return client.request_envelope("POST", f"/jobs/{job_id}/cancel").model_dump()
+
+    # ------------------------------------------------------------------
+    # Approvals
+    # ------------------------------------------------------------------
+
+    @server.tool()
+    @_tool_metadata("POST", "/approvals")
+    def create_approval(
+        session_id: str,
+        rec_id: str,
+    ) -> dict[str, object]:
+        """Create an approval request via POST /approvals."""
+        return client.request_envelope(
+            "POST",
+            "/approvals",
+            json_body=_compact_body(session_id=session_id, rec_id=rec_id),
+        ).model_dump()
+
+    @server.tool()
+    @_tool_metadata("GET", "/approvals")
+    def list_approvals(
+        session_id: str | None = None,
+        status: str | None = None,
+    ) -> dict[str, object]:
+        """List approval requests via GET /approvals."""
+        return client.request_envelope(
+            "GET",
+            "/approvals",
+            params=_compact_params(session_id=session_id, status=status),
+        ).model_dump()
+
+    @server.tool()
+    @_tool_metadata("GET", "/approvals/{request_id}")
+    def get_approval(request_id: str) -> dict[str, object]:
+        """Read one approval request via GET /approvals/{request_id}."""
+        return client.request_envelope("GET", f"/approvals/{request_id}").model_dump()
+
+    @server.tool()
+    @_tool_metadata("POST", "/approvals/{request_id}/approve")
+    def approve_request(
+        request_id: str,
+        reviewer: str,
+        reason: str = "",
+    ) -> dict[str, object]:
+        """Approve an approval request via POST /approvals/{request_id}/approve."""
+        return client.request_envelope(
+            "POST",
+            f"/approvals/{request_id}/approve",
+            json_body=_compact_body(reviewer=reviewer, reason=reason),
+        ).model_dump()
+
+    @server.tool()
+    @_tool_metadata("POST", "/approvals/{request_id}/reject")
+    def reject_request(
+        request_id: str,
+        reviewer: str,
+        reason: str = "",
+    ) -> dict[str, object]:
+        """Reject an approval request via POST /approvals/{request_id}/reject."""
+        return client.request_envelope(
+            "POST",
+            f"/approvals/{request_id}/reject",
+            json_body=_compact_body(reviewer=reviewer, reason=reason),
+        ).model_dump()
+
+    @server.tool()
+    @_tool_metadata("POST", "/sessions/{session_id}/approvals/auto-flag")
+    def auto_flag_approvals(
+        session_id: str,
+        risk_threshold: str = "P0",
+    ) -> dict[str, object]:
+        """Auto-flag approvals for a session via POST /sessions/{session_id}/approvals/auto-flag."""
+        return client.request_envelope(
+            "POST",
+            f"/sessions/{session_id}/approvals/auto-flag",
+            json_body=_compact_body(risk_threshold=risk_threshold),
+        ).model_dump()
+
+    # ------------------------------------------------------------------
+    # Calendar
+    # ------------------------------------------------------------------
+
+    @server.tool()
+    @_tool_metadata("POST", "/calendar/data")
+    def load_calendar_data(
+        calendar_version: str,
+        rows: list[McpStructuredObject],
+    ) -> dict[str, object]:
+        """Load calendar data via POST /calendar/data."""
+        return client.request_envelope(
+            "POST",
+            "/calendar/data",
+            json_body=_compact_body(calendar_version=calendar_version, rows=rows),
+        ).model_dump()
+
+    @server.tool()
+    @_tool_metadata("GET", "/calendar/versions")
+    def list_calendar_versions() -> dict[str, object]:
+        """List calendar versions via GET /calendar/versions."""
+        return client.request_envelope("GET", "/calendar/versions").model_dump()
+
+    # ------------------------------------------------------------------
+    # Analysis Sessions
+    # ------------------------------------------------------------------
+
+    @server.tool()
+    @_tool_metadata("POST", "/analysis-sessions")
+    def create_analysis_session(
+        requesting_user: str | None = None,
+    ) -> dict[str, object]:
+        """Create an analysis session via POST /analysis-sessions."""
+        return client.request_envelope(
+            "POST",
+            "/analysis-sessions",
+            json_body=_compact_body(requesting_user=requesting_user),
+        ).model_dump()
+
+    @server.tool()
+    @_tool_metadata("GET", "/analysis-sessions/{session_id}")
+    def get_analysis_session(session_id: str) -> dict[str, object]:
+        """Read one analysis session via GET /analysis-sessions/{session_id}."""
+        return client.request_envelope("GET", f"/analysis-sessions/{session_id}").model_dump()
+
+    @server.tool()
+    @_tool_metadata("POST", "/analysis-sessions/{session_id}/end")
+    def end_analysis_session(session_id: str) -> dict[str, object]:
+        """End an analysis session via POST /analysis-sessions/{session_id}/end."""
+        return client.request_envelope("POST", f"/analysis-sessions/{session_id}/end").model_dump()
+
+    # ------------------------------------------------------------------
+    # Datasources
+    # ------------------------------------------------------------------
 
     @server.tool()
     @_tool_metadata("GET", "/datasources")
     def list_datasources() -> dict[str, object]:
-        """List registered datasources via GET /datasources without adding MCP-only filtering semantics."""
+        """List registered datasources via GET /datasources."""
         return client.request_envelope("GET", "/datasources").model_dump()
 
     @server.tool()
@@ -1743,9 +1329,9 @@ def register_tools(
         datasource_type: str,
         display_name: str,
         connection: dict[str, object] | None = None,
-        capabilities: dict[str, object] | None = None,
+        policy: dict[str, object] | None = None,
     ) -> dict[str, object]:
-        """Create one datasource via POST /datasources using the canonical datasource_type, display_name, connection, and capabilities fields."""
+        """Create one datasource via POST /datasources using the canonical datasource_type, display_name, connection, and policy fields."""
         return client.request_envelope(
             "POST",
             "/datasources",
@@ -1753,7 +1339,7 @@ def register_tools(
                 datasource_type=datasource_type,
                 display_name=display_name,
                 connection=connection,
-                capabilities=capabilities,
+                policy=policy,
             ),
         ).model_dump()
 
@@ -1769,7 +1355,7 @@ def register_tools(
         datasource_id: str,
         display_name: str | None = None,
         connection: dict[str, object] | None = None,
-        capabilities: dict[str, object] | None = None,
+        policy: dict[str, object] | None = None,
     ) -> dict[str, object]:
         """Update one datasource via PUT /datasources/{datasource_id}."""
         return client.request_envelope(
@@ -1778,7 +1364,7 @@ def register_tools(
             json_body=_compact_body(
                 display_name=display_name,
                 connection=connection,
-                capabilities=capabilities,
+                policy=policy,
             ),
         ).model_dump()
 
@@ -1787,17 +1373,6 @@ def register_tools(
     def delete_datasource(datasource_id: str) -> dict[str, object]:
         """Delete one datasource via DELETE /datasources/{datasource_id}."""
         return client.request_envelope("DELETE", f"/datasources/{datasource_id}").model_dump()
-
-    @server.tool()
-    @_tool_metadata("GET", "/datasources/{datasource_id}/browse/catalogs")
-    def browse_catalogs(
-        datasource_id: str,
-    ) -> dict[str, object]:
-        """Browse available catalogs via GET /datasources/{datasource_id}/browse/catalogs."""
-        return client.request_envelope(
-            "GET",
-            f"/datasources/{datasource_id}/browse/catalogs",
-        ).model_dump()
 
     @server.tool()
     @_tool_metadata("GET", "/datasources/{datasource_id}/browse/schemas")
@@ -1817,13 +1392,13 @@ def register_tools(
     def browse_tables(
         datasource_id: str,
         catalog: str | None = None,
-        schema: str | None = None,
+        schema_name: str | None = None,
     ) -> dict[str, object]:
         """Browse tables via GET /datasources/{datasource_id}/browse/tables."""
         return client.request_envelope(
             "GET",
             f"/datasources/{datasource_id}/browse/tables",
-            params=_compact_params(catalog=catalog, schema=schema),
+            params=_compact_params(catalog=catalog, schema_name=schema_name),
         ).model_dump()
 
     @server.tool()
@@ -1841,16 +1416,16 @@ def register_tools(
         ).model_dump()
 
     @server.tool()
-    @_tool_metadata("POST", "/datasources/{datasource_id}/preview")
+    @_tool_metadata("GET", "/datasources/{datasource_id}/catalog/preview")
     def preview_table(
         datasource_id: str,
         schema: str,
         table: str,
         limit: int = 100,
         columns: str | None = None,
-        filters: dict[str, object] | list[dict[str, object]] | None = None,
+        filters: str | None = None,
     ) -> dict[str, object]:
-        """Preview sample rows from a table via POST /datasources/{datasource_id}/preview.
+        """Preview sample rows from a table via GET /datasources/{datasource_id}/catalog/preview.
 
         Use this to inspect actual data values when configuring dataset-native
         semantic models and field expressions.
@@ -1861,12 +1436,12 @@ def register_tools(
             table: Table name to preview
             limit: Max rows (default 100, max 1000)
             columns: Comma-separated column names (optional)
-            filters: Equality filters as a JSON-like object, e.g. {"query_state":"FAILED"}
+            filters: JSON object or array of {column,value} equality filters (as string)
         """
         return client.request_envelope(
-            "POST",
-            f"/datasources/{datasource_id}/preview",
-            json_body=_compact_body(
+            "GET",
+            f"/datasources/{datasource_id}/catalog/preview",
+            params=_compact_params(
                 schema=schema,
                 table=table,
                 limit=limit,
@@ -1874,6 +1449,10 @@ def register_tools(
                 filters=filters,
             ),
         ).model_dump()
+
+    # ------------------------------------------------------------------
+    # Routing
+    # ------------------------------------------------------------------
 
     @server.tool()
     @_tool_metadata("POST", "/routing/resolve")
@@ -1950,74 +1529,6 @@ def _normalize_string_multi_param(values: list[str] | None) -> list[str] | None:
     if values is None:
         return None
     return list(values)
-
-
-def _semantic_read_request(
-    client: MarivoHttpClient,
-    path: str,
-    *,
-    status: str | None = None,
-    lifecycle_status: str | None = None,
-    readiness_status: str | None = None,
-    detail: bool | None = None,
-    extra_params: dict[str, str | bool | None] | None = None,
-) -> dict[str, object]:
-    params = {
-        "status": status,
-        "lifecycle_status": lifecycle_status,
-        "readiness_status": readiness_status,
-        "detail": detail,
-    }
-    if extra_params:
-        params.update(extra_params)
-    return client.request_envelope(
-        "GET",
-        path,
-        params=_compact_params(**params),
-    ).model_dump()
-
-
-def _semantic_write_request(
-    client: MarivoHttpClient,
-    method: str,
-    path: str,
-    **params: object,
-) -> dict[str, object]:
-    return client.request_envelope(
-        method,
-        path,
-        json_body=_compact_body(**params),
-    ).model_dump()
-
-
-def _semantic_action_request(
-    client: MarivoHttpClient,
-    path: str,
-) -> dict[str, object]:
-    return client.request_envelope("POST", path).model_dump()
-
-
-def _semantic_publish_request(
-    client: MarivoHttpClient,
-    path: str,
-) -> dict[str, object]:
-    return _semantic_action_request(client, path)
-
-
-def _resolve_object_id(
-    object_id: str | None,
-    legacy_id: str | None,
-    *,
-    legacy_name: str,
-) -> str:
-    if object_id and legacy_id and object_id != legacy_id:
-        raise ValueError(
-            f"object_id and {legacy_name} both provided but differ: {object_id!r} != {legacy_id!r}"
-        )
-    resolved = object_id or legacy_id
-    if not resolved:
-        raise ValueError(f"Missing required object identifier. Provide object_id or {legacy_name}.")
-    return resolved
 
 
 def _openapi_cached_request(

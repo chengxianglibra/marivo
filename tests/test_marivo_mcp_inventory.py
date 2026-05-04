@@ -132,13 +132,17 @@ def test_p0_inventory_surfaces_remain_implemented() -> None:
     assert missing == []
 
 
-def test_inventory_tracks_known_http_contracts_not_yet_wrapped() -> None:
-    assert get_surface_spec("list_sessions").implemented is False
-
-
 def test_dataset_native_grounding_removed_mcp_surfaces_absent() -> None:
     removed_fragments = {
         "/semantic/bindings",
+        "/semantic/entities",
+        "/semantic/metrics",
+        "/semantic/process-objects",
+        "/semantic/dimensions",
+        "/semantic/time",
+        "/semantic/enum-sets",
+        "/semantic/relationships",
+        "/compiler/compatibility-profiles",
         "/datasources/{datasource_id}/objects",
         "/datasources/{datasource_id}/sync",
     }
@@ -160,7 +164,6 @@ def test_observe_tool_time_scope_annotation_exposes_discriminator_schema() -> No
     hints = get_type_hints(observe, include_extras=True)
     time_scope_schema = TypeAdapter(hints["time_scope"]).json_schema()
 
-    # Verify key content fragments (not exact match due to multi-line formatting)
     desc = time_scope_schema["description"]
     assert "Canonical object only" in desc
     assert "shorthand strings are NOT accepted" in desc
@@ -190,43 +193,6 @@ def test_observe_tool_time_scope_string_error_points_to_canonical_shape() -> Non
     assert '{"kind":"range","start":"YYYY-MM-DD","end":"YYYY-MM-DD"}' in message
     assert "end is EXCLUSIVE" in message
     assert "pass the next day as end" in message
-
-
-def test_semantic_create_tools_expose_authoring_models() -> None:
-    server = cast("Any", _FakeServer())
-    register_tools(server, _build_config())
-
-    enum_hints = get_type_hints(server.tools["create_enum_set"])
-    metric_hints = get_type_hints(server.tools["create_metric"])
-
-    enum_header_schema = TypeAdapter(enum_hints["header"]).json_schema()
-    assert enum_header_schema["additionalProperties"] is False
-    assert set(enum_header_schema["required"]) == {"enum_set_ref", "value_type"}
-
-    metric_header_schema = TypeAdapter(metric_hints["header"]).json_schema()
-    assert "observation_grain_ref" in metric_header_schema["required"]
-    assert "metric_contract_version" in metric_header_schema["required"]
-
-
-def test_create_enum_set_rejects_common_header_typos() -> None:
-    server = cast("Any", _FakeServer())
-    register_tools(server, _build_config())
-    hints = get_type_hints(server.tools["create_enum_set"])
-    adapter = TypeAdapter(hints["header"])
-
-    with pytest.raises(Exception) as exc_info:
-        adapter.validate_python(
-            {
-                "enum_ref": "enum.query_state",
-                "enum_contract_version": "enum.v1",
-                "value_type": "string",
-            }
-        )
-
-    message = str(exc_info.value)
-    assert "enum_set_ref" in message
-    assert "enum_ref" in message
-    assert "enum_contract_version" in message
 
 
 def test_typed_intent_tools_expose_top_level_session_id() -> None:
@@ -269,67 +235,6 @@ def test_detect_and_diagnose_time_scope_annotations_expose_range_and_granularity
     assert detect_granularity["enum"] == ["hour", "day", "week", "month"]
     assert diagnose_time_scope["$defs"]["JsonObject"]["type"] == "object"
     assert diagnose_granularity["anyOf"][0]["enum"] == ["hour", "day", "week", "month"]
-
-
-def test_t6_tools_use_strongly_typed_nested_models_instead_of_raw_dicts() -> None:
-    server = cast("Any", _FakeServer())
-    register_tools(server, _build_config())
-
-    observe_hints = get_type_hints(server.tools["observe"])
-    detect_hints = get_type_hints(server.tools["detect"])
-    diagnose_hints = get_type_hints(server.tools["diagnose"])
-    compare_hints = get_type_hints(server.tools["compare"])
-    test_hints = get_type_hints(server.tools["test_intent"])
-    forecast_hints = get_type_hints(server.tools["forecast"])
-    attribute_hints = get_type_hints(server.tools["attribute"])
-    validate_hints = get_type_hints(server.tools["validate"])
-
-    observe_time_scope_schema = TypeAdapter(observe_hints["time_scope"]).json_schema()
-    assert observe_time_scope_schema["$defs"]["JsonObject"]["type"] == "object"
-    detect_time_scope_schema = TypeAdapter(detect_hints["time_scope"]).json_schema()
-    assert set(detect_time_scope_schema["required"]) == {"kind", "start", "end"}
-    assert (
-        TypeAdapter(diagnose_hints["time_scope"]).json_schema()["$defs"]["JsonObject"]["type"]
-        == "object"
-    )
-    assert set(TypeAdapter(compare_hints["left_ref"]).json_schema()["required"]) == {
-        "step_id",
-        "step_type",
-    }
-    assert set(TypeAdapter(compare_hints["right_ref"]).json_schema()["required"]) == {
-        "step_id",
-        "step_type",
-    }
-    assert (
-        TypeAdapter(test_hints["left_ref"]).json_schema()["$defs"]["JsonObject"]["type"] == "object"
-    )
-    assert (
-        TypeAdapter(test_hints["right_ref"]).json_schema()["$defs"]["JsonObject"]["type"]
-        == "object"
-    )
-    assert (
-        TypeAdapter(test_hints["hypothesis"]).json_schema()["$defs"]["JsonObject"]["type"]
-        == "object"
-    )
-    assert (
-        TypeAdapter(forecast_hints["source_ref"]).json_schema()["$defs"]["JsonObject"]["type"]
-        == "object"
-    )
-    assert (
-        TypeAdapter(attribute_hints["left"]).json_schema()["$defs"]["JsonObject"]["type"]
-        == "object"
-    )
-    assert (
-        TypeAdapter(attribute_hints["right"]).json_schema()["$defs"]["JsonObject"]["type"]
-        == "object"
-    )
-    assert (
-        TypeAdapter(validate_hints["left"]).json_schema()["$defs"]["JsonObject"]["type"] == "object"
-    )
-    assert (
-        TypeAdapter(validate_hints["right"]).json_schema()["$defs"]["JsonObject"]["type"]
-        == "object"
-    )
 
 
 def test_nested_object_params_still_validate_against_canonical_models() -> None:

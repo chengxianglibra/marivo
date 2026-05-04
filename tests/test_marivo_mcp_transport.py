@@ -8,11 +8,6 @@ from typing import Any, cast
 import httpx
 import pytest
 
-from app.api.models.intents import (
-    DetectTimeScope,
-    ObserveTimeScopeAsOf,
-)
-
 MARIVO_MCP_SRC = Path(__file__).resolve().parents[1] / "marivo-mcp" / "src"
 sys.path.insert(0, str(MARIVO_MCP_SRC))
 
@@ -131,7 +126,7 @@ def test_validation_error_preserves_guidance_and_adds_hint() -> None:
             json={
                 "detail": [
                     {
-                        "loc": ["body", "header"],
+                        "loc": ["body", "name"],
                         "msg": "field required",
                         "type": "value_error.missing",
                     }
@@ -141,9 +136,9 @@ def test_validation_error_preserves_guidance_and_adds_hint() -> None:
                     "message": "Request validation failed. Use the guided example and contract links.",
                 },
                 "guidance": {
-                    "schema_url": "/openapi/schemas/TypedEntityCreateRequest?depth=6",
-                    "contract_url": "/openapi/paths/L3NlbWFudGljL2VudGl0aWVz",
-                    "examples": [{"summary": "Minimal payload", "payload": {"header": {}}}],
+                    "schema_url": "/openapi/schemas/SemanticModel?depth=6",
+                    "contract_url": "/openapi/paths/L3NlbWFudGljLW1vZGVscw",
+                    "examples": [{"summary": "Minimal payload", "payload": {"name": "my_model"}}],
                     "next_action": "Start with guidance.examples.",
                 },
             },
@@ -151,7 +146,7 @@ def test_validation_error_preserves_guidance_and_adds_hint() -> None:
         )
 
     client = MarivoHttpClient(_build_config(), transport=httpx.MockTransport(handler))
-    envelope = client.request_envelope("POST", "/semantic/entities", json_body={})
+    envelope = client.request_envelope("POST", "/semantic-models", json_body={})
 
     assert envelope.ok is False
     assert envelope.status_code == 422
@@ -160,15 +155,15 @@ def test_validation_error_preserves_guidance_and_adds_hint() -> None:
     assert envelope.error.code == "request_validation_error"
     assert envelope.error.detail == [
         {
-            "loc": ["body", "header"],
+            "loc": ["body", "name"],
             "msg": "field required",
             "type": "value_error.missing",
         }
     ]
     assert envelope.error.guidance == {
-        "schema_url": "/openapi/schemas/TypedEntityCreateRequest?depth=6",
-        "contract_url": "/openapi/paths/L3NlbWFudGljL2VudGl0aWVz",
-        "examples": [{"summary": "Minimal payload", "payload": {"header": {}}}],
+        "schema_url": "/openapi/schemas/SemanticModel?depth=6",
+        "contract_url": "/openapi/paths/L3NlbWFudGljLW1vZGVscw",
+        "examples": [{"summary": "Minimal payload", "payload": {"name": "my_model"}}],
         "next_action": "Start with guidance.examples.",
     }
     assert envelope.error.remediation_hint is not None
@@ -182,7 +177,7 @@ def test_not_found_and_conflict_are_distinguished() -> None:
             404,
             json={"detail": "Session sess_missing not found"},
         ),
-        "/semantic/relationships": httpx.Response(
+        "/semantic-models/model_123/relationships": httpx.Response(
             409,
             json={"detail": "Relationship already exists"},
         ),
@@ -199,7 +194,9 @@ def test_not_found_and_conflict_are_distinguished() -> None:
 
     client = MarivoHttpClient(_build_config(), transport=httpx.MockTransport(handler))
     not_found = client.request_envelope("GET", "/sessions/missing")
-    conflict = client.request_envelope("POST", "/semantic/relationships", json_body={})
+    conflict = client.request_envelope(
+        "POST", "/semantic-models/model_123/relationships", json_body={}
+    )
 
     assert not_found.error is not None
     assert not_found.error.category == "not_found"
@@ -253,7 +250,7 @@ def test_post_does_not_retry_on_timeout() -> None:
         raise httpx.ReadTimeout("timed out", request=request)
 
     client = MarivoHttpClient(_build_config(), transport=httpx.MockTransport(handler))
-    envelope = client.request_envelope("POST", "/semantic/entities", json_body={})
+    envelope = client.request_envelope("POST", "/semantic-models", json_body={})
 
     assert attempts["count"] == 1
     assert envelope.ok is False
@@ -297,18 +294,21 @@ def test_health_check_uses_shared_http_client_envelope() -> None:
     }
 
 
-def test_registers_t4_discovery_tools() -> None:
+def test_registers_core_tool_groups() -> None:
     server = cast("Any", _FakeServer())
     register_tools(server, _build_config())
 
+    # Session & intent tools
     assert set(server.tools) >= {
         "create_session",
+        "list_sessions",
         "get_session",
         "terminate_session",
         "get_session_state",
         "query_session_state",
         "get_proposition_context",
         "health_check",
+        "get_catalog",
         "list_openapi_paths",
         "get_openapi_schema",
         "get_openapi_fragment",
@@ -326,7 +326,84 @@ def test_registers_t4_discovery_tools() -> None:
         "diagnose",
         "validate",
     }
+    # V2 Semantic Model tools
     assert set(server.tools) >= {
+        "create_semantic_model",
+        "list_semantic_models",
+        "import_osi_document",
+        "get_semantic_model",
+        "update_semantic_model",
+        "delete_semantic_model",
+        "get_semantic_model_readiness",
+        "create_dataset",
+        "list_datasets",
+        "get_dataset",
+        "update_dataset",
+        "delete_dataset",
+        "create_relationship",
+        "list_relationships",
+        "get_relationship",
+        "update_relationship",
+        "delete_relationship",
+        "create_metric",
+        "list_metrics",
+        "get_metric",
+        "update_metric",
+        "delete_metric",
+    }
+    # Governance tools
+    assert set(server.tools) >= {
+        "create_policy",
+        "list_policies",
+        "get_policy",
+        "update_policy",
+        "delete_policy",
+        "create_quality_rule",
+        "list_quality_rules",
+        "delete_quality_rule",
+        "governance_check",
+    }
+    # Jobs tools
+    assert set(server.tools) >= {
+        "submit_job",
+        "list_jobs",
+        "get_job",
+        "cancel_job",
+    }
+    # Approvals tools
+    assert set(server.tools) >= {
+        "create_approval",
+        "list_approvals",
+        "get_approval",
+        "approve_request",
+        "reject_request",
+        "auto_flag_approvals",
+    }
+    # Calendar tools
+    assert set(server.tools) >= {
+        "load_calendar_data",
+        "list_calendar_versions",
+    }
+    # Analysis session tools
+    assert set(server.tools) >= {
+        "create_analysis_session",
+        "get_analysis_session",
+        "end_analysis_session",
+    }
+    # Datasource & routing tools
+    assert set(server.tools) >= {
+        "list_datasources",
+        "create_datasource",
+        "browse_columns",
+        "resolve_routing",
+    }
+
+
+def test_no_legacy_semantic_tools_registered() -> None:
+    server = cast("Any", _FakeServer())
+    register_tools(server, _build_config())
+
+    legacy_tools = {
         "create_entity",
         "list_entities",
         "get_entity",
@@ -335,10 +412,6 @@ def test_registers_t4_discovery_tools() -> None:
         "activate_entity",
         "deprecate_entity",
         "publish_entity",
-        "create_metric",
-        "list_metrics",
-        "get_metric",
-        "update_metric",
         "validate_metric",
         "activate_metric",
         "deprecate_metric",
@@ -375,6 +448,10 @@ def test_registers_t4_discovery_tools() -> None:
         "activate_enum_set",
         "deprecate_enum_set",
         "publish_enum_set",
+        "validate_relationship",
+        "activate_relationship",
+        "deprecate_relationship",
+        "publish_relationship",
         "create_compatibility_profile",
         "list_compatibility_profiles",
         "get_compatibility_profile",
@@ -383,13 +460,18 @@ def test_registers_t4_discovery_tools() -> None:
         "activate_compatibility_profile",
         "deprecate_compatibility_profile",
         "publish_compatibility_profile",
+        "semantic_batch",
+        "list_grains",
+        "browse_catalogs",
     }
-    assert set(server.tools) >= {
-        "list_datasources",
-        "create_datasource",
-        "browse_columns",
-        "resolve_routing",
-    }
+
+    for name in legacy_tools:
+        assert name not in server.tools, f"Legacy tool {name!r} should not be registered"
+
+
+# ------------------------------------------------------------------
+# OpenAPI discovery tests
+# ------------------------------------------------------------------
 
 
 def test_list_openapi_paths_uses_openapi_index_endpoint() -> None:
@@ -650,6 +732,11 @@ def test_openapi_cache_can_be_disabled_with_zero_ttl() -> None:
     assert attempts["count"] == 2
     assert first["data"]["attempt"] == 1
     assert second["data"]["attempt"] == 2
+
+
+# ------------------------------------------------------------------
+# Session & Intent tests
+# ------------------------------------------------------------------
 
 
 def test_create_session_uses_canonical_session_root_request_fields() -> None:
@@ -1213,121 +1300,6 @@ def test_validate_omits_null_optional_fields() -> None:
     assert result["ok"] is True
 
 
-def test_observe_accepts_pydantic_time_scope_models_and_serializes_canonical_body() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.method == "POST"
-        assert request.url.path == "/sessions/sess_123/intents/observe"
-        assert request.read() == (
-            b'{"metric":"metric.watch_time","result_mode":"standard","time_scope":{"kind":"as_of",'
-            b'"at":"2025-03-08T00:00:00"}}'
-        )
-        return httpx.Response(200, json={"artifact_id": "obs_123"}, request=request)
-
-    result = _invoke_registered_tool(
-        "observe",
-        handler,
-        session_id="sess_123",
-        metric="metric.watch_time",
-        time_scope=ObserveTimeScopeAsOf(kind="as_of", at="2025-03-08T00:00:00"),
-    )
-
-    assert result["ok"] is True
-
-
-def test_detect_accepts_pydantic_time_scope_models_and_serializes_canonical_body() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.method == "POST"
-        assert request.url.path == "/sessions/sess_123/intents/detect"
-        assert request.read() == (
-            b'{"metric":"metric.watch_time","time_scope":{"kind":"range",'
-            b'"start":"2025-03-01","end":"2025-03-08"},"granularity":"day",'
-            b'"profile":"auto","sensitivity":"balanced"}'
-        )
-        return httpx.Response(200, json={"artifact_id": "detect_123"}, request=request)
-
-    result = _invoke_registered_tool(
-        "detect",
-        handler,
-        session_id="sess_123",
-        metric="metric.watch_time",
-        time_scope=DetectTimeScope(
-            kind="range",
-            start="2025-03-01",
-            end="2025-03-08",
-        ),
-        granularity="day",
-    )
-
-    assert result["ok"] is True
-
-
-def test_validate_accepts_structured_object_nested_models_and_serializes_canonical_body() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.method == "POST"
-        assert request.url.path == "/sessions/sess_123/intents/validate"
-        assert request.read() == (
-            b'{"metric":"metric.conversion_rate","left":{"time_scope":{"kind":"range",'
-            b'"start":"2025-03-01","end":"2025-03-08"}},"right":{"time_scope":{"kind":"range",'
-            b'"start":"2025-02-22","end":"2025-03-01"}},"hypothesis":{"family":"difference",'
-            b'"alternative":"greater","alpha":0.1,"label":"lift"}}'
-        )
-        return httpx.Response(200, json={"artifact_id": "validate_123"}, request=request)
-
-    result = _invoke_registered_tool(
-        "validate",
-        handler,
-        session_id="sess_123",
-        metric="metric.conversion_rate",
-        left={"time_scope": {"kind": "range", "start": "2025-03-01", "end": "2025-03-08"}},
-        right={"time_scope": {"kind": "range", "start": "2025-02-22", "end": "2025-03-01"}},
-        hypothesis={
-            "family": "difference",
-            "alternative": "greater",
-            "alpha": 0.1,
-            "label": "lift",
-        },
-    )
-
-    assert result["ok"] is True
-
-
-def test_test_intent_accepts_structured_object_nested_models_and_serializes_canonical_body() -> (
-    None
-):
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.method == "POST"
-        assert request.url.path == "/sessions/sess_123/intents/test"
-        assert request.read() == (
-            b'{"left_ref":{"step_id":"obs_left","step_type":"observe","artifact_id":"artifact_left",'
-            b'"observation_type":"numeric_sample_summary"},"right_ref":{"step_id":"obs_right",'
-            b'"step_type":"observe","artifact_id":"artifact_right","observation_type":"rate_sample_summary"},'
-            b'"hypothesis":{"family":"difference","alternative":"less","alpha":0.2},'
-            b'"method":"auto"}'
-        )
-        return httpx.Response(200, json={"artifact_id": "test_123"}, request=request)
-
-    result = _invoke_registered_tool(
-        "test_intent",
-        handler,
-        session_id="sess_123",
-        left_ref={
-            "step_id": "obs_left",
-            "step_type": "observe",
-            "artifact_id": "artifact_left",
-            "observation_type": "numeric_sample_summary",
-        },
-        right_ref={
-            "step_id": "obs_right",
-            "step_type": "observe",
-            "artifact_id": "artifact_right",
-            "observation_type": "rate_sample_summary",
-        },
-        hypothesis={"family": "difference", "alternative": "less", "alpha": 0.2},
-    )
-
-    assert result["ok"] is True
-
-
 def test_observe_rejects_json_string_time_scope_before_http_roundtrip() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         raise AssertionError("HTTP handler should not be called for invalid MCP input")
@@ -1440,416 +1412,98 @@ def test_intent_tools_preserve_422_guidance_from_marivo() -> None:
     assert "guidance.examples" in cast("str", result["error"]["remediation_hint"])
 
 
-def test_semantic_create_tools_use_inventory_names_and_canonical_paths() -> None:
-    cases: list[tuple[str, str, dict[str, object]]] = [
-        (
-            "create_entity",
-            "/semantic/entities",
-            {
-                "header": {"entity_ref": "entity.user"},
-                "interface_contract": {"identity": {"key_refs": ["key.user_id"]}},
-            },
-        ),
-        (
-            "create_metric",
-            "/semantic/metrics",
-            {
-                "header": {"metric_ref": "metric.watch_time"},
-                "payload": {"metric_family": "count_metric"},
-            },
-        ),
-        (
-            "create_process_object",
-            "/semantic/process-objects",
-            {
-                "header": {"process_ref": "process.watch_events"},
-                "interface_contract": {"contract_mode": "entity_stream"},
-                "payload": {"process_type": "event_stream"},
-            },
-        ),
-        (
-            "create_dimension",
-            "/semantic/dimensions",
-            {
-                "header": {"dimension_ref": "dimension.country"},
-                "interface_contract": {"grouping": {"supports_grouping": True}},
-            },
-        ),
-        (
-            "create_time_semantic",
-            "/semantic/time",
-            {"header": {"time_ref": "time.created_at"}},
-        ),
-        (
-            "create_enum_set",
-            "/semantic/enum-sets",
-            {
-                "header": {"enum_set_ref": "enum.country_code"},
-                "display_name": "Country Code",
-                "versions": [{"enum_version": "v1", "values": []}],
-            },
-        ),
-        (
-            "create_compatibility_profile",
-            "/compiler/compatibility-profiles",
-            {
-                "profile_ref": "compiler_profile.metric_requirement",
-                "profile_kind": "requirement",
-                "schema_version": "v1",
-                "subject_kind": "metric",
-                "subject_ref": "metric.watch_time",
-                "requirement": {"required_process_refs": ["process.watch_events"]},
-            },
-        ),
-    ]
-
-    for tool_name, expected_path, tool_kwargs in cases:
-        expected_body = httpx.Request("POST", "http://marivo.test", json=tool_kwargs).read()
-
-        def handler(
-            request: httpx.Request,
-            expected_path: str = expected_path,
-            expected_body: bytes = expected_body,
-            tool_name: str = tool_name,
-        ) -> httpx.Response:
-            assert request.method == "POST"
-            assert request.url.path == expected_path
-            assert request.read() == expected_body
-            return httpx.Response(200, json={"tool": tool_name}, request=request)
-
-        result = _invoke_registered_tool(tool_name, handler, **tool_kwargs)
-
-        assert result["ok"] is True
-        assert result["data"] == {"tool": tool_name}
-        assert result["meta"]["marivo_path"] == expected_path
+# ------------------------------------------------------------------
+# V2 Semantic Model tests
+# ------------------------------------------------------------------
 
 
-def test_semantic_list_and_get_tools_forward_canonical_status_and_path_parameters() -> None:
-    cases: list[tuple[str, str, dict[str, str]]] = [
-        ("list_entities", "/semantic/entities", {"status": "published"}),
-        ("list_metrics", "/semantic/metrics", {"status": "draft"}),
-        ("list_process_objects", "/semantic/process-objects", {"status": "published"}),
-        ("list_dimensions", "/semantic/dimensions", {"status": "draft"}),
-        ("list_time_semantics", "/semantic/time", {"status": "published"}),
-        ("list_enum_sets", "/semantic/enum-sets", {"status": "draft"}),
-        ("list_compatibility_profiles", "/compiler/compatibility-profiles", {"status": "draft"}),
-        ("get_entity", "/semantic/entities/ent_123", {"entity_id": "ent_123"}),
-        ("get_metric", "/semantic/metrics/met_123", {"metric_id": "met_123"}),
-        (
-            "get_process_object",
-            "/semantic/process-objects/proc_123",
-            {"process_contract_id": "proc_123"},
-        ),
-        ("get_dimension", "/semantic/dimensions/dim_123", {"dimension_contract_id": "dim_123"}),
-        ("get_time_semantic", "/semantic/time/time_123", {"time_contract_id": "time_123"}),
-        ("get_enum_set", "/semantic/enum-sets/enum_123", {"enum_set_contract_id": "enum_123"}),
-        (
-            "get_compatibility_profile",
-            "/compiler/compatibility-profiles/cprof_123",
-            {"profile_id": "cprof_123"},
-        ),
-    ]
-
-    for tool_name, expected_path, tool_kwargs in cases:
-
-        def handler(
-            request: httpx.Request,
-            expected_path: str = expected_path,
-            tool_name: str = tool_name,
-            tool_kwargs: dict[str, str] = tool_kwargs,
-        ) -> httpx.Response:
-            assert request.method == "GET"
-            assert request.url.path == expected_path
-            if tool_name.startswith("list_"):
-                assert dict(request.url.params) == {"status": next(iter(tool_kwargs.values()))}
-            else:
-                assert request.url.query == b""
-            return httpx.Response(200, json={"tool": tool_name}, request=request)
-
-        result = _invoke_registered_tool(tool_name, handler, **tool_kwargs)
-
-        assert result["ok"] is True
-        assert result["meta"]["marivo_path"] == expected_path
-
-
-def test_semantic_list_tools_forward_detail_query_parameter_when_requested() -> None:
-    cases: list[tuple[str, str, dict[str, object]]] = [
-        ("list_entities", "/semantic/entities", {"status": "published", "detail": True}),
-        ("list_metrics", "/semantic/metrics", {"status": "draft", "detail": True}),
-        (
-            "list_process_objects",
-            "/semantic/process-objects",
-            {"status": "published", "detail": True},
-        ),
-        ("list_dimensions", "/semantic/dimensions", {"status": "draft", "detail": True}),
-        ("list_time_semantics", "/semantic/time", {"status": "published", "detail": True}),
-        ("list_enum_sets", "/semantic/enum-sets", {"status": "draft", "detail": True}),
-        (
-            "list_compatibility_profiles",
-            "/compiler/compatibility-profiles",
-            {"status": "draft", "detail": True},
-        ),
-    ]
-
-    for tool_name, expected_path, tool_kwargs in cases:
-
-        def handler(
-            request: httpx.Request,
-            expected_path: str = expected_path,
-            tool_name: str = tool_name,
-            tool_kwargs: dict[str, object] = tool_kwargs,
-        ) -> httpx.Response:
-            assert request.method == "GET"
-            assert request.url.path == expected_path
-            assert dict(request.url.params) == {
-                "status": str(tool_kwargs["status"]),
-                "detail": "true",
-            }
-            return httpx.Response(200, json={"tool": tool_name}, request=request)
-
-        result = _invoke_registered_tool(tool_name, handler, **tool_kwargs)
-
-        assert result["ok"] is True
-        assert result["meta"]["marivo_path"] == expected_path
-
-
-def test_semantic_list_tools_omit_detail_query_parameter_by_default() -> None:
+def test_create_semantic_model_uses_v2_endpoint() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        assert request.method == "GET"
-        assert request.url.path == "/semantic/relationships"
-        assert dict(request.url.params) == {"status": "published"}
-        return httpx.Response(200, json={"items": []}, request=request)
+        assert request.method == "POST"
+        assert request.url.path == "/semantic-models"
+        body = request.read()
+        assert b'"name":"analytics_model"' in body
+        return httpx.Response(200, json={"name": "analytics_model"}, request=request)
 
-    result = _invoke_registered_tool("list_relationships", handler, status="published")
+    result = _invoke_registered_tool(
+        "create_semantic_model",
+        handler,
+        payload={"name": "analytics_model"},
+    )
 
     assert result["ok"] is True
-    assert result["data"] == {"items": []}
+    assert result["meta"]["marivo_path"] == "/semantic-models"
 
 
-def test_semantic_update_tools_send_only_canonical_body_fields() -> None:
-    cases: list[tuple[str, str, dict[str, object], dict[str, object]]] = [
-        (
-            "update_entity",
-            "/semantic/entities/ent_123",
-            {"entity_id": "ent_123", "display_name": "User", "description": "Updated"},
-            {"display_name": "User", "description": "Updated"},
-        ),
-        (
-            "update_metric",
-            "/semantic/metrics/met_123",
-            {"metric_id": "met_123", "payload": {"metric_family": "count_metric"}},
-            {"payload": {"metric_family": "count_metric"}},
-        ),
-        (
-            "update_process_object",
-            "/semantic/process-objects/proc_123",
-            {
-                "process_contract_id": "proc_123",
-                "interface_contract": {"contract_mode": "entity_stream"},
-            },
-            {"interface_contract": {"contract_mode": "entity_stream"}},
-        ),
-        (
-            "update_dimension",
-            "/semantic/dimensions/dim_123",
-            {
-                "dimension_contract_id": "dim_123",
-                "interface_contract": {"grouping": {"supports_grouping": True}},
-            },
-            {"interface_contract": {"grouping": {"supports_grouping": True}}},
-        ),
-        (
-            "update_time_semantic",
-            "/semantic/time/time_123",
-            {"time_contract_id": "time_123", "semantic_roles": ["business_anchor"]},
-            {"semantic_roles": ["business_anchor"]},
-        ),
-        (
-            "update_enum_set",
-            "/semantic/enum-sets/enum_123",
-            {"enum_set_contract_id": "enum_123", "display_name": "Country Code"},
-            {"display_name": "Country Code"},
-        ),
-        (
-            "update_compatibility_profile",
-            "/compiler/compatibility-profiles/cprof_123",
-            {
-                "profile_id": "cprof_123",
-                "capability": {"provided_process_refs": ["process.watch_events"]},
-            },
-            {"capability": {"provided_process_refs": ["process.watch_events"]}},
-        ),
-    ]
-
-    for tool_name, expected_path, tool_kwargs, expected_body_payload in cases:
-        expected_body = httpx.Request(
-            "PUT", "http://marivo.test", json=expected_body_payload
-        ).read()
-
-        def handler(
-            request: httpx.Request,
-            expected_path: str = expected_path,
-            expected_body: bytes = expected_body,
-            tool_name: str = tool_name,
-        ) -> httpx.Response:
-            assert request.method == "PUT"
-            assert request.url.path == expected_path
-            assert request.read() == expected_body
-            return httpx.Response(200, json={"tool": tool_name}, request=request)
-
-        result = _invoke_registered_tool(tool_name, handler, **tool_kwargs)
-
-        assert result["ok"] is True
-        assert result["meta"]["marivo_path"] == expected_path
-
-
-def test_semantic_publish_tools_use_canonical_publish_paths() -> None:
-    cases = [
-        ("publish_entity", "/semantic/entities/ent_123/publish", {"entity_id": "ent_123"}),
-        ("publish_metric", "/semantic/metrics/met_123/publish", {"metric_id": "met_123"}),
-        (
-            "publish_process_object",
-            "/semantic/process-objects/proc_123/publish",
-            {"process_contract_id": "proc_123"},
-        ),
-        (
-            "publish_dimension",
-            "/semantic/dimensions/dim_123/publish",
-            {"dimension_contract_id": "dim_123"},
-        ),
-        (
-            "publish_time_semantic",
-            "/semantic/time/time_123/publish",
-            {"time_contract_id": "time_123"},
-        ),
-        (
-            "publish_enum_set",
-            "/semantic/enum-sets/enum_123/publish",
-            {"enum_set_contract_id": "enum_123"},
-        ),
-        (
-            "publish_compatibility_profile",
-            "/compiler/compatibility-profiles/cprof_123/publish",
-            {"profile_id": "cprof_123"},
-        ),
-    ]
-
-    for tool_name, expected_path, tool_kwargs in cases:
-
-        def handler(
-            request: httpx.Request,
-            expected_path: str = expected_path,
-        ) -> httpx.Response:
-            assert request.method == "POST"
-            assert request.url.path == expected_path
-            assert request.read() == b""
-            return httpx.Response(200, json={"status": "published"}, request=request)
-
-        result = _invoke_registered_tool(tool_name, handler, **tool_kwargs)
-
-        assert result["ok"] is True
-        assert result["data"] == {"status": "published"}
-        assert result["meta"]["marivo_path"] == expected_path
-
-
-def test_semantic_lifecycle_tools_use_canonical_validate_activate_and_deprecate_paths() -> None:
-    cases = [
-        ("validate_entity", "/semantic/entities/ent_123/validate", {"entity_id": "ent_123"}),
-        ("activate_metric", "/semantic/metrics/met_123/activate", {"metric_id": "met_123"}),
-        (
-            "deprecate_process_object",
-            "/semantic/process-objects/proc_123/deprecate",
-            {"process_contract_id": "proc_123"},
-        ),
-        (
-            "validate_dimension",
-            "/semantic/dimensions/dim_123/validate",
-            {"dimension_contract_id": "dim_123"},
-        ),
-        (
-            "activate_time_semantic",
-            "/semantic/time/time_123/activate",
-            {"time_contract_id": "time_123"},
-        ),
-        (
-            "deprecate_enum_set",
-            "/semantic/enum-sets/enum_123/deprecate",
-            {"enum_set_contract_id": "enum_123"},
-        ),
-        (
-            "activate_compatibility_profile",
-            "/compiler/compatibility-profiles/cprof_123/activate",
-            {"profile_id": "cprof_123"},
-        ),
-    ]
-
-    for tool_name, expected_path, tool_kwargs in cases:
-
-        def handler(
-            request: httpx.Request,
-            expected_path: str = expected_path,
-        ) -> httpx.Response:
-            assert request.method == "POST"
-            assert request.url.path == expected_path
-            assert request.read() == b""
-            return httpx.Response(200, json={"path": expected_path}, request=request)
-
-        result = _invoke_registered_tool(tool_name, handler, **tool_kwargs)
-
-        assert result["ok"] is True
-        assert result["data"] == {"path": expected_path}
-        assert result["meta"]["marivo_path"] == expected_path
-
-
-def test_publish_errors_extract_message_and_code_from_structured_detail() -> None:
+def test_list_semantic_models_uses_v2_endpoint() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/semantic/entities/ent_123/publish"
-        return httpx.Response(
-            422,
-            json={
-                "detail": {
-                    "message": "Entity 'ent_123' is not in draft status (status=published).",
-                    "code": "publish_state_error",
-                    "category": "state",
-                }
-            },
-            request=request,
-        )
+        assert request.method == "GET"
+        assert request.url.path == "/semantic-models"
+        return httpx.Response(200, json=[{"name": "model_123"}], request=request)
+
+    result = _invoke_registered_tool("list_semantic_models", handler)
+
+    assert result["ok"] is True
+    assert result["data"] == [{"name": "model_123"}]
+
+
+def test_get_semantic_model_uses_v2_path() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        assert request.url.path == "/semantic-models/analytics"
+        return httpx.Response(200, json={"name": "analytics"}, request=request)
+
+    result = _invoke_registered_tool("get_semantic_model", handler, model="analytics")
+
+    assert result["ok"] is True
+    assert result["data"] == {"name": "analytics"}
+
+
+def test_delete_semantic_model_uses_v2_delete() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "DELETE"
+        assert request.url.path == "/semantic-models/old_model"
+        return httpx.Response(204, request=request)
+
+    result = _invoke_registered_tool("delete_semantic_model", handler, model="old_model")
+
+    assert result["ok"] is True
+
+
+def test_v2_dataset_crud_uses_model_scoped_paths() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path.startswith("/semantic-models/analytics/datasets")
+        return httpx.Response(200, json={"name": "events"}, request=request)
 
     result = _invoke_registered_tool(
-        "publish_entity",
+        "create_dataset",
         handler,
-        entity_id="ent_123",
+        model="analytics",
+        payload={"name": "events"},
     )
 
-    assert result["ok"] is False
-    assert result["status_code"] == 422
-    assert result["error"]["category"] == "validation"
-    assert result["error"]["message"] == (
-        "Entity 'ent_123' is not in draft status (status=published)."
-    )
-    assert result["error"]["code"] == "publish_state_error"
-    assert result["error"]["detail"] == {
-        "message": "Entity 'ent_123' is not in draft status (status=published).",
-        "code": "publish_state_error",
-        "category": "state",
-    }
+    assert result["ok"] is True
 
 
-def test_publish_compatibility_profile_preserves_not_found() -> None:
+def test_v2_metric_crud_uses_model_scoped_paths() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/compiler/compatibility-profiles/cprof_missing/publish"
-        return httpx.Response(404, json={"detail": "'cprof_missing' not found"}, request=request)
+        assert request.url.path == "/semantic-models/analytics/metrics/watch_time"
+        return httpx.Response(200, json={"name": "watch_time"}, request=request)
 
     result = _invoke_registered_tool(
-        "publish_compatibility_profile",
+        "get_metric",
         handler,
-        profile_id="cprof_missing",
+        model="analytics",
+        name="watch_time",
     )
 
-    assert result["ok"] is False
-    assert result["status_code"] == 404
-    assert result["error"]["category"] == "not_found"
+    assert result["ok"] is True
+    assert result["meta"]["marivo_path"] == "/semantic-models/analytics/metrics/watch_time"
+
+
+# ------------------------------------------------------------------
+# Datasource tests (fixed)
+# ------------------------------------------------------------------
 
 
 def test_list_datasources_uses_canonical_datasources_index() -> None:
@@ -1866,12 +1520,12 @@ def test_list_datasources_uses_canonical_datasources_index() -> None:
     assert result["meta"]["marivo_path"] == "/datasources"
 
 
-def test_create_datasource_uses_only_canonical_body_fields() -> None:
+def test_create_datasource_uses_policy_field() -> None:
     tool_kwargs = {
         "datasource_type": "duckdb",
         "display_name": "Analytics DuckDB",
         "connection": {"db_path": "/data/analytics.duckdb"},
-        "capabilities": {"supports_partitions": False},
+        "policy": {"allow_live_browse": True},
     }
     expected_body = httpx.Request("POST", "http://marivo.test", json=tool_kwargs).read()
 
@@ -1941,6 +1595,45 @@ def test_browse_columns_uses_live_columns_route() -> None:
     assert result["meta"]["marivo_path"] == "/datasources/ds_123/browse/columns"
 
 
+def test_browse_tables_uses_schema_name_query_param() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        assert request.url.path == "/datasources/ds_123/browse/tables"
+        assert request.url.params.get("schema_name") == "events"
+        return httpx.Response(200, json=[{"table_name": "watch_events"}], request=request)
+
+    result = _invoke_registered_tool(
+        "browse_tables",
+        handler,
+        datasource_id="ds_123",
+        schema_name="events",
+    )
+
+    assert result["ok"] is True
+
+
+def test_preview_table_uses_get_and_catalog_preview_path() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        assert request.url.path == "/datasources/ds_123/catalog/preview"
+        assert request.url.params.get("schema") == "events"
+        assert request.url.params.get("table") == "watch_events"
+        assert request.url.params.get("limit") == "50"
+        return httpx.Response(200, json={"rows": [{"id": 1}]}, request=request)
+
+    result = _invoke_registered_tool(
+        "preview_table",
+        handler,
+        datasource_id="ds_123",
+        schema="events",
+        table="watch_events",
+        limit=50,
+    )
+
+    assert result["ok"] is True
+    assert result["meta"]["marivo_path"] == "/datasources/ds_123/catalog/preview"
+
+
 def test_resolve_routing_uses_canonical_nested_payload() -> None:
     tool_kwargs = {
         "table_names": ["events.user_video_watch", "dimensions.video_metadata"],
@@ -1969,6 +1662,81 @@ def test_resolve_routing_uses_canonical_nested_payload() -> None:
     assert result["meta"]["marivo_path"] == "/routing/resolve"
 
 
+# ------------------------------------------------------------------
+# Governance tests
+# ------------------------------------------------------------------
+
+
+def test_create_policy_sends_canonical_body() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "POST"
+        assert request.url.path == "/policies"
+        body = request.read()
+        assert b'"name":"agg_only"' in body
+        assert b'"policy_type":"aggregate_only"' in body
+        return httpx.Response(200, json={"policy_id": "pol_123"}, request=request)
+
+    result = _invoke_registered_tool(
+        "create_policy",
+        handler,
+        name="agg_only",
+        policy_type="aggregate_only",
+        definition={"min_group_size": 10},
+    )
+
+    assert result["ok"] is True
+    assert result["meta"]["marivo_path"] == "/policies"
+
+
+# ------------------------------------------------------------------
+# Jobs tests
+# ------------------------------------------------------------------
+
+
+def test_submit_job_sends_canonical_body() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "POST"
+        assert request.url.path == "/jobs"
+        return httpx.Response(200, json={"job_id": "job_123", "status": "pending"}, request=request)
+
+    result = _invoke_registered_tool(
+        "submit_job",
+        handler,
+        session_id="sess_123",
+        job_type="semantic_model_import",
+        payload={"step_type": "import"},
+    )
+
+    assert result["ok"] is True
+    assert result["meta"]["marivo_path"] == "/jobs"
+
+
+# ------------------------------------------------------------------
+# Approvals tests
+# ------------------------------------------------------------------
+
+
+def test_approve_request_sends_reviewer_and_reason() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "POST"
+        assert request.url.path == "/approvals/req_123/approve"
+        assert request.read() == b'{"reviewer":"alice","reason":"Looks good"}'
+        return httpx.Response(
+            200, json={"request_id": "req_123", "status": "approved"}, request=request
+        )
+
+    result = _invoke_registered_tool(
+        "approve_request",
+        handler,
+        request_id="req_123",
+        reviewer="alice",
+        reason="Looks good",
+    )
+
+    assert result["ok"] is True
+    assert result["meta"]["marivo_path"] == "/approvals/req_123/approve"
+
+
 def _invoke_registered_tool(
     tool_name: str,
     handler: Any,
@@ -1992,32 +1760,3 @@ def _invoke_registered_tool(
         return cast("dict[str, Any]", server.tools[tool_name](**tool_kwargs))
     finally:
         tools_module_any.MarivoHttpClient = original_client
-
-
-def test_semantic_tool_accepts_object_id_alias() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/semantic/entities/entc_123"
-        return httpx.Response(200, json={"entity_contract_id": "entc_123"}, request=request)
-
-    result = _invoke_registered_tool("get_entity", handler, object_id="entc_123")
-
-    assert result["ok"] is True
-    assert result["data"]["entity_contract_id"] == "entc_123"
-
-
-def test_list_metrics_forwards_lifecycle_and_readiness_filters() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/semantic/metrics"
-        assert request.url.params["lifecycle_status"] == "active"
-        assert request.url.params["readiness_status"] == "ready"
-        return httpx.Response(200, json={"items": [], "total": 0}, request=request)
-
-    result = _invoke_registered_tool(
-        "list_metrics",
-        handler,
-        lifecycle_status="active",
-        readiness_status="ready",
-    )
-
-    assert result["ok"] is True
-    assert result["data"] == {"items": [], "total": 0}

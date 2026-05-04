@@ -11,14 +11,10 @@ _ParamList = list[_ParamScalar]
 _ParamValue = _ParamScalar | _ParamList
 
 _SEMANTIC_RESOURCE_PATHS = {
-    "entities": "/semantic/entities",
-    "metrics": "/semantic/metrics",
-    "process-objects": "/semantic/process-objects",
-    "dimensions": "/semantic/dimensions",
-    "time": "/semantic/time",
-    "enum-sets": "/semantic/enum-sets",
-    "relationships": "/semantic/relationships",
-    "compatibility-profiles": "/compiler/compatibility-profiles",
+    "models": "/semantic-models",
+    "datasets": "/semantic-models/{model}/datasets",
+    "relationships": "/semantic-models/{model}/relationships",
+    "metrics": "/semantic-models/{model}/metrics",
 }
 
 
@@ -61,14 +57,7 @@ def register_resources(
         http_paths=(
             "/openapi/index",
             "/datasources",
-            "/semantic/entities",
-            "/semantic/metrics",
-            "/semantic/process-objects",
-            "/semantic/dimensions",
-            "/semantic/time",
-            "/semantic/enum-sets",
-            "/semantic/relationships",
-            "/compiler/compatibility-profiles",
+            "/semantic-models",
         ),
     )
     def catalog_summary() -> dict[str, object]:
@@ -76,10 +65,7 @@ def register_resources(
         return {
             "openapi_index": _read_resource(client, "/openapi/index"),
             "datasources": _read_resource(client, "/datasources"),
-            "semantic": {
-                family: _read_resource(client, path)
-                for family, path in _SEMANTIC_RESOURCE_PATHS.items()
-            },
+            "semantic_models": _read_resource(client, "/semantic-models"),
         }
 
     @server.resource("marivo://sessions/{session_id}/state")
@@ -103,14 +89,10 @@ def register_resources(
     @_resource_metadata(
         http_method="GET",
         http_paths=(
-            "/semantic/entities",
-            "/semantic/metrics",
-            "/semantic/process-objects",
-            "/semantic/dimensions",
-            "/semantic/time",
-            "/semantic/enum-sets",
-            "/semantic/relationships",
-            "/compiler/compatibility-profiles",
+            "/semantic-models",
+            "/semantic-models/{model}/datasets",
+            "/semantic-models/{model}/relationships",
+            "/semantic-models/{model}/metrics",
         ),
     )
     def semantic_family(family: str) -> object:
