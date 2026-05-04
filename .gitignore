@@ -64,6 +64,7 @@ marivo.yaml
 .marivo/
 
 # Claude Code
+.mcp.json
 .claude/
 !.claude/skills/
 .claude/skills/*

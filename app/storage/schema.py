@@ -7,7 +7,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Literal
 
-METADATA_SCHEMA_VERSION = "metadata.osi_v2_additive.v1"
+METADATA_SCHEMA_VERSION = "metadata.osi_v2_additive.v2"
 METADATA_SCHEMA_MARKER_TABLE = "metadata_schema_marker"
 
 METADATA_DDL: list[str] = [
@@ -126,6 +126,7 @@ METADATA_DDL: list[str] = [
         name         TEXT NOT NULL,
         expression   TEXT NOT NULL,
         is_time      INTEGER NOT NULL DEFAULT 0,
+        is_dimension INTEGER NOT NULL DEFAULT 0,
         label        TEXT,
         description  TEXT,
         ai_context   TEXT,
