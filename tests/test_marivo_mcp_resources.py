@@ -60,7 +60,7 @@ def _build_config() -> Any:
     )
 
 
-def test_registers_t9_resources_and_scaffold_config_resource() -> None:
+def test_registers_resources_and_scaffold_config_resource() -> None:
     server = cast("Any", _FakeServer())
     register_resources(server, _build_config())
 
@@ -122,17 +122,17 @@ def test_proposition_context_resource_mirrors_canonical_http_body() -> None:
 def test_semantic_family_resource_reads_one_canonical_family_surface() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.method == "GET"
-        assert request.url.path == "/semantic/metrics"
+        assert request.url.path == "/semantic-models"
         assert dict(request.url.params) == {}
-        return httpx.Response(200, json=[{"metric_id": "met_123"}], request=request)
+        return httpx.Response(200, json=[{"name": "model_123"}], request=request)
 
     result = _invoke_registered_resource(
         "marivo://semantic/{family}",
         handler,
-        family="metrics",
+        family="models",
     )
 
-    assert result == [{"metric_id": "met_123"}]
+    assert result == [{"name": "model_123"}]
 
 
 def test_semantic_family_resource_rejects_unknown_families() -> None:
@@ -148,14 +148,7 @@ def test_catalog_summary_resource_aggregates_fixed_read_surfaces() -> None:
     responses = {
         "/openapi/index": {"revision": "rev_123", "paths": [{"path": "/sessions"}], "schemas": []},
         "/datasources": [{"datasource_id": "ds_123"}],
-        "/semantic/entities": [{"entity_id": "ent_123"}],
-        "/semantic/metrics": [{"metric_id": "met_123"}],
-        "/semantic/process-objects": [{"process_contract_id": "proc_123"}],
-        "/semantic/dimensions": [{"dimension_contract_id": "dim_123"}],
-        "/semantic/time": [{"time_contract_id": "time_123"}],
-        "/semantic/enum-sets": [{"enum_set_contract_id": "enum_123"}],
-        "/semantic/relationships": [{"relationship_id": "rel_123"}],
-        "/compiler/compatibility-profiles": [{"profile_id": "cprof_123"}],
+        "/semantic-models": [{"name": "model_123"}],
     }
     seen_paths: list[str] = []
 
@@ -168,28 +161,12 @@ def test_catalog_summary_resource_aggregates_fixed_read_surfaces() -> None:
     assert seen_paths == [
         "/openapi/index",
         "/datasources",
-        "/semantic/entities",
-        "/semantic/metrics",
-        "/semantic/process-objects",
-        "/semantic/dimensions",
-        "/semantic/time",
-        "/semantic/enum-sets",
-        "/semantic/relationships",
-        "/compiler/compatibility-profiles",
+        "/semantic-models",
     ]
     assert result == {
         "openapi_index": responses["/openapi/index"],
         "datasources": responses["/datasources"],
-        "semantic": {
-            "entities": responses["/semantic/entities"],
-            "metrics": responses["/semantic/metrics"],
-            "process-objects": responses["/semantic/process-objects"],
-            "dimensions": responses["/semantic/dimensions"],
-            "time": responses["/semantic/time"],
-            "enum-sets": responses["/semantic/enum-sets"],
-            "relationships": responses["/semantic/relationships"],
-            "compatibility-profiles": responses["/compiler/compatibility-profiles"],
-        },
+        "semantic_models": responses["/semantic-models"],
     }
 
 
