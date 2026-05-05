@@ -18,8 +18,6 @@ export const queryKeys = {
   datasourceCatalogPreview: (datasourceId?: string, schema?: string, table?: string) =>
     ["datasources", datasourceId, "catalog", "preview", schema, table] as const,
   jobs: (filters?: Record<string, string | undefined>) => ["jobs", filters ?? {}] as const,
-  policies: ["policies"] as const,
-  qualityRules: ["quality-rules"] as const,
   semanticList: (kind: string) => ["semantic", kind] as const,
   sessions: (filters?: Record<string, string | undefined>) => ["sessions", filters ?? {}] as const,
   sessionState: (sessionId?: string) => ["sessions", sessionId, "state"] as const,

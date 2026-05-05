@@ -85,9 +85,9 @@ def _setup(store: SQLiteMetadataStore) -> None:
     """Insert session, artifact, and finding into *store*."""
     store.execute(
         "INSERT INTO sessions "
-        "(session_id, goal, constraints_json, budget_json, policy_json, status) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        [_SESSION, "test replay recovery", "{}", "{}", "{}", "open"],
+        "(session_id, goal, constraints_json, budget_json, status) "
+        "VALUES (?, ?, ?, ?, ?)",
+        [_SESSION, "test replay recovery", "{}", "{}", "open"],
     )
     store.execute(
         "INSERT INTO artifacts "

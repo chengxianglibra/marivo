@@ -42,7 +42,6 @@ All resource IDs follow the pattern `{prefix}_{12-char hex}`:
 | `map_` | Semantic mapping |
 | `pol_` | Policy |
 | `qr_` | Quality rule |
-| `evt_` | Governance event |
 
 ### Timestamps
 
@@ -77,7 +76,6 @@ Runtime/catalog availability is gated by `lifecycle_status` and `readiness_statu
 | [Engines](engines.md) | `/engines` | Analytics engine registration and execution capability surfaces |
 | [Mappings](mappings.md) | `/mappings` | Operator-managed authority-to-execution projection for source-engine routing |
 | [Semantic Layer](semantic.md) | `/semantic-models` | OSI semantic models with dataset-native physical grounding |
-| [Governance](governance.md) | `/policies`, `/quality-rules`, `/governance` | Data policies and quality rules |
 | [Health & Observability](observability.md) | `/health`, `/metrics` | Service health and operational metrics |
 
 ## Additional Guides
@@ -97,26 +95,13 @@ Target-state step submission wire contracts live under `docs/api/`. Non-HTTP ana
 
 ### Sessions
 
-A **session** is the root analysis container. It carries descriptive task context, governance boundaries, lifecycle state, and the entry to the canonical session state surface. All analysis work — steps, evidence, plans — belongs to a session.
+A **session** is the root analysis container. It carries descriptive task context, lifecycle state, and the entry to the canonical session state surface. All analysis work — steps, evidence, plans — belongs to a session.
 
 ```json
 {
   "session_id": "sess_abc123",
   "goal": {
     "question": "Investigate watch time drop in Q1"
-  },
-  "governance": {
-    "policy_refs": [
-      {
-        "policy_id": "pol_aggregate_only",
-        "policy_version": "7"
-      }
-    ],
-    "budget": {
-      "max_scan_bytes": 500000000000,
-      "max_latency_sec": 120
-    },
-    "warnings": null
   },
   "lifecycle": {
     "status": "open",

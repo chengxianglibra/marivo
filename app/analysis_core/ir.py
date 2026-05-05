@@ -98,7 +98,6 @@ class IrInputSnapshot(TypedDict):
 
 
 class SharedEffectiveScope(TypedDict):
-    governance_policy_refs: list[str]
     carrier_row_filter_refs: list[str]
     request_scope_ref: NotRequired[str | None]
 

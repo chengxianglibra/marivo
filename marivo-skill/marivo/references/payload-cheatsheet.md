@@ -256,7 +256,7 @@ Required header fields:
 Required interface contract fields:
 
 - `expression`: a `PredicateAtom` or `PredicateConjunction`
-- `allowed_usage`: at least one of `metric_qualifier`, `carrier_row_filter`, `request_scope`, `governance_policy`
+- `allowed_usage`: at least one of `metric_qualifier`, `carrier_row_filter`, `request_scope`
 - `time_policy`: v1 only supports `non_time_only`
 
 Minimal example (simple equality filter):

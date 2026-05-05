@@ -225,13 +225,11 @@ class MySQLMetadataIntegrationTests(unittest.TestCase):
                 "{}",
                 "{}",
                 "{}",
-                "{}",
                 "open",
             ),
             (
                 f"sess_{uuid4().hex}",
                 "goal two",
-                "{}",
                 "{}",
                 "{}",
                 "{}",
@@ -242,10 +240,10 @@ class MySQLMetadataIntegrationTests(unittest.TestCase):
             """
             INSERT INTO sessions
                 (
-                    session_id, goal, constraints_json, budget_json, policy_json,
+                    session_id, goal, constraints_json, budget_json,
                     execution_identity_json, status
                 )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
             session_rows,
         )
@@ -273,7 +271,6 @@ class MySQLMetadataIntegrationTests(unittest.TestCase):
             "datasource_type",
             "display_name",
             "connection_json",
-            "policy_json",
             "status",
             "created_at",
             "updated_at",
@@ -285,7 +282,6 @@ class MySQLMetadataIntegrationTests(unittest.TestCase):
                 source_id,
                 "duckdb",
                 "first",
-                "{}",
                 "{}",
                 "active",
                 "2026-01-01 00:00:00",
@@ -299,7 +295,6 @@ class MySQLMetadataIntegrationTests(unittest.TestCase):
                 source_id,
                 "duckdb",
                 "second",
-                "{}",
                 "{}",
                 "active",
                 "2026-01-02 00:00:00",
@@ -358,12 +353,12 @@ class MySQLMetadataIntegrationTests(unittest.TestCase):
             """
             INSERT INTO sessions
                 (
-                    session_id, goal, constraints_json, budget_json, policy_json,
+                    session_id, goal, constraints_json, budget_json,
                     execution_identity_json, status
                 )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
-            [session_id, "integration", "{}", "{}", "{}", "{}", "open"],
+            [session_id, "integration", "{}", "{}", "{}", "open"],
         )
         self.store.execute(
             """
@@ -442,12 +437,12 @@ class MySQLMetadataIntegrationTests(unittest.TestCase):
             """
             INSERT INTO sessions
                 (
-                    session_id, goal, constraints_json, budget_json, policy_json,
+                    session_id, goal, constraints_json, budget_json,
                     execution_identity_json, status
                 )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
-            [session_id, "rollback", "{}", "{}", "{}", "{}", "open"],
+            [session_id, "rollback", "{}", "{}", "{}", "open"],
         )
 
         service = SemanticLayerService(self.store, MagicMock(spec=AnalyticsEngine))

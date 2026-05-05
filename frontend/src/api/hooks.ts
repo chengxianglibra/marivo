@@ -128,20 +128,6 @@ export function useJobs(filters?: { session_id?: string; status?: string }) {
   });
 }
 
-export function usePolicies() {
-  return useQuery({
-    queryKey: queryKeys.policies,
-    queryFn: async () => unwrapList(await apiClient.get("/policies")),
-  });
-}
-
-export function useQualityRules() {
-  return useQuery({
-    queryKey: queryKeys.qualityRules,
-    queryFn: async () => unwrapList(await apiClient.get("/quality-rules")),
-  });
-}
-
 export function useSemanticList(kind: (typeof semanticKinds)[number]) {
   return useQuery({
     queryKey: queryKeys.semanticList(kind.key),

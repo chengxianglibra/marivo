@@ -31,7 +31,6 @@ class DuckDBStore:
                     goal TEXT NOT NULL,
                     constraints_json TEXT NOT NULL,
                     budget_json TEXT NOT NULL,
-                    policy_json TEXT NOT NULL,
                     status TEXT NOT NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );

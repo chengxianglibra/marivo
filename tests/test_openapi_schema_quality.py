@@ -13,7 +13,6 @@ SCOPED_PATH_PREFIXES = (
     "/routing",  # fully typed, GREEN
     "/policies",
     "/quality-rules",
-    "/governance",
     "/calendar",
 )
 

@@ -131,7 +131,6 @@ PredicateUsage = Literal[
     "metric_qualifier",  # Metric business predicates (qualifier_refs, default_predicate_refs)
     "carrier_row_filter",  # Carrier consumption invariants (row_filter_refs)
     "request_scope",  # Per-request non-time narrowing (scope.predicate)
-    "governance_policy",  # Governance/privacy/compliance filters
 ]
 PredicateTimePolicy = Literal["non_time_only"]
 PredicateOperator = Literal[

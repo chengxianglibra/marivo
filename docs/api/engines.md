@@ -334,7 +334,7 @@ the full authority locator FQN.
 | `requested_dimensions` | array[string] | Dimensions requested in the step |
 | `compatible_dimensions` | array[string] | Dimensions supported by the metric |
 | `legal_grains` | array[string] | Acceptable time grains |
-| `policy_hints` | array[string] | Governance policy hints |
+| `policy_hints` | array[string] | Policy hints |
 
 ### Response
 

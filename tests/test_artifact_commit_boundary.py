@@ -50,9 +50,9 @@ def _make_store() -> SQLiteMetadataStore:
     store.initialize()
     store.execute(
         "INSERT INTO sessions "
-        "(session_id, goal, constraints_json, budget_json, policy_json, status) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        [_SESSION_ID, "commit boundary test", "{}", "{}", "{}", "open"],
+        "(session_id, goal, constraints_json, budget_json, status) "
+        "VALUES (?, ?, ?, ?, ?)",
+        [_SESSION_ID, "commit boundary test", "{}", "{}", "open"],
     )
     return store
 
@@ -70,9 +70,9 @@ def _make_failing_finding_store() -> _FailFindingInsertSQLiteStore:
     store.initialize()
     store.execute(
         "INSERT INTO sessions "
-        "(session_id, goal, constraints_json, budget_json, policy_json, status) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        [_SESSION_ID, "commit boundary test", "{}", "{}", "{}", "open"],
+        "(session_id, goal, constraints_json, budget_json, status) "
+        "VALUES (?, ?, ?, ?, ?)",
+        [_SESSION_ID, "commit boundary test", "{}", "{}", "open"],
     )
     return store
 

@@ -673,7 +673,6 @@ def _metadata_template_valid(db_path: Path) -> bool:
         and {
             "datasource_type",
             "connection_json",
-            "policy_json",
         }.issubset(datasource_columns)
         and {
             "execution_identity_json",

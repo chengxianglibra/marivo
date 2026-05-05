@@ -57,7 +57,6 @@ def register_datasource(payload: DatasourceRegisterRequest, request: Request) ->
                 datasource_type=payload.datasource_type,
                 display_name=payload.display_name,
                 connection=payload.connection.model_dump(exclude={"datasource_type"}),
-                policy=payload.policy.model_dump(),
             )
         )
     except (ValueError, KeyError) as error:
@@ -97,7 +96,6 @@ def update_datasource(
                 connection=payload.connection.model_dump(exclude={"datasource_type"})
                 if payload.connection is not None
                 else None,
-                policy=payload.policy.model_dump() if payload.policy else None,
             )
         )
     except (ValueError, KeyError) as error:

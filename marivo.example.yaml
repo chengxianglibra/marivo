@@ -35,9 +35,6 @@ observability:
   log_level: INFO
   metrics_enabled: true
 
-governance:
-  enabled: true
-
 # Optional calendar configuration for calendar alignment.
 #
 # calendar:

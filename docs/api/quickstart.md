@@ -176,15 +176,6 @@ curl -s -X POST http://localhost:8000/sessions \
   -d '{
     "goal": {
       "question": "Investigate revenue movement in January 2026"
-    },
-    "governance": {
-      "budget": {
-        "max_scan_bytes": 100000000000,
-        "max_latency_sec": 60
-      },
-      "warnings": [
-        "Initial quickstart session"
-      ]
     }
   }' | jq .
 ```

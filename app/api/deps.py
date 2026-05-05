@@ -8,7 +8,6 @@ from fastapi import HTTPException, Request
 
 from app.config import MarivoConfig
 from app.datasources import DatasourceService
-from app.governance import GovernanceService
 from app.observability import MetricsCollector
 from app.routing import QueryRouter
 from app.semantic_service_v2.service import SemanticModelV2Service
@@ -26,19 +25,12 @@ class AppServices:
     query_router: QueryRouter
     metadata_store: MetadataStore
     analytics_engine: AnalyticsEngine
-    governance_service: GovernanceService | None
     metrics: MetricsCollector | None
     semantic_v2_service: SemanticModelV2Service
 
 
 def get_services(request: Request) -> AppServices:
     return cast("AppServices", request.app.state.services)
-
-
-def require_governance(services: AppServices) -> GovernanceService:
-    if services.governance_service is None:
-        raise HTTPException(status_code=400, detail="Governance is disabled")
-    return services.governance_service
 
 
 def http_error(error: KeyError | ValueError) -> HTTPException:

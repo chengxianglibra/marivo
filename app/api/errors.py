@@ -17,9 +17,6 @@ _DOCS_BY_PATH_PREFIX: tuple[tuple[str, str], ...] = (
     ("/sources/", "docs/api/sources.md"),
     ("/engines/", "docs/api/engines.md"),
     ("/mappings/", "docs/api/mappings.md"),
-    ("/governance/", "docs/api/governance.md"),
-    ("/policies/", "docs/api/governance.md"),
-    ("/quality-rules/", "docs/api/governance.md"),
 )
 
 _GUIDED_EXAMPLES: dict[tuple[str, str], list[dict[str, Any]]] = {

@@ -184,14 +184,6 @@ class LoadConfigTests(unittest.TestCase):
             with self.assertRaises(Exception):
                 load_config(Path(f.name))
 
-    def test_load_defaults_governance_when_ui_block_absent(self) -> None:
-        with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
-            f.write("observability:\n  log_level: INFO\n")
-            f.flush()
-            cfg = load_config(Path(f.name))
-
-        self.assertTrue(cfg.governance.enabled)
-
 
 class EnsureDatasourceTests(unittest.TestCase):
     def setUp(self) -> None:

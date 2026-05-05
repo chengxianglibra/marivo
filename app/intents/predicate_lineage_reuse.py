@@ -30,7 +30,6 @@ _VALID_LINEAGE_KEYS: frozenset[str] = frozenset(
 
 _SHARED_SCOPE_KEYS: frozenset[str] = frozenset(
     {
-        "governance_policy_refs",
         "carrier_row_filter_refs",
         "request_scope_ref",
     }

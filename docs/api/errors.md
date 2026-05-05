@@ -174,21 +174,6 @@ Optional fields that may appear on step-submission errors:
 {"detail": "Cannot execute plan in 'draft' status. Plan must be approved."}
 ```
 
-### Governance Violation (400)
-
-```json
-{
-  "detail": "Step blocked by governance policy",
-  "violations": [
-    {
-      "policy_name": "no_raw_pii",
-      "policy_type": "aggregate_only",
-      "message": "Step type 'sample_rows' is disallowed on table events.user_video_watch"
-    }
-  ]
-}
-```
-
 ### Routing Failure (400)
 
 ```json

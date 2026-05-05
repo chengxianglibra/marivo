@@ -82,10 +82,6 @@ class SessionAPITests(unittest.TestCase):
         self.assertIsNone(data["lifecycle"]["terminal_reason"])
         self.assertIsNone(data["lifecycle"]["ended_at"])
         self.assertIsNone(data["lifecycle"]["rollover_from_session_id"])
-        # governance present
-        self.assertIn("governance", data)
-        self.assertIn("budget", data["governance"])
-        self.assertIn("warnings", data["governance"])
         self.assertEqual(data["execution_identity"], {})
         # state_summary entry handle
         self.assertIn("state_summary", data)
@@ -182,7 +178,6 @@ class SessionAPITests(unittest.TestCase):
             self.assertIn("goal", s)
             self.assertIn("question", s["goal"])
             self.assertIn("scope", s)
-            self.assertIn("governance", s)
             self.assertIn("execution_identity", s)
             self.assertIn("state_summary", s)
             self.assertEqual(s["schema_version"], "analysis_session.v1")

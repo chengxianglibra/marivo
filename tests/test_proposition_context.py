@@ -62,9 +62,9 @@ def _make_repos(store: SQLiteMetadataStore) -> dict[str, Any]:
 def _insert_session(store: SQLiteMetadataStore, session_id: str) -> None:
     store.execute(
         "INSERT INTO sessions "
-        "(session_id, goal, constraints_json, budget_json, policy_json, status) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        [session_id, "test context surface", "{}", "{}", "{}", "open"],
+        "(session_id, goal, constraints_json, budget_json, status) "
+        "VALUES (?, ?, ?, ?, ?)",
+        [session_id, "test context surface", "{}", "{}", "open"],
     )
 
 

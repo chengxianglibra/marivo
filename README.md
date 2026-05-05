@@ -4,7 +4,7 @@ Stateful sessions, semantic discovery, typed analysis steps, deterministic evide
 
 ## Features
 
-- **FastAPI service**: sessions, typed intents, semantic catalog, source/engine registries, bindings with routing, governance, async jobs, observability
+- **FastAPI service**: sessions, typed intents, semantic catalog, source/engine registries, bindings with routing, async jobs, observability
 - **Evidence packaging**: observations (5 types), claims with confidence/inference_level (L0–L5), evidence edges, recommendations with causal_basis
 - **Readiness signal**: 5-dimensional readiness + suggested_action + live_claims after each typed analysis step
 - **Causal checkers**: deterministic inference-level upgrades
@@ -62,14 +62,6 @@ scripts, OpenAPI type generation, tests, and v1 boundaries.
 metadata:
   engine: sqlite
   path: data/marivo.meta.sqlite
-
-governance:
-  enabled: true
-  policies:
-    - name: "Mask PII"
-      type: field_mask
-      definition: { fields: ["email", "phone"] }
-      scope: { all: true }
 
 ```
 
@@ -130,7 +122,6 @@ curl -s http://127.0.0.1:8000/sessions/<id>/state | python3 -m json.tool
 | Mappings | `POST/GET/PUT/DELETE /mappings`, `POST /routing/resolve` |
 | Semantic | `POST/GET/PUT /semantic/entities|metrics|process-objects|dimensions|time|enum-sets|bindings`, `POST .../publish`, `/compiler/compatibility-profiles` |
 | Catalog | `GET /catalog/search`, `GET /semantic/resolve/{name}`, `GET /catalog/graph` |
-| Governance | `/policies`, `/quality-rules`, `POST /governance/check` |
 | Jobs | `POST/GET /jobs`, `POST /jobs/{id}/cancel` |
 | Observability | `GET /metrics`, `GET /health` |
 

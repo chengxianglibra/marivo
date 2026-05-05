@@ -239,7 +239,7 @@ Smoke-test guardrails:
 - if grouped `observe` fails, inspect whether the observed entity exposes the requested `dimension.*` and whether any required relationship/profile is present
 - do not repair relationship/profile failures by adding SQL or generic rule fields; fix entity fields,
   relationship alignment, or profile requirements instead
-- if failure metadata names type, grain, time, or governance blockers, fix the semantic contract or profile that owns that requirement; do not add physical grounding fields to the intent or metric
+- if failure metadata names type, grain, time, or policy blockers, fix the semantic contract or profile that owns that requirement; do not add physical grounding fields to the intent or metric
 - treat a successful resolve plus catalog readiness as necessary but not sufficient; the smoke test is what proves the evidence engine can consume the object graph
 
 For structured time-window rules and `422` repair flow, read `http-contracts.md` instead of expanding those rules here.

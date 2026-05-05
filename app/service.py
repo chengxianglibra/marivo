@@ -79,7 +79,6 @@ from app.time_scope import (
 )
 
 if TYPE_CHECKING:
-    from app.governance import GovernanceService
     from app.observability import MetricsCollector
     from app.routing import QueryRouter
 
@@ -239,7 +238,6 @@ class SemanticLayerService:
         analytics_engine: AnalyticsEngine,
         query_router: QueryRouter | None = None,
         config: MarivoConfig | None = None,
-        governance: GovernanceService | None = None,
         metrics: MetricsCollector | None = None,
     ) -> None:
         self.metadata = metadata_store
@@ -247,7 +245,6 @@ class SemanticLayerService:
         self.config = config or MarivoConfig()
         self._query_router = query_router
         self.calendar_data_reader: CalendarDataReader | None = None
-        self.governance = governance
         self.metrics = metrics
         self.session_manager = SessionManager(metadata_store)
         self.step_registry = build_service_step_registry(self)
@@ -283,7 +280,6 @@ class SemanticLayerService:
         self._inference_record_repo = InferenceRecordRepository(metadata_store)
         self._proposal_repo = ActionProposalRepository(metadata_store)
         self._step_metadata_repo = StepMetadataRepository(metadata_store)
-        self._governance_context: dict[str, Any] | None = None
         self._routing_feedback_context: dict[str, Any] | None = None
         self.routing_runtime = RoutingRuntime(query_router, analytics_engine)
         self.workflow_orchestrator = WorkflowOrchestrator(
@@ -316,7 +312,6 @@ class SemanticLayerService:
         goal: str,
         constraints: dict[str, Any] | None = None,
         budget: dict[str, Any] | None = None,
-        policy: dict[str, Any] | list[dict[str, Any]] | None = None,
         execution_identity: dict[str, Any] | None = None,
         raw_filter: str | None = None,
     ) -> dict[str, Any]:
@@ -324,7 +319,6 @@ class SemanticLayerService:
         return self.session_manager.create_session(
             goal,
             budget=budget or {},
-            policy=policy or {},
             execution_identity=execution_identity or {},
         )
 
@@ -472,16 +466,11 @@ class SemanticLayerService:
                 asset["row_count"] = None
             assets.append(asset)
 
-        # Policies — from governance service if available
-        policies: list[str] = []
-        if self.governance:
-            for pol in self.governance.list_policies(enabled_only=True):
-                policies.append(f"{pol['policy_type']}: {pol['name']}")
-        if not policies:
-            policies = [
-                "Results are aggregate-only in the MVP.",
-                "Evidence graph keeps support and contradiction links for every claim.",
-            ]
+        # Policies
+        policies = [
+            "Results are aggregate-only in the MVP.",
+            "Evidence graph keeps support and contradiction links for every claim.",
+        ]
 
         return {
             "entities": entities,
@@ -495,26 +484,9 @@ class SemanticLayerService:
     ) -> dict[str, Any]:
         self._assert_session_exists(session_id)
         normalized = step_type.strip().lower()
-        governance_result: dict[str, Any] | None = None
-
-        # Governance check
-        if self.governance:
-            governance_params = dict(params or {})
-            tables = self._governance_tables(normalized, governance_params)
-            if len(tables) == 1 and not governance_params.get("table_name"):
-                governance_params["table_name"] = tables[0]
-            governance_result = self.governance.check_step(
-                session_id,
-                normalized,
-                governance_params if governance_params else None,
-                tables=tables or None,
-            )
-            if not governance_result["passed"]:
-                raise ValueError(f"Governance check failed: {governance_result['violations']}")
 
         start = time.perf_counter()
         try:
-            self._governance_context = governance_result
             self._routing_feedback_context = None
             result = self.step_registry.run(session_id, normalized, params)
         except KeyError as error:
@@ -523,7 +495,6 @@ class SemanticLayerService:
                 f"Unsupported step type: {step_type}. Available: {available}"
             ) from error
         finally:
-            self._governance_context = None
             self._routing_feedback_context = None
         duration_ms = (time.perf_counter() - start) * 1000
 
@@ -534,14 +505,6 @@ class SemanticLayerService:
                 engine=result.get("provenance", {}).get("engine"),
                 stage="executor",
             )
-
-        if governance_result:
-            result["governance"] = {
-                "decisions": governance_result.get("decisions", []),
-                "transforms": governance_result.get("transforms", {}),
-                "hard_constraints": governance_result.get("hard_constraints", []),
-                "soft_signals": governance_result.get("soft_signals", []),
-            }
 
         result["constraints_applied"] = self._build_constraints_applied(session_id, normalized)
 
@@ -1189,11 +1152,6 @@ class SemanticLayerService:
         )
         if self.calendar_data_reader is not None:
             effective_semantic_context.setdefault("calendar_data_reader", self.calendar_data_reader)
-        # governance_repository is intentionally NOT injected here.
-        # Intent execution (run_intent) does not enforce governance row-filters,
-        # so freezing governance_policy_refs into lineage would create a false
-        # audit trail.  Wire governance enforcement into the intent path first,
-        # then inject governance_repository to populate the lineage.
         try:
             compiled = compile_step(
                 step,
@@ -2859,22 +2817,9 @@ class SemanticLayerService:
             "timestamp": datetime.now(UTC).isoformat(),
             "param_count": len(params) if params else 0,
         }
-        if self._governance_context:
-            provenance["governance"] = {
-                "decisions": self._governance_context.get("decisions", []),
-                "transforms": self._governance_context.get("transforms", {}),
-                "hard_constraints": self._governance_context.get("hard_constraints", []),
-                "soft_signals": self._governance_context.get("soft_signals", []),
-            }
         if self._routing_feedback_context:
             provenance["routing"] = dict(self._routing_feedback_context)
         return provenance
-
-    def _governance_tables(self, step_type: str, params: dict[str, Any]) -> list[str]:
-        table_name = params.get("table_name") or params.get("table")
-        if table_name:
-            return [str(table_name)]
-        return []
 
     def _insert_step(
         self,

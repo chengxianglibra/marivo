@@ -3,18 +3,15 @@
 Signal vs Decision design principle
 -------------------------------------
 Marivo returns **signals** (canonical evidence: findings, propositions,
-assessments, action proposals) and enforces **decisions** (governance
-constraints, budget limits). Agents retain full control over what to do
-with signals; governance decisions are hard stops that Marivo enforces on
-behalf of the operator.
+assessments, action proposals) and enforces **decisions** (budget limits).
+Agents retain full control over what to do with signals; budget decisions
+are hard stops that Marivo enforces on behalf of the operator.
 
 Session constraints summary:
 - constraints : Scalar key/value filters injected into step WHERE clauses.
                 Signal-shaping input — narrows the analysis scope.
 - budget      : Hard resource limits (scan bytes, latency).
                 System-enforced decision — steps that exceed budget are blocked.
-- policy      : Governance rules (aggregate_only, min_group_size).
-                System-enforced decision — violations block step execution.
 """
 
 from __future__ import annotations
@@ -35,13 +32,6 @@ from app.time_contracts import normalize_hour_boundary
 # =============================================================================
 # Datasource models
 # =============================================================================
-
-
-class DatasourcePolicyPayload(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    allow_live_browse: bool = True
-    allow_identity_reuse: bool = False
 
 
 class DuckDbDatasourceConnection(BaseModel):
@@ -77,7 +67,6 @@ class DatasourceRegisterRequest(BaseModel):
     datasource_type: Literal["duckdb", "trino"]
     display_name: str
     connection: DatasourceConnection
-    policy: DatasourcePolicyPayload = Field(default_factory=DatasourcePolicyPayload)
 
     @model_validator(mode="before")
     @classmethod
@@ -97,14 +86,6 @@ class DatasourceUpdateRequest(BaseModel):
         default=None,
         description="Full connection object including datasource_type; required when provided.",
     )
-    policy: DatasourcePolicyPayload | None = None
-
-
-class DatasourcePolicyResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    allow_live_browse: bool = True
-    allow_identity_reuse: bool = False
 
 
 class DatasourceResponse(BaseModel):
@@ -114,7 +95,6 @@ class DatasourceResponse(BaseModel):
     datasource_type: Literal["duckdb", "trino"]
     display_name: str
     connection: DatasourceConnection
-    policy: DatasourcePolicyResponse
     status: Literal["active", "inactive", "deprecated"] = "active"
     readiness_status: Literal["not_ready", "ready"] = "not_ready"
     failure_code: str | None = None
@@ -320,231 +300,6 @@ class RouteResolveResponse(BaseModel):
         default=None,
         description="Capability profile of the resolved engine when routing succeeds.",
     )
-
-
-# =============================================================================
-# Sync / Policy / Quality / Governance / Job / Approval models
-# =============================================================================
-
-
-# --- Policy models ---
-
-
-class AggregateOnlyDefinition(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    policy_type: Literal["aggregate_only"]
-    min_group_size: int | None = None
-
-
-class FieldMaskDefinition(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    policy_type: Literal["field_mask"]
-    columns: list[str]
-    mask_value: str = "***"
-
-
-class RowFilterDefinition(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    policy_type: Literal["row_filter"]
-    filter_expr: str
-    reason: str = ""
-
-
-class MaxRowsDefinition(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    policy_type: Literal["max_rows"]
-    limit: int
-
-
-PolicyDefinition = Annotated[
-    AggregateOnlyDefinition | FieldMaskDefinition | RowFilterDefinition | MaxRowsDefinition,
-    Field(discriminator="policy_type"),
-]
-
-
-class PolicyScope(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    tables: list[str] | None = None
-    sources: list[str] | None = None
-    step_types: list[str] | None = None
-
-
-class PolicyCreateRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    name: str
-    policy_type: Literal["aggregate_only", "field_mask", "row_filter", "max_rows"]
-    definition: PolicyDefinition
-    scope: PolicyScope = Field(default_factory=PolicyScope)
-
-    @model_validator(mode="before")
-    @classmethod
-    def _inject_type_into_definition(cls, data: Any) -> Any:
-        if isinstance(data, dict) and "policy_type" in data:
-            defn = data.get("definition")
-            if isinstance(defn, dict) and "policy_type" not in defn:
-                data["definition"] = {**defn, "policy_type": data["policy_type"]}
-        return data
-
-
-class PolicyUpdateRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    enabled: bool | None = None
-    definition: PolicyDefinition | None = None
-
-    @model_validator(mode="before")
-    @classmethod
-    def _inject_type_into_definition(cls, data: Any) -> Any:
-        # When updating, callers may omit policy_type on definition if it's clear from context.
-        # Accept dicts that already have policy_type; do not inject from unknown context here.
-        return data
-
-
-class PolicyResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    policy_id: str
-    name: str
-    policy_type: Literal["aggregate_only", "field_mask", "row_filter", "max_rows"]
-    definition: PolicyDefinition
-    scope: PolicyScope
-    enabled: bool = True
-    created_at: str = ""
-    updated_at: str = ""
-
-    @model_validator(mode="before")
-    @classmethod
-    def _inject_type_into_definition(cls, data: Any) -> Any:
-        if isinstance(data, dict) and "policy_type" in data:
-            defn = data.get("definition")
-            if isinstance(defn, dict) and "policy_type" not in defn:
-                data["definition"] = {**defn, "policy_type": data["policy_type"]}
-            sc = data.get("scope")
-            if sc is None:
-                data["scope"] = {}
-        return data
-
-
-class PolicyDeleteResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    status: Literal["deleted"]
-    policy_id: str
-
-
-# --- Quality rule models ---
-
-
-class FreshnessThreshold(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    rule_type: Literal["freshness"]
-    max_age_hours: int
-
-
-class NullRateThreshold(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    rule_type: Literal["null_rate"]
-    column: str
-    max_null_rate: float
-
-
-class RowCountMinThreshold(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    rule_type: Literal["row_count_min"]
-    min_rows: int
-
-
-QualityRuleThreshold = Annotated[
-    FreshnessThreshold | NullRateThreshold | RowCountMinThreshold,
-    Field(discriminator="rule_type"),
-]
-
-
-class QualityRuleCreateRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    name: str
-    rule_type: Literal["freshness", "null_rate", "row_count_min"]
-    table_name: str
-    threshold: QualityRuleThreshold
-    severity: Literal["warn", "error"] = "warn"
-
-    @model_validator(mode="before")
-    @classmethod
-    def _inject_type_into_threshold(cls, data: Any) -> Any:
-        if isinstance(data, dict) and "rule_type" in data:
-            thresh = data.get("threshold")
-            if isinstance(thresh, dict) and "rule_type" not in thresh:
-                data["threshold"] = {**thresh, "rule_type": data["rule_type"]}
-        return data
-
-
-class QualityRuleResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    rule_id: str
-    name: str
-    rule_type: Literal["freshness", "null_rate", "row_count_min"]
-    table_name: str
-    threshold: QualityRuleThreshold
-    severity: Literal["warn", "error"] = "warn"
-    enabled: bool = True
-    created_at: str = ""
-    updated_at: str = ""
-
-    @model_validator(mode="before")
-    @classmethod
-    def _inject_type_into_threshold(cls, data: Any) -> Any:
-        if isinstance(data, dict) and "rule_type" in data:
-            thresh = data.get("threshold")
-            if isinstance(thresh, dict) and "rule_type" not in thresh:
-                data["threshold"] = {**thresh, "rule_type": data["rule_type"]}
-        return data
-
-
-class QualityRuleDeleteResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    status: Literal["deleted"]
-    rule_id: str
-
-
-# --- Governance check models ---
-
-
-class GovernanceCheckRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    session_id: str
-    step_type: str
-    params: dict[str, str | int | float | bool | None] = Field(default_factory=dict)
-
-
-class GovernanceViolation(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    policy_id: str
-    policy_name: str
-    policy_type: str
-    message: str
-
-
-class GovernanceWarning(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    policy_id: str
-    policy_name: str
-    message: str
-
-
-class GovernanceCheckResponse(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-
-    passed: bool
-    violations: list[GovernanceViolation] = Field(default_factory=list)
-    warnings: list[GovernanceWarning] = Field(default_factory=list)
 
 
 # =============================================================================
@@ -842,7 +597,7 @@ class PlanPatchRequest(BaseModel):
 
     Agents submit patches to add steps, modify step params, or skip steps.
     The plan is reset to 'draft', the patch applied, and the plan re-validated
-    (which may auto-approve if no governance/budget issues are found).
+    (which may auto-approve if no budget issues are found).
     """
 
     add_steps: list[dict[str, Any]] = Field(

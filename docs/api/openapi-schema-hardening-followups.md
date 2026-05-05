@@ -12,7 +12,6 @@ covered by the scoped quality gate:
 
 - datasources (`/datasources/**`)
 - routing (`/routing/**`)
-- governance (`/policies/**`, `/quality-rules/**`, `/governance/**`)
 - jobs (`/jobs/**`)
 - calendar (`/calendar/**`)
 
@@ -42,14 +41,12 @@ The following remain outside the quality gate and are deferred to Wave 5:
 
 1. Datasources and routing, because they are foundational setup surfaces for
    agents.
-2. Governance, because agents need clear policy and decision
-   contracts.
-3. Jobs and metrics, because they expose operational state.
-4. Calendar, because the data model is already mostly typed and should be
+2. Jobs and metrics, because they expose operational state.
+3. Calendar, because the data model is already mostly typed and should be
    straightforward to close.
-5. `/catalog` legacy/stub routes, after deciding whether each route remains
+4. `/catalog` legacy/stub routes, after deciding whether each route remains
    public.
-6. `/openapi/*` meta routes, after the primary API surface is stable.
+5. `/openapi/*` meta routes, after the primary API surface is stable.
 
 ## Exit Criteria For Future Global Enforcement
 

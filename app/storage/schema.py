@@ -18,7 +18,6 @@ METADATA_DDL: list[str] = [
         goal                     TEXT NOT NULL,
         constraints_json         TEXT NOT NULL,
         budget_json              TEXT NOT NULL,
-        policy_json              TEXT NOT NULL,
         execution_identity_json  TEXT NOT NULL DEFAULT '{}',
         status                   TEXT NOT NULL,
         raw_filter               TEXT,
@@ -75,7 +74,6 @@ METADATA_DDL: list[str] = [
         datasource_type TEXT NOT NULL,
         display_name    TEXT NOT NULL,
         connection_json TEXT NOT NULL DEFAULT '{}',
-        policy_json     TEXT NOT NULL DEFAULT '{}',
         status          TEXT NOT NULL DEFAULT 'active',
         created_at      TEXT NOT NULL,
         updated_at      TEXT NOT NULL
@@ -741,46 +739,6 @@ METADATA_DDL: list[str] = [
         steps_json      TEXT NOT NULL DEFAULT '[]',
         created_at      TEXT NOT NULL,
         updated_at      TEXT NOT NULL
-    )
-    """,
-    # -- Governance policies --
-    """
-    CREATE TABLE IF NOT EXISTS policies (
-        policy_id       TEXT PRIMARY KEY,
-        name            TEXT NOT NULL UNIQUE,
-        policy_type     TEXT NOT NULL,
-        definition_json TEXT NOT NULL,
-        scope_json      TEXT NOT NULL DEFAULT '{}',
-        enabled         INTEGER NOT NULL DEFAULT 1,
-        created_at      TEXT NOT NULL,
-        updated_at      TEXT NOT NULL
-    )
-    """,
-    # -- Quality rules --
-    """
-    CREATE TABLE IF NOT EXISTS quality_rules (
-        rule_id         TEXT PRIMARY KEY,
-        name            TEXT NOT NULL UNIQUE,
-        rule_type       TEXT NOT NULL,
-        table_name      TEXT NOT NULL,
-        threshold_json  TEXT NOT NULL,
-        severity        TEXT NOT NULL DEFAULT 'warn',
-        enabled         INTEGER NOT NULL DEFAULT 1,
-        created_at      TEXT NOT NULL,
-        updated_at      TEXT NOT NULL
-    )
-    """,
-    # -- Governance audit events --
-    """
-    CREATE TABLE IF NOT EXISTS governance_events (
-        event_id        TEXT PRIMARY KEY,
-        session_id      TEXT,
-        subject_type    TEXT NOT NULL,
-        subject_id      TEXT,
-        event_type      TEXT NOT NULL,
-        actor           TEXT NOT NULL DEFAULT 'system',
-        detail_json     TEXT NOT NULL DEFAULT '{}',
-        created_at      TEXT NOT NULL
     )
     """,
     # -------------------------------------------------------------------------

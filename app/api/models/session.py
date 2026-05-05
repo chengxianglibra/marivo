@@ -37,21 +37,6 @@ class SessionBudget(BaseModel):
     max_latency_sec: int = Field(default=120, ge=0)
 
 
-class SessionPolicyRef(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    policy_id: str
-    policy_version: str | None = None
-
-
-class SessionGovernancePolicy(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    aggregate_only: bool = True
-    min_group_size: int = Field(default=100, ge=0)
-    policy_refs: list[SessionPolicyRef] | None = None
-
-
 class SessionCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -62,14 +47,6 @@ class SessionCreateRequest(BaseModel):
             "Hard resource limits enforced by Marivo. Steps that would exceed "
             "max_scan_bytes or max_latency_sec are blocked before execution. "
             "This is a system decision constraint, not a suggestion."
-        ),
-    )
-    policy: SessionGovernancePolicy = Field(
-        default_factory=SessionGovernancePolicy,
-        description=(
-            "Governance rules enforced by Marivo (e.g. aggregate_only blocks raw row access, "
-            "min_group_size enforces k-anonymity). System-enforced decision constraints — "
-            "violations block step execution regardless of agent intent."
         ),
     )
     execution_identity: SessionExecutionIdentityPayload = Field(

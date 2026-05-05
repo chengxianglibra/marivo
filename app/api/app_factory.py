@@ -19,7 +19,6 @@ from app.api.errors import (
 from app.api.router import include_api_routers
 from app.config import MarivoConfig, load_config, resolve_config_path, resolve_metadata_path
 from app.datasources import DatasourceService
-from app.governance import GovernanceService
 from app.observability import MetricsCollector, TimingMiddleware, setup_logging
 from app.routing import QueryRouter
 from app.semantic_service_v2.service import SemanticModelV2Service
@@ -85,50 +84,6 @@ def _resolve_storage(
     return resolved_path, metadata_store, analytics_engine
 
 
-def _register_configured_governance(
-    config: MarivoConfig,
-    metadata_store: MetadataStore,
-    governance_service: GovernanceService | None,
-) -> None:
-    if governance_service is None:
-        return
-    for policy_config in config.governance.policies:
-        try:
-            existing = metadata_store.query_one(
-                "SELECT policy_id FROM policies WHERE name = ?",
-                [policy_config.name],
-            )
-            if not existing:
-                governance_service.create_policy(
-                    name=policy_config.name,
-                    policy_type=policy_config.type,
-                    definition=policy_config.definition,
-                    scope=policy_config.scope,
-                )
-                logger.info("Config governance policy '%s' registered", policy_config.name)
-        except Exception:
-            logger.exception("Failed to register config governance policy '%s'", policy_config.name)
-    for quality_rule_config in config.governance.quality_rules:
-        try:
-            existing = metadata_store.query_one(
-                "SELECT rule_id FROM quality_rules WHERE name = ?",
-                [quality_rule_config.name],
-            )
-            if not existing:
-                governance_service.create_quality_rule(
-                    name=quality_rule_config.name,
-                    rule_type=quality_rule_config.type,
-                    table_name=quality_rule_config.table,
-                    threshold=quality_rule_config.threshold,
-                    severity=quality_rule_config.severity,
-                )
-                logger.info("Config quality rule '%s' registered", quality_rule_config.name)
-        except Exception:
-            logger.exception(
-                "Failed to register config quality rule '%s'", quality_rule_config.name
-            )
-
-
 def _build_services(
     *,
     resolved_path: Path | str,  # Analytics path; str ":memory:" means in-memory DuckDB.
@@ -138,22 +93,15 @@ def _build_services(
 ) -> AppServices:
     setup_logging(level=config.observability.log_level)
     metrics_collector = MetricsCollector() if config.observability.metrics_enabled else None
-    governance_service = (
-        GovernanceService(metadata_store, analytics_engine, metrics=metrics_collector)
-        if config.governance.enabled
-        else None
-    )
     service = SemanticLayerService(
         metadata_store,
         analytics_engine,
         config=config,
-        governance=governance_service,
         metrics=metrics_collector,
     )
     datasource_service = DatasourceService(metadata_store)
     query_router = QueryRouter(metadata_store, datasource_service)
     service.query_router = query_router
-    _register_configured_governance(config, metadata_store, governance_service)
     semantic_v2_service = SemanticModelV2Service(
         cast("SQLiteMetadataStore", metadata_store),
         datasource_service=datasource_service,
@@ -166,7 +114,6 @@ def _build_services(
         query_router=query_router,
         metadata_store=metadata_store,
         analytics_engine=analytics_engine,
-        governance_service=governance_service,
         metrics=metrics_collector,
         semantic_v2_service=semantic_v2_service,
     )
@@ -180,7 +127,6 @@ def _attach_state(app: FastAPI, services: AppServices) -> None:
     app.state.query_router = services.query_router
     app.state.metadata_store = services.metadata_store
     app.state.analytics_engine = services.analytics_engine
-    app.state.governance_service = services.governance_service
     app.state.metrics = services.metrics
     app.state.semantic_v2_service = services.semantic_v2_service
 

@@ -59,7 +59,6 @@ def create_session(payload: SessionCreateRequest, request: Request) -> SessionCr
         result = get_services(request).service.create_session(
             goal=payload.goal,
             budget=payload.budget.model_dump(exclude_none=True),
-            policy=payload.policy.model_dump(exclude_none=True),
             execution_identity=payload.execution_identity.model_dump(exclude_none=True),
         )
         return SessionCreateResponse.model_validate(result)

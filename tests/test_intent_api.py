@@ -898,8 +898,8 @@ class ArtifactLifecycleTests(unittest.TestCase):
 
         session_id = f"sess_{uuid4().hex[:12]}"
         self.service.metadata.execute(
-            "INSERT INTO sessions (session_id, goal, constraints_json, budget_json, policy_json, status) "
-            "VALUES (?, ?, '{}', '{}', '{}', 'open')",
+            "INSERT INTO sessions (session_id, goal, constraints_json, budget_json, status) "
+            "VALUES (?, ?, '{}', '{}', 'open')",
             [session_id, "lifecycle test"],
         )
         return session_id

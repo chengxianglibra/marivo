@@ -1,6 +1,6 @@
 ---
 name: marivo
-description: "Use Marivo for HTTP-based, evidence-first analytics work: semantic discovery, session creation, typed intent submission, canonical state/context reads, semantic-layer modeling, lifecycle/readiness-aware runtime routing, source-engine mapping, predicate governance, and execution-auth-aware troubleshooting. Trigger when the user mentions Marivo, semantic metrics/entities/mappings/predicates, typed analysis intents, proposition state/context surfaces, or wants structured evidence instead of ad-hoc SQL or MCP."
+description: "Use Marivo for HTTP-based, evidence-first analytics work: semantic discovery, session creation, typed intent submission, canonical state/context reads, semantic-layer modeling, lifecycle/readiness-aware runtime routing, source-engine mapping, and execution-auth-aware troubleshooting. Trigger when the user mentions Marivo, semantic metrics/entities/mappings/predicates, typed analysis intents, proposition state/context surfaces, or wants structured evidence instead of ad-hoc SQL or MCP."
 ---
 
 # Marivo Skill
@@ -84,7 +84,7 @@ Practical heuristics:
 - move to the semantic layer when the same business concept, grouping axis, or time contract should be reused across investigations
 - author semantic objects entity-first: discover/create the `domain.*`, create `entity.*` with thin `fields[]` and entity grounding, then create `time.*` / `dimension.*` / `predicate.*` with fully qualified entity field refs, then metric/process contracts
 - when a metric/process crosses entities, fix the blocker through `relationship.*` and `compiler_profile.*`; do not add metric/process-owned grounding
-- use `predicate.*` refs when you need governed, reusable filter semantics for metrics, request scopes, or governance policies
+- use `predicate.*` refs when you need governed, reusable filter semantics for metrics or request scopes
 - use `POST /semantic/batch` dry-run when authoring multiple semantic objects together; inspect per-item guidance and entity-field coverage before applying or activating
 - always send canonical structured time windows such as `{"kind":"range","start":"YYYY-MM-DD","end":"YYYY-MM-DD"}`; do not use shorthand strings such as `"2026-04-01 to 2026-04-19"`
 - when the business request gives an inclusive end date, convert it to Marivo's exclusive `range.end` before sending the request; for example, inclusive `2026-04-01` through `2026-04-18` must be sent as `start=2026-04-01, end=2026-04-19`
@@ -143,7 +143,6 @@ Use the smallest next document that matches the task:
 - [`references/http-contracts.md`](references/http-contracts.md): cross-surface HTTP, session invariants, and execution auth
 - [`references/planning.md`](references/planning.md): client-side orchestration patterns when a task spans multiple dependent intents
 - [`references/infrastructure.md`](references/infrastructure.md): sources, sync, mappings, engines, execution auth, and observability
-- [`references/governance.md`](references/governance.md): governance, predicate policies, quality checks, and approvals
 - [`references/payload-cheatsheet.md`](references/payload-cheatsheet.md): minimum useful payloads for common semantic-layer writes
 
 For exact request fields, examples, and validation guidance, use the matching tool or server-supplied guidance links before reading deeper references.
