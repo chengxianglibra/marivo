@@ -1,7 +1,6 @@
 import {
   Button,
   Card,
-  Checkbox,
   Descriptions,
   Drawer,
   Form,
@@ -21,8 +20,6 @@ import {
   useDeleteDatasource,
   useDatasources,
   useJobs,
-  usePolicies,
-  useQualityRules,
   useRoutingResolve,
   useUpdateDatasource,
 } from "../api/hooks";
@@ -136,8 +133,6 @@ function DatasourceDrawer({
     form.setFieldsValue({
       datasource_type: type,
       display_name: row?.display_name ?? "",
-      allow_live_browse: row?.policy?.allow_live_browse ?? true,
-      allow_identity_reuse: row?.policy?.allow_identity_reuse ?? false,
       connection_json: row?.connection ? formatJson(row.connection, {}) : (type === "trino" ? TRINO_CONNECTION_DEFAULT : DUCKDB_CONNECTION_DEFAULT),
     });
   }, [form, open, row]);
@@ -148,24 +143,16 @@ function DatasourceDrawer({
       const connection = parseJsonObject(values.connection_json, "connection");
       if (!connection.datasource_type) connection.datasource_type = type;
 
-      const policy: JsonRecord = {
-        allow_live_browse: Boolean(values.allow_live_browse),
-      };
-      if (type === "trino" && values.allow_identity_reuse !== undefined) {
-        policy.allow_identity_reuse = Boolean(values.allow_identity_reuse);
-      }
-
       if (row?.datasource_id) {
         await updateDatasource.mutateAsync({
           datasourceId: String(row.datasource_id),
-          payload: { display_name: values.display_name, connection, policy },
+          payload: { display_name: values.display_name, connection },
         });
       } else {
         await createDatasource.mutateAsync({
           datasource_type: type,
           display_name: values.display_name,
           connection,
-          policy,
         });
       }
       onClose();
@@ -183,14 +170,6 @@ function DatasourceDrawer({
         <Form.Item label="Display name" name="display_name" rules={[{ required: true }]}>
           <Input />
         </Form.Item>
-        <Form.Item name="allow_live_browse" valuePropName="checked">
-          <Checkbox>Allow live browse</Checkbox>
-        </Form.Item>
-        {datasourceType === "trino" ? (
-          <Form.Item name="allow_identity_reuse" valuePropName="checked">
-            <Checkbox>Allow identity reuse</Checkbox>
-          </Form.Item>
-        ) : null}
         <Form.Item
           label={`${datasourceType === "trino" ? "Trino" : "DuckDB"} connection JSON`}
           name="connection_json"
@@ -273,42 +252,6 @@ function RoutingDebugger() {
   );
 }
 
-function GovernanceTab() {
-  const policies = usePolicies();
-  const rules = useQualityRules();
-  const groupedRules = useMemo(() => rules.data ?? [], [rules.data]);
-  return (
-    <Space direction="vertical" size="middle" className="full-width">
-      <Typography.Paragraph type="secondary">Governance is a constraints and troubleshooting page, not an analysis conclusion page.</Typography.Paragraph>
-      <Card size="small" title="Policies">
-        <Table
-          rowKey={(row) => row.policy_id ?? row.name}
-          size="small"
-          dataSource={policies.data}
-          columns={[
-            { title: "Name", dataIndex: "name" },
-            { title: "Type", dataIndex: "policy_type" },
-            { title: "Enabled", render: (_, row) => <StatusBadge value={row.enabled ? "active" : "deprecated"} /> },
-          ]}
-        />
-      </Card>
-      <Card size="small" title="Quality Rules">
-        <Table
-          rowKey={(row) => row.rule_id ?? row.name}
-          size="small"
-          dataSource={groupedRules}
-          columns={[
-            { title: "Table", dataIndex: "table_name" },
-            { title: "Name", dataIndex: "name" },
-            { title: "Severity", dataIndex: "severity" },
-            { title: "Type", dataIndex: "rule_type" },
-          ]}
-        />
-      </Card>
-    </Space>
-  );
-}
-
 function JobsRuntimeTab() {
   const [filters, setFilters] = useState<{ session_id?: string; status?: string }>({});
   const jobs = useJobs(filters);
@@ -351,13 +294,12 @@ export function OperationsPage() {
     <Space direction="vertical" size="large" className="page">
       <SectionHeader
         title="Operations"
-        description="Operations workflows for datasources, routing, governance, jobs, and runtime diagnostics."
+        description="Operations workflows for datasources, routing, jobs, and runtime diagnostics."
       />
       <Tabs
         items={[
           { key: "datasources", label: "Datasources", children: <DatasourcesTab onInspect={setSelected} onEdit={(row) => setEditState({ kind: "datasource", row })} /> },
           { key: "routing", label: "Routing Debugger", children: <RoutingDebugger /> },
-          { key: "governance", label: "Governance", children: <GovernanceTab /> },
           { key: "jobs", label: "Jobs / Runtime", children: <JobsRuntimeTab /> },
         ]}
       />

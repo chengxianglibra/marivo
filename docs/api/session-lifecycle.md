@@ -13,7 +13,7 @@ Use these endpoints when a client needs to:
 - discover sessions by lifecycle status
 - update mutable session root fields while the session remains open
 - explicitly terminate a session
-- roll over to a new session when immutable governance boundaries change
+- roll over to a new session when policy boundaries change
 
 Do not use these endpoints as a substitute for:
 
@@ -51,22 +51,6 @@ All session lifecycle endpoints use the canonical wire shape below unless the en
     "session_user": "alice",
     "actor_ref": "agent.alice"
   },
-  "governance": {
-    "policy_refs": [
-      {
-        "policy_id": "pol_abc",
-        "policy_version": "3"
-      }
-    ],
-    "budget": {
-      "max_steps": 12,
-      "max_scan_bytes": 100000000000,
-      "max_latency_sec": 60
-    },
-    "warnings": [
-      "Sampling disallowed by current policy set"
-    ]
-  },
   "lifecycle": {
     "status": "open",
     "terminal_reason": null,
@@ -91,8 +75,6 @@ Wire invariants fixed by this contract:
 - `execution_identity` freezes optional session-level execution user context; omit it or use `{}` when no runtime username should be recorded
 - `execution_identity.session_user` is the username Marivo may inject into a username-aware execution engine such as Trino
 - `execution_identity.actor_ref` is Marivo audit context for the calling agent or actor; it is not an authentication credential and does not participate in Trino authorization
-- `governance.policy_refs` defines the immutable governance boundary for the session
-- `governance.budget` and `governance.warnings` are mutable while the session is open
 - `lifecycle.status` is one of `open`, `closed`, or `aborted`
 - `state_summary.state_view_ref` always exists and points to the canonical session state surface
 - `state_summary` is an entry handle only; clients must not treat it as a readiness or blocker summary
@@ -177,7 +159,6 @@ This endpoint is the root read baseline for:
 - optional execution identity reflection via `execution_identity`
 - normalized `execution_identity.session_user` and `execution_identity.actor_ref` values as frozen at session creation
 - compatibility-only session scope reflection via `scope.constraints`; execution does not read session-level filters
-- governance boundary
 - lifecycle state
 - entry to the canonical state surface via `state_summary.state_view_ref`
 
@@ -218,11 +199,6 @@ Response shape:
         "constraints": {
           "region": "us"
         }
-      },
-      "governance": {
-        "policy_refs": null,
-        "budget": null,
-        "warnings": null
       },
       "execution_identity": {},
       "lifecycle": {
@@ -269,16 +245,8 @@ Request body:
   "goal": {
     "question": "Investigate the mobile watch time decline after the January ranking launch"
   },
-  "governance": {
-    "budget": {
-      "max_steps": 20,
-      "max_scan_bytes": 750000000000,
-      "max_latency_sec": 180
-    },
-    "warnings": [
-      "Sampling remains approval-gated",
-      "Cross-region joins may increase latency"
-    ]
+  "goal": {
+    "question": "Investigate the mobile watch time decline after the January ranking launch"
   }
 }
 ```
@@ -288,17 +256,14 @@ Patch rules:
 - `PATCH` is allowed only when `lifecycle.status = "open"`
 - mutable fields:
   - `goal.question`
-  - `governance.budget`
-  - `governance.warnings`
 - immutable fields:
   - `session_id`
-  - `governance.policy_refs`
   - any `lifecycle.*` field
   - `state_summary`
   - `created_at`
   - `schema_version`
 - omitted fields remain unchanged
-- patching `governance.policy_refs` is never an in-place update; callers must use rollover instead
+- patching `policy_refs` is never an in-place update; callers must use rollover instead
 - the request must not include step-level execution constraints
 
 Response:
@@ -325,7 +290,6 @@ Allowed `terminal_reason` values:
 |-----------------|------------------|-------------|
 | `answered` | `closed` | Always allowed for explicit termination |
 | `abandoned` | `aborted` | Always allowed for explicit termination |
-| `governance_terminated` | `aborted` | Allowed only if the session already has a governance termination signal |
 | `budget_exhausted` | `aborted` | Allowed only if the session already has a budget exhaustion signal |
 | `timed_out` | `aborted` | Allowed only if the session already has a timeout signal |
 
@@ -353,7 +317,7 @@ curl -s -X POST "http://localhost:8000/sessions/sess_123/terminate" \
 
 ### `POST /sessions/{session_id}/rollover`
 
-Creates a new session when immutable governance boundary values need to change, and closes the current session as rolled over.
+Creates a new session when policy boundary values need to change, and closes the current session as rolled over.
 
 Request body:
 
@@ -362,21 +326,9 @@ Request body:
   "goal": {
     "question": "Continue the watch time investigation under the revised policy set"
   },
-  "governance": {
-    "policy_refs": [
-      {
-        "policy_id": "pol_aggregate_only",
-        "policy_version": "8"
-      }
-    ],
-    "budget": {
-      "max_steps": 10,
-      "max_scan_bytes": 250000000000,
-      "max_latency_sec": 90
-    },
-    "warnings": [
-      "Policy version updated after governance review"
-    ]
+  "policy": {
+    "aggregate_only": true,
+    "min_group_size": 100
   }
 }
 ```
@@ -389,20 +341,6 @@ Rollover response shape:
     "session_id": "sess_123",
     "goal": {
       "question": "Why did watch time decline last week?"
-    },
-    "governance": {
-      "policy_refs": [
-        {
-          "policy_id": "pol_aggregate_only",
-          "policy_version": "7"
-        }
-      ],
-      "budget": {
-        "max_steps": 15,
-        "max_scan_bytes": 500000000000,
-        "max_latency_sec": 120
-      },
-      "warnings": null
     },
     "lifecycle": {
       "status": "closed",
@@ -424,22 +362,6 @@ Rollover response shape:
     "session_id": "sess_456",
     "goal": {
       "question": "Continue the watch time investigation under the revised policy set"
-    },
-    "governance": {
-      "policy_refs": [
-        {
-          "policy_id": "pol_aggregate_only",
-          "policy_version": "8"
-        }
-      ],
-      "budget": {
-        "max_steps": 10,
-        "max_scan_bytes": 250000000000,
-        "max_latency_sec": 90
-      },
-      "warnings": [
-        "Policy version updated after governance review"
-      ]
     },
     "lifecycle": {
       "status": "open",
@@ -463,9 +385,9 @@ Rollover response shape:
 Rollover rules:
 
 - rollover is allowed only when `lifecycle.status = "open"`
-- rollover is required when `governance.policy_refs` value changes
+- rollover is required when policy values change
 - the request must provide the full new session root values to use for the successor session
-- the successor session may also change `goal.question`, `governance.budget`, and `governance.warnings`
+- the successor session may also change `goal.question`
 - rollover closes the old session as:
   - `lifecycle.status = "closed"`
   - `lifecycle.terminal_reason = "rolled_over"`
@@ -476,7 +398,7 @@ Rollover rules:
   - `lifecycle.ended_at = null`
   - `lifecycle.rollover_from_session_id = {old_session_id}`
 - rollover is a container switch only; it does not merge or inherit canonical evidence objects from the previous session
-- calling rollover without an actual `policy_refs` value change is invalid
+- calling rollover without an actual policy value change is invalid
 
 ## Session Lifecycle State Machine
 
@@ -500,7 +422,6 @@ Terminal reason mapping is fixed as follows:
 | `answered` | `closed` | `POST /sessions/{id}/terminate` |
 | `abandoned` | `aborted` | `POST /sessions/{id}/terminate` |
 | `rolled_over` | `closed` | `POST /sessions/{id}/rollover` only |
-| `governance_terminated` | `aborted` | `POST /sessions/{id}/terminate` |
 | `budget_exhausted` | `aborted` | `POST /sessions/{id}/terminate` |
 | `timed_out` | `aborted` | `POST /sessions/{id}/terminate` |
 
@@ -533,13 +454,13 @@ Common cases:
 |--------|----------|
 | `400` | invalid enum value, invalid query parameter value, unknown patch field, malformed `page_token` |
 | `404` | session not found |
-| `409` | invalid lifecycle transition, write attempted on terminal session, in-place update of immutable field, missing termination eligibility signal, rollover requested without `policy_refs` change |
+| `409` | invalid lifecycle transition, write attempted on terminal session, in-place update of immutable field, missing termination eligibility signal, rollover requested without policy change |
 | `422` | request body validation failure |
 | `500` | unexpected server-side failure |
 
 Error behavior is fixed as follows:
 
-- attempting to patch `governance.policy_refs` returns `409`, not silent ignore
+- attempting to patch immutable fields returns `409`, not silent ignore
 - attempting to set any `lifecycle.*` field through `PATCH` returns `409`
 - `POST /terminate` with `terminal_reason = "rolled_over"` returns `400`
 - `POST /terminate` with a signal-backed reason but without the required eligibility condition returns `409`

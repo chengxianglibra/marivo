@@ -65,9 +65,9 @@ def _make_store() -> SQLiteMetadataStore:
 
 def _insert_session(store: SQLiteMetadataStore, session_id: str = "sess_001") -> None:
     store.execute(
-        "INSERT INTO sessions (session_id, goal, constraints_json, budget_json, policy_json, status) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        [session_id, "test goal", "{}", "{}", "{}", "open"],
+        "INSERT INTO sessions (session_id, goal, constraints_json, budget_json, status) "
+        "VALUES (?, ?, ?, ?, ?)",
+        [session_id, "test goal", "{}", "{}", "open"],
     )
 
 
@@ -749,9 +749,9 @@ class TestProposalRefreshSessionOwnership(_RefreshBase):
         super().setUp()
         # Insert a second session and a proposition + assessment in it
         self.store.execute(
-            "INSERT INTO sessions (session_id, goal, constraints_json, budget_json, policy_json, status) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            [self.OTHER_SESSION, "other goal", "{}", "{}", "{}", "open"],
+            "INSERT INTO sessions (session_id, goal, constraints_json, budget_json, status) "
+            "VALUES (?, ?, ?, ?, ?)",
+            [self.OTHER_SESSION, "other goal", "{}", "{}", "open"],
         )
         _insert_artifact(self.store, artifact_id="art_other", session_id=self.OTHER_SESSION)
         _insert_proposition(

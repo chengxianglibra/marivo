@@ -43,8 +43,8 @@ class SQLiteMetadataStoreTests(unittest.TestCase):
 
     def test_reset_metadata_file_rebuilds_current_schema(self) -> None:
         self.store.execute(
-            "INSERT INTO sessions (session_id, goal, constraints_json, budget_json, policy_json, status) VALUES (?, ?, ?, ?, ?, ?)",
-            ["s1", "test goal", "{}", "{}", "{}", "open"],
+            "INSERT INTO sessions (session_id, goal, constraints_json, budget_json, status) VALUES (?, ?, ?, ?, ?)",
+            ["s1", "test goal", "{}", "{}", "open"],
         )
         self.store.db_path.unlink()
 
@@ -153,8 +153,8 @@ class SQLiteMetadataStoreTests(unittest.TestCase):
 
     def test_execute_and_query(self) -> None:
         self.store.execute(
-            "INSERT INTO sessions (session_id, goal, constraints_json, budget_json, policy_json, status) VALUES (?, ?, ?, ?, ?, ?)",
-            ["s1", "test goal", "{}", "{}", "{}", "open"],
+            "INSERT INTO sessions (session_id, goal, constraints_json, budget_json, status) VALUES (?, ?, ?, ?, ?)",
+            ["s1", "test goal", "{}", "{}", "open"],
         )
         row = self.store.query_one("SELECT * FROM sessions WHERE session_id = ?", ["s1"])
         self.assertIsNotNone(row)
@@ -162,12 +162,12 @@ class SQLiteMetadataStoreTests(unittest.TestCase):
 
     def test_query_rows(self) -> None:
         self.store.execute(
-            "INSERT INTO sessions (session_id, goal, constraints_json, budget_json, policy_json, status) VALUES (?, ?, ?, ?, ?, ?)",
-            ["s1", "g1", "{}", "{}", "{}", "open"],
+            "INSERT INTO sessions (session_id, goal, constraints_json, budget_json, status) VALUES (?, ?, ?, ?, ?)",
+            ["s1", "g1", "{}", "{}", "open"],
         )
         self.store.execute(
-            "INSERT INTO sessions (session_id, goal, constraints_json, budget_json, policy_json, status) VALUES (?, ?, ?, ?, ?, ?)",
-            ["s2", "g2", "{}", "{}", "{}", "open"],
+            "INSERT INTO sessions (session_id, goal, constraints_json, budget_json, status) VALUES (?, ?, ?, ?, ?)",
+            ["s2", "g2", "{}", "{}", "open"],
         )
         rows = self.store.query_rows("SELECT * FROM sessions ORDER BY session_id")
         self.assertEqual(len(rows), 2)
@@ -178,8 +178,8 @@ class SQLiteMetadataStoreTests(unittest.TestCase):
 
     def test_execute_many(self) -> None:
         self.store.execute_many(
-            "INSERT INTO sessions (session_id, goal, constraints_json, budget_json, policy_json, status) VALUES (?, ?, ?, ?, ?, ?)",
-            [("s1", "g1", "{}", "{}", "{}", "open"), ("s2", "g2", "{}", "{}", "{}", "open")],
+            "INSERT INTO sessions (session_id, goal, constraints_json, budget_json, status) VALUES (?, ?, ?, ?, ?)",
+            [("s1", "g1", "{}", "{}", "open"), ("s2", "g2", "{}", "{}", "open")],
         )
         rows = self.store.query_rows("SELECT * FROM sessions")
         self.assertEqual(len(rows), 2)

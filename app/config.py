@@ -14,33 +14,6 @@ from app.redaction import redact_mapping, redact_sensitive_text
 logger = logging.getLogger(__name__)
 
 
-class GovernancePolicyConfig(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    name: str
-    type: str
-    definition: dict[str, object] = Field(default_factory=dict)
-    scope: dict[str, object] = Field(default_factory=dict)
-
-
-class GovernanceQualityRuleConfig(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    name: str
-    type: str
-    table: str
-    threshold: dict[str, object] = Field(default_factory=dict)
-    severity: str = "warn"
-
-
-class GovernanceConfig(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    enabled: bool = True
-    policies: list[GovernancePolicyConfig] = Field(default_factory=list)
-    quality_rules: list[GovernanceQualityRuleConfig] = Field(default_factory=list)
-
-
 class ObservabilityConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -140,7 +113,6 @@ class MarivoConfig(BaseModel):
 
     metadata: MetadataConfig | None = None
     calendar: CalendarConfig = Field(default_factory=CalendarConfig)
-    governance: GovernanceConfig = Field(default_factory=GovernanceConfig)
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
 
 

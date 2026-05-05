@@ -33,17 +33,11 @@ export interface TrinoConnection {
 
 export type DatasourceConnection = DuckDbConnection | TrinoConnection;
 
-export interface DatasourcePolicy {
-  allow_live_browse?: boolean;
-  allow_identity_reuse?: boolean;
-}
-
 export interface DatasourceRow {
   datasource_id: string;
   datasource_type: "duckdb" | "trino";
   display_name: string;
   connection: DatasourceConnection;
-  policy?: DatasourcePolicy;
   status?: string;
   readiness_status?: string;
   failure_code?: string | null;

@@ -99,9 +99,9 @@ _DELTA_PAYLOAD: dict[str, Any] = {
 def _insert_session(store: SQLiteMetadataStore, session_id: str = _SESSION) -> None:
     store.execute(
         "INSERT INTO sessions "
-        "(session_id, goal, constraints_json, budget_json, policy_json, status) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        [session_id, "test downstream", "{}", "{}", "{}", "open"],
+        "(session_id, goal, constraints_json, budget_json, status) "
+        "VALUES (?, ?, ?, ?, ?)",
+        [session_id, "test downstream", "{}", "{}", "open"],
     )
 
 

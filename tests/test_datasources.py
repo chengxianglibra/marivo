@@ -17,7 +17,6 @@ def _build_duckdb_datasource_payload(path: str, display_name: str) -> dict:
         "datasource_type": "duckdb",
         "display_name": display_name,
         "connection": {"path": path},
-        "policy": {"allow_live_browse": True},
     }
 
 
@@ -27,7 +26,6 @@ def _build_trino_datasource_payload(
     host: str = "trino.example.com",
     catalog: str = "iceberg",
     user: str | None = "marivo",
-    allow_identity_reuse: bool = False,
 ) -> dict:
     connection: dict = {"host": host, "catalog": catalog}
     if user is not None:
@@ -36,7 +34,6 @@ def _build_trino_datasource_payload(
         "datasource_type": "trino",
         "display_name": display_name,
         "connection": connection,
-        "policy": {"allow_identity_reuse": allow_identity_reuse},
     }
 
 
@@ -72,8 +69,6 @@ class DatasourceServiceUnitTests(unittest.TestCase):
         self.assertEqual(ds["datasource_type"], "duckdb")
         self.assertEqual(ds["display_name"], "Test DuckDB")
         self.assertEqual(ds["connection"], {"path": "/tmp/test.duckdb"})
-        self.assertEqual(ds["policy"]["allow_live_browse"], True)
-        self.assertNotIn("allow_identity_reuse", ds["policy"])
         self.assertEqual(ds["status"], "active")
         self.assertEqual(ds["readiness_status"], "ready")
         self.assertIsNone(ds["failure_code"])
@@ -92,7 +87,6 @@ class DatasourceServiceUnitTests(unittest.TestCase):
         self.assertEqual(ds["datasource_type"], "trino")
         self.assertEqual(ds["display_name"], "Test Trino")
         self.assertEqual(ds["connection"]["host"], "trino.example.com")
-        self.assertEqual(ds["policy"]["allow_identity_reuse"], False)
         self.assertEqual(ds["readiness_status"], "ready")
         self.assertIsNone(ds["failure_code"])
 
@@ -137,21 +131,6 @@ class DatasourceServiceUnitTests(unittest.TestCase):
         )
         self.assertEqual(updated["display_name"], "After Update")
 
-    # -- Update policy (including allow_identity_reuse) -------------------
-
-    def test_update_datasource_policy(self) -> None:
-        ds = self.service.register_datasource(
-            datasource_type="trino",
-            display_name="Policy Update DS",
-            connection={"host": "trino.example.com"},
-        )
-        updated = self.service.update_datasource(
-            ds["datasource_id"],
-            policy={"allow_identity_reuse": True, "allow_live_browse": False},
-        )
-        self.assertEqual(updated["policy"]["allow_identity_reuse"], True)
-        self.assertEqual(updated["policy"]["allow_live_browse"], False)
-
     # -- Delete -----------------------------------------------------------
 
     def test_delete_datasource(self) -> None:
@@ -191,43 +170,19 @@ class DatasourceServiceUnitTests(unittest.TestCase):
         self.assertEqual(fetched["readiness_status"], "not_ready")
         self.assertEqual(fetched["failure_code"], "datasource_inactive")
 
-    # -- DuckDB: allow_identity_reuse silently ignored --------------------
+    # -- Trino: no user in connection -> session_user_missing -----------
 
-    def test_duckdb_allow_identity_reuse_silently_ignored(self) -> None:
-        ds = self.service.register_datasource(
-            datasource_type="duckdb",
-            display_name="DuckDB Identity DS",
-            connection={"path": "/tmp/test.duckdb"},
-            policy={"allow_identity_reuse": True},
-        )
-        self.assertNotIn("allow_identity_reuse", ds["policy"])
-
-    # -- Trino: allow_identity_reuse=false, no session_user -> session_user_missing
-
-    def test_trino_no_identity_reuse_no_session_user_raises(self) -> None:
+    def test_trino_no_session_user_raises(self) -> None:
         ds = self.service.register_datasource(
             datasource_type="trino",
             display_name="Trino No User DS",
             connection={"host": "trino.example.com", "catalog": "iceberg"},
-            policy={"allow_identity_reuse": False},
         )
         with self.assertRaises(ValueError) as ctx:
             self.service.build_analytics_engine(ds["datasource_id"])
         self.assertIn("session_user_missing", str(ctx.exception))
 
-    # -- Trino: allow_identity_reuse=true, no session_user -> uses connection.user
-
-    def test_trino_identity_reuse_uses_connection_user(self) -> None:
-        ds = self.service.register_datasource(
-            datasource_type="trino",
-            display_name="Trino Identity Reuse DS",
-            connection={"host": "trino.example.com", "catalog": "iceberg", "user": "svc_marivo"},
-            policy={"allow_identity_reuse": True},
-        )
-        engine = self.service.build_analytics_engine(ds["datasource_id"])
-        self.assertEqual(engine.user, "svc_marivo")
-
-    # -- Trino: session_user provided ------------------------------------
+    # -- Trino: user in connection -> uses connection.user ---------------
 
     def test_trino_session_user_provided(self) -> None:
         ds = self.service.register_datasource(
@@ -235,7 +190,6 @@ class DatasourceServiceUnitTests(unittest.TestCase):
             display_name="Trino Session User DS",
             connection={"host": "trino.example.com", "catalog": "iceberg", "user": "svc_marivo"},
         )
-        # When connection.user is set, it is used directly
         engine = self.service.build_analytics_engine(ds["datasource_id"])
         self.assertEqual(engine.user, "svc_marivo")
 
@@ -272,22 +226,6 @@ class DatasourceServiceUnitTests(unittest.TestCase):
         fetched = self.service.get_datasource(ds["datasource_id"])
         self.assertEqual(fetched["readiness_status"], "not_ready")
         self.assertEqual(fetched["failure_code"], "datasource_invalid_connection")
-
-    # -- Datasource degrades malformed stored policy_json -----------------
-
-    def test_datasource_degrades_malformed_stored_policy_json(self) -> None:
-        ds = self.service.register_datasource(
-            datasource_type="duckdb",
-            display_name="Bad Policy JSON DS",
-            connection={"path": "/tmp/test.duckdb"},
-        )
-        self.metadata.execute(
-            "UPDATE datasources SET policy_json = ? WHERE datasource_id = ?",
-            ["{bad-json", ds["datasource_id"]],
-        )
-        fetched = self.service.get_datasource(ds["datasource_id"])
-        self.assertEqual(fetched["readiness_status"], "not_ready")
-        self.assertEqual(fetched["failure_code"], "datasource_invalid_policy")
 
     # -- Datasource degrades malformed stored connection_json -------------
 
@@ -339,7 +277,6 @@ class DatasourceAPITests(unittest.TestCase):
         ds = resp.json()
         self.assertEqual(ds["datasource_type"], "duckdb")
         self.assertEqual(ds["display_name"], "Demo Local")
-        self.assertEqual(ds["policy"]["allow_live_browse"], True)
         self.assertEqual(ds["readiness_status"], "ready")
         self.assertIsNone(ds["failure_code"])
 
@@ -354,7 +291,6 @@ class DatasourceAPITests(unittest.TestCase):
         ds = resp.json()
         self.assertEqual(ds["datasource_type"], "trino")
         self.assertEqual(ds["display_name"], "Trino API DS")
-        self.assertEqual(ds["policy"]["allow_identity_reuse"], False)
         self.assertEqual(ds["readiness_status"], "ready")
         self.assertIsNone(ds["failure_code"])
 
@@ -400,22 +336,6 @@ class DatasourceAPITests(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["display_name"], "Updated Name")
-
-    # -- Update policy ----------------------------------------------------
-
-    def test_update_datasource_policy_via_api(self) -> None:
-        resp = self.client.post(
-            "/datasources",
-            json=_build_trino_datasource_payload("Policy Update API DS"),
-        )
-        datasource_id = resp.json()["datasource_id"]
-        resp = self.client.put(
-            f"/datasources/{datasource_id}",
-            json={"policy": {"allow_identity_reuse": True, "allow_live_browse": False}},
-        )
-        self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.json()["policy"]["allow_identity_reuse"], True)
-        self.assertEqual(resp.json()["policy"]["allow_live_browse"], False)
 
     # -- Partial update (only display_name) preserves other fields --------
 
@@ -474,7 +394,6 @@ class DatasourceAPITests(unittest.TestCase):
         payload = response.json()
         schemas = payload["components"]["schemas"]
         self.assertIn("DatasourceResponse", schemas)
-        self.assertIn("DatasourcePolicyResponse", schemas)
 
         ds_get = payload["paths"]["/datasources"]["get"]["responses"]["200"]["content"][
             "application/json"

@@ -53,7 +53,6 @@ class TestExtractPredicateFilterLineage(unittest.TestCase):
     def test_measurement_node_with_lineage_returns_lineage(self):
         lineage = {
             "shared_effective_scope": {
-                "governance_policy_refs": ["predicate.gov1"],
                 "carrier_row_filter_refs": [],
             },
             "metric_default_lineage": {"default_predicate_refs": ["predicate.def1"]},
@@ -68,16 +67,12 @@ class TestExtractPredicateFilterLineage(unittest.TestCase):
         self.assertIsNotNone(result)
         assert result is not None
         self.assertEqual(
-            result["shared_effective_scope"]["governance_policy_refs"], ["predicate.gov1"]
-        )
-        self.assertEqual(
             result["metric_default_lineage"]["default_predicate_refs"], ["predicate.def1"]
         )
 
     def test_multiple_nodes_returns_measurement_lineage(self):
         lineage = {
             "shared_effective_scope": {
-                "governance_policy_refs": [],
                 "carrier_row_filter_refs": ["predicate.car1"],
             },
             "metric_default_lineage": {"default_predicate_refs": []},

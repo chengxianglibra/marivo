@@ -19,8 +19,8 @@ class RepositorySeamTests(unittest.TestCase):
 
     def test_session_repository_get(self) -> None:
         self.store.execute(
-            "INSERT INTO sessions (session_id, goal, constraints_json, budget_json, policy_json, status) VALUES (?, ?, ?, ?, ?, ?)",
-            ["sess_test", "repo session", "{}", "{}", "{}", "open"],
+            "INSERT INTO sessions (session_id, goal, constraints_json, budget_json, status) VALUES (?, ?, ?, ?, ?)",
+            ["sess_test", "repo session", "{}", "{}", "open"],
         )
         repository = SessionRepository(self.store)
         session = repository.get("sess_test")

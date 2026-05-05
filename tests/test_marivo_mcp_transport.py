@@ -351,18 +351,6 @@ def test_registers_core_tool_groups() -> None:
         "update_metric",
         "delete_metric",
     }
-    # Governance tools
-    assert set(server.tools) >= {
-        "create_policy",
-        "list_policies",
-        "get_policy",
-        "update_policy",
-        "delete_policy",
-        "create_quality_rule",
-        "list_quality_rules",
-        "delete_quality_rule",
-        "governance_check",
-    }
     # Calendar tools (removed from MCP surface)
     assert "load_calendar_data" not in server.tools
     assert "list_calendar_versions" not in server.tools
@@ -1497,12 +1485,11 @@ def test_list_datasources_uses_canonical_datasources_index() -> None:
     assert result["meta"]["marivo_path"] == "/datasources"
 
 
-def test_create_datasource_uses_policy_field() -> None:
+def test_create_datasource_uses_connection_field() -> None:
     tool_kwargs = {
         "datasource_type": "duckdb",
         "display_name": "Analytics DuckDB",
         "connection": {"db_path": "/data/analytics.duckdb"},
-        "policy": {"allow_live_browse": True},
     }
     expected_body = httpx.Request("POST", "http://marivo.test", json=tool_kwargs).read()
 
@@ -1609,32 +1596,6 @@ def test_preview_table_uses_get_and_catalog_preview_path() -> None:
 
     assert result["ok"] is True
     assert result["meta"]["marivo_path"] == "/datasources/ds_123/catalog/preview"
-
-
-# ------------------------------------------------------------------
-# Governance tests
-# ------------------------------------------------------------------
-
-
-def test_create_policy_sends_canonical_body() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.method == "POST"
-        assert request.url.path == "/policies"
-        body = request.read()
-        assert b'"name":"agg_only"' in body
-        assert b'"policy_type":"aggregate_only"' in body
-        return httpx.Response(200, json={"policy_id": "pol_123"}, request=request)
-
-    result = _invoke_registered_tool(
-        "create_policy",
-        handler,
-        name="agg_only",
-        policy_type="aggregate_only",
-        definition={"min_group_size": 10},
-    )
-
-    assert result["ok"] is True
-    assert result["meta"]["marivo_path"] == "/policies"
 
 
 def _invoke_registered_tool(

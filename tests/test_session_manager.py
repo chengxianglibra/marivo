@@ -26,7 +26,6 @@ class SessionManagerTests(unittest.TestCase):
             "Investigate watch time regression",
             {"region": "all"},
             {"max_latency_sec": 120},
-            {"aggregate_only": True},
         )
 
         loaded = self.manager.get_session(created["session_id"])
@@ -35,8 +34,6 @@ class SessionManagerTests(unittest.TestCase):
         # goal is structured in canonical AnalysisSession shape (Phase 5a)
         self.assertEqual(loaded["goal"]["question"], "Investigate watch time regression")
         self.assertEqual(loaded["scope"]["constraints"], {"region": "all"})
-        # governance carries budget
-        self.assertEqual(loaded["governance"]["budget"], {"max_latency_sec": 120})
         self.assertEqual(loaded["execution_identity"], {})
         # lifecycle carries status
         self.assertEqual(loaded["lifecycle"]["status"], "open")
@@ -48,7 +45,6 @@ class SessionManagerTests(unittest.TestCase):
             "Investigate auth user",
             {},
             {"max_latency_sec": 120},
-            {"aggregate_only": True},
             {"session_user": "alice", "actor_ref": "agent.alice"},
         )
 
@@ -60,7 +56,7 @@ class SessionManagerTests(unittest.TestCase):
         )
 
     def test_get_execution_identity_returns_empty_dict_when_session_has_none(self) -> None:
-        created = self.manager.create_session("Investigate auth defaults", {}, {}, {})
+        created = self.manager.create_session("Investigate auth defaults")
 
         execution_identity = self.manager.get_execution_identity(created["session_id"])
 
@@ -71,7 +67,6 @@ class SessionManagerTests(unittest.TestCase):
             "Investigate auth identity read",
             {},
             {"max_latency_sec": 120},
-            {"aggregate_only": True},
             {"session_user": "alice", "actor_ref": "agent.alice"},
         )
 
@@ -87,7 +82,6 @@ class SessionManagerTests(unittest.TestCase):
             "Investigate trimmed auth user",
             {},
             {"max_latency_sec": 120},
-            {"aggregate_only": True},
             {"session_user": " alice ", "actor_ref": " agent.alice "},
         )
 
@@ -102,7 +96,6 @@ class SessionManagerTests(unittest.TestCase):
                 "Investigate blank auth user",
                 {},
                 {"max_latency_sec": 120},
-                {"aggregate_only": True},
                 {"session_user": "   "},
             )
 
@@ -222,17 +215,6 @@ class SessionManagerTests(unittest.TestCase):
         with self.assertRaises(KeyError):
             self.manager.get_session_runtime_status("sess_missing")
 
-    def test_policy_refs_normalization_dict_policy(self) -> None:
-        """Dict-typed policy is not surfaced as policy_refs (pre-v1 format)."""
-        session = self.manager.create_session("Policy test", {}, {}, {"aggregate_only": True})
-        self.assertIsNone(session["governance"]["policy_refs"])
-
-    def test_policy_refs_list_policy(self) -> None:
-        """List-typed policy with policy_id/policy_version entries is surfaced as-is."""
-        policy = [{"policy_id": "pol_agg", "policy_version": "1"}]
-        session = self.manager.create_session("Policy list test", {}, {}, policy)
-        self.assertEqual(session["governance"]["policy_refs"], policy)
-
     def test_list_sessions_canonical_shape(self) -> None:
         """list_sessions returns AnalysisSession-shaped dicts."""
         s = self.manager.create_session("Shape check", {}, {}, {})
@@ -241,7 +223,6 @@ class SessionManagerTests(unittest.TestCase):
         self.assertIn("goal", match)
         self.assertIn("question", match["goal"])
         self.assertIn("scope", match)
-        self.assertIn("governance", match)
         self.assertIn("execution_identity", match)
         self.assertIn("lifecycle", match)
         self.assertIn("state_summary", match)
@@ -287,7 +268,6 @@ class SessionManagerTests(unittest.TestCase):
                     goal TEXT NOT NULL,
                     constraints_json TEXT NOT NULL,
                     budget_json TEXT NOT NULL,
-                    policy_json TEXT NOT NULL,
                     status TEXT NOT NULL,
                     raw_filter TEXT,
                     terminal_reason TEXT,
@@ -301,16 +281,15 @@ class SessionManagerTests(unittest.TestCase):
             con.execute(
                 """
                 INSERT INTO sessions (
-                    session_id, goal, constraints_json, budget_json, policy_json,
+                    session_id, goal, constraints_json, budget_json,
                     status, raw_filter, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     "sess_legacy",
                     "Legacy read",
                     json.dumps({"region": "all"}),
                     json.dumps({"max_latency_sec": 120}),
-                    json.dumps({}),
                     "open",
                     None,
                     "2026-04-24T00:00:00Z",

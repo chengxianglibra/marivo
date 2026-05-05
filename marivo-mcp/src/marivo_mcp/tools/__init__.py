@@ -1020,124 +1020,6 @@ def register_tools(
         ).model_dump()
 
     # ------------------------------------------------------------------
-    # Governance
-    # ------------------------------------------------------------------
-
-    @server.tool()
-    @_tool_metadata("POST", "/policies")
-    def create_policy(
-        name: str,
-        policy_type: str,
-        definition: McpStructuredObject,
-        scope: McpStructuredObject | None = None,
-    ) -> dict[str, object]:
-        """Create a governance policy via POST /policies."""
-        _require_structured_object(definition, field_name="definition")
-        return client.request_envelope(
-            "POST",
-            "/policies",
-            json_body=_compact_body(
-                name=name,
-                policy_type=policy_type,
-                definition=definition,
-                scope=scope,
-            ),
-        ).model_dump()
-
-    @server.tool()
-    @_tool_metadata("GET", "/policies")
-    def list_policies() -> dict[str, object]:
-        """List governance policies via GET /policies."""
-        return client.request_envelope("GET", "/policies").model_dump()
-
-    @server.tool()
-    @_tool_metadata("GET", "/policies/{policy_id}")
-    def get_policy(policy_id: str) -> dict[str, object]:
-        """Read one governance policy via GET /policies/{policy_id}."""
-        return client.request_envelope("GET", f"/policies/{policy_id}").model_dump()
-
-    @server.tool()
-    @_tool_metadata("PUT", "/policies/{policy_id}")
-    def update_policy(
-        policy_id: str,
-        enabled: bool | None = None,
-        definition: McpStructuredObject | None = None,
-    ) -> dict[str, object]:
-        """Update a governance policy via PUT /policies/{policy_id}."""
-        if definition is not None:
-            _require_structured_object(definition, field_name="definition")
-        return client.request_envelope(
-            "PUT",
-            f"/policies/{policy_id}",
-            json_body=_compact_body(enabled=enabled, definition=definition),
-        ).model_dump()
-
-    @server.tool()
-    @_tool_metadata("DELETE", "/policies/{policy_id}")
-    def delete_policy(policy_id: str) -> dict[str, object]:
-        """Delete a governance policy via DELETE /policies/{policy_id}."""
-        return client.request_envelope("DELETE", f"/policies/{policy_id}").model_dump()
-
-    @server.tool()
-    @_tool_metadata("POST", "/quality-rules")
-    def create_quality_rule(
-        name: str,
-        rule_type: str,
-        table_name: str,
-        threshold: McpStructuredObject,
-        severity: str = "warn",
-    ) -> dict[str, object]:
-        """Create a quality rule via POST /quality-rules."""
-        _require_structured_object(threshold, field_name="threshold")
-        return client.request_envelope(
-            "POST",
-            "/quality-rules",
-            json_body=_compact_body(
-                name=name,
-                rule_type=rule_type,
-                table_name=table_name,
-                threshold=threshold,
-                severity=severity,
-            ),
-        ).model_dump()
-
-    @server.tool()
-    @_tool_metadata("GET", "/quality-rules")
-    def list_quality_rules(table: str | None = None) -> dict[str, object]:
-        """List quality rules via GET /quality-rules."""
-        return client.request_envelope(
-            "GET",
-            "/quality-rules",
-            params=_compact_params(table=table),
-        ).model_dump()
-
-    @server.tool()
-    @_tool_metadata("DELETE", "/quality-rules/{rule_id}")
-    def delete_quality_rule(rule_id: str) -> dict[str, object]:
-        """Delete a quality rule via DELETE /quality-rules/{rule_id}."""
-        return client.request_envelope("DELETE", f"/quality-rules/{rule_id}").model_dump()
-
-    @server.tool()
-    @_tool_metadata("POST", "/governance/check")
-    def governance_check(
-        session_id: str,
-        step_type: str,
-        params: McpStructuredObject | None = None,
-    ) -> dict[str, object]:
-        """Run a governance check via POST /governance/check."""
-        if params is not None:
-            _require_structured_object(params, field_name="params")
-        return client.request_envelope(
-            "POST",
-            "/governance/check",
-            json_body=_compact_body(
-                session_id=session_id,
-                step_type=step_type,
-                params=params,
-            ),
-        ).model_dump()
-
-    # ------------------------------------------------------------------
     # Datasources
     # ------------------------------------------------------------------
 
@@ -1153,9 +1035,8 @@ def register_tools(
         datasource_type: str,
         display_name: str,
         connection: dict[str, object] | None = None,
-        policy: dict[str, object] | None = None,
     ) -> dict[str, object]:
-        """Create one datasource via POST /datasources using the canonical datasource_type, display_name, connection, and policy fields."""
+        """Create one datasource via POST /datasources using the canonical datasource_type, display_name, and connection fields."""
         return client.request_envelope(
             "POST",
             "/datasources",
@@ -1163,7 +1044,6 @@ def register_tools(
                 datasource_type=datasource_type,
                 display_name=display_name,
                 connection=connection,
-                policy=policy,
             ),
         ).model_dump()
 
@@ -1179,7 +1059,6 @@ def register_tools(
         datasource_id: str,
         display_name: str | None = None,
         connection: dict[str, object] | None = None,
-        policy: dict[str, object] | None = None,
     ) -> dict[str, object]:
         """Update one datasource via PUT /datasources/{datasource_id}."""
         return client.request_envelope(
@@ -1188,7 +1067,6 @@ def register_tools(
             json_body=_compact_body(
                 display_name=display_name,
                 connection=connection,
-                policy=policy,
             ),
         ).model_dump()
 

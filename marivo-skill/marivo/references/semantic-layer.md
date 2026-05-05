@@ -23,7 +23,7 @@ Marivo's semantic layer is OSI-aligned, typed, and HTTP-first.
 - catalog metadata is live; use datasource browse/preview endpoints before authoring
 - runtime and catalog defaults should target semantic objects that are both active and ready
 - semantic refs/names and session evidence refs are different things
-- predicates define governed, reusable filter semantics consumed by metrics, request scopes, and governance policies
+- predicates define governed, reusable filter semantics consumed by metrics and request scopes
 - mappings govern source-to-engine routing and catalog projection when that surface is in play; they are separate from semantic dataset grounding
 - domains group objects for discovery and search only; they do not grant permissions or prove compatibility
 
@@ -65,7 +65,7 @@ Do not create semantic objects in isolation. Start from the final graph that mus
 - for a field, decide the physical column/computed expression, type hint, and whether it is a time dimension
 - for a metric, decide observed dataset, expression, primary time field, grain, additivity, and optional filters
 - for a relationship, decide dataset pair, field alignment, and cardinality
-- for a predicate or governed filter, decide the dataset/field it constrains and whether it belongs in metric extension data or governance
+- for a predicate or governed filter, decide the dataset/field it constrains and whether it belongs in metric extension data
 
 Avoid speculative semantics. If a metric, relationship, or governed predicate is not needed by the
 current object graph, do not create it by default.
@@ -188,7 +188,6 @@ Each reusable predicate should be clear about where it applies:
 
 - metric qualifier: filters rows for a specific metric contract or measurement component
 - request scope: constrains results at the request/intent level
-- governance policy: enforces filter policies through governance
 
 Time-based filtering should normally stay in the intent's structured `time_scope` instead of being
 hidden inside a non-obvious predicate.

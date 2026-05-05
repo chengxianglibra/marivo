@@ -93,7 +93,6 @@ export function mockPost(path: string, body: unknown): unknown {
       datasource_type: payload.datasource_type,
       display_name: payload.display_name,
       connection: payload.connection ?? {},
-      policy: payload.policy ?? { allow_live_browse: true },
       capabilities: ["browse", "execute"],
       created_at: now(),
     });

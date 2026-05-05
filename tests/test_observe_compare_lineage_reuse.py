@@ -93,7 +93,6 @@ def _make_lineage(
     component_scopes: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     shared: dict[str, Any] = {
-        "governance_policy_refs": gov_refs or [],
         "carrier_row_filter_refs": carrier_refs or [],
     }
     if request_scope_ref is not None:

@@ -25,14 +25,12 @@ class SessionManager:
         goal: str,
         constraints: dict[str, Any] | None = None,
         budget: dict[str, Any] | None = None,
-        policy: dict[str, Any] | list[dict[str, Any]] | None = None,
         execution_identity: dict[str, Any] | None = None,
         raw_filter: str | None = None,
     ) -> dict[str, Any]:
         session_id = f"sess_{uuid4().hex[:12]}"
         legacy_constraints = constraints or {}
         budget_payload = budget or {}
-        policy_payload: dict[str, Any] | list[dict[str, Any]] = policy or {}
         execution_identity_payload = self._normalize_execution_identity_payload(
             execution_identity,
             validate=True,
@@ -44,19 +42,17 @@ class SessionManager:
                 goal,
                 constraints_json,
                 budget_json,
-                policy_json,
                 execution_identity_json,
                 status,
                 raw_filter
             )
-            VALUES (?, ?, ?, ?, ?, ?, 'open', ?)
+            VALUES (?, ?, ?, ?, ?, 'open', ?)
             """,
             [
                 session_id,
                 goal,
                 self._dump(legacy_constraints),
                 self._dump(budget_payload),
-                self._dump(policy_payload),
                 self._dump(execution_identity_payload),
                 raw_filter,
             ],
@@ -458,14 +454,6 @@ class SessionManager:
         """Return canonical AnalysisSession dict from a DB row (Phase 5a)."""
         session_id: str = row["session_id"]
 
-        # governance.budget — pass through whatever was stored
-        budget = json.loads(row["budget_json"]) if row.get("budget_json") else None
-
-        # governance.policy_refs — only surface a list-typed policy value;
-        # older sessions store arbitrary dicts, which do not match the typed
-        # [{"policy_id": ..., "policy_version": ...}] contract.
-        raw_policy = json.loads(row["policy_json"]) if row.get("policy_json") else None
-        policy_refs = raw_policy if isinstance(raw_policy, list) else None
         execution_identity = self._normalize_execution_identity(
             self._load_json_dict(row.get("execution_identity_json"))
         )
@@ -477,11 +465,6 @@ class SessionManager:
                 "constraints": json.loads(row["constraints_json"])
                 if row.get("constraints_json")
                 else None,
-            },
-            "governance": {
-                "policy_refs": policy_refs,
-                "budget": budget,
-                "warnings": None,
             },
             "execution_identity": execution_identity,
             "lifecycle": {

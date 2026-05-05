@@ -43,16 +43,15 @@ class MetadataDialectTests(unittest.TestCase):
                 "goal",
                 "constraints_json",
                 "budget_json",
-                "policy_json",
                 "status",
             ]
-            values = ["sess_1", "goal", "{}", "{}", "{}", "open"]
+            values = ["sess_1", "goal", "{}", "{}", "open"]
 
             store.insert_ignore("sessions", columns, values)
             store.insert_ignore(
                 "sessions",
                 columns,
-                ["sess_1", "changed", "{}", "{}", "{}", "closed"],
+                ["sess_1", "changed", "{}", "{}", "closed"],
             )
 
             row = store.query_one("SELECT COUNT(*) AS cnt, goal, status FROM sessions")
@@ -66,8 +65,8 @@ class MetadataDialectTests(unittest.TestCase):
             store = SQLiteMetadataStore(Path(temp_dir) / "meta.sqlite")
             store.initialize()
             store.execute(
-                "INSERT INTO sessions (session_id, goal, constraints_json, budget_json, policy_json, status) VALUES (?, ?, ?, ?, ?, ?)",
-                ["sess_1", "goal", "{}", "{}", "{}", "open"],
+                "INSERT INTO sessions (session_id, goal, constraints_json, budget_json, status) VALUES (?, ?, ?, ?, ?)",
+                ["sess_1", "goal", "{}", "{}", "open"],
             )
             store.execute(
                 "INSERT INTO steps (step_id, session_id, step_type, status, summary, result_json) VALUES (?, ?, ?, ?, ?, ?)",

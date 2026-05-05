@@ -5,7 +5,6 @@ from __future__ import annotations
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.api.models.json_contract import JsonObject, ScalarMap
-from app.api.models.session import SessionBudget, SessionPolicyRef
 
 
 class SessionGoal(BaseModel):
@@ -18,14 +17,6 @@ class SessionScope(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     constraints: ScalarMap | None = None
-
-
-class SessionGovernanceView(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    policy_refs: list[SessionPolicyRef] | None = None
-    budget: SessionBudget | ScalarMap | None = None
-    warnings: list[str] | None = None
 
 
 class SessionLifecycle(BaseModel):
@@ -56,7 +47,6 @@ class AnalysisSession(BaseModel):
     session_id: str
     goal: SessionGoal
     scope: SessionScope
-    governance: SessionGovernanceView
     execution_identity: ScalarMap = Field(default_factory=dict)
     lifecycle: SessionLifecycle
     state_summary: SessionStateSummary

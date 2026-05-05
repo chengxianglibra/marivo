@@ -156,7 +156,6 @@ the new entity-field grounding path:
 - `missing_compatibility_profile`
 - `incompatible_grain`
 - `incompatible_time_semantics`
-- `governance_policy_blocked`
 - `permission_denied`
 
 ## Typical Troubleshooting Order
@@ -175,7 +174,7 @@ the new entity-field grounding path:
 - type blocker: check the entity field `value_type`, the dimension `value_domain.value_type`, metric input aggregation, or predicate operator/value compatibility
 - grain blocker: check `observation_grain_ref`, relationship grain alignment, and profile requirements
 - time blocker: check `primary_time_ref`, time object field type, and relationship valid-time alignment
-- governance blocker: inspect predicate/governance policy requirements before changing semantic object grounding
+- policy blocker: inspect predicate requirements before changing semantic object grounding
 - picker or catalog visibility issue: confirm whether the caller is using the default ready-only view
 - runtime failure on a semantic ref: check whether the object is active but not ready before assuming the compiler or engine is broken
 

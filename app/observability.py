@@ -23,9 +23,6 @@ correlation_planner_id: ContextVar[str] = ContextVar("correlation_planner_id", d
 correlation_compiler_id: ContextVar[str] = ContextVar("correlation_compiler_id", default="")
 correlation_execution_stage: ContextVar[str] = ContextVar("correlation_execution_stage", default="")
 correlation_datasource_id: ContextVar[str] = ContextVar("correlation_datasource_id", default="")
-correlation_governance_scope: ContextVar[str] = ContextVar(
-    "correlation_governance_scope", default=""
-)
 
 
 @contextmanager
@@ -38,7 +35,6 @@ def observability_context(
     compiler_id: str | None = None,
     execution_stage: str | None = None,
     datasource_id: str | None = None,
-    governance_scope: str | None = None,
 ) -> Iterator[None]:
     tokens: list[tuple[ContextVar[str], Token[str]]] = []
     for variable, value in (
@@ -49,7 +45,6 @@ def observability_context(
         (correlation_compiler_id, compiler_id),
         (correlation_execution_stage, execution_stage),
         (correlation_datasource_id, datasource_id),
-        (correlation_governance_scope, governance_scope),
     ):
         if value:
             tokens.append((variable, variable.set(value)))
@@ -120,9 +115,6 @@ class JSONFormatter(logging.Formatter):
         datasource_id = correlation_datasource_id.get("")
         if datasource_id:
             entry["datasource_id"] = datasource_id
-        governance_scope = correlation_governance_scope.get("")
-        if governance_scope:
-            entry["governance_scope"] = governance_scope
         for key, value in record.__dict__.items():
             if key in self._reserved_record_fields or key.startswith("_"):
                 continue
@@ -187,7 +179,6 @@ class MetricsCollector:
         compiler: str | None = None,
         engine: str | None = None,
         stage: str | None = None,
-        governance_policy: str | None = None,
     ) -> None:
         self.step_count[step_type] = self.step_count.get(step_type, 0) + 1
         self.step_duration.setdefault(step_type, []).append(duration_ms)
@@ -197,7 +188,6 @@ class MetricsCollector:
             compiler=compiler,
             engine=engine,
             stage=stage,
-            governance_policy=governance_policy,
         )
         self.step_dimension_count[dimension_key] = (
             self.step_dimension_count.get(dimension_key, 0) + 1
@@ -214,14 +204,12 @@ class MetricsCollector:
         planner: str | None = None,
         compiler: str | None = None,
         engine: str | None = None,
-        governance_policy: str | None = None,
     ) -> None:
         dimension_key = self._dimension_key(
             stage=stage_name,
             planner=planner,
             compiler=compiler,
             engine=engine,
-            governance_policy=governance_policy,
         )
         self.execution_stage_count[dimension_key] = (
             self.execution_stage_count.get(dimension_key, 0) + 1

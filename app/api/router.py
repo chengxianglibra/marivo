@@ -7,7 +7,6 @@ from fastapi import FastAPI
 from app.api import (
     calendar,
     datasources,
-    governance,
     health,
     metrics,
     openapi_fragments,
@@ -71,7 +70,6 @@ def include_api_routers(app: FastAPI) -> None:
         datasources.router,
         routing.router,
         semantic_v2.router,
-        governance.router,
         metrics.router,
         calendar.router,
     ):

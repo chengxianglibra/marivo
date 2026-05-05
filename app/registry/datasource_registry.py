@@ -46,19 +46,6 @@ def _json_ready_scalar(value: Any) -> str | int | float | bool | None:
     return str(value)
 
 
-def _normalize_policy(datasource_type: str, policy: dict[str, Any] | None) -> dict[str, Any]:
-    normalized = {
-        "allow_live_browse": True,
-        "allow_identity_reuse": False,
-    }
-    if policy:
-        normalized.update(policy)
-    # duckdb silently removes allow_identity_reuse (not applicable)
-    if datasource_type == "duckdb":
-        normalized.pop("allow_identity_reuse", None)
-    return normalized
-
-
 class ExecutionAuthLoggingEngine(AnalyticsEngine):
     """Emit execution-auth success audit only when the engine is actually used."""
 
@@ -108,10 +95,8 @@ class DatasourceRegistry:
         datasource_type: str,
         display_name: str,
         connection: dict[str, Any],
-        policy: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         validate_datasource_type(datasource_type)
-        normalized_policy = _normalize_policy(datasource_type, policy)
 
         datasource_id = f"ds_{uuid4().hex[:12]}"
         now = now_iso()
@@ -122,19 +107,17 @@ class DatasourceRegistry:
                 datasource_type,
                 display_name,
                 connection_json,
-                policy_json,
                 status,
                 created_at,
                 updated_at
             )
-            VALUES (?, ?, ?, ?, ?, 'active', ?, ?)
+            VALUES (?, ?, ?, ?, 'active', ?, ?)
             """,
             [
                 datasource_id,
                 datasource_type,
                 display_name,
                 json.dumps(connection),
-                json.dumps(normalized_policy),
                 now,
                 now,
             ],
@@ -158,7 +141,6 @@ class DatasourceRegistry:
         datasource_type: str,
         display_name: str,
         connection: dict[str, Any],
-        policy: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         validate_datasource_type(datasource_type)
         existing = self.metadata.query_one(
@@ -170,21 +152,18 @@ class DatasourceRegistry:
                 datasource_type,
                 display_name,
                 connection,
-                policy=policy,
             )
 
         now = now_iso()
-        normalized_policy = _normalize_policy(datasource_type, policy)
         self.metadata.execute(
             """
             UPDATE datasources
-            SET datasource_type = ?, connection_json = ?, policy_json = ?, updated_at = ?
+            SET datasource_type = ?, connection_json = ?, updated_at = ?
             WHERE datasource_id = ?
             """,
             [
                 datasource_type,
                 json.dumps(connection),
-                json.dumps(normalized_policy),
                 now,
                 existing["datasource_id"],
             ],
@@ -196,7 +175,6 @@ class DatasourceRegistry:
         datasource_id: str,
         display_name: str | None = None,
         connection: dict[str, Any] | None = None,
-        policy: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         existing = self.get_datasource(datasource_id)
         updates: list[str] = []
@@ -208,10 +186,6 @@ class DatasourceRegistry:
         if connection is not None:
             updates.append("connection_json = ?")
             params.append(json.dumps(connection))
-        if policy is not None:
-            normalized_policy = _normalize_policy(existing["datasource_type"], policy)
-            updates.append("policy_json = ?")
-            params.append(json.dumps(normalized_policy))
 
         if not updates:
             return existing
@@ -394,26 +368,14 @@ class DatasourceRegistry:
     ) -> _RuntimeConnectionResolution:
         connection = dict(datasource.get("connection") or {})
         datasource_type = str(datasource.get("datasource_type") or "")
-        policy = dict(datasource.get("policy") or {})
 
         if datasource_type != "trino":
             return _RuntimeConnectionResolution(connection=connection)
 
-        allow_identity_reuse = policy.get("allow_identity_reuse", False)
-
-        # If session_user is provided in the connection, use it directly
         if connection.get("user"):
             return _RuntimeConnectionResolution(connection=connection)
 
-        if allow_identity_reuse:
-            # Keep connection.user as-is (the registered service user)
-            return _RuntimeConnectionResolution(connection=connection)
-
-        # No session_user and identity reuse not allowed — this is a config error
-        raise ValueError(
-            "session_user_missing: trino datasource without allow_identity_reuse "
-            "requires session_user in connection"
-        )
+        raise ValueError("session_user_missing: trino datasource requires user in connection")
 
     # =========================================================================
     # Row conversion
@@ -424,28 +386,16 @@ class DatasourceRegistry:
         raw_connection = _loads_stored_json(row["connection_json"])
         connection = raw_connection if isinstance(raw_connection, dict) else {}
 
-        raw_policy = _loads_stored_json(row["policy_json"])
-        policy_invalid = not isinstance(raw_policy, dict)
-        policy = _normalize_policy(datasource_type, raw_policy if not policy_invalid else None)
-
         datasource: dict[str, Any] = {
             "datasource_id": row["datasource_id"],
             "datasource_type": datasource_type,
             "display_name": row["display_name"],
             "connection": connection,
-            "policy": policy,
             "status": row["status"],
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }
-        if policy_invalid:
-            validation = DatasourceValidationResult(
-                is_valid=False,
-                readiness_status="not_ready",
-                failure_code="datasource_invalid_policy",
-            )
-        else:
-            validation = self.evaluate_datasource(datasource)
+        validation = self.evaluate_datasource(datasource)
         datasource["readiness_status"] = validation.readiness_status
         datasource["failure_code"] = validation.failure_code
         return datasource

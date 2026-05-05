@@ -202,7 +202,7 @@ Deletes the mapping.
 
 ## Notes
 
-- `/mappings` is the minimal explicit governance surface for source-to-engine projection.
+- `/mappings` is the minimal explicit surface for source-to-engine projection.
 - This contract does not introduce schema-level rewrite or object-level remap.
 - `catalog_mappings` should be treated as authoritative. Missing or incomplete coverage fails closed
   during readiness/routing evaluation.

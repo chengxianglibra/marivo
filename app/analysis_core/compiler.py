@@ -1307,7 +1307,6 @@ def _measurement_node(
     output_binding: OutputBinding,
     resolved_inputs: ResolvedCompilerInputs | None = None,
     semantic_repository: Any | None = None,
-    governance_repository: Any | None = None,
 ) -> tuple[MeasurementNode, NormalizedPredicateInput | None]:
     header = dict(resolved_metric.semantic_object.get("header") or {})
     sample_kind = cast(
@@ -1345,7 +1344,7 @@ def _measurement_node(
             collect_layered_predicate_refs,
         )
 
-        layered_refs = collect_layered_predicate_refs(resolved_inputs, governance_repository)
+        layered_refs = collect_layered_predicate_refs(resolved_inputs)
         component_fields = collect_component_fields(resolved_inputs)
         if layered_refs or component_fields:
             node["predicate_filter_lineage"] = build_predicate_filter_lineage(  # type: ignore[typeddict-item]
@@ -1441,9 +1440,6 @@ def _build_ir_bundle(
             output_binding=output_binding,
             resolved_inputs=resolved_inputs,
             semantic_repository=semantic_context.get("semantic_repository")
-            if semantic_context
-            else None,
-            governance_repository=semantic_context.get("governance_repository")
             if semantic_context
             else None,
         )
@@ -1569,7 +1565,6 @@ def compile_step(
         resolved_inputs=resolved_inputs,
         derived_state=derived_state,
         semantic_repository=semantic_repository,
-        governance_repository=semantic_context.get("governance_repository"),
     )
     imported_dimension_sources, imported_dimension_issues = (
         _resolve_imported_dimension_physical_sources(

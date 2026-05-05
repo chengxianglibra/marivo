@@ -58,9 +58,9 @@ def _make_store() -> SQLiteMetadataStore:
     store.initialize()
     store.execute(
         "INSERT INTO sessions "
-        "(session_id, goal, constraints_json, budget_json, policy_json, status) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        [_SESSION, "evidence pipeline family test", "{}", "{}", "{}", "open"],
+        "(session_id, goal, constraints_json, budget_json, status) "
+        "VALUES (?, ?, ?, ?, ?)",
+        [_SESSION, "evidence pipeline family test", "{}", "{}", "open"],
     )
     return store
 

@@ -77,9 +77,9 @@ def _make_store() -> SQLiteMetadataStore:
 def _setup_session_artifact_finding(store: SQLiteMetadataStore) -> None:
     store.execute(
         "INSERT INTO sessions "
-        "(session_id, goal, constraints_json, budget_json, policy_json, status) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        [_SESSION, "test soft invalidation", "{}", "{}", "{}", "open"],
+        "(session_id, goal, constraints_json, budget_json, status) "
+        "VALUES (?, ?, ?, ?, ?)",
+        [_SESSION, "test soft invalidation", "{}", "{}", "open"],
     )
     store.execute(
         "INSERT INTO artifacts "

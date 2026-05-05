@@ -20,7 +20,6 @@ export const datasources = [
     display_name: "Sales DuckDB Datasource",
     datasource_type: "duckdb",
     connection: { datasource_type: "duckdb", path: null, database: null, db_path: "./sales.duckdb" },
-    policy: { allow_live_browse: true },
     status: "active",
     readiness_status: "ready",
     failure_code: null,
@@ -39,7 +38,6 @@ export const datasources = [
       catalog: "iceberg",
       http_scheme: "https",
     },
-    policy: { allow_live_browse: true, allow_identity_reuse: false },
     status: "active",
     readiness_status: "not_ready",
     failure_code: "datasource_invalid_connection",
@@ -67,27 +65,6 @@ export const jobs = [
     status: "pending",
     created_at: "2026-04-25T11:11:00+08:00",
     updated_at: "2026-04-25T11:11:00+08:00",
-  },
-];
-
-export const policies = [
-  {
-    policy_id: "policy_revenue_read",
-    name: "Revenue tables read policy",
-    policy_type: "table_access",
-    enabled: true,
-    scope: { table_names: ["sales.orders", "sales.revenue_daily"] },
-  },
-];
-
-export const qualityRules = [
-  {
-    rule_id: "qr_orders_freshness",
-    name: "Orders freshness",
-    table_name: "sales.orders",
-    rule_type: "freshness",
-    threshold: { max_lag_hours: 6 },
-    severity: "P1",
   },
 ];
 

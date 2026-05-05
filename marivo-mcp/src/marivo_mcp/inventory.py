@@ -328,20 +328,6 @@ SURFACE_SPECS: tuple[McpSurfaceSpec, ...] = (
         ("/semantic-models/{model}/metrics/{name}",),
     ),
     # ------------------------------------------------------------------
-    # Governance
-    # ------------------------------------------------------------------
-    McpSurfaceSpec("create_policy", "tool", "p1", True, "POST", ("/policies",)),
-    McpSurfaceSpec("list_policies", "tool", "p1", True, "GET", ("/policies",)),
-    McpSurfaceSpec("get_policy", "tool", "p1", True, "GET", ("/policies/{policy_id}",)),
-    McpSurfaceSpec("update_policy", "tool", "p1", True, "PUT", ("/policies/{policy_id}",)),
-    McpSurfaceSpec("delete_policy", "tool", "p1", True, "DELETE", ("/policies/{policy_id}",)),
-    McpSurfaceSpec("create_quality_rule", "tool", "p1", True, "POST", ("/quality-rules",)),
-    McpSurfaceSpec("list_quality_rules", "tool", "p1", True, "GET", ("/quality-rules",)),
-    McpSurfaceSpec(
-        "delete_quality_rule", "tool", "p1", True, "DELETE", ("/quality-rules/{rule_id}",)
-    ),
-    McpSurfaceSpec("governance_check", "tool", "p1", True, "POST", ("/governance/check",)),
-    # ------------------------------------------------------------------
     # Datasources
     # ------------------------------------------------------------------
     McpSurfaceSpec("list_datasources", "tool", "p1", True, "GET", ("/datasources",)),
