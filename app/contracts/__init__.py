@@ -1,13 +1,6 @@
 from __future__ import annotations
 
-from .errors import (
-    ConflictError,
-    DomainError,
-    ErrorCode,
-    ForbiddenError,
-    NotFoundError,
-    ValidationError,
-)
+from .errors import ConflictError, DomainError, ForbiddenError, NotFoundError, ValidationError
 from .evidence import Assessment, Evidence, Finding, Proposition
 from .ids import (
     Action,
@@ -58,7 +51,6 @@ __all__ = [
     "DatasourceId",
     "DomainError",
     "EngineId",
-    "ErrorCode",
     "Evidence",
     "EvidenceRef",
     "Finding",
