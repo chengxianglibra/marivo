@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Repository guidance lives in [`agent-guide.md`](agent-guide.md).
+@agent-guide.md
 
 Key local rules:
 
