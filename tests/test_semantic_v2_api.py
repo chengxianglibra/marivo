@@ -389,7 +389,7 @@ class TestDeleteSemanticModelAPI(unittest.TestCase):
             "/semantic-models",
             json=_make_model_dict(visibility="private", owner_user="alice"),
         )
-        resp = client.delete("/semantic-models/test_model")
+        resp = client.delete("/semantic-models/test_model?requesting_user=alice")
         self.assertEqual(resp.status_code, 204)
         resp = client.get("/semantic-models/test_model", params={"requesting_user": "alice"})
         self.assertEqual(resp.status_code, 404)
@@ -412,7 +412,9 @@ class TestCreateDatasetAPI(unittest.TestCase):
             "/semantic-models",
             json=_make_model_dict(visibility="private", owner_user="alice"),
         )
-        resp = client.post("/semantic-models/test_model/datasets", json=_make_dataset_dict())
+        resp = client.post(
+            "/semantic-models/test_model/datasets?requesting_user=alice", json=_make_dataset_dict()
+        )
         self.assertEqual(resp.status_code, 200)
         body = resp.json()
         self.assertEqual(body["name"], "customers")
@@ -436,7 +438,9 @@ class TestReadinessAPI(unittest.TestCase):
             "/semantic-models",
             json=_make_model_dict(visibility="private", owner_user="alice"),
         )
-        resp = client.get("/semantic-models/test_model/readiness")
+        resp = client.get(
+            "/semantic-models/test_model/readiness", params={"requesting_user": "alice"}
+        )
         self.assertEqual(resp.status_code, 200)
         body = resp.json()
         self.assertEqual(body["status"], "not_ready")
@@ -451,7 +455,9 @@ class TestReadinessAPI(unittest.TestCase):
             json=_make_model_dict(visibility="private", owner_user="alice"),
         )
 
-        resp = client.get("/semantic-models/test_model/readiness")
+        resp = client.get(
+            "/semantic-models/test_model/readiness", params={"requesting_user": "alice"}
+        )
 
         self.assertEqual(resp.status_code, 200)
         body = resp.json()
@@ -861,7 +867,9 @@ class TestVisibilityGuardOnModelWrites(unittest.TestCase):
             "/semantic-models",
             json=_make_model_dict(name="priv_model", visibility="private", owner_user="alice"),
         )
-        resp = client.put("/semantic-models/priv_model", json={"description": "new"})
+        resp = client.put(
+            "/semantic-models/priv_model?requesting_user=alice", json={"description": "new"}
+        )
         self.assertEqual(resp.status_code, 200)
 
     def test_delete_official_model_returns_403(self) -> None:
@@ -907,7 +915,7 @@ class TestVisibilityGuardOnModelWrites(unittest.TestCase):
             "/semantic-models",
             json=_make_model_dict(name="priv_model", visibility="private", owner_user="alice"),
         )
-        resp = client.delete("/semantic-models/priv_model")
+        resp = client.delete("/semantic-models/priv_model?requesting_user=alice")
         self.assertEqual(resp.status_code, 204)
 
 
@@ -1117,7 +1125,7 @@ class TestSubEntityReadVisibility(unittest.TestCase):
             "from_columns": ["order_id"],
             "to_columns": ["order_id"],
         }
-        client.post("/semantic-models/priv_model/relationships", json=rel)
+        client.post("/semantic-models/priv_model/relationships?requesting_user=alice", json=rel)
         resp = client.get(
             "/semantic-models/priv_model/relationships/self_rel",
             params={"requesting_user": "alice"},
@@ -1150,7 +1158,7 @@ class TestSubEntityReadVisibility(unittest.TestCase):
             "name": "total_orders",
             "expression": {"dialects": [{"dialect": "ANSI_SQL", "expression": "COUNT(order_id)"}]},
         }
-        client.post("/semantic-models/priv_model/metrics", json=metric)
+        client.post("/semantic-models/priv_model/metrics?requesting_user=alice", json=metric)
         resp = client.get(
             "/semantic-models/priv_model/metrics/total_orders", params={"requesting_user": "alice"}
         )
@@ -1212,3 +1220,142 @@ class TestSubEntityReadVisibility(unittest.TestCase):
             "/semantic-models/public_model/datasets/orders", params={"requesting_user": "bob"}
         )
         self.assertEqual(resp.status_code, 200)
+
+
+# ---------------------------------------------------------------------------
+# Same-name shadowing (private shadows public via requesting_user)
+# ---------------------------------------------------------------------------
+
+
+class TestSameNameShadowingAPI(unittest.TestCase):
+    """API-level tests that private models shadow public models for their owner."""
+
+    def _import_public_model(self, client, name: str = "commerce") -> None:
+        doc = {
+            "version": OSI_SPEC_VERSION,
+            "semantic_model": [
+                {
+                    "name": name,
+                    "datasets": [
+                        {
+                            "name": "orders",
+                            "source": "analytics.orders",
+                            "custom_extensions": [
+                                {
+                                    "vendor_name": "MARIVO",
+                                    "data": json.dumps({"datasource_id": "ds_001"}),
+                                }
+                            ],
+                            "fields": [
+                                {
+                                    "name": "order_id",
+                                    "expression": {
+                                        "dialects": [
+                                            {"dialect": "ANSI_SQL", "expression": "order_id"}
+                                        ]
+                                    },
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ],
+        }
+        resp = client.post("/semantic-models/import", json=doc)
+        self.assertEqual(resp.status_code, 200)
+
+    def test_get_model_prefers_private_over_public_for_owner(self) -> None:
+        client = _make_app()
+        self._import_public_model(client, "commerce")
+        client.post(
+            "/semantic-models",
+            json=_make_model_dict(name="commerce", visibility="private", owner_user="alice"),
+        )
+        # alice sees her private model
+        resp = client.get("/semantic-models/commerce", params={"requesting_user": "alice"})
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        for ext in data.get("semantic_model", [{}])[0].get("custom_extensions", []):
+            if ext.get("vendor_name") == "MARIVO":
+                self.assertEqual(json.loads(ext["data"])["visibility"], "private")
+
+    def test_get_model_returns_public_for_non_owner(self) -> None:
+        client = _make_app()
+        self._import_public_model(client, "commerce")
+        client.post(
+            "/semantic-models",
+            json=_make_model_dict(name="commerce", visibility="private", owner_user="alice"),
+        )
+        # bob sees the public model
+        resp = client.get("/semantic-models/commerce", params={"requesting_user": "bob"})
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        for ext in data.get("semantic_model", [{}])[0].get("custom_extensions", []):
+            if ext.get("vendor_name") == "MARIVO":
+                self.assertEqual(json.loads(ext["data"])["visibility"], "public")
+
+    def test_update_private_model_finds_correct_row(self) -> None:
+        client = _make_app()
+        self._import_public_model(client, "commerce")
+        client.post(
+            "/semantic-models",
+            json=_make_model_dict(name="commerce", visibility="private", owner_user="alice"),
+        )
+        resp = client.put(
+            "/semantic-models/commerce?requesting_user=alice",
+            json={"description": "alice's version"},
+        )
+        self.assertEqual(resp.status_code, 200)
+
+    def test_delete_private_model_leaves_public_intact(self) -> None:
+        client = _make_app()
+        self._import_public_model(client, "commerce")
+        client.post(
+            "/semantic-models",
+            json=_make_model_dict(name="commerce", visibility="private", owner_user="alice"),
+        )
+        resp = client.delete("/semantic-models/commerce?requesting_user=alice")
+        self.assertEqual(resp.status_code, 204)
+        # Public model should still exist
+        resp = client.get("/semantic-models/commerce", params={"requesting_user": "bob"})
+        self.assertEqual(resp.status_code, 200)
+
+    def test_readiness_respects_visibility(self) -> None:
+        client = _make_app()
+        client.post(
+            "/semantic-models",
+            json=_make_model_dict(visibility="private", owner_user="alice"),
+        )
+        # Non-owner should get 404
+        resp = client.get(
+            "/semantic-models/test_model/readiness", params={"requesting_user": "bob"}
+        )
+        self.assertEqual(resp.status_code, 404)
+        # Owner should succeed
+        resp = client.get(
+            "/semantic-models/test_model/readiness", params={"requesting_user": "alice"}
+        )
+        self.assertEqual(resp.status_code, 200)
+
+    def test_two_private_models_same_name_different_owners(self) -> None:
+        client = _make_app()
+        client.post(
+            "/semantic-models",
+            json=_make_model_dict(name="commerce", visibility="private", owner_user="alice"),
+        )
+        client.post(
+            "/semantic-models",
+            json=_make_model_dict(name="commerce", visibility="private", owner_user="bob"),
+        )
+        # alice sees alice's model
+        resp = client.get("/semantic-models/commerce", params={"requesting_user": "alice"})
+        self.assertEqual(resp.status_code, 200)
+        for ext in resp.json().get("semantic_model", [{}])[0].get("custom_extensions", []):
+            if ext.get("vendor_name") == "MARIVO":
+                self.assertEqual(json.loads(ext["data"])["owner_user"], "alice")
+        # bob sees bob's model
+        resp = client.get("/semantic-models/commerce", params={"requesting_user": "bob"})
+        self.assertEqual(resp.status_code, 200)
+        for ext in resp.json().get("semantic_model", [{}])[0].get("custom_extensions", []):
+            if ext.get("vendor_name") == "MARIVO":
+                self.assertEqual(json.loads(ext["data"])["owner_user"], "bob")

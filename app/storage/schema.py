@@ -101,6 +101,7 @@ METADATA_DDL: list[str] = [
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_semantic_models_visibility_owner ON semantic_models(visibility, owner_user)",
+    "CREATE INDEX IF NOT EXISTS idx_semantic_models_name_visibility_owner ON semantic_models(name, visibility, owner_user)",
     """
     CREATE TABLE IF NOT EXISTS semantic_datasets (
         dataset_id     INTEGER PRIMARY KEY AUTOINCREMENT,

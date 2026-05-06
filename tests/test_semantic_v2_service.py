@@ -467,7 +467,9 @@ class TestUpdateSemanticModel(unittest.TestCase):
     def test_update_description(self) -> None:
         svc = _make_svc()
         svc.create_semantic_model(_make_model_dict(visibility="private", owner_user="alice"))
-        result = svc.update_semantic_model("test_model", {"description": "Updated"})
+        result = svc.update_semantic_model(
+            "test_model", {"description": "Updated"}, owner_user="alice"
+        )
         self.assertEqual(result["description"], "Updated")
 
     def test_update_nonexistent_model(self) -> None:
@@ -526,7 +528,7 @@ class TestDeleteSemanticModel(unittest.TestCase):
 
         svc = _make_svc()
         svc.create_semantic_model(_make_model_dict(visibility="private", owner_user="alice"))
-        svc.delete_semantic_model("test_model")
+        svc.delete_semantic_model("test_model", owner_user="alice")
         with self.assertRaises(HTTPException) as ctx:
             svc.get_semantic_model("test_model", requesting_user="alice")
         self.assertEqual(ctx.exception.status_code, 404)
@@ -584,7 +586,7 @@ class TestDeleteSemanticModel(unittest.TestCase):
         store = _make_store()
         svc = SemanticModelV2Service(store)
         svc.create_semantic_model(_make_model_dict(visibility="private", owner_user="alice"))
-        svc.delete_semantic_model("test_model")
+        svc.delete_semantic_model("test_model", owner_user="alice")
         rows = store.query_rows("SELECT * FROM semantic_datasets")
         self.assertEqual(len(rows), 0)
 
@@ -599,7 +601,7 @@ class TestDatasetCRUD(unittest.TestCase):
         svc = _make_svc()
         svc.create_semantic_model(_make_model_dict(visibility="private", owner_user="alice"))
         ds_data = _make_dataset_dict()
-        result = svc.create_dataset("test_model", ds_data)
+        result = svc.create_dataset("test_model", ds_data, owner_user="alice")
         self.assertEqual(result["name"], "customers")
         self.assertEqual(len(result["fields"]), 2)
 
@@ -621,7 +623,7 @@ class TestDatasetCRUD(unittest.TestCase):
     def test_list_datasets(self) -> None:
         svc = _make_svc()
         svc.create_semantic_model(_make_model_dict(visibility="private", owner_user="alice"))
-        svc.create_dataset("test_model", _make_dataset_dict())
+        svc.create_dataset("test_model", _make_dataset_dict(), owner_user="alice")
         results = svc.list_datasets("test_model", requesting_user="alice")
         names = [r["name"] for r in results]
         self.assertIn("orders", names)
@@ -630,7 +632,9 @@ class TestDatasetCRUD(unittest.TestCase):
     def test_update_dataset(self) -> None:
         svc = _make_svc()
         svc.create_semantic_model(_make_model_dict(visibility="private", owner_user="alice"))
-        result = svc.update_dataset("test_model", "orders", {"description": "Updated orders"})
+        result = svc.update_dataset(
+            "test_model", "orders", {"description": "Updated orders"}, owner_user="alice"
+        )
         self.assertEqual(result["description"], "Updated orders")
 
     def test_delete_dataset(self) -> None:
@@ -638,7 +642,7 @@ class TestDatasetCRUD(unittest.TestCase):
 
         svc = _make_svc()
         svc.create_semantic_model(_make_model_dict(visibility="private", owner_user="alice"))
-        svc.delete_dataset("test_model", "orders")
+        svc.delete_dataset("test_model", "orders", owner_user="alice")
         with self.assertRaises(HTTPException) as ctx:
             svc.get_dataset("test_model", "orders", requesting_user="alice")
         self.assertEqual(ctx.exception.status_code, 404)
@@ -663,7 +667,7 @@ class TestDatasetCRUD(unittest.TestCase):
         # "orders" already exists in the model
         ds_data = _make_dataset_dict(name="orders", source="analytics.orders_v2")
         with self.assertRaises(HTTPException) as ctx:
-            svc.create_dataset("test_model", ds_data)
+            svc.create_dataset("test_model", ds_data, owner_user="alice")
         self.assertEqual(ctx.exception.status_code, 409)
 
 
@@ -679,7 +683,7 @@ class TestRelationshipCRUD(unittest.TestCase):
         model_data["datasets"].append(_make_dataset_dict())
         svc.create_semantic_model(model_data)
         rel_data = _make_relationship_dict()
-        result = svc.create_relationship("test_model", rel_data)
+        result = svc.create_relationship("test_model", rel_data, owner_user="alice")
         self.assertEqual(result["name"], "orders_to_customers")
         self.assertEqual(result["from"], "orders")
         self.assertEqual(result["to"], "customers")
@@ -691,7 +695,7 @@ class TestRelationshipCRUD(unittest.TestCase):
         svc.create_semantic_model(_make_model_dict(visibility="private", owner_user="alice"))
         rel_data = _make_relationship_dict(from_ds="nonexistent")
         with self.assertRaises(HTTPException) as ctx:
-            svc.create_relationship("test_model", rel_data)
+            svc.create_relationship("test_model", rel_data, owner_user="alice")
         self.assertEqual(ctx.exception.status_code, 400)
 
     def test_create_relationship_invalid_to(self) -> None:
@@ -701,7 +705,7 @@ class TestRelationshipCRUD(unittest.TestCase):
         svc.create_semantic_model(_make_model_dict(visibility="private", owner_user="alice"))
         rel_data = _make_relationship_dict(to_ds="nonexistent")
         with self.assertRaises(HTTPException) as ctx:
-            svc.create_relationship("test_model", rel_data)
+            svc.create_relationship("test_model", rel_data, owner_user="alice")
         self.assertEqual(ctx.exception.status_code, 400)
 
     def test_create_relationship_mismatched_column_lengths(self) -> None:
@@ -715,7 +719,7 @@ class TestRelationshipCRUD(unittest.TestCase):
         rel_data["from_columns"] = ["customer_id", "region_id"]
         rel_data["to_columns"] = ["customer_id"]
         with self.assertRaises(HTTPException) as ctx:
-            svc.create_relationship("test_model", rel_data)
+            svc.create_relationship("test_model", rel_data, owner_user="alice")
         self.assertEqual(ctx.exception.status_code, 400)
 
     def test_get_relationship(self) -> None:
@@ -743,7 +747,7 @@ class TestRelationshipCRUD(unittest.TestCase):
         model_data["relationships"] = [_make_relationship_dict()]
         svc.create_semantic_model(model_data)
         result = svc.update_relationship(
-            "test_model", "orders_to_customers", {"cardinality": "many_to_one"}
+            "test_model", "orders_to_customers", {"cardinality": "many_to_one"}, owner_user="alice"
         )
         marivo_ext = None
         for ext in result.get("custom_extensions", []):
@@ -760,7 +764,7 @@ class TestRelationshipCRUD(unittest.TestCase):
         model_data["datasets"].append(_make_dataset_dict())
         model_data["relationships"] = [_make_relationship_dict()]
         svc.create_semantic_model(model_data)
-        svc.delete_relationship("test_model", "orders_to_customers")
+        svc.delete_relationship("test_model", "orders_to_customers", owner_user="alice")
         with self.assertRaises(HTTPException) as ctx:
             svc.get_relationship("test_model", "orders_to_customers", requesting_user="alice")
         self.assertEqual(ctx.exception.status_code, 404)
@@ -776,7 +780,7 @@ class TestMetricCRUD(unittest.TestCase):
         svc = _make_svc()
         svc.create_semantic_model(_make_model_dict(visibility="private", owner_user="alice"))
         metric_data = _make_metric_dict()
-        result = svc.create_metric("test_model", metric_data)
+        result = svc.create_metric("test_model", metric_data, owner_user="alice")
         self.assertEqual(result["name"], "total_revenue")
 
     def test_create_metric_invalid_observed_dataset(self) -> None:
@@ -786,22 +790,23 @@ class TestMetricCRUD(unittest.TestCase):
         svc.create_semantic_model(_make_model_dict(visibility="private", owner_user="alice"))
         metric_data = _make_metric_dict(observed_dataset="nonexistent")
         with self.assertRaises(SemanticValidationError):
-            svc.create_metric("test_model", metric_data)
+            svc.create_metric("test_model", metric_data, owner_user="alice")
 
     def test_get_metric(self) -> None:
         svc = _make_svc()
         svc.create_semantic_model(_make_model_dict(visibility="private", owner_user="alice"))
-        svc.create_metric("test_model", _make_metric_dict())
+        svc.create_metric("test_model", _make_metric_dict(), owner_user="alice")
         result = svc.get_metric("test_model", "total_revenue", requesting_user="alice")
         self.assertEqual(result["name"], "total_revenue")
 
     def test_list_metrics(self) -> None:
         svc = _make_svc()
         svc.create_semantic_model(_make_model_dict(visibility="private", owner_user="alice"))
-        svc.create_metric("test_model", _make_metric_dict())
+        svc.create_metric("test_model", _make_metric_dict(), owner_user="alice")
         svc.create_metric(
             "test_model",
             _make_metric_dict(name="order_count", observed_dataset="orders"),
+            owner_user="alice",
         )
         results = svc.list_metrics("test_model", requesting_user="alice")
         self.assertEqual(len(results), 2)
@@ -809,9 +814,12 @@ class TestMetricCRUD(unittest.TestCase):
     def test_update_metric(self) -> None:
         svc = _make_svc()
         svc.create_semantic_model(_make_model_dict(visibility="private", owner_user="alice"))
-        svc.create_metric("test_model", _make_metric_dict())
+        svc.create_metric("test_model", _make_metric_dict(), owner_user="alice")
         result = svc.update_metric(
-            "test_model", "total_revenue", {"description": "Total revenue metric"}
+            "test_model",
+            "total_revenue",
+            {"description": "Total revenue metric"},
+            owner_user="alice",
         )
         self.assertEqual(result["description"], "Total revenue metric")
 
@@ -820,8 +828,8 @@ class TestMetricCRUD(unittest.TestCase):
 
         svc = _make_svc()
         svc.create_semantic_model(_make_model_dict(visibility="private", owner_user="alice"))
-        svc.create_metric("test_model", _make_metric_dict())
-        svc.delete_metric("test_model", "total_revenue")
+        svc.create_metric("test_model", _make_metric_dict(), owner_user="alice")
+        svc.delete_metric("test_model", "total_revenue", owner_user="alice")
         with self.assertRaises(HTTPException) as ctx:
             svc.get_metric("test_model", "total_revenue", requesting_user="alice")
         self.assertEqual(ctx.exception.status_code, 404)
@@ -1334,6 +1342,182 @@ class TestImportOSIDocument(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# Same-name shadowing (private shadows public)
+# ---------------------------------------------------------------------------
+
+
+class TestSameNameShadowing(unittest.TestCase):
+    """Tests that private models shadow public models when requesting_user matches."""
+
+    def _make_public_model(self, svc: SemanticModelV2Service, name: str = "commerce") -> None:
+        """Import a public model via import_osi_document."""
+        doc = {
+            "version": OSI_SPEC_VERSION,
+            "semantic_model": [
+                {
+                    "name": name,
+                    "datasets": [
+                        {
+                            "name": "orders",
+                            "source": "analytics.orders",
+                            "custom_extensions": [
+                                {
+                                    "vendor_name": "MARIVO",
+                                    "data": json.dumps({"datasource_id": "ds_001"}),
+                                }
+                            ],
+                            "fields": [
+                                {
+                                    "name": "order_id",
+                                    "expression": {
+                                        "dialects": [
+                                            {"dialect": "ANSI_SQL", "expression": "order_id"}
+                                        ]
+                                    },
+                                }
+                            ],
+                        }
+                    ],
+                    "custom_extensions": [
+                        {"vendor_name": "MARIVO", "data": json.dumps({"visibility": "public"})}
+                    ],
+                }
+            ],
+        }
+        svc.import_osi_document(doc)
+
+    def test_get_model_prefers_private_over_public_for_owner(self) -> None:
+        svc = _make_svc()
+        self._make_public_model(svc, "commerce")
+        svc.create_semantic_model(
+            _make_model_dict(name="commerce", visibility="private", owner_user="alice")
+        )
+        # alice should see her private model
+        result = svc.get_semantic_model("commerce", requesting_user="alice")
+        for ext in result.get("custom_extensions", []):
+            if ext.get("vendor_name") == "MARIVO":
+                data = json.loads(ext["data"])
+                self.assertEqual(data["visibility"], "private")
+
+    def test_get_model_returns_public_for_non_owner(self) -> None:
+        svc = _make_svc()
+        self._make_public_model(svc, "commerce")
+        svc.create_semantic_model(
+            _make_model_dict(name="commerce", visibility="private", owner_user="alice")
+        )
+        # bob should see the public model
+        result = svc.get_semantic_model("commerce", requesting_user="bob")
+        for ext in result.get("custom_extensions", []):
+            if ext.get("vendor_name") == "MARIVO":
+                data = json.loads(ext["data"])
+                self.assertEqual(data["visibility"], "public")
+
+    def test_get_model_returns_public_when_no_user(self) -> None:
+        svc = _make_svc()
+        self._make_public_model(svc, "commerce")
+        svc.create_semantic_model(
+            _make_model_dict(name="commerce", visibility="private", owner_user="alice")
+        )
+        # No requesting_user → public model
+        result = svc.get_semantic_model("commerce")
+        for ext in result.get("custom_extensions", []):
+            if ext.get("vendor_name") == "MARIVO":
+                data = json.loads(ext["data"])
+                self.assertEqual(data["visibility"], "public")
+
+    def test_update_private_model_finds_correct_row(self) -> None:
+        svc = _make_svc()
+        self._make_public_model(svc, "commerce")
+        svc.create_semantic_model(
+            _make_model_dict(name="commerce", visibility="private", owner_user="alice")
+        )
+        result = svc.update_semantic_model(
+            "commerce", {"description": "alice's version"}, owner_user="alice"
+        )
+        self.assertEqual(result["description"], "alice's version")
+        # Public model should be unchanged
+        public = svc.get_semantic_model("commerce", requesting_user="bob")
+        self.assertNotEqual(public.get("description"), "alice's version")
+
+    def test_delete_private_model_finds_correct_row(self) -> None:
+        svc = _make_svc()
+        self._make_public_model(svc, "commerce")
+        svc.create_semantic_model(
+            _make_model_dict(name="commerce", visibility="private", owner_user="alice")
+        )
+        svc.delete_semantic_model("commerce", owner_user="alice")
+        # Public model should still exist
+        result = svc.get_semantic_model("commerce", requesting_user="bob")
+        self.assertEqual(result["name"], "commerce")
+
+    def test_import_finds_public_model_when_private_exists(self) -> None:
+        svc = _make_svc()
+        svc.create_semantic_model(
+            _make_model_dict(name="shared", visibility="private", owner_user="alice")
+        )
+        # Import a public model with the same name
+        self._make_public_model(svc, "shared")
+        # Both models should exist
+        result = svc.get_semantic_model("shared", requesting_user="alice")
+        for ext in result.get("custom_extensions", []):
+            if ext.get("vendor_name") == "MARIVO":
+                data = json.loads(ext["data"])
+                self.assertEqual(data["visibility"], "private")
+        result = svc.get_semantic_model("shared", requesting_user="bob")
+        for ext in result.get("custom_extensions", []):
+            if ext.get("vendor_name") == "MARIVO":
+                data = json.loads(ext["data"])
+                self.assertEqual(data["visibility"], "public")
+
+    def test_readiness_respects_visibility(self) -> None:
+        from fastapi import HTTPException
+
+        svc = _make_svc()
+        svc.create_semantic_model(_make_model_dict(visibility="private", owner_user="alice"))
+        # Non-owner should get 404
+        with self.assertRaises(HTTPException) as ctx:
+            svc.get_readiness("test_model", requesting_user="bob")
+        self.assertEqual(ctx.exception.status_code, 404)
+        # Owner should succeed
+        result = svc.get_readiness("test_model", requesting_user="alice")
+        self.assertEqual(result["status"], "ready")
+
+    def test_two_private_models_same_name_different_owners(self) -> None:
+        svc = _make_svc()
+        svc.create_semantic_model(
+            _make_model_dict(name="commerce", visibility="private", owner_user="alice")
+        )
+        svc.create_semantic_model(
+            _make_model_dict(name="commerce", visibility="private", owner_user="bob")
+        )
+        # alice sees alice's model
+        result = svc.get_semantic_model("commerce", requesting_user="alice")
+        for ext in result.get("custom_extensions", []):
+            if ext.get("vendor_name") == "MARIVO":
+                data = json.loads(ext["data"])
+                self.assertEqual(data["owner_user"], "alice")
+        # bob sees bob's model
+        result = svc.get_semantic_model("commerce", requesting_user="bob")
+        for ext in result.get("custom_extensions", []):
+            if ext.get("vendor_name") == "MARIVO":
+                data = json.loads(ext["data"])
+                self.assertEqual(data["owner_user"], "bob")
+
+    def test_update_private_model_without_owner_returns_403(self) -> None:
+        from fastapi import HTTPException
+
+        svc = _make_svc()
+        self._make_public_model(svc, "commerce")
+        svc.create_semantic_model(
+            _make_model_dict(name="commerce", visibility="private", owner_user="alice")
+        )
+        # Without owner_user, should find the public model and return 403
+        with self.assertRaises(HTTPException) as ctx:
+            svc.update_semantic_model("commerce", {"description": "new"})
+        self.assertEqual(ctx.exception.status_code, 403)
+
+
+# ---------------------------------------------------------------------------
 # Readiness
 # ---------------------------------------------------------------------------
 
@@ -1342,7 +1526,7 @@ class TestReadiness(unittest.TestCase):
     def test_get_readiness(self) -> None:
         svc = _make_svc()
         svc.create_semantic_model(_make_model_dict(visibility="private", owner_user="alice"))
-        result = svc.get_readiness("test_model")
+        result = svc.get_readiness("test_model", requesting_user="alice")
         self.assertEqual(result["status"], "ready")
         self.assertIsInstance(result["blockers"], list)
         self.assertEqual(result["semantic_version_id"], None)
