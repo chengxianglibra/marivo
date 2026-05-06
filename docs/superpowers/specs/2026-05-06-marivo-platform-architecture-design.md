@@ -15,7 +15,7 @@ Marivo supports two deployment scenarios with a single codebase:
 
 Core goals:
 - One canonical semantic / intent / evidence contract across both scenarios.
-- Local and enterprise differ only in deployment profile, not agent interaction syntax.
+- Local and enterprise expose the same MCP tool names and schemas. Authorization-driven differences (e.g. enterprise `AuthZ` rejecting an action) appear as standard error responses, not new tools or new request shapes.
 - Marivo core is a library; service / MCP / CLI / SDK are wrappers.
 
 ---
@@ -76,7 +76,7 @@ Core goals:
 
 ## 4. Package Structure
 
-`app/` is renamed to `marivo/`. `marivo-mcp/` and `marivo-skill/` are merged into `marivo/transports/`.
+The tree below is the **target logical structure**. Under the contract-first strangler strategy, physical package names may remain under `app/` during the early extraction phases. The repo-wide `app/` -> `marivo/` rename is a later mechanical cutover after the shared Runtime facade and profile seams are already proven. `marivo-mcp/` remains the installable compatibility distribution during the migration window and delegates into `marivo/transports/mcp/` once the shared implementation is cut over. `marivo-skill/` (a Claude Code skill definition file, not Python code) stays out of scope of this spec.
 
 ```
 marivo/
@@ -108,7 +108,7 @@ marivo/
     local/           # FileModelStore, SqliteSessionStore, DuckDBDataSource…
     server/          # SqlModelStore, SqlSessionStore, S3EvidenceStore…
     client/          # HTTP proxy adapters for client profile
-  transports/        # Merged from marivo-mcp/ + existing surface code
+  transports/        # Merged from marivo-mcp/ (MCP) + existing surface code
     cli/
     mcp/             # stdio + HTTP MCP, embedded and client modes
     http/            # FastAPI routes
@@ -120,7 +120,9 @@ marivo/
   local/             # Local-mode utilities: state layout, init, WAL helpers
 ```
 
-**Migration rule:** existing modules under `app/` are relocated into the above structure by responsibility. No functional changes during the move.
+**Migration rule:** existing modules are extracted toward the above structure by responsibility. Early strangler phases prioritize new seams (`contracts/`, `ports/`, `runtime/`) over physical renames. Mechanical namespace moves must not be bundled with boundary-defining refactors in the same phase.
+
+**Compatibility window:** the published `marivo-mcp` package and its entrypoints must keep working until the shared MCP implementation has landed, the new `marivo/` import path is stable, and the old install instructions have been updated. The migration is a staged cutover, not a same-PR package deletion.
 
 ---
 
@@ -132,7 +134,7 @@ marivo/
 |------|--------|
 | Semantic model parsing, validation, publish-state determination | `core/semantic/` |
 | Typed intent compilation | `core/intent/` |
-| Logical plan generation and execution orchestration | `core/planner/` |
+| Logical plan generation and execution-independent plan transforms | `core/planner/` |
 | Evidence / finding / proposition / assessment generation | `core/evidence/` |
 | Lineage, hash, replay semantics | `core/lineage/` |
 | Policy rule evaluation | `core/policy/` |
@@ -140,9 +142,12 @@ marivo/
 **Non-responsibilities (hard boundaries):**
 - Does not read or write files.
 - Does not connect to databases.
+- Does not call `DataSource` or any other Port directly.
 - Does not handle HTTP / MCP / CLI protocols.
 - Does not know whether it is running in local or enterprise mode.
 - Does not import any adapter or transport module.
+
+**Execution boundary:** Core produces typed plans, validation results, and pure transformations. Runtime owns execution orchestration over Ports: selecting the `DataSource`, issuing queries, committing session events, persisting evidence, and handling retries / authorization / telemetry side effects. This separation is mandatory because `core/` is not allowed to import `ports/`.
 
 **Import rules (enforced in CI via `import-linter`):**
 
@@ -168,10 +173,27 @@ Each Port is a Python `Protocol` in `marivo/ports/`, containing only the domain 
 
 ```python
 # ports/model_store.py
+class ModelSelector(Protocol):
+    model_id: ModelId | None
+    name: str | None
+    revision: RevisionId | None
+
+class ModelListQuery(Protocol):
+    owner: UserId | None
+    visibility: str | None
+    include_public: bool
+    include_private: bool
+
 class ModelStore(Protocol):
-    def get(self, model_id: ModelId) -> SemanticModel: ...
-    def save(self, model: SemanticModel) -> ModelId: ...
-    def list(self, owner: UserId) -> list[ModelSummary]: ...
+    def get(self, selector: ModelSelector) -> SemanticModel | None: ...
+    def save(
+        self,
+        model: SemanticModel,
+        *,
+        actor: UserId,
+        expected_revision: RevisionId | None,
+    ) -> ModelId: ...
+    def list(self, query: ModelListQuery) -> list[ModelSummary]: ...
 
 # ports/session_store.py — append-only
 class SessionStore(Protocol):
@@ -189,8 +211,14 @@ class DataSource(Protocol):
     def schema(self, source_ref: SourceRef) -> SourceSchema: ...
 
 # ports/authz.py
+class AuthZDecision(Protocol):
+    allowed: bool
+    code: str | None
+    message: str | None
+    detail: dict[str, Any]
+
 class AuthZ(Protocol):
-    def check(self, actor: UserId, action: Action, resource: ResourceId) -> bool: ...
+    def check(self, actor: UserId, action: Action, resource: ResourceId) -> AuthZDecision: ...
 
 # ports/audit_log.py
 class AuditLog(Protocol):
@@ -213,30 +241,37 @@ class RuntimeConfig(Protocol):
 **Design rules:**
 - Port methods accept and return only types defined in `marivo/contracts/`.
 - `SessionStore` is append-only: `append_event` only, no update or delete.
-- `EvidenceStore.write` returns a hash-bearing `EvidenceRef`, ensuring referenceability and replayability.
-- `AuthZ` is implemented by `NoopAuthZ` in local profile (always returns `True`).
+- `EvidenceStore.write` returns a hash-bearing `EvidenceRef`, ensuring referenceability and replayability. Hash algorithm: **sha256**. Hash input must be canonicalized: JSON with sorted keys, UTF-8, no whitespace, integer-typed numbers where possible (no float ambiguity). The same canonical form is used for replay-stability tests.
+- `AuthZ` is implemented by `NoopAuthZ` in local profile (returns an allowed decision with empty reason fields).
+- `ModelStore` read semantics must support public + private visibility, revision-aware reads, and approval/publish workflows implemented in Runtime. Runtime must not need adapter-specific escape hatches to express model visibility rules.
 - Every Port has an adapter contract test suite; all implementations must pass it.
 
 ---
 
 ## 7. Adapters & Profiles
 
-**Adapter implementation matrix:**
+**Adapter implementation matrix (storage / execution Ports only):**
 
-| Port | local adapter | server adapter | client adapter |
-|------|--------------|----------------|----------------|
-| `ModelStore` | `FileModelStore` | `SqlModelStore` (pg / mysql) | `HttpModelStore` |
-| `SessionStore` | `SqliteSessionStore` | `SqlSessionStore` (pg / mysql) | `HttpSessionStore` |
-| `EvidenceStore` | `FileEvidenceStore` | `S3EvidenceStore` | `HttpEvidenceStore` |
-| `DataSource` | `DuckDBDataSource` | `Trino/Snowflake/BQDataSource` | `HttpDataSource` |
-| `CacheStore` | `SqliteCacheStore` | `RedisCacheStore` | `HttpCacheStore` |
-| `AuthZ` | `NoopAuthZ` | `OidcRbacAuthZ` | `HttpAuthZ` |
-| `AuditLog` | `FileAuditLog` | `CentralizedAuditLog` | `HttpAuditLog` |
-| `Telemetry` | `LocalTelemetry` | `OtelTelemetry` | `HttpTelemetry` |
+| Port | local adapter | server adapter |
+|------|--------------|----------------|
+| `ModelStore` | `FileModelStore` | `SqlModelStore` (mysql) |
+| `SessionStore` | `SqliteSessionStore` | `SqlSessionStore` (mysql) |
+| `EvidenceStore` | `FileEvidenceStore` | `S3EvidenceStore` |
+| `DataSource` | `DuckDBDataSource` | `Trino/Snowflake/BQDataSource` |
+| `CacheStore` | `SqliteCacheStore` | `RedisCacheStore` |
+| `AuthZ` | `NoopAuthZ` | `OidcRbacAuthZ` |
+| `AuditLog` | `FileAuditLog` | `CentralizedAuditLog` |
+| `Telemetry` | `LocalTelemetry` | `OtelTelemetry` |
 
-**Server SQL adapters:** `SqlModelStore` and `SqlSessionStore` use SQLAlchemy Core, accepting a `db_url` connection string. Supported backends: PostgreSQL, MySQL, and any SQLAlchemy-compatible database. Not bound to a specific dialect. Adapter contract tests run against both pg and mysql in CI.
+**Server SQL adapters:** `SqlModelStore` and `SqlSessionStore` use SQLAlchemy Core, accepting a `db_url` connection string. Current supported backend: MySQL only. The adapter contract suite runs against MySQL in CI.
 
-**Client profile:** All port calls are transparently proxied to the enterprise server's HTTP API. The MCP tool schema exposed to agents is identical to the local profile — switching profiles does not change agent interaction syntax.
+**Client profile:** Client mode does **not** proxy individual Ports over HTTP. It proxies Runtime / use-case surfaces to the enterprise server's canonical HTTP API through a `RemoteRuntimeClient`-style facade. The MCP tool schema exposed to agents is identical to the local profile because both surfaces target the same Runtime semantics, not because the client re-expresses `ModelStore` / `SessionStore` as a second distributed RPC contract. Profile switching does not change tool names or request shapes; authorization-driven differences (e.g. enterprise `AuthZ` rejecting an action) appear as standard error responses.
+
+**Local-mode safety guard:** The local profile factory must refuse to construct a `MarivoRuntime` when the runtime detects an enterprise deployment context (e.g. `MARIVO_DEPLOYMENT=server` env var, or presence of a `server.toml` config). This prevents `NoopAuthZ` from accidentally bypassing enterprise authorization.
+
+**LocalTelemetry default:** `LocalTelemetry` is no-op by default. Local users opt-in via `marivo.toml` (`[telemetry] sink = "file"`), which writes to `.marivo/telemetry.jsonl`. No telemetry leaves the host without explicit opt-in.
+
+**FileModelStore concurrency rule:** local semantic model writes use optimistic concurrency. Each write must include an `expected_revision` (or equivalent content digest) captured from the last read. The adapter writes to a temp file and atomically renames into place only when the on-disk revision still matches the expected one; otherwise it raises a conflict that the caller must surface. Silent last-writer-wins overwrites are forbidden.
 
 **Profile Factory (selected approach):**
 
@@ -265,7 +300,15 @@ def create_server_runtime(config: ServerConfig) -> MarivoRuntime:
     )
 ```
 
-**Profile selection:** entry points (CLI / MCP startup) read `profile` from `marivo.toml` and call the corresponding factory to obtain a fully-wired `MarivoRuntime`.
+**Profile selection authority:** profile resolution is explicit and entry-point-specific.
+
+| Entry point | Precedence order |
+|------------|------------------|
+| local CLI / local stdio MCP | explicit flag > env var > workspace `.marivo/marivo.toml` > default `local` |
+| client CLI / client stdio MCP | explicit flag > env var > user client config > workspace `.marivo/marivo.toml` |
+| server HTTP / server HTTP MCP | explicit flag > env var > service config file; ambient workspace `.marivo/` is ignored unless explicitly pointed to |
+
+Profile auto-detection must never let an enterprise server bind itself from a nearby developer workspace config by accident.
 
 ---
 
@@ -275,7 +318,7 @@ def create_server_runtime(config: ServerConfig) -> MarivoRuntime:
 
 ```
 Agent (Claude / any MCP client)
-  └─ spawn marivo-stdio (short-lived process)
+  └─ spawn marivo-stdio (short-lived child process for one MCP client session)
        └─ embedded MarivoRuntime
             ├─ SqliteSessionStore  (state.db, WAL mode)
             ├─ FileModelStore      (models/)
@@ -283,7 +326,7 @@ Agent (Claude / any MCP client)
             └─ DuckDBDataSource    (in-process)
 ```
 
-One process per MCP invocation. No daemon. No background service.
+One child process per MCP client session. The process may serve many tool calls until stdin closes. No daemon. No background service.
 
 **Local state layout:**
 
@@ -291,18 +334,22 @@ One process per MCP invocation. No daemon. No background service.
 .marivo/
   marivo.toml        # profile = "local", datasource config, etc.
   models/            # semantic model files (yaml / json)
-  state.db           # SQLite WAL: session events + cache
+  state.db           # SQLite WAL: canonical session event log + cache metadata
   evidence/          # hash-addressed evidence files
-  sessions/          # session event jsonl (append-only)
+  sessions/          # optional exported session jsonl projections (derived from state.db)
   cache/             # optional local query cache
 ```
 
 **Invariants:**
 - SQLite WAL mode enabled; supports concurrent multi-process reads and writes without lock files.
+- WAL relies on local POSIX file locking. `.marivo/` on a network filesystem (NFS / SMB / CIFS) is unsupported; `marivo doctor` warns when it detects one.
+- `state.db` is the canonical append-only session system of record. `sessions/` is a derived export/debug projection only; it must be rebuildable from `state.db` and must never be read as the primary source of truth.
+- Startup opens SQLite first and relies on SQLite's own crash-recovery path. Pre-open deletion of `state.db-wal` / `state.db-shm` is forbidden. Any post-recovery maintenance must happen only after the database is opened successfully and recovery has completed.
 - Evidence file writes: write to `tmp-<uuid>` first, then atomic rename — no partial writes.
 - Session events are append-only; no update, no delete.
 - No long transactions held across MCP requests; each request opens and commits its own transaction.
 - `marivo init` creates the directory structure and default `marivo.toml` when `.marivo/` does not exist.
+- Cold-start cost: starting a fresh stdio session adds ~200–500 ms (Python import + DuckDB init). Per-tool-call cost within the same MCP child process should not assume a full process restart. A warm-cache / daemon-mode opt-in is a candidate for post-Phase-7 work, not core Phase 4 scope.
 
 ---
 
@@ -314,8 +361,8 @@ One process per MCP invocation. No daemon. No background service.
 ChatBI / Agent / UI / SDK
   └─ HTTP API / MCP Gateway
        └─ Marivo Server
-            ├─ SqlModelStore        (pg / mysql)
-            ├─ SqlSessionStore      (pg / mysql)
+            ├─ SqlModelStore        (mysql)
+            ├─ SqlSessionStore      (mysql)
             ├─ S3EvidenceStore
             ├─ Trino / Snowflake / BQ DataSource
             ├─ OidcRbacAuthZ
@@ -329,12 +376,16 @@ ChatBI / Agent / UI / SDK
 |-----------|-------------|
 | Semantic model registry | Public model publication + private workspace isolation |
 | Approval / publish workflow | Model publication requires approval; triggered via a publish operation through the Runtime layer, not exposed in the base `ModelStore` Protocol |
-| Session-level user identity | `X-Marivo-User` header propagated; `AuthZ` validates |
+| Session-level user identity | `X-Marivo-User` header is a trusted propagation header; the authenticated edge injects it and `AuthZ` validates the canonical actor |
 | Audit trail | Every runtime operation recorded to `AuditLog` |
 | Centralized policy | `AuthZ` + `policy/` rules managed centrally |
 | Engine routing | Routes to the appropriate `DataSource` adapter by source type |
 | Observability | OTel traces and metrics, integrated with existing monitoring stack |
 | Multi-agent integration | Multiple agents share a session with identity isolation |
+
+**Identity trust boundary:** `X-Marivo-User` is not an authentication token and must not be accepted from untrusted public clients as-is. The HTTP/MCP edge strips any inbound copy from the network boundary, resolves the canonical actor from the authenticated transport context, and injects the header before calling Runtime. If a trusted actor cannot be established, the request fails closed before business logic runs.
+
+**stdio client-mode identity binding:** when `marivo-stdio` runs in `client` profile, it must authenticate to the enterprise edge using explicit enterprise credentials (for example device-code login, API token, or configured service credential). The local process must never derive enterprise identity from ambient OS usernames or workspace config. The enterprise edge resolves the canonical actor from the presented credential, injects `X-Marivo-User`, and then applies normal `AuthZ`.
 
 ---
 
@@ -364,6 +415,8 @@ Both transports share the same MCP tool schema and handler implementations. Runt
 | HTTP MCP | server | Enterprise managed MCP gateway |
 | HTTP MCP | client | Bridge scenario |
 
+For `stdio + client` mode, authentication happens before the proxy call is sent to the enterprise server. The stdio surface is still protocol translation only; it must not carry enterprise business rules locally.
+
 **HTTP API** (`marivo/transports/http/`)
 Enterprise canonical remote API, FastAPI implementation. Integration entry point for UI / ChatBI / SDK. Target endpoint for MCP client mode proxy.
 
@@ -385,7 +438,7 @@ Management UI. Continues with existing frontend implementation; not in scope for
 
 **Adapter contract tests** (`tests/contracts/`)
 - Each Port defines a contract test suite (pytest parametrize).
-- Same suite runs against all implementations: `SqliteSessionStore`, `SqlSessionStore(pg)`, `SqlSessionStore(mysql)`, `FileEvidenceStore`, `S3EvidenceStore`, etc.
+- Same suite runs against all implementations: `SqliteSessionStore`, `SqlSessionStore(mysql)`, `FileEvidenceStore`, `S3EvidenceStore`, etc.
 - A new adapter may not merge without passing its Port's contract test.
 
 **Surface tests** (`tests/surfaces/`)
@@ -396,31 +449,38 @@ Management UI. Continues with existing frontend implementation; not in scope for
 **E2E golden tests** (`tests/e2e/`)
 - Session jsonl replay: record a complete session; replay produces zero evidence diff.
 - Local / server profile behavior parity: same intent produces equivalent results under both profiles.
-- Evidence hash stability: cross-version replay does not change hash values.
+- Evidence hash stability: cross-version replay does not change hash values. Stability is defined against the canonical form in §6 (sha256 over sorted-key UTF-8 JSON), not over Python pickle or library-default serialization.
+- Client-mode identity tests: stdio client mode must prove that enterprise identity is derived from explicit credentials, not local ambient state.
 
 **CI rules:**
 - `import-linter` enforces `core/` import boundary; violation fails the build.
-- Adapter contract tests run on local adapters by default; server adapter tests run in CI environments with the corresponding service available.
+- Local adapter contract tests run in every CI pass.
+- Server adapter contract tests and local/server parity tests are mandatory Phase 6 CI jobs with provisioned MySQL infrastructure (testcontainers or an approved equivalent). Phase 6 cannot close while server-profile CI is "best effort" or externally optional.
 
 ---
 
 ## 12. Migration Path
 
-| Phase | Name | Deliverable | Acceptance Criteria |
-|-------|------|-------------|---------------------|
-| 1 | Target Architecture | This spec document | Spec merged to main branch |
-| 2 | Contracts & Ports | `marivo/contracts/` + `marivo/ports/` Protocol definitions; `app/` renamed to `marivo/` | import-linter rules pass; all existing tests green |
-| 3 | Runtime Decoupling | HTTP service calls Runtime use-case layer; no direct core imports from service layer | Service layer has no direct core imports; existing E2E tests green |
-| 4 | Local Embedded Runtime | `create_local_runtime()` factory; MCP stdio embedded mode operational | Local profile E2E golden tests pass |
-| 5 | MCP Dual Mode | MCP supports embedded / client dual mode; HTTP MCP transport | Client mode proxy integration tests pass |
-| 6 | Profile System | local / server / client three profile factories; adapter contract tests | Contract tests pass across all adapter implementations |
-| 7 | Convergence & Lock-in | E2E golden tests; behavior parity tests; documentation updated; import boundary enforced in CI | All tests green; architectural invariants documented; no import violations |
+Sequencing follows a **contract-first strangler** strategy: define the shared contracts and Runtime seam first, move existing HTTP and MCP paths behind that seam, then add local embedded mode and client/server profiles on top of the stabilized boundary.
+
+| Order | Phase | Name | Deliverable | Acceptance Criteria |
+|-------|-------|------|-------------|---------------------|
+| 1 | 1 | Target Architecture | This spec document | Spec merged to main branch |
+| 2 | 2 | Contracts & Ports | `contracts/` + `ports/` Protocol definitions land inside the current package root; no repo-wide rename required yet | import-linter rules pass for the new seams; all existing tests green; HTTP and MCP can compile against the new contract types |
+| 3 | 3 | Runtime Decoupling | Shared Runtime facade introduced; HTTP service and MCP both call Runtime use-case layer; `core/` is I/O-free and execution over Ports lives in Runtime | Service and MCP handlers have no direct core orchestration logic; `core/` import-linter rules pass; existing E2E tests green |
+| 4 | 4 | Local Embedded Runtime | `create_local_runtime()` factory; MCP stdio embedded mode operational against the shared Runtime seam | An agent + Marivo can finish a sample analysis end-to-end in local mode against `.marivo/`. MCP session-lifetime behavior is documented and tested. |
+| 5 | 6 | Profile System | local / server / client three profile factories; adapter contract tests; behavior parity test infrastructure (testcontainers or chosen alternative) | Contract tests pass across all adapter implementations; parity tests run in CI |
+| 6 | 5 | MCP Dual Mode | MCP supports embedded / client dual mode; HTTP MCP transport | Client mode proxy integration tests pass |
+| 7 | 7 | Namespace Cutover & Convergence | `app/` -> `marivo/` mechanical rename, packaging/documentation cutover, E2E golden tests, import boundary enforced in CI | All tests green; architectural invariants documented; no remaining `from app.*` imports; `marivo-mcp` compatibility wrapper validated in CI and docs updated |
 
 **Migration principles:**
 - Existing functionality must not regress at the end of each phase (green tests are the gate).
-- Phases 2–3 are pure refactoring; no observable behavior change.
-- Phase 4 introduces new capability (local no-service mode).
-- Phases may overlap, but Phase 3 must complete before Phase 4 begins.
+- Phases 2 and 3 establish the strangler seam first; local embedded mode is not allowed to bypass or preempt that seam.
+- Repository-wide namespace renames are mechanical follow-on work, not the vehicle for boundary design.
+- Phase 6 (Profile System) precedes Phase 5 (MCP Dual Mode) because dual-mode MCP requires a working profile factory to choose between embedded and client runtimes.
+- `marivo-mcp` stays installable and backward-compatible through the migration window. The old package becomes a thin wrapper over the shared MCP implementation only after the new `marivo/` path and installation docs have been validated in CI and one release window has elapsed.
+
+> **Note on numbering:** the *Phase* column preserves the original phase identities used elsewhere in this document (and in tooling). The *Order* column is the actual execution sequence.
 
 ---
 
