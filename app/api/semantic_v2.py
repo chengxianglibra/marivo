@@ -139,19 +139,28 @@ def get_semantic_model(
 
 @router.put("/{model}", response_model=OSIDocument)
 def update_semantic_model(
-    model: str, request: Request, payload: SemanticModelUpdateRequest
+    model: str,
+    request: Request,
+    payload: SemanticModelUpdateRequest,
+    requesting_user: str | None = None,
 ) -> OSIDocument:
     """Update top-level fields of a semantic model."""
     svc = _get_service(request)
-    result = _run(lambda: svc.update_semantic_model(model, _dump_model(payload)))
+    owner = _resolve_requesting_user(requesting_user)
+    result = _run(lambda: svc.update_semantic_model(model, _dump_model(payload), owner_user=owner))
     return _osi_model_wrap(result)
 
 
 @router.delete("/{model}", status_code=204)
-def delete_semantic_model(model: str, request: Request) -> None:
+def delete_semantic_model(
+    model: str,
+    request: Request,
+    requesting_user: str | None = None,
+) -> None:
     """Delete a semantic model."""
     svc = _get_service(request)
-    _run(lambda: svc.delete_semantic_model(model))
+    owner = _resolve_requesting_user(requesting_user)
+    _run(lambda: svc.delete_semantic_model(model, owner_user=owner))
 
 
 # ---------------------------------------------------------------------------
@@ -160,10 +169,18 @@ def delete_semantic_model(model: str, request: Request) -> None:
 
 
 @router.post("/{model}/datasets", response_model=Dataset)
-def create_dataset(model: str, request: Request, payload: Dataset) -> Dataset:
+def create_dataset(
+    model: str,
+    request: Request,
+    payload: Dataset,
+    requesting_user: str | None = None,
+) -> Dataset:
     """Create a dataset within a model."""
     svc = _get_service(request)
-    return Dataset.model_validate(_run(lambda: svc.create_dataset(model, _dump_model(payload))))
+    owner = _resolve_requesting_user(requesting_user)
+    return Dataset.model_validate(
+        _run(lambda: svc.create_dataset(model, _dump_model(payload), owner_user=owner))
+    )
 
 
 @router.get("/{model}/datasets", response_model=list[Dataset])
@@ -197,20 +214,31 @@ def get_dataset(
 
 @router.put("/{model}/datasets/{name}", response_model=Dataset)
 def update_dataset(
-    model: str, name: str, request: Request, payload: DatasetUpdateRequest
+    model: str,
+    name: str,
+    request: Request,
+    payload: DatasetUpdateRequest,
+    requesting_user: str | None = None,
 ) -> Dataset:
     """Update a dataset's top-level fields."""
     svc = _get_service(request)
+    owner = _resolve_requesting_user(requesting_user)
     return Dataset.model_validate(
-        _run(lambda: svc.update_dataset(model, name, _dump_model(payload)))
+        _run(lambda: svc.update_dataset(model, name, _dump_model(payload), owner_user=owner))
     )
 
 
 @router.delete("/{model}/datasets/{name}", status_code=204)
-def delete_dataset(model: str, name: str, request: Request) -> None:
+def delete_dataset(
+    model: str,
+    name: str,
+    request: Request,
+    requesting_user: str | None = None,
+) -> None:
     """Delete a dataset."""
     svc = _get_service(request)
-    _run(lambda: svc.delete_dataset(model, name))
+    owner = _resolve_requesting_user(requesting_user)
+    _run(lambda: svc.delete_dataset(model, name, owner_user=owner))
 
 
 # ---------------------------------------------------------------------------
@@ -219,11 +247,17 @@ def delete_dataset(model: str, name: str, request: Request) -> None:
 
 
 @router.post("/{model}/relationships", response_model=Relationship)
-def create_relationship(model: str, request: Request, payload: Relationship) -> Relationship:
+def create_relationship(
+    model: str,
+    request: Request,
+    payload: Relationship,
+    requesting_user: str | None = None,
+) -> Relationship:
     """Create a relationship within a model."""
     svc = _get_service(request)
+    owner = _resolve_requesting_user(requesting_user)
     return Relationship.model_validate(
-        _run(lambda: svc.create_relationship(model, _dump_model(payload)))
+        _run(lambda: svc.create_relationship(model, _dump_model(payload), owner_user=owner))
     )
 
 
@@ -258,20 +292,31 @@ def get_relationship(
 
 @router.put("/{model}/relationships/{name}", response_model=Relationship)
 def update_relationship(
-    model: str, name: str, request: Request, payload: Relationship
+    model: str,
+    name: str,
+    request: Request,
+    payload: Relationship,
+    requesting_user: str | None = None,
 ) -> Relationship:
     """Update a relationship's fields."""
     svc = _get_service(request)
+    owner = _resolve_requesting_user(requesting_user)
     return Relationship.model_validate(
-        _run(lambda: svc.update_relationship(model, name, _dump_model(payload)))
+        _run(lambda: svc.update_relationship(model, name, _dump_model(payload), owner_user=owner))
     )
 
 
 @router.delete("/{model}/relationships/{name}", status_code=204)
-def delete_relationship(model: str, name: str, request: Request) -> None:
+def delete_relationship(
+    model: str,
+    name: str,
+    request: Request,
+    requesting_user: str | None = None,
+) -> None:
     """Delete a relationship."""
     svc = _get_service(request)
-    _run(lambda: svc.delete_relationship(model, name))
+    owner = _resolve_requesting_user(requesting_user)
+    _run(lambda: svc.delete_relationship(model, name, owner_user=owner))
 
 
 # ---------------------------------------------------------------------------
@@ -280,10 +325,18 @@ def delete_relationship(model: str, name: str, request: Request) -> None:
 
 
 @router.post("/{model}/metrics", response_model=Metric)
-def create_metric(model: str, request: Request, payload: Metric) -> Metric:
+def create_metric(
+    model: str,
+    request: Request,
+    payload: Metric,
+    requesting_user: str | None = None,
+) -> Metric:
     """Create a metric within a model."""
     svc = _get_service(request)
-    return Metric.model_validate(_run(lambda: svc.create_metric(model, _dump_model(payload))))
+    owner = _resolve_requesting_user(requesting_user)
+    return Metric.model_validate(
+        _run(lambda: svc.create_metric(model, _dump_model(payload), owner_user=owner))
+    )
 
 
 @router.get("/{model}/metrics", response_model=list[Metric])
@@ -314,17 +367,32 @@ def get_metric(
 
 
 @router.put("/{model}/metrics/{name}", response_model=Metric)
-def update_metric(model: str, name: str, request: Request, payload: Metric) -> Metric:
+def update_metric(
+    model: str,
+    name: str,
+    request: Request,
+    payload: Metric,
+    requesting_user: str | None = None,
+) -> Metric:
     """Update a metric's fields."""
     svc = _get_service(request)
-    return Metric.model_validate(_run(lambda: svc.update_metric(model, name, _dump_model(payload))))
+    owner = _resolve_requesting_user(requesting_user)
+    return Metric.model_validate(
+        _run(lambda: svc.update_metric(model, name, _dump_model(payload), owner_user=owner))
+    )
 
 
 @router.delete("/{model}/metrics/{name}", status_code=204)
-def delete_metric(model: str, name: str, request: Request) -> None:
+def delete_metric(
+    model: str,
+    name: str,
+    request: Request,
+    requesting_user: str | None = None,
+) -> None:
     """Delete a metric."""
     svc = _get_service(request)
-    _run(lambda: svc.delete_metric(model, name))
+    owner = _resolve_requesting_user(requesting_user)
+    _run(lambda: svc.delete_metric(model, name, owner_user=owner))
 
 
 # ---------------------------------------------------------------------------
@@ -333,7 +401,14 @@ def delete_metric(model: str, name: str, request: Request) -> None:
 
 
 @router.get("/{model}/readiness", response_model=SemanticModelReadinessResponse)
-def get_readiness(model: str, request: Request) -> SemanticModelReadinessResponse:
+def get_readiness(
+    model: str,
+    request: Request,
+    requesting_user: str | None = None,
+) -> SemanticModelReadinessResponse:
     """Get readiness status for a semantic model."""
     svc = _get_service(request)
-    return SemanticModelReadinessResponse.model_validate(_run(lambda: svc.get_readiness(model)))
+    user = _resolve_requesting_user(requesting_user)
+    return SemanticModelReadinessResponse.model_validate(
+        _run(lambda: svc.get_readiness(model, requesting_user=user))
+    )

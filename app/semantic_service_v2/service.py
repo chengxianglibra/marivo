@@ -49,31 +49,65 @@ class SemanticModelV2Service:
     # Helpers
     # ------------------------------------------------------------------
 
-    def _get_model_row_by_name(self, name: str) -> dict[str, Any] | None:
-        """Look up a semantic_models row by name."""
-        return self.store.query_one("SELECT * FROM semantic_models WHERE name = ?", [name])
+    def _get_model_row_by_name(
+        self, name: str, requesting_user: str | None = None
+    ) -> dict[str, Any] | None:
+        """Look up a semantic_models row by name with priority-based resolution.
 
-    def _require_model_row(self, name: str) -> dict[str, Any]:
-        row = self._get_model_row_by_name(name)
+        If requesting_user is provided, first try to find a private model owned by
+        that user (private shadows public). If not found, fall back to the public
+        model. Returns None if neither exists.
+        """
+        if requesting_user is not None:
+            row = self.store.query_one(
+                "SELECT * FROM semantic_models WHERE name = ? AND visibility = 'private' AND owner_user = ?",
+                [name, requesting_user],
+            )
+            if row is not None:
+                return row
+        return self.store.query_one(
+            "SELECT * FROM semantic_models WHERE name = ? AND visibility = 'public'",
+            [name],
+        )
+
+    def _require_model_row(self, name: str, requesting_user: str | None = None) -> dict[str, Any]:
+        row = self._get_model_row_by_name(name, requesting_user=requesting_user)
         if row is None:
             raise HTTPException(status_code=404, detail=f"Semantic model '{name}' not found")
         return row
 
-    def _require_private_model(self, name: str) -> dict[str, Any]:
-        """Look up a model and raise 403 if it is not private."""
-        row = self._require_model_row(name)
-        if row["visibility"] != "private":
+    def _require_private_model(self, name: str, owner_user: str | None = None) -> dict[str, Any]:
+        """Look up a private model owned by owner_user. Raise 403 if not private or wrong owner."""
+        if owner_user is not None:
+            row = self.store.query_one(
+                "SELECT * FROM semantic_models WHERE name = ? AND visibility = 'private' AND owner_user = ?",
+                [name, owner_user],
+            )
+            if row is not None:
+                return row
+        # Check if a public model exists (to give 403 rather than 404).
+        public_row = self.store.query_one(
+            "SELECT * FROM semantic_models WHERE name = ? AND visibility = 'public'",
+            [name],
+        )
+        if public_row is not None:
             raise HTTPException(
                 status_code=403,
                 detail=f"Cannot modify official semantic model '{name}' via CRUD; use /semantic-models/import",
             )
-        return row
+        raise HTTPException(status_code=404, detail=f"Semantic model '{name}' not found")
 
     def _require_visible_model(
         self, name: str, requesting_user: str | None = None
     ) -> dict[str, Any]:
-        """Look up a model and raise 404 if not visible to requesting_user."""
-        row = self._require_model_row(name)
+        """Look up a model and raise 404 if not visible to requesting_user.
+
+        If requesting_user is provided and owns a private model with this name,
+        that private model is returned (private shadows public).
+        """
+        row = self._get_model_row_by_name(name, requesting_user=requesting_user)
+        if row is None:
+            raise HTTPException(status_code=404, detail=f"Semantic model '{name}' not found")
         if row["visibility"] == "private" and (
             requesting_user is None or requesting_user != row["owner_user"]
         ):
@@ -395,14 +429,7 @@ class SemanticModelV2Service:
 
     def get_semantic_model(self, name: str, requesting_user: str | None = None) -> dict[str, Any]:
         """Get a semantic model by name with visibility filtering."""
-        model_row = self._require_model_row(name)
-
-        # Visibility check
-        if model_row["visibility"] == "private" and (
-            requesting_user is None or requesting_user != model_row["owner_user"]
-        ):
-            raise HTTPException(status_code=404, detail=f"Semantic model '{name}' not found")
-
+        model_row = self._require_visible_model(name, requesting_user)
         return self._assemble_model(model_row)
 
     def list_semantic_models(self, requesting_user: str | None = None) -> list[dict[str, Any]]:
@@ -432,9 +459,11 @@ class SemanticModelV2Service:
 
         return results
 
-    def update_semantic_model(self, name: str, updates: dict[str, Any]) -> dict[str, Any]:
+    def update_semantic_model(
+        self, name: str, updates: dict[str, Any], owner_user: str | None = None
+    ) -> dict[str, Any]:
         """Update top-level fields of a semantic model (description only for now)."""
-        model_row = self._require_private_model(name)
+        model_row = self._require_private_model(name, owner_user=owner_user)
         model_id = model_row["model_id"]
 
         allowed_fields = {"description"}
@@ -457,12 +486,12 @@ class SemanticModelV2Service:
             params,
         )
 
-        updated_row = self._require_model_row(name)
+        updated_row = self._require_model_row(name, requesting_user=owner_user)
         return self._assemble_model(updated_row)
 
-    def delete_semantic_model(self, name: str) -> None:
+    def delete_semantic_model(self, name: str, owner_user: str | None = None) -> None:
         """Delete a semantic model and all children (CASCADE)."""
-        model_row = self._require_private_model(name)
+        model_row = self._require_private_model(name, owner_user=owner_user)
         self.store.execute(
             "DELETE FROM semantic_models WHERE model_id = ?",
             [model_row["model_id"]],
@@ -472,9 +501,11 @@ class SemanticModelV2Service:
     # Dataset CRUD
     # ------------------------------------------------------------------
 
-    def create_dataset(self, model_name: str, ds_data: dict[str, Any]) -> dict[str, Any]:
+    def create_dataset(
+        self, model_name: str, ds_data: dict[str, Any], owner_user: str | None = None
+    ) -> dict[str, Any]:
         """Create a dataset within a model."""
-        model_row = self._require_private_model(model_name)
+        model_row = self._require_private_model(model_name, owner_user=owner_user)
         model_id = model_row["model_id"]
 
         ds = Dataset.model_validate(ds_data)
@@ -586,10 +617,14 @@ class SemanticModelV2Service:
         return result
 
     def update_dataset(
-        self, model_name: str, dataset_name: str, updates: dict[str, Any]
+        self,
+        model_name: str,
+        dataset_name: str,
+        updates: dict[str, Any],
+        owner_user: str | None = None,
     ) -> dict[str, Any]:
         """Update a dataset's top-level fields."""
-        model_row = self._require_private_model(model_name)
+        model_row = self._require_private_model(model_name, owner_user=owner_user)
         ds_row = self.store.query_one(
             "SELECT * FROM semantic_datasets WHERE model_id = ? AND name = ?",
             [model_row["model_id"], dataset_name],
@@ -629,9 +664,11 @@ class SemanticModelV2Service:
 
         return self.get_dataset(model_name, dataset_name, requesting_user=model_row["owner_user"])
 
-    def delete_dataset(self, model_name: str, dataset_name: str) -> None:
+    def delete_dataset(
+        self, model_name: str, dataset_name: str, owner_user: str | None = None
+    ) -> None:
         """Delete a dataset and all its fields (CASCADE)."""
-        model_row = self._require_private_model(model_name)
+        model_row = self._require_private_model(model_name, owner_user=owner_user)
         ds_row = self.store.query_one(
             "SELECT dataset_id FROM semantic_datasets WHERE model_id = ? AND name = ?",
             [model_row["model_id"], dataset_name],
@@ -650,9 +687,11 @@ class SemanticModelV2Service:
     # Relationship CRUD
     # ------------------------------------------------------------------
 
-    def create_relationship(self, model_name: str, rel_data: dict[str, Any]) -> dict[str, Any]:
+    def create_relationship(
+        self, model_name: str, rel_data: dict[str, Any], owner_user: str | None = None
+    ) -> dict[str, Any]:
         """Create a relationship within a model. Validates from/to datasets exist."""
-        model_row = self._require_private_model(model_name)
+        model_row = self._require_private_model(model_name, owner_user=owner_user)
         model_id = model_row["model_id"]
 
         # Validate from/to datasets exist
@@ -734,10 +773,14 @@ class SemanticModelV2Service:
         return [_storage_to_relationship(dict(r)) for r in rel_rows]
 
     def update_relationship(
-        self, model_name: str, rel_name: str, updates: dict[str, Any]
+        self,
+        model_name: str,
+        rel_name: str,
+        updates: dict[str, Any],
+        owner_user: str | None = None,
     ) -> dict[str, Any]:
         """Update a relationship's fields."""
-        model_row = self._require_private_model(model_name)
+        model_row = self._require_private_model(model_name, owner_user=owner_user)
         rel_row = self.store.query_one(
             "SELECT * FROM semantic_relationships WHERE model_id = ? AND name = ?",
             [model_row["model_id"], rel_name],
@@ -777,9 +820,11 @@ class SemanticModelV2Service:
 
         return self.get_relationship(model_name, rel_name, requesting_user=model_row["owner_user"])
 
-    def delete_relationship(self, model_name: str, rel_name: str) -> None:
+    def delete_relationship(
+        self, model_name: str, rel_name: str, owner_user: str | None = None
+    ) -> None:
         """Delete a relationship."""
-        model_row = self._require_private_model(model_name)
+        model_row = self._require_private_model(model_name, owner_user=owner_user)
         rel_row = self.store.query_one(
             "SELECT relationship_id FROM semantic_relationships WHERE model_id = ? AND name = ?",
             [model_row["model_id"], rel_name],
@@ -798,9 +843,11 @@ class SemanticModelV2Service:
     # Metric CRUD
     # ------------------------------------------------------------------
 
-    def create_metric(self, model_name: str, metric_data: dict[str, Any]) -> dict[str, Any]:
+    def create_metric(
+        self, model_name: str, metric_data: dict[str, Any], owner_user: str | None = None
+    ) -> dict[str, Any]:
         """Create a metric within a model."""
-        model_row = self._require_private_model(model_name)
+        model_row = self._require_private_model(model_name, owner_user=owner_user)
         model_id = model_row["model_id"]
 
         # Enrich metric data with MARIVO extension fields for validation
@@ -876,10 +923,14 @@ class SemanticModelV2Service:
         return [_storage_to_metric(dict(r)) for r in metric_rows]
 
     def update_metric(
-        self, model_name: str, metric_name: str, updates: dict[str, Any]
+        self,
+        model_name: str,
+        metric_name: str,
+        updates: dict[str, Any],
+        owner_user: str | None = None,
     ) -> dict[str, Any]:
         """Update a metric's fields."""
-        model_row = self._require_private_model(model_name)
+        model_row = self._require_private_model(model_name, owner_user=owner_user)
         metric_row = self.store.query_one(
             "SELECT * FROM semantic_metrics WHERE model_id = ? AND name = ?",
             [model_row["model_id"], metric_name],
@@ -937,9 +988,11 @@ class SemanticModelV2Service:
 
         return self.get_metric(model_name, metric_name, requesting_user=model_row["owner_user"])
 
-    def delete_metric(self, model_name: str, metric_name: str) -> None:
+    def delete_metric(
+        self, model_name: str, metric_name: str, owner_user: str | None = None
+    ) -> None:
         """Delete a metric."""
-        model_row = self._require_private_model(model_name)
+        model_row = self._require_private_model(model_name, owner_user=owner_user)
         metric_row = self.store.query_one(
             "SELECT metric_id FROM semantic_metrics WHERE model_id = ? AND name = ?",
             [model_row["model_id"], metric_name],
@@ -1024,8 +1077,11 @@ class SemanticModelV2Service:
             model = SemanticModel.model_validate(model_dict)
             storage_data = model_to_storage(model)
 
-            # Check if model with same name already exists
-            existing_row = self._get_model_row_by_name(sm.name)
+            # Check if a public model with same name already exists (import always targets public)
+            existing_row = self.store.query_one(
+                "SELECT * FROM semantic_models WHERE name = ? AND visibility = 'public'",
+                [sm.name],
+            )
 
             if existing_row is not None and existing_row["visibility"] == "public":
                 # Update existing official model — increment revision, replace children
@@ -1095,7 +1151,12 @@ class SemanticModelV2Service:
                         None,
                     ],
                 )
-                model_id = self._require_model_row(sm.name)["model_id"]
+                new_row = self.store.query_one(
+                    "SELECT model_id FROM semantic_models WHERE name = ? AND visibility = 'public'",
+                    [sm.name],
+                )
+                assert new_row is not None
+                model_id = new_row["model_id"]
 
             # Insert datasets + fields
             for ds in model.datasets:
@@ -1215,9 +1276,9 @@ class SemanticModelV2Service:
     # Readiness
     # ------------------------------------------------------------------
 
-    def get_readiness(self, model_name: str) -> dict[str, Any]:
+    def get_readiness(self, model_name: str, requesting_user: str | None = None) -> dict[str, Any]:
         """Return readiness status/blockers for a model."""
-        model_row = self._require_model_row(model_name)
+        model_row = self._require_visible_model(model_name, requesting_user)
         model = self._assemble_model(model_row)
         live_blockers: list[dict[str, Any]] = []
         for dataset in model.get("datasets") or []:
