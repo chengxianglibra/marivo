@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
 from app.api.models.json_contract import JsonObject, ScalarMap
 
@@ -47,7 +47,7 @@ class AnalysisSession(BaseModel):
     session_id: str
     goal: SessionGoal
     scope: SessionScope
-    execution_identity: ScalarMap = Field(default_factory=dict)
+    owner_user: str | None = None
     lifecycle: SessionLifecycle
     state_summary: SessionStateSummary
     created_at: str

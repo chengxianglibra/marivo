@@ -66,9 +66,11 @@ class SessionAPITests(unittest.TestCase):
 
     def test_get_session_after_create(self) -> None:
         """GET /sessions/{id} should return canonical AnalysisSession root (Phase 5a)."""
-        create_resp = self.client.post("/sessions", json={"goal": "Test session"})
+        create_resp = self.client.post(
+            "/sessions", json={"goal": "Test session"}, headers={"X-Marivo-User": "test_user"}
+        )
         session_id = create_resp.json()["session_id"]
-        resp = self.client.get(f"/sessions/{session_id}")
+        resp = self.client.get(f"/sessions/{session_id}", headers={"X-Marivo-User": "test_user"})
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
         self.assertEqual(data["session_id"], session_id)
@@ -82,7 +84,7 @@ class SessionAPITests(unittest.TestCase):
         self.assertIsNone(data["lifecycle"]["terminal_reason"])
         self.assertIsNone(data["lifecycle"]["ended_at"])
         self.assertIsNone(data["lifecycle"]["rollover_from_session_id"])
-        self.assertEqual(data["execution_identity"], {})
+        self.assertEqual(data["owner_user"], "test_user")
         # state_summary entry handle
         self.assertIn("state_summary", data)
         self.assertIn("state_view_ref", data["state_summary"])
@@ -96,6 +98,7 @@ class SessionAPITests(unittest.TestCase):
         # legacy flat fields must NOT appear at top level
         self.assertNotIn("status", data)
         self.assertNotIn("constraints", data)
+        self.assertNotIn("execution_identity", data)
 
     def test_create_session_rejects_step_level_execution_constraints(self) -> None:
         resp = self.client.post(
@@ -108,51 +111,34 @@ class SessionAPITests(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 422)
 
-    def test_create_session_with_execution_identity_round_trips(self) -> None:
+    def test_create_session_owner_user_from_header(self) -> None:
         create_resp = self.client.post(
             "/sessions",
-            json={
-                "goal": "Execution identity session",
-                "execution_identity": {
-                    "session_user": "alice",
-                    "actor_ref": "agent.alice",
-                },
-            },
+            json={"goal": "Owner user session"},
+            headers={"X-Marivo-User": "alice"},
         )
         self.assertEqual(create_resp.status_code, 200)
         session_id = create_resp.json()["session_id"]
 
-        detail = self.client.get(f"/sessions/{session_id}")
+        detail = self.client.get(f"/sessions/{session_id}", headers={"X-Marivo-User": "alice"})
         self.assertEqual(detail.status_code, 200)
-        self.assertEqual(
-            detail.json()["execution_identity"],
-            {"session_user": "alice", "actor_ref": "agent.alice"},
-        )
+        self.assertEqual(detail.json()["owner_user"], "alice")
 
-        listed = self.client.get(f"/sessions?session_id={session_id}")
+        listed = self.client.get(
+            f"/sessions?session_id={session_id}", headers={"X-Marivo-User": "alice"}
+        )
         self.assertEqual(listed.status_code, 200)
         self.assertEqual(len(listed.json()["items"]), 1)
-        self.assertEqual(
-            listed.json()["items"][0]["execution_identity"],
-            {"session_user": "alice", "actor_ref": "agent.alice"},
-        )
+        self.assertEqual(listed.json()["items"][0]["owner_user"], "alice")
 
-    def test_create_session_trims_execution_identity_fields(self) -> None:
+    def test_create_session_owner_user_strips_whitespace(self) -> None:
         create_resp = self.client.post(
             "/sessions",
-            json={
-                "goal": "Trim execution identity session",
-                "execution_identity": {
-                    "session_user": " alice ",
-                    "actor_ref": " agent.alice ",
-                },
-            },
+            json={"goal": "Stripped user session"},
+            headers={"X-Marivo-User": " alice "},
         )
         self.assertEqual(create_resp.status_code, 200)
-        self.assertEqual(
-            create_resp.json()["execution_identity"],
-            {"session_user": "alice", "actor_ref": "agent.alice"},
-        )
+        self.assertEqual(create_resp.json()["owner_user"], "alice")
 
     def test_get_session_not_found(self) -> None:
         """GET /sessions/{id} with unknown ID should 404."""
@@ -170,20 +156,23 @@ class SessionAPITests(unittest.TestCase):
 
     def test_list_sessions_filter_by_status(self) -> None:
         """GET /sessions?status=open should filter; returned items have canonical shape."""
-        self.client.post("/sessions", json={"goal": "Status filter test"})
-        resp = self.client.get("/sessions?status=open")
+        self.client.post(
+            "/sessions", json={"goal": "Status filter test"}, headers={"X-Marivo-User": "test_user"}
+        )
+        resp = self.client.get("/sessions?status=open", headers={"X-Marivo-User": "test_user"})
         self.assertEqual(resp.status_code, 200)
         for s in resp.json()["items"]:
             self.assertEqual(s["lifecycle"]["status"], "open")
             self.assertIn("goal", s)
             self.assertIn("question", s["goal"])
             self.assertIn("scope", s)
-            self.assertIn("execution_identity", s)
+            self.assertIn("owner_user", s)
             self.assertIn("state_summary", s)
             self.assertEqual(s["schema_version"], "analysis_session.v1")
             # legacy flat fields must not appear
             self.assertNotIn("status", s)
             self.assertNotIn("constraints", s)
+            self.assertNotIn("execution_identity", s)
 
     def test_get_session_runtime_status_idle(self) -> None:
         """Newly created session with no work should return idle runtime status."""

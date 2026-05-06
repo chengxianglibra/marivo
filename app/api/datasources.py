@@ -59,7 +59,11 @@ def register_datasource(payload: DatasourceRegisterRequest, request: Request) ->
                 connection=payload.connection.model_dump(exclude={"datasource_type"}),
             )
         )
-    except (ValueError, KeyError) as error:
+    except ValueError as error:
+        if "user_required" in str(error):
+            raise HTTPException(status_code=401, detail=str(error)) from error
+        raise _http_error(error) from error
+    except KeyError as error:
         raise _http_error(error) from error
 
 

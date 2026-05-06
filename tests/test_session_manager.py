@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
 
+from app.identity import current_user
 from app.session import SessionManager
 from app.storage.sqlite_metadata import SQLiteMetadataStore
 
@@ -17,8 +19,10 @@ class SessionManagerTests(unittest.TestCase):
         self.metadata = SQLiteMetadataStore(metadata_path)
         self.metadata.initialize()
         self.manager = SessionManager(self.metadata)
+        self._token = current_user.set("test_user")
 
     def tearDown(self) -> None:
+        current_user.reset(self._token)
         self.temp_dir.cleanup()
 
     def test_create_and_get_session(self) -> None:
@@ -31,77 +35,39 @@ class SessionManagerTests(unittest.TestCase):
         loaded = self.manager.get_session(created["session_id"])
 
         self.assertEqual(loaded["session_id"], created["session_id"])
-        # goal is structured in canonical AnalysisSession shape (Phase 5a)
         self.assertEqual(loaded["goal"]["question"], "Investigate watch time regression")
         self.assertEqual(loaded["scope"]["constraints"], {"region": "all"})
-        self.assertEqual(loaded["execution_identity"], {})
-        # lifecycle carries status
+        self.assertEqual(loaded["owner_user"], "test_user")
         self.assertEqual(loaded["lifecycle"]["status"], "open")
-        # schema_version
         self.assertEqual(loaded["schema_version"], "analysis_session.v1")
 
-    def test_create_session_persists_execution_identity(self) -> None:
-        created = self.manager.create_session(
-            "Investigate auth user",
-            {},
-            {"max_latency_sec": 120},
-            {"session_user": "alice", "actor_ref": "agent.alice"},
-        )
-
-        loaded = self.manager.get_session(created["session_id"])
-
-        self.assertEqual(
-            loaded["execution_identity"],
-            {"session_user": "alice", "actor_ref": "agent.alice"},
-        )
-
-    def test_get_execution_identity_returns_empty_dict_when_session_has_none(self) -> None:
-        created = self.manager.create_session("Investigate auth defaults")
-
-        execution_identity = self.manager.get_execution_identity(created["session_id"])
-
-        self.assertEqual(execution_identity, {})
-
-    def test_get_execution_identity_returns_normalized_payload(self) -> None:
-        created = self.manager.create_session(
-            "Investigate auth identity read",
-            {},
-            {"max_latency_sec": 120},
-            {"session_user": "alice", "actor_ref": "agent.alice"},
-        )
-
-        execution_identity = self.manager.get_execution_identity(created["session_id"])
-
-        self.assertEqual(
-            execution_identity,
-            {"session_user": "alice", "actor_ref": "agent.alice"},
-        )
-
-    def test_create_session_normalizes_execution_identity_before_persisting(self) -> None:
-        created = self.manager.create_session(
-            "Investigate trimmed auth user",
-            {},
-            {"max_latency_sec": 120},
-            {"session_user": " alice ", "actor_ref": " agent.alice "},
-        )
-
-        self.assertEqual(
-            created["execution_identity"],
-            {"session_user": "alice", "actor_ref": "agent.alice"},
-        )
-
-    def test_create_session_rejects_blank_execution_identity_fields(self) -> None:
-        with self.assertRaisesRegex(ValueError, "session_execution_identity_invalid"):
-            self.manager.create_session(
-                "Investigate blank auth user",
+    def test_create_session_stores_owner_user(self) -> None:
+        token = current_user.set("alice")
+        try:
+            created = self.manager.create_session(
+                "Investigate auth user",
                 {},
                 {"max_latency_sec": 120},
-                {"session_user": "   "},
             )
+            loaded = self.manager.get_session(created["session_id"])
+            self.assertEqual(loaded["owner_user"], "alice")
+        finally:
+            current_user.reset(token)
+
+    def test_create_session_rejects_nil_user(self) -> None:
+        token = current_user.set(None)
+        old_env = os.environ.pop("MARIVO_DEFAULT_USER", None)
+        try:
+            with self.assertRaisesRegex(ValueError, "user_required"):
+                self.manager.create_session("No user session")
+        finally:
+            if old_env is not None:
+                os.environ["MARIVO_DEFAULT_USER"] = old_env
+            current_user.reset(token)
 
     def test_list_sessions_with_status_filter(self) -> None:
-        open_session = self.manager.create_session("Open session", {}, {}, {})
-        closed_session = self.manager.create_session("Closed session", {}, {}, {})
+        open_session = self.manager.create_session("Open session", {}, {})
+        closed_session = self.manager.create_session("Closed session", {}, {})
         self.metadata.execute(
             "UPDATE sessions SET status = 'closed' WHERE session_id = ?",
             [closed_session["session_id"]],
@@ -128,8 +94,7 @@ class SessionManagerTests(unittest.TestCase):
             self.manager.assert_session_exists("sess_missing")
 
     def test_runtime_status_idle_empty_session(self) -> None:
-        """New session with no artifacts reports idle with null last_stage."""
-        session = self.manager.create_session("Check idle", {}, {}, {})
+        session = self.manager.create_session("Check idle", {}, {})
         status = self.manager.get_session_runtime_status(session["session_id"])
 
         self.assertEqual(status["session_id"], session["session_id"])
@@ -140,15 +105,12 @@ class SessionManagerTests(unittest.TestCase):
         summary = status["backlog_summary"]
         self.assertEqual(summary["queued_artifacts"], 0)
         self.assertEqual(summary["queued_propositions"], 0)
-        # updated_at must be a non-empty string (DB timestamp, not call time)
         self.assertIsInstance(status["updated_at"], str)
         self.assertGreater(len(status["updated_at"]), 0)
 
     def test_runtime_status_running_after_artifact_commit(self) -> None:
-        """Session with a non-empty-family artifact and no findings is running."""
-        session = self.manager.create_session("Check running", {}, {}, {})
+        session = self.manager.create_session("Check running", {}, {})
         sid = session["session_id"]
-        # Insert a compare_artifact (non-empty-required family) with no findings.
         self.metadata.execute(
             "INSERT INTO artifacts (artifact_id, session_id, step_id, artifact_type, name, content_json)"
             " VALUES (?, ?, ?, ?, ?, ?)",
@@ -161,8 +123,7 @@ class SessionManagerTests(unittest.TestCase):
         self.assertEqual(status["backlog_summary"]["queued_artifacts"], 1)
 
     def test_runtime_status_idle_for_observation_artifact_with_no_findings(self) -> None:
-        """Observation artifact (D4 allows-empty) with no findings is NOT queued."""
-        session = self.manager.create_session("Check D4", {}, {}, {})
+        session = self.manager.create_session("Check D4", {}, {})
         sid = session["session_id"]
         self.metadata.execute(
             "INSERT INTO artifacts (artifact_id, session_id, step_id, artifact_type, name, content_json)"
@@ -171,15 +132,12 @@ class SessionManagerTests(unittest.TestCase):
         )
 
         status = self.manager.get_session_runtime_status(sid)
-        # artifact_commit stage is reached but observation is excluded from queue
         self.assertEqual(status["last_successful_stage"], "artifact_commit")
         self.assertEqual(status["backlog_summary"]["queued_artifacts"], 0)
-        # No non-empty-family artifacts pending, no findings, no propositions → idle
         self.assertEqual(status["overall_status"], "idle")
 
     def test_runtime_status_running_when_findings_but_no_propositions(self) -> None:
-        """Session with findings but no propositions yet is running (seeding pending)."""
-        session = self.manager.create_session("Check seeding", {}, {}, {})
+        session = self.manager.create_session("Check seeding", {}, {})
         sid = session["session_id"]
         self.metadata.execute(
             "INSERT INTO artifacts (artifact_id, session_id, step_id, artifact_type, name, content_json)"
@@ -216,23 +174,23 @@ class SessionManagerTests(unittest.TestCase):
             self.manager.get_session_runtime_status("sess_missing")
 
     def test_list_sessions_canonical_shape(self) -> None:
-        """list_sessions returns AnalysisSession-shaped dicts."""
-        s = self.manager.create_session("Shape check", {}, {}, {})
+        s = self.manager.create_session("Shape check", {}, {})
         payload = self.manager.list_sessions()
         match = next(x for x in payload["items"] if x["session_id"] == s["session_id"])
         self.assertIn("goal", match)
         self.assertIn("question", match["goal"])
         self.assertIn("scope", match)
-        self.assertIn("execution_identity", match)
+        self.assertIn("owner_user", match)
         self.assertIn("lifecycle", match)
         self.assertIn("state_summary", match)
         self.assertEqual(match["schema_version"], "analysis_session.v1")
         self.assertNotIn("status", match)
         self.assertNotIn("constraints", match)
+        self.assertNotIn("execution_identity", match)
 
     def test_list_sessions_supports_session_id_prefix_filter(self) -> None:
-        matched = self.manager.create_session("Prefix match", {}, {}, {})
-        self.manager.create_session("Other session", {}, {}, {})
+        matched = self.manager.create_session("Prefix match", {}, {})
+        self.manager.create_session("Other session", {}, {})
 
         payload = self.manager.list_sessions(session_id=matched["session_id"][:8])
 
@@ -240,8 +198,8 @@ class SessionManagerTests(unittest.TestCase):
         self.assertIsNone(payload["next_page_token"])
 
     def test_list_sessions_paginates_with_offset_tokens(self) -> None:
-        first = self.manager.create_session("First", {}, {}, {})
-        second = self.manager.create_session("Second", {}, {}, {})
+        first = self.manager.create_session("First", {}, {})
+        second = self.manager.create_session("Second", {}, {})
 
         first_page = self.manager.list_sessions(limit=1)
 
@@ -257,7 +215,7 @@ class SessionManagerTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.manager.list_sessions(page_token="bad-token")
 
-    def test_get_session_degrades_on_legacy_row_without_execution_identity_column(self) -> None:
+    def test_get_session_on_row_without_owner_user_gracefully_degrades(self) -> None:
         legacy_path = Path(self.temp_dir.name) / "legacy_sessions.meta.sqlite"
         con = sqlite3.connect(legacy_path)
         try:
@@ -300,20 +258,21 @@ class SessionManagerTests(unittest.TestCase):
         finally:
             con.close()
 
-        legacy_manager = SessionManager(SQLiteMetadataStore(legacy_path))
-        session = legacy_manager.get_session("sess_legacy")
-        execution_identity = legacy_manager.get_execution_identity("sess_legacy")
+        token = current_user.set(None)
+        old_env = os.environ.pop("MARIVO_DEFAULT_USER", None)
+        try:
+            legacy_manager = SessionManager(SQLiteMetadataStore(legacy_path))
+            session = legacy_manager.get_session("sess_legacy")
 
-        self.assertEqual(session["session_id"], "sess_legacy")
-        self.assertEqual(session["goal"]["question"], "Legacy read")
-        self.assertEqual(session["scope"]["constraints"], {"region": "all"})
-        self.assertEqual(session["execution_identity"], {})
-        self.assertEqual(execution_identity, {})
-        self.assertEqual(session["lifecycle"]["status"], "open")
-        listed = legacy_manager.list_sessions()["items"]
-        self.assertEqual(len(listed), 1)
-        self.assertEqual(listed[0]["session_id"], "sess_legacy")
-        self.assertEqual(listed[0]["execution_identity"], {})
+            self.assertEqual(session["session_id"], "sess_legacy")
+            self.assertEqual(session["goal"]["question"], "Legacy read")
+            self.assertEqual(session["scope"]["constraints"], {"region": "all"})
+            self.assertIsNone(session["owner_user"])
+            self.assertEqual(session["lifecycle"]["status"], "open")
+        finally:
+            if old_env is not None:
+                os.environ["MARIVO_DEFAULT_USER"] = old_env
+            current_user.reset(token)
 
 
 if __name__ == "__main__":

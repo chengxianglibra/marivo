@@ -69,7 +69,7 @@ class OpenApiFragmentTests(unittest.TestCase):
         self.assertEqual(
             payload["schema"], self.app.openapi()["components"]["schemas"]["SessionCreateRequest"]
         )
-        self.assertIn("execution_identity", payload["schema"]["properties"])
+        self.assertIn("goal", payload["schema"]["properties"])
 
     def test_openapi_fragment_returns_operation_request_response_and_schemas(self) -> None:
         response = self.client.get(

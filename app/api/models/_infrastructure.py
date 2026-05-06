@@ -95,6 +95,7 @@ class DatasourceResponse(BaseModel):
     datasource_type: Literal["duckdb", "trino"]
     display_name: str
     connection: DatasourceConnection
+    owner_user: str | None = None
     status: Literal["active", "inactive", "deprecated"] = "active"
     readiness_status: Literal["not_ready", "ready"] = "not_ready"
     failure_code: str | None = None

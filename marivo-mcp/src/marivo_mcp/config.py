@@ -60,6 +60,7 @@ class MarivoMcpConfig(BaseModel):
     timeout_ms: int = Field(default=600_000, gt=0)
     openapi_cache_ttl_sec: int = Field(default=300, ge=0)
     default_datasource_id: str | None = None
+    user: str | None = None
     http: HttpTransportConfig = Field(default_factory=HttpTransportConfig)
 
 
@@ -86,6 +87,7 @@ def load_config_from_env() -> MarivoMcpConfig:
                 "default_datasource_id": _normalize_optional(
                     os.environ.get("MARIVO_DEFAULT_DATASOURCE_ID")
                 ),
+                "user": _normalize_optional(os.environ.get("MARIVO_USER")),
                 "http": {
                     "host": os.environ.get("MARIVO_MCP_HOST", "127.0.0.1"),
                     "port": os.environ.get("MARIVO_MCP_PORT", "8000"),

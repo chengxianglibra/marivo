@@ -218,7 +218,6 @@ from .osi import (
 from .session import (
     SessionBudget,
     SessionCreateRequest,
-    SessionExecutionIdentityPayload,
     SessionStateQueryRequest,
     SessionStateSlice,
     SessionTerminateRequest,
@@ -393,7 +392,6 @@ __all__ = [  # noqa: RUF022
     "SessionCreateRequest",
     "SessionCreateResponse",
     "SessionDetailResponse",
-    "SessionExecutionIdentityPayload",
     "SessionListResponse",
     "SessionRuntimeStatusResponse",
     "SessionStateQueryRequest",
