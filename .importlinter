@@ -1,0 +1,38 @@
+[importlinter]
+root_package = app
+
+[importlinter:contract:contracts-isolation]
+name = contracts/ must not import app internals
+type = forbidden
+source_modules =
+    app.contracts
+forbidden_modules =
+    app.api
+    app.storage
+    app.analysis_core
+    app.evidence_engine
+    app.semantic_runtime
+    app.semantic_service_v2
+    app.execution
+    app.session
+    app.registry
+    app.adapters
+    app.cli
+
+[importlinter:contract:ports-isolation]
+name = ports/ must not import app internals
+type = forbidden
+source_modules =
+    app.ports
+forbidden_modules =
+    app.api
+    app.storage
+    app.analysis_core
+    app.evidence_engine
+    app.semantic_runtime
+    app.semantic_service_v2
+    app.execution
+    app.session
+    app.registry
+    app.adapters
+    app.cli
