@@ -55,6 +55,8 @@ class MarivoHttpClient:
         headers = {"Accept": "application/json"}
         if config.api_token:
             headers["Authorization"] = f"Bearer {config.api_token}"
+        if config.user:
+            headers["X-Marivo-User"] = config.user
         self._client = httpx.Client(
             base_url=config.base_url,
             headers=headers,

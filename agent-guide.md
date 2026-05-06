@@ -46,6 +46,19 @@ make format
   `commit-attribution` skill first. Follow its pre-commit scope check and
   attribution rules on every commit — no exceptions. The skill lives in
   [`.agents/skills/commit-attribution/SKILL.md`](.agents/skills/commit-attribution/SKILL.md).
+- **Plan commit steps must include attribution:** When writing implementation
+  plans (e.g. via `writing-plans`), every commit step must embed the
+  `Co-Authored-By` trailer in the commit command so the executing agent copies
+  it verbatim. Example:
+  ```bash
+  git commit -m "$(cat <<'EOF'
+  feat: add specific feature
+
+  Co-Authored-By: AGENT_NAME:MODEL_VERSION [TOOL1] [TOOL2]
+  EOF
+  )"
+  ```
+  Do NOT write bare `git commit -m "..."` without attribution.
 
 ## Documentation Routing
 

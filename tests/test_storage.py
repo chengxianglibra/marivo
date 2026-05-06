@@ -69,7 +69,7 @@ class SQLiteMetadataStoreTests(unittest.TestCase):
         column_names = {str(row["name"]) for row in rows}
         self.assertTrue(
             {
-                "execution_identity_json",
+                "owner_user",
                 "raw_filter",
                 "terminal_reason",
                 "ended_at",
@@ -78,17 +78,17 @@ class SQLiteMetadataStoreTests(unittest.TestCase):
             }.issubset(column_names)
         )
 
-    def test_initialize_sets_current_session_execution_identity_default(self) -> None:
+    def test_initialize_sets_current_session_owner_user_default(self) -> None:
         row = self.store.query_one(
             """
             SELECT dflt_value
             FROM pragma_table_info('sessions')
-            WHERE name = 'execution_identity_json'
+            WHERE name = 'owner_user'
             """
         )
 
         self.assertIsNotNone(row)
-        self.assertEqual(row["dflt_value"], "'{}'")
+        self.assertEqual(row["dflt_value"], "''")
 
     def test_initialize_sets_current_datasource_connection_default(self) -> None:
         row = self.store.query_one(

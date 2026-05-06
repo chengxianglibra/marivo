@@ -6,7 +6,6 @@ All endpoints that return OSI-conformant data wrap results in
 
 from __future__ import annotations
 
-import os
 from collections.abc import Callable
 from typing import Any, TypeVar, cast
 
@@ -22,6 +21,7 @@ from app.api.models.osi import (
     Relationship,
     SemanticModel,
 )
+from app.identity import resolve_user
 from app.semantic_service_v2.service import SemanticModelV2Service
 from app.semantic_service_v2.validation import SemanticValidationError
 
@@ -88,15 +88,10 @@ def _run(fn: Callable[[], _T]) -> _T:  # noqa: UP047
 
 
 def _resolve_requesting_user(requesting_user: str | None) -> str | None:
-    """Resolve requesting user, falling back to MARIVO_DEFAULT_USER env var."""
+    """Resolve requesting user from explicit param, then identity context, then env var."""
     if requesting_user is not None:
         return requesting_user
-    return os.environ.get("MARIVO_DEFAULT_USER")
-
-
-# ---------------------------------------------------------------------------
-# SemanticModel CRUD
-# ---------------------------------------------------------------------------
+    return resolve_user()
 
 
 @router.post("", response_model=OSIDocument)

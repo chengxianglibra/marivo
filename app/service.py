@@ -312,14 +312,12 @@ class SemanticLayerService:
         goal: str,
         constraints: dict[str, Any] | None = None,
         budget: dict[str, Any] | None = None,
-        execution_identity: dict[str, Any] | None = None,
         raw_filter: str | None = None,
     ) -> dict[str, Any]:
         del constraints, raw_filter
         return self.session_manager.create_session(
             goal,
             budget=budget or {},
-            execution_identity=execution_identity or {},
         )
 
     def list_sessions(

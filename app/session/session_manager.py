@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 from uuid import uuid4
 
 from app.evidence_engine.family_contract import ALLOWS_EMPTY_ARTIFACT_TYPES
 from app.evidence_engine.finding_extractor_registry import default_finding_registry
+from app.identity import resolve_user
 from app.storage.evidence_repositories import ActionProposalRepository, AssessmentRepository
 from app.storage.metadata import MetadataStore
+
+logger = logging.getLogger("marivo.audit")
 
 # Use SELECT * so session root reads degrade cleanly across fresh-init schema
 # bumps while old metadata files are still readable.
@@ -25,16 +29,14 @@ class SessionManager:
         goal: str,
         constraints: dict[str, Any] | None = None,
         budget: dict[str, Any] | None = None,
-        execution_identity: dict[str, Any] | None = None,
         raw_filter: str | None = None,
     ) -> dict[str, Any]:
         session_id = f"sess_{uuid4().hex[:12]}"
         legacy_constraints = constraints or {}
         budget_payload = budget or {}
-        execution_identity_payload = self._normalize_execution_identity_payload(
-            execution_identity,
-            validate=True,
-        )
+        owner_user = resolve_user()
+        if owner_user is None:
+            raise ValueError("user_required: cannot create session without user identity")
         self.metadata.execute(
             """
             INSERT INTO sessions (
@@ -42,7 +44,7 @@ class SessionManager:
                 goal,
                 constraints_json,
                 budget_json,
-                execution_identity_json,
+                owner_user,
                 status,
                 raw_filter
             )
@@ -53,7 +55,7 @@ class SessionManager:
                 goal,
                 self._dump(legacy_constraints),
                 self._dump(budget_payload),
-                self._dump(execution_identity_payload),
+                owner_user,
                 raw_filter,
             ],
         )
@@ -62,6 +64,7 @@ class SessionManager:
             [session_id],
         )
         assert row is not None
+        logger.info("session_created session_id=%s owner_user=%s", session_id, owner_user)
         return self._session_from_row(row)
 
     def list_sessions(
@@ -83,6 +86,10 @@ class SessionManager:
         if session_id:
             clauses.append("session_id LIKE ?")
             params.append(f"{session_id}%")
+        current_user = resolve_user()
+        if current_user is not None:
+            clauses.append("owner_user = ?")
+            params.append(current_user)
         if clauses:
             sql += " WHERE " + " AND ".join(clauses)
         sql += " ORDER BY created_at DESC, session_id DESC LIMIT ? OFFSET ?"
@@ -103,35 +110,28 @@ class SessionManager:
         )
         if row is None:
             raise KeyError(f"Unknown session: {session_id}")
+        self._check_ownership(row)
+        logger.info("session_accessed session_id=%s", session_id)
         return self._session_from_row(row)
 
-    def get_execution_identity(self, session_id: str) -> dict[str, str]:
+    def assert_session_exists(self, session_id: str) -> None:
         row = self.metadata.query_one(
             f"SELECT {_SESSION_SELECT} FROM sessions WHERE session_id = ?",
             [session_id],
         )
         if row is None:
             raise KeyError(f"Unknown session: {session_id}")
-        return self._normalize_execution_identity(
-            self._load_json_dict(row.get("execution_identity_json"))
-        )
-
-    def assert_session_exists(self, session_id: str) -> None:
-        row = self.metadata.query_one(
-            "SELECT COUNT(*) AS cnt FROM sessions WHERE session_id = ?",
-            [session_id],
-        )
-        if row is None or row["cnt"] == 0:
-            raise KeyError(f"Unknown session: {session_id}")
+        self._check_ownership(row)
 
     def assert_session_is_open(self, session_id: str) -> None:
         """Raise KeyError if session is unknown; ValueError if session is not open."""
         row = self.metadata.query_one(
-            "SELECT status FROM sessions WHERE session_id = ?",
+            f"SELECT {_SESSION_SELECT} FROM sessions WHERE session_id = ?",
             [session_id],
         )
         if row is None:
             raise KeyError(f"Unknown session: {session_id}")
+        self._check_ownership(row)
         if row["status"] != "open":
             raise ValueError(
                 f"Session {session_id!r} is not open (status={row['status']!r}). "
@@ -151,11 +151,12 @@ class SessionManager:
             When the session is already in a terminal state.
         """
         row = self.metadata.query_one(
-            "SELECT status FROM sessions WHERE session_id = ?",
+            f"SELECT {_SESSION_SELECT} FROM sessions WHERE session_id = ?",
             [session_id],
         )
         if row is None:
             raise KeyError(f"Unknown session: {session_id}")
+        self._check_ownership(row)
         if row["status"] != "open":
             raise ValueError(
                 f"Session {session_id!r} is already in a terminal state (status={row['status']!r})."
@@ -454,10 +455,6 @@ class SessionManager:
         """Return canonical AnalysisSession dict from a DB row (Phase 5a)."""
         session_id: str = row["session_id"]
 
-        execution_identity = self._normalize_execution_identity(
-            self._load_json_dict(row.get("execution_identity_json"))
-        )
-
         return {
             "session_id": session_id,
             "goal": {"question": row["goal"]},
@@ -466,7 +463,7 @@ class SessionManager:
                 if row.get("constraints_json")
                 else None,
             },
-            "execution_identity": execution_identity,
+            "owner_user": row.get("owner_user"),
             "lifecycle": {
                 "status": row["status"],
                 "terminal_reason": row.get("terminal_reason"),
@@ -484,65 +481,24 @@ class SessionManager:
             "schema_version": "analysis_session.v1",
         }
 
+    def _check_ownership(self, session_row: dict[str, Any]) -> None:
+        """Raise KeyError if the current user does not own this session.
+
+        If no user identity is set (resolve_user() returns None), the check is skipped
+        so that system-level operations (e.g. internal background tasks) are not blocked.
+        """
+        current_user = resolve_user()
+        if current_user is None:
+            return
+        owner = session_row.get("owner_user")
+        if owner != current_user:
+            raise KeyError(
+                f"Session ownership mismatch: session owned by {owner!r}, "
+                f"current user is {current_user!r}"
+            )
+
     def _dump(self, value: Any) -> str:
         return json.dumps(value, default=str, sort_keys=True)
-
-    def _load_json_dict(self, raw_value: Any) -> dict[str, Any]:
-        if not raw_value:
-            return {}
-        try:
-            payload = json.loads(str(raw_value))
-        except (TypeError, ValueError):
-            return {}
-        return payload if isinstance(payload, dict) else {}
-
-    def _normalize_execution_identity(self, payload: dict[str, Any] | None) -> dict[str, str]:
-        return self._normalize_execution_identity_payload(payload, validate=False)
-
-    def _normalize_execution_identity_payload(
-        self,
-        payload: dict[str, Any] | None,
-        *,
-        validate: bool,
-    ) -> dict[str, str]:
-        if payload is None:
-            return {}
-        if not isinstance(payload, dict):
-            if validate:
-                raise ValueError(
-                    "session_execution_identity_invalid: execution_identity must be an object"
-                )
-            return {}
-        if validate:
-            extra_keys = set(payload) - {"session_user", "actor_ref"}
-            if extra_keys:
-                extra_key = sorted(extra_keys)[0]
-                raise ValueError(
-                    "session_execution_identity_invalid: "
-                    f"unexpected execution_identity field {extra_key!r}"
-                )
-        normalized: dict[str, str] = {}
-        session_user = payload.get("session_user")
-        if isinstance(session_user, str):
-            session_user = session_user.strip()
-            if validate and not session_user:
-                raise ValueError(
-                    "session_execution_identity_invalid: session_user must not be blank"
-                )
-            if session_user:
-                normalized["session_user"] = session_user
-        elif session_user is not None and validate:
-            raise ValueError("session_execution_identity_invalid: session_user must be a string")
-        actor_ref = payload.get("actor_ref")
-        if isinstance(actor_ref, str):
-            actor_ref = actor_ref.strip()
-            if validate and not actor_ref:
-                raise ValueError("session_execution_identity_invalid: actor_ref must not be blank")
-            if actor_ref:
-                normalized["actor_ref"] = actor_ref
-        elif actor_ref is not None and validate:
-            raise ValueError("session_execution_identity_invalid: actor_ref must be a string")
-        return normalized
 
     def _decode_page_token(self, page_token: str | None) -> int:
         if page_token is None:

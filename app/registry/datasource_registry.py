@@ -8,6 +8,7 @@ from typing import Any
 from uuid import uuid4
 
 from app.adapters.base import MAX_PREVIEW_ROWS, CatalogAdapter, PreviewFilters
+from app.identity import resolve_user
 from app.registry.common import now_iso
 from app.registry.factories import build_catalog_adapter, validate_datasource_type
 from app.storage.analytics import AnalyticsEngine
@@ -98,6 +99,10 @@ class DatasourceRegistry:
     ) -> dict[str, Any]:
         validate_datasource_type(datasource_type)
 
+        owner_user = resolve_user()
+        if owner_user is None:
+            raise ValueError("user_required: cannot create datasource without user identity")
+
         datasource_id = f"ds_{uuid4().hex[:12]}"
         now = now_iso()
         self.metadata.execute(
@@ -107,17 +112,19 @@ class DatasourceRegistry:
                 datasource_type,
                 display_name,
                 connection_json,
+                owner_user,
                 status,
                 created_at,
                 updated_at
             )
-            VALUES (?, ?, ?, ?, 'active', ?, ?)
+            VALUES (?, ?, ?, ?, ?, 'active', ?, ?)
             """,
             [
                 datasource_id,
                 datasource_type,
                 display_name,
                 json.dumps(connection),
+                owner_user,
                 now,
                 now,
             ],
@@ -130,10 +137,17 @@ class DatasourceRegistry:
         )
         if row is None:
             raise KeyError(f"Unknown datasource: {datasource_id}")
+        self._check_ownership(row)
         return self._row_to_datasource(row)
 
     def list_datasources(self) -> list[dict[str, Any]]:
-        rows = self.metadata.query_rows("SELECT * FROM datasources ORDER BY created_at")
+        user = resolve_user()
+        if user is not None:
+            rows = self.metadata.query_rows(
+                "SELECT * FROM datasources WHERE owner_user = ? ORDER BY created_at", [user]
+            )
+        else:
+            rows = self.metadata.query_rows("SELECT * FROM datasources ORDER BY created_at")
         return [self._row_to_datasource(row) for row in rows]
 
     def ensure_datasource(
@@ -200,6 +214,14 @@ class DatasourceRegistry:
     def delete_datasource(self, datasource_id: str) -> None:
         self.get_datasource(datasource_id)
         self.metadata.execute("DELETE FROM datasources WHERE datasource_id = ?", [datasource_id])
+
+    def _check_ownership(self, row: dict[str, Any]) -> None:
+        user = resolve_user()
+        if user is None:
+            return
+        row_owner = row.get("owner_user")
+        if row_owner is not None and user != row_owner:
+            raise KeyError(f"Datasource not found: {row['datasource_id']}")
 
     # =========================================================================
     # Validation
@@ -391,6 +413,7 @@ class DatasourceRegistry:
             "datasource_type": datasource_type,
             "display_name": row["display_name"],
             "connection": connection,
+            "owner_user": row.get("owner_user"),
             "status": row["status"],
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],

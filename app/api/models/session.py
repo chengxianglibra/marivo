@@ -4,30 +4,13 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.api.models.json_contract import ScalarMap
 
 
 class SessionTerminateRequest(BaseModel):
     terminal_reason: str = "user_closed"
-
-
-class SessionExecutionIdentityPayload(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    session_user: str | None = None
-    actor_ref: str | None = None
-
-    @field_validator("session_user", "actor_ref")
-    @classmethod
-    def trim_non_blank_optional_strings(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        normalized = value.strip()
-        if not normalized:
-            raise ValueError("session_execution_identity_invalid: value must not be blank")
-        return normalized
 
 
 class SessionBudget(BaseModel):
@@ -48,9 +31,6 @@ class SessionCreateRequest(BaseModel):
             "max_scan_bytes or max_latency_sec are blocked before execution. "
             "This is a system decision constraint, not a suggestion."
         ),
-    )
-    execution_identity: SessionExecutionIdentityPayload = Field(
-        default_factory=SessionExecutionIdentityPayload
     )
 
 

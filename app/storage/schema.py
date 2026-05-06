@@ -7,7 +7,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Literal
 
-METADATA_SCHEMA_VERSION = "metadata.osi_v2_additive.v2"
+METADATA_SCHEMA_VERSION = "metadata.unified_identity.v1"
 METADATA_SCHEMA_MARKER_TABLE = "metadata_schema_marker"
 
 METADATA_DDL: list[str] = [
@@ -18,7 +18,7 @@ METADATA_DDL: list[str] = [
         goal                     TEXT NOT NULL,
         constraints_json         TEXT NOT NULL,
         budget_json              TEXT NOT NULL,
-        execution_identity_json  TEXT NOT NULL DEFAULT '{}',
+        owner_user              TEXT NOT NULL DEFAULT '',
         status                   TEXT NOT NULL,
         raw_filter               TEXT,
         terminal_reason          TEXT,
@@ -62,6 +62,7 @@ METADATA_DDL: list[str] = [
         created_at              TEXT NOT NULL DEFAULT (datetime('now'))
     )
     """,
+    "CREATE INDEX IF NOT EXISTS idx_sessions_owner ON sessions(owner_user)",
     "CREATE INDEX IF NOT EXISTS idx_sessions_created ON sessions(created_at DESC, session_id DESC)",
     "CREATE INDEX IF NOT EXISTS idx_sessions_status_created ON sessions(status, created_at DESC, session_id DESC)",
     "CREATE INDEX IF NOT EXISTS idx_steps_session_type_created ON steps(session_id, step_type, created_at)",
@@ -74,11 +75,13 @@ METADATA_DDL: list[str] = [
         datasource_type TEXT NOT NULL,
         display_name    TEXT NOT NULL,
         connection_json TEXT NOT NULL DEFAULT '{}',
+        owner_user      TEXT NOT NULL DEFAULT '',
         status          TEXT NOT NULL DEFAULT 'active',
         created_at      TEXT NOT NULL,
         updated_at      TEXT NOT NULL
     )
     """,
+    "CREATE INDEX IF NOT EXISTS idx_datasources_owner ON datasources(owner_user)",
     # -------------------------------------------------------------------------
     # OSI-aligned semantic layer tables (v2)
     # Per-model revision replaces global semantic_versions.

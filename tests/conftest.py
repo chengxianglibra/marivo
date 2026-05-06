@@ -25,6 +25,7 @@ from __future__ import annotations
 import os
 
 os.environ.setdefault("LOG_LEVEL", "WARNING")
+os.environ.setdefault("MARIVO_DEFAULT_USER", "test_user")
 
 from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
 from app.storage.sqlite_metadata import SQLiteMetadataStore

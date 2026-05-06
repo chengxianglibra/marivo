@@ -16,6 +16,7 @@ from app.api.errors import (
     guided_validation_exception_handler,
     request_validation_exception_handler,
 )
+from app.api.middleware import UserIdentityMiddleware
 from app.api.router import include_api_routers
 from app.config import MarivoConfig, load_config, resolve_config_path, resolve_metadata_path
 from app.datasources import DatasourceService
@@ -174,6 +175,7 @@ def create_app(
             guided_validation_exception_handler,
         ),
     )
+    app.add_middleware(UserIdentityMiddleware)
     app.add_middleware(TimingMiddleware)
     include_api_routers(app)
     return app
