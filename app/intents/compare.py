@@ -8,7 +8,8 @@ from app.intents.calendar_alignment_metadata import resolve_calendar_alignment_r
 from app.intents.predicate_lineage_reuse import resolve_predicate_lineage_reuse_for_intent
 
 if TYPE_CHECKING:
-    from app.service import SemanticLayerService
+    from app.core.engine import CoreEngine
+    from app.runtime.ports import RuntimePorts
 
 
 _VALID_COMPARE_MODES = frozenset({"auto", "scalar", "segmented", "time_series"})
@@ -170,7 +171,7 @@ def _resolve_time_series_pairing_basis(
 
 
 def run_compare_intent(
-    svc: SemanticLayerService, session_id: str, params: dict[str, Any] | None
+    core: CoreEngine, ports: RuntimePorts, session_id: str, params: dict[str, Any] | None
 ) -> dict[str, Any]:
     """Execute a `compare` intent: compute typed delta between two observe artifacts.
 
@@ -209,13 +210,13 @@ def run_compare_intent(
             )
 
     # Resolve artifacts from DB
-    left_artifact = svc._resolve_artifact_for_ref(left_session_id, left_step_id)
+    left_artifact = core.resolve_artifact_for_ref(left_session_id, left_step_id)
     if left_artifact is None:
         raise ValueError(
             f"compare: STEP_NOT_FOUND - no committed artifact for step '{left_step_id}'"
         )
 
-    right_artifact = svc._resolve_artifact_for_ref(right_session_id, right_step_id)
+    right_artifact = core.resolve_artifact_for_ref(right_session_id, right_step_id)
     if right_artifact is None:
         raise ValueError(
             f"compare: STEP_NOT_FOUND - no committed artifact for step '{right_step_id}'"
@@ -375,7 +376,7 @@ def run_compare_intent(
 
     # Build shared metadata
     metric_name: str = left_metric or ""
-    step_id = svc._new_step_id()
+    step_id = core.new_step_id()
     now = datetime.now(UTC).isoformat()
     flat_tolerance_relative = 0.01
 
@@ -695,7 +696,7 @@ def run_compare_intent(
         artifact_name = f"{metric_name}_compare_segmented"
         summary = f"compare {metric_name} segmented: {len(segmented_rows)} delta rows"
 
-    artifact_id = svc._commit_artifact_with_extraction(
+    artifact_id = core.commit_artifact_with_extraction(
         session_id,
         step_id,
         "compare_artifact",
@@ -718,7 +719,7 @@ def run_compare_intent(
         "left_step_id": left_step_id,
         "right_step_id": right_step_id,
     }
-    svc._insert_step(step_id, session_id, "compare", summary, result, provenance=provenance)
+    core.insert_step(step_id, session_id, "compare", summary, result, provenance=provenance)
     return result
 
 

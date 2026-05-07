@@ -1379,10 +1379,18 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
 class TestCompareRunnerCommitPath(unittest.TestCase):
     """run_compare_intent must call _commit_artifact_with_extraction(step_type='compare')."""
 
-    def _run_scalar_compare(self, svc: MagicMock) -> dict[str, Any]:
+    def _make_core_and_ports(self) -> tuple[MagicMock, MagicMock]:
+        core = MagicMock()
+        ports = MagicMock()
+        core.new_step_id.return_value = "step_4c2_001"
+        core.commit_artifact_with_extraction.return_value = _FAKE_ARTIFACT_ID
+        core.insert_step.return_value = None
+        return core, ports
+
+    def _run_scalar_compare(self, core: MagicMock, ports: MagicMock) -> dict[str, Any]:
         from app.intents.compare import run_compare_intent
 
-        svc._resolve_artifact_for_ref.side_effect = [
+        core.resolve_artifact_for_ref.side_effect = [
             _scalar_observation("m1"),
             _scalar_observation("m1"),
         ]
@@ -1390,37 +1398,38 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
             "left_ref": {"step_id": "step_left", "session_id": _SESSION, "step_type": "observe"},
             "right_ref": {"step_id": "step_right", "session_id": _SESSION, "step_type": "observe"},
         }
-        return run_compare_intent(svc, _SESSION, params)
+        return run_compare_intent(core, ports, _SESSION, params)
 
     def test_compare_calls_commit_artifact_with_extraction(self) -> None:
-        svc = _make_svc()
-        self._run_scalar_compare(svc)
-        svc._commit_artifact_with_extraction.assert_called_once()
+        core, ports = self._make_core_and_ports()
+        self._run_scalar_compare(core, ports)
+        core.commit_artifact_with_extraction.assert_called_once()
 
     def test_compare_passes_step_type_compare(self) -> None:
-        svc = _make_svc()
-        self._run_scalar_compare(svc)
-        _, kwargs = svc._commit_artifact_with_extraction.call_args
+        core, ports = self._make_core_and_ports()
+        self._run_scalar_compare(core, ports)
+        _, kwargs = core.commit_artifact_with_extraction.call_args
         self.assertEqual(kwargs.get("step_type"), "compare")
 
     def test_compare_artifact_type_is_compare_artifact(self) -> None:
-        svc = _make_svc()
-        self._run_scalar_compare(svc)
-        args, _ = svc._commit_artifact_with_extraction.call_args
+        core, ports = self._make_core_and_ports()
+        self._run_scalar_compare(core, ports)
+        args, _ = core.commit_artifact_with_extraction.call_args
         self.assertEqual(args[2], "compare_artifact")
 
     def test_compare_reuses_frozen_calendar_alignment_summary(self) -> None:
         from app.intents.compare import run_compare_intent
 
-        svc = _make_svc()
+        core, ports = self._make_core_and_ports()
         left = _scalar_observation("m1")
         right = _scalar_observation("m1")
         left["resolved_policy_summary"] = _resolved_policy_summary()
         right["resolved_policy_summary"] = _resolved_policy_summary()
-        svc._resolve_artifact_for_ref.side_effect = [left, right]
+        core.resolve_artifact_for_ref.side_effect = [left, right]
 
         result = run_compare_intent(
-            svc,
+            core,
+            ports,
             _SESSION,
             {
                 "left_ref": {
@@ -1459,18 +1468,19 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
     def test_compare_requires_alignment_metadata_on_both_sides(self) -> None:
         from app.intents.compare import run_compare_intent
 
-        svc = _make_svc()
+        core, ports = self._make_core_and_ports()
         left = _scalar_observation("m1")
         right = _scalar_observation("m1")
         left["resolved_policy_summary"] = _resolved_policy_summary()
-        svc._resolve_artifact_for_ref.side_effect = [left, right]
+        core.resolve_artifact_for_ref.side_effect = [left, right]
 
         with self.assertRaisesRegex(
             ValueError,
             "calendar alignment metadata is missing on one observation",
         ):
             run_compare_intent(
-                svc,
+                core,
+                ports,
                 _SESSION,
                 {
                     "left_ref": {
@@ -1489,21 +1499,22 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
     def test_compare_rejects_calendar_version_mismatch(self) -> None:
         from app.intents.compare import run_compare_intent
 
-        svc = _make_svc()
+        core, ports = self._make_core_and_ports()
         left = _scalar_observation("m1")
         right = _scalar_observation("m1")
         left["resolved_policy_summary"] = _resolved_policy_summary()
         right["resolved_policy_summary"] = _resolved_policy_summary(
             resolved_calendar_version="calendar_data_cn_2026q2_v2"
         )
-        svc._resolve_artifact_for_ref.side_effect = [left, right]
+        core.resolve_artifact_for_ref.side_effect = [left, right]
 
         with self.assertRaisesRegex(
             ValueError,
             "left and right observations freeze different calendar versions",
         ):
             run_compare_intent(
-                svc,
+                core,
+                ports,
                 _SESSION,
                 {
                     "left_ref": {
@@ -1547,17 +1558,18 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
     def test_compare_marks_needs_attention_for_upstream_calendar_warnings(self) -> None:
         from app.intents.compare import run_compare_intent
 
-        svc = _make_svc()
+        core, ports = self._make_core_and_ports()
         left = _scalar_observation("m1")
         right = _scalar_observation("m1")
         left["resolved_policy_summary"] = _resolved_policy_summary(
             comparability_warnings=["fallback_applied"]
         )
         right["resolved_policy_summary"] = _resolved_policy_summary()
-        svc._resolve_artifact_for_ref.side_effect = [left, right]
+        core.resolve_artifact_for_ref.side_effect = [left, right]
 
         result = run_compare_intent(
-            svc,
+            core,
+            ports,
             _SESSION,
             {
                 "left_ref": {
@@ -1593,7 +1605,7 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
     def test_compare_marks_needs_attention_for_incomplete_calendar_coverage(self) -> None:
         from app.intents.compare import run_compare_intent
 
-        svc = _make_svc()
+        core, ports = self._make_core_and_ports()
         left = _scalar_observation("m1")
         right = _scalar_observation("m1")
         left["resolved_policy_summary"] = _resolved_policy_summary(
@@ -1602,10 +1614,11 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
             aligned_ratio=6 / 7,
         )
         right["resolved_policy_summary"] = _resolved_policy_summary()
-        svc._resolve_artifact_for_ref.side_effect = [left, right]
+        core.resolve_artifact_for_ref.side_effect = [left, right]
 
         result = run_compare_intent(
-            svc,
+            core,
+            ports,
             _SESSION,
             {
                 "left_ref": {
@@ -1665,7 +1678,7 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
     ) -> None:
         from app.intents.compare import run_compare_intent
 
-        svc = _make_svc()
+        core, ports = self._make_core_and_ports()
         left = _time_series_observation(
             "m1",
             series=[
@@ -1692,10 +1705,11 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
             missing_bucket_count=0,
             coverage_ratio=1.0,
         )
-        svc._resolve_artifact_for_ref.side_effect = [left, right]
+        core.resolve_artifact_for_ref.side_effect = [left, right]
 
         result = run_compare_intent(
-            svc,
+            core,
+            ports,
             _SESSION,
             {
                 "left_ref": {
@@ -1740,21 +1754,22 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
     def test_compare_rejects_unresolved_weekday_pairing_tie(self) -> None:
         from app.intents.compare import run_compare_intent
 
-        svc = _make_svc()
+        core, ports = self._make_core_and_ports()
         left = _scalar_observation("m1")
         right = _scalar_observation("m1")
         left["resolved_policy_summary"] = _resolved_policy_summary(
             comparability_warnings=["weekday_pairing_tie"]
         )
         right["resolved_policy_summary"] = _resolved_policy_summary()
-        svc._resolve_artifact_for_ref.side_effect = [left, right]
+        core.resolve_artifact_for_ref.side_effect = [left, right]
 
         with self.assertRaisesRegex(
             ValueError,
             "compare: NOT_COMPARABLE - weekday alignment produced an unresolved tie",
         ):
             run_compare_intent(
-                svc,
+                core,
+                ports,
                 _SESSION,
                 {
                     "left_ref": {
@@ -1773,19 +1788,20 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
     def test_compare_rejects_non_dict_resolved_policy_summary(self) -> None:
         from app.intents.compare import run_compare_intent
 
-        svc = _make_svc()
+        core, ports = self._make_core_and_ports()
         left = _scalar_observation("m1")
         right = _scalar_observation("m1")
         left["resolved_policy_summary"] = "not-an-object"
         right["resolved_policy_summary"] = _resolved_policy_summary()
-        svc._resolve_artifact_for_ref.side_effect = [left, right]
+        core.resolve_artifact_for_ref.side_effect = [left, right]
 
         with self.assertRaisesRegex(
             ValueError,
             "compare: INVALID_ARGUMENT - malformed resolved calendar alignment metadata",
         ):
             run_compare_intent(
-                svc,
+                core,
+                ports,
                 _SESSION,
                 {
                     "left_ref": {
@@ -1804,21 +1820,22 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
     def test_compare_rejects_missing_coverage_summary(self) -> None:
         from app.intents.compare import run_compare_intent
 
-        svc = _make_svc()
+        core, ports = self._make_core_and_ports()
         left = _scalar_observation("m1")
         right = _scalar_observation("m1")
         malformed = _resolved_policy_summary()
         del malformed["coverage_summary"]
         left["resolved_policy_summary"] = malformed
         right["resolved_policy_summary"] = _resolved_policy_summary()
-        svc._resolve_artifact_for_ref.side_effect = [left, right]
+        core.resolve_artifact_for_ref.side_effect = [left, right]
 
         with self.assertRaisesRegex(
             ValueError,
             "compare: INVALID_ARGUMENT - malformed resolved calendar alignment metadata",
         ):
             run_compare_intent(
-                svc,
+                core,
+                ports,
                 _SESSION,
                 {
                     "left_ref": {
@@ -1837,21 +1854,22 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
     def test_compare_rejects_non_string_warning_entry(self) -> None:
         from app.intents.compare import run_compare_intent
 
-        svc = _make_svc()
+        core, ports = self._make_core_and_ports()
         left = _scalar_observation("m1")
         right = _scalar_observation("m1")
         malformed = _resolved_policy_summary()
         malformed["comparability_warnings"] = ["fallback_applied", 1]
         left["resolved_policy_summary"] = malformed
         right["resolved_policy_summary"] = _resolved_policy_summary()
-        svc._resolve_artifact_for_ref.side_effect = [left, right]
+        core.resolve_artifact_for_ref.side_effect = [left, right]
 
         with self.assertRaisesRegex(
             ValueError,
             "compare: INVALID_ARGUMENT - malformed resolved calendar alignment metadata",
         ):
             run_compare_intent(
-                svc,
+                core,
+                ports,
                 _SESSION,
                 {
                     "left_ref": {
@@ -1870,7 +1888,7 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
     def test_compare_rejects_negative_bucket_counts(self) -> None:
         from app.intents.compare import run_compare_intent
 
-        svc = _make_svc()
+        core, ports = self._make_core_and_ports()
         left = _scalar_observation("m1")
         right = _scalar_observation("m1")
         left["resolved_policy_summary"] = _resolved_policy_summary(
@@ -1879,14 +1897,15 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
             aligned_ratio=0.0,
         )
         right["resolved_policy_summary"] = _resolved_policy_summary()
-        svc._resolve_artifact_for_ref.side_effect = [left, right]
+        core.resolve_artifact_for_ref.side_effect = [left, right]
 
         with self.assertRaisesRegex(
             ValueError,
             "compare: INVALID_ARGUMENT - malformed resolved calendar alignment metadata",
         ):
             run_compare_intent(
-                svc,
+                core,
+                ports,
                 _SESSION,
                 {
                     "left_ref": {
@@ -1905,7 +1924,7 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
     def test_compare_rejects_inconsistent_coverage_summary(self) -> None:
         from app.intents.compare import run_compare_intent
 
-        svc = _make_svc()
+        core, ports = self._make_core_and_ports()
         left = _scalar_observation("m1")
         right = _scalar_observation("m1")
         left["resolved_policy_summary"] = _resolved_policy_summary(
@@ -1914,14 +1933,15 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
             aligned_ratio=1.0,
         )
         right["resolved_policy_summary"] = _resolved_policy_summary()
-        svc._resolve_artifact_for_ref.side_effect = [left, right]
+        core.resolve_artifact_for_ref.side_effect = [left, right]
 
         with self.assertRaisesRegex(
             ValueError,
             "compare: INVALID_ARGUMENT - malformed resolved calendar alignment metadata",
         ):
             run_compare_intent(
-                svc,
+                core,
+                ports,
                 _SESSION,
                 {
                     "left_ref": {
@@ -1940,8 +1960,8 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
     def test_compare_time_series_commits_time_series_delta(self) -> None:
         from app.intents.compare import run_compare_intent
 
-        svc = _make_svc()
-        svc._resolve_artifact_for_ref.side_effect = [
+        core, ports = self._make_core_and_ports()
+        core.resolve_artifact_for_ref.side_effect = [
             _time_series_observation("m1"),
             _time_series_observation(
                 "m1",
@@ -1959,7 +1979,8 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
         ]
 
         result = run_compare_intent(
-            svc,
+            core,
+            ports,
             _SESSION,
             {
                 "left_ref": {
@@ -1989,7 +2010,7 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
     def test_compare_time_series_reuses_calendar_aligned_pairing_for_summary_basis(self) -> None:
         from app.intents.compare import run_compare_intent
 
-        svc = _make_svc()
+        core, ports = self._make_core_and_ports()
         left = _time_series_observation(
             "m1",
             series=[
@@ -2020,10 +2041,11 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
             current_bucket_start="2026-02-14",
             baseline_bucket_start="2025-02-14",
         )
-        svc._resolve_artifact_for_ref.side_effect = [left, right]
+        core.resolve_artifact_for_ref.side_effect = [left, right]
 
         result = run_compare_intent(
-            svc,
+            core,
+            ports,
             _SESSION,
             {
                 "left_ref": {
@@ -2063,17 +2085,18 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
     def test_compare_time_series_missing_granularity_fails(self) -> None:
         from app.intents.compare import run_compare_intent
 
-        svc = _make_svc()
+        core, ports = self._make_core_and_ports()
         left = _time_series_observation("m1")
         right = _time_series_observation("m1")
         left["granularity"] = None
-        svc._resolve_artifact_for_ref.side_effect = [left, right]
+        core.resolve_artifact_for_ref.side_effect = [left, right]
 
         with self.assertRaisesRegex(
             ValueError, "compare: NOT_COMPARABLE - time_series observations must include"
         ):
             run_compare_intent(
-                svc,
+                core,
+                ports,
                 _SESSION,
                 {
                     "left_ref": {
@@ -2093,8 +2116,8 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
     def test_compare_time_series_empty_series_fails_before_commit(self) -> None:
         from app.intents.compare import run_compare_intent
 
-        svc = _make_svc()
-        svc._resolve_artifact_for_ref.side_effect = [
+        core, ports = self._make_core_and_ports()
+        core.resolve_artifact_for_ref.side_effect = [
             _time_series_observation("m1", series=[]),
             _time_series_observation("m1", series=[]),
         ]
@@ -2103,7 +2126,8 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
             ValueError, "compare: NOT_COMPARABLE - no time-series buckets found"
         ):
             run_compare_intent(
-                svc,
+                core,
+                ports,
                 _SESSION,
                 {
                     "left_ref": {
@@ -2119,20 +2143,21 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
                     "mode": "time_series",
                 },
             )
-        svc._commit_artifact_with_extraction.assert_not_called()
+        core.commit_artifact_with_extraction.assert_not_called()
 
     def test_compare_time_series_mode_rejects_scalar_artifacts(self) -> None:
         from app.intents.compare import run_compare_intent
 
-        svc = _make_svc()
-        svc._resolve_artifact_for_ref.side_effect = [
+        core, ports = self._make_core_and_ports()
+        core.resolve_artifact_for_ref.side_effect = [
             _scalar_observation("m1"),
             _scalar_observation("m1"),
         ]
 
         with self.assertRaisesRegex(ValueError, "mode='time_series'"):
             run_compare_intent(
-                svc,
+                core,
+                ports,
                 _SESSION,
                 {
                     "left_ref": {
