@@ -98,3 +98,7 @@ class CoreEngine:
     def resolve_scope_constraint_column(self, *args: Any, **kwargs: Any) -> str:
         """Resolve a scope constraint dimension to its physical column expression."""
         return self._svc._resolve_scope_constraint_column(*args, **kwargs)
+
+    def insert_artifact(self, *args: Any, **kwargs: Any) -> str:
+        """Insert an artifact record and return its ID."""
+        return self._svc._insert_artifact(*args, **kwargs)

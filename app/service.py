@@ -318,7 +318,13 @@ class SemanticLayerService:
             ),
         )
         self.intent_registry.register(
-            "attribute", lambda sid, p: run_attribute_intent(self, sid, p)
+            "attribute",
+            lambda sid, p: run_attribute_intent(
+                self._core_engine,  # type: ignore[arg-type]
+                self._runtime_ports,  # type: ignore[arg-type]
+                sid,
+                p,
+            ),
         )
         self.intent_registry.register("diagnose", lambda sid, p: run_diagnose_intent(self, sid, p))
         self.intent_registry.register("validate", lambda sid, p: run_validate_intent(self, sid, p))
