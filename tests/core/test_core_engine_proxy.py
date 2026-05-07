@@ -34,11 +34,11 @@ def test_compile_step_delegates() -> None:
 
 
 def test_build_step_semantic_metadata_delegates() -> None:
-    svc = MagicMock()
-    svc.build_step_semantic_metadata.return_value = "metadata"
-    engine = CoreEngine(svc)
+    """build_step_semantic_metadata is now a pure function in core/semantic/step_metadata."""
+    from app.core.semantic.step_metadata import build_step_semantic_metadata
 
-    result = engine.build_step_semantic_metadata("query")
-
-    svc.build_step_semantic_metadata.assert_called_once_with("query")
-    assert result == "metadata"
+    compiled = MagicMock()
+    compiled.metadata = {"resolved_metric_ref": "metric.test"}
+    result = build_step_semantic_metadata(compiled)
+    assert result is not None
+    assert result["typed_inputs"]["metric_ref"] == "metric.test"

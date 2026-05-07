@@ -5,6 +5,8 @@ import math
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
+from app.core.intent.primitives import new_step_id
+
 if TYPE_CHECKING:
     from app.core.engine import CoreEngine
     from app.runtime.ports import RuntimePorts
@@ -258,7 +260,7 @@ def run_correlate_intent(
 
     # ── Build artifact ────────────────────────────────────────────────────────
     now = datetime.now(UTC).isoformat()
-    step_id = core.new_step_id()
+    step_id = new_step_id()
 
     left_artifact_id: str | None = core.resolve_artifact_id_for_step(session_id, left_step_id)
     right_artifact_id: str | None = core.resolve_artifact_id_for_step(session_id, right_step_id)

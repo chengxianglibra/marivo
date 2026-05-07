@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
+from app.core.intent.primitives import new_step_id
 from app.intents.calendar_alignment_metadata import resolve_calendar_alignment_reuse_for_intent
 from app.intents.predicate_lineage_reuse import resolve_predicate_lineage_reuse_for_intent
 
@@ -376,7 +377,7 @@ def run_compare_intent(
 
     # Build shared metadata
     metric_name: str = left_metric or ""
-    step_id = core.new_step_id()
+    step_id = new_step_id()
     now = datetime.now(UTC).isoformat()
     flat_tolerance_relative = 0.01
 

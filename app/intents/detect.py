@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING, Any, cast
 
 from app.analysis_core.executor import execute_compiled
 from app.analysis_core.ir import AnalysisStepIR
+from app.core.intent.primitives import make_provenance, new_step_id
+from app.core.semantic.step_metadata import build_step_semantic_metadata
 from app.time_contracts import (
     TimeGrain,
     bucket_window,
@@ -478,7 +480,7 @@ def run_detect_intent(
         group_by.append("split_value")
         order_by = "split_value, bucket_start"
 
-    step_id = core.new_step_id()
+    step_id = new_step_id()
     compiled_query = core.compile_step(
         AnalysisStepIR(
             index=0,
@@ -500,9 +502,7 @@ def run_detect_intent(
 
     now = datetime.now(UTC).isoformat()
     rows = list(execute_compiled(engine, compiled_query).rows)
-    provenance = core.make_provenance(
-        compiled_query.sql, compiled_query.params, engine_type=engine_type
-    )
+    provenance = make_provenance(compiled_query.sql, compiled_query.params, engine_type=engine_type)
 
     # ── Build one or more series from query rows ──────────────────────────────
     series_by_key: dict[str, dict[str, Any]] = {}
@@ -802,6 +802,6 @@ def run_detect_intent(
         summary,
         result,
         provenance=provenance,
-        semantic_metadata=core.build_step_semantic_metadata(compiled_query),
+        semantic_metadata=build_step_semantic_metadata(compiled_query),
     )
     return result

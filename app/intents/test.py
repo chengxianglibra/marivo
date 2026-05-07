@@ -15,6 +15,7 @@ import math
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
+from app.core.intent.primitives import new_step_id
 from app.intents.calendar_alignment_metadata import resolve_calendar_alignment_reuse_for_intent
 from app.intents.predicate_lineage_reuse import resolve_predicate_lineage_reuse_for_intent
 
@@ -458,7 +459,7 @@ def run_test_intent(
         raise ValueError(f"test: validation failed: {'; '.join(error_msgs)}")
 
     # ── Build artifact ─────────────────────────────────────────────────────────
-    step_id = core.new_step_id()
+    step_id = new_step_id()
 
     # Deterministic query_hash from input identities (no actual SQL)
     _hash_input = (

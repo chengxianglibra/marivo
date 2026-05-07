@@ -11,6 +11,8 @@ from app.analysis_core.calendar_policy import (
 )
 from app.analysis_core.executor import execute_compiled
 from app.analysis_core.ir import AnalysisStepIR
+from app.core.intent.primitives import make_provenance, new_step_id
+from app.core.semantic.step_metadata import build_step_semantic_metadata
 from app.intents.calendar_alignment_metadata import normalize_resolved_policy_summary
 from app.time_contracts import TimeGrain, bucket_window, normalize_hour_boundary
 from app.time_scope import normalize_metric_query_request
@@ -572,7 +574,7 @@ def run_observe_intent(
         all_dimensions=all_dimensions,
     )
     qualified_table = qualified.get(resolved.table, resolved.table)
-    step_id = core.new_step_id()
+    step_id = new_step_id()
     now = datetime.now(UTC).isoformat()
 
     if result_mode == "numeric_sample_summary":
@@ -611,7 +613,7 @@ def run_observe_intent(
             semantic_context={"metric_execution_context": execution_context},
         )
         rows = list(execute_compiled(engine, compiled_query).rows)
-        provenance = core.make_provenance(
+        provenance = make_provenance(
             compiled_query.sql, compiled_query.params, engine_type=engine_type
         )
         resolved_policy_summary_ns = _resolved_policy_summary_from_compiled(compiled_query)
@@ -711,7 +713,7 @@ def run_observe_intent(
             summary_ns,
             result_ns,
             provenance=provenance,
-            semantic_metadata=core.build_step_semantic_metadata(compiled_query),
+            semantic_metadata=build_step_semantic_metadata(compiled_query),
         )
         return result_ns
 
@@ -747,7 +749,7 @@ def run_observe_intent(
             semantic_context={"metric_execution_context": execution_context},
         )
         rows = list(execute_compiled(engine, compiled_query).rows)
-        provenance = core.make_provenance(
+        provenance = make_provenance(
             compiled_query.sql, compiled_query.params, engine_type=engine_type
         )
         resolved_policy_summary_rs = _resolved_policy_summary_from_compiled(compiled_query)
@@ -830,7 +832,7 @@ def run_observe_intent(
             summary_rs,
             result_rs,
             provenance=provenance,
-            semantic_metadata=core.build_step_semantic_metadata(compiled_query),
+            semantic_metadata=build_step_semantic_metadata(compiled_query),
         )
         return result_rs
 
@@ -864,7 +866,7 @@ def run_observe_intent(
             semantic_context={"metric_execution_context": execution_context},
         )
         rows = list(execute_compiled(engine, compiled_query).rows)
-        provenance = core.make_provenance(
+        provenance = make_provenance(
             compiled_query.sql, compiled_query.params, engine_type=engine_type
         )
         sparse_series = _series_from_rows(rows, granularity=granularity_typed)
@@ -1018,7 +1020,7 @@ def run_observe_intent(
             },
         )
         rows = list(execute_compiled(engine, compiled_query).rows)
-        provenance = core.make_provenance(
+        provenance = make_provenance(
             compiled_query.sql, compiled_query.params, engine_type=engine_type
         )
         resolved_policy_summary = _resolved_policy_summary_from_compiled(compiled_query)
@@ -1105,7 +1107,7 @@ def run_observe_intent(
             },
         )
         rows = list(execute_compiled(engine, compiled_query).rows)
-        provenance = core.make_provenance(
+        provenance = make_provenance(
             compiled_query.sql, compiled_query.params, engine_type=engine_type
         )
         predicate_filter_lineage_scalar = _extract_predicate_filter_lineage(compiled_query)
@@ -1191,6 +1193,6 @@ def run_observe_intent(
         summary,
         result,
         provenance=provenance,
-        semantic_metadata=core.build_step_semantic_metadata(compiled_query),
+        semantic_metadata=build_step_semantic_metadata(compiled_query),
     )
     return result

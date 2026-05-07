@@ -16,6 +16,8 @@ from datetime import UTC, datetime, timedelta
 from datetime import date as _date
 from typing import TYPE_CHECKING, Any
 
+from app.core.intent.primitives import new_step_id
+
 if TYPE_CHECKING:
     from app.core.engine import CoreEngine
     from app.runtime.ports import RuntimePorts
@@ -356,7 +358,7 @@ def run_forecast_intent(
         raise ValueError("forecast: no forecast buckets produced; cannot commit empty artifact")
 
     # ── Build artifact ─────────────────────────────────────────────────────────
-    step_id = core.new_step_id()
+    step_id = new_step_id()
 
     _hash_input = f"{resolved_artifact_id}:{profile}:{granularity}:{horizon}"
     query_hash = hashlib.sha256(_hash_input.encode()).hexdigest()[:16]

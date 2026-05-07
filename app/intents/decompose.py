@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 from app.analysis_core.additivity_capabilities import derive_additivity_capabilities
 from app.analysis_core.executor import execute_compiled
 from app.analysis_core.ir import AnalysisStepIR
+from app.core.intent.primitives import new_step_id
 from app.execution.errors import ExecutionError
 from app.time_scope import normalize_metric_query_request
 
@@ -404,7 +405,7 @@ def run_decompose_intent(
     )
 
     # ── Build artifact ────────────────────────────────────────────────────────
-    step_id = core.new_step_id()
+    step_id = new_step_id()
 
     left_ref_out: dict[str, Any] = {
         "step_type": "observe",

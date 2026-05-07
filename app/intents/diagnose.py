@@ -19,6 +19,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, cast
 
+from app.core.intent.primitives import new_step_id
 from app.intents.compare import run_compare_intent
 from app.intents.decompose import run_decompose_intent
 from app.intents.detect import run_detect_intent
@@ -398,7 +399,7 @@ def run_diagnose_intent(
         validation["guidance"] = validation_guidance
 
     now = datetime.now(UTC).isoformat()
-    step_id = core.new_step_id()
+    step_id = new_step_id()
 
     bundle: dict[str, Any] = {
         "result_type": "diagnosis_bundle",
