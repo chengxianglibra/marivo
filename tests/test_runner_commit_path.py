@@ -2361,19 +2361,32 @@ class TestDecomposeRunnerCommitPath(unittest.TestCase):
 class TestDetectRunnerCommitPath(unittest.TestCase):
     """run_detect_intent must call _commit_artifact_with_extraction(step_type='detect')."""
 
-    def _run_detect(self, svc: MagicMock) -> dict[str, Any]:
+    def _make_core_and_ports(self) -> tuple[MagicMock, MagicMock]:
+        core = MagicMock()
+        ports = MagicMock()
+        core.new_step_id.return_value = "step_4c2_001"
+        core.commit_artifact_with_extraction.return_value = _FAKE_ARTIFACT_ID
+        core.insert_step.return_value = None
+        core.make_provenance.return_value = {"query_hash": "testhash"}
+        core.build_step_semantic_metadata.return_value = {}
+        return core, ports
+
+    def _run_detect(self, core: MagicMock, ports: MagicMock) -> dict[str, Any]:
         from app.intents.detect import run_detect_intent
 
-        svc._resolve_metric_table.return_value = "src.metrics"
-        svc.resolve_metric_sql.return_value = "SUM(val)"
-        svc.resolve_metric_dimensions.return_value = []
-        svc._resolve_engine.return_value = (
+        core.normalize_intent_metric_ref.return_value = "m1"
+        core.metric_name_from_ref.return_value = "m1"
+        core.resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
+        core.resolve_metric_table.return_value = "src.metrics"
+        core.resolve_metric_dimensions.return_value = []
+        core.resolve_engine_for_session.return_value = (
             MagicMock(),
             "duckdb",
             {"metrics": "src.metrics"},
         )
-        svc._build_scoped_query.return_value = None
-        svc._compile_step_with_feedback.return_value = _make_compiled_mock()
+        core.resolve_metric_sql_for_execution.return_value = "SUM(val)"
+        core.build_scoped_query.return_value = None
+        core.compile_step.return_value = _make_compiled_mock()
 
         params = {
             "metric": "m1",
@@ -2387,31 +2400,31 @@ class TestDetectRunnerCommitPath(unittest.TestCase):
                 {"bucket_start": f"2024-01-{d:02d}", "value": 200.0 if d == 5 else 100.0}
                 for d in range(1, 10)
             ]
-            return run_detect_intent(svc, _SESSION, params)
+            return run_detect_intent(core, ports, _SESSION, params)
 
     def test_detect_calls_commit_artifact_with_extraction(self) -> None:
-        svc = _make_svc()
-        self._run_detect(svc)
-        svc._commit_artifact_with_extraction.assert_called_once()
+        core, ports = self._make_core_and_ports()
+        self._run_detect(core, ports)
+        core.commit_artifact_with_extraction.assert_called_once()
 
     def test_detect_passes_step_type_detect(self) -> None:
-        svc = _make_svc()
-        self._run_detect(svc)
-        _, kwargs = svc._commit_artifact_with_extraction.call_args
+        core, ports = self._make_core_and_ports()
+        self._run_detect(core, ports)
+        _, kwargs = core.commit_artifact_with_extraction.call_args
         self.assertEqual(kwargs.get("step_type"), "detect")
 
     def test_detect_artifact_type_is_anomaly_candidates(self) -> None:
-        svc = _make_svc()
-        self._run_detect(svc)
-        args, _ = svc._commit_artifact_with_extraction.call_args
+        core, ports = self._make_core_and_ports()
+        self._run_detect(core, ports)
+        args, _ = core.commit_artifact_with_extraction.call_args
         self.assertEqual(args[2], "anomaly_candidates")
 
     def test_detect_artifact_id_patched_in_result(self) -> None:
         # After _commit_artifact_with_extraction returns, detect.py patches artifact_id
         # into result["candidates"][*]["candidate_ref"]["artifact_ref"]["artifact_id"]
         # and result["artifact_id"].  Verify both are populated with the committed id.
-        svc = _make_svc()
-        result = self._run_detect(svc)
+        core, ports = self._make_core_and_ports()
+        result = self._run_detect(core, ports)
         self.assertEqual(result["artifact_id"], _FAKE_ARTIFACT_ID)
         candidates = result.get("candidates", [])
         self.assertTrue(len(candidates) > 0, "expected at least one candidate in result")

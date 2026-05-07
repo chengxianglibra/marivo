@@ -174,8 +174,19 @@ def build_semantic_layer_service(
     metadata: MetadataStore,
     analytics: AnalyticsEngine,
 ) -> SemanticLayerService:
+    from unittest.mock import MagicMock
+
+    from app.core.engine import CoreEngine
+
     service = SemanticLayerService(metadata, analytics)
     service.query_router = QueryRouter(metadata, DatasourceService(metadata))
+    # Phase 3b: ensure _core_engine and _runtime_ports are set so migrated
+    # intent runners can access them through the service registration lambdas.
+    # ports is currently unused by migrated runners; a MagicMock suffices for now.
+    if service._core_engine is None:
+        service._core_engine = CoreEngine(service)
+    if service._runtime_ports is None:
+        service._runtime_ports = MagicMock()  # type: ignore[assignment]
     return service
 
 

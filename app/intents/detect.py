@@ -17,7 +17,8 @@ from app.time_contracts import (
 from app.time_scope import normalize_metric_query_request
 
 if TYPE_CHECKING:
-    from app.service import SemanticLayerService
+    from app.core.engine import CoreEngine
+    from app.runtime.ports import RuntimePorts
 
 _SENSITIVITY_THRESHOLD: dict[str, float] = {
     "conservative": 2.5,
@@ -133,14 +134,14 @@ def _flag_level_for_period_shift(score: float) -> str:
 
 
 def _table_has_column(
-    svc: SemanticLayerService,
+    core: CoreEngine,
     *,
     engine: Any,
     engine_type: str,
     table_name: str,
     column_name: str,
 ) -> bool:
-    compiled_query = svc._compile_step_with_feedback(
+    compiled_query = core.compile_step(
         AnalysisStepIR(
             index=0,
             step_type="profile_table_columns",
@@ -153,7 +154,7 @@ def _table_has_column(
 
 
 def _query_scalar_window_values(
-    svc: SemanticLayerService,
+    core: CoreEngine,
     *,
     session_id: str,
     engine: Any,
@@ -183,13 +184,13 @@ def _query_scalar_window_values(
     if scope_raw:
         mq_params["scope"] = scope_raw
     resolved = normalize_metric_query_request(mq_params)
-    svc._resolve_windowed_query_time_axis(
+    core.resolve_windowed_query_time_axis(
         resolved,
         engine_type=engine_type,
         metric_name=metric_ref,
         fallback_columns=all_dimensions,
     )
-    scoped_query = svc._build_scoped_query(session_id, resolved, engine_type=engine_type)
+    scoped_query = core.build_scoped_query(session_id, resolved, engine_type=engine_type)
 
     select_exprs = [f"{metric_sql} AS value"]
     group_by: list[str] = []
@@ -203,7 +204,7 @@ def _query_scalar_window_values(
         group_by.append("split_value")
         order_by = "split_value"
 
-    compiled_query = svc._compile_step_with_feedback(
+    compiled_query = core.compile_step(
         AnalysisStepIR(
             index=0,
             step_type="aggregate_query",
@@ -287,7 +288,7 @@ def _detect_period_shift_candidates(
 
 
 def run_detect_intent(
-    svc: SemanticLayerService, session_id: str, params: dict[str, Any] | None
+    core: CoreEngine, ports: RuntimePorts, session_id: str, params: dict[str, Any] | None
 ) -> dict[str, Any]:
     """Execute a `detect` intent: scan a metric time range for anomaly candidates.
 
@@ -302,8 +303,8 @@ def run_detect_intent(
     metric_ref: str = p.get("metric") or ""
     if not metric_ref:
         raise ValueError("detect intent requires 'metric'")
-    metric_ref = svc.normalize_intent_metric_ref(metric_ref)
-    metric_name = svc.metric_name_from_ref(metric_ref)
+    metric_ref = core.normalize_intent_metric_ref(metric_ref)
+    metric_name = core.metric_name_from_ref(metric_ref)
 
     time_scope_raw = p.get("time_scope")
     if not isinstance(time_scope_raw, dict):
@@ -394,15 +395,15 @@ def run_detect_intent(
     scope_raw = p.get("scope") or None
 
     # ── Resolve metric ─────────────────────────────────────────────────────────
-    execution_context = svc._resolve_metric_execution_context(metric_ref, session_id=session_id)
+    execution_context = core.resolve_metric_execution_context(metric_ref, session_id=session_id)
     table = execution_context.table_name
 
-    all_dimensions = svc.resolve_metric_dimensions(metric_ref)
-    engine_resolution = svc._resolve_engine_for_session(session_id, [table])
+    all_dimensions = core.resolve_metric_dimensions(metric_ref)
+    engine_resolution = core.resolve_engine_for_session(session_id, [table])
     if not isinstance(engine_resolution, tuple) or len(engine_resolution) != 3:
-        engine_resolution = svc._resolve_engine([table])
+        engine_resolution = core.resolve_engine([table])
     engine, engine_type, qualified = engine_resolution
-    metric_sql = svc.resolve_metric_sql_for_execution(
+    metric_sql = core.resolve_metric_sql_for_execution(
         metric_ref,
         execution_context,
         engine_type=engine_type,
@@ -417,7 +418,7 @@ def run_detect_intent(
                 f"for metric '{metric_name}'"
             )
         try:
-            split_by_expr = svc._resolve_scope_constraint_column(
+            split_by_expr = core.resolve_scope_constraint_column(
                 split_by,
                 metric_ref=metric_ref,
                 table_name=table,
@@ -425,7 +426,7 @@ def run_detect_intent(
         except ValueError:
             fallback_column = split_by.removeprefix("dimension.")
             if not _table_has_column(
-                svc,
+                core,
                 engine=engine,
                 engine_type=engine_type,
                 table_name=qualified.get(table, table),
@@ -451,13 +452,13 @@ def run_detect_intent(
         mq_params["scope"] = scope_raw
 
     resolved = normalize_metric_query_request(mq_params)
-    svc._resolve_windowed_query_time_axis(
+    core.resolve_windowed_query_time_axis(
         resolved,
         engine_type=engine_type,
         metric_name=metric_ref,
         fallback_columns=all_dimensions,
     )
-    scoped_query = svc._build_scoped_query(session_id, resolved, engine_type=engine_type)
+    scoped_query = core.build_scoped_query(session_id, resolved, engine_type=engine_type)
     qualified_table = qualified.get(table, table)
 
     time_col = resolved.resolved_time_axis.analysis_time_expr
@@ -477,8 +478,8 @@ def run_detect_intent(
         group_by.append("split_value")
         order_by = "split_value, bucket_start"
 
-    step_id = svc._new_step_id()
-    compiled_query = svc._compile_step_with_feedback(
+    step_id = core.new_step_id()
+    compiled_query = core.compile_step(
         AnalysisStepIR(
             index=0,
             step_type="aggregate_query",
@@ -499,7 +500,7 @@ def run_detect_intent(
 
     now = datetime.now(UTC).isoformat()
     rows = list(execute_compiled(engine, compiled_query).rows)
-    provenance = svc._make_provenance(
+    provenance = core.make_provenance(
         compiled_query.sql, compiled_query.params, engine_type=engine_type
     )
 
@@ -617,7 +618,7 @@ def run_detect_intent(
         baseline_window = previous_adjacent_window(start_str, end_str, grain=granularity_typed)
         current_window = {"start": start_str, "end": end_str}
         current_values = _query_scalar_window_values(
-            svc,
+            core,
             session_id=session_id,
             engine=engine,
             engine_type=engine_type,
@@ -635,7 +636,7 @@ def run_detect_intent(
             split_by_expr=split_by_expr,
         )
         baseline_values = _query_scalar_window_values(
-            svc,
+            core,
             session_id=session_id,
             engine=engine,
             engine_type=engine_type,
@@ -768,7 +769,7 @@ def run_detect_intent(
         f"sensitivity={sensitivity}: {total_candidate_count} {candidate_noun}"
     )
 
-    artifact_id = svc._commit_artifact_with_extraction(
+    artifact_id = core.commit_artifact_with_extraction(
         session_id,
         step_id,
         "anomaly_candidates",
@@ -794,13 +795,13 @@ def run_detect_intent(
         **artifact,
     }
 
-    svc._insert_step(
+    core.insert_step(
         step_id,
         session_id,
         "detect",
         summary,
         result,
         provenance=provenance,
-        semantic_metadata=svc.build_step_semantic_metadata(compiled_query),
+        semantic_metadata=core.build_step_semantic_metadata(compiled_query),
     )
     return result

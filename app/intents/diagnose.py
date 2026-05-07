@@ -279,7 +279,12 @@ def run_diagnose_intent(
             detect_params["limit"] = candidate_limit
 
         try:
-            detect_result = run_detect_intent(svc, session_id, detect_params)
+            detect_result = run_detect_intent(
+                svc._core_engine,  # type: ignore[arg-type]
+                svc._runtime_ports,  # type: ignore[arg-type]
+                session_id,
+                detect_params,
+            )
         except Exception as exc:
             raise ValueError(f"diagnose: DETECT_FAILED - {exc}") from exc
 
