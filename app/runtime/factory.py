@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from app.adapters.server.artifact_store import (
+    MetadataArtifactStoreAdapter,
+    MetadataStepStoreAdapter,
+)
 from app.adapters.server.wrappers import (
     DataSourceAdapter,
     FileAuditLogAdapter,
@@ -55,6 +59,15 @@ def create_runtime_from_service(
         audit_log=FileAuditLogAdapter(),
         telemetry=LocalTelemetryAdapter(),
         runtime_config=TomlRuntimeConfigAdapter(config),
+        artifact_store=MetadataArtifactStoreAdapter(
+            metadata,
+            step_metadata_repo=svc._step_metadata_repo,
+            svc=svc,
+        ),
+        step_store=MetadataStepStoreAdapter(
+            metadata,
+            step_metadata_repo=svc._step_metadata_repo,
+        ),
     )
     core = CoreEngine()
     runtime = MarivoRuntime(ports, core)

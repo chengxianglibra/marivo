@@ -13,6 +13,7 @@ from app.analysis_core.executor import execute_compiled
 from app.analysis_core.ir import AnalysisStepIR
 from app.core.intent.primitives import make_provenance, new_step_id
 from app.core.semantic.step_metadata import build_step_semantic_metadata
+from app.intents._helpers import commit_step_result
 from app.intents.calendar_alignment_metadata import normalize_resolved_policy_summary
 from app.time_contracts import TimeGrain, bucket_window, normalize_hour_boundary
 from app.time_scope import normalize_metric_query_request
@@ -686,31 +687,15 @@ def run_observe_intent(
         summary_ns = (
             f"observe {metric_name} numeric_sample_summary [{start_str} → {end_str}]: n={n_numeric}"
         )
-        artifact_id_ns = runtime.commit_artifact_with_extraction(
+        result_ns = commit_step_result(
+            runtime,
             session_id,
             step_id,
+            "observe",
             "observation",
             artifact_name_ns,
             observation_ns,
-            step_type="observe",
-        )
-        result_ns: dict[str, Any] = {
-            "intent_type": "observe",
-            "step_type": "observe",
-            "step_ref": {
-                "session_id": session_id,
-                "step_id": step_id,
-                "step_type": "observe",
-            },
-            "artifact_id": artifact_id_ns,
-            **observation_ns,
-        }
-        runtime.insert_step(
-            step_id,
-            session_id,
-            "observe",
             summary_ns,
-            result_ns,
             provenance=provenance,
             semantic_metadata=build_step_semantic_metadata(compiled_query),
         )
@@ -805,31 +790,15 @@ def run_observe_intent(
             f"observe {metric_name} rate_sample_summary "
             f"[{start_str} → {end_str}]: k={round(k_rate)} / n={n_rate}"
         )
-        artifact_id_rs = runtime.commit_artifact_with_extraction(
+        result_rs = commit_step_result(
+            runtime,
             session_id,
             step_id,
+            "observe",
             "observation",
             artifact_name_rs,
             observation_rs,
-            step_type="observe",
-        )
-        result_rs: dict[str, Any] = {
-            "intent_type": "observe",
-            "step_type": "observe",
-            "step_ref": {
-                "session_id": session_id,
-                "step_id": step_id,
-                "step_type": "observe",
-            },
-            "artifact_id": artifact_id_rs,
-            **observation_rs,
-        }
-        runtime.insert_step(
-            step_id,
-            session_id,
-            "observe",
             summary_rs,
-            result_rs,
             provenance=provenance,
             semantic_metadata=build_step_semantic_metadata(compiled_query),
         )
@@ -1164,33 +1133,15 @@ def run_observe_intent(
             compiled_query
         )
 
-    artifact_id = runtime.commit_artifact_with_extraction(
+    result = commit_step_result(
+        runtime,
         session_id,
         step_id,
+        "observe",
         "observation",
         artifact_name,
         observation,
-        step_type="observe",
-    )
-
-    result: dict[str, Any] = {
-        "intent_type": "observe",
-        "step_type": "observe",
-        "step_ref": {
-            "session_id": session_id,
-            "step_id": step_id,
-            "step_type": "observe",
-        },
-        "artifact_id": artifact_id,
-        **observation,
-    }
-
-    runtime.insert_step(
-        step_id,
-        session_id,
-        "observe",
         summary,
-        result,
         provenance=provenance,
         semantic_metadata=build_step_semantic_metadata(compiled_query),
     )
