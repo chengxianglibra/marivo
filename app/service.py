@@ -205,6 +205,18 @@ def _make_stub_runner(intent_type: str) -> Any:
 
 
 class SemanticLayerService:
+    """Legacy monolithic service class — being phased out in favor of CoreEngine / MarivoRuntime.
+
+    .. deprecated:: Phase 3d
+        This class is the original service backbone.  CoreEngine and MarivoRuntime
+        currently proxy to it.  Once all proxy methods are replaced with real core
+        functions (Phase 3e+), this class will be reduced to a thin compatibility shim
+        and eventually removed.
+
+        New code should prefer ``MarivoRuntime`` or ``CoreEngine`` over direct
+        ``SemanticLayerService`` usage.  Do not add new public methods here.
+    """
+
     _METRIC_QUERY_MODE_CONTRACTS: ClassVar[dict[str, Any]] = {
         "compare": {
             "payload_fields": {

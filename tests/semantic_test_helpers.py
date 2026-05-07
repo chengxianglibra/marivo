@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 
 from app.datasources import DatasourceService
 from app.routing import QueryRouter
+from app.runtime.runtime import MarivoRuntime
 from app.service import SemanticLayerService
 from app.storage.analytics import AnalyticsEngine
 from app.storage.metadata import MetadataStore
@@ -188,6 +189,37 @@ def build_semantic_layer_service(
     if service._runtime_ports is None:
         service._runtime_ports = MagicMock()  # type: ignore[assignment]
     return service
+
+
+def build_runtime(
+    metadata: MetadataStore,
+    analytics: AnalyticsEngine,
+) -> MarivoRuntime:
+    """Construct a MarivoRuntime suitable for tests.
+
+    This is the preferred helper for new tests.  It builds the same
+    SemanticLayerService + CoreEngine + RuntimePorts stack that
+    ``build_semantic_layer_service`` sets up, but returns the
+    ``MarivoRuntime`` facade instead.
+    """
+    from unittest.mock import MagicMock
+
+    from app.core.engine import CoreEngine
+    from app.runtime.ports import RuntimePorts
+
+    svc = build_semantic_layer_service(metadata, analytics)
+    # For test-only usage, shortcut with MagicMock ports rather than
+    # wiring the full adapter stack through create_runtime_from_service.
+    ports = MagicMock(spec=RuntimePorts)  # type: ignore[assignment]
+    core = CoreEngine(svc)
+    runtime = MarivoRuntime(ports, core, svc=svc)
+
+    # Keep svc in sync so intent runners that reach through svc see the
+    # same core/ports as the runtime.
+    svc._core_engine = core
+    svc._runtime_ports = ports
+
+    return runtime
 
 
 def seed_duckdb_source_object(
