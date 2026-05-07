@@ -8,12 +8,27 @@ if TYPE_CHECKING:
 
 class CoreEngine:
     """Phase 3a: proxies to SemanticLayerService for domain computation.
-    Phase 3c: replaced with real core modules."""
+    Phase 3c: replaced pure-computation proxies with real core module calls."""
 
     def __init__(self, svc: SemanticLayerService) -> None:
+        # TODO(3d): svc is still needed for I/O proxy methods below.
+        # Once ports support artifact + step persistence, split into pure
+        # core methods (no svc) and I/O methods (via ports).
         self._svc = svc
 
-    # --- Pure domain computation proxies ---
+    # --- Pure domain computation (delegated to core modules) ---
+
+    def normalize_intent_metric_ref(self, metric_ref: str) -> str:
+        from app.core.semantic.typed_resolution import normalize_metric_ref
+
+        return normalize_metric_ref(metric_ref)
+
+    def metric_name_from_ref(self, metric_ref: str) -> str:
+        from app.core.semantic.typed_resolution import normalize_metric_ref
+
+        return normalize_metric_ref(metric_ref).removeprefix("metric.")
+
+    # --- Mixed computation (still proxy: fetches data from repository then computes) ---
 
     def resolve_metric_execution_context(self, *args: Any, **kwargs: Any) -> Any:
         return self._svc._resolve_metric_execution_context(*args, **kwargs)
@@ -23,12 +38,6 @@ class CoreEngine:
 
     def build_step_semantic_metadata(self, *args: Any, **kwargs: Any) -> Any:
         return self._svc.build_step_semantic_metadata(*args, **kwargs)
-
-    def normalize_intent_metric_ref(self, metric_ref: str) -> str:
-        return self._svc.normalize_intent_metric_ref(metric_ref)
-
-    def metric_name_from_ref(self, metric_ref: str) -> str:
-        return self._svc.metric_name_from_ref(metric_ref)
 
     def resolve_metric_dimensions(self, metric_ref: str) -> list[str] | None:
         return self._svc.resolve_metric_dimensions(metric_ref)
@@ -47,7 +56,11 @@ class CoreEngine:
     def resolve_metric_value_sql_for_execution(self, *args: Any, **kwargs: Any) -> str | None:
         return self._svc.resolve_metric_value_sql_for_execution(*args, **kwargs)
 
-    # TODO(3c): I/O methods below — move to ports once session_store/evidence_store
+    def resolve_scope_constraint_column(self, *args: Any, **kwargs: Any) -> str:
+        """Resolve a scope constraint dimension to its physical column expression."""
+        return self._svc._resolve_scope_constraint_column(*args, **kwargs)
+
+    # TODO(3d): I/O methods below — move to ports once session_store/evidence_store
     # adapters support artifact + step persistence.
 
     def new_step_id(self) -> str:
@@ -70,7 +83,7 @@ class CoreEngine:
         """Insert a step record into the session."""
         return self._svc._insert_step(*args, **kwargs)
 
-    # TODO(3c): I/O method — returns (artifact_id, artifact) tuple.
+    # TODO(3d): I/O method — returns (artifact_id, artifact) tuple.
 
     def resolve_artifact_with_id(
         self, session_id: str, step_id: str
@@ -78,7 +91,7 @@ class CoreEngine:
         """Return (artifact_id, artifact_content) for the most recent committed artifact."""
         return self._svc._resolve_artifact_with_id(session_id, step_id)
 
-    # TODO(3c): I/O methods — engine resolution and query building.
+    # TODO(3d): I/O methods — engine resolution and query building.
 
     def resolve_engine_for_session(self, *args: Any, **kwargs: Any) -> Any:
         return self._svc._resolve_engine_for_session(*args, **kwargs)
@@ -94,10 +107,6 @@ class CoreEngine:
 
     def make_provenance(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
         return self._svc._make_provenance(*args, **kwargs)
-
-    def resolve_scope_constraint_column(self, *args: Any, **kwargs: Any) -> str:
-        """Resolve a scope constraint dimension to its physical column expression."""
-        return self._svc._resolve_scope_constraint_column(*args, **kwargs)
 
     def insert_artifact(self, *args: Any, **kwargs: Any) -> str:
         """Insert an artifact record and return its ID."""

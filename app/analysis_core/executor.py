@@ -1,3 +1,4 @@
+# DEPRECATED: Execution logic will be migrated to ports in Phase 3d+.
 from __future__ import annotations
 
 from dataclasses import dataclass, field

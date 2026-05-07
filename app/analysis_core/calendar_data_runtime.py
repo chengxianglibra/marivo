@@ -1,3 +1,5 @@
+# DEPRECATED: This module will be migrated to ports in Phase 3d+.
+# Calendar data I/O should flow through a port protocol, not the analysis_core layer.
 from __future__ import annotations
 
 from dataclasses import dataclass
