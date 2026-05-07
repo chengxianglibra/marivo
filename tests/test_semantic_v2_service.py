@@ -10,62 +10,46 @@ from pathlib import Path
 from app.api.models.osi import OSI_SPEC_VERSION
 from app.semantic_service_v2.service import SemanticModelV2Service
 from app.semantic_service_v2.validation import SemanticValidationError
-from app.storage.sqlite_metadata import SQLiteMetadataStore
-
-
-class _TestMetadataStore(SQLiteMetadataStore):
-    """A SQLiteMetadataStore subclass that bypasses the conftest-patched initialize().
-
-    The conftest.py monkey-patches SQLiteMetadataStore.initialize() with a
-    fast-path that copies a stale cached template.  This subclass overrides
-    initialize() to always run the real DDL, ensuring the OSI v2 schema
-    is created correctly.
-    """
-
-    def initialize(self) -> None:
-        """Apply the current schema DDL directly, ignoring the conftest patch."""
-        import sqlite3
-
-        from app.storage.schema import METADATA_DDL, metadata_schema_marker_row
-
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-
-        if self.db_path.exists():
-            # Remove any stale file from the conftest template cache
-            self.db_path.unlink()
-
-        con = sqlite3.connect(str(self.db_path))
-        try:
-            for ddl in METADATA_DDL:
-                con.execute(ddl)
-            marker = metadata_schema_marker_row("sqlite")
-            con.execute(
-                """
-                INSERT OR IGNORE INTO metadata_schema_marker (
-                    backend, schema_version, ddl_fingerprint
-                ) VALUES (?, ?, ?)
-                """,
-                [marker["backend"], marker["schema_version"], marker["ddl_fingerprint"]],
-            )
-            con.commit()
-        finally:
-            con.close()
-
+from tests.shared_fixtures import (
+    ManagedSQLiteMetadataStore,
+    make_temp_metadata_store,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
-def _make_store() -> SQLiteMetadataStore:
+class TestSemanticV2ServiceTestFixtures(unittest.TestCase):
+    def test_make_store_cleans_temp_metadata_dir_when_closed(self) -> None:
+        temp_root = Path(tempfile.gettempdir())
+        before = {
+            path
+            for path in temp_root.glob("marivo_v2_*")
+            if not path.name.startswith("marivo_v2_api_")
+        }
+
+        store = _make_store()
+        created = {
+            path
+            for path in temp_root.glob("marivo_v2_*")
+            if not path.name.startswith("marivo_v2_api_")
+        } - before
+
+        self.assertEqual(len(created), 1)
+        temp_dir = created.pop()
+        self.assertTrue((temp_dir / "meta.sqlite").exists())
+
+        store.close()
+
+        self.assertFalse(temp_dir.exists())
+
+
+def _make_store() -> ManagedSQLiteMetadataStore:
     """Create a fresh metadata store with the current OSI v2 schema."""
     import uuid
 
-    tmp = tempfile.mkdtemp(prefix=f"marivo_v2_{uuid.uuid4().hex[:8]}_")
-    db_path = Path(tmp) / "meta.sqlite"
-    store = _TestMetadataStore(db_path)
-    store.initialize()
-    return store
+    return make_temp_metadata_store(prefix=f"marivo_v2_{uuid.uuid4().hex[:8]}_")
 
 
 def _make_svc() -> SemanticModelV2Service:

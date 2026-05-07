@@ -14,45 +14,27 @@ from app.api.models.osi import OSI_SPEC_VERSION
 from app.api.semantic_v2 import router as semantic_v2_router
 from app.datasources import DatasourceService
 from app.semantic_service_v2.service import SemanticModelV2Service
-from app.storage.sqlite_metadata import SQLiteMetadataStore
+from tests.shared_fixtures import ManagedSQLiteMetadataStore, make_temp_metadata_store
 
 
-class _TestMetadataStore(SQLiteMetadataStore):
-    """A SQLiteMetadataStore subclass that bypasses the conftest-patched initialize().
+class _ManagedTestClient(TestClient):
+    def __init__(self, app: FastAPI, store: ManagedSQLiteMetadataStore) -> None:
+        super().__init__(app)
+        self._store: ManagedSQLiteMetadataStore | None = store
 
-    The conftest.py monkey-patches SQLiteMetadataStore.initialize() with a
-    fast-path that copies a stale cached template.  This subclass overrides
-    initialize() to always run the real DDL, ensuring the OSI v2 schema
-    is created correctly.
-    """
-
-    def initialize(self) -> None:
-        """Apply the current schema DDL directly, ignoring the conftest patch."""
-        import sqlite3
-
-        from app.storage.schema import METADATA_DDL, metadata_schema_marker_row
-
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-
-        if self.db_path.exists():
-            self.db_path.unlink()
-
-        con = sqlite3.connect(str(self.db_path))
+    def close(self) -> None:
         try:
-            for ddl in METADATA_DDL:
-                con.execute(ddl)
-            marker = metadata_schema_marker_row("sqlite")
-            con.execute(
-                """
-                INSERT OR IGNORE INTO metadata_schema_marker (
-                    backend, schema_version, ddl_fingerprint
-                ) VALUES (?, ?, ?)
-                """,
-                [marker["backend"], marker["schema_version"], marker["ddl_fingerprint"]],
-            )
-            con.commit()
+            super().close()
         finally:
-            con.close()
+            self._close_store()
+
+    def _close_store(self) -> None:
+        if self._store is not None:
+            self._store.close()
+            self._store = None
+
+    def __del__(self) -> None:
+        self._close_store()
 
 
 # ---------------------------------------------------------------------------
@@ -73,10 +55,7 @@ def _make_app() -> TestClient:
     """Create a FastAPI app with semantic_v2 router and an in-memory service."""
     import uuid
 
-    tmp = tempfile.mkdtemp(prefix=f"marivo_v2_api_{uuid.uuid4().hex[:8]}_")
-    db_path = Path(tmp) / "meta.sqlite"
-    store = _TestMetadataStore(db_path)
-    store.initialize()
+    store = make_temp_metadata_store(prefix=f"marivo_v2_api_{uuid.uuid4().hex[:8]}_")
     datasource_service = DatasourceService(store)
     service = SemanticModelV2Service(store, datasource_service=datasource_service)
 
@@ -85,7 +64,7 @@ def _make_app() -> TestClient:
     app.state.semantic_v2_service = service
     app.state.datasource_service = datasource_service
 
-    return TestClient(app)
+    return _ManagedTestClient(app, store)
 
 
 def _make_model_dict(
@@ -186,6 +165,23 @@ def _make_dataset_dict(
 # ---------------------------------------------------------------------------
 # POST /semantic-models — create semantic model
 # ---------------------------------------------------------------------------
+
+
+class TestSemanticV2APITestFixtures(unittest.TestCase):
+    def test_make_app_cleans_temp_metadata_dir_when_client_closes(self) -> None:
+        temp_root = Path(tempfile.gettempdir())
+        before = set(temp_root.glob("marivo_v2_api_*"))
+
+        client = _make_app()
+        created = set(temp_root.glob("marivo_v2_api_*")) - before
+
+        self.assertEqual(len(created), 1)
+        temp_dir = created.pop()
+        self.assertTrue((temp_dir / "meta.sqlite").exists())
+
+        client.close()
+
+        self.assertFalse(temp_dir.exists())
 
 
 class TestCreateSemanticModelAPI(unittest.TestCase):

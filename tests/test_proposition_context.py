@@ -34,7 +34,7 @@ from app.storage.evidence_repositories import (
     PropositionRepository,
 )
 from app.storage.sqlite_metadata import SQLiteMetadataStore
-from tests.shared_fixtures import get_seeded_duckdb_path
+from tests.shared_fixtures import get_seeded_duckdb_path, make_temp_metadata_store
 
 # ---------------------------------------------------------------------------
 # Shared helpers (mirrors test_session_state.py)
@@ -42,10 +42,7 @@ from tests.shared_fixtures import get_seeded_duckdb_path
 
 
 def _make_store() -> SQLiteMetadataStore:
-    tmp = tempfile.mkdtemp()
-    store = SQLiteMetadataStore(Path(tmp) / "meta.sqlite")
-    store.initialize()
-    return store
+    return make_temp_metadata_store()
 
 
 def _make_repos(store: SQLiteMetadataStore) -> dict[str, Any]:

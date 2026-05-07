@@ -14,9 +14,7 @@ Covers acceptance criteria:
 from __future__ import annotations
 
 import contextlib
-import tempfile
 import unittest
-from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -35,6 +33,7 @@ from app.service import SemanticLayerService
 from app.storage.analytics import AnalyticsEngine
 from app.storage.evidence_repositories import FindingRepository
 from app.storage.sqlite_metadata import SQLiteMetadataStore
+from tests.shared_fixtures import ManagedSQLiteMetadataStore, make_temp_metadata_store
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -45,9 +44,7 @@ _STEP_ID = "step_cbt001"
 
 
 def _make_store() -> SQLiteMetadataStore:
-    tmp = tempfile.mkdtemp()
-    store = SQLiteMetadataStore(Path(tmp) / "meta.sqlite")
-    store.initialize()
+    store = make_temp_metadata_store()
     store.execute(
         "INSERT INTO sessions "
         "(session_id, goal, constraints_json, budget_json, status) "
@@ -57,7 +54,7 @@ def _make_store() -> SQLiteMetadataStore:
     return store
 
 
-class _FailFindingInsertSQLiteStore(SQLiteMetadataStore):
+class _FailFindingInsertSQLiteStore(ManagedSQLiteMetadataStore):
     def execute_sql(self, con: Any, sql: str, params: list[Any] | None = None) -> Any:
         if "INTO findings" in sql:
             raise RuntimeError("injected finding insert failure")
@@ -65,9 +62,7 @@ class _FailFindingInsertSQLiteStore(SQLiteMetadataStore):
 
 
 def _make_failing_finding_store() -> _FailFindingInsertSQLiteStore:
-    tmp = tempfile.mkdtemp()
-    store = _FailFindingInsertSQLiteStore(Path(tmp) / "meta.sqlite")
-    store.initialize()
+    store = make_temp_metadata_store(store_cls=_FailFindingInsertSQLiteStore)
     store.execute(
         "INSERT INTO sessions "
         "(session_id, goal, constraints_json, budget_json, status) "

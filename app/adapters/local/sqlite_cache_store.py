@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from app.contracts.ids import CacheKey
@@ -32,7 +32,7 @@ class SqliteCacheStore:
             value_bytes, expires_at = row
             if expires_at is not None:
                 expiry = datetime.fromisoformat(expires_at)
-                if expiry < datetime.now(timezone.utc):
+                if expiry < datetime.now(UTC):
                     conn.execute("DELETE FROM cache_entries WHERE key = ?", (key,))
                     conn.commit()
                     return None
@@ -47,9 +47,7 @@ class SqliteCacheStore:
         try:
             expires_at: str | None = None
             if ttl is not None:
-                expires_at = (
-                    datetime.now(timezone.utc) + timedelta(seconds=ttl)
-                ).isoformat()
+                expires_at = (datetime.now(UTC) + timedelta(seconds=ttl)).isoformat()
             conn.execute(
                 "INSERT OR REPLACE INTO cache_entries (key, value, expires_at) VALUES (?, ?, ?)",
                 (key, bytes(value), expires_at),

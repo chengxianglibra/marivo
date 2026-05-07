@@ -20,9 +20,7 @@ Covers all 9 acceptance domains from the plan:
 from __future__ import annotations
 
 import json
-import tempfile
 import unittest
-from pathlib import Path
 from typing import Any
 
 from app.evidence_engine.assessment_evaluation_context import (
@@ -41,6 +39,7 @@ from app.storage.evidence_repositories import (
     PropositionRepository,
 )
 from app.storage.sqlite_metadata import SQLiteMetadataStore
+from tests.shared_fixtures import make_temp_metadata_store
 
 # ---------------------------------------------------------------------------
 # Shared test-store factory
@@ -48,10 +47,7 @@ from app.storage.sqlite_metadata import SQLiteMetadataStore
 
 
 def _make_store() -> SQLiteMetadataStore:
-    tmp = tempfile.mkdtemp()
-    store = SQLiteMetadataStore(Path(tmp) / "meta.sqlite")
-    store.initialize()
-    return store
+    return make_temp_metadata_store()
 
 
 # ---------------------------------------------------------------------------

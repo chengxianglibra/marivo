@@ -11,6 +11,7 @@ import fcntl
 import random
 import shutil
 import sqlite3
+import tempfile
 from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass
@@ -20,6 +21,7 @@ from pathlib import Path
 import duckdb
 
 from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
+from app.storage.sqlite_metadata import SQLiteMetadataStore
 
 # Capture the original (unpatched) initialize before conftest.py monkeys it.
 # This prevents _build_default_template from re-entering the template build
@@ -488,6 +490,33 @@ _METADATA_TEMPLATE_VERSION = "sqlite_metadata_dataset_native_grounding_v1"
 _METADATA_TEMPLATE = Path(f"/tmp/marivo_test_{_METADATA_TEMPLATE_VERSION}.sqlite")
 _METADATA_LOCK = Path(f"/tmp/marivo_test_{_METADATA_TEMPLATE_VERSION}.lock")
 _METADATA_READY = False
+
+
+class ManagedSQLiteMetadataStore(SQLiteMetadataStore):
+    """SQLite metadata store backed by a TemporaryDirectory test fixture."""
+
+    def __init__(self, db_path: str | Path, temp_dir: tempfile.TemporaryDirectory[str]) -> None:
+        super().__init__(db_path)
+        self._temp_dir: tempfile.TemporaryDirectory[str] | None = temp_dir
+
+    def close(self) -> None:
+        if self._temp_dir is not None:
+            self._temp_dir.cleanup()
+            self._temp_dir = None
+
+    def __del__(self) -> None:
+        self.close()
+
+
+def make_temp_metadata_store[ManagedStoreT: ManagedSQLiteMetadataStore](
+    prefix: str = "marivo_metadata_",
+    store_cls: type[ManagedStoreT] = ManagedSQLiteMetadataStore,
+) -> ManagedStoreT:
+    """Return an initialized metadata store whose temp directory is cleaned up."""
+    temp_dir = tempfile.TemporaryDirectory(prefix=prefix)
+    store = store_cls(Path(temp_dir.name) / "meta.sqlite", temp_dir)
+    store.initialize()
+    return store
 
 
 def is_managed_template_path(path: str | Path) -> bool:
