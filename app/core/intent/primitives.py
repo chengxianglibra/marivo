@@ -1,4 +1,3 @@
-# DEPRECATED: use app.core.intent.primitives
 from __future__ import annotations
 
 INTENT_TAXONOMY: dict[str, dict[str, str]] = {
