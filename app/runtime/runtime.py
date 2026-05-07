@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import uuid
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
-from app.contracts.ids import ModelId, UserId
+from app.contracts.ids import ModelId, SessionId, UserId
 from app.contracts.semantic import ModelSummary, SemanticModel
+from app.contracts.session import SessionEvent, SessionState
+from app.core.session.rebuild import rebuild_session_state
 
 if TYPE_CHECKING:
     from app.core.engine import CoreEngine
@@ -11,24 +15,35 @@ if TYPE_CHECKING:
     from app.service import SemanticLayerService
 
 
+def _iso_now() -> str:
+    return datetime.now(UTC).isoformat()
+
+
 class MarivoRuntime:
     """Use-case facade for the Marivo platform.
 
-    Phase 4b-1: I/O proxy methods moved from CoreEngine; delegate to
-    self._svc temporarily until ports fully support artifact + step
-    persistence.  4b-2 will migrate intent runners to call ports.*
-    directly, removing these helpers.
+    Phase 4b-3: Session lifecycle methods use ports.session_store
+    directly.  I/O proxy methods still delegate to self._svc until
+    Tasks 12-16 migrate intent runners to call ports.* directly.
     """
 
     def __init__(
         self,
         ports: RuntimePorts,
         core: CoreEngine,
-        svc: SemanticLayerService | None = None,
     ) -> None:
         self._ports = ports
         self._core = core
-        self._svc = svc  # Temporary: I/O proxy methods delegate here
+        self._svc: SemanticLayerService | None = None  # set via wire_svc()
+
+    def wire_svc(self, svc: SemanticLayerService) -> None:
+        """Attach the backing service for I/O proxy + intent methods.
+
+        Temporary bridge until Tasks 12-16 migrate intent runners to
+        call ports.* directly.  After those tasks, this method and all
+        self._svc references will be removed.
+        """
+        self._svc = svc
 
     @property
     def core(self) -> CoreEngine:
@@ -158,19 +173,102 @@ class MarivoRuntime:
     def validate(self, session_id: str, params: dict[str, Any]) -> dict[str, Any]:
         return self.svc.run_intent(session_id, "validate", params)
 
-    # --- Session lifecycle ---
+    # --- Session lifecycle (ports-based, svc fallback) ---
 
-    def create_session(self, goal: str, **kwargs: Any) -> Any:
-        return self.svc.create_session(goal, **kwargs)
+    def create_session(self, goal: str, **kwargs: Any) -> SessionId | dict[str, Any]:
+        """Create a new session.
 
-    def get_session(self, session_id: str) -> Any:
-        return self.svc.get_session(session_id)
+        Uses ports.session_store when available. Falls back to svc
+        when the session store adapter does not implement the
+        event-sourced interface (e.g. SqlSessionStoreAdapter).
+        """
+        try:
+            session_id = SessionId(f"sess-{uuid.uuid4().hex[:12]}")
+            event = SessionEvent(
+                session_id=session_id,
+                event_type="session_created",
+                timestamp=_iso_now(),
+                payload={"goal": goal, **kwargs},
+                actor=None,
+            )
+            self._ports.session_store.append_event(session_id, event)
+            return session_id
+        except NotImplementedError:
+            # Session store adapter not yet event-sourced; delegate to svc
+            assert self._svc is not None, (
+                "Runtime.create_session: session_store raised NotImplementedError "
+                "and no svc fallback is available"
+            )
+            return self._svc.create_session(goal, **kwargs)
 
-    def terminate_session(self, session_id: str, **kwargs: Any) -> Any:
-        return self.svc.terminate_session(session_id, **kwargs)
+    def get_session(self, session_id: str | SessionId) -> SessionState | dict[str, Any] | None:
+        """Get session state by ID.
 
-    def get_session_state(self, session_id: str, **filters: Any) -> dict[str, Any]:
-        return self.svc.get_session_state(session_id, filters)
+        Uses ports.session_store when available. Falls back to svc
+        when the session store adapter does not implement the
+        event-sourced interface.
+        """
+        sid = SessionId(session_id) if isinstance(session_id, str) else session_id
+        try:
+            events = self._ports.session_store.load_events(sid)
+            if not events:
+                return None
+            return rebuild_session_state(events)
+        except NotImplementedError:
+            assert self._svc is not None, (
+                "Runtime.get_session: session_store raised NotImplementedError "
+                "and no svc fallback is available"
+            )
+            return self._svc.get_session(str(sid))
+
+    def terminate_session(
+        self, session_id: str | SessionId, **kwargs: Any
+    ) -> dict[str, Any] | None:
+        """Terminate a session.
+
+        Uses ports.session_store when available. Falls back to svc
+        when the session store adapter does not implement the
+        event-sourced interface.
+        """
+        sid = SessionId(session_id) if isinstance(session_id, str) else session_id
+        try:
+            event = SessionEvent(
+                session_id=sid,
+                event_type="session_terminated",
+                timestamp=_iso_now(),
+                payload={},
+                actor=None,
+            )
+            self._ports.session_store.append_event(sid, event)
+            return None
+        except NotImplementedError:
+            assert self._svc is not None, (
+                "Runtime.terminate_session: session_store raised NotImplementedError "
+                "and no svc fallback is available"
+            )
+            return self._svc.terminate_session(str(sid), **kwargs)
+
+    def get_session_state(
+        self, session_id: str | SessionId, **kwargs: Any
+    ) -> SessionState | dict[str, Any] | None:
+        """Get session state view by ID.
+
+        Uses ports.session_store when available. Falls back to svc
+        when the session store adapter does not implement the
+        event-sourced interface.
+        """
+        sid = SessionId(session_id) if isinstance(session_id, str) else session_id
+        try:
+            events = self._ports.session_store.load_events(sid)
+            if not events:
+                return None
+            return rebuild_session_state(events)
+        except NotImplementedError:
+            assert self._svc is not None, (
+                "Runtime.get_session_state: session_store raised NotImplementedError "
+                "and no svc fallback is available"
+            )
+            return self._svc.get_session_state(str(sid), kwargs)
 
     # --- Semantic model ops ---
 
@@ -184,6 +282,5 @@ class MarivoRuntime:
         return self._ports.model_store.list(query)
 
     # --- Datasource ops ---
-
-    def discover_catalog(self) -> dict[str, Any]:
-        return self.svc.discover_catalog()
+    # discover_catalog removed (4b-3): MCP tools call
+    # ports.data_source.schema() directly.

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
-
 from app.contracts.ids import (
     Action,
     CacheKey,
@@ -11,10 +9,11 @@ from app.contracts.ids import (
     ModelId,
     ResourceId,
     RevisionId,
+    SessionId,
     UserId,
 )
 from app.contracts.semantic import ModelSummary, SemanticModel
-from app.contracts.session import SessionEvent
+from app.contracts.session import SessionEvent, SessionState
 from app.contracts.values import (
     AuditEntry,
     AuthZDecision,
@@ -52,12 +51,20 @@ class StubModelStore:
         return []
 
 
-class StubSessionStore:
-    def append_event(self, session_id: object, event: object) -> None:
-        pass
+class RecordingSessionStore:
+    """Session store that records events and can load them back."""
 
-    def load_events(self, session_id: object) -> list[SessionEvent]:
-        return []
+    def __init__(self) -> None:
+        self._events: dict[str, list[SessionEvent]] = {}
+
+    def append_event(self, session_id: SessionId, event: SessionEvent) -> None:
+        key = str(session_id)
+        if key not in self._events:
+            self._events[key] = []
+        self._events[key].append(event)
+
+    def load_events(self, session_id: SessionId) -> list[SessionEvent]:
+        return list(self._events.get(str(session_id), []))
 
 
 class StubEvidenceStore:
@@ -104,13 +111,12 @@ class StubRuntimeConfig:
         return None
 
 
-def _make_runtime() -> MarivoRuntime:
+def _make_runtime(session_store: RecordingSessionStore | None = None) -> MarivoRuntime:
     from app.runtime.ports import RuntimePorts
 
-    mock_svc = MagicMock()
     ports = RuntimePorts(
         model_store=StubModelStore(),
-        session_store=StubSessionStore(),
+        session_store=session_store or RecordingSessionStore(),
         evidence_store=StubEvidenceStore(),
         data_source=StubDataSource(),
         cache_store=StubCacheStore(),
@@ -120,47 +126,80 @@ def _make_runtime() -> MarivoRuntime:
         runtime_config=StubRuntimeConfig(),
     )
     core = CoreEngine()
-    return MarivoRuntime(ports=ports, core=core, svc=mock_svc)
+    rt = MarivoRuntime(ports=ports, core=core)
+    # Session lifecycle tests don't need svc; intent dispatch tests
+    # wire it separately.
+    return rt
 
 
-# --- Session lifecycle tests ---
+# --- Session lifecycle tests (ports-based) ---
 
 
-def test_create_session_proxies_to_svc() -> None:
+def test_create_session_returns_session_id() -> None:
     rt = _make_runtime()
-    rt.svc.create_session.return_value = {"session_id": "s1"}
     result = rt.create_session("Analyze revenue")
-    rt.svc.create_session.assert_called_once_with("Analyze revenue")
-    assert result == {"session_id": "s1"}
+    assert isinstance(result, str)
+    assert result.startswith("sess-")
 
 
-def test_create_session_passes_kwargs() -> None:
+def test_create_session_appends_created_event() -> None:
+    store = RecordingSessionStore()
+    rt = _make_runtime(session_store=store)
+    session_id = rt.create_session("Analyze revenue")
+    events = store.load_events(session_id)
+    assert len(events) == 1
+    assert events[0].event_type == "session_created"
+    assert events[0].payload["goal"] == "Analyze revenue"
+
+
+def test_create_session_passes_kwargs_in_payload() -> None:
+    store = RecordingSessionStore()
+    rt = _make_runtime(session_store=store)
+    session_id = rt.create_session("Goal", budget={"max_steps": 5})
+    events = store.load_events(session_id)
+    assert events[0].payload["budget"] == {"max_steps": 5}
+
+
+def test_get_session_returns_state() -> None:
     rt = _make_runtime()
-    rt.svc.create_session.return_value = {"session_id": "s2"}
-    rt.create_session("Goal", budget={"max_steps": 5})
-    rt.svc.create_session.assert_called_once_with("Goal", budget={"max_steps": 5})
+    session_id = rt.create_session("Test goal")
+    state = rt.get_session(session_id)
+    assert state is not None
+    assert isinstance(state, SessionState)
+    assert state.session_id == session_id
+    assert state.goal == "Test goal"
+    assert state.status == "active"
 
 
-def test_get_session_proxies_to_svc() -> None:
+def test_get_session_returns_none_for_unknown() -> None:
     rt = _make_runtime()
-    rt.svc.get_session.return_value = {"session_id": "s1", "status": "open"}
-    result = rt.get_session("s1")
-    rt.svc.get_session.assert_called_once_with("s1")
-    assert result["session_id"] == "s1"
+    result = rt.get_session(SessionId("nonexistent"))
+    assert result is None
 
 
-def test_terminate_session_proxies_to_svc() -> None:
+def test_terminate_session_appends_terminated_event() -> None:
+    store = RecordingSessionStore()
+    rt = _make_runtime(session_store=store)
+    session_id = rt.create_session("Test goal")
+    rt.terminate_session(session_id)
+    events = store.load_events(session_id)
+    assert len(events) == 2
+    assert events[1].event_type == "session_terminated"
+
+
+def test_get_session_state_returns_rebuilt_state() -> None:
     rt = _make_runtime()
-    rt.terminate_session("s1")
-    rt.svc.terminate_session.assert_called_once_with("s1")
+    session_id = rt.create_session("Test goal")
+    rt.terminate_session(session_id)
+    state = rt.get_session_state(session_id)
+    assert state is not None
+    assert state.status == "terminated"
 
 
-def test_get_session_state_proxies_to_svc() -> None:
+def test_get_session_state_returns_none_for_unknown() -> None:
     rt = _make_runtime()
-    rt.svc.get_session_state.return_value = {"propositions": []}
-    result = rt.get_session_state("s1", status="open")
-    rt.svc.get_session_state.assert_called_once_with("s1", {"status": "open"})
-    assert result == {"propositions": []}
+    result = rt.get_session_state(SessionId("nonexistent"))
+    assert result is None
 
 
 # --- Semantic model ops tests ---
@@ -184,14 +223,3 @@ def test_list_semantic_models_delegates_to_model_store() -> None:
     rt = _make_runtime()
     result = rt.list_semantic_models({"owner": UserId("user1")})
     assert result == []
-
-
-# --- Datasource ops tests ---
-
-
-def test_discover_catalog_proxies_to_svc() -> None:
-    rt = _make_runtime()
-    rt.svc.discover_catalog.return_value = {"entities": []}
-    result = rt.discover_catalog()
-    rt.svc.discover_catalog.assert_called_once()
-    assert result == {"entities": []}
