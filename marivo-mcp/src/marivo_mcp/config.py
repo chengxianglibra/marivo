@@ -49,6 +49,7 @@ class MarivoMcpConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     mode: Literal["auto", "remote", "local"] = "auto"
+    embedded: bool = False
     base_url: str | None = Field(default=None, min_length=1)
     api_token: str | None = None
     workspace_root: str | None = None
@@ -74,6 +75,7 @@ def load_config_from_env() -> MarivoMcpConfig:
         return MarivoMcpConfig.model_validate(
             {
                 "mode": mode,
+                "embedded": _parse_bool_env(os.environ.get("MARIVO_EMBEDDED"), default=False),
                 "base_url": _normalize_optional(os.environ.get("MARIVO_BASE_URL")),
                 "api_token": _normalize_optional(os.environ.get("MARIVO_API_TOKEN")),
                 "workspace_root": _normalize_optional(os.environ.get("MARIVO_WORKSPACE_ROOT")),
