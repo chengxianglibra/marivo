@@ -98,7 +98,7 @@ def _make_compiled_mock_with_calendar_alignment() -> MagicMock:
     return m
 
 
-def _set_resolved_time_axis(svc: MagicMock, expr: str, *, kind: str = "date_field") -> None:
+def _set_resolved_time_axis(core: MagicMock, expr: str, *, kind: str = "date_field") -> None:
     def _resolve_time_axis(resolved: Any, **_: Any) -> ResolvedTimeAxis:
         axis = ResolvedTimeAxis(
             observation_grain=resolved.time_scope.grain,
@@ -108,7 +108,7 @@ def _set_resolved_time_axis(svc: MagicMock, expr: str, *, kind: str = "date_fiel
         resolved.resolved_time_axis = axis
         return axis
 
-    svc._resolve_windowed_query_time_axis.side_effect = _resolve_time_axis
+    core.resolve_windowed_query_time_axis.side_effect = _resolve_time_axis
 
 
 def _make_compiled_mock_with_holiday_only_calendar_alignment() -> MagicMock:
@@ -255,19 +255,28 @@ def _resolved_policy_summary(
 class TestObserveRunnerCommitPath(unittest.TestCase):
     """run_observe_intent must call _commit_artifact_with_extraction(step_type='observe')."""
 
-    def _run_scalar(self, svc: MagicMock) -> dict[str, Any]:
+    def _make_core_and_ports(self) -> tuple[MagicMock, MagicMock]:
+        core = MagicMock()
+        ports = MagicMock()
+        core.new_step_id.return_value = "step_4c2_001"
+        core.commit_artifact_with_extraction.return_value = _FAKE_ARTIFACT_ID
+        core.insert_step.return_value = None
+        core.make_provenance.return_value = {"query_hash": "testhash"}
+        return core, ports
+
+    def _run_scalar(self, core: MagicMock, ports: MagicMock) -> dict[str, Any]:
         from app.intents.observe import run_observe_intent
 
-        svc._resolve_metric_table.return_value = "src.metrics"
-        svc.resolve_metric_sql.return_value = "SUM(val)"
-        svc.resolve_metric_dimensions.return_value = []
-        svc._resolve_engine.return_value = (
+        core.resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
+        core.resolve_metric_sql_for_execution.return_value = "SUM(val)"
+        core.resolve_metric_dimensions.return_value = []
+        core.resolve_engine.return_value = (
             MagicMock(),
             "duckdb",
             {"metrics": "src.metrics"},
         )
-        svc._build_scoped_query.return_value = None
-        svc._compile_step_with_feedback.return_value = _make_compiled_mock()
+        core.build_scoped_query.return_value = None
+        core.compile_step.return_value = _make_compiled_mock()
 
         params = {
             "metric": "m1",
@@ -275,35 +284,35 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
         }
         with patch("app.intents.observe.execute_compiled") as mock_exec:
             mock_exec.return_value.rows = []
-            return run_observe_intent(svc, _SESSION, params)
+            return run_observe_intent(core, ports, _SESSION, params)
 
     def test_observe_calls_commit_artifact_with_extraction(self) -> None:
-        svc = _make_svc()
-        self._run_scalar(svc)
-        svc._commit_artifact_with_extraction.assert_called_once()
+        core, ports = self._make_core_and_ports()
+        self._run_scalar(core, ports)
+        core.commit_artifact_with_extraction.assert_called_once()
 
     def test_observe_passes_step_type_observe(self) -> None:
-        svc = _make_svc()
-        self._run_scalar(svc)
-        _, kwargs = svc._commit_artifact_with_extraction.call_args
+        core, ports = self._make_core_and_ports()
+        self._run_scalar(core, ports)
+        _, kwargs = core.commit_artifact_with_extraction.call_args
         self.assertEqual(kwargs.get("step_type"), "observe")
 
     def test_observe_artifact_type_is_observation(self) -> None:
-        svc = _make_svc()
-        self._run_scalar(svc)
-        args, _ = svc._commit_artifact_with_extraction.call_args
+        core, ports = self._make_core_and_ports()
+        self._run_scalar(core, ports)
+        args, _ = core.commit_artifact_with_extraction.call_args
         # positional: session_id, step_id, artifact_type, name, content
         self.assertEqual(args[2], "observation")
 
     def test_observe_returns_artifact_id(self) -> None:
-        svc = _make_svc()
-        result = self._run_scalar(svc)
+        core, ports = self._make_core_and_ports()
+        result = self._run_scalar(core, ports)
         self.assertEqual(result["artifact_id"], _FAKE_ARTIFACT_ID)
 
     def test_observe_includes_null_resolved_policy_summary_without_alignment(self) -> None:
-        svc = _make_svc()
-        result = self._run_scalar(svc)
-        args, _ = svc._commit_artifact_with_extraction.call_args
+        core, ports = self._make_core_and_ports()
+        result = self._run_scalar(core, ports)
+        args, _ = core.commit_artifact_with_extraction.call_args
         artifact_payload = args[4]
         self.assertIsNone(result["resolved_policy_summary"])
         self.assertIsNone(artifact_payload["resolved_policy_summary"])
@@ -311,12 +320,13 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
     def test_observe_hour_granularity_rejects_date_only_range(self) -> None:
         from app.intents.observe import run_observe_intent
 
-        svc = _make_svc()
+        core, ports = self._make_core_and_ports()
         with self.assertRaisesRegex(
             ValueError, "time_scope.start must be a naive datetime string for hour grain"
         ):
             run_observe_intent(
-                svc,
+                core,
+                ports,
                 _SESSION,
                 {
                     "metric": "m1",
@@ -328,13 +338,14 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
     def test_observe_rejects_unknown_calendar_policy_ref(self) -> None:
         from app.intents.observe import run_observe_intent
 
-        svc = _make_svc()
+        core, ports = self._make_core_and_ports()
         with self.assertRaisesRegex(
             ValueError,
             "observe: INVALID_ARGUMENT - Unknown calendar_policy_ref",
         ):
             run_observe_intent(
-                svc,
+                core,
+                ports,
                 _SESSION,
                 {
                     "metric": "m1",
@@ -346,16 +357,16 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
     def test_observe_forwards_calendar_policy_ref_to_internal_compile_step(self) -> None:
         from app.intents.observe import run_observe_intent
 
-        svc = _make_svc()
+        core, ports = self._make_core_and_ports()
         captured: dict[str, Any] = {}
-        svc.normalize_intent_metric_ref.side_effect = lambda metric: metric
-        svc.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
-        svc._resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
-        svc.resolve_metric_sql_for_execution.return_value = "SUM(val)"
-        svc.resolve_metric_dimensions.return_value = []
-        svc._resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
-        _set_resolved_time_axis(svc, "event_date")
-        svc._build_scoped_query.return_value = {
+        core.normalize_intent_metric_ref.side_effect = lambda metric: metric
+        core.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
+        core.resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
+        core.resolve_metric_sql_for_execution.return_value = "SUM(val)"
+        core.resolve_metric_dimensions.return_value = []
+        core.resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
+        _set_resolved_time_axis(core, "event_date")
+        core.build_scoped_query.return_value = {
             "mode": "single_window",
             "analysis_time_expr": "event_date",
             "analysis_time_kind": "date_field",
@@ -367,12 +378,13 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
             captured["time_scope"] = step.params.get("time_scope")
             return _make_compiled_mock()
 
-        svc._compile_step_with_feedback.side_effect = _capture_compile
+        core.compile_step.side_effect = _capture_compile
 
         with patch("app.intents.observe.execute_compiled") as mock_exec:
             mock_exec.return_value.rows = []
             run_observe_intent(
-                svc,
+                core,
+                ports,
                 _SESSION,
                 {
                     "metric": "metric.m1",
@@ -387,26 +399,27 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
     def test_observe_freezes_resolved_policy_summary_in_artifact(self) -> None:
         from app.intents.observe import run_observe_intent
 
-        svc = _make_svc()
-        svc.normalize_intent_metric_ref.side_effect = lambda metric: metric
-        svc.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
-        svc._resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
-        svc.resolve_metric_sql_for_execution.return_value = "SUM(val)"
-        svc.resolve_metric_dimensions.return_value = []
-        svc._resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
-        _set_resolved_time_axis(svc, "CAST(log_date AS DATE)")
-        svc._build_scoped_query.return_value = {
+        core, ports = self._make_core_and_ports()
+        core.normalize_intent_metric_ref.side_effect = lambda metric: metric
+        core.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
+        core.resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
+        core.resolve_metric_sql_for_execution.return_value = "SUM(val)"
+        core.resolve_metric_dimensions.return_value = []
+        core.resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
+        _set_resolved_time_axis(core, "CAST(log_date AS DATE)")
+        core.build_scoped_query.return_value = {
             "mode": "single_window",
             "analysis_time_expr": "event_date",
             "analysis_time_kind": "date_field",
             "current": {"start": "2026-04-01", "end": "2026-04-08"},
         }
-        svc._compile_step_with_feedback.return_value = _make_compiled_mock_with_calendar_alignment()
+        core.compile_step.return_value = _make_compiled_mock_with_calendar_alignment()
 
         with patch("app.intents.observe.execute_compiled") as mock_exec:
             mock_exec.return_value.rows = [{"current_value": 42.0}]
             result = run_observe_intent(
-                svc,
+                core,
+                ports,
                 _SESSION,
                 {
                     "metric": "metric.m1",
@@ -415,7 +428,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
                 },
             )
 
-        args, _ = svc._commit_artifact_with_extraction.call_args
+        args, _ = core.commit_artifact_with_extraction.call_args
         artifact_payload = args[4]
         self.assertEqual(
             result["resolved_policy_summary"],
@@ -479,34 +492,38 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
     def test_observe_accepts_holiday_only_calendar_lineage(self) -> None:
         from app.intents.observe import run_observe_intent
 
-        svc = _make_svc()
-        svc.normalize_intent_metric_ref.side_effect = lambda metric: metric
-        svc.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
-        svc._resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
-        svc.resolve_metric_sql_for_execution.return_value = "SUM(val)"
-        svc.resolve_metric_dimensions.return_value = []
-        svc._resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
-        _set_resolved_time_axis(svc, "event_date")
-        svc._build_scoped_query.return_value = {
+        core, ports = self._make_core_and_ports()
+        core.normalize_intent_metric_ref.side_effect = lambda metric: metric
+        core.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
+        core.resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
+        core.resolve_metric_sql_for_execution.return_value = "SUM(val)"
+        core.resolve_metric_dimensions.return_value = []
+        core.resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
+        _set_resolved_time_axis(core, "event_date")
+        core.build_scoped_query.return_value = {
             "mode": "single_window",
             "analysis_time_expr": "event_date",
             "analysis_time_kind": "date_field",
             "current": {"start": "2026-04-01", "end": "2026-04-08"},
         }
-        svc._compile_step_with_feedback.return_value = (
-            _make_compiled_mock_with_holiday_only_calendar_alignment()
-        )
-        svc.build_step_semantic_metadata.side_effect = (
-            SemanticLayerService.build_step_semantic_metadata.__get__(svc, SemanticLayerService)
-        )
-        svc._build_calendar_policy_binding.side_effect = (
+        core.compile_step.return_value = _make_compiled_mock_with_holiday_only_calendar_alignment()
+        # Create a minimal real-ish svc mock so the real build_step_semantic_metadata
+        # and _build_calendar_policy_binding can execute through the core proxy.
+        svc_for_meta = _make_svc()
+        svc_for_meta._build_calendar_policy_binding.side_effect = (
             SemanticLayerService._build_calendar_policy_binding
+        )
+        core.build_step_semantic_metadata.side_effect = (
+            SemanticLayerService.build_step_semantic_metadata.__get__(
+                svc_for_meta, SemanticLayerService
+            )
         )
 
         with patch("app.intents.observe.execute_compiled") as mock_exec:
             mock_exec.return_value.rows = [{"current_value": 42.0}]
             result = run_observe_intent(
-                svc,
+                core,
+                ports,
                 _SESSION,
                 {
                     "metric": "metric.m1",
@@ -515,9 +532,9 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
                 },
             )
 
-        args, kwargs = svc._commit_artifact_with_extraction.call_args
+        args, kwargs = core.commit_artifact_with_extraction.call_args
         artifact_payload = args[4]
-        insert_step_args, insert_step_kwargs = svc._insert_step.call_args
+        insert_step_args, insert_step_kwargs = core.insert_step.call_args
         semantic_metadata = insert_step_kwargs["semantic_metadata"]
         self.assertEqual(
             result["resolved_policy_summary"], artifact_payload["resolved_policy_summary"]
@@ -540,15 +557,15 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
     def test_observe_rejects_malformed_resolved_policy_summary_missing_field(self) -> None:
         from app.intents.observe import run_observe_intent
 
-        svc = _make_svc()
-        svc.normalize_intent_metric_ref.side_effect = lambda metric: metric
-        svc.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
-        svc._resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
-        svc.resolve_metric_sql_for_execution.return_value = "SUM(val)"
-        svc.resolve_metric_dimensions.return_value = []
-        svc._resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
-        _set_resolved_time_axis(svc, "event_date")
-        svc._build_scoped_query.return_value = {
+        core, ports = self._make_core_and_ports()
+        core.normalize_intent_metric_ref.side_effect = lambda metric: metric
+        core.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
+        core.resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
+        core.resolve_metric_sql_for_execution.return_value = "SUM(val)"
+        core.resolve_metric_dimensions.return_value = []
+        core.resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
+        _set_resolved_time_axis(core, "event_date")
+        core.build_scoped_query.return_value = {
             "mode": "single_window",
             "analysis_time_expr": "event_date",
             "analysis_time_kind": "date_field",
@@ -556,7 +573,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
         }
         compiled = _make_compiled_mock_with_calendar_alignment()
         del compiled.metadata["resolved_calendar_alignment"]["comparison_basis"]
-        svc._compile_step_with_feedback.return_value = compiled
+        core.compile_step.return_value = compiled
 
         with (
             patch("app.intents.observe.execute_compiled") as mock_exec,
@@ -564,7 +581,8 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
         ):
             mock_exec.return_value.rows = [{"current_value": 42.0}]
             run_observe_intent(
-                svc,
+                core,
+                ports,
                 _SESSION,
                 {
                     "metric": "metric.m1",
@@ -576,15 +594,15 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
     def test_observe_rejects_malformed_resolved_policy_summary_extra_coverage_field(self) -> None:
         from app.intents.observe import run_observe_intent
 
-        svc = _make_svc()
-        svc.normalize_intent_metric_ref.side_effect = lambda metric: metric
-        svc.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
-        svc._resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
-        svc.resolve_metric_sql_for_execution.return_value = "SUM(val)"
-        svc.resolve_metric_dimensions.return_value = []
-        svc._resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
-        _set_resolved_time_axis(svc, "event_date")
-        svc._build_scoped_query.return_value = {
+        core, ports = self._make_core_and_ports()
+        core.normalize_intent_metric_ref.side_effect = lambda metric: metric
+        core.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
+        core.resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
+        core.resolve_metric_sql_for_execution.return_value = "SUM(val)"
+        core.resolve_metric_dimensions.return_value = []
+        core.resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
+        _set_resolved_time_axis(core, "event_date")
+        core.build_scoped_query.return_value = {
             "mode": "single_window",
             "analysis_time_expr": "event_date",
             "analysis_time_kind": "date_field",
@@ -594,7 +612,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
         compiled.metadata["resolved_calendar_alignment"]["coverage_summary"][
             "total_bucket_count"
         ] = 1
-        svc._compile_step_with_feedback.return_value = compiled
+        core.compile_step.return_value = compiled
 
         with (
             patch("app.intents.observe.execute_compiled") as mock_exec,
@@ -602,7 +620,8 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
         ):
             mock_exec.return_value.rows = [{"current_value": 42.0}]
             run_observe_intent(
-                svc,
+                core,
+                ports,
                 _SESSION,
                 {
                     "metric": "metric.m1",
@@ -614,15 +633,15 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
     def test_observe_rejects_malformed_resolved_policy_summary_bucket_pairing(self) -> None:
         from app.intents.observe import run_observe_intent
 
-        svc = _make_svc()
-        svc.normalize_intent_metric_ref.side_effect = lambda metric: metric
-        svc.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
-        svc._resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
-        svc.resolve_metric_sql_for_execution.return_value = "SUM(val)"
-        svc.resolve_metric_dimensions.return_value = []
-        svc._resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
-        _set_resolved_time_axis(svc, "CAST(log_date AS DATE)")
-        svc._build_scoped_query.return_value = {
+        core, ports = self._make_core_and_ports()
+        core.normalize_intent_metric_ref.side_effect = lambda metric: metric
+        core.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
+        core.resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
+        core.resolve_metric_sql_for_execution.return_value = "SUM(val)"
+        core.resolve_metric_dimensions.return_value = []
+        core.resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
+        _set_resolved_time_axis(core, "CAST(log_date AS DATE)")
+        core.build_scoped_query.return_value = {
             "mode": "single_window",
             "analysis_time_expr": "event_date",
             "analysis_time_kind": "date_field",
@@ -630,7 +649,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
         }
         compiled = _make_compiled_mock_with_calendar_alignment()
         del compiled.metadata["resolved_calendar_alignment"]["bucket_pairing"][0]["issues"]
-        svc._compile_step_with_feedback.return_value = compiled
+        core.compile_step.return_value = compiled
 
         with (
             patch("app.intents.observe.execute_compiled") as mock_exec,
@@ -638,7 +657,8 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
         ):
             mock_exec.return_value.rows = [{"current_value": 42.0}]
             run_observe_intent(
-                svc,
+                core,
+                ports,
                 _SESSION,
                 {
                     "metric": "metric.m1",
@@ -650,15 +670,15 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
     def test_observe_rejects_malformed_resolved_policy_summary_inconsistent_coverage(self) -> None:
         from app.intents.observe import run_observe_intent
 
-        svc = _make_svc()
-        svc.normalize_intent_metric_ref.side_effect = lambda metric: metric
-        svc.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
-        svc._resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
-        svc.resolve_metric_sql_for_execution.return_value = "SUM(val)"
-        svc.resolve_metric_dimensions.return_value = []
-        svc._resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
-        _set_resolved_time_axis(svc, "event_date")
-        svc._build_scoped_query.return_value = {
+        core, ports = self._make_core_and_ports()
+        core.normalize_intent_metric_ref.side_effect = lambda metric: metric
+        core.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
+        core.resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
+        core.resolve_metric_sql_for_execution.return_value = "SUM(val)"
+        core.resolve_metric_dimensions.return_value = []
+        core.resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
+        _set_resolved_time_axis(core, "event_date")
+        core.build_scoped_query.return_value = {
             "mode": "single_window",
             "analysis_time_expr": "event_date",
             "analysis_time_kind": "date_field",
@@ -670,7 +690,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
             "unpaired_bucket_count": 1,
             "aligned_ratio": 1.0,
         }
-        svc._compile_step_with_feedback.return_value = compiled
+        core.compile_step.return_value = compiled
 
         with (
             patch("app.intents.observe.execute_compiled") as mock_exec,
@@ -678,7 +698,8 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
         ):
             mock_exec.return_value.rows = [{"current_value": 42.0}]
             run_observe_intent(
-                svc,
+                core,
+                ports,
                 _SESSION,
                 {
                     "metric": "metric.m1",
@@ -692,21 +713,21 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
     ) -> None:
         from app.intents.observe import run_observe_intent
 
-        svc = _make_svc()
-        svc.normalize_intent_metric_ref.side_effect = lambda metric: metric
-        svc.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
-        svc._resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
-        svc.resolve_metric_sql_for_execution.return_value = "SUM(val)"
-        svc.resolve_metric_dimensions.return_value = []
-        svc._resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
-        _set_resolved_time_axis(svc, "event_time", kind="timestamp_field")
-        svc._build_scoped_query.return_value = {
+        core, ports = self._make_core_and_ports()
+        core.normalize_intent_metric_ref.side_effect = lambda metric: metric
+        core.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
+        core.resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
+        core.resolve_metric_sql_for_execution.return_value = "SUM(val)"
+        core.resolve_metric_dimensions.return_value = []
+        core.resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
+        _set_resolved_time_axis(core, "event_time", kind="timestamp_field")
+        core.build_scoped_query.return_value = {
             "mode": "single_window",
             "analysis_time_expr": "event_date",
             "analysis_time_kind": "date_field",
             "current": {"start": "2026-04-01", "end": "2026-04-08"},
         }
-        svc._compile_step_with_feedback.side_effect = [
+        core.compile_step.side_effect = [
             _make_time_series_compiled_mock_with_calendar_alignment(),
             _make_compiled_mock(),
         ]
@@ -725,7 +746,8 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
                 ),
             ]
             result = run_observe_intent(
-                svc,
+                core,
+                ports,
                 _SESSION,
                 {
                     "metric": "metric.m1",
@@ -765,21 +787,21 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
     def test_observe_segmented_returns_segmented_yoy_for_calendar_alignment(self) -> None:
         from app.intents.observe import run_observe_intent
 
-        svc = _make_svc()
-        svc.normalize_intent_metric_ref.side_effect = lambda metric: metric
-        svc.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
-        svc._resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
-        svc.resolve_metric_sql_for_execution.return_value = "SUM(val)"
-        svc.resolve_metric_dimensions.return_value = ["platform"]
-        svc._resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
-        _set_resolved_time_axis(svc, "event_date")
-        svc._build_scoped_query.return_value = {
+        core, ports = self._make_core_and_ports()
+        core.normalize_intent_metric_ref.side_effect = lambda metric: metric
+        core.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
+        core.resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
+        core.resolve_metric_sql_for_execution.return_value = "SUM(val)"
+        core.resolve_metric_dimensions.return_value = ["platform"]
+        core.resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
+        _set_resolved_time_axis(core, "event_date")
+        core.build_scoped_query.return_value = {
             "mode": "single_window",
             "analysis_time_expr": "event_date",
             "analysis_time_kind": "date_field",
             "current": {"start": "2026-04-01", "end": "2026-04-08"},
         }
-        svc._compile_step_with_feedback.return_value = _make_compiled_mock_with_calendar_alignment()
+        core.compile_step.return_value = _make_compiled_mock_with_calendar_alignment()
 
         with patch("app.intents.observe.execute_compiled") as mock_exec:
             mock_exec.return_value = MagicMock(
@@ -801,7 +823,8 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
                 ]
             )
             result = run_observe_intent(
-                svc,
+                core,
+                ports,
                 _SESSION,
                 {
                     "metric": "metric.m1",
@@ -844,26 +867,27 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
     def test_observe_segmented_omits_segmented_yoy_without_calendar_alignment(self) -> None:
         from app.intents.observe import run_observe_intent
 
-        svc = _make_svc()
-        svc.normalize_intent_metric_ref.side_effect = lambda metric: metric
-        svc.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
-        svc._resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
-        svc.resolve_metric_sql_for_execution.return_value = "SUM(val)"
-        svc.resolve_metric_dimensions.return_value = ["platform"]
-        svc._resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
-        _set_resolved_time_axis(svc, "event_date")
-        svc._build_scoped_query.return_value = {
+        core, ports = self._make_core_and_ports()
+        core.normalize_intent_metric_ref.side_effect = lambda metric: metric
+        core.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
+        core.resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
+        core.resolve_metric_sql_for_execution.return_value = "SUM(val)"
+        core.resolve_metric_dimensions.return_value = ["platform"]
+        core.resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
+        _set_resolved_time_axis(core, "event_date")
+        core.build_scoped_query.return_value = {
             "mode": "single_window",
             "analysis_time_expr": "event_date",
             "analysis_time_kind": "date_field",
             "current": {"start": "2026-04-01", "end": "2026-04-08"},
         }
-        svc._compile_step_with_feedback.return_value = _make_compiled_mock()
+        core.compile_step.return_value = _make_compiled_mock()
 
         with patch("app.intents.observe.execute_compiled") as mock_exec:
             mock_exec.return_value = MagicMock(rows=[{"platform": "web", "current_value": 120.0}])
             result = run_observe_intent(
-                svc,
+                core,
+                ports,
                 _SESSION,
                 {
                     "metric": "metric.m1",
@@ -879,14 +903,14 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
     ) -> None:
         from app.intents.observe import run_observe_intent
 
-        svc = _make_svc()
-        svc.normalize_intent_metric_ref.side_effect = lambda metric: metric
-        svc.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
-        svc._resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
-        svc.resolve_metric_sql_for_execution.return_value = "SUM(val)"
-        svc.resolve_metric_dimensions.return_value = []
-        svc._resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
-        _set_resolved_time_axis(svc, "CAST(log_date AS DATE)")
+        core, ports = self._make_core_and_ports()
+        core.normalize_intent_metric_ref.side_effect = lambda metric: metric
+        core.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
+        core.resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
+        core.resolve_metric_sql_for_execution.return_value = "SUM(val)"
+        core.resolve_metric_dimensions.return_value = []
+        core.resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
+        _set_resolved_time_axis(core, "CAST(log_date AS DATE)")
 
         scoped_queries: list[dict[str, Any]] = []
 
@@ -909,8 +933,8 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
             scoped_queries.append(scoped_query)
             return scoped_query
 
-        svc._build_scoped_query.side_effect = _capture_scoped_query
-        svc._compile_step_with_feedback.side_effect = [
+        core.build_scoped_query.side_effect = _capture_scoped_query
+        core.compile_step.side_effect = [
             _make_time_series_compiled_mock_with_calendar_alignment(),
             _make_compiled_mock(),
         ]
@@ -921,7 +945,8 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
                 MagicMock(rows=[{"bucket_start": "2025-04-02", "value": 100.0}]),
             ]
             result = run_observe_intent(
-                svc,
+                core,
+                ports,
                 _SESSION,
                 {
                     "metric": "metric.m1",
@@ -940,7 +965,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
             scoped_queries[1]["partition_pruning_predicate"],
             "log_date >= '2025-04-01' AND log_date < '2025-04-08'",
         )
-        baseline_step_params = svc._compile_step_with_feedback.call_args_list[1].args[0].params
+        baseline_step_params = core.compile_step.call_args_list[1].args[0].params
         self.assertEqual(
             baseline_step_params["scoped_query"]["partition_pruning_predicate"],
             "log_date >= '2025-04-01' AND log_date < '2025-04-08'",
@@ -958,21 +983,21 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
     ) -> None:
         from app.intents.observe import run_observe_intent
 
-        svc = _make_svc()
-        svc.normalize_intent_metric_ref.side_effect = lambda metric: metric
-        svc.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
-        svc._resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
-        svc.resolve_metric_sql_for_execution.return_value = "SUM(val)"
-        svc.resolve_metric_dimensions.return_value = []
-        svc._resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
-        _set_resolved_time_axis(svc, "event_date")
-        svc._build_scoped_query.return_value = {
+        core, ports = self._make_core_and_ports()
+        core.normalize_intent_metric_ref.side_effect = lambda metric: metric
+        core.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
+        core.resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
+        core.resolve_metric_sql_for_execution.return_value = "SUM(val)"
+        core.resolve_metric_dimensions.return_value = []
+        core.resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
+        _set_resolved_time_axis(core, "event_date")
+        core.build_scoped_query.return_value = {
             "mode": "single_window",
             "analysis_time_expr": "event_date",
             "analysis_time_kind": "date_field",
             "current": {"start": "2026-04-01", "end": "2026-04-03"},
         }
-        svc._compile_step_with_feedback.side_effect = [
+        core.compile_step.side_effect = [
             _make_time_series_compiled_mock_with_calendar_alignment(),
             _make_compiled_mock(),
         ]
@@ -983,7 +1008,8 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
                 MagicMock(rows=[{"bucket_start": "2025-04-02", "value": 100.0}]),
             ]
             result = run_observe_intent(
-                svc,
+                core,
+                ports,
                 _SESSION,
                 {
                     "metric": "metric.m1",
@@ -1021,21 +1047,21 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
     ) -> None:
         from app.intents.observe import run_observe_intent
 
-        svc = _make_svc()
-        svc.normalize_intent_metric_ref.side_effect = lambda metric: metric
-        svc.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
-        svc._resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
-        svc.resolve_metric_sql_for_execution.return_value = "SUM(val)"
-        svc.resolve_metric_dimensions.return_value = []
-        svc._resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
-        _set_resolved_time_axis(svc, "event_date")
-        svc._build_scoped_query.return_value = {
+        core, ports = self._make_core_and_ports()
+        core.normalize_intent_metric_ref.side_effect = lambda metric: metric
+        core.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
+        core.resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
+        core.resolve_metric_sql_for_execution.return_value = "SUM(val)"
+        core.resolve_metric_dimensions.return_value = []
+        core.resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
+        _set_resolved_time_axis(core, "event_date")
+        core.build_scoped_query.return_value = {
             "mode": "single_window",
             "analysis_time_expr": "event_date",
             "analysis_time_kind": "date_field",
             "current": {"start": "2026-04-01", "end": "2026-04-03"},
         }
-        svc._compile_step_with_feedback.side_effect = [
+        core.compile_step.side_effect = [
             _make_time_series_compiled_mock_with_calendar_alignment(),
             _make_compiled_mock(),
         ]
@@ -1051,7 +1077,8 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
                 MagicMock(rows=[{"bucket_start": "2025-04-02", "value": 100.0}]),
             ]
             result = run_observe_intent(
-                svc,
+                core,
+                ports,
                 _SESSION,
                 {
                     "metric": "metric.m1",
@@ -1067,26 +1094,27 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
     def test_observe_time_series_without_rows_marks_backfilled_buckets_incomplete(self) -> None:
         from app.intents.observe import run_observe_intent
 
-        svc = _make_svc()
-        svc.normalize_intent_metric_ref.side_effect = lambda metric: metric
-        svc.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
-        svc._resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
-        svc.resolve_metric_sql_for_execution.return_value = "SUM(val)"
-        svc.resolve_metric_dimensions.return_value = []
-        svc._resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
-        _set_resolved_time_axis(svc, "event_date")
-        svc._build_scoped_query.return_value = {
+        core, ports = self._make_core_and_ports()
+        core.normalize_intent_metric_ref.side_effect = lambda metric: metric
+        core.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
+        core.resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
+        core.resolve_metric_sql_for_execution.return_value = "SUM(val)"
+        core.resolve_metric_dimensions.return_value = []
+        core.resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
+        _set_resolved_time_axis(core, "event_date")
+        core.build_scoped_query.return_value = {
             "mode": "single_window",
             "analysis_time_expr": "event_date",
             "analysis_time_kind": "date_field",
             "current": {"start": "2026-04-01", "end": "2026-04-03"},
         }
-        svc._compile_step_with_feedback.return_value = _make_compiled_mock()
+        core.compile_step.return_value = _make_compiled_mock()
 
         with patch("app.intents.observe.execute_compiled") as mock_exec:
             mock_exec.return_value = MagicMock(rows=[])
             result = run_observe_intent(
-                svc,
+                core,
+                ports,
                 _SESSION,
                 {
                     "metric": "metric.m1",
@@ -1108,15 +1136,15 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
     def test_observe_hour_granularity_uses_hour_internal_grain(self) -> None:
         from app.intents.observe import run_observe_intent
 
-        svc = _make_svc()
+        core, ports = self._make_core_and_ports()
         captured: dict[str, Any] = {}
-        svc.normalize_intent_metric_ref.side_effect = lambda metric: metric
-        svc.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
-        svc._resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
-        svc.resolve_metric_sql_for_execution.return_value = "SUM(val)"
-        svc.resolve_metric_dimensions.return_value = []
-        svc._resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
-        _set_resolved_time_axis(svc, "event_time", kind="timestamp_field")
+        core.normalize_intent_metric_ref.side_effect = lambda metric: metric
+        core.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
+        core.resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
+        core.resolve_metric_sql_for_execution.return_value = "SUM(val)"
+        core.resolve_metric_dimensions.return_value = []
+        core.resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
+        _set_resolved_time_axis(core, "event_time", kind="timestamp_field")
 
         def _capture_scoped_query(
             session_id: str, resolved: Any, *, engine_type: str
@@ -1132,8 +1160,8 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
                 },
             }
 
-        svc._build_scoped_query.side_effect = _capture_scoped_query
-        svc._compile_step_with_feedback.return_value = _make_compiled_mock()
+        core.build_scoped_query.side_effect = _capture_scoped_query
+        core.compile_step.return_value = _make_compiled_mock()
 
         params = {
             "metric": "metric.m1",
@@ -1146,26 +1174,26 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
         }
         with patch("app.intents.observe.execute_compiled") as mock_exec:
             mock_exec.return_value.rows = []
-            run_observe_intent(svc, _SESSION, params)
+            run_observe_intent(core, ports, _SESSION, params)
 
         self.assertEqual(captured["grain"], "hour")
 
-    def _run_numeric_summary(self, svc: MagicMock) -> dict[str, Any]:
+    def _run_numeric_summary(self, core: MagicMock, ports: MagicMock) -> dict[str, Any]:
         from app.intents.observe import run_observe_intent
 
-        svc.normalize_intent_metric_ref.side_effect = lambda metric: metric
-        svc.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
-        svc._resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
-        svc.resolve_metric_sql_for_execution.return_value = "SUM(val)"
-        svc.resolve_metric_value_sql_for_execution.return_value = "val"
-        svc.resolve_metric_dimensions.return_value = []
-        svc._resolve_engine.return_value = (
+        core.normalize_intent_metric_ref.side_effect = lambda metric: metric
+        core.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
+        core.resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
+        core.resolve_metric_sql_for_execution.return_value = "SUM(val)"
+        core.resolve_metric_value_sql_for_execution.return_value = "val"
+        core.resolve_metric_dimensions.return_value = []
+        core.resolve_engine.return_value = (
             MagicMock(),
             "duckdb",
             {"metrics": "src.metrics"},
         )
-        svc._build_scoped_query.return_value = None
-        svc._compile_step_with_feedback.return_value = _make_compiled_mock()
+        core.build_scoped_query.return_value = None
+        core.compile_step.return_value = _make_compiled_mock()
 
         params = {
             "metric": "m1",
@@ -1176,39 +1204,39 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
             mock_exec.return_value.rows = [
                 {"n": 5, "mean": 10.0, "variance": 1.0, "std": 1.0, "min_val": 8.0, "max_val": 12.0}
             ]
-            return run_observe_intent(svc, _SESSION, params)
+            return run_observe_intent(core, ports, _SESSION, params)
 
     def test_observe_numeric_summary_calls_commit_artifact_with_extraction(self) -> None:
-        svc = _make_svc()
-        self._run_numeric_summary(svc)
-        svc._commit_artifact_with_extraction.assert_called_once()
+        core, ports = self._make_core_and_ports()
+        self._run_numeric_summary(core, ports)
+        core.commit_artifact_with_extraction.assert_called_once()
 
     def test_observe_numeric_summary_passes_step_type_observe(self) -> None:
-        svc = _make_svc()
-        self._run_numeric_summary(svc)
-        _, kwargs = svc._commit_artifact_with_extraction.call_args
+        core, ports = self._make_core_and_ports()
+        self._run_numeric_summary(core, ports)
+        _, kwargs = core.commit_artifact_with_extraction.call_args
         self.assertEqual(kwargs.get("step_type"), "observe")
 
     def test_observe_numeric_summary_artifact_type_is_observation(self) -> None:
-        svc = _make_svc()
-        self._run_numeric_summary(svc)
-        args, _ = svc._commit_artifact_with_extraction.call_args
+        core, ports = self._make_core_and_ports()
+        self._run_numeric_summary(core, ports)
+        args, _ = core.commit_artifact_with_extraction.call_args
         self.assertEqual(args[2], "observation")
 
     def test_observe_numeric_summary_forwards_and_freezes_calendar_policy(self) -> None:
         from app.intents.observe import run_observe_intent
 
-        svc = _make_svc()
+        core, ports = self._make_core_and_ports()
         captured: dict[str, Any] = {}
-        svc.normalize_intent_metric_ref.side_effect = lambda metric: metric
-        svc.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
-        svc._resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
-        svc.resolve_metric_sql_for_execution.return_value = "SUM(val)"
-        svc.resolve_metric_value_sql_for_execution.return_value = "val"
-        svc.resolve_metric_dimensions.return_value = []
-        svc._resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
-        svc._resolve_windowed_query_time_axis.return_value = None
-        svc._build_scoped_query.return_value = {
+        core.normalize_intent_metric_ref.side_effect = lambda metric: metric
+        core.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
+        core.resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
+        core.resolve_metric_sql_for_execution.return_value = "SUM(val)"
+        core.resolve_metric_value_sql_for_execution.return_value = "val"
+        core.resolve_metric_dimensions.return_value = []
+        core.resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
+        core.resolve_windowed_query_time_axis.return_value = None
+        core.build_scoped_query.return_value = {
             "mode": "single_window",
             "analysis_time_expr": "event_date",
             "analysis_time_kind": "date_field",
@@ -1219,14 +1247,15 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
             captured["calendar_policy_ref"] = step.params.get("calendar_policy_ref")
             return _make_compiled_mock_with_calendar_alignment()
 
-        svc._compile_step_with_feedback.side_effect = _capture_compile
+        core.compile_step.side_effect = _capture_compile
 
         with patch("app.intents.observe.execute_compiled") as mock_exec:
             mock_exec.return_value.rows = [
                 {"n": 5, "mean": 10.0, "variance": 1.0, "std": 1.0, "min_val": 8.0, "max_val": 12.0}
             ]
             result = run_observe_intent(
-                svc,
+                core,
+                ports,
                 _SESSION,
                 {
                     "metric": "metric.m1",
@@ -1236,7 +1265,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
                 },
             )
 
-        args, _ = svc._commit_artifact_with_extraction.call_args
+        args, _ = core.commit_artifact_with_extraction.call_args
         artifact_payload = args[4]
         self.assertEqual(captured["calendar_policy_ref"], "calendar_policy.weekday_yoy")
         self.assertEqual(
@@ -1248,22 +1277,22 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
             "calendar_policy.weekday_yoy",
         )
 
-    def _run_rate_summary(self, svc: MagicMock) -> dict[str, Any]:
+    def _run_rate_summary(self, core: MagicMock, ports: MagicMock) -> dict[str, Any]:
         from app.intents.observe import run_observe_intent
 
-        svc.normalize_intent_metric_ref.side_effect = lambda metric: metric
-        svc.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
-        svc._resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
-        svc.resolve_metric_sql_for_execution.return_value = "SUM(val)"
-        svc.resolve_metric_value_sql_for_execution.return_value = "is_success"
-        svc.resolve_metric_dimensions.return_value = []
-        svc._resolve_engine.return_value = (
+        core.normalize_intent_metric_ref.side_effect = lambda metric: metric
+        core.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
+        core.resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
+        core.resolve_metric_sql_for_execution.return_value = "SUM(val)"
+        core.resolve_metric_value_sql_for_execution.return_value = "is_success"
+        core.resolve_metric_dimensions.return_value = []
+        core.resolve_engine.return_value = (
             MagicMock(),
             "duckdb",
             {"metrics": "src.metrics"},
         )
-        svc._build_scoped_query.return_value = None
-        svc._compile_step_with_feedback.return_value = _make_compiled_mock()
+        core.build_scoped_query.return_value = None
+        core.compile_step.return_value = _make_compiled_mock()
 
         params = {
             "metric": "m1",
@@ -1272,39 +1301,39 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
         }
         with patch("app.intents.observe.execute_compiled") as mock_exec:
             mock_exec.return_value.rows = [{"n": 100, "k": 50.0}]
-            return run_observe_intent(svc, _SESSION, params)
+            return run_observe_intent(core, ports, _SESSION, params)
 
     def test_observe_rate_summary_calls_commit_artifact_with_extraction(self) -> None:
-        svc = _make_svc()
-        self._run_rate_summary(svc)
-        svc._commit_artifact_with_extraction.assert_called_once()
+        core, ports = self._make_core_and_ports()
+        self._run_rate_summary(core, ports)
+        core.commit_artifact_with_extraction.assert_called_once()
 
     def test_observe_rate_summary_passes_step_type_observe(self) -> None:
-        svc = _make_svc()
-        self._run_rate_summary(svc)
-        _, kwargs = svc._commit_artifact_with_extraction.call_args
+        core, ports = self._make_core_and_ports()
+        self._run_rate_summary(core, ports)
+        _, kwargs = core.commit_artifact_with_extraction.call_args
         self.assertEqual(kwargs.get("step_type"), "observe")
 
     def test_observe_rate_summary_artifact_type_is_observation(self) -> None:
-        svc = _make_svc()
-        self._run_rate_summary(svc)
-        args, _ = svc._commit_artifact_with_extraction.call_args
+        core, ports = self._make_core_and_ports()
+        self._run_rate_summary(core, ports)
+        args, _ = core.commit_artifact_with_extraction.call_args
         self.assertEqual(args[2], "observation")
 
     def test_observe_rate_summary_forwards_and_freezes_calendar_policy(self) -> None:
         from app.intents.observe import run_observe_intent
 
-        svc = _make_svc()
+        core, ports = self._make_core_and_ports()
         captured: dict[str, Any] = {}
-        svc.normalize_intent_metric_ref.side_effect = lambda metric: metric
-        svc.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
-        svc._resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
-        svc.resolve_metric_sql_for_execution.return_value = "SUM(val)"
-        svc.resolve_metric_value_sql_for_execution.return_value = "is_success"
-        svc.resolve_metric_dimensions.return_value = []
-        svc._resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
-        svc._resolve_windowed_query_time_axis.return_value = None
-        svc._build_scoped_query.return_value = {
+        core.normalize_intent_metric_ref.side_effect = lambda metric: metric
+        core.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
+        core.resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
+        core.resolve_metric_sql_for_execution.return_value = "SUM(val)"
+        core.resolve_metric_value_sql_for_execution.return_value = "is_success"
+        core.resolve_metric_dimensions.return_value = []
+        core.resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
+        core.resolve_windowed_query_time_axis.return_value = None
+        core.build_scoped_query.return_value = {
             "mode": "single_window",
             "analysis_time_expr": "event_date",
             "analysis_time_kind": "date_field",
@@ -1315,12 +1344,13 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
             captured["calendar_policy_ref"] = step.params.get("calendar_policy_ref")
             return _make_compiled_mock_with_calendar_alignment()
 
-        svc._compile_step_with_feedback.side_effect = _capture_compile
+        core.compile_step.side_effect = _capture_compile
 
         with patch("app.intents.observe.execute_compiled") as mock_exec:
             mock_exec.return_value.rows = [{"n": 100, "k": 50.0}]
             result = run_observe_intent(
-                svc,
+                core,
+                ports,
                 _SESSION,
                 {
                     "metric": "metric.m1",
@@ -1330,7 +1360,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
                 },
             )
 
-        args, _ = svc._commit_artifact_with_extraction.call_args
+        args, _ = core.commit_artifact_with_extraction.call_args
         artifact_payload = args[4]
         self.assertEqual(captured["calendar_policy_ref"], "calendar_policy.weekday_yoy")
         self.assertEqual(

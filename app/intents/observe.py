@@ -16,7 +16,8 @@ from app.time_contracts import TimeGrain, bucket_window, normalize_hour_boundary
 from app.time_scope import normalize_metric_query_request
 
 if TYPE_CHECKING:
-    from app.service import SemanticLayerService
+    from app.core.engine import CoreEngine
+    from app.runtime.ports import RuntimePorts
 
 _VALID_GRANULARITIES: frozenset[str] = frozenset({"hour", "day", "week", "month"})
 
@@ -368,7 +369,7 @@ def _time_series_quality_status(*, row_count: int, data_complete: bool | None) -
 
 
 def _build_scoped_query_for_window(
-    svc: SemanticLayerService,
+    core: CoreEngine,
     *,
     session_id: str,
     engine_type: str,
@@ -392,17 +393,17 @@ def _build_scoped_query_for_window(
     if scope_raw:
         mq_params["scope"] = scope_raw
     resolved = normalize_metric_query_request(mq_params)
-    svc._resolve_windowed_query_time_axis(
+    core.resolve_windowed_query_time_axis(
         resolved,
         engine_type=engine_type,
         metric_name=metric_ref,
         fallback_columns=all_dimensions,
     )
-    return svc._build_scoped_query(session_id, resolved, engine_type=engine_type)
+    return core.build_scoped_query(session_id, resolved, engine_type=engine_type)
 
 
 def run_observe_intent(
-    svc: SemanticLayerService, session_id: str, params: dict[str, Any] | None
+    core: CoreEngine, ports: RuntimePorts, session_id: str, params: dict[str, Any] | None
 ) -> dict[str, Any]:
     """Execute an `observe` intent, producing a typed observation artifact.
 
@@ -425,8 +426,8 @@ def run_observe_intent(
     metric_ref: str = p.get("metric") or ""
     if not metric_ref:
         raise ValueError("observe intent requires 'metric'")
-    metric_ref = svc.normalize_intent_metric_ref(metric_ref)
-    metric_name = svc.metric_name_from_ref(metric_ref)
+    metric_ref = core.normalize_intent_metric_ref(metric_ref)
+    metric_name = core.metric_name_from_ref(metric_ref)
 
     time_scope_raw = p.get("time_scope")
     if not isinstance(time_scope_raw, dict):
@@ -519,7 +520,7 @@ def run_observe_intent(
             else "day"
         )
 
-    execution_context = svc._resolve_metric_execution_context(metric_ref, session_id=session_id)
+    execution_context = core.resolve_metric_execution_context(metric_ref, session_id=session_id)
     table = execution_context.table_name
 
     scope_raw = p.get("scope")
@@ -540,18 +541,18 @@ def run_observe_intent(
         mq_params["calendar_policy_ref"] = normalized_calendar_policy_ref
 
     resolved = normalize_metric_query_request(mq_params)
-    all_dimensions = svc.resolve_metric_dimensions(metric_ref)
-    engine_resolution = svc._resolve_engine_for_session(session_id, [resolved.table])
+    all_dimensions = core.resolve_metric_dimensions(metric_ref)
+    engine_resolution = core.resolve_engine_for_session(session_id, [resolved.table])
     if not isinstance(engine_resolution, tuple) or len(engine_resolution) != 3:
-        engine_resolution = svc._resolve_engine([resolved.table])
+        engine_resolution = core.resolve_engine([resolved.table])
     engine, engine_type, qualified = engine_resolution
-    svc._resolve_windowed_query_time_axis(
+    core.resolve_windowed_query_time_axis(
         resolved,
         engine_type=engine_type,
         metric_name=metric_ref,
         fallback_columns=all_dimensions,
     )
-    metric_sql = svc.resolve_metric_sql_for_execution(
+    metric_sql = core.resolve_metric_sql_for_execution(
         metric_ref,
         execution_context,
         engine_type=engine_type,
@@ -559,7 +560,7 @@ def run_observe_intent(
     if all_dimensions is None:
         raise ValueError(f"Metric '{metric_name}' not found or not published")
     scoped_query = _build_scoped_query_for_window(
-        svc,
+        core,
         session_id=session_id,
         engine_type=engine_type,
         metric_ref=metric_ref,
@@ -571,19 +572,21 @@ def run_observe_intent(
         all_dimensions=all_dimensions,
     )
     qualified_table = qualified.get(resolved.table, resolved.table)
-    step_id = svc._new_step_id()
+    step_id = core.new_step_id()
     now = datetime.now(UTC).isoformat()
 
     if result_mode == "numeric_sample_summary":
         # --- Numeric Sample Summary mode ---
-        metric_value_sql = svc.resolve_metric_value_sql_for_execution(metric_ref, execution_context)
+        metric_value_sql = core.resolve_metric_value_sql_for_execution(
+            metric_ref, execution_context
+        )
         if metric_value_sql is None:
             raise ValueError(
                 f"Metric '{metric_name}' cannot produce a per-row numeric value expression"
             )
 
         # metric_value_sql is used as a per-row value expression (not an outer aggregate).
-        compiled_query = svc._compile_step_with_feedback(
+        compiled_query = core.compile_step(
             AnalysisStepIR(
                 index=0,
                 step_type="aggregate_query",
@@ -608,7 +611,7 @@ def run_observe_intent(
             semantic_context={"metric_execution_context": execution_context},
         )
         rows = list(execute_compiled(engine, compiled_query).rows)
-        provenance = svc._make_provenance(
+        provenance = core.make_provenance(
             compiled_query.sql, compiled_query.params, engine_type=engine_type
         )
         resolved_policy_summary_ns = _resolved_policy_summary_from_compiled(compiled_query)
@@ -682,7 +685,7 @@ def run_observe_intent(
         summary_ns = (
             f"observe {metric_name} numeric_sample_summary [{start_str} → {end_str}]: n={n_numeric}"
         )
-        artifact_id_ns = svc._commit_artifact_with_extraction(
+        artifact_id_ns = core.commit_artifact_with_extraction(
             session_id,
             step_id,
             "observation",
@@ -701,27 +704,29 @@ def run_observe_intent(
             "artifact_id": artifact_id_ns,
             **observation_ns,
         }
-        svc._insert_step(
+        core.insert_step(
             step_id,
             session_id,
             "observe",
             summary_ns,
             result_ns,
             provenance=provenance,
-            semantic_metadata=svc.build_step_semantic_metadata(compiled_query),
+            semantic_metadata=core.build_step_semantic_metadata(compiled_query),
         )
         return result_ns
 
     if result_mode == "rate_sample_summary":
         # --- Rate Sample Summary mode ---
-        metric_value_sql = svc.resolve_metric_value_sql_for_execution(metric_ref, execution_context)
+        metric_value_sql = core.resolve_metric_value_sql_for_execution(
+            metric_ref, execution_context
+        )
         if metric_value_sql is None:
             raise ValueError(
                 f"Metric '{metric_name}' cannot produce a per-row rate value expression"
             )
 
         # metric_value_sql is treated as a per-row 0/1 binary expression (rate numerator).
-        compiled_query = svc._compile_step_with_feedback(
+        compiled_query = core.compile_step(
             AnalysisStepIR(
                 index=0,
                 step_type="aggregate_query",
@@ -742,7 +747,7 @@ def run_observe_intent(
             semantic_context={"metric_execution_context": execution_context},
         )
         rows = list(execute_compiled(engine, compiled_query).rows)
-        provenance = svc._make_provenance(
+        provenance = core.make_provenance(
             compiled_query.sql, compiled_query.params, engine_type=engine_type
         )
         resolved_policy_summary_rs = _resolved_policy_summary_from_compiled(compiled_query)
@@ -799,7 +804,7 @@ def run_observe_intent(
             f"observe {metric_name} rate_sample_summary "
             f"[{start_str} → {end_str}]: k={round(k_rate)} / n={n_rate}"
         )
-        artifact_id_rs = svc._commit_artifact_with_extraction(
+        artifact_id_rs = core.commit_artifact_with_extraction(
             session_id,
             step_id,
             "observation",
@@ -818,14 +823,14 @@ def run_observe_intent(
             "artifact_id": artifact_id_rs,
             **observation_rs,
         }
-        svc._insert_step(
+        core.insert_step(
             step_id,
             session_id,
             "observe",
             summary_rs,
             result_rs,
             provenance=provenance,
-            semantic_metadata=svc.build_step_semantic_metadata(compiled_query),
+            semantic_metadata=core.build_step_semantic_metadata(compiled_query),
         )
         return result_rs
 
@@ -837,7 +842,7 @@ def run_observe_intent(
         if not time_col:
             raise ValueError("windowed execution requires resolved_time_axis.analysis_time_expr")
         bucket_expr = f"DATE_TRUNC('{granularity}', {time_col})"
-        compiled_query = svc._compile_step_with_feedback(
+        compiled_query = core.compile_step(
             AnalysisStepIR(
                 index=0,
                 step_type="aggregate_query",
@@ -859,7 +864,7 @@ def run_observe_intent(
             semantic_context={"metric_execution_context": execution_context},
         )
         rows = list(execute_compiled(engine, compiled_query).rows)
-        provenance = svc._make_provenance(
+        provenance = core.make_provenance(
             compiled_query.sql, compiled_query.params, engine_type=engine_type
         )
         sparse_series = _series_from_rows(rows, granularity=granularity_typed)
@@ -893,7 +898,7 @@ def run_observe_intent(
                 },
             }
             baseline_scoped_query = _build_scoped_query_for_window(
-                svc,
+                core,
                 session_id=session_id,
                 engine_type=engine_type,
                 metric_ref=metric_ref,
@@ -904,7 +909,7 @@ def run_observe_intent(
                 scope_raw=scope_raw,
                 all_dimensions=all_dimensions,
             )
-            baseline_compiled_query = svc._compile_step_with_feedback(
+            baseline_compiled_query = core.compile_step(
                 AnalysisStepIR(
                     index=0,
                     step_type="aggregate_query",
@@ -993,7 +998,7 @@ def run_observe_intent(
     elif dimensions:
         # --- Segmented mode ---
         # metric_query single_window with dimensions generates GROUP BY on dimension cols
-        compiled_query = svc._compile_step_with_feedback(
+        compiled_query = core.compile_step(
             AnalysisStepIR(
                 index=0,
                 step_type="metric_query",
@@ -1013,7 +1018,7 @@ def run_observe_intent(
             },
         )
         rows = list(execute_compiled(engine, compiled_query).rows)
-        provenance = svc._make_provenance(
+        provenance = core.make_provenance(
             compiled_query.sql, compiled_query.params, engine_type=engine_type
         )
         resolved_policy_summary = _resolved_policy_summary_from_compiled(compiled_query)
@@ -1080,7 +1085,7 @@ def run_observe_intent(
 
     else:
         # --- Scalar mode ---
-        compiled_query = svc._compile_step_with_feedback(
+        compiled_query = core.compile_step(
             AnalysisStepIR(
                 index=0,
                 step_type="metric_query",
@@ -1100,7 +1105,7 @@ def run_observe_intent(
             },
         )
         rows = list(execute_compiled(engine, compiled_query).rows)
-        provenance = svc._make_provenance(
+        provenance = core.make_provenance(
             compiled_query.sql, compiled_query.params, engine_type=engine_type
         )
         predicate_filter_lineage_scalar = _extract_predicate_filter_lineage(compiled_query)
@@ -1158,7 +1163,7 @@ def run_observe_intent(
             compiled_query
         )
 
-    artifact_id = svc._commit_artifact_with_extraction(
+    artifact_id = core.commit_artifact_with_extraction(
         session_id,
         step_id,
         "observation",
@@ -1179,13 +1184,13 @@ def run_observe_intent(
         **observation,
     }
 
-    svc._insert_step(
+    core.insert_step(
         step_id,
         session_id,
         "observe",
         summary,
         result,
         provenance=provenance,
-        semantic_metadata=svc.build_step_semantic_metadata(compiled_query),
+        semantic_metadata=core.build_step_semantic_metadata(compiled_query),
     )
     return result

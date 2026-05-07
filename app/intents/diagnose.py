@@ -577,7 +577,8 @@ def _follow_up_candidate(
 
     try:
         current_obs = run_observe_intent(
-            svc,
+            svc._core_engine,  # type: ignore[arg-type]
+            svc._runtime_ports,  # type: ignore[arg-type]
             session_id,
             {
                 "metric": metric_ref,
@@ -609,7 +610,8 @@ def _follow_up_candidate(
 
     try:
         baseline_obs = run_observe_intent(
-            svc,
+            svc._core_engine,  # type: ignore[arg-type]
+            svc._runtime_ports,  # type: ignore[arg-type]
             session_id,
             {
                 "metric": metric_ref,
