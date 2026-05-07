@@ -327,7 +327,15 @@ class SemanticLayerService:
             ),
         )
         self.intent_registry.register("diagnose", lambda sid, p: run_diagnose_intent(self, sid, p))
-        self.intent_registry.register("validate", lambda sid, p: run_validate_intent(self, sid, p))
+        self.intent_registry.register(
+            "validate",
+            lambda sid, p: run_validate_intent(
+                self._core_engine,  # type: ignore[arg-type]
+                self._runtime_ports,  # type: ignore[arg-type]
+                sid,
+                p,
+            ),
+        )
         for _stub_type in _STUB_INTENT_TYPES:
             self.intent_registry.register(_stub_type, _make_stub_runner(_stub_type))
         self.semantic_repository = SemanticRuntimeRepository(metadata_store)

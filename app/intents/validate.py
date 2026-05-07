@@ -22,7 +22,8 @@ from app.intents.observe import run_observe_intent
 from app.intents.test import run_test_intent
 
 if TYPE_CHECKING:
-    from app.service import SemanticLayerService
+    from app.core.engine import CoreEngine
+    from app.runtime.ports import RuntimePorts
 
 _DERIVED_LOGIC_VERSION = "1.0"
 _PROJECTION_VERSION = "validation_bundle.v1"
@@ -37,7 +38,7 @@ _SAMPLE_KIND_TO_RESULT_MODE: dict[str, str] = {
 
 
 def run_validate_intent(
-    svc: SemanticLayerService, session_id: str, params: dict[str, Any] | None
+    core: CoreEngine, ports: RuntimePorts, session_id: str, params: dict[str, Any] | None
 ) -> dict[str, Any]:
     """Execute a `validate` derived intent.
 
@@ -64,8 +65,8 @@ def run_validate_intent(
     metric_ref: str = (p.get("metric") or "").strip()
     if not metric_ref:
         raise ValueError("validate: INVALID_ARGUMENT - metric is required")
-    metric_ref = svc.normalize_intent_metric_ref(metric_ref)
-    metric_name = svc.metric_name_from_ref(metric_ref)
+    metric_ref = core.normalize_intent_metric_ref(metric_ref)
+    metric_name = core.metric_name_from_ref(metric_ref)
 
     left_input: dict[str, Any] = p.get("left") or {}
     right_input: dict[str, Any] = p.get("right") or {}
@@ -142,8 +143,8 @@ def run_validate_intent(
     # ── Step 1: observe left ───────────────────────────────────────────────────
     try:
         left_obs = run_observe_intent(
-            svc._core_engine,  # type: ignore[arg-type]
-            svc._runtime_ports,  # type: ignore[arg-type]
+            core,
+            ports,
             session_id,
             {
                 "metric": metric_ref,
@@ -163,8 +164,8 @@ def run_validate_intent(
     # ── Step 2: observe right ──────────────────────────────────────────────────
     try:
         right_obs = run_observe_intent(
-            svc._core_engine,  # type: ignore[arg-type]
-            svc._runtime_ports,  # type: ignore[arg-type]
+            core,
+            ports,
             session_id,
             {
                 "metric": metric_ref,
@@ -207,8 +208,8 @@ def run_validate_intent(
     # ── Step 3: test ──────────────────────────────────────────────────────────
     try:
         test_result = run_test_intent(
-            svc._core_engine,  # type: ignore[arg-type]
-            svc._runtime_ports,  # type: ignore[arg-type]
+            core,
+            ports,
             session_id,
             {
                 "left_ref": left_obs_ref,
@@ -281,7 +282,7 @@ def run_validate_intent(
 
     # ── Step 7: assemble validation_bundle ────────────────────────────────────
     now = datetime.now(UTC).isoformat()
-    step_id = svc._new_step_id()
+    step_id = core.new_step_id()
 
     left_resolved: dict[str, Any] = {
         "time_scope": left_obs.get("time_scope") or left_time_scope,
@@ -347,7 +348,7 @@ def run_validate_intent(
         f"{decision_label} (sample_kind={resolved_sample_kind})"
     )
 
-    artifact_id = svc._insert_artifact(
+    artifact_id = core.insert_artifact(
         session_id, step_id, "validation_bundle", artifact_name, bundle
     )
     bundle["step_ref"] = {
@@ -366,5 +367,5 @@ def run_validate_intent(
         "derived_logic_version": _DERIVED_LOGIC_VERSION,
         "projection_version": _PROJECTION_VERSION,
     }
-    svc._insert_step(step_id, session_id, "validate", summary, bundle, provenance=provenance)
+    core.insert_step(step_id, session_id, "validate", summary, bundle, provenance=provenance)
     return bundle
