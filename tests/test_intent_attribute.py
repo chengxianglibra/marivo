@@ -683,17 +683,18 @@ class AttributeRunnerServiceTests(unittest.TestCase):
         """Duplicate dimensions should be deduplicated; bundle.dimensions is deduped list."""
         from types import SimpleNamespace
 
-        svc = MagicMock()
-        svc.normalize_intent_metric_ref.side_effect = lambda metric: f"metric.{metric}"
-        svc.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
-        svc.semantic_repository.resolve_metric.return_value = SimpleNamespace(
+        core = MagicMock()
+        core.normalize_intent_metric_ref.side_effect = lambda metric: f"metric.{metric}"
+        core.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
+        core.resolve_metric.return_value = SimpleNamespace(
             additivity_constraints={"dimension_policy": "all", "time_axis_policy": "additive"},
             primary_time_ref="time.event_date",
             sample_kind="numeric",
         )
-        svc._new_step_id.return_value = "step_attr_dedup"
-        svc._insert_artifact.return_value = "art_attr_dedup"
-        svc._insert_step.return_value = None
+        core.new_step_id.return_value = "step_attr_dedup"
+        core.insert_artifact.return_value = "art_attr_dedup"
+        core.insert_step.return_value = None
+        ports = MagicMock()
 
         observe_results = [
             {
@@ -720,7 +721,7 @@ class AttributeRunnerServiceTests(unittest.TestCase):
             "comparability": {"status": "comparable", "issues": []},
         }
 
-        def _decompose_result(svc, session_id, params):
+        def _decompose_result(core_arg, ports_arg, session_id, params):
             dimension = params["dimension"]
             return {
                 "step_ref": {"session_id": session_id, "step_id": f"step_decompose_{dimension}"},
@@ -745,7 +746,8 @@ class AttributeRunnerServiceTests(unittest.TestCase):
             patch("app.intents.attribute.run_decompose_intent", side_effect=_decompose_result),
         ):
             bundle = run_attribute_intent(
-                svc,
+                core,
+                ports,
                 "sess_attr_dedup",
                 {
                     "metric": _METRIC,
@@ -1057,11 +1059,10 @@ class AttributeHourWindowTests(unittest.TestCase):
     def test_attribute_forwards_hour_boundaries_to_observe_and_preserves_them_in_bundle(
         self,
     ) -> None:
-        class _FakeService:
+        class _FakeCore:
             def __init__(self) -> None:
                 self._step_counter = 0
-                # Mock semantic_repository for metric resolution
-                self.semantic_repository = MagicMock()
+                # Mock resolve_metric for metric resolution
                 mock_metric = MagicMock()
                 mock_metric.additivity_constraints = {
                     "dimension_policy": "all",
@@ -1069,7 +1070,10 @@ class AttributeHourWindowTests(unittest.TestCase):
                 }
                 mock_metric.primary_time_ref = "time.default"
                 mock_metric.sample_kind = "rate"
-                self.semantic_repository.resolve_metric.return_value = mock_metric
+                self._mock_metric = mock_metric
+
+            def resolve_metric(self, metric_name: str) -> Any:
+                return self._mock_metric
 
             @staticmethod
             def normalize_intent_metric_ref(metric_ref: str) -> str:
@@ -1079,12 +1083,12 @@ class AttributeHourWindowTests(unittest.TestCase):
             def metric_name_from_ref(metric_ref: str) -> str:
                 return metric_ref.removeprefix("metric.")
 
-            def _new_step_id(self) -> str:
+            def new_step_id(self) -> str:
                 self._step_counter += 1
                 return f"step_{self._step_counter}"
 
             @staticmethod
-            def _insert_artifact(
+            def insert_artifact(
                 session_id: str,
                 step_id: str,
                 artifact_type: str,
@@ -1095,7 +1099,7 @@ class AttributeHourWindowTests(unittest.TestCase):
                 return "artifact_attribute_hour"
 
             @staticmethod
-            def _insert_step(
+            def insert_step(
                 step_id: str,
                 session_id: str,
                 step_type: str,
@@ -1183,7 +1187,8 @@ class AttributeHourWindowTests(unittest.TestCase):
             ),
         ):
             bundle = run_attribute_intent(
-                _FakeService(),
+                _FakeCore(),
+                MagicMock(),
                 "sess_hour_attr",
                 {
                     "metric": "metric.attr_hourly",
@@ -1194,8 +1199,8 @@ class AttributeHourWindowTests(unittest.TestCase):
             )
 
         self.assertEqual(observe_mock.call_count, 2)
-        self.assertEqual(observe_mock.call_args_list[0].args[2]["time_scope"], left_time_scope)
-        self.assertEqual(observe_mock.call_args_list[1].args[2]["time_scope"], right_time_scope)
+        self.assertEqual(observe_mock.call_args_list[0].args[3]["time_scope"], left_time_scope)
+        self.assertEqual(observe_mock.call_args_list[1].args[3]["time_scope"], right_time_scope)
         self.assertEqual(
             bundle["left"]["time_scope"],
             {"kind": "range", "start": "2024-01-01T01:00:00", "end": "2024-01-01T03:00:00"},

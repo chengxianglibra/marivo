@@ -20,7 +20,8 @@ from app.intents.decompose import run_decompose_intent
 from app.intents.observe import run_observe_intent
 
 if TYPE_CHECKING:
-    from app.service import SemanticLayerService
+    from app.core.engine import CoreEngine
+    from app.runtime.ports import RuntimePorts
 
 _DEFAULT_DECOMPOSITION_LIMIT = 5
 _MAX_DECOMPOSITION_LIMIT = 100
@@ -36,7 +37,7 @@ _RECONCILIATION_ISSUE_CODES = frozenset(
 
 
 def run_attribute_intent(
-    svc: SemanticLayerService, session_id: str, params: dict[str, Any] | None
+    core: CoreEngine, ports: RuntimePorts, session_id: str, params: dict[str, Any] | None
 ) -> dict[str, Any]:
     """Execute an `attribute` derived intent.
 
@@ -64,8 +65,8 @@ def run_attribute_intent(
     metric_ref: str = (p.get("metric") or "").strip()
     if not metric_ref:
         raise ValueError("attribute: INVALID_ARGUMENT - metric is required")
-    metric_ref = svc.normalize_intent_metric_ref(metric_ref)
-    metric_name = svc.metric_name_from_ref(metric_ref)
+    metric_ref = core.normalize_intent_metric_ref(metric_ref)
+    metric_name = core.metric_name_from_ref(metric_ref)
 
     left_input: dict[str, Any] = p.get("left") or {}
     right_input: dict[str, Any] = p.get("right") or {}
@@ -139,7 +140,7 @@ def run_attribute_intent(
             )
 
     # ── Pre-check: verify metric supports attribute (compile-time gate) ──────
-    resolved_metric = svc.semantic_repository.resolve_metric(metric_name)
+    resolved_metric = core.resolve_metric(metric_name)
     if resolved_metric is None:
         raise ValueError(f"attribute: metric '{metric_name}' not found or not published")
 
@@ -274,8 +275,8 @@ def run_attribute_intent(
     # ── Step 1: observe left (current) ────────────────────────────────────────
     try:
         left_obs = run_observe_intent(
-            svc._core_engine,  # type: ignore[arg-type]
-            svc._runtime_ports,  # type: ignore[arg-type]
+            core,
+            ports,
             session_id,
             {
                 "metric": metric_ref,
@@ -298,8 +299,8 @@ def run_attribute_intent(
     # ── Step 2: observe right (baseline) ──────────────────────────────────────
     try:
         right_obs = run_observe_intent(
-            svc._core_engine,  # type: ignore[arg-type]
-            svc._runtime_ports,  # type: ignore[arg-type]
+            core,
+            ports,
             session_id,
             {
                 "metric": metric_ref,
@@ -324,8 +325,8 @@ def run_attribute_intent(
 
     try:
         compare_result = run_compare_intent(
-            svc._core_engine,  # type: ignore[arg-type]
-            svc._runtime_ports,  # type: ignore[arg-type]
+            core,
+            ports,
             session_id,
             {
                 "left_ref": {
@@ -364,8 +365,8 @@ def run_attribute_intent(
     for dimension in dimensions:
         try:
             decompose_result = run_decompose_intent(
-                svc._core_engine,  # type: ignore[arg-type]
-                svc._runtime_ports,  # type: ignore[arg-type]
+                core,
+                ports,
                 session_id,
                 {
                     "compare_ref": {
@@ -598,8 +599,8 @@ def run_attribute_intent(
     }
 
     # ── Step 9: persist bundle as attribute_bundle artifact ───────────────────
-    step_id = svc._new_step_id()
-    artifact_id = svc._insert_artifact(
+    step_id = core.new_step_id()
+    artifact_id = core.insert_artifact(
         session_id, step_id, "attribute_bundle", f"{metric_name}_attribute_bundle", bundle
     )
     bundle["step_ref"] = {
@@ -625,7 +626,7 @@ def run_attribute_intent(
         "derived_logic_version": _DERIVED_LOGIC_VERSION,
         "projection_version": _PROJECTION_VERSION,
     }
-    svc._insert_step(step_id, session_id, "attribute", summary, bundle, provenance=provenance)
+    core.insert_step(step_id, session_id, "attribute", summary, bundle, provenance=provenance)
     return bundle
 
 
