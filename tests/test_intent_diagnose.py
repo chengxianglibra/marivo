@@ -684,13 +684,15 @@ class DiagnoseHourFollowupRegressionTests(unittest.TestCase):
     def test_hour_candidate_followup_reaches_driver_rows_even_if_metric_grain_is_day(self) -> None:
         from app.intents.diagnose import run_diagnose_intent
 
-        core = MagicMock()
-        core.normalize_intent_metric_ref.side_effect = lambda metric: f"metric.{metric}"
-        core.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
-        core.new_step_id.return_value = "step_diag_hour_bundle"
-        core.insert_artifact.return_value = "art_diag_hour_bundle"
-        core.insert_step.return_value = None
-        ports = MagicMock()
+        runtime = MagicMock()
+        runtime.core = MagicMock()
+        runtime.core.normalize_intent_metric_ref.side_effect = lambda metric: f"metric.{metric}"
+        runtime.core.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix(
+            "metric."
+        )
+        runtime.new_step_id.return_value = "step_diag_hour_bundle"
+        runtime.insert_artifact.return_value = "art_diag_hour_bundle"
+        runtime.insert_step.return_value = None
 
         detect_result = {
             "step_ref": {
@@ -788,8 +790,7 @@ class DiagnoseHourFollowupRegressionTests(unittest.TestCase):
             patch("app.intents.diagnose.run_decompose_intent", return_value=decompose_result),
         ):
             bundle = run_diagnose_intent(
-                core,
-                ports,
+                runtime,
                 "sess_diag_hour",
                 {
                     "metric": "trino_elapsed_seconds_p95",

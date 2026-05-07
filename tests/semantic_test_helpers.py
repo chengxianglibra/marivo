@@ -181,13 +181,17 @@ def build_semantic_layer_service(
 
     service = SemanticLayerService(metadata, analytics)
     service.query_router = QueryRouter(metadata, DatasourceService(metadata))
-    # Phase 3b: ensure _core_engine and _runtime_ports are set so migrated
-    # intent runners can access them through the service registration lambdas.
-    # ports is currently unused by migrated runners; a MagicMock suffices for now.
-    if service._core_engine is None:
-        service._core_engine = CoreEngine(service)
-    if service._runtime_ports is None:
-        service._runtime_ports = MagicMock()  # type: ignore[assignment]
+    # Phase 4b-1: ensure _runtime is set so intent runners can access
+    # I/O methods through the service registration lambdas.
+    if service._runtime is None:
+        from app.runtime.ports import RuntimePorts
+
+        ports = MagicMock(spec=RuntimePorts)  # type: ignore[assignment]
+        core = CoreEngine()
+        from app.runtime.runtime import MarivoRuntime
+
+        runtime = MarivoRuntime(ports, core, svc=service)
+        service._runtime = runtime
     return service
 
 
@@ -211,13 +215,12 @@ def build_runtime(
     # For test-only usage, shortcut with MagicMock ports rather than
     # wiring the full adapter stack through create_runtime_from_service.
     ports = MagicMock(spec=RuntimePorts)  # type: ignore[assignment]
-    core = CoreEngine(svc)
+    core = CoreEngine()
     runtime = MarivoRuntime(ports, core, svc=svc)
 
     # Keep svc in sync so intent runners that reach through svc see the
-    # same core/ports as the runtime.
-    svc._core_engine = core
-    svc._runtime_ports = ports
+    # same runtime.
+    svc._runtime = runtime
 
     return runtime
 
