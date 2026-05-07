@@ -12,12 +12,12 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from app.analysis_core.calendar_policy import (
+from app.api.models.base import validate_ref_prefix
+from app.api.models.json_contract import JsonObject, JsonScalar, ScalarMap
+from app.core.semantic.calendar import (
     CalendarPolicyResolutionError,
     validate_calendar_policy_ref,
 )
-from app.api.models.base import validate_ref_prefix
-from app.api.models.json_contract import JsonObject, JsonScalar, ScalarMap
 from app.time_contracts import normalize_hour_boundary
 
 
