@@ -1,3 +1,5 @@
+# DEPRECATED: Pure extraction logic extracted to app.core.evidence.finding_extraction.extract_correlate_findings.
+
 """pairwise_time_series_association artifact → correlation_result finding extractor (Phase 4d-4).
 
 Registered via ``_bootstrap_finding_extractors()`` in

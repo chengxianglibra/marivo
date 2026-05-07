@@ -1,3 +1,6 @@
+# DEPRECATED: Pure computation from this module is extracted to app.core.evidence.finding_extraction.
+# The TypedDict types and registry wiring remain here for backward compatibility.
+
 """Canonical finding types and identity helpers for the evidence pipeline.
 
 This module defines the stable Python type contract for the canonical

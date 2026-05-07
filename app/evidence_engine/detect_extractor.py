@@ -1,3 +1,5 @@
+# DEPRECATED: Pure extraction logic extracted to app.core.evidence.finding_extraction.extract_detect_findings.
+
 """detect artifact → anomaly_candidate finding extractor (Phase 4d-2).
 
 Registered via ``_bootstrap_finding_extractors()`` in

@@ -1,19 +1,20 @@
-# DEPRECATED: Pure computation extracted to app.core.semantic.additivity.
+"""Pure additivity capability derivation for metrics.
 
-"""Shared additivity capability derivation for metrics.
+Extracted from ``app.analysis_core.additivity_capabilities`` as part of
+Phase 3c.  This module is already fully pure -- it reads from a metric
+header dict and returns a capability result.
 
 Single source of truth for deriving analysis capabilities from a metric's
-additivity_constraints.  All consumers (readiness evaluator, compiler
-capability profiles, intent gates) must call ``derive_additivity_capabilities``
-instead of implementing their own logic.
+``additivity_constraints``.  All consumers (readiness evaluator, compiler
+capability profiles, intent gates) must call
+``derive_additivity_capabilities`` instead of implementing their own logic.
 
 Design notes
 ~~~~~~~~~~~~
 - Reads from ``header.additivity_constraints`` (structured object).
 - ``additivity_constraints`` is the single source of truth for metric
   decomposability and time-axis rollup behavior.
-- Missing or empty constraints are fail-closed: we cannot express allowed
-  dimensions, so we do not claim ``supports_decompose``.
+- Missing or empty constraints are fail-closed.
 - ``dimension_policy = "subset"`` with non-empty ``additive_dimensions``
   enables decompose/attribute on those specific dimensions only.
 - ``capability_condition`` indicates when a capability is conditional:
@@ -86,7 +87,7 @@ def derive_additivity_capabilities(
     header:
         The metric header dict.  Must contain at least
         ``additivity_constraints``, ``primary_time_ref``, and ``sample_kind``
-        keys (values may be missing/empty — the function handles that
+        keys (values may be missing/empty -- the function handles that
         gracefully).
     process_anchor_time_ref:
         Optional anchor time ref from an associated process object.
@@ -96,7 +97,7 @@ def derive_additivity_capabilities(
     primary_time_ref = _optional_str(header.get("primary_time_ref"))
     sample_kind = _optional_str(header.get("sample_kind")) or ""
 
-    # ── Parse constraints ──────────────────────────────────────────────────
+    # Parse constraints
     if constraints_raw is None:
         dimension_policy = "none"
         time_axis_policy = "non_additive"
@@ -115,7 +116,6 @@ def derive_additivity_capabilities(
         ad = constraints_raw.get("additive_dimensions")
 
         if dp is None or (isinstance(dp, str) and not dp.strip()):
-            # dimension_policy field is missing or empty
             dimension_policy = "none"
             time_axis_policy = "non_additive"
             additive_dimensions = None
@@ -127,7 +127,6 @@ def derive_additivity_capabilities(
                 "Must be 'all', 'subset', or 'none'."
             )
         elif dp not in ("all", "subset", "none"):
-            # dimension_policy has an unrecognized value
             dimension_policy = "none"
             time_axis_policy = "non_additive"
             additive_dimensions = None
@@ -138,12 +137,10 @@ def derive_additivity_capabilities(
                 f"Unrecognized dimension_policy: {dp!r}. Must be 'all', 'subset', or 'none'."
             )
         else:
-            # dimension_policy is valid
             dimension_policy = str(dp)
             additive_dimensions = ad if isinstance(ad, list) else None
 
             if tap is None or (isinstance(tap, str) and not tap.strip()):
-                # time_axis_policy field is missing or empty
                 time_axis_policy = "non_additive"
                 supports_decompose = False
                 time_rollup_allowed = False
@@ -153,7 +150,6 @@ def derive_additivity_capabilities(
                     "Must be 'additive' or 'non_additive'."
                 )
             elif tap not in ("additive", "non_additive"):
-                # time_axis_policy has an unrecognized value
                 time_axis_policy = "non_additive"
                 supports_decompose = False
                 time_rollup_allowed = False
@@ -162,7 +158,6 @@ def derive_additivity_capabilities(
                     f"Unrecognized time_axis_policy: {tap!r}. Must be 'additive' or 'non_additive'."
                 )
             else:
-                # Both dimension_policy and time_axis_policy are valid
                 time_axis_policy = str(tap)
                 blocker = None
                 remediation_hint = None
@@ -194,14 +189,14 @@ def derive_additivity_capabilities(
         blocker = "ADDITIVITY_CONSTRAINTS_INVALID"
         remediation_hint = "additivity_constraints must be a structured object."
 
-    # ── Composite capabilities ────────────────────────────────────────────
+    # Composite capabilities
     supports_compare = bool(constraints_raw is not None and primary_time_ref)
     supports_attribute = supports_compare and supports_decompose
     supports_test = sample_kind in {"numeric", "rate", "binary"}
     supports_detect = bool(primary_time_ref or process_anchor_time_ref)
     supports_validate = sample_kind == "rate"
 
-    # ── capability_condition ──────────────────────────────────────────────
+    # capability_condition
     capability_condition: str | None = None
     if blocker is None and dimension_policy == "subset":
         capability_condition = "dimension_must_be_allowed"
