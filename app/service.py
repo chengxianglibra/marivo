@@ -254,7 +254,15 @@ class SemanticLayerService:
         self._runtime_ports: RuntimePorts | None = None
         self.step_registry = build_service_step_registry(self)
         self.intent_registry = IntentRunnerRegistry()
-        self.intent_registry.register("observe", lambda sid, p: run_observe_intent(self, sid, p))
+        self.intent_registry.register(
+            "observe",
+            lambda sid, p: run_observe_intent(
+                self._core_engine,  # type: ignore[arg-type]
+                self._runtime_ports,  # type: ignore[arg-type]
+                sid,
+                p,
+            ),
+        )
         self.intent_registry.register("compare", lambda sid, p: run_compare_intent(self, sid, p))
         self.intent_registry.register(
             "correlate",

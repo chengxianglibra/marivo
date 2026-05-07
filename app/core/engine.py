@@ -24,14 +24,27 @@ class CoreEngine:
     def build_step_semantic_metadata(self, *args: Any, **kwargs: Any) -> Any:
         return self._svc.build_step_semantic_metadata(*args, **kwargs)
 
-    # --- Phase 3b: proxies used by migrated intent runners ---
+    def normalize_intent_metric_ref(self, metric_ref: str) -> str:
+        return self._svc.normalize_intent_metric_ref(metric_ref)
+
+    def metric_name_from_ref(self, metric_ref: str) -> str:
+        return self._svc.metric_name_from_ref(metric_ref)
+
+    def resolve_metric_dimensions(self, metric_ref: str) -> list[str] | None:
+        return self._svc.resolve_metric_dimensions(metric_ref)
+
+    def resolve_metric_sql_for_execution(self, *args: Any, **kwargs: Any) -> str:
+        return self._svc.resolve_metric_sql_for_execution(*args, **kwargs)
+
+    def resolve_metric_value_sql_for_execution(self, *args: Any, **kwargs: Any) -> str | None:
+        return self._svc.resolve_metric_value_sql_for_execution(*args, **kwargs)
+
+    # TODO(3c): I/O methods below — move to ports once session_store/evidence_store
+    # adapters support artifact + step persistence.
 
     def new_step_id(self) -> str:
         """Generate a new unique step ID."""
         return self._svc._new_step_id()
-
-    # TODO(3c): I/O methods below — move to ports once session_store/evidence_store
-    # adapters support artifact + step persistence.
 
     def resolve_artifact_for_ref(self, session_id: str, step_id: str) -> dict[str, Any] | None:
         """Return the content of the most recent committed artifact for a step ref."""
@@ -56,3 +69,20 @@ class CoreEngine:
     ) -> tuple[str, dict[str, Any]] | None:
         """Return (artifact_id, artifact_content) for the most recent committed artifact."""
         return self._svc._resolve_artifact_with_id(session_id, step_id)
+
+    # TODO(3c): I/O methods — engine resolution and query building.
+
+    def resolve_engine_for_session(self, *args: Any, **kwargs: Any) -> Any:
+        return self._svc._resolve_engine_for_session(*args, **kwargs)
+
+    def resolve_engine(self, *args: Any, **kwargs: Any) -> Any:
+        return self._svc._resolve_engine(*args, **kwargs)
+
+    def resolve_windowed_query_time_axis(self, *args: Any, **kwargs: Any) -> None:
+        return self._svc._resolve_windowed_query_time_axis(*args, **kwargs)
+
+    def build_scoped_query(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        return self._svc._build_scoped_query(*args, **kwargs)
+
+    def make_provenance(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        return self._svc._make_provenance(*args, **kwargs)

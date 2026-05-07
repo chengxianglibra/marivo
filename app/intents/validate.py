@@ -142,7 +142,8 @@ def run_validate_intent(
     # ── Step 1: observe left ───────────────────────────────────────────────────
     try:
         left_obs = run_observe_intent(
-            svc,
+            svc._core_engine,  # type: ignore[arg-type]
+            svc._runtime_ports,  # type: ignore[arg-type]
             session_id,
             {
                 "metric": metric_ref,
@@ -162,7 +163,8 @@ def run_validate_intent(
     # ── Step 2: observe right ──────────────────────────────────────────────────
     try:
         right_obs = run_observe_intent(
-            svc,
+            svc._core_engine,  # type: ignore[arg-type]
+            svc._runtime_ports,  # type: ignore[arg-type]
             session_id,
             {
                 "metric": metric_ref,
