@@ -1,3 +1,5 @@
+# DEPRECATED: Pure extraction logic extracted to app.core.evidence.finding_extraction.extract_forecast_findings.
+
 """forecast_series artifact → forecast_point finding extractor (Phase 4d-4).
 
 Registered via ``_bootstrap_finding_extractors()`` in

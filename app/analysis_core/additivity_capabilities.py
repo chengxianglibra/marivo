@@ -1,3 +1,5 @@
+# DEPRECATED: Pure computation extracted to app.core.semantic.additivity.
+
 """Shared additivity capability derivation for metrics.
 
 Single source of truth for deriving analysis capabilities from a metric's

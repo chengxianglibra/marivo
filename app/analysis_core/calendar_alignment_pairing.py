@@ -1,3 +1,5 @@
+# DEPRECATED: Pure computation extracted to app.core.semantic.calendar.
+
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence

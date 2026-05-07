@@ -1,3 +1,5 @@
+# DEPRECATED: Pure seeding logic extracted to app.core.evidence.proposition_seeding.
+
 """Proposition seeding run orchestration for the evidence pipeline (Phase 4e-3).
 
 Implements the seeding run contract described in

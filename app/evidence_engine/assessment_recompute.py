@@ -1,3 +1,5 @@
+# DEPRECATED: Pure assessment logic extracted to app.core.evidence.assessment.
+
 """Assessment Recompute Runtime (Phase 4f-2).
 
 Implements the 9-step evaluation pipeline that consumes an

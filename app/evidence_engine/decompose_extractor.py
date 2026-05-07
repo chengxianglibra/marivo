@@ -1,3 +1,5 @@
+# DEPRECATED: Pure extraction logic extracted to app.core.evidence.finding_extraction.extract_decompose_findings.
+
 """delta_decomposition artifact → decomposition_item finding extractor (Phase 4d-3).
 
 Registered via ``_bootstrap_finding_extractors()`` in

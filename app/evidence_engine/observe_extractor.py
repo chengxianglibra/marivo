@@ -1,3 +1,5 @@
+# DEPRECATED: Pure extraction logic extracted to app.core.evidence.finding_extraction.extract_observe_findings.
+
 """observe artifact → observation finding extractor (Phase 4d-1).
 
 Registered via ``_bootstrap_finding_extractors()`` in
