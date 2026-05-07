@@ -17,6 +17,7 @@ from datetime import date as _date
 from typing import TYPE_CHECKING, Any
 
 from app.core.intent.primitives import new_step_id
+from app.intents._helpers import commit_step_result
 
 if TYPE_CHECKING:
     from app.runtime.runtime import MarivoRuntime
@@ -420,34 +421,23 @@ def run_forecast_intent(
         f"horizon={horizon}: {len(forecast_buckets)} future bucket(s)"
     )
 
-    artifact_id = runtime.commit_artifact_with_extraction(
-        session_id,
-        step_id,
-        "forecast_series",
-        artifact_name,
-        artifact,
-        step_type="forecast",
-    )
-
-    result: dict[str, Any] = {
-        "intent_type": "forecast",
-        "step_type": "forecast",
-        "step_ref": {
-            "session_id": session_id,
-            "step_id": step_id,
-            "step_type": "forecast",
-        },
-        "artifact_id": artifact_id,
-        **artifact,
-    }
-
     provenance: dict[str, Any] = {
         "query_hash": query_hash,
         "engine": "none",
         "timestamp": now,
         "param_count": 0,
     }
-    runtime.insert_step(step_id, session_id, "forecast", summary, result, provenance=provenance)
+    result = commit_step_result(
+        runtime,
+        session_id,
+        step_id,
+        "forecast",
+        "forecast_series",
+        artifact_name,
+        artifact,
+        summary,
+        provenance=provenance,
+    )
     return result
 
 
