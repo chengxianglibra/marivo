@@ -2181,8 +2181,16 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
 class TestDecomposeRunnerCommitPath(unittest.TestCase):
     """run_decompose_intent must call _commit_artifact_with_extraction(step_type='decompose')."""
 
+    def _make_core_and_ports(self) -> tuple[MagicMock, MagicMock]:
+        core = MagicMock()
+        ports = MagicMock()
+        core.new_step_id.return_value = "step_4c2_001"
+        core.commit_artifact_with_extraction.return_value = _FAKE_ARTIFACT_ID
+        core.insert_step.return_value = None
+        return core, ports
+
     def _run_decompose(
-        self, svc: MagicMock, compare_artifact: dict[str, Any] | None = None
+        self, core: MagicMock, ports: MagicMock, compare_artifact: dict[str, Any] | None = None
     ) -> dict[str, Any]:
         from app.intents.decompose import run_decompose_intent
 
@@ -2215,8 +2223,8 @@ class TestDecomposeRunnerCommitPath(unittest.TestCase):
                     "right_scope": {},
                 },
             }
-        svc._resolve_artifact_for_ref.return_value = compare_artifact
-        svc._resolve_artifact_id_for_step.return_value = "art_fake_ref001"
+        core.resolve_artifact_for_ref.return_value = compare_artifact
+        core.resolve_artifact_id_for_step.return_value = "art_fake_ref001"
 
         # Configure resolved_metric with real values so validation passes
         resolved_metric = MagicMock()
@@ -2229,20 +2237,20 @@ class TestDecomposeRunnerCommitPath(unittest.TestCase):
         resolved_metric.allowed_dimensions = ["dim1"]
         resolved_metric.dimensions = ["dim1"]
         resolved_metric.grain = "day"
-        svc.semantic_repository.resolve_metric.return_value = resolved_metric
-        svc.resolve_metric_dimensions.return_value = ["dim1"]
-        svc.resolve_metric_sql_for_execution.return_value = "SUM(val)"
+        core.resolve_metric.return_value = resolved_metric
+        core.resolve_metric_dimensions.return_value = ["dim1"]
+        core.resolve_metric_sql_for_execution.return_value = "SUM(val)"
 
-        svc._resolve_metric_table.return_value = "src.metrics"
-        svc._resolve_engine.return_value = (
+        core.resolve_metric_table.return_value = "src.metrics"
+        core.resolve_engine.return_value = (
             MagicMock(),
             "duckdb",
             {"metrics": "src.metrics"},
         )
 
         # _run_segmented_query calls _compile_step_with_feedback + execute_compiled
-        svc._compile_step_with_feedback.return_value = _make_compiled_mock()
-        svc._build_scoped_query.return_value = None
+        core.compile_step.return_value = _make_compiled_mock()
+        core.build_scoped_query.return_value = None
 
         params = {
             "compare_ref": {"step_id": "step_compare", "session_id": _SESSION},
@@ -2255,29 +2263,30 @@ class TestDecomposeRunnerCommitPath(unittest.TestCase):
             mock_result.rows = [{"dim1": "segment_a", "current_value": 50.0}]
             mock_result.metadata.get.return_value = None
             mock_exec.return_value = mock_result
-            return run_decompose_intent(svc, _SESSION, params)
+            return run_decompose_intent(core, ports, _SESSION, params)
 
     def test_decompose_calls_commit_artifact_with_extraction(self) -> None:
-        svc = _make_svc()
-        self._run_decompose(svc)
-        svc._commit_artifact_with_extraction.assert_called_once()
+        core, ports = self._make_core_and_ports()
+        self._run_decompose(core, ports)
+        core.commit_artifact_with_extraction.assert_called_once()
 
     def test_decompose_passes_step_type_decompose(self) -> None:
-        svc = _make_svc()
-        self._run_decompose(svc)
-        _, kwargs = svc._commit_artifact_with_extraction.call_args
+        core, ports = self._make_core_and_ports()
+        self._run_decompose(core, ports)
+        _, kwargs = core.commit_artifact_with_extraction.call_args
         self.assertEqual(kwargs.get("step_type"), "decompose")
 
     def test_decompose_artifact_type_is_delta_decomposition(self) -> None:
-        svc = _make_svc()
-        self._run_decompose(svc)
-        args, _ = svc._commit_artifact_with_extraction.call_args
+        core, ports = self._make_core_and_ports()
+        self._run_decompose(core, ports)
+        args, _ = core.commit_artifact_with_extraction.call_args
         self.assertEqual(args[2], "delta_decomposition")
 
     def test_decompose_time_series_delta_commits_summary_delta_decomposition(self) -> None:
-        svc = _make_svc()
+        core, ports = self._make_core_and_ports()
         result = self._run_decompose(
-            svc,
+            core,
+            ports,
             {
                 "comparison_type": "time_series_delta",
                 "metric": "m1",

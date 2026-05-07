@@ -364,7 +364,8 @@ def run_attribute_intent(
     for dimension in dimensions:
         try:
             decompose_result = run_decompose_intent(
-                svc,
+                svc._core_engine,  # type: ignore[arg-type]
+                svc._runtime_ports,  # type: ignore[arg-type]
                 session_id,
                 {
                     "compare_ref": {

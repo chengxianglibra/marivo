@@ -12,13 +12,14 @@ from app.execution.errors import ExecutionError
 from app.time_scope import normalize_metric_query_request
 
 if TYPE_CHECKING:
-    from app.service import SemanticLayerService
+    from app.core.engine import CoreEngine
+    from app.runtime.ports import RuntimePorts
 
 _FLAT_TOLERANCE_RELATIVE = 0.01
 
 
 def run_decompose_intent(
-    svc: SemanticLayerService, session_id: str, params: dict[str, Any] | None
+    core: CoreEngine, ports: RuntimePorts, session_id: str, params: dict[str, Any] | None
 ) -> dict[str, Any]:
     """Execute a `decompose` intent: attribute a compare delta across a dimension.
 
@@ -65,7 +66,7 @@ def run_decompose_intent(
         )
 
     # ── Resolve compare artifact ──────────────────────────────────────────────
-    compare_artifact = svc._resolve_artifact_for_ref(compare_session_id, compare_step_id)
+    compare_artifact = core.resolve_artifact_for_ref(compare_session_id, compare_step_id)
     if compare_artifact is None:
         raise ValueError(
             f"decompose: STEP_NOT_FOUND - no committed artifact for step '{compare_step_id}'"
@@ -114,14 +115,14 @@ def run_decompose_intent(
         constraints_for_gate = frozen_additivity_constraints
         gate_source = "compare_artifact_lineage"
     else:
-        resolved_metric = svc.semantic_repository.resolve_metric(metric_name)
+        resolved_metric = core.resolve_metric(metric_name)
         if resolved_metric is None:
             raise ValueError(f"decompose: metric '{metric_name}' not found or not published")
         constraints_for_gate = resolved_metric.additivity_constraints or {}
         gate_source = "current_metric_state"
 
     # Resolve metric for primary_time_ref and sample_kind needed by capability derivation
-    resolved_metric = svc.semantic_repository.resolve_metric(metric_name)
+    resolved_metric = core.resolve_metric(metric_name)
     if resolved_metric is None:
         raise ValueError(f"decompose: metric '{metric_name}' not found or not published")
 
@@ -202,11 +203,11 @@ def run_decompose_intent(
 
     # Resolve metric for dimension validation (dimensions are runtime state, not frozen)
     # resolved_metric already loaded above; re-resolve for fresh dimension state
-    resolved_metric = svc.semantic_repository.resolve_metric(metric_name)
+    resolved_metric = core.resolve_metric(metric_name)
     if resolved_metric is None:
         raise ValueError(f"decompose: metric '{metric_name}' not found or not published")
 
-    runtime_dimensions = svc.resolve_metric_dimensions(metric_name) or []
+    runtime_dimensions = core.resolve_metric_dimensions(metric_name) or []
     valid_dimensions = (
         runtime_dimensions or resolved_metric.allowed_dimensions or list(resolved_metric.dimensions)
     )
@@ -225,30 +226,30 @@ def run_decompose_intent(
         fallback_grain=resolved_metric.grain,
     )
 
-    table = svc._resolve_metric_table(metric_name, session_id=session_id)
+    table = core.resolve_metric_table(metric_name, session_id=session_id)
     if table is None:
         raise ValueError(f"decompose: metric '{metric_name}' has no source table mapping")
 
     # ── Engine resolution ─────────────────────────────────────────────────────
-    engine_resolution = svc._resolve_engine_for_session(session_id, [table])
+    engine_resolution = core.resolve_engine_for_session(session_id, [table])
     if not isinstance(engine_resolution, tuple) or len(engine_resolution) != 3:
-        engine_resolution = svc._resolve_engine([table])
+        engine_resolution = core.resolve_engine([table])
     engine, engine_type, qualified = engine_resolution
-    metric_sql = svc.resolve_metric_sql_for_execution(metric_name, engine_type=engine_type)
+    metric_sql = core.resolve_metric_sql_for_execution(metric_name, engine_type=engine_type)
     qualified_table = qualified.get(table, table)
 
     # ── Fetch artifact IDs for canonical refs ─────────────────────────────────
-    compare_artifact_id: str | None = svc._resolve_artifact_id_for_step(session_id, compare_step_id)
-    left_obs_artifact_id: str | None = svc._resolve_artifact_id_for_step(
+    compare_artifact_id: str | None = core.resolve_artifact_id_for_step(session_id, compare_step_id)
+    left_obs_artifact_id: str | None = core.resolve_artifact_id_for_step(
         session_id, left_obs_step_id
     )
-    right_obs_artifact_id: str | None = svc._resolve_artifact_id_for_step(
+    right_obs_artifact_id: str | None = core.resolve_artifact_id_for_step(
         session_id, right_obs_step_id
     )
 
     # ── Execute segmented queries for left and right scopes ───────────────────
     left_rows, left_query_hash = _run_segmented_query(
-        svc,
+        core,
         session_id,
         metric_name,
         metric_sql,
@@ -262,7 +263,7 @@ def run_decompose_intent(
         compare_grain,
     )
     right_rows, _ = _run_segmented_query(
-        svc,
+        core,
         session_id,
         metric_name,
         metric_sql,
@@ -403,7 +404,7 @@ def run_decompose_intent(
     )
 
     # ── Build artifact ────────────────────────────────────────────────────────
-    step_id = svc._new_step_id()
+    step_id = core.new_step_id()
 
     left_ref_out: dict[str, Any] = {
         "step_type": "observe",
@@ -504,7 +505,7 @@ def run_decompose_intent(
         f"(scope Δ {scope_absolute_delta if scope_absolute_delta is not None else 'n/a'})"
     )
 
-    artifact_id = svc._commit_artifact_with_extraction(
+    artifact_id = core.commit_artifact_with_extraction(
         session_id,
         step_id,
         "delta_decomposition",
@@ -528,7 +529,7 @@ def run_decompose_intent(
         "dimension": dimension,
         "method": method,
     }
-    svc._insert_step(step_id, session_id, "decompose", summary, result, provenance=provenance)
+    core.insert_step(step_id, session_id, "decompose", summary, result, provenance=provenance)
     return result
 
 
@@ -607,7 +608,7 @@ def _normalize_decompose_compare_input(compare_artifact: dict[str, Any]) -> dict
 
 
 def _run_segmented_query(
-    svc: SemanticLayerService,
+    core: CoreEngine,
     session_id: str,
     metric_name: str,
     metric_sql: str,
@@ -640,14 +641,14 @@ def _run_segmented_query(
         mq_params["scope"] = scope
 
     resolved = normalize_metric_query_request(mq_params)
-    svc._resolve_windowed_query_time_axis(
+    core.resolve_windowed_query_time_axis(
         resolved,
         engine_type=engine_type,
         metric_name=metric_name,
         fallback_columns=all_dimensions,
     )
-    scoped_query = svc._build_scoped_query(session_id, resolved, engine_type=engine_type)
-    compiled_query = svc._compile_step_with_feedback(
+    scoped_query = core.build_scoped_query(session_id, resolved, engine_type=engine_type)
+    compiled_query = core.compile_step(
         AnalysisStepIR(
             index=0,
             step_type="metric_query",
