@@ -2499,11 +2499,20 @@ class TestForecastRunnerCommitPath(unittest.TestCase):
             ],
         }
 
-    def _run_forecast(self, svc: MagicMock) -> dict[str, Any]:
+    def _make_core_and_ports(self) -> tuple[MagicMock, MagicMock]:
+        core = MagicMock()
+        ports = MagicMock()
+        artifact_id = "art_ts001"
+        core.resolve_artifact_with_id.return_value = (artifact_id, self._make_ts_artifact())
+        core.new_step_id.return_value = "step_4c2_001"
+        core.commit_artifact_with_extraction.return_value = _FAKE_ARTIFACT_ID
+        core.insert_step.return_value = None
+        return core, ports
+
+    def _run_forecast(self, core: MagicMock, ports: MagicMock) -> dict[str, Any]:
         from app.intents.forecast import run_forecast_intent
 
         artifact_id = "art_ts001"
-        svc._resolve_artifact_with_id.return_value = (artifact_id, self._make_ts_artifact())
         params = {
             "source_ref": {
                 "step_id": "step_obs",
@@ -2514,21 +2523,21 @@ class TestForecastRunnerCommitPath(unittest.TestCase):
             },
             "horizon": 3,
         }
-        return run_forecast_intent(svc, _SESSION, params)
+        return run_forecast_intent(core, ports, _SESSION, params)
 
     def test_forecast_calls_commit_artifact_with_extraction(self) -> None:
-        svc = _make_svc()
-        self._run_forecast(svc)
-        svc._commit_artifact_with_extraction.assert_called_once()
+        core, ports = self._make_core_and_ports()
+        self._run_forecast(core, ports)
+        core.commit_artifact_with_extraction.assert_called_once()
 
     def test_forecast_passes_step_type_forecast(self) -> None:
-        svc = _make_svc()
-        self._run_forecast(svc)
-        _, kwargs = svc._commit_artifact_with_extraction.call_args
+        core, ports = self._make_core_and_ports()
+        self._run_forecast(core, ports)
+        _, kwargs = core.commit_artifact_with_extraction.call_args
         self.assertEqual(kwargs.get("step_type"), "forecast")
 
     def test_forecast_artifact_type_is_forecast_series(self) -> None:
-        svc = _make_svc()
-        self._run_forecast(svc)
-        args, _ = svc._commit_artifact_with_extraction.call_args
+        core, ports = self._make_core_and_ports()
+        self._run_forecast(core, ports)
+        args, _ = core.commit_artifact_with_extraction.call_args
         self.assertEqual(args[2], "forecast_series")

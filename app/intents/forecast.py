@@ -17,7 +17,8 @@ from datetime import date as _date
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from app.service import SemanticLayerService
+    from app.core.engine import CoreEngine
+    from app.runtime.ports import RuntimePorts
 
 _VALID_PROFILES: frozenset[str] = frozenset(
     {"auto", "level", "trend", "seasonal", "seasonal_trend"}
@@ -109,7 +110,7 @@ def _generate_future_windows(
 
 
 def run_forecast_intent(
-    svc: SemanticLayerService, session_id: str, params: dict[str, Any] | None
+    core: CoreEngine, ports: RuntimePorts, session_id: str, params: dict[str, Any] | None
 ) -> dict[str, Any]:
     """Execute a `forecast` intent: project a time-series into future buckets.
 
@@ -189,7 +190,7 @@ def run_forecast_intent(
             )
 
     # ── Resolve source artifact ────────────────────────────────────────────────
-    resolved = svc._resolve_artifact_with_id(session_id, src_step_id)
+    resolved = core.resolve_artifact_with_id(session_id, src_step_id)
     if resolved is None:
         raise ValueError(
             f"forecast: STEP_NOT_FOUND - no committed artifact for source_ref step '{src_step_id}'"
@@ -355,7 +356,7 @@ def run_forecast_intent(
         raise ValueError("forecast: no forecast buckets produced; cannot commit empty artifact")
 
     # ── Build artifact ─────────────────────────────────────────────────────────
-    step_id = svc._new_step_id()
+    step_id = core.new_step_id()
 
     _hash_input = f"{resolved_artifact_id}:{profile}:{granularity}:{horizon}"
     query_hash = hashlib.sha256(_hash_input.encode()).hexdigest()[:16]
@@ -418,7 +419,7 @@ def run_forecast_intent(
         f"horizon={horizon}: {len(forecast_buckets)} future bucket(s)"
     )
 
-    artifact_id = svc._commit_artifact_with_extraction(
+    artifact_id = core.commit_artifact_with_extraction(
         session_id,
         step_id,
         "forecast_series",
@@ -445,7 +446,7 @@ def run_forecast_intent(
         "timestamp": now,
         "param_count": 0,
     }
-    svc._insert_step(step_id, session_id, "forecast", summary, result, provenance=provenance)
+    core.insert_step(step_id, session_id, "forecast", summary, result, provenance=provenance)
     return result
 
 

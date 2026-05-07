@@ -48,3 +48,11 @@ class CoreEngine:
     def insert_step(self, *args: Any, **kwargs: Any) -> None:
         """Insert a step record into the session."""
         return self._svc._insert_step(*args, **kwargs)
+
+    # TODO(3c): I/O method — returns (artifact_id, artifact) tuple.
+
+    def resolve_artifact_with_id(
+        self, session_id: str, step_id: str
+    ) -> tuple[str, dict[str, Any]] | None:
+        """Return (artifact_id, artifact_content) for the most recent committed artifact."""
+        return self._svc._resolve_artifact_with_id(session_id, step_id)
