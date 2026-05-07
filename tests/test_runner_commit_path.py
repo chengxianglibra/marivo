@@ -16,23 +16,12 @@ import unittest
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-from app.service import SemanticLayerService
 from app.time_scope import ResolvedTimeAxis
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
 _SESSION = "sess_4c2_test"
 _FAKE_ARTIFACT_ID = "art_fake4c2001"
-
-
-def _make_svc() -> MagicMock:
-    """Return a MagicMock svc with sensible defaults for common svc methods."""
-    svc = MagicMock()
-    svc._new_step_id.return_value = "step_4c2_001"
-    svc._commit_artifact_with_extraction.return_value = _FAKE_ARTIFACT_ID
-    svc._insert_step.return_value = None
-    svc._make_provenance.return_value = {"query_hash": "testhash"}
-    return svc
 
 
 def _make_compiled_mock() -> MagicMock:
@@ -507,17 +496,8 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
             "current": {"start": "2026-04-01", "end": "2026-04-08"},
         }
         core.compile_step.return_value = _make_compiled_mock_with_holiday_only_calendar_alignment()
-        # Create a minimal real-ish svc mock so the real build_step_semantic_metadata
-        # and _build_calendar_policy_binding can execute through the core proxy.
-        svc_for_meta = _make_svc()
-        svc_for_meta._build_calendar_policy_binding.side_effect = (
-            SemanticLayerService._build_calendar_policy_binding
-        )
-        core.build_step_semantic_metadata.side_effect = (
-            SemanticLayerService.build_step_semantic_metadata.__get__(
-                svc_for_meta, SemanticLayerService
-            )
-        )
+        # build_step_semantic_metadata is now a pure function imported directly
+        # by observe.py from app.core.semantic.step_metadata; no proxy needed.
 
         with patch("app.intents.observe.execute_compiled") as mock_exec:
             mock_exec.return_value.rows = [{"current_value": 42.0}]

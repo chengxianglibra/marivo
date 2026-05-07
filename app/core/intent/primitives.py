@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import hashlib
+from datetime import UTC, datetime
+from typing import Any
+from uuid import uuid4
+
 INTENT_TAXONOMY: dict[str, dict[str, str]] = {
     "observe": {
         "category": "atomic",
@@ -137,3 +142,35 @@ SUPPORTED_STEP_TYPES = COMPOSITE_STEP_TYPES + PRIMITIVE_STEP_TYPES
 
 def step_category_for(step_type: str) -> str:
     return str(STEP_TAXONOMY.get(step_type, {}).get("category", "primitive"))
+
+
+# ── Pure step helpers ───────────────────────────────────────────────────
+
+
+def new_step_id() -> str:
+    """Generate a new unique step ID."""
+    return f"step_{uuid4().hex[:12]}"
+
+
+def make_provenance(
+    sql: str = "",
+    params: list[Any] | None = None,
+    engine_type: str = "duckdb",
+    routing: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build a provenance token for a step execution.
+
+    *routing* is an optional dict of routing feedback context.  When the
+    caller is the service layer, it passes ``self._routing_feedback_context``
+    so that the routing metadata is preserved in the provenance record.
+    """
+    query_hash = hashlib.sha256(sql.encode()).hexdigest()[:16] if sql else ""
+    provenance: dict[str, Any] = {
+        "query_hash": query_hash,
+        "engine": engine_type,
+        "timestamp": datetime.now(UTC).isoformat(),
+        "param_count": len(params) if params else 0,
+    }
+    if routing:
+        provenance["routing"] = dict(routing)
+    return provenance

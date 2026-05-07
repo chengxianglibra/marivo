@@ -18,6 +18,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
+from app.core.intent.primitives import new_step_id
 from app.intents.observe import run_observe_intent
 from app.intents.test import run_test_intent
 
@@ -282,7 +283,7 @@ def run_validate_intent(
 
     # ── Step 7: assemble validation_bundle ────────────────────────────────────
     now = datetime.now(UTC).isoformat()
-    step_id = core.new_step_id()
+    step_id = new_step_id()
 
     left_resolved: dict[str, Any] = {
         "time_scope": left_obs.get("time_scope") or left_time_scope,

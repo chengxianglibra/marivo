@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from app.analysis_core.additivity_capabilities import derive_additivity_capabilities
+from app.core.intent.primitives import new_step_id
 from app.execution.errors import ExecutionError
 from app.intents.compare import run_compare_intent
 from app.intents.decompose import run_decompose_intent
@@ -599,7 +600,7 @@ def run_attribute_intent(
     }
 
     # ── Step 9: persist bundle as attribute_bundle artifact ───────────────────
-    step_id = core.new_step_id()
+    step_id = new_step_id()
     artifact_id = core.insert_artifact(
         session_id, step_id, "attribute_bundle", f"{metric_name}_attribute_bundle", bundle
     )
