@@ -263,7 +263,15 @@ class SemanticLayerService:
                 p,
             ),
         )
-        self.intent_registry.register("compare", lambda sid, p: run_compare_intent(self, sid, p))
+        self.intent_registry.register(
+            "compare",
+            lambda sid, p: run_compare_intent(
+                self._core_engine,  # type: ignore[arg-type]
+                self._runtime_ports,  # type: ignore[arg-type]
+                sid,
+                p,
+            ),
+        )
         self.intent_registry.register(
             "correlate",
             lambda sid, p: run_correlate_intent(

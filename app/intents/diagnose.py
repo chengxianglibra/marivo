@@ -652,7 +652,8 @@ def _follow_up_candidate(
     if both_obs_ok:
         try:
             compare_result = run_compare_intent(
-                svc,
+                svc._core_engine,  # type: ignore[arg-type]
+                svc._runtime_ports,  # type: ignore[arg-type]
                 session_id,
                 {
                     "left_ref": {
