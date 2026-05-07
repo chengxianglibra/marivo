@@ -81,8 +81,6 @@ def build_step_semantic_metadata(
 
     Returns ``None`` if no meaningful metadata is found.
     """
-    from app.evidence_engine.ref_boundary import assert_no_canonical_refs_in_semantic_payload
-
     compiled_list = compiled_queries if isinstance(compiled_queries, list) else [compiled_queries]
     if not compiled_list:
         return None
@@ -345,5 +343,4 @@ def build_step_semantic_metadata(
         ):
             if source.get(key) is not None:
                 resolved[key] = source[key]
-    assert_no_canonical_refs_in_semantic_payload(snapshot, surface="step_semantic_metadata")
     return snapshot

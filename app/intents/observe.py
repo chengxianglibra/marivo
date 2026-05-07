@@ -13,6 +13,7 @@ from app.analysis_core.executor import execute_compiled
 from app.analysis_core.ir import AnalysisStepIR
 from app.core.intent.primitives import make_provenance, new_step_id
 from app.core.semantic.step_metadata import build_step_semantic_metadata
+from app.evidence_engine.ref_boundary import assert_no_canonical_refs_in_semantic_payload
 from app.intents._helpers import commit_step_result
 from app.intents.calendar_alignment_metadata import normalize_resolved_policy_summary
 from app.time_contracts import TimeGrain, bucket_window, normalize_hour_boundary
@@ -20,6 +21,14 @@ from app.time_scope import normalize_metric_query_request
 
 if TYPE_CHECKING:
     from app.runtime.runtime import MarivoRuntime
+
+
+def _build_step_metadata(compiled_queries: Any) -> dict[str, Any] | None:
+    result = build_step_semantic_metadata(compiled_queries)
+    if result is not None:
+        assert_no_canonical_refs_in_semantic_payload(result, surface="step_semantic_metadata")
+    return result
+
 
 _VALID_GRANULARITIES: frozenset[str] = frozenset({"hour", "day", "week", "month"})
 
@@ -697,7 +706,7 @@ def run_observe_intent(
             observation_ns,
             summary_ns,
             provenance=provenance,
-            semantic_metadata=build_step_semantic_metadata(compiled_query),
+            semantic_metadata=_build_step_metadata(compiled_query),
         )
         return result_ns
 
@@ -800,7 +809,7 @@ def run_observe_intent(
             observation_rs,
             summary_rs,
             provenance=provenance,
-            semantic_metadata=build_step_semantic_metadata(compiled_query),
+            semantic_metadata=_build_step_metadata(compiled_query),
         )
         return result_rs
 
