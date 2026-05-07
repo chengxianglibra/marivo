@@ -1,3 +1,4 @@
+# DEPRECATED: use app.core.intent.step_registry
 from __future__ import annotations
 
 from collections.abc import Callable
