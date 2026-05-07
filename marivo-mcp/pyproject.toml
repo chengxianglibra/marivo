@@ -19,6 +19,9 @@ marivo-mcp-smoke = "marivo_mcp.smoke:main"
 requires = ["setuptools>=68.0"]
 build-backend = "setuptools.build_meta"
 
+[project.optional-dependencies]
+local = ["marivo[duckdb]"]
+
 [tool.setuptools.package-dir]
 "" = "src"
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
 from marivo_mcp.config import MarivoMcpConfig, MarivoMcpConfigError, load_config_from_env
 from marivo_mcp.diagnostics import emit_diagnostic
@@ -30,6 +31,11 @@ def build_server_with_config(config: object) -> FastMcpServer:
     )
     server.settings.host = typed_config.http.host
     server.settings.port = typed_config.http.port
+    if _should_embed(typed_config):
+        # Embedded mode: use EmbeddedBackend instead of HTTP client.
+        # The backend is attached as server state; tools/resources still
+        # register normally but use the embedded path at call time.
+        server._marivo_embedded_backend = _create_embedded_backend(typed_config)  # type: ignore[attr-defined]
     if _should_defer_target_resolution(typed_config):
         register_tools(server, typed_config, client_factory=ResolvingMarivoHttpClient)
         register_resources(server, typed_config, client_factory=ResolvingMarivoHttpClient)
@@ -102,3 +108,36 @@ def _resolve_startup_config(config: MarivoMcpConfig) -> MarivoMcpConfig:
 
 def _should_defer_target_resolution(config: MarivoMcpConfig) -> bool:
     return config.transport == "stdio" and config.mode != "remote" and config.base_url is None
+
+
+def _should_embed(config: MarivoMcpConfig) -> bool:
+    """Determine if we should create an embedded runtime."""
+    if config.mode == "remote":
+        return False
+    if config.mode == "local" and config.embedded:
+        return True
+    if config.mode == "auto":
+        workspace = config.workspace_root
+        if workspace:
+            return (Path(workspace) / ".marivo" / "marivo.toml").is_file()
+        return (Path.cwd() / ".marivo" / "marivo.toml").is_file()
+    return False
+
+
+def _create_embedded_backend(config: MarivoMcpConfig) -> object:
+    """Lazy import + create embedded backend."""
+    try:
+        from app.profiles.local import LocalConfig, create_local_runtime
+        from app.transports.mcp.backend import EmbeddedBackend
+
+        workspace_root = Path(config.workspace_root) if config.workspace_root else Path.cwd()
+        local_config = LocalConfig(workspace_root=workspace_root)
+        runtime = create_local_runtime(local_config, explicit_local=True)
+        session_id = runtime.create_session(goal="MCP session")
+        backend = EmbeddedBackend(runtime)
+        backend._default_session_id = session_id
+        return backend
+    except ImportError as e:
+        raise RuntimeError(
+            f"Embedded mode requires marivo-mcp[local]: pip install marivo-mcp[local]\n{e}"
+        ) from e
