@@ -205,7 +205,8 @@ def run_validate_intent(
     # ── Step 3: test ──────────────────────────────────────────────────────────
     try:
         test_result = run_test_intent(
-            svc,
+            svc._core_engine,  # type: ignore[arg-type]
+            svc._runtime_ports,  # type: ignore[arg-type]
             session_id,
             {
                 "left_ref": left_obs_ref,

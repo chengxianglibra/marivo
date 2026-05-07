@@ -269,7 +269,15 @@ class SemanticLayerService:
             "decompose", lambda sid, p: run_decompose_intent(self, sid, p)
         )
         self.intent_registry.register("detect", lambda sid, p: run_detect_intent(self, sid, p))
-        self.intent_registry.register("test", lambda sid, p: run_test_intent(self, sid, p))
+        self.intent_registry.register(
+            "test",
+            lambda sid, p: run_test_intent(
+                self._core_engine,  # type: ignore[arg-type]
+                self._runtime_ports,  # type: ignore[arg-type]
+                sid,
+                p,
+            ),
+        )
         self.intent_registry.register(
             "forecast",
             lambda sid, p: run_forecast_intent(
