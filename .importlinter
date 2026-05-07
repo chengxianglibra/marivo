@@ -65,3 +65,28 @@ forbidden_modules =
     app.adapters
     app.cli
     app.ports
+    app.service
+
+[importlinter:contract:runtime-must-use-core]
+name = runtime/ must use core/ for domain logic
+type = forbidden
+source_modules =
+    app.runtime
+forbidden_modules =
+    app.analysis_core
+    app.evidence_engine
+
+[importlinter:contract:surfaces-must-use-runtime]
+name = api/ and cli/ must go through runtime
+type = forbidden
+source_modules =
+    app.api
+    app.cli
+forbidden_modules =
+    app.analysis_core
+    app.evidence_engine
+    app.semantic_runtime
+ignore_imports =
+    app.api.app_factory -> app.service
+    app.api.deps -> app.service
+    app.api.sessions -> app.runtime

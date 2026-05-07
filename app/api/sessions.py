@@ -43,7 +43,7 @@ from app.api.models import (
     ValidateResponse,
 )
 from app.execution.errors import ExecutionError
-from app.semantic_runtime.errors import SemanticRuntimeNotReadyError
+from app.runtime import SemanticRuntimeNotReadyError
 
 router = APIRouter()
 
