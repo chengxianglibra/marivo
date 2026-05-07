@@ -19,7 +19,8 @@ from app.intents.calendar_alignment_metadata import resolve_calendar_alignment_r
 from app.intents.predicate_lineage_reuse import resolve_predicate_lineage_reuse_for_intent
 
 if TYPE_CHECKING:
-    from app.service import SemanticLayerService
+    from app.core.engine import CoreEngine
+    from app.runtime.ports import RuntimePorts
 
 _VALID_OBS_TYPES: frozenset[str] = frozenset({"numeric_sample_summary", "rate_sample_summary"})
 _VALID_ALTERNATIVES: frozenset[str] = frozenset({"two_sided", "greater", "less"})
@@ -127,7 +128,7 @@ def _p_value_from_z(z: float, alternative: str) -> float:
 
 
 def run_test_intent(
-    svc: SemanticLayerService, session_id: str, params: dict[str, Any] | None
+    core: CoreEngine, ports: RuntimePorts, session_id: str, params: dict[str, Any] | None
 ) -> dict[str, Any]:
     """Execute a `test` intent: evaluate a typed statistical hypothesis.
 
@@ -206,14 +207,14 @@ def run_test_intent(
         )
 
     # ── Resolve upstream artifacts ─────────────────────────────────────────────
-    left_result = svc._resolve_artifact_with_id(session_id, left_step_id)
+    left_result = core.resolve_artifact_with_id(session_id, left_step_id)
     if left_result is None:
         raise ValueError(
             f"test: STEP_NOT_FOUND - no committed artifact for left_ref step '{left_step_id}'"
         )
     left_artifact_id, left_artifact = left_result
 
-    right_result = svc._resolve_artifact_with_id(session_id, right_step_id)
+    right_result = core.resolve_artifact_with_id(session_id, right_step_id)
     if right_result is None:
         raise ValueError(
             f"test: STEP_NOT_FOUND - no committed artifact for right_ref step '{right_step_id}'"
@@ -457,7 +458,7 @@ def run_test_intent(
         raise ValueError(f"test: validation failed: {'; '.join(error_msgs)}")
 
     # ── Build artifact ─────────────────────────────────────────────────────────
-    step_id = svc._new_step_id()
+    step_id = core.new_step_id()
 
     # Deterministic query_hash from input identities (no actual SQL)
     _hash_input = (
@@ -551,7 +552,7 @@ def run_test_intent(
     else:
         summary = f"test {metrics_label} [{resolved_method}]: validation={validation_status}"
 
-    artifact_id = svc._commit_artifact_with_extraction(
+    artifact_id = core.commit_artifact_with_extraction(
         session_id,
         step_id,
         "hypothesis_test",
@@ -578,5 +579,5 @@ def run_test_intent(
         "timestamp": now,
         "param_count": 0,
     }
-    svc._insert_step(step_id, session_id, "test", summary, result, provenance=provenance)
+    core.insert_step(step_id, session_id, "test", summary, result, provenance=provenance)
     return result

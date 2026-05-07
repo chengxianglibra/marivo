@@ -2432,14 +2432,23 @@ class TestTestRunnerCommitPath(unittest.TestCase):
             "sample_summary": {"successes": 50, "trials": 100},
         }
 
-    def _run_test(self, svc: MagicMock) -> dict[str, Any]:
-        from app.intents.test import run_test_intent
-
+    def _make_core_and_ports(self) -> tuple[MagicMock, MagicMock]:
+        core = MagicMock()
+        ports = MagicMock()
         left_id, right_id = "art_left001", "art_right001"
-        svc._resolve_artifact_with_id.side_effect = [
+        core.resolve_artifact_with_id.side_effect = [
             (left_id, self._make_rate_artifact("m1")),
             (right_id, self._make_rate_artifact("m1")),
         ]
+        core.new_step_id.return_value = "step_4c2_001"
+        core.commit_artifact_with_extraction.return_value = _FAKE_ARTIFACT_ID
+        core.insert_step.return_value = None
+        return core, ports
+
+    def _run_test(self, core: MagicMock, ports: MagicMock) -> dict[str, Any]:
+        from app.intents.test import run_test_intent
+
+        left_id, right_id = "art_left001", "art_right001"
         params = {
             "left_ref": {
                 "step_id": "step_left",
@@ -2456,23 +2465,23 @@ class TestTestRunnerCommitPath(unittest.TestCase):
                 "observation_type": "rate_sample_summary",
             },
         }
-        return run_test_intent(svc, _SESSION, params)
+        return run_test_intent(core, ports, _SESSION, params)
 
     def test_test_calls_commit_artifact_with_extraction(self) -> None:
-        svc = _make_svc()
-        self._run_test(svc)
-        svc._commit_artifact_with_extraction.assert_called_once()
+        core, ports = self._make_core_and_ports()
+        self._run_test(core, ports)
+        core.commit_artifact_with_extraction.assert_called_once()
 
     def test_test_passes_step_type_test(self) -> None:
-        svc = _make_svc()
-        self._run_test(svc)
-        _, kwargs = svc._commit_artifact_with_extraction.call_args
+        core, ports = self._make_core_and_ports()
+        self._run_test(core, ports)
+        _, kwargs = core.commit_artifact_with_extraction.call_args
         self.assertEqual(kwargs.get("step_type"), "test")
 
     def test_test_artifact_type_is_hypothesis_test(self) -> None:
-        svc = _make_svc()
-        self._run_test(svc)
-        args, _ = svc._commit_artifact_with_extraction.call_args
+        core, ports = self._make_core_and_ports()
+        self._run_test(core, ports)
+        args, _ = core.commit_artifact_with_extraction.call_args
         self.assertEqual(args[2], "hypothesis_test")
 
 
