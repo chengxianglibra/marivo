@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from app.core.intent.primitives import new_step_id
+from app.intents._helpers import commit_step_result
 from app.intents.calendar_alignment_metadata import resolve_calendar_alignment_reuse_for_intent
 from app.intents.predicate_lineage_reuse import resolve_predicate_lineage_reuse_for_intent
 
@@ -696,30 +697,21 @@ def run_compare_intent(
         artifact_name = f"{metric_name}_compare_segmented"
         summary = f"compare {metric_name} segmented: {len(segmented_rows)} delta rows"
 
-    artifact_id = runtime.commit_artifact_with_extraction(
-        session_id,
-        step_id,
-        "compare_artifact",
-        artifact_name,
-        artifact,
-        step_type="compare",
-    )
-    result: dict[str, Any] = {
-        "intent_type": "compare",
-        "step_type": "compare",
-        "step_ref": {
-            "session_id": session_id,
-            "step_id": step_id,
-            "step_type": "compare",
-        },
-        "artifact_id": artifact_id,
-        **artifact,
-    }
     provenance: dict[str, Any] = {
         "left_step_id": left_step_id,
         "right_step_id": right_step_id,
     }
-    runtime.insert_step(step_id, session_id, "compare", summary, result, provenance=provenance)
+    result = commit_step_result(
+        runtime,
+        session_id,
+        step_id,
+        "compare",
+        "compare_artifact",
+        artifact_name,
+        artifact,
+        summary,
+        provenance=provenance,
+    )
     return result
 
 
