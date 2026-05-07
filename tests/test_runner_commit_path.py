@@ -2362,7 +2362,7 @@ class TestDetectRunnerCommitPath(unittest.TestCase):
 
 
 class TestCorrelateRunnerCommitPath(unittest.TestCase):
-    """run_correlate_intent must call _commit_artifact_with_extraction(step_type='correlate')."""
+    """run_correlate_intent must call commit_artifact_with_extraction(step_type='correlate')."""
 
     def _make_ts_artifact(self, metric: str = "m1") -> dict[str, Any]:
         return {
@@ -2378,34 +2378,43 @@ class TestCorrelateRunnerCommitPath(unittest.TestCase):
             ],
         }
 
-    def _run_correlate(self, svc: MagicMock) -> dict[str, Any]:
-        from app.intents.correlate import run_correlate_intent
-
-        svc._resolve_artifact_for_ref.side_effect = [
+    def _make_core_and_ports(self) -> tuple[MagicMock, MagicMock]:
+        core = MagicMock()
+        ports = MagicMock()
+        core.resolve_artifact_for_ref.side_effect = [
             self._make_ts_artifact("m1"),
             self._make_ts_artifact("m2"),
         ]
+        core.new_step_id.return_value = "step_4c2_001"
+        core.resolve_artifact_id_for_step.return_value = "art_left_001"
+        core.commit_artifact_with_extraction.return_value = _FAKE_ARTIFACT_ID
+        core.insert_step.return_value = None
+        return core, ports
+
+    def _run_correlate(self, core: MagicMock, ports: MagicMock) -> dict[str, Any]:
+        from app.intents.correlate import run_correlate_intent
+
         params = {
             "left_ref": {"step_id": "step_left", "session_id": _SESSION},
             "right_ref": {"step_id": "step_right", "session_id": _SESSION},
         }
-        return run_correlate_intent(svc, _SESSION, params)
+        return run_correlate_intent(core, ports, _SESSION, params)
 
     def test_correlate_calls_commit_artifact_with_extraction(self) -> None:
-        svc = _make_svc()
-        self._run_correlate(svc)
-        svc._commit_artifact_with_extraction.assert_called_once()
+        core, ports = self._make_core_and_ports()
+        self._run_correlate(core, ports)
+        core.commit_artifact_with_extraction.assert_called_once()
 
     def test_correlate_passes_step_type_correlate(self) -> None:
-        svc = _make_svc()
-        self._run_correlate(svc)
-        _, kwargs = svc._commit_artifact_with_extraction.call_args
+        core, ports = self._make_core_and_ports()
+        self._run_correlate(core, ports)
+        _, kwargs = core.commit_artifact_with_extraction.call_args
         self.assertEqual(kwargs.get("step_type"), "correlate")
 
     def test_correlate_artifact_type_is_pairwise_ts_association(self) -> None:
-        svc = _make_svc()
-        self._run_correlate(svc)
-        args, _ = svc._commit_artifact_with_extraction.call_args
+        core, ports = self._make_core_and_ports()
+        self._run_correlate(core, ports)
+        args, _ = core.commit_artifact_with_extraction.call_args
         self.assertEqual(args[2], "pairwise_time_series_association")
 
 
