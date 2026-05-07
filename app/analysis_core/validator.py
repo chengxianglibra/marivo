@@ -1,3 +1,9 @@
+# DEPRECATED: Pure validation logic extracted to app.core.semantic.validator.
+# Data classes (ValidationIssue, ValidationResult), pure gate functions, and
+# helpers live in the core module.  This file retains the orchestrator
+# validate_compiler_inputs and I/O-bound gates (_gate_cross_entity_composition,
+# _gate_predicate_contracts, _gate_scope_validation, _gate_predicate_conflict,
+# _gate_lowering_precheck).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
