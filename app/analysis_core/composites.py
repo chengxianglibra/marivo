@@ -1,3 +1,4 @@
+# DEPRECATED: Composite workflow types will be migrated to app.core.intent in Phase 3d+.
 from __future__ import annotations
 
 from dataclasses import dataclass, field

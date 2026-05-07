@@ -1,4 +1,10 @@
-"""Analysis-core primitives for the incremental refactor."""
+"""Analysis-core primitives for the incremental refactor.
+
+.. deprecated:: Phase 3c
+    This package is superseded by ``app.core.intent`` and ``app.core.semantic``.
+    New code should import from the ``app.core.*`` packages directly.
+    This module will be removed in Phase 3d.
+"""
 
 from app.analysis_core.composites import CompositeStepTemplate, CompositeWorkflowSpec
 from app.analysis_core.intent_registry import IntentRunnerRegistry
