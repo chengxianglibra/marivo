@@ -89,3 +89,15 @@ def test_subclass_raises() -> None:
 
     with pytest.raises(DomainError):
         raise ConflictError(ErrorCode.CONFLICT, "clash")
+
+
+# --- IntegrityError ---
+
+
+def test_integrity_error_is_domain_error() -> None:
+    from app.contracts.errors import ErrorCode, IntegrityError
+
+    err = IntegrityError(message="evidence corrupt")
+    assert isinstance(err, DomainError)
+    assert err.code == ErrorCode.EVIDENCE_HASH_MISMATCH
+    assert "evidence corrupt" in err.message

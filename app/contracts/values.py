@@ -6,6 +6,9 @@ from pydantic import BaseModel, ConfigDict
 
 from .ids import DatasourceId, SessionId, StepId, UserId
 
+LAYOUT_VERSION: int = 1
+"""Current .marivo/ layout schema version. Increment on breaking layout changes."""
+
 # --- Time Scoping ---
 
 

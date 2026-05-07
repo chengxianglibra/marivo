@@ -52,3 +52,14 @@ class ForbiddenError(DomainError): ...
 
 
 class ValidationError(DomainError): ...
+
+
+class IntegrityError(DomainError):
+    """Data integrity violation — e.g., evidence hash mismatch."""
+
+    def __init__(self, *, message: str, detail: dict[str, Any] | None = None) -> None:
+        super().__init__(
+            code=ErrorCode.EVIDENCE_HASH_MISMATCH,
+            message=message,
+            detail=detail or {},
+        )
