@@ -166,7 +166,7 @@ class DecomposeHourWindowTests(unittest.TestCase):
     def test_run_segmented_query_uses_hour_grain_with_datetime_boundaries(self) -> None:
         captured: dict[str, object] = {}
 
-        class _FakeCore:
+        class _FakeRuntime:
             @staticmethod
             def resolve_windowed_query_time_axis(
                 request: object,
@@ -207,7 +207,7 @@ class DecomposeHourWindowTests(unittest.TestCase):
             ),
         ):
             rows, query_hash = _run_segmented_query(
-                _FakeCore(),
+                _FakeRuntime(),
                 "sess_decompose_hour",
                 "metric.attr_hourly",
                 "SUM(value)",
@@ -322,13 +322,13 @@ def _make_mock_metric(
     return mock
 
 
-def _build_decompose_success_core_and_ports(
+def _build_decompose_success_runtime(
     additivity_constraints: dict | None,
     primary_time_ref: str = "time.date",
     sample_kind: str = "numeric",
     dimensions: list[str] | None = None,
-) -> tuple[MagicMock, MagicMock]:
-    """Build mock core and ports that allows decompose to succeed through the execution path."""
+) -> MagicMock:
+    """Build mock runtime that allows decompose to succeed through the execution path."""
     compare_artifact = _make_compare_artifact(additivity_constraints=additivity_constraints)
     mock_metric = _make_mock_metric(
         additivity_constraints=additivity_constraints,
@@ -336,18 +336,18 @@ def _build_decompose_success_core_and_ports(
         sample_kind=sample_kind,
         dimensions=dimensions,
     )
-    core = MagicMock()
-    ports = MagicMock()
-    core.resolve_artifact_for_ref.return_value = compare_artifact
-    core.resolve_artifact_id_for_step.return_value = "art_fake"
-    core.resolve_metric.return_value = mock_metric
-    core.resolve_metric_dimensions.return_value = dimensions or ["dimension.country"]
-    core.resolve_metric_sql_for_execution.return_value = "SUM(val)"
-    core.resolve_metric_table.return_value = "src.metrics"
-    core.resolve_engine.return_value = (MagicMock(), "duckdb", {"metrics": "src.metrics"})
-    core.compile_step.return_value = MagicMock()
-    core.build_scoped_query.return_value = None
-    return core, ports
+    runtime = MagicMock()
+    runtime.core = MagicMock()
+    runtime.resolve_artifact_for_ref.return_value = compare_artifact
+    runtime.resolve_artifact_id_for_step.return_value = "art_fake"
+    runtime.resolve_metric.return_value = mock_metric
+    runtime.resolve_metric_dimensions.return_value = dimensions or ["dimension.country"]
+    runtime.resolve_metric_sql_for_execution.return_value = "SUM(val)"
+    runtime.resolve_metric_table.return_value = "src.metrics"
+    runtime.resolve_engine.return_value = (MagicMock(), "duckdb", {"metrics": "src.metrics"})
+    runtime.compile_step.return_value = MagicMock()
+    runtime.build_scoped_query.return_value = None
+    return runtime
 
 
 class DecomposeAdditivityGateTests(unittest.TestCase):
@@ -356,8 +356,8 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
     # ── Error gate tests ────────────────────────────────────────────────────
 
     def test_none_policy_metric_decompose_fails(self) -> None:
-        core = MagicMock()
-        ports = MagicMock()
+        runtime = MagicMock()
+        runtime.core = MagicMock()
         compare_artifact = _make_compare_artifact(
             additivity_constraints={
                 "dimension_policy": "none",
@@ -370,14 +370,13 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
                 "time_axis_policy": "non_additive",
             }
         )
-        core.resolve_artifact_for_ref.return_value = compare_artifact
-        core.resolve_artifact_id_for_step.return_value = "art_fake"
-        core.resolve_metric.return_value = mock_metric
+        runtime.resolve_artifact_for_ref.return_value = compare_artifact
+        runtime.resolve_artifact_id_for_step.return_value = "art_fake"
+        runtime.resolve_metric.return_value = mock_metric
 
         with self.assertRaises(ExecutionError) as ctx:
             run_decompose_intent(
-                core,
-                ports,
+                runtime,
                 "session_1",
                 {
                     "compare_ref": {"step_id": "step_compare", "session_id": "session_1"},
@@ -391,18 +390,17 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
         self.assertIn("blocker", compat)
 
     def test_missing_additivity_constraints_fails(self) -> None:
-        core = MagicMock()
-        ports = MagicMock()
+        runtime = MagicMock()
+        runtime.core = MagicMock()
         compare_artifact = _make_compare_artifact()  # no additivity_constraints in am
         mock_metric = _make_mock_metric(additivity_constraints=None)
-        core.resolve_artifact_for_ref.return_value = compare_artifact
-        core.resolve_artifact_id_for_step.return_value = "art_fake"
-        core.resolve_metric.return_value = mock_metric
+        runtime.resolve_artifact_for_ref.return_value = compare_artifact
+        runtime.resolve_artifact_id_for_step.return_value = "art_fake"
+        runtime.resolve_metric.return_value = mock_metric
 
         with self.assertRaises(ExecutionError) as ctx:
             run_decompose_intent(
-                core,
-                ports,
+                runtime,
                 "session_1",
                 {
                     "compare_ref": {"step_id": "step_compare", "session_id": "session_1"},
@@ -416,18 +414,17 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
         self.assertIn("ADDITIVITY_CONSTRAINTS_DIMENSION_POLICY_MISSING", compat.get("blocker", ""))
 
     def test_empty_additivity_constraints_fails(self) -> None:
-        core = MagicMock()
-        ports = MagicMock()
+        runtime = MagicMock()
+        runtime.core = MagicMock()
         compare_artifact = _make_compare_artifact(additivity_constraints={})
         mock_metric = _make_mock_metric(additivity_constraints={})
-        core.resolve_artifact_for_ref.return_value = compare_artifact
-        core.resolve_artifact_id_for_step.return_value = "art_fake"
-        core.resolve_metric.return_value = mock_metric
+        runtime.resolve_artifact_for_ref.return_value = compare_artifact
+        runtime.resolve_artifact_id_for_step.return_value = "art_fake"
+        runtime.resolve_metric.return_value = mock_metric
 
         with self.assertRaises(ExecutionError) as ctx:
             run_decompose_intent(
-                core,
-                ports,
+                runtime,
                 "session_1",
                 {
                     "compare_ref": {"step_id": "step_compare", "session_id": "session_1"},
@@ -441,8 +438,8 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
         self.assertIn("ADDITIVITY_CONSTRAINTS_DIMENSION_POLICY_MISSING", compat.get("blocker", ""))
 
     def test_subset_metric_decompose_fails_on_disallowed_dimension(self) -> None:
-        core = MagicMock()
-        ports = MagicMock()
+        runtime = MagicMock()
+        runtime.core = MagicMock()
         compare_artifact = _make_compare_artifact(
             additivity_constraints={
                 "dimension_policy": "subset",
@@ -458,15 +455,14 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
             },
             dimensions=["dimension.country", "dimension.product"],
         )
-        core.resolve_artifact_for_ref.return_value = compare_artifact
-        core.resolve_artifact_id_for_step.return_value = "art_fake"
-        core.resolve_metric.return_value = mock_metric
-        core.resolve_metric_dimensions.return_value = ["dimension.country", "dimension.product"]
+        runtime.resolve_artifact_for_ref.return_value = compare_artifact
+        runtime.resolve_artifact_id_for_step.return_value = "art_fake"
+        runtime.resolve_metric.return_value = mock_metric
+        runtime.resolve_metric_dimensions.return_value = ["dimension.country", "dimension.product"]
 
         with self.assertRaises(ExecutionError) as ctx:
             run_decompose_intent(
-                core,
-                ports,
+                runtime,
                 "session_1",
                 {
                     "compare_ref": {"step_id": "step_compare", "session_id": "session_1"},
@@ -480,8 +476,8 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
         self.assertIn("dimension.product", compat.get("disallowed_dimensions", []))
 
     def test_error_payload_includes_disallowed_dimensions_as_list(self) -> None:
-        core = MagicMock()
-        ports = MagicMock()
+        runtime = MagicMock()
+        runtime.core = MagicMock()
         compare_artifact = _make_compare_artifact(
             additivity_constraints={
                 "dimension_policy": "subset",
@@ -497,15 +493,14 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
             },
             dimensions=["dimension.country", "dimension.product"],
         )
-        core.resolve_artifact_for_ref.return_value = compare_artifact
-        core.resolve_artifact_id_for_step.return_value = "art_fake"
-        core.resolve_metric.return_value = mock_metric
-        core.resolve_metric_dimensions.return_value = ["dimension.country", "dimension.product"]
+        runtime.resolve_artifact_for_ref.return_value = compare_artifact
+        runtime.resolve_artifact_id_for_step.return_value = "art_fake"
+        runtime.resolve_metric.return_value = mock_metric
+        runtime.resolve_metric_dimensions.return_value = ["dimension.country", "dimension.product"]
 
         with self.assertRaises(ExecutionError) as ctx:
             run_decompose_intent(
-                core,
-                ports,
+                runtime,
                 "session_1",
                 {
                     "compare_ref": {"step_id": "step_compare", "session_id": "session_1"},
@@ -517,8 +512,8 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
         self.assertEqual(compat["disallowed_dimensions"], ["dimension.product"])
 
     def test_error_payload_includes_time_axis_policy(self) -> None:
-        core = MagicMock()
-        ports = MagicMock()
+        runtime = MagicMock()
+        runtime.core = MagicMock()
         compare_artifact = _make_compare_artifact(
             additivity_constraints={
                 "dimension_policy": "subset",
@@ -534,15 +529,14 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
             },
             dimensions=["dimension.country", "dimension.product"],
         )
-        core.resolve_artifact_for_ref.return_value = compare_artifact
-        core.resolve_artifact_id_for_step.return_value = "art_fake"
-        core.resolve_metric.return_value = mock_metric
-        core.resolve_metric_dimensions.return_value = ["dimension.country", "dimension.product"]
+        runtime.resolve_artifact_for_ref.return_value = compare_artifact
+        runtime.resolve_artifact_id_for_step.return_value = "art_fake"
+        runtime.resolve_metric.return_value = mock_metric
+        runtime.resolve_metric_dimensions.return_value = ["dimension.country", "dimension.product"]
 
         with self.assertRaises(ExecutionError) as ctx:
             run_decompose_intent(
-                core,
-                ports,
+                runtime,
                 "session_1",
                 {
                     "compare_ref": {"step_id": "step_compare", "session_id": "session_1"},
@@ -556,7 +550,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
     # ── Success path + artifact metadata tests ─────────────────────────────
 
     def test_all_policy_metric_decompose_succeeds(self) -> None:
-        core, ports = _build_decompose_success_core_and_ports(
+        runtime = _build_decompose_success_runtime(
             additivity_constraints={
                 "dimension_policy": "all",
                 "time_axis_policy": "additive",
@@ -569,8 +563,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
 
         with patch("app.intents.decompose.execute_compiled", return_value=mock_result):
             result = run_decompose_intent(
-                core,
-                ports,
+                runtime,
                 "session_1",
                 {
                     "compare_ref": {"step_id": "step_compare", "session_id": "session_1"},
@@ -580,7 +573,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
         self.assertIn("rows", result)
 
     def test_subset_metric_decompose_succeeds_on_allowed_dimension(self) -> None:
-        core, ports = _build_decompose_success_core_and_ports(
+        runtime = _build_decompose_success_runtime(
             additivity_constraints={
                 "dimension_policy": "subset",
                 "time_axis_policy": "non_additive",
@@ -594,8 +587,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
 
         with patch("app.intents.decompose.execute_compiled", return_value=mock_result):
             result = run_decompose_intent(
-                core,
-                ports,
+                runtime,
                 "session_1",
                 {
                     "compare_ref": {"step_id": "step_compare", "session_id": "session_1"},
@@ -605,7 +597,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
         self.assertIn("rows", result)
 
     def test_artifact_metadata_includes_dimension_policy_top_level(self) -> None:
-        core, ports = _build_decompose_success_core_and_ports(
+        runtime = _build_decompose_success_runtime(
             additivity_constraints={
                 "dimension_policy": "subset",
                 "time_axis_policy": "non_additive",
@@ -619,8 +611,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
 
         with patch("app.intents.decompose.execute_compiled", return_value=mock_result):
             result = run_decompose_intent(
-                core,
-                ports,
+                runtime,
                 "session_1",
                 {
                     "compare_ref": {"step_id": "step_compare", "session_id": "session_1"},
@@ -632,7 +623,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
 
     def test_artifact_metadata_includes_decomposition_constraint(self) -> None:
         # subset → "dimension_must_be_allowed"
-        core, ports = _build_decompose_success_core_and_ports(
+        runtime = _build_decompose_success_runtime(
             additivity_constraints={
                 "dimension_policy": "subset",
                 "time_axis_policy": "non_additive",
@@ -646,8 +637,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
 
         with patch("app.intents.decompose.execute_compiled", return_value=mock_result):
             result = run_decompose_intent(
-                core,
-                ports,
+                runtime,
                 "session_1",
                 {
                     "compare_ref": {"step_id": "step_compare", "session_id": "session_1"},
@@ -658,7 +648,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
         self.assertEqual(am["decomposition_constraint"], "dimension_must_be_allowed")
 
         # all → "all_dimensions_allowed"
-        core2, ports2 = _build_decompose_success_core_and_ports(
+        core2, ports2 = _build_decompose_success_runtime(
             additivity_constraints={
                 "dimension_policy": "all",
                 "time_axis_policy": "additive",
@@ -683,7 +673,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
         self.assertEqual(am2["decomposition_constraint"], "all_dimensions_allowed")
 
     def test_artifact_metadata_includes_allowed_dimension_basis(self) -> None:
-        core, ports = _build_decompose_success_core_and_ports(
+        runtime = _build_decompose_success_runtime(
             additivity_constraints={
                 "dimension_policy": "subset",
                 "time_axis_policy": "non_additive",
@@ -697,8 +687,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
 
         with patch("app.intents.decompose.execute_compiled", return_value=mock_result):
             result = run_decompose_intent(
-                core,
-                ports,
+                runtime,
                 "session_1",
                 {
                     "compare_ref": {"step_id": "step_compare", "session_id": "session_1"},
@@ -710,7 +699,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
         self.assertEqual(basis["basis"], "additive_dimensions_list")
 
     def test_artifact_metadata_includes_time_boundary_constraint(self) -> None:
-        core, ports = _build_decompose_success_core_and_ports(
+        runtime = _build_decompose_success_runtime(
             additivity_constraints={
                 "dimension_policy": "all",
                 "time_axis_policy": "additive",
@@ -723,8 +712,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
 
         with patch("app.intents.decompose.execute_compiled", return_value=mock_result):
             result = run_decompose_intent(
-                core,
-                ports,
+                runtime,
                 "session_1",
                 {
                     "compare_ref": {"step_id": "step_compare", "session_id": "session_1"},
@@ -740,7 +728,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
     def test_frozen_constraints_prefer_compare_lineage_over_current_metric(self) -> None:
         """When compare artifact carries frozen additivity_constraints, decompose
         should use those (not the metric's current state) for the gate."""
-        core, ports = _build_decompose_success_core_and_ports(
+        runtime = _build_decompose_success_runtime(
             additivity_constraints={
                 # Metric's CURRENT state is subset with only dimension.country
                 "dimension_policy": "subset",
@@ -756,7 +744,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
             "time_axis_policy": "additive",
         }
         compare_artifact = _make_compare_artifact(additivity_constraints=frozen_constraints)
-        core.resolve_artifact_for_ref.return_value = compare_artifact
+        runtime.resolve_artifact_for_ref.return_value = compare_artifact
 
         mock_result = MagicMock()
         mock_result.rows = [{"dimension.country": "US", "current_value": 50.0}]
@@ -764,8 +752,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
 
         with patch("app.intents.decompose.execute_compiled", return_value=mock_result):
             result = run_decompose_intent(
-                core,
-                ports,
+                runtime,
                 "session_1",
                 {
                     "compare_ref": {"step_id": "step_compare", "session_id": "session_1"},
@@ -780,8 +767,8 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
     def test_frozen_none_policy_blocks_decompose_even_if_metric_changed_to_all(self) -> None:
         """If compare artifact froze dimension_policy=none but metric has since
         changed to all, decompose must still reject based on frozen constraints."""
-        core = MagicMock()
-        ports = MagicMock()
+        runtime = MagicMock()
+        runtime.core = MagicMock()
         compare_artifact = _make_compare_artifact(
             additivity_constraints={
                 "dimension_policy": "none",
@@ -795,14 +782,13 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
                 "time_axis_policy": "additive",
             },
         )
-        core.resolve_artifact_for_ref.return_value = compare_artifact
-        core.resolve_artifact_id_for_step.return_value = "art_fake"
-        core.resolve_metric.return_value = mock_metric
+        runtime.resolve_artifact_for_ref.return_value = compare_artifact
+        runtime.resolve_artifact_id_for_step.return_value = "art_fake"
+        runtime.resolve_metric.return_value = mock_metric
 
         with self.assertRaises(ExecutionError) as ctx:
             run_decompose_intent(
-                core,
-                ports,
+                runtime,
                 "session_1",
                 {
                     "compare_ref": {"step_id": "step_compare", "session_id": "session_1"},
@@ -818,7 +804,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
     def test_time_series_delta_compare_propagates_frozen_constraints(self) -> None:
         """time_series_delta compare artifacts should also propagate frozen
         additivity_constraints through the decompose gate."""
-        core, ports = _build_decompose_success_core_and_ports(
+        runtime = _build_decompose_success_runtime(
             additivity_constraints={
                 "dimension_policy": "subset",
                 "time_axis_policy": "non_additive",
@@ -834,7 +820,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
         compare_artifact = _make_time_series_compare_artifact(
             additivity_constraints=frozen_constraints
         )
-        core.resolve_artifact_for_ref.return_value = compare_artifact
+        runtime.resolve_artifact_for_ref.return_value = compare_artifact
 
         mock_result = MagicMock()
         mock_result.rows = [{"dimension.country": "US", "current_value": 50.0}]
@@ -842,8 +828,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
 
         with patch("app.intents.decompose.execute_compiled", return_value=mock_result):
             result = run_decompose_intent(
-                core,
-                ports,
+                runtime,
                 "session_1",
                 {
                     "compare_ref": {"step_id": "step_compare", "session_id": "session_1"},
@@ -857,7 +842,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
     # ── time_rollup_allowed metadata tests ───────────────────────────────────
 
     def test_time_rollup_allowed_true_when_time_axis_additive(self) -> None:
-        core, ports = _build_decompose_success_core_and_ports(
+        runtime = _build_decompose_success_runtime(
             additivity_constraints={
                 "dimension_policy": "all",
                 "time_axis_policy": "additive",
@@ -870,8 +855,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
 
         with patch("app.intents.decompose.execute_compiled", return_value=mock_result):
             result = run_decompose_intent(
-                core,
-                ports,
+                runtime,
                 "session_1",
                 {
                     "compare_ref": {"step_id": "step_compare", "session_id": "session_1"},
@@ -881,7 +865,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
         self.assertTrue(result["analytical_metadata"]["time_rollup_allowed"])
 
     def test_time_rollup_allowed_false_when_time_axis_non_additive(self) -> None:
-        core, ports = _build_decompose_success_core_and_ports(
+        runtime = _build_decompose_success_runtime(
             additivity_constraints={
                 "dimension_policy": "all",
                 "time_axis_policy": "non_additive",
@@ -894,8 +878,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
 
         with patch("app.intents.decompose.execute_compiled", return_value=mock_result):
             result = run_decompose_intent(
-                core,
-                ports,
+                runtime,
                 "session_1",
                 {
                     "compare_ref": {"step_id": "step_compare", "session_id": "session_1"},
@@ -905,7 +888,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
         self.assertFalse(result["analytical_metadata"]["time_rollup_allowed"])
 
     def test_subset_policy_time_rollup_false_when_non_additive(self) -> None:
-        core, ports = _build_decompose_success_core_and_ports(
+        runtime = _build_decompose_success_runtime(
             additivity_constraints={
                 "dimension_policy": "subset",
                 "time_axis_policy": "non_additive",
@@ -919,8 +902,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
 
         with patch("app.intents.decompose.execute_compiled", return_value=mock_result):
             result = run_decompose_intent(
-                core,
-                ports,
+                runtime,
                 "session_1",
                 {
                     "compare_ref": {"step_id": "step_compare", "session_id": "session_1"},

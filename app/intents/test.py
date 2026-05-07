@@ -20,8 +20,7 @@ from app.intents.calendar_alignment_metadata import resolve_calendar_alignment_r
 from app.intents.predicate_lineage_reuse import resolve_predicate_lineage_reuse_for_intent
 
 if TYPE_CHECKING:
-    from app.core.engine import CoreEngine
-    from app.runtime.ports import RuntimePorts
+    from app.runtime.runtime import MarivoRuntime
 
 _VALID_OBS_TYPES: frozenset[str] = frozenset({"numeric_sample_summary", "rate_sample_summary"})
 _VALID_ALTERNATIVES: frozenset[str] = frozenset({"two_sided", "greater", "less"})
@@ -129,7 +128,7 @@ def _p_value_from_z(z: float, alternative: str) -> float:
 
 
 def run_test_intent(
-    core: CoreEngine, ports: RuntimePorts, session_id: str, params: dict[str, Any] | None
+    runtime: MarivoRuntime, session_id: str, params: dict[str, Any] | None
 ) -> dict[str, Any]:
     """Execute a `test` intent: evaluate a typed statistical hypothesis.
 
@@ -208,14 +207,14 @@ def run_test_intent(
         )
 
     # ── Resolve upstream artifacts ─────────────────────────────────────────────
-    left_result = core.resolve_artifact_with_id(session_id, left_step_id)
+    left_result = runtime.resolve_artifact_with_id(session_id, left_step_id)
     if left_result is None:
         raise ValueError(
             f"test: STEP_NOT_FOUND - no committed artifact for left_ref step '{left_step_id}'"
         )
     left_artifact_id, left_artifact = left_result
 
-    right_result = core.resolve_artifact_with_id(session_id, right_step_id)
+    right_result = runtime.resolve_artifact_with_id(session_id, right_step_id)
     if right_result is None:
         raise ValueError(
             f"test: STEP_NOT_FOUND - no committed artifact for right_ref step '{right_step_id}'"
@@ -553,7 +552,7 @@ def run_test_intent(
     else:
         summary = f"test {metrics_label} [{resolved_method}]: validation={validation_status}"
 
-    artifact_id = core.commit_artifact_with_extraction(
+    artifact_id = runtime.commit_artifact_with_extraction(
         session_id,
         step_id,
         "hypothesis_test",
@@ -580,5 +579,5 @@ def run_test_intent(
         "timestamp": now,
         "param_count": 0,
     }
-    core.insert_step(step_id, session_id, "test", summary, result, provenance=provenance)
+    runtime.insert_step(step_id, session_id, "test", summary, result, provenance=provenance)
     return result

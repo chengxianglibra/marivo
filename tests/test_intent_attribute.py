@@ -683,18 +683,20 @@ class AttributeRunnerServiceTests(unittest.TestCase):
         """Duplicate dimensions should be deduplicated; bundle.dimensions is deduped list."""
         from types import SimpleNamespace
 
-        core = MagicMock()
-        core.normalize_intent_metric_ref.side_effect = lambda metric: f"metric.{metric}"
-        core.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
-        core.resolve_metric.return_value = SimpleNamespace(
+        runtime = MagicMock()
+        runtime.core = MagicMock()
+        runtime.core.normalize_intent_metric_ref.side_effect = lambda metric: f"metric.{metric}"
+        runtime.core.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix(
+            "metric."
+        )
+        runtime.resolve_metric.return_value = SimpleNamespace(
             additivity_constraints={"dimension_policy": "all", "time_axis_policy": "additive"},
             primary_time_ref="time.event_date",
             sample_kind="numeric",
         )
-        core.new_step_id.return_value = "step_attr_dedup"
-        core.insert_artifact.return_value = "art_attr_dedup"
-        core.insert_step.return_value = None
-        ports = MagicMock()
+        runtime.new_step_id.return_value = "step_attr_dedup"
+        runtime.insert_artifact.return_value = "art_attr_dedup"
+        runtime.insert_step.return_value = None
 
         observe_results = [
             {
@@ -746,8 +748,7 @@ class AttributeRunnerServiceTests(unittest.TestCase):
             patch("app.intents.attribute.run_decompose_intent", side_effect=_decompose_result),
         ):
             bundle = run_attribute_intent(
-                core,
-                ports,
+                runtime,
                 "sess_attr_dedup",
                 {
                     "metric": _METRIC,

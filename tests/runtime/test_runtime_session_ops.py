@@ -119,7 +119,7 @@ def _make_runtime() -> MarivoRuntime:
         telemetry=StubTelemetry(),
         runtime_config=StubRuntimeConfig(),
     )
-    core = CoreEngine(mock_svc)
+    core = CoreEngine()
     return MarivoRuntime(ports=ports, core=core, svc=mock_svc)
 
 

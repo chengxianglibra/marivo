@@ -19,8 +19,7 @@ from typing import TYPE_CHECKING, Any
 from app.core.intent.primitives import new_step_id
 
 if TYPE_CHECKING:
-    from app.core.engine import CoreEngine
-    from app.runtime.ports import RuntimePorts
+    from app.runtime.runtime import MarivoRuntime
 
 _VALID_PROFILES: frozenset[str] = frozenset(
     {"auto", "level", "trend", "seasonal", "seasonal_trend"}
@@ -112,7 +111,7 @@ def _generate_future_windows(
 
 
 def run_forecast_intent(
-    core: CoreEngine, ports: RuntimePorts, session_id: str, params: dict[str, Any] | None
+    runtime: MarivoRuntime, session_id: str, params: dict[str, Any] | None
 ) -> dict[str, Any]:
     """Execute a `forecast` intent: project a time-series into future buckets.
 
@@ -192,7 +191,7 @@ def run_forecast_intent(
             )
 
     # ── Resolve source artifact ────────────────────────────────────────────────
-    resolved = core.resolve_artifact_with_id(session_id, src_step_id)
+    resolved = runtime.resolve_artifact_with_id(session_id, src_step_id)
     if resolved is None:
         raise ValueError(
             f"forecast: STEP_NOT_FOUND - no committed artifact for source_ref step '{src_step_id}'"
@@ -421,7 +420,7 @@ def run_forecast_intent(
         f"horizon={horizon}: {len(forecast_buckets)} future bucket(s)"
     )
 
-    artifact_id = core.commit_artifact_with_extraction(
+    artifact_id = runtime.commit_artifact_with_extraction(
         session_id,
         step_id,
         "forecast_series",
@@ -448,7 +447,7 @@ def run_forecast_intent(
         "timestamp": now,
         "param_count": 0,
     }
-    core.insert_step(step_id, session_id, "forecast", summary, result, provenance=provenance)
+    runtime.insert_step(step_id, session_id, "forecast", summary, result, provenance=provenance)
     return result
 
 

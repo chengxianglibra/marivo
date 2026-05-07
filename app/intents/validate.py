@@ -23,8 +23,7 @@ from app.intents.observe import run_observe_intent
 from app.intents.test import run_test_intent
 
 if TYPE_CHECKING:
-    from app.core.engine import CoreEngine
-    from app.runtime.ports import RuntimePorts
+    from app.runtime.runtime import MarivoRuntime
 
 _DERIVED_LOGIC_VERSION = "1.0"
 _PROJECTION_VERSION = "validation_bundle.v1"
@@ -39,7 +38,7 @@ _SAMPLE_KIND_TO_RESULT_MODE: dict[str, str] = {
 
 
 def run_validate_intent(
-    core: CoreEngine, ports: RuntimePorts, session_id: str, params: dict[str, Any] | None
+    runtime: MarivoRuntime, session_id: str, params: dict[str, Any] | None
 ) -> dict[str, Any]:
     """Execute a `validate` derived intent.
 
@@ -66,8 +65,8 @@ def run_validate_intent(
     metric_ref: str = (p.get("metric") or "").strip()
     if not metric_ref:
         raise ValueError("validate: INVALID_ARGUMENT - metric is required")
-    metric_ref = core.normalize_intent_metric_ref(metric_ref)
-    metric_name = core.metric_name_from_ref(metric_ref)
+    metric_ref = runtime.core.normalize_intent_metric_ref(metric_ref)
+    metric_name = runtime.core.metric_name_from_ref(metric_ref)
 
     left_input: dict[str, Any] = p.get("left") or {}
     right_input: dict[str, Any] = p.get("right") or {}
@@ -144,8 +143,7 @@ def run_validate_intent(
     # ── Step 1: observe left ───────────────────────────────────────────────────
     try:
         left_obs = run_observe_intent(
-            core,
-            ports,
+            runtime,
             session_id,
             {
                 "metric": metric_ref,
@@ -165,8 +163,7 @@ def run_validate_intent(
     # ── Step 2: observe right ──────────────────────────────────────────────────
     try:
         right_obs = run_observe_intent(
-            core,
-            ports,
+            runtime,
             session_id,
             {
                 "metric": metric_ref,
@@ -209,8 +206,7 @@ def run_validate_intent(
     # ── Step 3: test ──────────────────────────────────────────────────────────
     try:
         test_result = run_test_intent(
-            core,
-            ports,
+            runtime,
             session_id,
             {
                 "left_ref": left_obs_ref,
@@ -349,7 +345,7 @@ def run_validate_intent(
         f"{decision_label} (sample_kind={resolved_sample_kind})"
     )
 
-    artifact_id = core.insert_artifact(
+    artifact_id = runtime.insert_artifact(
         session_id, step_id, "validation_bundle", artifact_name, bundle
     )
     bundle["step_ref"] = {
@@ -368,5 +364,5 @@ def run_validate_intent(
         "derived_logic_version": _DERIVED_LOGIC_VERSION,
         "projection_version": _PROJECTION_VERSION,
     }
-    core.insert_step(step_id, session_id, "validate", summary, bundle, provenance=provenance)
+    runtime.insert_step(step_id, session_id, "validate", summary, bundle, provenance=provenance)
     return bundle

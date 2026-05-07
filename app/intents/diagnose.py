@@ -27,8 +27,7 @@ from app.intents.observe import run_observe_intent
 from app.time_contracts import TimeGrain, normalize_hour_boundary, previous_adjacent_window
 
 if TYPE_CHECKING:
-    from app.core.engine import CoreEngine
-    from app.runtime.ports import RuntimePorts
+    from app.runtime.runtime import MarivoRuntime
 
 _DEFAULT_FOLLOWUP_LIMIT = 3
 _MAX_FOLLOWUP_LIMIT = 10
@@ -99,7 +98,7 @@ def _normalize_patterns(raw_patterns: Any) -> list[str] | None:
 
 
 def run_diagnose_intent(
-    core: CoreEngine, ports: RuntimePorts, session_id: str, params: dict[str, Any] | None
+    runtime: MarivoRuntime, session_id: str, params: dict[str, Any] | None
 ) -> dict[str, Any]:
     """Execute a `diagnose` derived intent.
 
@@ -112,8 +111,8 @@ def run_diagnose_intent(
     metric_ref: str = (p.get("metric") or "").strip()
     if not metric_ref:
         raise ValueError("diagnose: INVALID_ARGUMENT - metric is required")
-    metric_ref = core.normalize_intent_metric_ref(metric_ref)
-    metric_name = core.metric_name_from_ref(metric_ref)
+    metric_ref = runtime.core.normalize_intent_metric_ref(metric_ref)
+    metric_name = runtime.core.metric_name_from_ref(metric_ref)
 
     mode = str(p.get("mode") or "auto_detect").strip()
     if mode not in {"auto_detect", "explicit_compare"}:
@@ -228,8 +227,7 @@ def run_diagnose_intent(
             "slice": None,
         }
         result = _follow_up_candidate(
-            core=core,
-            ports=ports,
+            runtime=runtime,
             session_id=session_id,
             candidate=candidate,
             metric_ref=metric_ref,
@@ -283,8 +281,7 @@ def run_diagnose_intent(
 
         try:
             detect_result = run_detect_intent(
-                core,
-                ports,
+                runtime,
                 session_id,
                 detect_params,
             )
@@ -348,8 +345,7 @@ def run_diagnose_intent(
 
         for cand in candidates_to_follow:
             cand_result = _follow_up_candidate(
-                core=core,
-                ports=ports,
+                runtime=runtime,
                 session_id=session_id,
                 candidate=cand,
                 metric_ref=metric_ref,
@@ -452,7 +448,7 @@ def run_diagnose_intent(
         f"{len(dimensions)} dimension(s))"
     )
 
-    artifact_id = core.insert_artifact(
+    artifact_id = runtime.insert_artifact(
         session_id, step_id, "diagnosis_bundle", artifact_name, bundle
     )
     bundle["provenance"]["artifact_ref"]["artifact_id"] = artifact_id
@@ -473,7 +469,7 @@ def run_diagnose_intent(
         "derived_logic_version": _DERIVED_LOGIC_VERSION,
         "projection_version": _PROJECTION_VERSION,
     }
-    core.insert_step(step_id, session_id, "diagnose", summary_str, bundle, provenance=provenance)
+    runtime.insert_step(step_id, session_id, "diagnose", summary_str, bundle, provenance=provenance)
     return bundle
 
 
@@ -481,8 +477,7 @@ def run_diagnose_intent(
 
 
 def _follow_up_candidate(
-    core: CoreEngine,
-    ports: RuntimePorts,
+    runtime: MarivoRuntime,
     session_id: str,
     candidate: dict[str, Any],
     metric_ref: str,
@@ -587,8 +582,7 @@ def _follow_up_candidate(
 
     try:
         current_obs = run_observe_intent(
-            core,
-            ports,
+            runtime,
             session_id,
             {
                 "metric": metric_ref,
@@ -620,8 +614,7 @@ def _follow_up_candidate(
 
     try:
         baseline_obs = run_observe_intent(
-            core,
-            ports,
+            runtime,
             session_id,
             {
                 "metric": metric_ref,
@@ -662,8 +655,7 @@ def _follow_up_candidate(
     if both_obs_ok:
         try:
             compare_result = run_compare_intent(
-                core,
-                ports,
+                runtime,
                 session_id,
                 {
                     "left_ref": {
@@ -740,8 +732,7 @@ def _follow_up_candidate(
     if can_decompose:
         for dimension in dimensions:
             driver = _decompose_for_dimension(
-                core=core,
-                ports=ports,
+                runtime=runtime,
                 session_id=session_id,
                 compare_step_id=compare_step_id,  # type: ignore[arg-type]
                 dimension=dimension,
@@ -787,8 +778,7 @@ def _follow_up_candidate(
 
 
 def _decompose_for_dimension(
-    core: CoreEngine,
-    ports: RuntimePorts,
+    runtime: MarivoRuntime,
     session_id: str,
     compare_step_id: str,
     dimension: str,
@@ -811,8 +801,7 @@ def _decompose_for_dimension(
 
     try:
         decompose_result = run_decompose_intent(
-            core,
-            ports,
+            runtime,
             session_id,
             {
                 "compare_ref": {

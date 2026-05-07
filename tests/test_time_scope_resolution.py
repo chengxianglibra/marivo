@@ -1012,8 +1012,7 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
         observe_module.execute_compiled = lambda engine, compiled: _Result()
         try:
             result = run_observe_intent(
-                self.service._core_engine,  # type: ignore[arg-type]
-                self.service._runtime_ports,  # type: ignore[arg-type]
+                self.service._runtime,  # type: ignore[arg-type]
                 self.session_id,
                 {
                     "metric": self.metric_name,

@@ -8,8 +8,7 @@ from typing import TYPE_CHECKING, Any
 from app.core.intent.primitives import new_step_id
 
 if TYPE_CHECKING:
-    from app.core.engine import CoreEngine
-    from app.runtime.ports import RuntimePorts
+    from app.runtime.runtime import MarivoRuntime
 
 _SIGNIFICANCE_LEVEL = 0.05
 _DEFAULT_MIN_PAIRS = 5
@@ -60,7 +59,7 @@ def _spearman_correlation(x: list[float], y: list[float]) -> float:
 
 
 def run_correlate_intent(
-    core: CoreEngine, ports: RuntimePorts, session_id: str, params: dict[str, Any] | None
+    runtime: MarivoRuntime, session_id: str, params: dict[str, Any] | None
 ) -> dict[str, Any]:
     """Execute a `correlate` intent: estimate pairwise statistical association.
 
@@ -113,12 +112,12 @@ def run_correlate_intent(
     min_pairs: int = int(p.get("min_pairs") or _DEFAULT_MIN_PAIRS)
 
     # ── Resolve artifacts ─────────────────────────────────────────────────────
-    left_artifact = core.resolve_artifact_for_ref(session_id, left_step_id)
+    left_artifact = runtime.resolve_artifact_for_ref(session_id, left_step_id)
     if left_artifact is None:
         raise ValueError(
             f"correlate: STEP_NOT_FOUND - no committed artifact for left_ref step '{left_step_id}'"
         )
-    right_artifact = core.resolve_artifact_for_ref(session_id, right_step_id)
+    right_artifact = runtime.resolve_artifact_for_ref(session_id, right_step_id)
     if right_artifact is None:
         raise ValueError(
             f"correlate: STEP_NOT_FOUND - no committed artifact for right_ref step '{right_step_id}'"
@@ -262,8 +261,8 @@ def run_correlate_intent(
     now = datetime.now(UTC).isoformat()
     step_id = new_step_id()
 
-    left_artifact_id: str | None = core.resolve_artifact_id_for_step(session_id, left_step_id)
-    right_artifact_id: str | None = core.resolve_artifact_id_for_step(session_id, right_step_id)
+    left_artifact_id: str | None = runtime.resolve_artifact_id_for_step(session_id, left_step_id)
+    right_artifact_id: str | None = runtime.resolve_artifact_id_for_step(session_id, right_step_id)
 
     # Fix 2: deterministic query_hash from artifact lineage + method
     _hash_input = f"{left_artifact_id or ''}:{right_artifact_id or ''}:{method}"
@@ -345,7 +344,7 @@ def run_correlate_intent(
     # TODO(v1-dedup): per correlate.md §Artifact Identity, re-executing with the same
     # left/right lineage + method + schema versions should not produce a new canonical
     # artifact. v1 always creates a fresh artifact per call.
-    artifact_id = core.commit_artifact_with_extraction(
+    artifact_id = runtime.commit_artifact_with_extraction(
         session_id,
         step_id,
         "pairwise_time_series_association",
@@ -371,7 +370,7 @@ def run_correlate_intent(
         "method": method,
         "n_pairs": n_pairs,
     }
-    core.insert_step(step_id, session_id, "correlate", summary, result, provenance=provenance)
+    runtime.insert_step(step_id, session_id, "correlate", summary, result, provenance=provenance)
     return result
 
 
