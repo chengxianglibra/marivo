@@ -57,7 +57,8 @@ def create_runtime_from_service(
         runtime_config=TomlRuntimeConfigAdapter(config),
     )
     core = CoreEngine()
-    runtime = MarivoRuntime(ports, core, svc=svc)
+    runtime = MarivoRuntime(ports, core)
+    runtime.wire_svc(svc)
 
     # Phase 4b-1: expose runtime on svc so intent runners can access I/O + pure methods
     svc._runtime = runtime

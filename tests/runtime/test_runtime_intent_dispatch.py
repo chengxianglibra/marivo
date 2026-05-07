@@ -124,7 +124,9 @@ def _make_runtime() -> MarivoRuntime:
     mock_svc.run_intent.return_value = {"status": "ok"}
     ports = _make_ports()
     core = CoreEngine()
-    return MarivoRuntime(ports=ports, core=core, svc=mock_svc)
+    rt = MarivoRuntime(ports=ports, core=core)
+    rt.wire_svc(mock_svc)
+    return rt
 
 
 # --- Intent dispatch tests ---
