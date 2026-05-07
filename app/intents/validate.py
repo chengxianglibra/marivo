@@ -345,6 +345,9 @@ def run_validate_intent(
         f"{decision_label} (sample_kind={resolved_sample_kind})"
     )
 
+    # NOTE: Cannot use commit_step_result() here because this derived intent
+    # uses raw insert_artifact (no extraction boundary) and patches the
+    # artifact_id into the bundle between insert and step creation.
     artifact_id = runtime.insert_artifact(
         session_id, step_id, "validation_bundle", artifact_name, bundle
     )

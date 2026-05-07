@@ -448,6 +448,9 @@ def run_diagnose_intent(
         f"{len(dimensions)} dimension(s))"
     )
 
+    # NOTE: Cannot use commit_step_result() here because this derived intent
+    # uses raw insert_artifact (no extraction boundary) and patches the
+    # artifact_id into the bundle between insert and step creation.
     artifact_id = runtime.insert_artifact(
         session_id, step_id, "diagnosis_bundle", artifact_name, bundle
     )
