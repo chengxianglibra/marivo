@@ -77,7 +77,7 @@ class SemanticResolver(Protocol):
     def resolve_windowed_time_axis(self, **kwargs) -> dict: ...
 ```
 
-**Design rule:** `SemanticResolver` methods accept pre-loaded or pre-resolved inputs where possible. Methods that need model data accept a `model_selector` and load the model internally (the resolver holds a reference to `ModelStore`). Return types are plain dicts in Phase 6; formal typed return objects are Phase 7 work.
+**Design rule:** `SemanticResolver` methods accept pre-loaded or pre-resolved inputs where possible. Methods that need model data accept a `model_selector` and load the model internally (the resolver holds a reference to `ModelStore`). Return types are plain dicts in Phase 6 — the resolver serializes core/semantic/ return objects into dicts before returning. Formal typed return objects (e.g. `MetricExecutionContext`, `CompiledQuery`) are Phase 7 work.
 
 ### 3.2 `LocalSemanticResolver`
 
@@ -120,13 +120,13 @@ class ServerSemanticResolver:
 
 ### 3.4 Local `ArtifactStore` and `StepStore`
 
-**`FileArtifactStore`** — stores artifacts as JSON files in `.marivo/evidence/` alongside evidence files. Uses hash-addressed pattern.
+**`FileArtifactStore`** — stores artifacts as JSON files in `.marivo/artifacts/` (separate from `.marivo/evidence/` to avoid naming collisions). Uses `artifact-<step_id>.json` naming convention.
 
 ```python
 # app/adapters/local/file_artifact_store.py
 class FileArtifactStore:
-    def __init__(self, evidence_dir: Path) -> None:
-        self._dir = evidence_dir
+    def __init__(self, artifacts_dir: Path) -> None:
+        self._dir = artifacts_dir
 
     def insert_artifact(self, artifact: dict) -> str: ...
     def commit_artifact_with_extraction(self, ...) -> dict: ...
@@ -199,7 +199,7 @@ class RuntimePorts:
 | Port | Adapter | Storage | Key details |
 |------|---------|---------|-------------|
 | `ModelStore` | `SqlModelStore` | MySQL via SQLAlchemy Core | Direct SQL; owner/visibility filtering; revision-aware reads; integer revision → `RevisionId` string conversion |
-| `SessionStore` | `SqlSessionStore` | MySQL `session_events` table | Native event-sourced (implemented in 6e); initially stubbed with CRUD adapter for 6b/6c |
+| `SessionStore` | `SqlSessionStore` | MySQL `session_events` table | Native event-sourced (implemented in 6e); during 6b/6c a minimal CRUD-backed adapter provides append/load against a temporary `sessions` + `steps` schema |
 | `EvidenceStore` | `MetadataEvidenceStore` | MySQL via evidence repositories | Reads/writes from `app/storage/` evidence repos; hash verification on read |
 | `DataSource` | `RoutingDataSource` | Routes by source type | Selects DuckDB/Trino/Snowflake/BQ adapter based on model config; delegates `execute()` and `schema()` |
 | `CacheStore` | `SqlCacheStore` | MySQL cache table | TTL-based expiration; lazy cleanup on read |
@@ -316,7 +316,7 @@ def create_local_runtime(config: LocalConfig) -> MarivoRuntime:
     audit_log = FileAuditLog(marivo_dir / "audit.jsonl")
     telemetry = LocalTelemetry(sink=config.telemetry_sink)
     runtime_config = TomlRuntimeConfig(marivo_dir / "marivo.toml")
-    artifact_store = FileArtifactStore(marivo_dir / "evidence")
+    artifact_store = FileArtifactStore(marivo_dir / "artifacts")
     step_store = SqliteStepStore(marivo_dir / "state.db")
     semantic_resolver = LocalSemanticResolver(model_store)
 
