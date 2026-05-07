@@ -9,6 +9,7 @@ from app.analysis_core.executor import execute_compiled
 from app.analysis_core.ir import AnalysisStepIR
 from app.core.intent.primitives import make_provenance, new_step_id
 from app.core.semantic.step_metadata import build_step_semantic_metadata
+from app.evidence_engine.ref_boundary import assert_no_canonical_refs_in_semantic_payload
 from app.time_contracts import (
     TimeGrain,
     bucket_window,
@@ -20,6 +21,14 @@ from app.time_scope import normalize_metric_query_request
 
 if TYPE_CHECKING:
     from app.runtime.runtime import MarivoRuntime
+
+
+def _build_step_metadata(compiled_queries: Any) -> dict[str, Any] | None:
+    result = build_step_semantic_metadata(compiled_queries)
+    if result is not None:
+        assert_no_canonical_refs_in_semantic_payload(result, surface="step_semantic_metadata")
+    return result
+
 
 _SENSITIVITY_THRESHOLD: dict[str, float] = {
     "conservative": 2.5,
@@ -803,6 +812,6 @@ def run_detect_intent(
         summary,
         result,
         provenance=provenance,
-        semantic_metadata=build_step_semantic_metadata(compiled_query),
+        semantic_metadata=_build_step_metadata(compiled_query),
     )
     return result

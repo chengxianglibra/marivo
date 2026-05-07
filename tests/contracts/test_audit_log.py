@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from app.adapters.local.file_audit_log import FileAuditLog

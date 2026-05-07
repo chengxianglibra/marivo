@@ -2927,8 +2927,12 @@ class SemanticLayerService:
         compiled_queries: CompiledQuery | list[CompiledQuery],
     ) -> dict[str, Any] | None:
         from app.core.semantic.step_metadata import build_step_semantic_metadata as _build
+        from app.evidence_engine.ref_boundary import assert_no_canonical_refs_in_semantic_payload
 
-        return _build(compiled_queries)
+        result = _build(compiled_queries)
+        if result is not None:
+            assert_no_canonical_refs_in_semantic_payload(result, surface="step_semantic_metadata")
+        return result
 
     def _insert_artifact(
         self,
