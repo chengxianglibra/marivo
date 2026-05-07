@@ -1,3 +1,4 @@
+# DEPRECATED: use app.core.semantic.ir
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
