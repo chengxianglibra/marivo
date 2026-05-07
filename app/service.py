@@ -79,8 +79,10 @@ from app.time_scope import (
 )
 
 if TYPE_CHECKING:
+    from app.core.engine import CoreEngine
     from app.observability import MetricsCollector
     from app.routing import QueryRouter
+    from app.runtime.ports import RuntimePorts
 
 
 _STUB_INTENT_TYPES: frozenset[str] = frozenset()
@@ -247,12 +249,21 @@ class SemanticLayerService:
         self.calendar_data_reader: CalendarDataReader | None = None
         self.metrics = metrics
         self.session_manager = SessionManager(metadata_store)
+        # Phase 3b: set by factory after construction; used by migrated intent runners
+        self._core_engine: CoreEngine | None = None
+        self._runtime_ports: RuntimePorts | None = None
         self.step_registry = build_service_step_registry(self)
         self.intent_registry = IntentRunnerRegistry()
         self.intent_registry.register("observe", lambda sid, p: run_observe_intent(self, sid, p))
         self.intent_registry.register("compare", lambda sid, p: run_compare_intent(self, sid, p))
         self.intent_registry.register(
-            "correlate", lambda sid, p: run_correlate_intent(self, sid, p)
+            "correlate",
+            lambda sid, p: run_correlate_intent(
+                self._core_engine,  # type: ignore[arg-type]
+                self._runtime_ports,  # type: ignore[arg-type]
+                sid,
+                p,
+            ),
         )
         self.intent_registry.register(
             "decompose", lambda sid, p: run_decompose_intent(self, sid, p)
