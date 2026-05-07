@@ -31,9 +31,7 @@ Coverage:
 from __future__ import annotations
 
 import contextlib
-import tempfile
 import unittest
-from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -44,6 +42,7 @@ from app.evidence_engine.family_contract import FamilyEmptyError
 from app.service import SemanticLayerService
 from app.storage.analytics import AnalyticsEngine
 from app.storage.sqlite_metadata import SQLiteMetadataStore
+from tests.shared_fixtures import make_temp_metadata_store
 
 # ---------------------------------------------------------------------------
 # Store / service factory
@@ -53,9 +52,7 @@ _SESSION = "sess_ep_family_001"
 
 
 def _make_store() -> SQLiteMetadataStore:
-    tmp = tempfile.mkdtemp()
-    store = SQLiteMetadataStore(Path(tmp) / "meta.sqlite")
-    store.initialize()
+    store = make_temp_metadata_store()
     store.execute(
         "INSERT INTO sessions "
         "(session_id, goal, constraints_json, budget_json, status) "

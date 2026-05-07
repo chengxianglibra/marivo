@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import ClassVar
 
@@ -26,33 +28,39 @@ def runtime_config_yaml() -> str:
     )
 
 
+@contextmanager
+def temporary_config_path(raw_yaml: str) -> Iterator[Path]:
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "config.yaml"
+        path.write_text(raw_yaml, encoding="utf-8")
+        yield path
+
+
 class LoadConfigTests(unittest.TestCase):
     def test_load_metadata_config(self) -> None:
-        with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
-            f.write("metadata:\n  engine: sqlite\n  path: data/marivo.meta.sqlite\n")
-            f.flush()
-            cfg = load_config(Path(f.name))
+        with temporary_config_path(
+            "metadata:\n  engine: sqlite\n  path: data/marivo.meta.sqlite\n"
+        ) as path:
+            cfg = load_config(path)
 
         assert cfg.metadata is not None
         self.assertEqual(cfg.metadata.engine, "sqlite")
         self.assertEqual(cfg.metadata.path, "data/marivo.meta.sqlite")
 
     def test_load_mysql_metadata_config_from_explicit_fields(self) -> None:
-        with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
-            f.write(
-                "metadata:\n"
-                "  engine: mysql\n"
-                "  host: db.example\n"
-                "  port: 3307\n"
-                "  database: marivo\n"
-                "  user: marivo\n"
-                "  password: secret\n"
-                "  connect_timeout: 7\n"
-                "  pool_size: 3\n"
-                "  ssl: true\n"
-            )
-            f.flush()
-            cfg = load_config(Path(f.name))
+        with temporary_config_path(
+            "metadata:\n"
+            "  engine: mysql\n"
+            "  host: db.example\n"
+            "  port: 3307\n"
+            "  database: marivo\n"
+            "  user: marivo\n"
+            "  password: secret\n"
+            "  connect_timeout: 7\n"
+            "  pool_size: 3\n"
+            "  ssl: true\n"
+        ) as path:
+            cfg = load_config(path)
 
         assert cfg.metadata is not None
         mysql_config = cfg.metadata.mysql_connection_config()
@@ -67,15 +75,13 @@ class LoadConfigTests(unittest.TestCase):
         self.assertTrue(mysql_config["ssl"])
 
     def test_load_mysql_metadata_config_from_dsn(self) -> None:
-        with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
-            f.write(
-                "metadata:\n"
-                "  engine: mysql\n"
-                "  dsn: mysql+pymysql://marivo:secret@db.example:3307/marivo"
-                "?connect_timeout=8&pool_size=2&ssl=true\n"
-            )
-            f.flush()
-            cfg = load_config(Path(f.name))
+        with temporary_config_path(
+            "metadata:\n"
+            "  engine: mysql\n"
+            "  dsn: mysql+pymysql://marivo:secret@db.example:3307/marivo"
+            "?connect_timeout=8&pool_size=2&ssl=true\n"
+        ) as path:
+            cfg = load_config(path)
 
         assert cfg.metadata is not None
         mysql_config = cfg.metadata.mysql_connection_config()
@@ -98,35 +104,30 @@ class LoadConfigTests(unittest.TestCase):
         for raw_yaml in cases:
             with (
                 self.subTest(raw_yaml=raw_yaml),
-                tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f,
+                temporary_config_path(raw_yaml) as path,
+                self.assertRaises(Exception),
             ):
-                f.write(raw_yaml)
-                f.flush()
-                with self.assertRaises(Exception):
-                    load_config(Path(f.name))
+                load_config(path)
 
     def test_load_config_validation_error_redacts_mysql_secrets(self) -> None:
-        with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
-            f.write(
+        with (
+            temporary_config_path(
                 "metadata:\n"
                 "  engine: mysql\n"
                 "  path: meta.sqlite\n"
                 "  dsn: mysql://marivo:secret@db.example/marivo\n"
                 "  password: secret\n"
-            )
-            f.flush()
-
-            with self.assertRaises(Exception) as ctx:
-                load_config(Path(f.name))
+            ) as path,
+            self.assertRaises(Exception) as ctx,
+        ):
+            load_config(path)
 
         self.assertNotIn("secret", str(ctx.exception))
         self.assertIn("***", str(ctx.exception))
 
     def test_load_valid_yaml(self) -> None:
-        with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
-            f.write(runtime_config_yaml())
-            f.flush()
-            cfg = load_config(Path(f.name))
+        with temporary_config_path(runtime_config_yaml()) as path:
+            cfg = load_config(path)
 
         self.assertIsInstance(cfg, MarivoConfig)
         assert cfg.metadata is not None
@@ -141,48 +142,46 @@ class LoadConfigTests(unittest.TestCase):
         self.assertIsNone(cfg.metadata)
 
     def test_load_invalid_yaml(self) -> None:
-        with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
-            f.write("sources:\n  - name: 123\n    type: [not, a, string]\n")
-            f.flush()
-            with self.assertRaises(Exception):
-                load_config(Path(f.name))
+        with (
+            temporary_config_path("sources:\n  - name: 123\n    type: [not, a, string]\n") as path,
+            self.assertRaises(Exception),
+        ):
+            load_config(path)
 
     def test_load_empty_file(self) -> None:
-        with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
-            f.write("")
-            f.flush()
-            cfg = load_config(Path(f.name))
+        with temporary_config_path("") as path:
+            cfg = load_config(path)
 
         self.assertIsInstance(cfg, MarivoConfig)
         self.assertIsNone(cfg.metadata)
 
     def test_load_rejects_sources_inventory_config(self) -> None:
-        with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
-            f.write('sources:\n  - display_name: "Demo"\n')
-            f.flush()
-            with self.assertRaises(Exception):
-                load_config(Path(f.name))
+        with (
+            temporary_config_path('sources:\n  - display_name: "Demo"\n') as path,
+            self.assertRaises(Exception),
+        ):
+            load_config(path)
 
     def test_load_rejects_engines_inventory_config(self) -> None:
-        with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
-            f.write('engines:\n  - display_name: "Batch Engine"\n')
-            f.flush()
-            with self.assertRaises(Exception):
-                load_config(Path(f.name))
+        with (
+            temporary_config_path('engines:\n  - display_name: "Batch Engine"\n') as path,
+            self.assertRaises(Exception),
+        ):
+            load_config(path)
 
     def test_load_rejects_bindings_inventory_config(self) -> None:
-        with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
-            f.write('bindings:\n  - source: "src"\n')
-            f.flush()
-            with self.assertRaises(Exception):
-                load_config(Path(f.name))
+        with (
+            temporary_config_path('bindings:\n  - source: "src"\n') as path,
+            self.assertRaises(Exception),
+        ):
+            load_config(path)
 
     def test_load_rejects_mappings_inventory_config(self) -> None:
-        with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
-            f.write('mappings:\n  - source_id: "src_1"\n')
-            f.flush()
-            with self.assertRaises(Exception):
-                load_config(Path(f.name))
+        with (
+            temporary_config_path('mappings:\n  - source_id: "src_1"\n') as path,
+            self.assertRaises(Exception),
+        ):
+            load_config(path)
 
 
 class EnsureDatasourceTests(unittest.TestCase):

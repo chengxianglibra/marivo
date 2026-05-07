@@ -26,10 +26,8 @@ Test domains:
 from __future__ import annotations
 
 import json
-import tempfile
 import unittest
 from datetime import UTC
-from pathlib import Path
 from typing import Any
 
 from app.evidence_engine.assessment_evaluation_context import build_assessment_evaluation_context
@@ -47,6 +45,7 @@ from app.storage.evidence_repositories import (
     PropositionRepository,
 )
 from app.storage.sqlite_metadata import SQLiteMetadataStore
+from tests.shared_fixtures import make_temp_metadata_store
 
 # ---------------------------------------------------------------------------
 # Store factory
@@ -54,10 +53,7 @@ from app.storage.sqlite_metadata import SQLiteMetadataStore
 
 
 def _make_store() -> SQLiteMetadataStore:
-    tmp = tempfile.mkdtemp()
-    store = SQLiteMetadataStore(Path(tmp) / "meta.sqlite")
-    store.initialize()
-    return store
+    return make_temp_metadata_store()
 
 
 # ---------------------------------------------------------------------------

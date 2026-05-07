@@ -10,9 +10,7 @@ Verifies:
 from __future__ import annotations
 
 import json
-import tempfile
 import unittest
-from pathlib import Path
 from typing import Any
 
 from app.evidence_engine.assessment_recompute import make_assessment_id
@@ -31,6 +29,7 @@ from app.storage.evidence_repositories import (
     PropositionRepository,
 )
 from app.storage.sqlite_metadata import SQLiteMetadataStore
+from tests.shared_fixtures import make_temp_metadata_store
 
 # ---------------------------------------------------------------------------
 # Shared fixtures (mirror test_canonical_downstream.py)
@@ -75,10 +74,7 @@ _DELTA_PAYLOAD: dict[str, Any] = {
 
 
 def _make_store() -> SQLiteMetadataStore:
-    tmp = tempfile.mkdtemp()
-    store = SQLiteMetadataStore(Path(tmp) / "meta.sqlite")
-    store.initialize()
-    return store
+    return make_temp_metadata_store()
 
 
 def _setup(store: SQLiteMetadataStore) -> None:
