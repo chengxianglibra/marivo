@@ -777,7 +777,9 @@ def run_detect_intent(
         step_type="detect",
     )
 
-    # Patch artifact_id now that it is known
+    # Patch artifact_id now that it is known.
+    # NOTE: Cannot use commit_step_result() here because the artifact
+    # must be patched with the artifact_id between commit and step insert.
     artifact["provenance"]["artifact_ref"]["artifact_id"] = artifact_id
     for c in artifact["candidates"]:
         c["candidate_ref"]["artifact_ref"]["artifact_id"] = artifact_id
