@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from app.ports.artifact_store import ArtifactStore, StepStore
 from app.ports.audit_log import AuditLog
 from app.ports.authz import AuthZ
 from app.ports.cache_store import CacheStore
@@ -25,6 +26,9 @@ class RuntimePorts:
         audit_log: AuditLog,
         telemetry: Telemetry,
         runtime_config: RuntimeConfig,
+        *,
+        artifact_store: ArtifactStore | None = None,
+        step_store: StepStore | None = None,
     ) -> None:
         self.model_store = model_store
         self.session_store = session_store
@@ -35,3 +39,5 @@ class RuntimePorts:
         self.audit_log = audit_log
         self.telemetry = telemetry
         self.runtime_config = runtime_config
+        self.artifact_store: ArtifactStore | None = artifact_store
+        self.step_store: StepStore | None = step_store
