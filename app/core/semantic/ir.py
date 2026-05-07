@@ -1,11 +1,10 @@
-# DEPRECATED: use app.core.semantic.ir
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal, NotRequired, TypedDict
 
-from app.analysis_core.primitives import (
+from app.core.intent.primitives import (
     step_category_for,
 )
 
@@ -127,7 +126,7 @@ class PredicateFilterLineage(TypedDict):
 
 class ArtifactLineageEntry(TypedDict):
     source_artifact_id: str
-    relationship: Literal["consumes", "derives_from", "compares", "tests", "projects"]
+    relationship: Literal["consumes", "derives_from", "compares", "tests", "Projects"]
 
 
 class IrArtifact(TypedDict):
