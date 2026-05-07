@@ -215,7 +215,24 @@ class TomlRuntimeConfigAdapter:
     def __init__(self, config: MarivoConfig) -> None: ...
 ```
 
-### 5.2 Type Conversion Rules
+### 5.2 Error Translation
+
+Port wrappers must catch infrastructure exceptions (SQLAlchemy, DuckDB, httpx, etc.) and translate them into `DomainError` subclasses from `app.contracts.errors.py`. Runtime and core must never see raw infrastructure exceptions. This ensures local and enterprise adapters produce the same error domain, consistent with the Phase 1 spec principle that ports return domain objects.
+
+```python
+# Example: SqlModelStoreAdapter
+class SqlModelStoreAdapter:
+    def get(self, selector: ModelSelector) -> SemanticModel | None:
+        try:
+            row = self._metadata.query_one(...)
+        except self._metadata.ConnectionError as e:
+            raise DomainError(ErrorCode.DATASOURCE_UNAVAILABLE, str(e)) from e
+        except self._metadata.NotFoundError:
+            return None
+        ...
+```
+
+### 5.4 Type Conversion Rules
 
 Each wrapper is responsible for bidirectional type conversion between HTTP models and domain contracts:
 - `to_domain()`: convert `app.api.models.*` → `app.contracts.*` on read
@@ -223,11 +240,11 @@ Each wrapper is responsible for bidirectional type conversion between HTTP model
 
 This conversion boundary is the reconciliation point between the two type systems (as noted in the Phase 2 spec §11 "Drift mitigation").
 
-### 5.3 Wrapper Location
+### 5.5 Wrapper Location
 
 Phase 3a: `app/adapters/server/wrappers.py`. Phase 6 will reorganize into `app/adapters/server/` with proper module structure.
 
-### 5.4 Not Wrapped
+### 5.6 Not Wrapped
 
 `SessionManager`'s full session lifecycle (create/get/terminate/state derivation) is not wrapped through the `SessionStore` port in Phase 3. `SessionManager` does CRUD + ownership checks + status derivation, which is richer than the event-sourced `append_event/load_events` port. The `SessionStore` port gets a full implementation in Phase 6. Phase 3a's `SqlSessionStoreAdapter` provides a minimal bridge.
 
@@ -368,6 +385,8 @@ class AppServices:
 
 HTTP endpoints change from `services.service.run_intent(...)` to `services.runtime.observe(...)` / `services.runtime.diagnose(...)`.
 
+**MCP dispatch note:** `marivo-mcp` calls HTTP endpoints (`POST /sessions/{sid}/intents/observe`, etc.) via `MarivoHttpClient`, not `SemanticLayerService` directly. No `marivo-mcp` code changes are required in Phase 3 — the MCP layer is already decoupled from service.py through the HTTP API.
+
 **Acceptance criteria:**
 
 - [ ] `MarivoRuntime` class exists with all use-case methods callable
@@ -381,7 +400,9 @@ HTTP endpoints change from `services.service.run_intent(...)` to `services.runti
 
 ### Phase 3b — Intent Runner Migration
 
-**Goal:** Migrate 10 intent runners from `(svc, session_id, params)` to `(core, ports, session_id, params)`. Each migrated intent removes corresponding methods from `service.py`.
+**Goal:** Migrate 10 intent runners from `(svc, session_id, params)` to `(core, ports, session_id, params)`.
+
+**Method deletion rule:** Delete methods from `SemanticLayerService` only when the last consumer has been migrated off that method. Methods still referenced by `CoreEngine` proxy or other unmigrated intent runners must not be deleted. This prevents proxy breakage during incremental migration.
 
 **Migration order (simple → complex):**
 
@@ -422,7 +443,7 @@ class MarivoRuntime:
 **Acceptance criteria:**
 
 - [ ] All 10 intent runners use `(core, ports, session_id, params)` signature
-- [ ] Migrated methods deleted from `SemanticLayerService`
+- [ ] Migrated methods deleted from `SemanticLayerService` (only when last consumer has migrated)
 - [ ] Each intent migration followed by full green test run
 - [ ] Derived intents call sub-intents through `runtime.*()` methods
 
