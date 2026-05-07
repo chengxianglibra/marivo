@@ -74,8 +74,8 @@ class MarivoRuntime:
     def get_session(self, session_id: str) -> Any:
         return self.svc.get_session(session_id)
 
-    def terminate_session(self, session_id: str) -> None:
-        self.svc.terminate_session(session_id)
+    def terminate_session(self, session_id: str, **kwargs: Any) -> Any:
+        return self.svc.terminate_session(session_id, **kwargs)
 
     def get_session_state(self, session_id: str, **filters: Any) -> dict[str, Any]:
         return self.svc.get_session_state(session_id, filters)

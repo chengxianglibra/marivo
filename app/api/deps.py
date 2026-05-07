@@ -10,6 +10,7 @@ from app.config import MarivoConfig
 from app.datasources import DatasourceService
 from app.observability import MetricsCollector
 from app.routing import QueryRouter
+from app.runtime.runtime import MarivoRuntime
 from app.semantic_service_v2.service import SemanticModelV2Service
 from app.service import SemanticLayerService
 from app.storage.analytics import AnalyticsEngine
@@ -20,6 +21,7 @@ from app.storage.metadata import MetadataStore
 class AppServices:
     resolved_path: Path | str  # Analytics path; str ":memory:" means in-memory DuckDB.
     config: MarivoConfig
+    runtime: MarivoRuntime  # Phase 3: preferred entry point
     service: SemanticLayerService
     datasource_service: DatasourceService
     query_router: QueryRouter

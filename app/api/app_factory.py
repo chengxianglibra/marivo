@@ -22,6 +22,7 @@ from app.config import MarivoConfig, load_config, resolve_config_path, resolve_m
 from app.datasources import DatasourceService
 from app.observability import MetricsCollector, TimingMiddleware, setup_logging
 from app.routing import QueryRouter
+from app.runtime.factory import create_runtime_from_service
 from app.semantic_service_v2.service import SemanticModelV2Service
 from app.service import SemanticLayerService
 from app.storage.analytics import AnalyticsEngine
@@ -107,9 +108,11 @@ def _build_services(
         cast("SQLiteMetadataStore", metadata_store),
         datasource_service=datasource_service,
     )
+    runtime = create_runtime_from_service(service, datasource_service, config)
     return AppServices(
         resolved_path=resolved_path,
         config=config,
+        runtime=runtime,
         service=service,
         datasource_service=datasource_service,
         query_router=query_router,
@@ -123,6 +126,7 @@ def _build_services(
 def _attach_state(app: FastAPI, services: AppServices) -> None:
     app.state.services = services
     app.state.config = services.config
+    app.state.runtime = services.runtime
     app.state.service = services.service
     app.state.datasource_service = services.datasource_service
     app.state.query_router = services.query_router

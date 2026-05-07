@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -56,7 +57,7 @@ router = APIRouter()
 )
 def create_session(payload: SessionCreateRequest, request: Request) -> SessionCreateResponse:
     try:
-        result = get_services(request).service.create_session(
+        result = get_services(request).runtime.create_session(
             goal=payload.goal,
             budget=payload.budget.model_dump(exclude_none=True),
         )
@@ -79,7 +80,7 @@ def list_sessions(
     page_token: str | None = Query(default=None),
 ) -> SessionListResponse:
     try:
-        result = get_services(request).service.list_sessions(
+        result = get_services(request).service.list_sessions(  # TODO(phase3b): migrate to runtime
             status=status,
             session_id=session_id,
             limit=limit,
@@ -97,7 +98,7 @@ def list_sessions(
 def get_session(session_id: str, request: Request) -> SessionDetailResponse:
     try:
         return SessionDetailResponse.model_validate(
-            get_services(request).service.get_session(session_id)
+            get_services(request).runtime.get_session(session_id)
         )
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
@@ -110,7 +111,9 @@ def get_session(session_id: str, request: Request) -> SessionDetailResponse:
 def get_session_runtime_status(session_id: str, request: Request) -> SessionRuntimeStatusResponse:
     try:
         return SessionRuntimeStatusResponse.model_validate(
-            get_services(request).service.get_session_runtime_status(session_id)
+            get_services(request).service.get_session_runtime_status(
+                session_id
+            )  # TODO(phase3b): migrate to runtime
         )
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
@@ -128,7 +131,7 @@ def terminate_session(
     """Terminate a session, preventing further intent write operations."""
     try:
         return SessionTerminateResponse.model_validate(
-            get_services(request).service.terminate_session(
+            get_services(request).runtime.terminate_session(
                 session_id, terminal_reason=payload.terminal_reason
             )
         )
@@ -199,7 +202,7 @@ def get_session_state(
         if page_token is not None:
             query["page_token"] = page_token
         return SessionStateView.model_validate(
-            get_services(request).service.get_session_state(session_id, query)
+            get_services(request).runtime.get_session_state(session_id, **query)
         )
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
@@ -222,7 +225,9 @@ def query_session_state(
     try:
         query = payload.model_dump(exclude_none=True)
         return SessionStateView.model_validate(
-            get_services(request).service.query_session_state(session_id, query)
+            get_services(request).service.query_session_state(
+                session_id, query
+            )  # TODO(phase3b): migrate to runtime
         )
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
@@ -245,7 +250,9 @@ def get_artifact_runtime_status(
     """
     try:
         return ArtifactRuntimeStatusResponse.model_validate(
-            get_services(request).service.get_artifact_runtime_status(session_id, artifact_id)
+            get_services(request).service.get_artifact_runtime_status(
+                session_id, artifact_id
+            )  # TODO(phase3b): migrate to runtime
         )
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
@@ -271,7 +278,9 @@ def get_proposition_context(
     """
     try:
         return PropositionContextView.model_validate(
-            get_services(request).service.get_proposition_context(session_id, proposition_id)
+            get_services(request).service.get_proposition_context(
+                session_id, proposition_id
+            )  # TODO(phase3b): migrate to runtime
         )
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
@@ -294,7 +303,9 @@ def get_proposition_runtime_status(
     """
     try:
         return PropositionRuntimeStatusResponse.model_validate(
-            get_services(request).service.get_proposition_runtime_status(session_id, proposition_id)
+            get_services(request).service.get_proposition_runtime_status(
+                session_id, proposition_id
+            )  # TODO(phase3b): migrate to runtime
         )
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
@@ -321,9 +332,15 @@ def _assert_same_session(session_id: str, *refs: ObservationRef | ArtifactRef) -
 def _run_intent(
     session_id: str, intent_type: str, params: dict[str, Any], request: Request
 ) -> dict[str, Any]:
-    """Dispatch an intent to SemanticLayerService.run_intent with uniform error handling."""
+    """Dispatch an intent through MarivoRuntime with uniform error handling."""
     try:
-        return get_services(request).service.run_intent(session_id, intent_type, params)
+        runtime = get_services(request).runtime
+        method: Callable[[str, dict[str, Any]], dict[str, Any]] | None = getattr(
+            runtime, intent_type, None
+        )
+        if method is None:
+            raise ValueError(f"Unknown intent type: '{intent_type}'")
+        return method(session_id, params)
     except KeyError as error:
         raise http_error(error) from error
     except NotImplementedError as error:
