@@ -1,3 +1,6 @@
+# DEPRECATED: Pure SQL builders and IR snapshot helpers extracted to
+# app.core.semantic.compiler.  The compile_step orchestrator and I/O-coupled
+# helpers remain here for now.
 from __future__ import annotations
 
 import hashlib

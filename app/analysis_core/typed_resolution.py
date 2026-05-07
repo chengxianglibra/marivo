@@ -1,3 +1,6 @@
+# DEPRECATED: Pure data classes and helpers extracted to
+# app.core.semantic.typed_resolution.  This file retains the I/O-bound
+# normalize_step_request and resolve_compiler_inputs orchestrators.
 from __future__ import annotations
 
 from collections.abc import Mapping
