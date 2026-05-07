@@ -33,6 +33,14 @@ class CoreEngine:
     def resolve_metric_dimensions(self, metric_ref: str) -> list[str] | None:
         return self._svc.resolve_metric_dimensions(metric_ref)
 
+    def resolve_metric(self, metric_name: str) -> Any:
+        """Resolve a metric from the semantic repository."""
+        return self._svc.semantic_repository.resolve_metric(metric_name)
+
+    def resolve_metric_table(self, metric_name: str, **kwargs: Any) -> str | None:
+        """Return the source table for a metric."""
+        return self._svc._resolve_metric_table(metric_name, **kwargs)
+
     def resolve_metric_sql_for_execution(self, *args: Any, **kwargs: Any) -> str:
         return self._svc.resolve_metric_sql_for_execution(*args, **kwargs)
 
@@ -86,3 +94,7 @@ class CoreEngine:
 
     def make_provenance(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
         return self._svc._make_provenance(*args, **kwargs)
+
+    def resolve_scope_constraint_column(self, *args: Any, **kwargs: Any) -> str:
+        """Resolve a scope constraint dimension to its physical column expression."""
+        return self._svc._resolve_scope_constraint_column(*args, **kwargs)
