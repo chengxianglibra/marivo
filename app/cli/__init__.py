@@ -17,6 +17,8 @@ from app.cli.cmd_calendar import add_arguments as calendar_add_arguments
 from app.cli.cmd_calendar import handle as calendar_handle
 from app.cli.cmd_doctor import add_arguments as doctor_add_arguments
 from app.cli.cmd_doctor import handle as doctor_handle
+from app.cli.cmd_init import add_arguments as init_add_arguments
+from app.cli.cmd_init import handle as init_handle
 from app.cli.cmd_init_local import add_arguments as init_local_add_arguments
 from app.cli.cmd_init_local import handle as init_local_handle
 from app.cli.cmd_runtime import add_arguments as runtime_add_arguments
@@ -86,6 +88,11 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     init_local_add_arguments(init_local_parser)
     init_local_parser.set_defaults(handler=init_local_handle)
+
+    # marivo init
+    init_parser = subparsers.add_parser("init", help="Create .marivo/ directory with TOML layout")
+    init_add_arguments(init_parser)
+    init_parser.set_defaults(handler=init_handle)
 
     # marivo doctor
     doctor_parser = subparsers.add_parser("doctor", help="Run diagnostic checks")

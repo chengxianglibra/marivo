@@ -99,3 +99,7 @@ def pid_file_path(workspace_root: Path) -> Path:
 
 def log_dir_path(workspace_root: Path) -> Path:
     return workspace_root / ".marivo" / "logs"
+
+
+def toml_config_path(workspace_root: Path) -> Path:
+    return workspace_root / ".marivo" / "marivo.toml"
