@@ -10,6 +10,7 @@ from app.analysis_core.executor import execute_compiled
 from app.analysis_core.ir import AnalysisStepIR
 from app.core.intent.primitives import new_step_id
 from app.execution.errors import ExecutionError
+from app.intents._helpers import commit_step_result
 from app.time_scope import normalize_metric_query_request
 
 if TYPE_CHECKING:
@@ -507,31 +508,22 @@ def run_decompose_intent(
         f"(scope Δ {scope_absolute_delta if scope_absolute_delta is not None else 'n/a'})"
     )
 
-    artifact_id = runtime.commit_artifact_with_extraction(
-        session_id,
-        step_id,
-        "delta_decomposition",
-        artifact_name,
-        artifact,
-        step_type="decompose",
-    )
-    result: dict[str, Any] = {
-        "intent_type": "decompose",
-        "step_type": "decompose",
-        "step_ref": {
-            "session_id": session_id,
-            "step_id": step_id,
-            "step_type": "decompose",
-        },
-        "artifact_id": artifact_id,
-        **artifact,
-    }
     provenance: dict[str, Any] = {
         "compare_step_id": compare_step_id,
         "dimension": dimension,
         "method": method,
     }
-    runtime.insert_step(step_id, session_id, "decompose", summary, result, provenance=provenance)
+    result = commit_step_result(
+        runtime,
+        session_id,
+        step_id,
+        "decompose",
+        "delta_decomposition",
+        artifact_name,
+        artifact,
+        summary,
+        provenance=provenance,
+    )
     return result
 
 
