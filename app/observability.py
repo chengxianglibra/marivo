@@ -10,9 +10,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar, Token
 from typing import Any, ClassVar
 
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request
-from starlette.responses import Response
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 # ── Correlation context ─────────────────────────────────────────────
 
@@ -317,24 +315,49 @@ class MetricsCollector:
 
 # ── Timing middleware ───────────────────────────────────────────────
 
+_http_logger = logging.getLogger("marivo.http")
 
-class TimingMiddleware(BaseHTTPMiddleware):
-    """Measures request duration and records it in MetricsCollector."""
 
-    async def dispatch(self, request: Request, call_next: Any) -> Response:
+class TimingMiddleware:
+    """Pure-ASGI middleware that measures request duration.
+
+    Unlike BaseHTTPMiddleware, this does not buffer the response body,
+    so it is compatible with SSE streaming (e.g. FastMCP streamable-http).
+    Duration is measured from request start to last body chunk sent.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
         start = time.perf_counter()
-        response: Response = await call_next(request)
+        status_code: int = 0
+
+        async def send_with_capture(message: Message) -> None:
+            nonlocal status_code
+            if message["type"] == "http.response.start":
+                status_code = message["status"]
+            await send(message)
+
+        await self.app(scope, receive, send_with_capture)
         duration_ms = (time.perf_counter() - start) * 1000
-        metrics: MetricsCollector | None = getattr(request.app.state, "metrics", None)
+
+        app = scope.get("app")
+        metrics: MetricsCollector | None = (
+            getattr(app.state, "metrics", None) if app is not None else None
+        )
         if metrics is not None:
-            path = request.url.path
-            metrics.record_request(request.method, path, response.status_code, duration_ms)
-        logger = logging.getLogger("marivo.http")
-        logger.info(
+            path = scope.get("path", "")
+            method = scope.get("method", "")
+            metrics.record_request(method, path, status_code, duration_ms)
+        _http_logger.info(
             "HTTP %s %s %d %.1fms",
-            request.method,
-            request.url.path,
-            response.status_code,
+            scope.get("method", ""),
+            scope.get("path", ""),
+            status_code,
             duration_ms,
         )
-        return response
