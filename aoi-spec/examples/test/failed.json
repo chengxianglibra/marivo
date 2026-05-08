@@ -1,0 +1,8 @@
+{
+  "artifact_id": "test_conversion_rate_failed",
+  "step_id": "test_conversion_rate_treatment_vs_control",
+  "failure": {
+    "code": "test.insufficient_sample_size",
+    "message": "At least one side has too few observations for the requested hypothesis test."
+  }
+}

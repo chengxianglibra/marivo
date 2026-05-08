@@ -1,25 +1,11 @@
 {
-  "artifact_type": "time_series_observation",
   "artifact_id": "obs_daily_revenue_2026_q1",
-  "produced_by": {
-    "step_type": "observe",
-    "step_id": "observe_daily_revenue_q1"
-  },
-  "subject": {
-    "metric": "revenue",
-    "time_scope": {
-      "start": "2026-01-01T00:00:00Z",
-      "end": "2026-01-04T00:00:00Z"
-    },
-    "filter": null,
-    "granularity": "day",
-    "dimensions": null
-  },
+  "step_id": "observe_daily_revenue_q1",
   "result": {
     "points": [
       {
         "bucket_start": "2026-01-01T00:00:00Z",
-        "value": 100.0
+        "value": 100
       },
       {
         "bucket_start": "2026-01-02T00:00:00Z",

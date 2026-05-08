@@ -1,31 +1,8 @@
 {
-  "artifact_type": "scalar_delta",
   "artifact_id": "delta_revenue_holiday_yoy_failed",
-  "produced_by": {
-    "step_type": "compare",
-    "step_id": "compare_revenue_holiday_yoy"
-  },
-  "subject": {
-    "left_ref": {
-      "step_type": "observe",
-      "step_id": "observe_revenue_2026_holiday",
-      "artifact_id": "obs_scalar_revenue_2026_holiday",
-      "artifact_subtype": "scalar_observation"
-    },
-    "right_ref": {
-      "step_type": "observe",
-      "step_id": "observe_revenue_2025_holiday",
-      "artifact_id": "obs_scalar_revenue_2025_holiday",
-      "artifact_subtype": "scalar_observation"
-    },
-    "compare_type": "holiday_aligned_yoy"
-  },
+  "step_id": "compare_revenue_holiday_yoy",
   "failure": {
     "code": "compare.compare_type_data_unavailable",
-    "message": "Comparison data is unavailable for the requested type.",
-    "details": {
-      "compare_type": "holiday_aligned_yoy",
-      "missing_calendar": "US_RETAIL_HOLIDAYS"
-    }
+    "message": "Comparison data is unavailable for the requested type."
   }
 }

@@ -1,0 +1,26 @@
+{
+  "artifact_id": "anom_revenue_daily_q1",
+  "step_id": "detect_revenue_daily_q1",
+  "result": {
+    "items": [
+      {
+        "item_id": "bucket_2026_01_12_paid",
+        "bucket_start": "2026-01-12T00:00:00Z",
+        "value": 180000,
+        "score": 4.2,
+        "series_keys": {
+          "channel": "paid"
+        }
+      },
+      {
+        "item_id": "bucket_2026_01_19_organic",
+        "bucket_start": "2026-01-19T00:00:00Z",
+        "value": 42000,
+        "score": 2.7,
+        "series_keys": {
+          "channel": "organic"
+        }
+      }
+    ]
+  }
+}
