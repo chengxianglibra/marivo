@@ -53,3 +53,29 @@ def test_list_filters_by_session(name, factory, tmp_path):
     store.insert_step(StepId("a"), SessionId("s-1"), "observe", "x", {})
     store.insert_step(StepId("b"), SessionId("s-2"), "observe", "y", {})
     assert [s.step_id for s in store.list_steps(SessionId("s-1"))] == ["a"]
+
+
+@pytest.mark.parametrize("name,factory", step_store_factories)
+def test_optional_fields_round_trip(name, factory, tmp_path):
+    store = factory(tmp_path)
+    store.insert_step(
+        StepId("step-x"),
+        SessionId("s-1"),
+        "observe",
+        "with opts",
+        {"v": 1},
+        provenance={"source": "test"},
+        semantic_metadata={"tags": ["a"]},
+    )
+    store.insert_step(
+        StepId("step-y"),
+        SessionId("s-1"),
+        "observe",
+        "without opts",
+        {"v": 2},
+    )
+    steps = store.list_steps(SessionId("s-1"))
+    assert steps[0].provenance == {"source": "test"}
+    assert steps[0].semantic_metadata == {"tags": ["a"]}
+    assert steps[1].provenance is None
+    assert steps[1].semantic_metadata is None
