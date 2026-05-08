@@ -14,6 +14,7 @@ from typing import Any
 from uuid import uuid4
 
 from app.contracts.ids import ArtifactId, SessionId, StepId
+from app.contracts.session import Step
 
 logger = logging.getLogger(__name__)
 
@@ -260,6 +261,18 @@ class MetadataArtifactStoreAdapter:
             return None
         return ArtifactId(str(row["artifact_id"])), json.loads(row["content_json"])
 
+    def list_artifacts(
+        self,
+        session_id: SessionId,
+    ) -> list[dict[str, Any]]:
+        rows = self._metadata.query(
+            "SELECT content_json FROM artifacts "
+            "WHERE session_id = ? AND lifecycle = 'committed' "
+            "ORDER BY created_at ASC",
+            [session_id],
+        )
+        return [json.loads(row["content_json"]) for row in rows]
+
 
 class MetadataStepStoreAdapter:
     """Wraps MetadataStore -> StepStore.
@@ -309,3 +322,25 @@ class MetadataStepStoreAdapter:
                 metadata_kind="typed_semantic_snapshot",
                 semantic_snapshot=semantic_metadata,
             )
+
+    def list_steps(self, session_id: SessionId) -> list[Step]:
+        rows = self._metadata.query(
+            "SELECT step_id, session_id, step_type, summary, result_json, "
+            "provenance_json, created_at FROM steps "
+            "WHERE session_id = ? ORDER BY created_at ASC",
+            [session_id],
+        )
+        result: list[Step] = []
+        for row in rows:
+            result.append(
+                Step(
+                    step_id=StepId(str(row["step_id"])),
+                    session_id=SessionId(str(row["session_id"])),
+                    step_type=str(row["step_type"]),
+                    summary=str(row["summary"]),
+                    result=json.loads(str(row["result_json"])),
+                    provenance=json.loads(str(row["provenance_json"])),
+                    created_at=str(row["created_at"]),
+                )
+            )
+        return result
