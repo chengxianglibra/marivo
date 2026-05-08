@@ -27,6 +27,11 @@ class SessionState(BaseModel):
     session_id: SessionId
     status: str
     goal: str | None = None
+    owner_user: UserId | None = None
+    constraints: dict[str, Any] | None = None
+    budget: dict[str, Any] | None = None
+    terminal_reason: str | None = None
+    ended_at: str | None = None
     created_at: str
     updated_at: str
 

@@ -23,7 +23,7 @@ def test_runtime_creates_session(tmp_path: Path):
     runtime = create_local_runtime(config)
     state = runtime.create_session(goal="test")
     assert state is not None
-    assert state.session_id.startswith("sess-")
+    assert state.session_id.startswith("sess_")
 
 
 def test_explicit_local_overrides_server_deployment(tmp_path: Path):

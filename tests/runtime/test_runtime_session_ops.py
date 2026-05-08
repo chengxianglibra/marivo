@@ -215,7 +215,7 @@ def test_create_session_returns_session_state() -> None:
     rt = _make_runtime()
     result = rt.create_session("Analyze revenue")
     assert isinstance(result, SessionState)
-    assert result.session_id.startswith("sess-")
+    assert result.session_id.startswith("sess_")
 
 
 def test_create_session_appends_created_event() -> None:
@@ -257,7 +257,7 @@ def test_get_session_raises_not_found_for_unknown() -> None:
 def test_terminate_session_appends_terminated_event() -> None:
     store = RecordingSessionStore()
     rt = _make_runtime(session_store=store)
-    state = rt.create_session("Test goal")
+    state = rt.create_session("Test goal", actor=UserId("test-user"))
     rt.terminate_session(state.session_id, actor=UserId("test-user"))
     events = store.load_events(state.session_id)
     assert len(events) == 2
@@ -266,7 +266,7 @@ def test_terminate_session_appends_terminated_event() -> None:
 
 def test_get_session_state_returns_rebuilt_state() -> None:
     rt = _make_runtime()
-    state = rt.create_session("Test goal")
+    state = rt.create_session("Test goal", actor=UserId("test-user"))
     rt.terminate_session(state.session_id, actor=UserId("test-user"))
     fetched = rt.get_session_state(state.session_id)
     assert fetched.status == "terminated"

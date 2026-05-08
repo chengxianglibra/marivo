@@ -15,6 +15,7 @@ from app.contracts.ids import SessionId, UserId
 from app.contracts.session import SessionEvent, SessionState
 from app.core.session.rebuild import rebuild_session_state
 from app.evidence_engine.family_contract import ALLOWS_EMPTY_ARTIFACT_TYPES
+from app.identity import resolve_user
 
 if TYPE_CHECKING:
     from app.runtime.runtime import MarivoRuntime
@@ -83,7 +84,11 @@ def create_session(
     Extra keyword arguments (constraints, budget, raw_filter) are folded
     into the event payload.
     """
-    sid = SessionId(f"sess-{uuid4().hex[:12]}")
+    sid = SessionId(f"sess_{uuid4().hex[:12]}")
+    if actor is None:
+        resolved = resolve_user()
+        if resolved is not None:
+            actor = UserId(resolved)
     runtime.ports.session_store.append_event(
         sid,
         SessionEvent(
@@ -326,49 +331,22 @@ def get_proposition_runtime_status(
 ) -> dict[str, Any]:
     """Return proposition-level operator runtime status.
 
-    v1 does not maintain a real queue / claim / lease / retry system, so:
-
-    - ``current_attempt`` is always ``null``.
-    - ``backlog_state`` is always ``"none"``.
-    - ``last_failure_reason`` is always ``"none"``.
-    - ``last_failure_at`` is always ``null``.
+    Delegates to runtime.svc.session_manager for proposition DB lookup
+    and stage derivation (pending a propositions port in Task 17).
 
     Raises NotFoundError when the proposition is not found in the session.
     """
     assert_session_exists(runtime, session_id)
 
-    # Search for the proposition in the artifact store (propositions are
-    # a type of artifact in the port-based world).
-    artifacts = runtime.ports.artifact_store.list_artifacts(session_id)
-    proposition: dict[str, Any] | None = None
-    for a in artifacts:
-        if (
-            a.get("artifact_type") == "proposition"
-            and str(a.get("proposition_id", a.get("artifact_id", ""))) == proposition_id
-        ):
-            proposition = a
-            break
-
-    if proposition is None:
+    # Propositions live in a dedicated DB table, not in the artifact store.
+    # Until a propositions port is defined (Task 17), delegate to the
+    # session_manager which queries the propositions table directly.
+    try:
+        return runtime.svc.session_manager.get_proposition_runtime_status(
+            str(session_id), proposition_id
+        )
+    except KeyError as err:
         raise NotFoundError(
             code=ErrorCode.NOT_FOUND,
             message=f"proposition {proposition_id!r} not found in session {session_id!r}",
-        )
-
-    # Without assessment / action_proposal ports, we cannot determine
-    # the full pipeline stage.  Default to "queued" (the earliest stage).
-    current_stage = "queued"
-    last_successful_stage: str | None = None
-
-    return {
-        "session_id": str(session_id),
-        "proposition_id": proposition_id,
-        "current_stage": current_stage,
-        "last_successful_stage": last_successful_stage,
-        "current_assessment_id": None,
-        "current_attempt": None,
-        "backlog_state": "none",
-        "last_failure_reason": "none",
-        "last_failure_at": None,
-        "schema_version": "proposition_runtime_status.v1",
-    }
+        ) from err

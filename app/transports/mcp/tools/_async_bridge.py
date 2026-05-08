@@ -44,6 +44,9 @@ def _wrap_success(result: Any) -> dict[str, Any]:
         return {"data": None, "error": None}
     if isinstance(result, dict):
         return {"data": result, "error": None}
+    # Pydantic BaseModel subclasses (e.g. SessionState)
+    if hasattr(result, "model_dump") and callable(result.model_dump):
+        return {"data": result.model_dump(), "error": None}
     # SessionId or other non-dict return types
     return {"data": str(result), "error": None}
 

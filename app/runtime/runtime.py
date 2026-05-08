@@ -18,11 +18,12 @@ if TYPE_CHECKING:
 class MarivoRuntime:
     """Use-case facade for the Marivo platform.
 
-    Phase 4b-2: I/O proxy methods use ports.artifact_store / ports.step_store
-    as the primary path.  Semantic/routing methods still delegate to
-    self._svc until the semantic and routing ports are defined (future phase).
-    When artifact_store or step_store is None (local mode without adapters),
-    the methods fall back to self._svc.
+    Intent dispatchers (observe, compare, etc.) delegate to
+    runtime/intent_execution.  Session lifecycle methods delegate to
+    runtime/session.  Artifact/step I/O methods use ports directly.
+    Semantic methods route through runtime/semantic_ops.
+    Ghost methods (query_session_state, get_proposition_context,
+    discover_catalog) still use _svc pending Task 17 audit.
     """
 
     def __init__(
@@ -38,11 +39,12 @@ class MarivoRuntime:
         self._app: Any = None  # set via wire_app()
 
     def wire_svc(self, svc: SemanticLayerService) -> None:
-        """Attach the backing service for I/O proxy + intent methods.
+        """Attach the backing service for ghost methods.
 
-        Temporary bridge until all I/O proxy methods are fully
-        port-ified.  After that, this method and all self._svc
-        references will be removed.
+        Retained for ghost methods (query_session_state,
+        get_proposition_context, discover_catalog) and for
+        semantic_ops internals that still reference runtime.svc.
+        Will be removed after Task 17.
         """
         self._svc = svc
 
@@ -88,150 +90,124 @@ class MarivoRuntime:
         return self._svc
 
     # ------------------------------------------------------------------
-    # Artifact / Step I/O  (ports-first, svc fallback)
+    # Artifact / Step I/O  (ports-direct)
     # ------------------------------------------------------------------
 
     def resolve_artifact_for_ref(self, session_id: str, step_id: str) -> dict[str, Any] | None:
         """Return the content of the most recent committed artifact for a step ref."""
-        store = self._ports.artifact_store
-        if store is not None:
-            try:
-                return store.resolve_artifact_for_ref(SessionId(session_id), StepId(step_id))
-            except NotImplementedError:
-                pass  # fall through to svc
-        return self._require_svc("resolve_artifact_for_ref")._resolve_artifact_for_ref(
-            session_id, step_id
+        return self._ports.artifact_store.resolve_artifact_for_ref(
+            SessionId(session_id), StepId(step_id)
         )
 
     def resolve_artifact_id_for_step(self, session_id: str, step_id: str) -> str | None:
         """Return the artifact_id of the most recent committed artifact for a step."""
-        store = self._ports.artifact_store
-        if store is not None:
-            try:
-                result = store.resolve_artifact_id_for_step(SessionId(session_id), StepId(step_id))
-                return str(result) if result is not None else None
-            except NotImplementedError:
-                pass
-        return self._require_svc("resolve_artifact_id_for_step")._resolve_artifact_id_for_step(
-            session_id, step_id
+        result = self._ports.artifact_store.resolve_artifact_id_for_step(
+            SessionId(session_id), StepId(step_id)
         )
+        return str(result) if result is not None else None
 
     def resolve_artifact_with_id(
         self, session_id: str, step_id: str
     ) -> tuple[str, dict[str, Any]] | None:
         """Return (artifact_id, content) for the most recent committed artifact."""
-        store = self._ports.artifact_store
-        if store is not None:
-            try:
-                result = store.resolve_artifact_with_id(SessionId(session_id), StepId(step_id))
-                if result is None:
-                    return None
-                artifact_id, content = result
-                return str(artifact_id), content
-            except NotImplementedError:
-                pass
-        return self._require_svc("resolve_artifact_with_id")._resolve_artifact_with_id(
-            session_id, step_id
+        result = self._ports.artifact_store.resolve_artifact_with_id(
+            SessionId(session_id), StepId(step_id)
         )
+        if result is None:
+            return None
+        artifact_id, content = result
+        return str(artifact_id), content
 
     def commit_artifact_with_extraction(self, *args: Any, **kwargs: Any) -> str:
         """Canonical commit boundary for mandatory-extraction artifacts."""
-        store = self._ports.artifact_store
-        if store is not None:
-            try:
-                result = store.commit_artifact_with_extraction(*args, **kwargs)
-                return str(result)
-            except NotImplementedError:
-                pass
-        return self._require_svc(
-            "commit_artifact_with_extraction"
-        )._commit_artifact_with_extraction(*args, **kwargs)
+        result = self._ports.artifact_store.commit_artifact_with_extraction(*args, **kwargs)
+        return str(result)
 
     def insert_step(self, *args: Any, **kwargs: Any) -> None:
         """Insert a step record."""
-        store = self._ports.step_store
-        if store is not None:
-            try:
-                store.insert_step(*args, **kwargs)
-                return
-            except NotImplementedError:
-                pass
-        self._require_svc("insert_step")._insert_step(*args, **kwargs)
+        self._ports.step_store.insert_step(*args, **kwargs)
 
     def insert_artifact(self, *args: Any, **kwargs: Any) -> str:
         """Insert a raw artifact (no extraction boundary)."""
-        store = self._ports.artifact_store
-        if store is not None:
-            try:
-                result = store.insert_artifact(*args, **kwargs)
-                return str(result)
-            except NotImplementedError:
-                pass
-        return self._require_svc("insert_artifact")._insert_artifact(*args, **kwargs)
+        result = self._ports.artifact_store.insert_artifact(*args, **kwargs)
+        return str(result)
 
     # ------------------------------------------------------------------
-    # Semantic / Routing I/O  (svc-required, ports fallback future)
+    # Semantic / Routing I/O  (via semantic_ops)
     # ------------------------------------------------------------------
-    # These methods are deeply coupled to SemanticLayerService internals
-    # (semantic_repository, routing_runtime, compiler, etc.).
-    # They still delegate to self._svc until dedicated port protocols
-    # are defined for semantic resolution and routing.
+    # These methods route through runtime/semantic_ops which internally
+    # uses runtime.svc for semantic_repository and related internals.
+    # The svc dependency will be cleaned up in Task 17.
 
     def resolve_metric_execution_context(self, *args: Any, **kwargs: Any) -> Any:
-        return self._require_svc(
-            "resolve_metric_execution_context"
-        )._resolve_metric_execution_context(*args, **kwargs)
+        from app.runtime import semantic_ops
+
+        return semantic_ops.resolve_metric_execution_context(self, *args, **kwargs)
 
     def compile_step(self, *args: Any, **kwargs: Any) -> Any:
-        return self._require_svc("compile_step")._compile_step_with_feedback(*args, **kwargs)
+        from app.runtime import semantic_ops
 
-    def resolve_metric_dimensions(self, metric_ref: str) -> list[str] | None:
-        return self._require_svc("resolve_metric_dimensions").resolve_metric_dimensions(metric_ref)
+        return semantic_ops.compile_step_with_feedback(self, *args, **kwargs)
 
-    def resolve_metric(self, metric_name: str) -> Any:
-        return self._require_svc("resolve_metric").semantic_repository.resolve_metric(metric_name)
+    def resolve_metric_dimensions(self, *args: Any, **kwargs: Any) -> list[str] | None:
+        from app.runtime import semantic_ops
 
-    def resolve_metric_table(self, metric_name: str, **kwargs: Any) -> str | None:
-        return self._require_svc("resolve_metric_table")._resolve_metric_table(
-            metric_name, **kwargs
-        )
+        return semantic_ops.resolve_metric_dimensions(self, *args, **kwargs)
+
+    def resolve_metric(self, *args: Any, **kwargs: Any) -> Any:
+        from app.runtime import semantic_ops
+
+        return semantic_ops.resolve_metric(self, *args, **kwargs)
+
+    def resolve_metric_table(self, *args: Any, **kwargs: Any) -> str | None:
+        from app.runtime import semantic_ops
+
+        return semantic_ops.resolve_metric_table(self, *args, **kwargs)
 
     def resolve_metric_sql_for_execution(self, *args: Any, **kwargs: Any) -> str:
-        return self._require_svc(
-            "resolve_metric_sql_for_execution"
-        ).resolve_metric_sql_for_execution(*args, **kwargs)
+        from app.runtime import semantic_ops
+
+        return semantic_ops.resolve_metric_sql_for_execution(self, *args, **kwargs)
 
     def resolve_metric_value_sql_for_execution(self, *args: Any, **kwargs: Any) -> str | None:
-        return self._require_svc(
-            "resolve_metric_value_sql_for_execution"
-        ).resolve_metric_value_sql_for_execution(*args, **kwargs)
+        from app.runtime import semantic_ops
+
+        return semantic_ops.resolve_metric_value_sql_for_execution(self, *args, **kwargs)
 
     def resolve_scope_constraint_column(self, *args: Any, **kwargs: Any) -> str:
-        return self._require_svc(
-            "resolve_scope_constraint_column"
-        )._resolve_scope_constraint_column(*args, **kwargs)
+        from app.runtime import semantic_ops
+
+        return semantic_ops._resolve_scope_constraint_column(self, *args, **kwargs)
 
     def resolve_engine_for_session(self, *args: Any, **kwargs: Any) -> Any:
-        return self._require_svc("resolve_engine_for_session")._resolve_engine_for_session(
-            *args, **kwargs
-        )
+        from app.runtime import semantic_ops
+
+        return semantic_ops.resolve_engine_for_session(self, *args, **kwargs)
 
     def resolve_engine(self, *args: Any, **kwargs: Any) -> Any:
-        return self._require_svc("resolve_engine")._resolve_engine(*args, **kwargs)
+        from app.runtime import semantic_ops
+
+        return semantic_ops.resolve_engine(self, *args, **kwargs)
 
     def resolve_windowed_query_time_axis(self, *args: Any, **kwargs: Any) -> None:
-        return self._require_svc(
-            "resolve_windowed_query_time_axis"
-        )._resolve_windowed_query_time_axis(*args, **kwargs)
+        from app.runtime import semantic_ops
+
+        return semantic_ops.resolve_windowed_query_time_axis(self, *args, **kwargs)
 
     def build_scoped_query(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
-        return self._require_svc("build_scoped_query")._build_scoped_query(*args, **kwargs)
+        from app.runtime import semantic_ops
 
-    # --- Intent use-cases (still proxying through svc) ---
+        return semantic_ops.build_scoped_query(self, *args, **kwargs)
+
+    # --- Intent use-cases (delegated to intent_execution) ---
 
     @property
     def svc(self) -> SemanticLayerService:
-        """Return the backing service, asserting it has been wired."""
+        """Return the backing service, asserting it has been wired.
+
+        Retained for semantic_ops and ghost method access.
+        Will be removed after Task 17.
+        """
         assert self._svc is not None, "MarivoRuntime.svc accessed before wiring"
         return self._svc
 
@@ -265,52 +241,36 @@ class MarivoRuntime:
     def validate(self, session_id: str, params: dict[str, Any]) -> dict[str, Any]:
         return intent_execution.validate(self, SessionId(session_id), params)
 
-    # --- Session lifecycle (delegates to runtime/session, svc fallback) ---
+    # --- Session lifecycle (delegates to runtime/session) ---
 
     def create_session(
         self, goal: str, actor: UserId | None = None, **kwargs: Any
     ) -> SessionState | dict[str, Any]:
         """Create a new session, returning the rebuilt SessionState.
 
-        Delegates to runtime/session.  Falls back to svc when the
-        session store adapter raises NotImplementedError (e.g.
-        SqlSessionStoreAdapter which is CRUD-based, not event-sourced).
-        The svc fallback returns the raw AnalysisSession-shaped dict to
-        preserve fields (owner_user, scope, etc.) that SessionState
-        does not carry.
+        Delegates to runtime/session.
         """
-        try:
-            return session_ops.create_session(self, goal, actor, **kwargs)
-        except NotImplementedError:
-            return self._require_svc("create_session").create_session(goal, **kwargs)
+        return session_ops.create_session(self, goal, actor, **kwargs)
 
     def list_sessions(
         self, owner: UserId | None = None, **kwargs: Any
     ) -> list[SessionState] | dict[str, Any]:
         """Return sessions, optionally filtered by *owner*.
 
-        When owner is provided and the port path works, returns sessions
-        owned by that user.  Falls back to svc when the port path raises
-        NotImplementedError or when owner is not provided (legacy
-        pagination-based listing).
+        When owner is provided, delegates to session_ops.
+        Falls back to svc when owner is not provided (legacy
+        pagination-based listing via MCP API).
         """
         if owner is not None:
-            try:
-                return session_ops.list_sessions(self, owner)
-            except NotImplementedError:
-                pass
+            return session_ops.list_sessions(self, owner)
         return self._require_svc("list_sessions").list_sessions(**kwargs)
 
     def get_session(self, session_id: SessionId) -> SessionState | dict[str, Any]:
         """Get session state by ID.  Raises NotFoundError if not found.
 
-        Delegates to runtime/session.  Falls back to svc when the
-        session store adapter raises NotImplementedError.
+        Delegates to runtime/session.
         """
-        try:
-            return session_ops.get_session(self, session_id)
-        except NotImplementedError:
-            return self._require_svc("get_session").get_session(str(session_id))
+        return session_ops.get_session(self, session_id)
 
     def terminate_session(
         self,
@@ -320,15 +280,9 @@ class MarivoRuntime:
     ) -> None:
         """Terminate a session.  Raises NotFoundError/ForbiddenError/ValidationError.
 
-        Delegates to runtime/session.  Falls back to svc when the
-        session store adapter raises NotImplementedError.
+        Delegates to runtime/session.
         """
-        try:
-            session_ops.terminate_session(self, session_id, actor, terminal_reason=terminal_reason)
-        except NotImplementedError:
-            self._require_svc("terminate_session").terminate_session(
-                str(session_id), terminal_reason=terminal_reason
-            )
+        session_ops.terminate_session(self, session_id, actor, terminal_reason=terminal_reason)
 
     def get_session_state(
         self, session_id: SessionId, **kwargs: Any
@@ -338,7 +292,7 @@ class MarivoRuntime:
         When kwargs are provided (structured query from the API),
         delegates to svc because the port-based path returns a flat
         SessionState which lacks proposition/finding/gap context.
-        Without kwargs, delegates to get_session (port-first, svc fallback).
+        Without kwargs, delegates to get_session.
         Will be properly repointed in Task 14.
         """
         if kwargs:
@@ -347,34 +301,21 @@ class MarivoRuntime:
 
     def get_session_runtime_status(self, session_id: SessionId) -> dict[str, Any]:
         """Return session-level operator runtime status."""
-        try:
-            return session_ops.get_session_runtime_status(self, session_id)
-        except NotImplementedError:
-            return self._require_svc("get_session_runtime_status").get_session_runtime_status(
-                str(session_id)
-            )
+        return session_ops.get_session_runtime_status(self, session_id)
 
     def get_artifact_runtime_status(
         self, session_id: SessionId, artifact_id: str
     ) -> dict[str, Any]:
         """Return artifact-level operator runtime status."""
-        try:
-            return session_ops.get_artifact_runtime_status(self, session_id, artifact_id)
-        except NotImplementedError:
-            return self._require_svc("get_artifact_runtime_status").get_artifact_runtime_status(
-                str(session_id), artifact_id
-            )
+        return session_ops.get_artifact_runtime_status(self, session_id, artifact_id)
 
     def get_proposition_runtime_status(
         self, session_id: SessionId, proposition_id: str
     ) -> dict[str, Any]:
         """Return proposition-level operator runtime status."""
-        try:
-            return session_ops.get_proposition_runtime_status(self, session_id, proposition_id)
-        except NotImplementedError:
-            return self._require_svc(
-                "get_proposition_runtime_status"
-            ).get_proposition_runtime_status(str(session_id), proposition_id)
+        return session_ops.get_proposition_runtime_status(self, session_id, proposition_id)
+
+    # --- Ghost methods (still use _svc, pending Task 17 audit) ---
 
     def query_session_state(self, session_id: str, query: dict[str, Any]) -> dict[str, Any]:
         """Return the canonical SessionStateView with a structured query body."""

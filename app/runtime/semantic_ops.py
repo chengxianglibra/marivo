@@ -1569,3 +1569,30 @@ def _resolve_entity_for_metric(runtime: MarivoRuntime, metric_ref: str) -> dict[
         }
     except Exception:
         return None
+
+
+def resolve_engine(
+    runtime: MarivoRuntime,
+    table_names: list[str],
+    *,
+    session_id: str | None = None,
+) -> Any:
+    """Resolve the analytics engine, its type, and qualified table names.
+
+    Thin wrapper delegating to SemanticLayerService._resolve_engine.
+    Will be replaced with a port-based implementation in Task 17.
+    """
+    return runtime.svc._resolve_engine(table_names, session_id=session_id)
+
+
+def resolve_engine_for_session(
+    runtime: MarivoRuntime,
+    session_id: str,
+    table_names: list[str],
+) -> Any:
+    """Resolve the analytics engine for a given session.
+
+    Thin wrapper delegating to SemanticLayerService._resolve_engine_for_session.
+    Will be replaced with a port-based implementation in Task 17.
+    """
+    return runtime.svc._resolve_engine_for_session(session_id, table_names)

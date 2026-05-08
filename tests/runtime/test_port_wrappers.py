@@ -237,20 +237,37 @@ def test_sql_session_store_satisfies_protocol() -> None:
         assert callable(getattr(adapter, name)), f"SqlSessionStoreAdapter missing {name}"
 
 
-def test_sql_session_store_append_event_raises_not_implemented() -> None:
+def test_sql_session_store_append_event_session_created_delegates_to_metadata() -> None:
+    adapter = _make_sql_session_store_adapter()
+    event = SessionEvent(
+        session_id=SessionId("s1"),
+        event_type="session_created",
+        timestamp="2026-01-01T00:00:00Z",
+        payload={"goal": "test"},
+        actor=UserId("alice"),
+    )
+    adapter.append_event(SessionId("s1"), event)
+    adapter._metadata.execute.assert_called_once()
+
+
+def test_sql_session_store_append_event_unknown_type_is_noop() -> None:
     adapter = _make_sql_session_store_adapter()
     event = SessionEvent(
         session_id=SessionId("s1"),
         event_type="test",
         timestamp="2026-01-01T00:00:00Z",
     )
-    with pytest.raises(NotImplementedError):
-        adapter.append_event(SessionId("s1"), event)
+    # Unknown event types are silently ignored (no error raised)
+    adapter.append_event(SessionId("s1"), event)
+    adapter._metadata.execute.assert_not_called()
 
 
-def test_sql_session_store_load_events_raises_not_implemented() -> None:
+def test_sql_session_store_load_events_raises_not_found_for_missing() -> None:
+    from app.contracts.errors import NotFoundError
+
     adapter = _make_sql_session_store_adapter()
-    with pytest.raises(NotImplementedError):
+    adapter._metadata.query_one.return_value = None
+    with pytest.raises(NotFoundError):
         adapter.load_events(SessionId("s1"))
 
 

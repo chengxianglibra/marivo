@@ -265,7 +265,7 @@ class MetadataArtifactStoreAdapter:
         self,
         session_id: SessionId,
     ) -> list[dict[str, Any]]:
-        rows = self._metadata.query(
+        rows = self._metadata.query_rows(
             "SELECT content_json FROM artifacts "
             "WHERE session_id = ? AND lifecycle = 'committed' "
             "ORDER BY created_at ASC",
@@ -327,7 +327,7 @@ class MetadataStepStoreAdapter:
         # Shallow read: semantic_metadata is stored in a separate
         # step_metadata table and is not joined here.  Callers that
         # need it should query the metadata repo directly.
-        rows = self._metadata.query(
+        rows = self._metadata.query_rows(
             "SELECT step_id, session_id, step_type, summary, result_json, "
             "provenance_json, created_at FROM steps "
             "WHERE session_id = ? ORDER BY created_at ASC",
