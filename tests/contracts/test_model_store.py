@@ -7,6 +7,8 @@ import pytest
 from app.adapters.local.file_model_store import FileModelStore, _ListQuery, _Selector
 from app.contracts.ids import UserId
 from app.contracts.semantic import SemanticModel
+from tests.contracts.contract_harness import run_contract_cases
+from tests.contracts.model_store_cases import MODEL_STORE_CASES
 
 
 def _make_file_model_store(models_dir: Path) -> FileModelStore:
@@ -17,6 +19,16 @@ def _make_file_model_store(models_dir: Path) -> FileModelStore:
 @pytest.fixture()
 def store(tmp_path: Path) -> FileModelStore:
     return _make_file_model_store(tmp_path / "models")
+
+
+def test_file_model_store_contract_cases(store: FileModelStore, tmp_path: Path) -> None:
+    results = run_contract_cases(
+        adapter_name="FileModelStore",
+        factory=lambda _path: store,
+        cases=MODEL_STORE_CASES,
+        tmp_path=tmp_path,
+    )
+    assert all(result.status == "passed" for result in results)
 
 
 def test_get_returns_none_for_absent(store: FileModelStore) -> None:
