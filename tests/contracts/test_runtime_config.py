@@ -10,9 +10,7 @@ from app.contracts.errors import ValidationError
 
 def _make_config(tmp_path: Path) -> TomlRuntimeConfig:
     config_path = tmp_path / "marivo.toml"
-    config_path.write_text(
-        '[profile]\nmode = "local"\n\n[datasource]\ntype = "duckdb"\n'
-    )
+    config_path.write_text('[profile]\nmode = "local"\n\n[datasource]\ntype = "duckdb"\n')
     return TomlRuntimeConfig(config_path)
 
 
