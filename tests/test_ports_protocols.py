@@ -15,7 +15,7 @@ from app.contracts.ids import (
     UserId,
 )
 from app.contracts.semantic import ModelSummary, SemanticModel
-from app.contracts.session import SessionEvent
+from app.contracts.session import SessionEvent, SessionState
 from app.contracts.values import (
     AuditEntry,
     AuthZDecision,
@@ -26,6 +26,7 @@ from app.contracts.values import (
     SourceSchema,
     TelemetryEvent,
 )
+from app.core.session.rebuild import rebuild_session_state
 
 # --- Concrete implementations for Protocol satisfaction ---
 
@@ -76,6 +77,13 @@ class InMemorySessionStore:
 
     def load_events(self, session_id: SessionId) -> list[SessionEvent]:
         return self._events.get(session_id, [])
+
+    def list_sessions(self, owner: UserId) -> list[SessionState]:
+        states: list[SessionState] = []
+        for events in self._events.values():
+            if events and events[0].event_type == "session_created" and events[0].actor == owner:
+                states.append(rebuild_session_state(events))
+        return states
 
 
 class InMemoryDataSource:

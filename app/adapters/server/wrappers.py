@@ -32,7 +32,7 @@ from app.contracts.ids import (
     UserId,
 )
 from app.contracts.semantic import ModelSummary, SemanticModel
-from app.contracts.session import SessionEvent
+from app.contracts.session import SessionEvent, SessionState
 from app.contracts.values import (
     AuditEntry,
     AuthZDecision,
@@ -288,6 +288,18 @@ class SqlSessionStoreAdapter:
         """
         raise NotImplementedError(
             "SqlSessionStoreAdapter.load_events: the existing SessionManager "
+            "is CRUD-based, not event-sourced. Event sourcing bridge will be "
+            "added in a later phase."
+        )
+
+    def list_sessions(self, owner: UserId) -> list[SessionState]:
+        """List sessions owned by ``owner``.
+
+        Phase 3a: not implemented; the existing SessionManager is CRUD,
+        not event-sourced.
+        """
+        raise NotImplementedError(
+            "SqlSessionStoreAdapter.list_sessions: the existing SessionManager "
             "is CRUD-based, not event-sourced. Event sourcing bridge will be "
             "added in a later phase."
         )
