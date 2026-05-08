@@ -478,7 +478,79 @@ Sequencing follows a **contract-first strangler** strategy: define the shared co
 
 ---
 
-## 13. Non-Goals
+## 13. Post-Phase-6 Detailed Scope
+
+The migration table in §12 enumerates the phases at the deliverable level.
+The following subsections capture additional scope items for the phases that
+execute after Phase 6 (Profile System). These are commitments — every item
+must land in its phase or be explicitly deferred to a later one with a
+recorded reason. Items that belong to Phase 1–6 are out of scope for this
+section.
+
+### 13.1 Phase 9 — Production Server Adapters
+
+Beyond the deliverables listed in §12, Phase 9 must cover:
+
+- **`RoutingDataSource` credential and registry lookup design.** The
+  Phase 6 / 6.2 server profile sketch describes `RoutingDataSource` as
+  routing DuckDB / Trino / Snowflake / BigQuery based on model config, but
+  current routing depends on registered datasource metadata and
+  `QueryRouter`. Phase 9 must document how datasource credentials, catalog
+  browsing, and registry lookup survive the move from
+  `DatasourceService` + `QueryRouter` to a direct adapter. Accepting
+  DuckDB-only with an explicit non-DuckDB-disabled flag is acceptable as
+  long as the design captures the credential / registry path the server
+  profile will take when additional engines are wired in.
+- **`step_completed` event ownership in `SqlSessionStore`.** The native
+  event-sourced `SqlSessionStore` (MySQL `session_events`) must guarantee
+  that a `step_completed` event is appended after every successful
+  `commit_step_result()` call, so reconstructed `SessionState.updated_at`
+  reflects the last step rather than the session creation time. This
+  contract is added to the `SessionStore` adapter contract test suite so it
+  applies uniformly to local and server implementations.
+- **Server contract test packaging.** Add a `test-mysql` extras group in
+  `pyproject.toml` (e.g. `test-mysql = ["testcontainers[mysql]"]`) so the
+  contract suite can pull in testcontainers without colliding with the
+  existing `mysql = ["PyMySQL>=1.1"]` group, and route installation through
+  a Make entrypoint rather than raw `pip install` in CI yaml.
+- **CI runtime safety for server-contract-tests.** The
+  `server-contract-tests` CI job must declare an explicit
+  `timeout-minutes` (target ≤ 10). Without it, a hung testcontainer can
+  burn a runner up to the GitHub Actions default 6-hour ceiling.
+
+### 13.2 Phase 8 — Enterprise Authentication & Authorization
+
+Beyond the deliverables listed in §12 and the dedicated design at
+`docs/superpowers/specs/2026-05-08-phase8-enterprise-auth-design.md`,
+Phase 8 must cover:
+
+- **Production guard for `AlwaysAllowAuthZ`.** The Phase 6 / 6.2 stub is
+  acceptable only as a server-profile placeholder. Phase 8 hardens its
+  constructor to fail closed when `MARIVO_ENV=production` (or equivalent
+  production-like config) is active, using a typed configuration / domain
+  error rather than `assert` so optimized Python cannot bypass the guard.
+  This guard is removed once `OidcRbacAuthZ` is wired in below.
+- **Trusted-edge auth middleware (HTTP API + HTTP MCP).** Pure-ASGI
+  middleware that strips inbound identity-propagation headers (including
+  any caller-supplied `X-Marivo-User` in company-analytics mode), validates
+  configured Bearer / OIDC credentials, resolves the canonical actor and
+  roles, and sets the Runtime identity context. Coverage must extend to
+  streaming `/mcp` routes without buffering SSE. Unauthenticated enterprise
+  requests fail closed before any business logic runs.
+- **`OidcRbacAuthZ` replacing `AlwaysAllowAuthZ`.** Implement role mapping
+  for `admin`, `semantic_modeler`, `analyst`, and `service`; wire the
+  server profile to it for production-like deployments. Authorization
+  checks live in Runtime use cases — not in transports or storage
+  adapters. Denials surface as standard domain errors through both HTTP
+  and MCP envelopes.
+- **Auth audit hardening.** Audit records must include canonical actor,
+  roles, action, resource, allow / deny decision, denial code, and
+  transport (`http_api` or `http_mcp`). Tests cover allowed and denied
+  requests on both transports.
+
+---
+
+## 14. Non-Goals
 
 - Local mode does not start an HTTP service by default.
 - MCP does not become the canonical business contract.
