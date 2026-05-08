@@ -1654,3 +1654,879 @@ def resolve_engine_for_session(
         if "unexpected keyword argument 'session_id'" not in str(error):
             raise
         return resolve_engine(runtime, table_names)
+
+
+# ── Step execution functions (extracted from SemanticLayerService) ───────
+
+
+def _resolve_engine_for_session_with_routing(
+    runtime: MarivoRuntime,
+    session_id: str,
+    table_names: list[str],
+) -> tuple[Any, str, dict[str, str], dict[str, Any] | None]:
+    """Like resolve_engine_for_session but also returns routing feedback dict."""
+    try:
+        resolution = runtime.ports.data_source.resolve_tables(table_names, session_id=session_id)
+    except TypeError as error:
+        if "unexpected keyword argument 'session_id'" not in str(error):
+            raise
+        resolution = runtime.ports.data_source.resolve_tables(table_names)
+    qualified = resolution.route.qualified_names if resolution.route is not None else {}
+    routing_feedback = resolution.feedback.to_dict() if resolution.feedback is not None else None
+    return resolution.engine, resolution.datasource_type, qualified, routing_feedback
+
+
+def _make_provenance(
+    sql: str = "",
+    params: list[Any] | None = None,
+    engine_type: str = "duckdb",
+    routing: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build a provenance token for a step execution."""
+    from app.core.intent.primitives import make_provenance
+
+    return make_provenance(sql, params, engine_type=engine_type, routing=routing)
+
+
+def _resolve_metric_unit_note(runtime: MarivoRuntime, metric_ref: str) -> str | None:
+    """Return a concise unit note for a metric if one is available."""
+    try:
+        entity = _resolve_entity_for_metric(runtime, metric_ref)
+        if entity:
+            fields = entity.get("properties", {}).get("fields", {})
+            field_units = {
+                col: info["unit"]
+                for col, info in fields.items()
+                if isinstance(info, dict) and info.get("unit")
+            }
+            if field_units:
+                parts = ", ".join(f"{col}: {u}" for col, u in field_units.items())
+                return f"Unit (from entity): {parts}"
+    except Exception:
+        pass
+    return None
+
+
+def _insert_step(
+    runtime: MarivoRuntime,
+    step_id: str,
+    session_id: str,
+    step_type: str,
+    summary: str,
+    result: dict[str, Any],
+    provenance: dict[str, Any] | None = None,
+    semantic_metadata: dict[str, Any] | None = None,
+) -> None:
+    """Insert a step record via runtime ports."""
+    from app.contracts.ids import SessionId, StepId
+
+    runtime.ports.step_store.insert_step(
+        StepId(step_id),
+        SessionId(session_id),
+        step_type,
+        summary,
+        result,
+        provenance=provenance,
+        semantic_metadata=semantic_metadata,
+    )
+
+
+def _insert_artifact(
+    runtime: MarivoRuntime,
+    session_id: str,
+    step_id: str,
+    artifact_type: str,
+    name: str,
+    content: Any,
+    *,
+    lifecycle: str = "committed",
+    artifact_schema_version: str | None = None,
+) -> str:
+    """Insert an artifact record via runtime ports. Returns artifact_id."""
+    from uuid import uuid4
+
+    from app.contracts.ids import SessionId, StepId
+
+    artifact_id = f"art_{uuid4().hex[:12]}"
+    runtime.ports.artifact_store.insert_artifact(
+        SessionId(session_id),
+        StepId(step_id),
+        artifact_type,
+        name,
+        content,
+        lifecycle=lifecycle,
+        artifact_schema_version=artifact_schema_version,
+    )
+    return artifact_id
+
+
+def _fetch_column_metadata(
+    short_name: str,
+    columns: list[str],
+) -> dict[str, dict[str, str]]:
+    """Column metadata resolution -- currently a no-op placeholder."""
+    return {}
+
+
+def run_metric_query(
+    runtime: MarivoRuntime, session_id: str, params: dict[str, Any]
+) -> dict[str, Any]:
+    """Generic metric comparison step driven by semantic metric definitions."""
+    from app.analysis_core.executor import execute_compiled
+    from app.core.intent.primitives import new_step_id
+    from app.time_scope import normalize_metric_query_request
+
+    resolved = normalize_metric_query_request(params)
+    if not isinstance(resolved.value_spec, SemanticMetricValueSpec):
+        raise ValueError("metric_query requires a semantic metric request")
+    mode = resolved.time_scope.mode
+    metric_name = resolved.value_spec.metric
+
+    step_type = "metric_query"
+    step_id = new_step_id()
+
+    metric_sql = resolve_metric_sql(runtime, metric_name)
+    all_dimensions = resolve_metric_dimensions(runtime, metric_name)
+    if metric_sql is None or all_dimensions is None:
+        raise ValueError(
+            f"Metric '{metric_name}' not found, not published, or missing typed execution metadata"
+        )
+
+    engine, engine_type, qualified, routing_feedback = _resolve_engine_for_session_with_routing(
+        runtime, session_id, [resolved.table]
+    )
+    resolve_windowed_query_time_axis(
+        runtime,
+        resolved,
+        engine_type=engine_type,
+        metric_name=metric_name,
+        fallback_columns=all_dimensions,
+    )
+    scoped_query = build_scoped_query(runtime, session_id, resolved, engine_type=engine_type)
+    comparison_time_column = comparison_time_dimension_column(resolved, all_dimensions)
+
+    # Allow caller to select a subset of dimensions for grouping
+    requested_dims = list(resolved.grouping)
+    if requested_dims:
+        invalid = set(requested_dims) - set(all_dimensions)
+        if invalid:
+            raise ValueError(f"Invalid dimensions {invalid}; valid: {all_dimensions}")
+
+    dimensions = comparison_dimensions(
+        all_dimensions,
+        comparison_time_column,
+        requested=requested_dims,
+    )
+    if requested_dims and not dimensions:
+        filtered_out = [d for d in requested_dims if d == comparison_time_column]
+        raise ValueError(
+            f"Cannot use '{filtered_out[0]}' as comparison dimension because "
+            f"it is the period-splitting column (date_column='{comparison_time_column}'). "
+            f"Use a different dimension or omit dimensions for overall aggregate comparison."
+        )
+    limit = resolved.limit or 10
+
+    qualified_table = qualified.get(resolved.table, resolved.table)
+    current_len = window_length(resolved, "current")
+    baseline_len: int | None = None
+    window_size_mismatch = False
+    if mode == "compare":
+        baseline_len = window_length(resolved, "baseline")
+        window_size_mismatch = current_len != baseline_len
+    compiled_query = compile_step_with_feedback(
+        runtime,
+        AnalysisStepIR(
+            index=0,
+            step_type=step_type,
+            params={
+                key: value
+                for key, value in {
+                    "table": qualified_table,
+                    "metric": metric_name,
+                    "limit": limit,
+                    "order": normalize_metric_query_order(resolved.order, mode=mode),
+                    "scoped_query": scoped_query,
+                }.items()
+                if value is not None
+            },
+        ),
+        engine_type=engine_type,
+        semantic_context={
+            "metric_sql": metric_sql,
+            "dimensions": dimensions,
+        },
+    )
+    all_rows = normalize_metric_rows(
+        execute_compiled(engine, compiled_query).rows,
+        mode=mode,
+    )
+    if mode == "compare":
+        rows = [row for row in all_rows if row.get("delta_pct") is not None]
+    else:
+        rows = list(all_rows)
+    artifact_id = _insert_artifact(
+        runtime, session_id, step_id, "table", f"{metric_name}_metric_query", rows
+    )
+
+    _debug = metric_query_debug_payload(
+        resolved,
+        all_rows=all_rows,
+        window_length_match=(not window_size_mismatch) if mode == "compare" else None,
+    )
+    summary = metric_query_summary(
+        metric_name,
+        rows,
+        mode=mode,
+        debug=_debug,
+        dimensions=dimensions,
+        grain=resolved.time_scope.grain,
+        current_len=current_len,
+        baseline_len=baseline_len,
+    )
+
+    provenance = _make_provenance(
+        compiled_query.sql, compiled_query.params, engine_type=engine_type, routing=routing_feedback
+    )
+
+    # G-5e: resolve unit for the metric from confirmed hints or entity properties
+    unit_note = _resolve_metric_unit_note(runtime, metric_name)
+
+    result: dict[str, Any] = {
+        "step_type": step_type,
+        "metric_name": metric_name,
+        "summary": summary,
+        "artifact_id": artifact_id,
+    }
+    if unit_note:
+        result["unit_note"] = unit_note
+    if not rows:
+        result["debug"] = _debug
+    elif mode == "compare" and window_size_mismatch:
+        result["debug"] = {
+            k: _debug[k] for k in ("current_window", "baseline_window", "window_length_match")
+        }
+    _insert_step(
+        runtime,
+        step_id,
+        session_id,
+        step_type,
+        summary,
+        result,
+        provenance=provenance,
+    )
+    return result
+
+
+def run_profile_table(
+    runtime: MarivoRuntime, session_id: str, params: dict[str, Any]
+) -> dict[str, Any]:
+    """Profile a table: row count, column stats (null rate, distinct count)."""
+    from app.analysis_core.executor import execute_compiled
+    from app.core.intent.primitives import new_step_id
+
+    table_name = params.get("table_name")
+    if not table_name:
+        raise ValueError("profile_table requires 'table_name' param")
+
+    step_type = "profile_table"
+    step_id = new_step_id()
+
+    short_name = table_name.split(".")[-1]
+    engine, engine_type, qualified, routing_feedback = _resolve_engine_for_session_with_routing(
+        runtime, session_id, [table_name]
+    )
+    qualified_table = qualified.get(table_name, table_name)
+
+    row_count_query = compile_step_with_feedback(
+        runtime,
+        AnalysisStepIR(
+            index=0, step_type="profile_table_row_count", params={"table_name": qualified_table}
+        ),
+        engine_type=engine_type,
+    )
+    row_count: int | None = None
+    row_count_error: str | None = None
+    try:
+        row_count_row = execute_compiled(engine, row_count_query).rows[0]
+        row_count = row_count_row["row_count"]
+    except Exception as exc:
+        row_count_error = str(exc)
+
+    columns_available = True
+    columns_error: str | None = None
+    try:
+        columns_query = compile_step_with_feedback(
+            runtime,
+            AnalysisStepIR(
+                index=0,
+                step_type="profile_table_columns",
+                params={"table_name": qualified_table, "short_name": short_name},
+            ),
+            engine_type=engine_type,
+        )
+        col_rows = execute_compiled(engine, columns_query).rows
+        columns = [r["column_name"] for r in col_rows]
+    except Exception:
+        # Fallback: derive column names from SELECT * LIMIT 0 result schema
+        try:
+            schema_rows = engine.query_rows(f"SELECT * FROM {qualified_table} LIMIT 0")
+            columns = list(schema_rows[0].keys()) if schema_rows else []
+        except Exception as exc:
+            columns = []
+            columns_available = False
+            columns_error = str(exc)
+
+    # Infer date column + recent value for partition-filtered profiling (Trino)
+    profile_date_column: str | None = None
+    profile_date_value: str | None = None
+    _date_candidates = ("log_date", "event_date", "dt", "date", "day")
+    for dc in _date_candidates:
+        if dc in columns:
+            try:
+                max_row = engine.query_rows(f"SELECT MAX({dc}) AS max_date FROM {qualified_table}")
+                if max_row and max_row[0].get("max_date") is not None:
+                    profile_date_column = dc
+                    profile_date_value = str(max_row[0]["max_date"])
+                    break
+            except Exception:
+                continue
+
+    col_metadata = _fetch_column_metadata(short_name, columns)
+    col_profiles = []
+    for col in columns[:20]:  # cap at 20 columns for safety
+        try:
+            profile_params: dict[str, Any] = {"table_name": qualified_table, "column_name": col}
+            if profile_date_column and profile_date_value:
+                profile_params["date_column"] = profile_date_column
+                profile_params["date_value"] = profile_date_value
+            stats_query = compile_step_with_feedback(
+                runtime,
+                AnalysisStepIR(
+                    index=0,
+                    step_type="profile_table_column_profile",
+                    params=profile_params,
+                ),
+                engine_type=engine_type,
+            )
+            stats = execute_compiled(engine, stats_query).rows[0]
+            entry: dict[str, Any] = {
+                "column": col,
+                "total": stats["total"],
+                "non_null": stats["non_null"],
+                "null_rate": round(1 - stats["non_null"] / max(stats["total"], 1), 4),
+                "distinct_count": stats["distinct_count"],
+            }
+            if col in col_metadata:
+                entry.update(col_metadata[col])
+            col_profiles.append(entry)
+        except Exception:
+            err_entry: dict[str, Any] = {"column": col, "error": "failed to profile"}
+            if col in col_metadata:
+                err_entry.update(col_metadata[col])
+            col_profiles.append(err_entry)
+
+    profile_scope = None
+    if profile_date_column:
+        profile_scope = {
+            "date_column": profile_date_column,
+            "date_value": profile_date_value,
+            "scoped_row_count": col_profiles[0]["total"]
+            if col_profiles and "total" in col_profiles[0]
+            else None,
+        }
+    # If the row-count query failed and no columns were found, the table
+    # does not exist (or is otherwise completely inaccessible).
+    if row_count_error is not None and not columns:
+        raise ValueError(f"Table '{table_name}' is inaccessible: {row_count_error}")
+
+    profile_errors: dict[str, str] = {}
+    if row_count_error is not None:
+        profile_errors["row_count"] = row_count_error
+    if not columns_available and columns_error is not None:
+        profile_errors["columns"] = columns_error
+    artifact: dict[str, Any] = {
+        "table_name": table_name,
+        "row_count": row_count,
+        "profile_scope": profile_scope,
+        "columns": col_profiles,
+    }
+    if profile_errors:
+        artifact["errors"] = profile_errors
+    artifact_id = _insert_artifact(
+        runtime, session_id, step_id, "profile", f"{short_name}_profile", artifact
+    )
+
+    scope_note = (
+        f" (column stats scoped to {profile_date_column}={profile_date_value})"
+        if profile_date_column
+        else ""
+    )
+    failure_notes: list[str] = []
+    if row_count_error is not None:
+        failure_notes.append(f"row_count unavailable: {row_count_error}")
+    if not columns_available:
+        col_detail = f": {columns_error}" if columns_error else ""
+        failure_notes.append(
+            f"columns unavailable (schema query failed{col_detail}; use sample_rows limit=1 to inspect columns)"
+        )
+    if failure_notes:
+        failure_str = "; ".join(failure_notes)
+        summary = f"Table '{table_name}' profile incomplete — {failure_str}."
+    else:
+        summary = (
+            f"Table '{table_name}' has {row_count} rows and {len(columns)} columns{scope_note}."
+        )
+    provenance = _make_provenance(
+        f"profile:{table_name}", engine_type=engine_type, routing=routing_feedback
+    )
+    result = {
+        "step_type": step_type,
+        "summary": summary,
+        "artifact_id": artifact_id,
+        "profile": artifact,
+    }
+    _insert_step(
+        runtime,
+        step_id,
+        session_id,
+        step_type,
+        summary,
+        result,
+        provenance=provenance,
+    )
+    return result
+
+
+def run_sample_rows(
+    runtime: MarivoRuntime, session_id: str, params: dict[str, Any]
+) -> dict[str, Any]:
+    """Return a sample of rows from a table."""
+    from app.analysis_core.executor import execute_compiled
+    from app.core.intent.primitives import new_step_id
+
+    table_name = params.get("table_name")
+    if not table_name:
+        raise ValueError("sample_rows requires 'table_name' param")
+
+    user_filter = params.get("filter")
+    if user_filter:
+        params = {**params, "filter": user_filter}
+
+    step_type = "sample_rows"
+    step_id = new_step_id()
+
+    limit = int(params.get("limit", 10))
+    short_name = table_name.split(".")[-1]
+    engine, engine_type, qualified, routing_feedback = _resolve_engine_for_session_with_routing(
+        runtime, session_id, [table_name]
+    )
+    qualified_table = qualified.get(table_name, table_name)
+
+    # Build compiler params with filter/columns passthrough
+    compiler_params: dict[str, Any] = {"table_name": qualified_table, "limit": limit}
+
+    if params.get("filter"):
+        compiler_params["filter"] = params["filter"]
+    if params.get("columns"):
+        compiler_params["columns"] = params["columns"]
+
+    # Auto-detect partition column for Trino-like engines (same logic as profile_table)
+    if not params.get("filter") and not params.get("date_column"):
+        _date_candidates = ("log_date", "event_date", "dt", "date", "day")
+        try:
+            col_query = compile_step_with_feedback(
+                runtime,
+                AnalysisStepIR(
+                    index=0,
+                    step_type="profile_table_columns",
+                    params={"table_name": qualified_table, "short_name": short_name},
+                ),
+                engine_type=engine_type,
+            )
+            col_rows = execute_compiled(engine, col_query).rows
+            columns_list = [r["column_name"] for r in col_rows]
+            for dc in _date_candidates:
+                if dc in columns_list:
+                    try:
+                        max_row = engine.query_rows(
+                            f"SELECT MAX({dc}) AS max_date FROM {qualified_table}"
+                        )
+                        if max_row and max_row[0].get("max_date") is not None:
+                            compiler_params["date_column"] = dc
+                            compiler_params["date_value"] = str(max_row[0]["max_date"])
+                            break
+                    except Exception:
+                        continue
+        except Exception:
+            pass
+    elif params.get("date_column"):
+        compiler_params["date_column"] = params["date_column"]
+        if params.get("date_value"):
+            compiler_params["date_value"] = params["date_value"]
+        elif params.get("period_end"):
+            compiler_params["date_value"] = params["period_end"]
+
+    compiled_query = compile_step_with_feedback(
+        runtime,
+        AnalysisStepIR(index=0, step_type=step_type, params=compiler_params),
+        engine_type=engine_type,
+    )
+    rows = execute_compiled(engine, compiled_query).rows
+
+    actual_columns = list(rows[0].keys()) if rows else list(params.get("columns") or [])
+    col_metadata = _fetch_column_metadata(short_name, actual_columns)
+
+    artifact_id = _insert_artifact(
+        runtime, session_id, step_id, "sample", f"{short_name}_sample", rows
+    )
+    summary = f"Sampled {len(rows)} rows from '{table_name}'."
+    provenance = _make_provenance(
+        compiled_query.sql, compiled_query.params, engine_type=engine_type, routing=routing_feedback
+    )
+    result = {
+        "step_type": step_type,
+        "summary": summary,
+        "artifact_id": artifact_id,
+        "rows": rows,
+        "columns_metadata": col_metadata,
+    }
+    _insert_step(
+        runtime,
+        step_id,
+        session_id,
+        step_type,
+        summary,
+        result,
+        provenance=provenance,
+        semantic_metadata=build_step_semantic_metadata(runtime, compiled_query),
+    )
+    return result
+
+
+def run_aggregate_query(
+    runtime: MarivoRuntime, session_id: str, params: dict[str, Any]
+) -> dict[str, Any]:
+    """Run an ad-hoc GROUP BY + aggregation query."""
+    from app.analysis_core.executor import execute_compiled
+    from app.core.intent.primitives import new_step_id
+    from app.time_scope import (
+        AdHocAggregateValueSpec,
+        normalize_aggregate_query_request,
+    )
+
+    resolved = normalize_aggregate_query_request(params)
+    table_name = resolved.table
+
+    step_type = "aggregate_query"
+    step_id = new_step_id()
+    short_name = table_name.split(".")[-1]
+    engine, engine_type, qualified, routing_feedback = _resolve_engine_for_session_with_routing(
+        runtime, session_id, [table_name]
+    )
+    resolve_windowed_query_time_axis(
+        runtime,
+        resolved,
+        engine_type=engine_type,
+        fallback_columns=list(resolved.grouping),
+    )
+    scoped_query = build_scoped_query(runtime, session_id, resolved, engine_type=engine_type)
+    qualified_table = qualified.get(table_name, table_name)
+
+    measures = (
+        resolved.value_spec.measures
+        if isinstance(resolved.value_spec, AdHocAggregateValueSpec)
+        else []
+    )
+    compiler_params: dict[str, Any] = {
+        "table": qualified_table,
+        "measures": [{"expr": measure.expr, "as": measure.alias} for measure in measures],
+        "group_by": list(resolved.grouping),
+        "limit": resolved.limit or 100,
+        "scoped_query": scoped_query,
+    }
+    if resolved.order:
+        compiler_params["order"] = resolved.order
+
+    compiled_query = compile_step_with_feedback(
+        runtime,
+        AnalysisStepIR(index=0, step_type=step_type, params=compiler_params),
+        engine_type=engine_type,
+    )
+    rows = execute_compiled(engine, compiled_query).rows
+    compare_period = resolved.time_scope.mode == "compare"
+
+    artifact_id = _insert_artifact(
+        runtime, session_id, step_id, "aggregate", f"{short_name}_aggregate", rows
+    )
+    if not rows:
+        _partition_cols = {"log_date", "event_date", "dt", "date", "day"}
+        where_lower = str(scoped_query.get("partition_pruning_predicate") or "").lower()
+        has_partition_hint = any(col in where_lower for col in _partition_cols)
+        if has_partition_hint:
+            summary = (
+                f"Aggregate query on '{table_name}' returned 0 rows. "
+                "Possible cause: partition filter syntax or date range contains no data. "
+                "Verify the date format matches the engine (e.g. YYYYMMDD for Trino/Iceberg)."
+            )
+        else:
+            summary = f"Aggregate query on '{table_name}' returned 0 rows."
+    elif compare_period:
+        _baseline = resolved.time_scope.baseline
+        summary = (
+            f"Period-over-period aggregate on '{table_name}': "
+            f"{len(rows)} dimension slice(s) compared "
+            f"(current {resolved.time_scope.current.start}–{resolved.time_scope.current.end} vs "
+            f"baseline {_baseline.start if _baseline else '?'}–{_baseline.end if _baseline else '?'})."
+        )
+    else:
+        summary = f"Aggregate query on '{table_name}' returned {len(rows)} rows."
+    provenance = _make_provenance(
+        compiled_query.sql, compiled_query.params, engine_type=engine_type, routing=routing_feedback
+    )
+    result = {
+        "step_type": step_type,
+        "summary": summary,
+        "artifact_id": artifact_id,
+        "rows": rows,
+    }
+    _insert_step(runtime, step_id, session_id, step_type, summary, result, provenance=provenance)
+    return result
+
+
+def run_attribute_change(
+    runtime: MarivoRuntime, session_id: str, params: dict[str, Any]
+) -> dict[str, Any]:
+    """Attribute a metric change across candidate dimensions."""
+    from app.analysis_core.executor import execute_compiled
+    from app.core.intent.primitives import new_step_id
+
+    metric_name = params.get("metric_name")
+    table_name = params.get("table_name")
+    if not metric_name or not table_name:
+        raise ValueError("attribute_change requires 'metric_name' and 'table_name' params")
+
+    candidate_dimensions_raw = params.get("candidate_dimensions")
+    if not isinstance(candidate_dimensions_raw, list):
+        raise ValueError("candidate_dimensions must not be empty")
+    candidate_dimensions = [
+        str(dim).strip() for dim in candidate_dimensions_raw if str(dim).strip()
+    ]
+    candidate_dimensions = list(dict.fromkeys(candidate_dimensions))
+    if not candidate_dimensions:
+        raise ValueError("candidate_dimensions must not be empty")
+
+    metric_sql = resolve_metric_sql(runtime, str(metric_name))
+    if metric_sql is None:
+        raise ValueError(
+            f"Metric '{metric_name}' not found, not published, or missing typed execution metadata"
+        )
+
+    period_end_p = params.get("period_end")
+    baseline_start_p = params.get("baseline_start")
+    baseline_end_p = params.get("baseline_end")
+    if not period_end_p or not baseline_start_p or not baseline_end_p:
+        raise ValueError(
+            "attribute_change requires 'period_end', 'baseline_start', and 'baseline_end' params"
+        )
+
+    period_start_p = params.get("period_start") or period_end_p
+    period_start = date.fromisoformat(str(period_start_p))
+    period_end = date.fromisoformat(str(period_end_p))
+    baseline_start = date.fromisoformat(str(baseline_start_p))
+    baseline_end = date.fromisoformat(str(baseline_end_p))
+    step_id = new_step_id()
+
+    metric_dimensions = resolve_metric_dimensions(runtime, str(metric_name)) or []
+    date_column = str(params.get("date_column") or infer_date_column(metric_dimensions))
+    top_k = max(1, int(params.get("top_k", 5)))
+    min_contribution_pct = max(0.0, float(params.get("min_contribution_pct", 5.0)))
+    min_contribution_fraction = min_contribution_pct / 100.0
+    query_limit = max(top_k, int(params.get("limit", 1000)))
+
+    user_where = params.get("where") or params.get("filter")
+    merged_where = user_where
+
+    table_name_str = str(table_name)
+    short_name = table_name_str.split(".")[-1]
+    engine, engine_type, qualified, routing_feedback = _resolve_engine_for_session_with_routing(
+        runtime, session_id, [table_name_str]
+    )
+    qualified_table = qualified.get(table_name_str, table_name_str)
+
+    try:
+        row = engine.query_rows(f"SELECT MAX({date_column}) AS max_date FROM {qualified_table}")[0]
+        date_fmt = detect_date_format(row["max_date"])
+    except Exception:
+        date_fmt = detect_date_format(str(period_end_p))
+
+    def _fmt(d: date) -> str | date:
+        return d.strftime(date_fmt) if date_fmt else d
+
+    period_params = [
+        _fmt(period_start),
+        _fmt(period_end),
+        _fmt(baseline_start),
+        _fmt(baseline_end),
+        _fmt(baseline_start),
+        _fmt(period_end),
+    ]
+
+    contributions: list[dict[str, Any]] = []
+    query_sql_parts: list[str] = []
+    query_params: list[Any] = []
+    compiled_queries: list[CompiledQuery] = []
+    current_has_data = False
+    baseline_has_data = False
+
+    for dimension in candidate_dimensions:
+        select_exprs = [dimension, f"{metric_sql} AS metric_value"]
+        step_ir = AnalysisStepIR(
+            index=0,
+            step_type="aggregate_query",
+            params={
+                "table_name": qualified_table,
+                "select": select_exprs,
+                "group_by": [dimension],
+                "compare_period": True,
+                "date_column": date_column,
+                "limit": query_limit,
+                **({"where": merged_where} if merged_where else {}),
+            },
+        )
+        compiled_query = compile_step_with_feedback(
+            runtime,
+            step_ir,
+            engine_type=engine_type,
+            semantic_context={"period_params": period_params},
+        )
+        rows = execute_compiled(engine, compiled_query).rows
+        query_sql_parts.append(compiled_query.sql)
+        query_params.extend(compiled_query.params)
+        compiled_queries.append(compiled_query)
+
+        has_current_rows = any(r.get("metric_value_current") is not None for r in rows)
+        has_baseline_rows = any(r.get("metric_value_baseline") is not None for r in rows)
+        baseline_has_data = baseline_has_data or has_baseline_rows
+        if not has_current_rows:
+            continue
+
+        dim_contributors: list[dict[str, Any]] = []
+        for r in rows:
+            current_value_raw = r.get("metric_value_current")
+            baseline_value_raw = r.get("metric_value_baseline")
+            if current_value_raw is None and baseline_value_raw is None:
+                continue
+
+            current_value = float(current_value_raw or 0.0)
+            baseline_value = float(baseline_value_raw or 0.0)
+            delta_value = current_value - baseline_value
+            delta_pct = None if baseline_value == 0.0 else (delta_value / baseline_value) * 100.0
+            dim_value = r.get(dimension)
+            if current_value_raw is not None:
+                current_has_data = True
+            if baseline_value_raw is not None:
+                baseline_has_data = True
+            dim_contributors.append(
+                {
+                    "value": dim_value,
+                    "current_value": current_value,
+                    "baseline_value": baseline_value,
+                    "delta_value": delta_value,
+                    "delta_pct": delta_pct,
+                    "current_row_count": None,
+                    "baseline_row_count": None,
+                }
+            )
+
+        total_abs_delta = sum(abs(entry["delta_value"]) for entry in dim_contributors)
+        for entry in dim_contributors:
+            entry["contribution_pct"] = (
+                (abs(entry["delta_value"]) / total_abs_delta) * 100.0
+                if total_abs_delta > 0
+                else 0.0
+            )
+
+        sorted_contributors = sorted(
+            dim_contributors,
+            key=lambda entry: (
+                abs(entry["delta_pct"])
+                if entry["delta_pct"] is not None
+                else abs(entry["delta_value"]),
+                abs(entry["delta_value"]),
+            ),
+            reverse=True,
+        )
+        top_contributors = [
+            {
+                "value": entry["value"],
+                "current_value": entry["current_value"],
+                "baseline_value": entry["baseline_value"],
+                "delta_pct": entry["delta_pct"],
+                "contribution_pct": entry["contribution_pct"],
+                "current_row_count": entry["current_row_count"],
+                "baseline_row_count": entry["baseline_row_count"],
+            }
+            for entry in sorted_contributors
+            if entry["contribution_pct"] >= min_contribution_fraction
+        ][:top_k]
+
+        contributions.append(
+            {
+                "dimension": dimension,
+                "top_contributors": top_contributors,
+            }
+        )
+
+    artifact_id = _insert_artifact(
+        runtime,
+        session_id,
+        step_id,
+        "table",
+        f"{short_name}_attribution",
+        {
+            "metric_name": metric_name,
+            "table_name": qualified_table,
+            "candidate_dimensions": candidate_dimensions,
+            "contributions": contributions,
+        },
+    )
+
+    query_blob = "\n".join(query_sql_parts)
+    provenance = _make_provenance(
+        query_blob, query_params, engine_type=engine_type, routing=routing_feedback
+    )
+    summary = (
+        f"Attributed metric '{metric_name}' across {len(candidate_dimensions)} dimension(s)."
+        if contributions
+        else f"Attribute change on '{metric_name}' returned no results."
+    )
+
+    debug = {
+        "current_window": [str(period_start), str(period_end)],
+        "baseline_window": [str(baseline_start), str(baseline_end)],
+        "current_has_data": current_has_data,
+        "baseline_has_data": baseline_has_data,
+        "dimensions": candidate_dimensions,
+    }
+
+    result = {
+        "step_type": "attribute_change",
+        "metric_name": metric_name,
+        "table_name": qualified_table,
+        "summary": summary,
+        "artifact_id": artifact_id,
+        "contributions": contributions,
+        "debug": debug,
+    }
+
+    _insert_step(
+        runtime,
+        step_id,
+        session_id,
+        "attribute_change",
+        summary,
+        result,
+        provenance=provenance,
+        semantic_metadata=build_step_semantic_metadata(runtime, compiled_queries),
+    )
+    return result
