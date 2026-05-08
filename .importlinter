@@ -98,3 +98,11 @@ source_modules =
     app.transports.mcp
 forbidden_modules =
     app.api.endpoints
+
+[importlinter:contract:profiles-do-not-import-runtime-factory]
+name = profiles must not import the deleted runtime factory
+type = forbidden
+source_modules =
+    app.profiles
+forbidden_modules =
+    app.runtime.factory
