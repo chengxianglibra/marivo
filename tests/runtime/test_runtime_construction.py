@@ -5,6 +5,7 @@ from __future__ import annotations
 from app.contracts.evidence import Evidence
 from app.contracts.ids import (
     Action,
+    ArtifactId,
     CacheKey,
     EvidenceRef,
     ModelId,
@@ -25,6 +26,7 @@ from app.contracts.values import (
     SourceSchema,
     TelemetryEvent,
 )
+from app.ports.artifact_store import ArtifactStore
 from app.ports.audit_log import AuditLog
 from app.ports.authz import AuthZ
 from app.ports.cache_store import CacheStore
@@ -33,6 +35,7 @@ from app.ports.evidence_store import EvidenceStore
 from app.ports.model_store import ModelStore
 from app.ports.runtime_config import RuntimeConfig
 from app.ports.session_store import SessionStore
+from app.ports.step_store import StepStore
 from app.ports.telemetry import Telemetry
 from app.runtime.ports import RuntimePorts
 
@@ -111,6 +114,64 @@ class StubRuntimeConfig:
         return None
 
 
+class StubArtifactStore:
+    def insert_artifact(
+        self,
+        session_id,
+        step_id,
+        artifact_type,
+        name,
+        content,
+        *,
+        lifecycle="committed",
+        artifact_schema_version=None,
+    ):
+        return ArtifactId("art-stub")
+
+    def commit_artifact_with_extraction(
+        self,
+        session_id,
+        step_id,
+        artifact_type,
+        name,
+        content,
+        *,
+        step_type=None,
+        artifact_schema_version=None,
+    ):
+        return ArtifactId("art-stub")
+
+    def resolve_artifact_for_ref(self, session_id, step_id):
+        return None
+
+    def resolve_artifact_id_for_step(self, session_id, step_id):
+        return None
+
+    def resolve_artifact_with_id(self, session_id, step_id):
+        return None
+
+    def list_artifacts(self, session_id):
+        return []
+
+
+class StubStepStore:
+    def insert_step(
+        self,
+        step_id,
+        session_id,
+        step_type,
+        summary,
+        result,
+        *,
+        provenance=None,
+        semantic_metadata=None,
+    ):
+        pass
+
+    def list_steps(self, session_id):
+        return []
+
+
 def _make_runtime_ports() -> RuntimePorts:
     return RuntimePorts(
         model_store=StubModelStore(),
@@ -122,6 +183,8 @@ def _make_runtime_ports() -> RuntimePorts:
         audit_log=StubAuditLog(),
         telemetry=StubTelemetry(),
         runtime_config=StubRuntimeConfig(),
+        artifact_store=StubArtifactStore(),
+        step_store=StubStepStore(),
     )
 
 
@@ -177,6 +240,16 @@ def test_runtime_ports_stores_telemetry() -> None:
 def test_runtime_ports_stores_runtime_config() -> None:
     ports = _make_runtime_ports()
     assert isinstance(ports.runtime_config, StubRuntimeConfig)
+
+
+def test_runtime_ports_stores_artifact_store() -> None:
+    ports = _make_runtime_ports()
+    assert isinstance(ports.artifact_store, StubArtifactStore)
+
+
+def test_runtime_ports_stores_step_store() -> None:
+    ports = _make_runtime_ports()
+    assert isinstance(ports.step_store, StubStepStore)
 
 
 # --- Protocol satisfaction via structural method checks ---
@@ -248,6 +321,18 @@ def test_runtime_config_satisfies_protocol() -> None:
         assert callable(getattr(stub, name)), f"StubRuntimeConfig missing {name}"
 
 
+def test_artifact_store_satisfies_protocol() -> None:
+    stub = StubArtifactStore()
+    for name in _protocol_method_names(ArtifactStore):
+        assert callable(getattr(stub, name)), f"StubArtifactStore missing {name}"
+
+
+def test_step_store_satisfies_protocol() -> None:
+    stub = StubStepStore()
+    for name in _protocol_method_names(StepStore):
+        assert callable(getattr(stub, name)), f"StubStepStore missing {name}"
+
+
 # --- Port attribute protocol satisfaction via RuntimePorts ---
 
 
@@ -303,3 +388,15 @@ def test_ports_runtime_config_satisfies_protocol() -> None:
     ports = _make_runtime_ports()
     for name in _protocol_method_names(RuntimeConfig):
         assert callable(getattr(ports.runtime_config, name))
+
+
+def test_ports_artifact_store_satisfies_protocol() -> None:
+    ports = _make_runtime_ports()
+    for name in _protocol_method_names(ArtifactStore):
+        assert callable(getattr(ports.artifact_store, name))
+
+
+def test_ports_step_store_satisfies_protocol() -> None:
+    ports = _make_runtime_ports()
+    for name in _protocol_method_names(StepStore):
+        assert callable(getattr(ports.step_store, name))

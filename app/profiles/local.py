@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from app.adapters.local.duckdb_data_source import DuckDBDataSource
+from app.adapters.local.file_artifact_store import FileArtifactStore
 from app.adapters.local.file_audit_log import FileAuditLog
 from app.adapters.local.file_evidence_store import FileEvidenceStore
 from app.adapters.local.file_model_store import FileModelStore
@@ -14,6 +15,7 @@ from app.adapters.local.local_telemetry import LocalTelemetry
 from app.adapters.local.noop_authz import NoopAuthZ
 from app.adapters.local.sqlite_cache_store import SqliteCacheStore
 from app.adapters.local.sqlite_session_store import SqliteSessionStore
+from app.adapters.local.sqlite_step_store import SqliteStepStore
 from app.adapters.local.toml_runtime_config import TomlRuntimeConfig
 from app.contracts.errors import ErrorCode, ValidationError
 from app.core.engine import CoreEngine
@@ -53,6 +55,8 @@ def create_local_runtime(
             sink=config.telemetry_sink, log_path=marivo_dir / "telemetry.jsonl"
         ),
         runtime_config=TomlRuntimeConfig(marivo_dir / "marivo.toml"),
+        artifact_store=FileArtifactStore(marivo_dir / "artifacts"),
+        step_store=SqliteStepStore(marivo_dir / "state.db"),
     )
     core = CoreEngine()
     return MarivoRuntime(ports, core)

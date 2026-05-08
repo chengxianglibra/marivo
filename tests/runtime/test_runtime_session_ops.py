@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from app.contracts.ids import (
     Action,
+    ArtifactId,
     CacheKey,
     EvidenceRef,
     ModelId,
@@ -119,6 +120,64 @@ class StubRuntimeConfig:
         return None
 
 
+class StubArtifactStore:
+    def insert_artifact(
+        self,
+        session_id,
+        step_id,
+        artifact_type,
+        name,
+        content,
+        *,
+        lifecycle="committed",
+        artifact_schema_version=None,
+    ):
+        return ArtifactId("art-stub")
+
+    def commit_artifact_with_extraction(
+        self,
+        session_id,
+        step_id,
+        artifact_type,
+        name,
+        content,
+        *,
+        step_type=None,
+        artifact_schema_version=None,
+    ):
+        return ArtifactId("art-stub")
+
+    def resolve_artifact_for_ref(self, session_id, step_id):
+        return None
+
+    def resolve_artifact_id_for_step(self, session_id, step_id):
+        return None
+
+    def resolve_artifact_with_id(self, session_id, step_id):
+        return None
+
+    def list_artifacts(self, session_id):
+        return []
+
+
+class StubStepStore:
+    def insert_step(
+        self,
+        step_id,
+        session_id,
+        step_type,
+        summary,
+        result,
+        *,
+        provenance=None,
+        semantic_metadata=None,
+    ):
+        pass
+
+    def list_steps(self, session_id):
+        return []
+
+
 def _make_runtime(session_store: RecordingSessionStore | None = None) -> MarivoRuntime:
     from app.runtime.ports import RuntimePorts
 
@@ -132,6 +191,8 @@ def _make_runtime(session_store: RecordingSessionStore | None = None) -> MarivoR
         audit_log=StubAuditLog(),
         telemetry=StubTelemetry(),
         runtime_config=StubRuntimeConfig(),
+        artifact_store=StubArtifactStore(),
+        step_store=StubStepStore(),
     )
     core = CoreEngine()
     rt = MarivoRuntime(ports=ports, core=core)
