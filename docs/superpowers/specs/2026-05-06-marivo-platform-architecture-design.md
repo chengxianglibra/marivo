@@ -76,7 +76,7 @@ Core goals:
 
 ## 4. Package Structure
 
-The tree below is the **target logical structure**. Under the contract-first strangler strategy, physical package names may remain under `app/` during the early extraction phases. The repo-wide `app/` -> `marivo/` rename is a later mechanical cutover after the shared Runtime facade and profile seams are already proven. `marivo-mcp/` remains the installable compatibility distribution during the migration window and delegates into `marivo/transports/mcp/` once the shared implementation is cut over. `marivo-skill/` (a Claude Code skill definition file, not Python code) stays out of scope of this spec.
+The tree below is the **target logical structure**. Under the contract-first strangler strategy, physical package names may remain under `app/` during the early extraction phases. The repo-wide `app/` -> `marivo/` rename is a later mechanical cutover after the shared Runtime facade and profile seams are already proven. All MCP entry-points live in `marivo/transports/mcp/` from Phase 5 onward; no separate compatibility distribution exists. `marivo-skill/` (a Claude Code skill definition file, not Python code) stays out of scope of this spec.
 
 ```
 marivo/
@@ -108,7 +108,7 @@ marivo/
     local/           # FileModelStore, SqliteSessionStore, DuckDBDataSource…
     server/          # SqlModelStore, SqlSessionStore, S3EvidenceStore…
     client/          # HTTP proxy adapters for client profile
-  transports/        # Merged from marivo-mcp/ (MCP) + existing surface code
+  transports/        # MCP (stdio + HTTP) + existing surface code
     cli/
     mcp/             # stdio + HTTP MCP, embedded and client modes
     http/            # FastAPI routes
@@ -121,8 +121,6 @@ marivo/
 ```
 
 **Migration rule:** existing modules are extracted toward the above structure by responsibility. Early strangler phases prioritize new seams (`contracts/`, `ports/`, `runtime/`) over physical renames. Mechanical namespace moves must not be bundled with boundary-defining refactors in the same phase.
-
-**Compatibility window:** the published `marivo-mcp` package and its entrypoints must keep working until the shared MCP implementation has landed, the new `marivo/` import path is stable, and the old install instructions have been updated. The migration is a staged cutover, not a same-PR package deletion.
 
 ---
 
@@ -265,7 +263,7 @@ class RuntimeConfig(Protocol):
 
 **Server SQL adapters:** `SqlModelStore` and `SqlSessionStore` use SQLAlchemy Core, accepting a `db_url` connection string. Current supported backend: MySQL only. The adapter contract suite runs against MySQL in CI.
 
-**Client profile:** Client mode does **not** proxy individual Ports over HTTP. It proxies Runtime / use-case surfaces to the enterprise server's canonical HTTP API through a `RemoteRuntimeClient`-style facade. The MCP tool schema exposed to agents is identical to the local profile because both surfaces target the same Runtime semantics, not because the client re-expresses `ModelStore` / `SessionStore` as a second distributed RPC contract. Profile switching does not change tool names or request shapes; authorization-driven differences (e.g. enterprise `AuthZ` rejecting an action) appear as standard error responses.
+**No client profile:** There is no client profile. Remote agents connect to the enterprise server via HTTP MCP transport (mounted on the same FastAPI app at `/mcp`). The MCP tool schema is identical between local stdio and enterprise HTTP MCP because both surfaces target the same `MarivoRuntime` semantics. Authorization differences (e.g. enterprise `AuthZ` rejecting an action) appear as standard error responses.
 
 **Local-mode safety guard:** The local profile factory must refuse to construct a `MarivoRuntime` when the runtime detects an enterprise deployment context (e.g. `MARIVO_DEPLOYMENT=server` env var, or presence of a `server.toml` config). This prevents `NoopAuthZ` from accidentally bypassing enterprise authorization.
 
@@ -383,9 +381,7 @@ ChatBI / Agent / UI / SDK
 | Observability | OTel traces and metrics, integrated with existing monitoring stack |
 | Multi-agent integration | Multiple agents share a session with identity isolation |
 
-**Identity trust boundary:** `X-Marivo-User` is not an authentication token and must not be accepted from untrusted public clients as-is. The HTTP/MCP edge strips any inbound copy from the network boundary, resolves the canonical actor from the authenticated transport context, and injects the header before calling Runtime. If a trusted actor cannot be established, the request fails closed before business logic runs.
-
-**stdio client-mode identity binding:** when `marivo-stdio` runs in `client` profile, it must authenticate to the enterprise edge using explicit enterprise credentials (for example device-code login, API token, or configured service credential). The local process must never derive enterprise identity from ambient OS usernames or workspace config. The enterprise edge resolves the canonical actor from the presented credential, injects `X-Marivo-User`, and then applies normal `AuthZ`.
+**Identity trust boundary:** User authentication is out of scope for the current phase set. `X-Marivo-User` is a propagation header trusted from the calling environment; marivo passes it through to `current_user` ContextVar without validation. A trusted-edge design (Bearer + token introspection + strip-and-reinject) is deferred to a dedicated future phase. Deploying environments that need real authentication MUST gate marivo behind their own authenticated proxy.
 
 ---
 
@@ -400,7 +396,7 @@ All surfaces do protocol translation only. No business logic.
 - `marivo push/pull` — sync semantic models with enterprise server
 - `marivo import/export` — import/export datasources and models
 
-**MCP** (`marivo/transports/mcp/`, merged from `marivo-mcp/`)
+**MCP** (`marivo/transports/mcp/`)
 
 Supports two transport protocols:
 - **stdio** — local agent default; short-lived process; embedded runtime
@@ -411,18 +407,14 @@ Both transports share the same MCP tool schema and handler implementations. Runt
 | Transport | Runtime mode | Scenario |
 |-----------|-------------|----------|
 | stdio | embedded | Local single-user |
-| stdio | client | Local agent proxying to enterprise server |
 | HTTP MCP | server | Enterprise managed MCP gateway |
-| HTTP MCP | client | Bridge scenario |
-
-For `stdio + client` mode, authentication happens before the proxy call is sent to the enterprise server. The stdio surface is still protocol translation only; it must not carry enterprise business rules locally.
 
 **HTTP API** (`marivo/transports/http/`)
 Enterprise canonical remote API, FastAPI implementation. Integration entry point for UI / ChatBI / SDK. Target endpoint for MCP client mode proxy.
 
 **SDK** (`marivo/transports/sdk/`)
 - Embedded: `from marivo.profiles.local import create_local_runtime` — use runtime in-process
-- Remote client: `create_client_runtime()` — connect to enterprise server
+- Remote use: connect to enterprise `marivo serve` via HTTP API or HTTP MCP transport. There is no `create_client_runtime()` factory.
 
 **Web Admin** (`frontend/`)
 Management UI. Continues with existing frontend implementation; not in scope for this spec.
@@ -450,7 +442,6 @@ Management UI. Continues with existing frontend implementation; not in scope for
 - Session jsonl replay: record a complete session; replay produces zero evidence diff.
 - Local / server profile behavior parity: same intent produces equivalent results under both profiles.
 - Evidence hash stability: cross-version replay does not change hash values. Stability is defined against the canonical form in §6 (sha256 over sorted-key UTF-8 JSON), not over Python pickle or library-default serialization.
-- Client-mode identity tests: stdio client mode must prove that enterprise identity is derived from explicit credentials, not local ambient state.
 
 **CI rules:**
 - `import-linter` enforces `core/` import boundary; violation fails the build.
@@ -470,15 +461,14 @@ Sequencing follows a **contract-first strangler** strategy: define the shared co
 | 3 | 3 | Runtime Decoupling | Shared Runtime facade introduced; HTTP service and MCP both call Runtime use-case layer; `core/` is I/O-free and execution over Ports lives in Runtime | Service and MCP handlers have no direct core orchestration logic; `core/` import-linter rules pass; existing E2E tests green |
 | 4 | 4 | Local Embedded Runtime | `create_local_runtime()` factory; MCP stdio embedded mode operational against the shared Runtime seam | An agent + Marivo can finish a sample analysis end-to-end in local mode against `.marivo/`. MCP session-lifetime behavior is documented and tested. |
 | 5 | 6 | Profile System | local / server / client three profile factories; adapter contract tests; behavior parity test infrastructure (testcontainers or chosen alternative) | Contract tests pass across all adapter implementations; parity tests run in CI |
-| 6 | 5 | MCP Dual Mode | MCP supports embedded / client dual mode; HTTP MCP transport | Client mode proxy integration tests pass |
-| 7 | 7 | Namespace Cutover & Convergence | `app/` -> `marivo/` mechanical rename, packaging/documentation cutover, E2E golden tests, import boundary enforced in CI | All tests green; architectural invariants documented; no remaining `from app.*` imports; `marivo-mcp` compatibility wrapper validated in CI and docs updated |
+| 6 | 5 | MCP Dual Mode | HTTP MCP transport mounted on enterprise FastAPI app; stdio + HTTP MCP share an identical tool registration; legacy `marivo-mcp/` package and all client/proxy abstractions removed | HTTP MCP end-to-end integration test passes; tool schema parity test passes between stdio and HTTP MCP |
+| 7 | 7 | Namespace Cutover & Convergence | `app/` -> `marivo/` mechanical rename, packaging/documentation cutover, E2E golden tests, import boundary enforced in CI | All tests green; architectural invariants documented; no remaining `from app.*` imports; no `marivo-mcp` distribution remains (removed in Phase 5); only `app/` -> `marivo/` mechanical rename and import boundary enforcement |
 
 **Migration principles:**
 - Existing functionality must not regress at the end of each phase (green tests are the gate).
 - Phases 2 and 3 establish the strangler seam first; local embedded mode is not allowed to bypass or preempt that seam.
 - Repository-wide namespace renames are mechanical follow-on work, not the vehicle for boundary design.
 - Phase 6 (Profile System) precedes Phase 5 (MCP Dual Mode) because dual-mode MCP requires a working profile factory to choose between embedded and client runtimes.
-- `marivo-mcp` stays installable and backward-compatible through the migration window. The old package becomes a thin wrapper over the shared MCP implementation only after the new `marivo/` path and installation docs have been validated in CI and one release window has elapsed.
 
 > **Note on numbering:** the *Phase* column preserves the original phase identities used elsewhere in this document (and in tooling). The *Order* column is the actual execution sequence.
 
@@ -492,3 +482,4 @@ Sequencing follows a **contract-first strangler** strategy: define the shared co
 - The service layer does not own core business rules.
 - Local and enterprise do not maintain separate analysis logic.
 - No Rust migration design — this spec is purely Python architecture.
+- User authentication and authorization in marivo are out of scope for the current phase set. `X-Marivo-User` is a trusted propagation header injected by the deploying environment; marivo does not validate it. A trusted-edge auth design is deferred to a dedicated future phase.
