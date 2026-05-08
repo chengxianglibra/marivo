@@ -116,7 +116,6 @@ def _build_services(
         resolved_path=resolved_path,
         config=config,
         runtime=runtime,
-        service=service,
         datasource_service=datasource_service,
         query_router=query_router,
         metadata_store=metadata_store,
@@ -130,7 +129,6 @@ def _attach_state(app: FastAPI, services: AppServices) -> None:
     app.state.services = services
     app.state.config = services.config
     app.state.runtime = services.runtime
-    app.state.service = services.service
     app.state.datasource_service = services.datasource_service
     app.state.query_router = services.query_router
     app.state.metadata_store = services.metadata_store

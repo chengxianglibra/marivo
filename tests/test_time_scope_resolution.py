@@ -626,7 +626,7 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
         db_path = Path(cls.tmp.name) / "tsu02.duckdb"
         get_seeded_duckdb_path(db_path)
         cls.app = create_app(db_path=db_path)
-        cls.service = cls.app.state.service
+        cls.service = cls.app.state.runtime.svc
         from fastapi.testclient import TestClient
 
         cls.client = TestClient(cls.app)

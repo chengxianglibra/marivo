@@ -36,11 +36,11 @@ from fastapi.testclient import TestClient
 
 from app.intents.attribute import run_attribute_intent
 from app.main import create_app
-from app.service import SemanticLayerService
+from app.runtime.runtime import MarivoRuntime
 from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
 from app.storage.sqlite_metadata import SQLiteMetadataStore
 from tests.semantic_test_helpers import (
-    build_semantic_layer_service,
+    build_runtime,
     ensure_published_typed_metric,
     ensure_published_typed_metric_binding,
     seed_duckdb_source_object,
@@ -242,7 +242,7 @@ class AttributeRunnerServiceTests(unittest.TestCase):
         cls.analytics.initialize()
         _seed_metadata(cls.metadata, db_path)
 
-        cls.service = build_semantic_layer_service(cls.metadata, cls.analytics)
+        cls.service = build_runtime(cls.metadata, cls.analytics)
         cls._bundle_cache: dict[str, dict] = {}
 
     @classmethod
@@ -799,7 +799,7 @@ class AttributeRunnerServiceTests(unittest.TestCase):
         captured_params: list[dict[str, Any]] = []
 
         def _capture_observe(
-            svc: SemanticLayerService,
+            svc: MarivoRuntime,
             session_id: str,
             params: dict[str, Any] | None,
         ) -> dict[str, Any]:
@@ -1288,7 +1288,7 @@ class AttributeEndpointTests(unittest.TestCase):
             return {"result_type": "attribute_bundle"}
 
         with patch.object(
-            self.client.app.state.service, "run_intent", side_effect=_capture_run_intent
+            self.client.app.state.runtime.svc, "run_intent", side_effect=_capture_run_intent
         ):
             resp = self.client.post(
                 f"/sessions/{self.session_id}/intents/attribute",
@@ -1385,7 +1385,7 @@ class AttributeEndpointTests(unittest.TestCase):
             )
 
         with patch.object(
-            self.client.app.state.service, "run_intent", side_effect=_raise_additivity_violation
+            self.client.app.state.runtime.svc, "run_intent", side_effect=_raise_additivity_violation
         ):
             resp = self.client.post(
                 f"/sessions/{self.session_id}/intents/attribute",
