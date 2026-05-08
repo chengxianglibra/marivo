@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -16,17 +17,16 @@ def store(tmp_path: Path) -> FileArtifactStore:
 def test_insert_and_resolve_for_ref(store: FileArtifactStore) -> None:
     sid = SessionId("s-1")
     step = StepId("step-a")
-    aid = store.insert_artifact(
+    store.insert_artifact(
         session_id=sid,
         step_id=step,
         artifact_type="finding",
         name="primary",
         content={"value": 42},
     )
-    assert aid is not None
     payload = store.resolve_artifact_for_ref(sid, step)
     assert payload is not None
-    assert payload["content"] == {"value": 42}
+    assert payload == {"value": 42}
 
 
 def test_resolve_artifact_id_for_step(store: FileArtifactStore) -> None:
@@ -70,9 +70,9 @@ def test_resolve_artifact_with_id(store: FileArtifactStore) -> None:
     aid = store.insert_artifact(sid, step, "finding", "primary", {"k": "v"})
     result = store.resolve_artifact_with_id(sid, step)
     assert result is not None
-    resolved_aid, record = result
+    resolved_aid, content = result
     assert resolved_aid == aid
-    assert record["content"] == {"k": "v"}
+    assert content == {"k": "v"}
 
 
 def test_resolve_artifact_with_id_returns_none_when_missing(
@@ -82,19 +82,19 @@ def test_resolve_artifact_with_id_returns_none_when_missing(
     assert result is None
 
 
-def test_insert_artifact_stores_lifecycle(store: FileArtifactStore) -> None:
+def test_staged_artifact_not_visible_via_resolve(store: FileArtifactStore) -> None:
     sid, step = SessionId("s-1"), StepId("step-a")
     store.insert_artifact(sid, step, "finding", "primary", {"x": 1}, lifecycle="staged")
-    payload = store.resolve_artifact_for_ref(sid, step)
-    assert payload is not None
-    assert payload["lifecycle"] == "staged"
+    assert store.resolve_artifact_for_ref(sid, step) is None
+    assert store.resolve_artifact_id_for_step(sid, step) is None
+    assert store.resolve_artifact_with_id(sid, step) is None
 
 
 def test_insert_artifact_stores_artifact_schema_version(
     store: FileArtifactStore,
 ) -> None:
     sid, step = SessionId("s-1"), StepId("step-a")
-    store.insert_artifact(
+    aid = store.insert_artifact(
         sid,
         step,
         "finding",
@@ -102,9 +102,8 @@ def test_insert_artifact_stores_artifact_schema_version(
         {"x": 1},
         artifact_schema_version="v2",
     )
-    payload = store.resolve_artifact_for_ref(sid, step)
-    assert payload is not None
-    assert payload["artifact_schema_version"] == "v2"
+    # Verify via resolve_artifact_id_for_step (committed by default)
+    assert store.resolve_artifact_id_for_step(sid, step) == aid
 
 
 def test_commit_artifact_with_extraction_no_extractor(
@@ -122,9 +121,7 @@ def test_commit_artifact_with_extraction_no_extractor(
     )
     assert aid is not None
     payload = store.resolve_artifact_for_ref(sid, step)
-    assert payload is not None
-    assert payload["content"] == {"value": 99}
-    assert payload["lifecycle"] == "committed"
+    assert payload == {"value": 99}
 
 
 def test_commit_artifact_with_extraction_with_extractor(
@@ -136,13 +133,12 @@ def test_commit_artifact_with_extraction_with_extractor(
         default_finding_registry,
     )
 
-    # Create a mock extractor for a test-only artifact type
     class FakeExtractor(FindingExtractor):
-        artifact_type = "test_artifact_type_fa"  # unique to avoid collisions
+        artifact_type = "test_artifact_type_fa"
         artifact_schema_version = "v1"
         extractor_name = "fake_extractor_fa"
         extractor_version = "1.0"
-        family = "observe"  # observe allows empty findings
+        family = "observe"
 
         def extract(self, artifact_id, artifact_payload, step_ref, session_id):
             return {
@@ -171,21 +167,16 @@ def test_commit_artifact_with_extraction_with_extractor(
         )
         assert aid is not None
         payload = store.resolve_artifact_for_ref(sid, step)
-        assert payload is not None
-        assert payload["content"] == {"value": 42}
-        assert payload["lifecycle"] == "committed"
+        assert payload == {"value": 42}
 
         # Check sidecar findings file was written
         session_dir = store._session_dir(sid)
         findings_path = session_dir / f"{step}.findings.json"
         assert findings_path.exists()
-        import json
-
         findings_data = json.loads(findings_path.read_text())
         assert len(findings_data) == 1
         assert findings_data[0]["finding_id"] == "fnd_abc"
     finally:
-        # Clean up: unregister the test extractor
         key = (extractor.artifact_type, extractor.artifact_schema_version)
         del default_finding_registry._registry[key]
 
@@ -200,11 +191,11 @@ def test_commit_artifact_with_extraction_zero_findings_allowed(
     )
 
     class ZeroFindingExtractor(FindingExtractor):
-        artifact_type = "test_zero_type_fa"  # unique
+        artifact_type = "test_zero_type_fa"
         artifact_schema_version = "v1"
         extractor_name = "zero_extractor_fa"
         extractor_version = "1.0"
-        family = "observe"  # observe allows empty findings
+        family = "observe"
 
         def extract(self, artifact_id, artifact_payload, step_ref, session_id):
             return {
@@ -246,16 +237,14 @@ def test_list_artifacts_empty_for_unknown_session(
     assert rows == []
 
 
-def test_resolve_artifact_for_ref_includes_metadata(
+def test_list_artifacts_includes_metadata_and_content(
     store: FileArtifactStore,
 ) -> None:
-    sid, step = SessionId("s-1"), StepId("step-a")
-    aid = store.insert_artifact(sid, step, "observation_artifact", "primary", {"x": 1})
-    payload = store.resolve_artifact_for_ref(sid, step)
-    assert payload is not None
-    assert payload["artifact_id"] == aid
-    assert payload["session_id"] == sid
-    assert payload["step_id"] == step
-    assert payload["artifact_type"] == "observation_artifact"
-    assert payload["name"] == "primary"
-    assert "created_at" in payload
+    sid = SessionId("s-1")
+    store.insert_artifact(sid, StepId("step-a"), "observation_artifact", "primary", {"x": 1})
+    rows = store.list_artifacts(sid)
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["artifact_type"] == "observation_artifact"
+    assert row["step_id"] == "step-a"
+    assert row["content"] == {"x": 1}

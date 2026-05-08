@@ -40,7 +40,7 @@ class FileArtifactStore:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _session_dir(self, session_id: SessionId | str) -> Path:
+    def _session_dir(self, session_id: SessionId) -> Path:
         """Return (and create) the directory for a session's artifacts."""
         d = self._root / str(session_id)
         d.mkdir(parents=True, exist_ok=True)
@@ -101,8 +101,10 @@ class FileArtifactStore:
         *,
         lifecycle: str = "committed",
         artifact_schema_version: str | None = None,
+        artifact_id: ArtifactId | None = None,
     ) -> ArtifactId:
-        artifact_id = self._generate_artifact_id()
+        if artifact_id is None:
+            artifact_id = self._generate_artifact_id()
         record: dict[str, Any] = {
             "artifact_id": artifact_id,
             "session_id": session_id,
@@ -114,11 +116,14 @@ class FileArtifactStore:
             "content": content,
             "created_at": self._now_iso(),
         }
+        # Atomic write: write to tmp then rename to prevent partial reads
         path = self._artifact_path(session_id, step_id)
-        path.write_text(
+        tmp = path.with_suffix(f".tmp-{uuid4().hex[:8]}")
+        tmp.write_text(
             json.dumps(record, sort_keys=True, ensure_ascii=False, default=str),
             encoding="utf-8",
         )
+        tmp.replace(path)
         self._append_index(session_id, record)
         return artifact_id
 
@@ -169,7 +174,8 @@ class FileArtifactStore:
         result = extractor.extract(artifact_id, content, effective_step_ref, str(session_id))
         validate_for_commit(extractor.family, result)
 
-        # Write primary artifact as committed.
+        # Write primary artifact as committed using the same artifact_id
+        # that was passed to the extractor.
         aid = self.insert_artifact(
             session_id,
             step_id,
@@ -178,6 +184,7 @@ class FileArtifactStore:
             content,
             lifecycle="committed",
             artifact_schema_version=artifact_schema_version,
+            artifact_id=artifact_id,
         )
 
         # Write findings as sidecar if any.
@@ -195,16 +202,18 @@ class FileArtifactStore:
         session_id: SessionId,
         step_id: StepId,
     ) -> dict[str, Any] | None:
-        """Return the full artifact record for a step reference.
+        """Return the artifact content dict for a step reference.
 
-        Returns the complete record dict (including content, artifact_id,
-        etc.) or None if no artifact exists for the given session/step.
+        Returns only the content field (matching the server adapter contract)
+        or None if no committed artifact exists for the given session/step.
         """
         path = self._artifact_path(session_id, step_id)
         if not path.is_file():
             return None
-        data: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
-        return data
+        record: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+        if record.get("lifecycle") != "committed":
+            return None
+        return record.get("content")
 
     def resolve_artifact_id_for_step(
         self,
@@ -212,8 +221,11 @@ class FileArtifactStore:
         step_id: StepId,
     ) -> ArtifactId | None:
         """Return the ArtifactId for a step reference, or None."""
-        record = self.resolve_artifact_for_ref(session_id, step_id)
-        if record is None:
+        path = self._artifact_path(session_id, step_id)
+        if not path.is_file():
+            return None
+        record: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+        if record.get("lifecycle") != "committed":
             return None
         return ArtifactId(record["artifact_id"])
 
@@ -222,15 +234,34 @@ class FileArtifactStore:
         session_id: SessionId,
         step_id: StepId,
     ) -> tuple[ArtifactId, dict[str, Any]] | None:
-        """Return (ArtifactId, record_dict) for a step reference, or None."""
-        record = self.resolve_artifact_for_ref(session_id, step_id)
-        if record is None:
+        """Return (ArtifactId, content_dict) for a step reference, or None."""
+        path = self._artifact_path(session_id, step_id)
+        if not path.is_file():
             return None
-        return ArtifactId(record["artifact_id"]), record
+        record: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+        if record.get("lifecycle") != "committed":
+            return None
+        return ArtifactId(record["artifact_id"]), record.get("content", {})
 
     def list_artifacts(
         self,
         session_id: SessionId,
     ) -> list[dict[str, Any]]:
-        """Return all artifact index entries for a session, in insertion order."""
-        return self._read_index(session_id)
+        """Return all committed artifact records for a session, in insertion order.
+
+        Each dict contains metadata fields (artifact_id, session_id, step_id,
+        artifact_type, name, lifecycle) plus the content payload, matching the
+        shape callers expect for runtime status projections.
+        """
+        entries = self._read_index(session_id)
+        result: list[dict[str, Any]] = []
+        for entry in entries:
+            if entry.get("lifecycle") != "committed":
+                continue
+            # Enrich from the per-step file to include content
+            step_path = self._artifact_path(session_id, StepId(entry["step_id"]))
+            if step_path.is_file():
+                full = json.loads(step_path.read_text(encoding="utf-8"))
+                entry["content"] = full.get("content", {})
+            result.append(entry)
+        return result
