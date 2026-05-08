@@ -36,11 +36,17 @@ from app.transports.mcp.tools import register_tools
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture()
-def runtime(tmp_path):
-    """Create a real MarivoRuntime backed by in-memory storage."""
-    metadata_store = SQLiteMetadataStore(tmp_path / "meta.sqlite")
-    app = create_app(db_path=":memory:", metadata_store=metadata_store)
+@pytest.fixture(scope="session")
+def runtime(tmp_path_factory):
+    """Create a real MarivoRuntime backed by file-based storage.
+
+    Uses file-backed DuckDB so the conftest _fast_initialize cache kicks in
+    (~0.04 s vs 21 s for :memory: seeding). Session-scoped so the expensive
+    setup runs once for the whole module.
+    """
+    tmp = tmp_path_factory.mktemp("mcp_e2e")
+    metadata_store = SQLiteMetadataStore(tmp / "meta.sqlite")
+    app = create_app(db_path=tmp / "analytics.duckdb", metadata_store=metadata_store)
     return app.state.runtime
 
 
