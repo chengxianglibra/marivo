@@ -126,8 +126,8 @@ def _run(
 def _assert_session_is_open(runtime: MarivoRuntime, session_id: SessionId) -> None:
     """Assert that a session exists and is open (active).
 
-    Uses the session_store port when available. Falls back to the
-    legacy session_manager via runtime.svc when the port does not
+    Uses the session_store port when available. Falls back to
+    session_ops.assert_session_is_open when the port does not
     support the operation.
     """
     session_store = runtime.ports.session_store
@@ -144,8 +144,8 @@ def _assert_session_is_open(runtime: MarivoRuntime, session_id: SessionId) -> No
                 "Write operations require an open session."
             )
     except (NotImplementedError, AttributeError):
-        # Session store does not support load_events; fall back to svc
-        # (retained for semantic_ops compatibility during migration).
+        # Session store does not support load_events; fall back to
+        # session_ops (retained for compatibility during migration).
         try:
             from app.runtime import session as session_ops
 

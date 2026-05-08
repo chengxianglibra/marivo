@@ -35,11 +35,11 @@ import unittest
 from datetime import date as _date
 from datetime import timedelta
 from pathlib import Path
+from typing import Any
 
 from fastapi.testclient import TestClient
 
 from app.main import create_app
-from app.runtime.runtime import MarivoRuntime
 from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
 from app.storage.sqlite_metadata import SQLiteMetadataStore
 from tests.semantic_test_helpers import build_runtime
@@ -83,7 +83,7 @@ def _make_synthetic_series(n: int = 14, start: str = _SERIES_START) -> list[dict
 
 
 def _inject_observe_artifact(
-    runtime: MarivoRuntime,
+    service: Any,
     session_id: str,
     *,
     series: list[dict] | None = None,
@@ -94,7 +94,7 @@ def _inject_observe_artifact(
     """Insert a synthetic observe step + artifact; return (step_id, artifact_id)."""
     if series is None:
         series = _make_synthetic_series()
-    step_id = runtime.svc._new_step_id()
+    step_id = service._new_step_id()
     artifact_content: dict = {
         "schema_version": "1.0",
         "observation_type": observation_type,
@@ -107,10 +107,10 @@ def _inject_observe_artifact(
             "data_complete": None,
         },
     }
-    artifact_id = runtime.svc._insert_artifact(
+    artifact_id = service._insert_artifact(
         session_id, step_id, "time_series", f"{metric}_observe_time_series", artifact_content
     )
-    runtime.svc._insert_step(
+    service._insert_step(
         step_id, session_id, "observe", f"observe {metric}", {"artifact_id": artifact_id}
     )
     return step_id, artifact_id
@@ -519,7 +519,7 @@ class ForecastIntentEndpointTests(unittest.TestCase):
         assert r.status_code == 200, r.text
         cls.session_id = r.json()["session_id"]
         cls.obs_step_id, cls.obs_artifact_id = _inject_observe_artifact(
-            cls.client.app.state.runtime.svc,
+            cls.client.app.state.services.service,
             cls.session_id,
             metric="http_forecast_dau",
         )

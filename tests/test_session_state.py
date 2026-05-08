@@ -340,8 +340,8 @@ class TestArtifactRuntimeStatusManager(unittest.TestCase):
 
     @property
     def _manager(self):
-        """Access the SessionManager through the runtime's svc for unit tests."""
-        return self.runtime.svc.session_manager
+        """Access the SessionManager through the runtime's test service for unit tests."""
+        return self.runtime._test_svc.session_manager
 
     def test_raises_key_error_for_unknown_session(self) -> None:
         with self.assertRaises(KeyError):

@@ -122,6 +122,7 @@ def _build_services(
         analytics_engine=analytics_engine,
         metrics=metrics_collector,
         semantic_v2_service=semantic_v2_service,
+        service=service,
     )
 
 

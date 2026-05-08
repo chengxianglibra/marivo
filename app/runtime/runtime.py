@@ -12,7 +12,6 @@ from app.runtime import session as session_ops
 if TYPE_CHECKING:
     from app.core.engine import CoreEngine
     from app.runtime.ports import RuntimePorts
-    from app.service import SemanticLayerService
 
 
 class MarivoRuntime:
@@ -31,9 +30,6 @@ class MarivoRuntime:
     ) -> None:
         self._ports = ports
         self._core = core
-        self._svc: SemanticLayerService | None = (
-            None  # retained for svc property (semantic_ops compat)
-        )
         self._semantic_v2_svc: Any = None  # set via wire_semantic_v2_svc()
         self._datasource_svc: Any = None  # set via wire_datasource_svc()
         self._app: Any = None  # set via wire_app()
@@ -116,8 +112,8 @@ class MarivoRuntime:
     # ------------------------------------------------------------------
     # Semantic / Routing I/O  (via semantic_ops)
     # ------------------------------------------------------------------
-    # These methods route through runtime/semantic_ops which internally
-    # uses runtime.svc for resolve_engine internals (pending migration).
+    # These methods route through runtime/semantic_ops which uses the
+    # DataSource port for routing resolution.
 
     def resolve_metric_execution_context(self, *args: Any, **kwargs: Any) -> Any:
         from app.runtime import semantic_ops
@@ -181,25 +177,6 @@ class MarivoRuntime:
 
     # --- Intent use-cases (delegated to intent_execution) ---
 
-    @property
-    def svc(self) -> SemanticLayerService:
-        """Return the backing service for semantic_ops resolve_engine internals.
-
-        DEPRECATED: This property is retained only because semantic_ops
-        resolve_engine/resolve_engine_for_session still reference it.
-        It will be removed once those functions are migrated away from svc.
-        Accessing it when _svc is not wired raises an AssertionError.
-        """
-        # _svc is set temporarily via the svc setter below; will be removed
-        # when semantic_ops no longer needs it.
-        assert self._svc is not None, "MarivoRuntime.svc accessed before wiring"
-        return self._svc
-
-    @svc.setter
-    def svc(self, value: SemanticLayerService) -> None:
-        """Set the backing service (retained for semantic_ops compatibility)."""
-        self._svc = value
-
     def observe(self, session_id: str, params: dict[str, Any]) -> dict[str, Any]:
         return intent_execution.observe(self, SessionId(session_id), params)
 
@@ -247,14 +224,12 @@ class MarivoRuntime:
         """Return sessions, optionally filtered by *owner*.
 
         When owner is provided, delegates to session_ops.
-        When owner is not provided, delegates to svc.session_manager
-        for paginated listing (pending migration to port-based pagination).
+        When owner is not provided, delegates to session_store.list_sessions_paginated
+        for paginated listing (server-mode only).
         """
         if owner is not None:
             return session_ops.list_sessions(self, owner)
-        # Paginated listing without owner — still uses svc.session_manager
-        # until a port-based pagination API is defined.
-        return self.svc.session_manager.list_sessions(**kwargs)
+        return self.ports.session_store.list_sessions_paginated(**kwargs)
 
     def get_session(self, session_id: SessionId) -> SessionState | dict[str, Any]:
         """Get session state by ID.  Raises NotFoundError if not found.

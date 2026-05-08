@@ -180,6 +180,10 @@ def build_runtime(
     This is the preferred helper for tests.  It builds the
     SemanticLayerService + CoreEngine + RuntimePorts stack and returns
     the ``MarivoRuntime`` facade.
+
+    The ``SemanticLayerService`` is stored as ``runtime._test_svc`` for
+    test-only access (e.g. calling internal service methods).  The
+    ``svc`` property was removed from MarivoRuntime in Phase 6.1.
     """
     from unittest.mock import MagicMock
 
@@ -192,7 +196,7 @@ def build_runtime(
     ports = MagicMock(spec=RuntimePorts)  # type: ignore[assignment]
     core = CoreEngine()
     runtime = MarivoRuntime(ports, core)
-    runtime.svc = svc
+    runtime._test_svc = svc  # test-only; MarivoRuntime.svc was removed in Phase 6.1
     svc._runtime = runtime
     return runtime
 
@@ -206,7 +210,7 @@ def build_semantic_layer_service(
     Prefer ``build_runtime`` for new tests.
     """
     runtime = build_runtime(metadata, analytics)
-    return runtime.svc
+    return runtime._test_svc
 
 
 def seed_duckdb_source_object(

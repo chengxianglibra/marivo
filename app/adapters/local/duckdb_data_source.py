@@ -105,6 +105,13 @@ class DuckDBDataSource:
 
         return SourceSchema(columns=columns)
 
+    def resolve_tables(self, table_names: list[str], *, session_id: str | None = None) -> Any:
+        """Table routing is not available in local mode."""
+        raise NotImplementedError(
+            "resolve_tables is not available in local DuckDB mode; "
+            "server-mode routing requires a QueryRouter."
+        )
+
     def close(self) -> None:
         if self._con is not None:
             self._con.close()

@@ -420,6 +420,26 @@ class SqlSessionStoreAdapter:
             )
         return result
 
+    def get_proposition_runtime_status(
+        self, session_id: str, proposition_id: str
+    ) -> dict[str, Any]:
+        """Return proposition-level operator runtime status.
+
+        Delegates to SessionManager which queries propositions table directly.
+        """
+        result: dict[str, Any] = self._session_manager.get_proposition_runtime_status(
+            session_id, proposition_id
+        )
+        return result
+
+    def list_sessions_paginated(self, **kwargs: Any) -> dict[str, Any]:
+        """Return a paginated list of sessions (server-mode only).
+
+        Delegates to SessionManager.list_sessions for paginated, filtered listing.
+        """
+        result: dict[str, Any] = self._session_manager.list_sessions(**kwargs)
+        return result
+
 
 class DataSourceAdapter:
     """Wraps ``AnalyticsEngine`` + ``QueryRouter`` -> ``DataSource``.
@@ -453,6 +473,13 @@ class DataSourceAdapter:
             row_count=len(rows),
             query_sql=query.sql,
         )
+
+    def resolve_tables(self, table_names: list[str], *, session_id: str | None = None) -> Any:
+        """Delegate table resolution to the QueryRouter via RoutingRuntime."""
+        from app.execution.routing_runtime import RoutingRuntime
+
+        routing_runtime = RoutingRuntime(self._router, self._engine)
+        return routing_runtime.resolve_tables(table_names, session_id=session_id)
 
     def schema(self, source_ref: SourceRef) -> SourceSchema:
         """Return the schema for the referenced source table.

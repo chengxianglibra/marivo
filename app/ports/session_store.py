@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Any, Protocol
 
 from app.contracts.ids import SessionId, UserId
 from app.contracts.session import SessionEvent, SessionState
@@ -27,5 +27,23 @@ class SessionStore(Protocol):
 
         Owner invariant: a session's owner is the actor of its `session_created`
         event. Implementations index `actor` for `session_created` rows.
+        """
+        ...
+
+    def get_proposition_runtime_status(
+        self, session_id: str, proposition_id: str
+    ) -> dict[str, Any]:
+        """Return proposition-level operator runtime status.
+
+        Raises KeyError when the proposition is not found in the session.
+        """
+        ...
+
+    def list_sessions_paginated(self, **kwargs: Any) -> dict[str, Any]:
+        """Return a paginated list of sessions (server-mode only).
+
+        Accepts keyword arguments for filtering and pagination:
+        status, session_id, limit, page_token.
+        Returns a dict with session list and pagination metadata.
         """
         ...
