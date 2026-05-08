@@ -4,6 +4,7 @@ import json
 import sqlite3
 from pathlib import Path
 
+from app.contracts.errors import ErrorCode, NotFoundError
 from app.contracts.ids import SessionId, UserId
 from app.contracts.session import SessionEvent, SessionState
 from app.core.session.rebuild import rebuild_session_state
@@ -54,6 +55,11 @@ class SqliteSessionStore:
                 "FROM session_events WHERE session_id = ? ORDER BY seq",
                 (session_id,),
             ).fetchall()
+            if not rows:
+                raise NotFoundError(
+                    code=ErrorCode.SESSION_NOT_FOUND,
+                    message=f"Session not found: {session_id}",
+                )
             return [
                 SessionEvent(
                     session_id=row[0],
@@ -71,8 +77,9 @@ class SqliteSessionStore:
         conn = self._connect()
         try:
             rows = conn.execute(
-                "SELECT DISTINCT session_id FROM session_events "
-                "WHERE event_type = 'session_created' AND actor = ?",
+                "SELECT session_id FROM session_events "
+                "WHERE event_type = 'session_created' AND actor = ? "
+                "ORDER BY timestamp ASC, session_id ASC",
                 (str(owner),),
             ).fetchall()
         finally:

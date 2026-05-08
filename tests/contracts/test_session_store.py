@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from app.adapters.local.sqlite_session_store import SqliteSessionStore
+from app.contracts.errors import ErrorCode, NotFoundError
 from app.contracts.ids import SessionId, UserId
 from app.contracts.session import SessionEvent
 
@@ -38,10 +39,62 @@ def test_append_and_load_events(name, factory, tmp_path):
 
 
 @pytest.mark.parametrize("name,factory", session_store_factories)
-def test_load_events_returns_empty_for_unknown_session(name, factory, tmp_path):
+def test_load_events_raises_for_unknown_session(name, factory, tmp_path):
     store = factory(tmp_path)
-    events = store.load_events(SessionId("nonexistent"))
-    assert events == []
+    with pytest.raises(NotFoundError) as exc_info:
+        store.load_events(SessionId("nonexistent"))
+    assert exc_info.value.code == ErrorCode.SESSION_NOT_FOUND
+
+
+@pytest.mark.parametrize("name,factory", session_store_factories)
+def test_list_sessions_returns_only_owners_sessions(name, factory, tmp_path):
+    store = factory(tmp_path)
+    alice = UserId("alice")
+    bob = UserId("bob")
+
+    store.append_event(
+        SessionId("s-b"),
+        SessionEvent(
+            session_id=SessionId("s-b"),
+            event_type="session_created",
+            timestamp="2026-05-07T10:00:02Z",
+            payload={"goal": "g2"},
+            actor=bob,
+        ),
+    )
+    store.append_event(
+        SessionId("s-a"),
+        SessionEvent(
+            session_id=SessionId("s-a"),
+            event_type="session_created",
+            timestamp="2026-05-07T10:00:01Z",
+            payload={"goal": "g1"},
+            actor=alice,
+        ),
+    )
+    store.append_event(
+        SessionId("s-c"),
+        SessionEvent(
+            session_id=SessionId("s-c"),
+            event_type="session_created",
+            timestamp="2026-05-07T10:00:03Z",
+            payload={"goal": "g3"},
+            actor=alice,
+        ),
+    )
+
+    alice_sessions = store.list_sessions(alice)
+    assert [state.session_id for state in alice_sessions] == ["s-a", "s-c"]
+    assert [state.goal for state in alice_sessions] == ["g1", "g3"]
+
+    bob_sessions = store.list_sessions(bob)
+    assert [state.session_id for state in bob_sessions] == ["s-b"]
+
+
+@pytest.mark.parametrize("name,factory", session_store_factories)
+def test_list_sessions_empty_for_unknown_owner(name, factory, tmp_path):
+    store = factory(tmp_path)
+    assert store.list_sessions(UserId("ghost")) == []
 
 
 @pytest.mark.parametrize("name,factory", session_store_factories)
