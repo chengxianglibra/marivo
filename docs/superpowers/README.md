@@ -59,6 +59,7 @@ created: 2026-05-02
 | `2026-05-01-semantic-layer-update-modes-design.md` | canonical | docs/api/semantic.md |
 | `2026-05-02-api-schema-hardening-design.md` | canonical | docs/api/ |
 | `2026-05-02-dataset-native-grounding-design.md` | canonical | docs/api/semantic.md |
+| `2026-05-09-phase6.3-contract-parity-tests-design.md` | draft | docs/superpowers/specs/ |
 
 ### Canonical Gaps
 
