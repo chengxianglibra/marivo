@@ -4,7 +4,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from .ids import SessionId, UserId
+from .ids import SessionId, StepId, UserId
 
 
 class SessionEvent(BaseModel):
@@ -29,3 +29,14 @@ class SessionState(BaseModel):
     goal: str | None = None
     created_at: str
     updated_at: str
+
+
+class Step(BaseModel):
+    step_id: StepId
+    session_id: SessionId
+    step_type: str
+    summary: str
+    result: dict[str, Any]
+    provenance: dict[str, Any] | None = None
+    semantic_metadata: dict[str, Any] | None = None
+    created_at: str
