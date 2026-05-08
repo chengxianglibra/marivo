@@ -1,28 +1,35 @@
 from __future__ import annotations
 
-from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
-from starlette.requests import Request
-from starlette.responses import Response
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app.identity import current_user
 
 
-class UserIdentityMiddleware(BaseHTTPMiddleware):
-    """Extract X-Marivo-User header and set it on the current_user ContextVar.
+class UserIdentityMiddleware:
+    """Pure-ASGI middleware that sets current_user from X-Marivo-User.
 
-    Empty or whitespace-only values are normalized to None so downstream code
-    only needs to check for None, not None + empty string.
-    The ContextVar is always reset to its previous value after the request.
+    Unlike BaseHTTPMiddleware, this does not buffer the response body,
+    so it is compatible with SSE streaming (e.g. FastMCP streamable-http).
     """
 
-    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
-        user = request.headers.get("x-marivo-user")
-        if user is not None:
-            user = user.strip()
-            if not user:
-                user = None
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] not in ("http", "websocket"):
+            await self.app(scope, receive, send)
+            return
+
+        headers = dict(scope.get("headers", []))
+        raw = headers.get(b"x-marivo-user")
+        user: str | None = None
+        if raw is not None:
+            decoded = raw.decode("latin-1").strip()
+            if decoded:
+                user = decoded
+
         token = current_user.set(user)
         try:
-            return await call_next(request)
+            await self.app(scope, receive, send)
         finally:
             current_user.reset(token)
