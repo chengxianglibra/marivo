@@ -50,7 +50,7 @@ def _resolve_storage(
     created_analytics_engine = analytics_engine is None
     if metadata_store is None:
         metadata_config = config.metadata
-        if db_path is not None and not config_path_explicit:
+        if db_path is not None and not config_path_explicit and str(db_path) != ":memory:":
             metadata_store = SQLiteMetadataStore(Path(resolved_path).with_suffix(".meta.sqlite"))
         elif metadata_config is not None and metadata_config.engine == "sqlite":
             if metadata_config.path is None:
