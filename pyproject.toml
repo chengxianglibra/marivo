@@ -18,6 +18,7 @@ mysql = ["PyMySQL>=1.1"]
 trino = ["trino>=0.330"]
 dev = [
     "pytest>=8",
+    "pytest-asyncio>=0.23",
     "pytest-xdist>=3",
     "pytest-cov>=5.0",
     "ruff>=0.3.0",
