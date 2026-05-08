@@ -15,7 +15,7 @@ Marivo supports two deployment scenarios with a single codebase:
 
 Core goals:
 - One canonical semantic / intent / evidence contract across both scenarios.
-- Local and enterprise expose the same MCP tool names and schemas. Authorization-driven differences (e.g. enterprise `AuthZ` rejecting an action) appear as standard error responses, not new tools or new request shapes.
+- Local and enterprise expose the same MCP tool names and schemas. Any future authorization-driven differences appear as standard error responses, not new tools or new request shapes.
 - Marivo core is a library; service / MCP / CLI / SDK are wrappers.
 
 ---
@@ -107,8 +107,7 @@ marivo/
     runtime_config.py
   adapters/
     local/           # FileModelStore, SqliteSessionStore, DuckDBDataSource…
-    server/          # SqlModelStore, SqlSessionStore, S3EvidenceStore…
-    client/          # HTTP proxy adapters for client profile
+    server/          # SqlModelStore, SqlSessionStore, FileEvidenceStore…
   transports/        # MCP (stdio + HTTP) + existing surface code
     cli/
     mcp/             # stdio + HTTP MCP, embedded and client modes
@@ -117,7 +116,6 @@ marivo/
   profiles/
     local.py         # create_local_runtime() factory
     server.py        # create_server_runtime() factory
-    client.py        # create_client_runtime() factory
   local/             # Local-mode utilities: state layout, init, WAL helpers
 ```
 
@@ -241,7 +239,7 @@ class RuntimeConfig(Protocol):
 - Port methods accept and return only types defined in `marivo/contracts/`.
 - `SessionStore` is append-only: `append_event` only, no update or delete.
 - `EvidenceStore.write` returns a hash-bearing `EvidenceRef`, ensuring referenceability and replayability. Hash algorithm: **sha256**. Hash input must be canonicalized: JSON with sorted keys, UTF-8, no whitespace, integer-typed numbers where possible (no float ambiguity). The same canonical form is used for replay-stability tests.
-- `AuthZ` is implemented by `NoopAuthZ` in local profile (returns an allowed decision with empty reason fields).
+- `Telemetry`, `CacheStore`, and `AuthZ` are placeholder Ports in this design. They define future seams only and do not imply product behavior or concrete adapters.
 - `ModelStore` read semantics must support public + private visibility, revision-aware reads, and approval/publish workflows implemented in Runtime. Runtime must not need adapter-specific escape hatches to express model visibility rules.
 - Every Port has an adapter contract test suite; all implementations must pass it.
 
@@ -253,22 +251,26 @@ class RuntimeConfig(Protocol):
 
 | Port | local adapter | server adapter |
 |------|--------------|----------------|
-| `ModelStore` | `FileModelStore` | `SqlModelStore` (mysql) |
-| `SessionStore` | `SqliteSessionStore` | `SqlSessionStore` (mysql) |
-| `EvidenceStore` | `FileEvidenceStore` | `S3EvidenceStore` |
+| `ModelStore` | `FileModelStore` | `SqlModelStore` (sqlite / mysql metadata DB) |
+| `SessionStore` | `SqliteSessionStore` | `SqlSessionStore` (sqlite / mysql metadata DB) |
+| `EvidenceStore` | `FileEvidenceStore` | `FileEvidenceStore` (local filesystem file store) |
 | `DataSource` | `DuckDBDataSource` | `Trino/Snowflake/BQDataSource` |
-| `CacheStore` | `SqliteCacheStore` | `RedisCacheStore` |
-| `AuthZ` | `NoopAuthZ` | `OidcRbacAuthZ` |
-| `AuditLog` | `FileAuditLog` | `CentralizedAuditLog` |
-| `Telemetry` | `LocalTelemetry` | `OtelTelemetry` |
+| `CacheStore` | placeholder Port only | placeholder Port only |
+| `AuthZ` | placeholder Port only | placeholder Port only |
+| `AuditLog` | `FileAuditLog` | `FileAuditLog` |
+| `Telemetry` | placeholder Port only | placeholder Port only |
 
-**Server SQL adapters:** `SqlModelStore` and `SqlSessionStore` use SQLAlchemy Core, accepting a `db_url` connection string. Current supported backend: MySQL only. The adapter contract suite runs against MySQL in CI.
+**Placeholder Ports:** `Telemetry`, `CacheStore`, and `AuthZ` are not implemented by this design. They remain named Ports so Runtime call sites can keep stable seams, but this spec does not deliver product behavior, production adapters, or policy semantics for them. Any concrete `Telemetry`, `CacheStore`, or `AuthZ` implementation requires a separate design and phase.
 
-**No client profile:** There is no client profile. Remote agents connect to the enterprise server via HTTP MCP transport (mounted on the same FastAPI app at `/mcp`). The MCP tool schema is identical between local stdio and enterprise HTTP MCP because both surfaces target the same `MarivoRuntime` semantics. Authorization differences (e.g. enterprise `AuthZ` rejecting an action) appear as standard error responses.
+**Server metadata adapters:** `SqlModelStore` and `SqlSessionStore` use SQLAlchemy Core, accepting a `metadata_db_url` connection string. Supported server metadata backends in this design are SQLite and MySQL. SQLite is valid for single-node server deployments and local server evaluation; MySQL is the multi-process / managed deployment target.
 
-**Local-mode safety guard:** The local profile factory must refuse to construct a `MarivoRuntime` when the runtime detects an enterprise deployment context (e.g. `MARIVO_PROFILE=server` env var, or `profile = "server"` in the loaded `marivo.toml`). This prevents `NoopAuthZ` from accidentally bypassing enterprise authorization. The mechanism is `resolve_profile()` (Phase 6.2), which fails closed when an entry point's expected profile is overridden by an incompatible source.
+**Server file store:** server mode supports a local filesystem file store for hash-addressed evidence and other file-backed artifacts. Object storage such as S3 is a future adapter, not part of this design.
 
-**LocalTelemetry default:** `LocalTelemetry` is no-op by default. Local users opt-in via `marivo.toml` (`[telemetry] sink = "file"`), which writes to `.marivo/telemetry.jsonl`. No telemetry leaves the host without explicit opt-in.
+**Server audit log:** server mode only supports `FileAuditLog` in this design. Centralized audit sinks are future adapters and must not be implied by the current server profile.
+
+**No client profile:** There is no client profile. Remote agents connect to the enterprise server via HTTP MCP transport (mounted on the same FastAPI app at `/mcp`). The MCP tool schema is identical between local stdio and enterprise HTTP MCP because both surfaces target the same `MarivoRuntime` semantics. Future authorization differences must appear as standard error responses, not new tools or new request shapes.
+
+**Local-mode safety guard:** The local profile factory must refuse to construct a `MarivoRuntime` when the runtime detects an enterprise deployment context (e.g. `MARIVO_PROFILE=server` env var, or `profile = "server"` in the loaded `marivo.toml`). This prevents a local profile from accidentally bypassing server-mode controls. The mechanism is `resolve_profile()` (Phase 6.2), which fails closed when an entry point's expected profile is overridden by an incompatible source.
 
 **FileModelStore concurrency rule:** local semantic model writes use optimistic concurrency. Each write must include an `expected_revision` (or equivalent content digest) captured from the last read. The adapter writes to a temp file and atomically renames into place only when the on-disk revision still matches the expected one; otherwise it raises a conflict that the caller must surface. Silent last-writer-wins overwrites are forbidden.
 
@@ -282,19 +284,17 @@ def create_local_runtime(config: LocalConfig) -> MarivoRuntime:
         session_store=SqliteSessionStore(config.state_db),
         evidence_store=FileEvidenceStore(config.evidence_dir),
         data_source=DuckDBDataSource(),
-        cache_store=SqliteCacheStore(config.state_db),
-        authz=NoopAuthZ(),
         audit_log=FileAuditLog(config.audit_dir),
-        telemetry=LocalTelemetry(),
         runtime_config=TomlRuntimeConfig(config.config_file),
     )
 
 # profiles/server.py
 def create_server_runtime(config: ServerConfig) -> MarivoRuntime:
     return MarivoRuntime(
-        model_store=SqlModelStore(config.db_url),
-        session_store=SqlSessionStore(config.db_url),
-        evidence_store=S3EvidenceStore(config.s3_config),
+        model_store=SqlModelStore(config.metadata_db_url),
+        session_store=SqlSessionStore(config.metadata_db_url),
+        evidence_store=FileEvidenceStore(config.file_store_dir),
+        audit_log=FileAuditLog(config.audit_dir),
         ...
     )
 ```
@@ -304,7 +304,6 @@ def create_server_runtime(config: ServerConfig) -> MarivoRuntime:
 | Entry point | Precedence order |
 |------------|------------------|
 | local CLI / local stdio MCP | explicit flag > env var > workspace `.marivo/marivo.toml` > default `local` |
-| client CLI / client stdio MCP | explicit flag > env var > user client config > workspace `.marivo/marivo.toml` |
 | server HTTP / server HTTP MCP | explicit flag > env var > service config file; ambient workspace `.marivo/` is ignored unless explicitly pointed to |
 
 Profile auto-detection must never let an enterprise server bind itself from a nearby developer workspace config by accident.
@@ -333,10 +332,9 @@ One child process per MCP client session. The process may serve many tool calls 
 .marivo/
   marivo.toml        # profile = "local", datasource config, etc.
   models/            # semantic model files (yaml / json)
-  state.db           # SQLite WAL: canonical session event log + cache metadata
+  state.db           # SQLite WAL: canonical session event log
   evidence/          # hash-addressed evidence files
   sessions/          # optional exported session jsonl projections (derived from state.db)
-  cache/             # optional local query cache
 ```
 
 **Invariants:**
@@ -360,13 +358,11 @@ One child process per MCP client session. The process may serve many tool calls 
 ChatBI / Agent / UI / SDK
   └─ HTTP API / MCP Gateway
        └─ Marivo Server
-            ├─ SqlModelStore        (mysql)
-            ├─ SqlSessionStore      (mysql)
-            ├─ S3EvidenceStore
+            ├─ SqlModelStore        (sqlite / mysql metadata DB)
+            ├─ SqlSessionStore      (sqlite / mysql metadata DB)
+            ├─ FileEvidenceStore    (local filesystem file store)
             ├─ Trino / Snowflake / BQ DataSource
-            ├─ OidcRbacAuthZ
-            ├─ CentralizedAuditLog
-            └─ OtelTelemetry
+            └─ FileAuditLog
 ```
 
 **Enterprise-only capabilities** (not implemented by local profile):
@@ -375,14 +371,12 @@ ChatBI / Agent / UI / SDK
 |-----------|-------------|
 | Semantic model registry | Public model publication + private workspace isolation |
 | Approval / publish workflow | Model publication requires approval; triggered via a publish operation through the Runtime layer, not exposed in the base `ModelStore` Protocol |
-| Session-level user identity | `X-Marivo-User` header is a trusted propagation header; the authenticated edge injects it and `AuthZ` validates the canonical actor |
+| Session-level user identity | `X-Marivo-User` header is a trusted propagation header; marivo propagates it as actor context, but does not authenticate or authorize it in this design |
 | Audit trail | Every runtime operation recorded to `AuditLog` |
-| Centralized policy | `AuthZ` + `policy/` rules managed centrally |
 | Engine routing | Routes to the appropriate `DataSource` adapter by source type |
-| Observability | OTel traces and metrics, integrated with existing monitoring stack |
 | Multi-agent integration | Multiple agents share a session with identity isolation |
 
-**Identity trust boundary:** User authentication is out of scope for the current phase set. `X-Marivo-User` is a propagation header trusted from the calling environment; marivo passes it through to `current_user` ContextVar without validation. A trusted-edge design (Bearer + token introspection + strip-and-reinject) is deferred to a dedicated future phase. Deploying environments that need real authentication MUST gate marivo behind their own authenticated proxy.
+**Identity trust boundary:** User authentication and authorization are out of scope for this design. `X-Marivo-User` is a propagation header trusted from the calling environment; marivo passes it through to `current_user` ContextVar without validation. Deploying environments that need real authentication or authorization MUST gate marivo behind their own authenticated proxy or fund a separate AuthZ design.
 
 ---
 
@@ -431,7 +425,7 @@ Management UI. Continues with existing frontend implementation; not in scope for
 
 **Adapter contract tests** (`tests/contracts/`)
 - Each Port defines a contract test suite (pytest parametrize).
-- Same suite runs against all implementations: `SqliteSessionStore`, `SqlSessionStore(mysql)`, `FileEvidenceStore`, `S3EvidenceStore`, etc.
+- Same suite runs against all implemented adapters: `SqliteSessionStore`, `SqlSessionStore(sqlite/mysql)`, `FileEvidenceStore`, `FileAuditLog`, etc.
 - A new adapter may not merge without passing its Port's contract test.
 
 **Surface tests** (`tests/surfaces/`)
@@ -447,7 +441,7 @@ Management UI. Continues with existing frontend implementation; not in scope for
 **CI rules:**
 - `import-linter` enforces `core/` import boundary; violation fails the build.
 - Local adapter contract tests run in every CI pass (introduced in Phase 6.3).
-- Server adapter contract tests and local/server parity tests are mandatory **Phase 9** (Production Server Adapters) CI jobs with provisioned MySQL infrastructure (testcontainers or an approved equivalent). Phase 9 cannot close while server-profile CI is "best effort" or externally optional. Phase 6.3 ships the contract test framework and a parity skeleton that exercises the pre-Phase-9 server adapters; strict server-side parity gating starts at Phase 9.
+- Server adapter contract tests and local/server parity tests are mandatory **Phase 9** (Production Server Adapters) CI jobs. SQLite-backed server metadata tests run in every CI pass; MySQL-backed server metadata tests run in the server-adapter CI job with provisioned MySQL infrastructure (testcontainers or an approved equivalent). Phase 9 cannot close while server-profile CI is "best effort" or externally optional. Phase 6.3 ships the contract test framework and a parity skeleton that exercises the pre-Phase-9 server adapters; strict server-side parity gating starts at Phase 9.
 
 ---
 
@@ -463,8 +457,8 @@ Sequencing follows a **contract-first strangler** strategy: define the shared co
 | 4 | 4 | Local Embedded Runtime | `create_local_runtime()` factory; MCP stdio embedded mode operational against the shared Runtime seam | An agent + Marivo can finish a sample analysis end-to-end in local mode against `.marivo/`. MCP session-lifetime behavior is documented and tested. |
 | 5 | 6 | Profile System (decomposed into 6.1 / 6.2 / 6.3) | **6.1** Runtime Self-Sufficiency: demolish `SemanticLayerService` and `SessionManager`; `MarivoRuntime.__init__(ports, core)` only. **6.2** Server Profile Boundary: `resolve_profile()` and `create_server_runtime()` over the existing `wrappers.py` adapters. **6.3** Contract & Parity Tests: port contract test framework + parity skeleton against current server adapters. Each sub-phase has its own design spec and plan. | Aggregate exit: no module imports `app.service`; server profile factory exists and constructs a runtime against existing adapters; contract tests cover all local adapters; parity skeleton runs in CI |
 | 6 | 5 | MCP Dual Mode | HTTP MCP transport mounted on enterprise FastAPI app; stdio + HTTP MCP share an identical tool registration; legacy `marivo-mcp/` package and all client/proxy abstractions removed | HTTP MCP end-to-end integration test passes; tool schema parity test passes between stdio and HTTP MCP |
-| 7 | 9 | Production Server Adapters | Split `app/adapters/server/wrappers.py` into individual modules; native event-sourced `SqlSessionStore` (MySQL `session_events`); `S3EvidenceStore`; `RedisCacheStore`; `RoutingDataSource` credential / registry design; testcontainers MySQL CI infrastructure; replace no-op `OtelTelemetry` with real OpenTelemetry. AuthZ stub replacement is reserved for Phase 8 | Server adapter contract tests pass against MySQL in CI; local/server parity gating becomes mandatory; no no-op telemetry in any production code path |
-| 8 | 8 | Enterprise Authentication & Authorization | Trusted edge identity middleware; `OidcRbacAuthZ` replacing `AlwaysAllowAuthZ`; canonical actor + role propagation; auth-aware audit records (separate design spec: `2026-05-08-phase8-enterprise-auth-design.md`) | Unauthenticated enterprise HTTP API and HTTP MCP requests fail closed; AuthZ decisions are recorded in audit; role-based scope tests pass |
+| 7 | 9 | Production Server Adapters | Split `app/adapters/server/wrappers.py` into individual modules; native event-sourced `SqlSessionStore` over SQLite / MySQL metadata DB; local filesystem `FileEvidenceStore`; `FileAuditLog`; `RoutingDataSource` credential / registry design; server-adapter CI for SQLite and MySQL metadata backends. `Telemetry`, `CacheStore`, and `AuthZ` remain placeholder Ports only | Server adapter contract tests pass against SQLite and MySQL metadata backends in CI; local/server parity gating becomes mandatory; server mode uses filesystem file store and `FileAuditLog` only |
+| 8 | 8 | Enterprise Authentication & Authorization | Out of scope for this design. `AuthZ` remains a placeholder Port only; any authentication / authorization implementation requires a separate design | No AuthZ product behavior is added by this architecture design |
 | 9 | 7 | Namespace Cutover & Convergence | `app/` -> `marivo/` mechanical rename, packaging/documentation cutover, E2E golden tests, import boundary enforced in CI | All tests green; architectural invariants documented; no remaining `from app.*` imports; only the `app/` -> `marivo/` mechanical rename and import boundary enforcement remain |
 
 **Migration principles:**
@@ -472,7 +466,7 @@ Sequencing follows a **contract-first strangler** strategy: define the shared co
 - Phases 2 and 3 establish the strangler seam first; local embedded mode is not allowed to bypass or preempt that seam.
 - Repository-wide namespace renames are mechanical follow-on work, not the vehicle for boundary design.
 - Phase 6 (Profile System) precedes Phase 5 (MCP Dual Mode) because dual-mode MCP requires a working profile factory to choose between embedded and server runtimes.
-- Phase 9 (Production Server Adapters) follows Phases 5 / 6 and precedes Phase 8 (Enterprise Auth) because real auth replaces stubs in production-shaped server adapters, not in the pre-Phase-9 monolithic `wrappers.py`. Phase 7 (Namespace Cutover) is the final mechanical pass once the server adapter shape stabilizes.
+- Phase 9 (Production Server Adapters) follows Phases 5 / 6. It stabilizes the server storage and execution adapter shape while leaving `Telemetry`, `CacheStore`, and `AuthZ` as placeholder Ports. Phase 7 (Namespace Cutover) is the final mechanical pass once the server adapter shape stabilizes.
 
 > **Note on numbering:** the *Phase* column preserves the original phase identities used elsewhere in this document (and in tooling). The *Order* column is the actual execution sequence.
 
@@ -502,12 +496,22 @@ Beyond the deliverables listed in §12, Phase 9 must cover:
   long as the design captures the credential / registry path the server
   profile will take when additional engines are wired in.
 - **`step_completed` event ownership in `SqlSessionStore`.** The native
-  event-sourced `SqlSessionStore` (MySQL `session_events`) must guarantee
+  event-sourced `SqlSessionStore` (SQLite / MySQL metadata DB
+  `session_events`) must guarantee
   that a `step_completed` event is appended after every successful
   `commit_step_result()` call, so reconstructed `SessionState.updated_at`
   reflects the last step rather than the session creation time. This
   contract is added to the `SessionStore` adapter contract test suite so it
   applies uniformly to local and server implementations.
+- **Server filesystem file store.** Server mode uses a local filesystem
+  `FileEvidenceStore` for hash-addressed evidence and file-backed artifacts.
+  S3 or other object stores are explicitly out of scope for this design.
+- **Server audit log.** Server mode uses `FileAuditLog` only. Centralized
+  audit sinks are out of scope for this design and require a separate
+  adapter design.
+- **Placeholder-only Ports.** `Telemetry`, `CacheStore`, and `AuthZ` must
+  remain placeholder Ports in Phase 9. Phase 9 must not introduce Redis,
+  OpenTelemetry, OIDC / RBAC, or production authorization behavior.
 - **Server contract test packaging.** Add a `test-mysql` extras group in
   `pyproject.toml` (e.g. `test-mysql = ["testcontainers[mysql]"]`) so the
   contract suite can pull in testcontainers without colliding with the
@@ -520,33 +524,15 @@ Beyond the deliverables listed in §12, Phase 9 must cover:
 
 ### 13.2 Phase 8 — Enterprise Authentication & Authorization
 
-Beyond the deliverables listed in §12 and the dedicated design at
-`docs/superpowers/specs/2026-05-08-phase8-enterprise-auth-design.md`,
-Phase 8 must cover:
+Phase 8 is explicitly out of scope for this design. `AuthZ` is kept only as
+a placeholder Port so Runtime boundaries do not need to be redesigned later.
+This architecture document must not be read as approving trusted-edge
+middleware, OIDC / RBAC adapters, production authorization behavior, or
+auth-aware centralized audit records.
 
-- **Production guard for `AlwaysAllowAuthZ`.** The Phase 6 / 6.2 stub is
-  acceptable only as a server-profile placeholder. Phase 8 hardens its
-  constructor to fail closed when `MARIVO_ENV=production` (or equivalent
-  production-like config) is active, using a typed configuration / domain
-  error rather than `assert` so optimized Python cannot bypass the guard.
-  This guard is removed once `OidcRbacAuthZ` is wired in below.
-- **Trusted-edge auth middleware (HTTP API + HTTP MCP).** Pure-ASGI
-  middleware that strips inbound identity-propagation headers (including
-  any caller-supplied `X-Marivo-User` in company-analytics mode), validates
-  configured Bearer / OIDC credentials, resolves the canonical actor and
-  roles, and sets the Runtime identity context. Coverage must extend to
-  streaming `/mcp` routes without buffering SSE. Unauthenticated enterprise
-  requests fail closed before any business logic runs.
-- **`OidcRbacAuthZ` replacing `AlwaysAllowAuthZ`.** Implement role mapping
-  for `admin`, `semantic_modeler`, `analyst`, and `service`; wire the
-  server profile to it for production-like deployments. Authorization
-  checks live in Runtime use cases — not in transports or storage
-  adapters. Denials surface as standard domain errors through both HTTP
-  and MCP envelopes.
-- **Auth audit hardening.** Audit records must include canonical actor,
-  roles, action, resource, allow / deny decision, denial code, and
-  transport (`http_api` or `http_mcp`). Tests cover allowed and denied
-  requests on both transports.
+If enterprise authentication and authorization are needed, they require a
+separate design that defines identity trust boundaries, fail-closed behavior,
+policy semantics, audit fields, and HTTP API / HTTP MCP coverage.
 
 ---
 
@@ -558,4 +544,5 @@ Phase 8 must cover:
 - The service layer does not own core business rules.
 - Local and enterprise do not maintain separate analysis logic.
 - No Rust migration design — this spec is purely Python architecture.
-- User authentication and authorization in marivo are out of scope for the current phase set. `X-Marivo-User` is a trusted propagation header injected by the deploying environment; marivo does not validate it. A trusted-edge auth design is deferred to a dedicated future phase.
+- User authentication and authorization in marivo are out of scope for this design. `X-Marivo-User` is a trusted propagation header injected by the deploying environment; marivo does not validate it. `AuthZ` is a placeholder Port only.
+- Telemetry and cache-store product behavior are out of scope for this design. `Telemetry` and `CacheStore` are placeholder Ports only.
