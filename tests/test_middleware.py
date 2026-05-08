@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from starlette.applications import Starlette
+from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
@@ -63,3 +64,12 @@ def test_contextvar_reset_after_request():
         assert current_user.get() is None
     finally:
         current_user.reset(token)
+
+
+def test_is_not_base_http_middleware():
+    """UserIdentityMiddleware must be pure ASGI, not BaseHTTPMiddleware.
+
+    BaseHTTPMiddleware buffers the full response body, which breaks
+    SSE streaming (e.g. FastMCP streamable-http transport).
+    """
+    assert not issubclass(UserIdentityMiddleware, BaseHTTPMiddleware)
