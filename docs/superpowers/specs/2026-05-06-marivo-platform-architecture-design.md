@@ -31,6 +31,7 @@ Core goals:
 7. Canonical contract takes priority over transport contract.
 8. MCP is not the canonical business contract.
 9. CLI is not the primary agent analysis protocol.
+10. Marivo is pre-launch. Migration phases do not preserve backwards compatibility. Breaking changes between phases are first-class. Architecture design must not compromise to existing implementation; transitional shims exist only when they reduce review risk within a phase, not to keep older entry points working across phases.
 
 **Core invariants (must not be violated in any phase):**
 
@@ -445,8 +446,8 @@ Management UI. Continues with existing frontend implementation; not in scope for
 
 **CI rules:**
 - `import-linter` enforces `core/` import boundary; violation fails the build.
-- Local adapter contract tests run in every CI pass.
-- Server adapter contract tests and local/server parity tests are mandatory Phase 6 CI jobs with provisioned MySQL infrastructure (testcontainers or an approved equivalent). Phase 6 cannot close while server-profile CI is "best effort" or externally optional.
+- Local adapter contract tests run in every CI pass (introduced in Phase 6.3).
+- Server adapter contract tests and local/server parity tests are mandatory **Phase 9** (Production Server Adapters) CI jobs with provisioned MySQL infrastructure (testcontainers or an approved equivalent). Phase 9 cannot close while server-profile CI is "best effort" or externally optional. Phase 6.3 ships the contract test framework and a parity skeleton that exercises the pre-Phase-9 server adapters; strict server-side parity gating starts at Phase 9.
 
 ---
 
@@ -460,15 +461,18 @@ Sequencing follows a **contract-first strangler** strategy: define the shared co
 | 2 | 2 | Contracts & Ports | `contracts/` + `ports/` Protocol definitions land inside the current package root; no repo-wide rename required yet | import-linter rules pass for the new seams; all existing tests green; HTTP and MCP can compile against the new contract types |
 | 3 | 3 | Runtime Decoupling | Shared Runtime facade introduced; HTTP service and MCP both call Runtime use-case layer; `core/` is I/O-free and execution over Ports lives in Runtime | Service and MCP handlers have no direct core orchestration logic; `core/` import-linter rules pass; existing E2E tests green |
 | 4 | 4 | Local Embedded Runtime | `create_local_runtime()` factory; MCP stdio embedded mode operational against the shared Runtime seam | An agent + Marivo can finish a sample analysis end-to-end in local mode against `.marivo/`. MCP session-lifetime behavior is documented and tested. |
-| 5 | 6 | Profile System | local / server / client three profile factories; adapter contract tests; behavior parity test infrastructure (testcontainers or chosen alternative) | Contract tests pass across all adapter implementations; parity tests run in CI |
+| 5 | 6 | Profile System (decomposed into 6.1 / 6.2 / 6.3) | **6.1** Runtime Self-Sufficiency: demolish `SemanticLayerService` and `SessionManager`; `MarivoRuntime.__init__(ports, core)` only. **6.2** Server Profile Boundary: `resolve_profile()` and `create_server_runtime()` over the existing `wrappers.py` adapters. **6.3** Contract & Parity Tests: port contract test framework + parity skeleton against current server adapters. Each sub-phase has its own design spec and plan. | Aggregate exit: no module imports `app.service`; server profile factory exists and constructs a runtime against existing adapters; contract tests cover all local adapters; parity skeleton runs in CI |
 | 6 | 5 | MCP Dual Mode | HTTP MCP transport mounted on enterprise FastAPI app; stdio + HTTP MCP share an identical tool registration; legacy `marivo-mcp/` package and all client/proxy abstractions removed | HTTP MCP end-to-end integration test passes; tool schema parity test passes between stdio and HTTP MCP |
-| 7 | 7 | Namespace Cutover & Convergence | `app/` -> `marivo/` mechanical rename, packaging/documentation cutover, E2E golden tests, import boundary enforced in CI | All tests green; architectural invariants documented; no remaining `from app.*` imports; no `marivo-mcp` distribution remains (removed in Phase 5); only `app/` -> `marivo/` mechanical rename and import boundary enforcement |
+| 7 | 9 | Production Server Adapters | Split `app/adapters/server/wrappers.py` into individual modules; native event-sourced `SqlSessionStore` (MySQL `session_events`); `S3EvidenceStore`; `RedisCacheStore`; `RoutingDataSource` credential / registry design; testcontainers MySQL CI infrastructure; replace no-op `OtelTelemetry` with real OpenTelemetry. AuthZ stub replacement is reserved for Phase 8 | Server adapter contract tests pass against MySQL in CI; local/server parity gating becomes mandatory; no no-op telemetry in any production code path |
+| 8 | 8 | Enterprise Authentication & Authorization | Trusted edge identity middleware; `OidcRbacAuthZ` replacing `AlwaysAllowAuthZ`; canonical actor + role propagation; auth-aware audit records (separate design spec: `2026-05-08-phase8-enterprise-auth-design.md`) | Unauthenticated enterprise HTTP API and HTTP MCP requests fail closed; AuthZ decisions are recorded in audit; role-based scope tests pass |
+| 9 | 7 | Namespace Cutover & Convergence | `app/` -> `marivo/` mechanical rename, packaging/documentation cutover, E2E golden tests, import boundary enforced in CI | All tests green; architectural invariants documented; no remaining `from app.*` imports; only the `app/` -> `marivo/` mechanical rename and import boundary enforcement remain |
 
 **Migration principles:**
-- Existing functionality must not regress at the end of each phase (green tests are the gate).
+- Tests at the end of each phase reflect the post-refactor design. Pre-launch breaking changes between phases are explicit and expected; older entry-point shapes are not preserved across phase boundaries.
 - Phases 2 and 3 establish the strangler seam first; local embedded mode is not allowed to bypass or preempt that seam.
 - Repository-wide namespace renames are mechanical follow-on work, not the vehicle for boundary design.
-- Phase 6 (Profile System) precedes Phase 5 (MCP Dual Mode) because dual-mode MCP requires a working profile factory to choose between embedded and client runtimes.
+- Phase 6 (Profile System) precedes Phase 5 (MCP Dual Mode) because dual-mode MCP requires a working profile factory to choose between embedded and server runtimes.
+- Phase 9 (Production Server Adapters) follows Phases 5 / 6 and precedes Phase 8 (Enterprise Auth) because real auth replaces stubs in production-shaped server adapters, not in the pre-Phase-9 monolithic `wrappers.py`. Phase 7 (Namespace Cutover) is the final mechanical pass once the server adapter shape stabilizes.
 
 > **Note on numbering:** the *Phase* column preserves the original phase identities used elsewhere in this document (and in tooling). The *Order* column is the actual execution sequence.
 
