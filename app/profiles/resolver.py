@@ -2,10 +2,15 @@ from __future__ import annotations
 
 import logging
 import os
+import tomllib
 from collections.abc import Mapping
-from typing import Literal
+from pathlib import Path
+from typing import TYPE_CHECKING, Literal
 
 from app.contracts.errors import DomainError, ErrorCode
+
+if TYPE_CHECKING:
+    from app.config import MarivoConfig
 
 logger = logging.getLogger(__name__)
 
@@ -34,34 +39,48 @@ def resolve_profile(
     entry_point: EntryPoint,
     explicit: str | None = None,
     env: Mapping[str, str] | None = None,
+    workspace_config_path: Path | None = None,
+    service_config: MarivoConfig | None = None,
 ) -> ProfileMode:
     env_map = env if env is not None else os.environ
 
-    # Normalize empty strings to None: MARIVO_PROFILE="" is missing, not "".
+    # Normalize empty strings to None.
     explicit = explicit or None
     env_value = env_map.get("MARIVO_PROFILE") or None
 
-    raw: str | None = explicit or env_value
+    candidate: str | None = explicit or env_value
     source = "explicit" if explicit else ("env" if env_value else None)
 
-    if raw is None:
-        return _DEFAULT_BY_ENTRY[entry_point]
+    # Service config (loaded MarivoConfig) — server entry only per parent §7.
+    if candidate is None and entry_point == "server_http" and service_config is not None:
+        cfg_value = getattr(service_config, "profile", None) or None
+        if cfg_value:
+            candidate = str(cfg_value)
+            source = "service_config"
 
-    # raw is now a non-empty string; validate it is a known profile.
-    if raw not in ("local", "server"):
+    # Workspace .marivo/marivo.toml — local entry only.
+    if candidate is None and entry_point == "local_stdio" and workspace_config_path is not None:
+        toml_value = _read_profile_from_toml(workspace_config_path)
+        if toml_value:
+            candidate = toml_value
+            source = "workspace_toml"
+
+    if candidate is None:
+        candidate = _DEFAULT_BY_ENTRY[entry_point]
+        source = "default"
+
+    if candidate not in ("local", "server"):
         logger.error(
             "profile.unknown entry_point=%s source=%s candidate=%r",
             entry_point,
             source,
-            raw,
+            candidate,
         )
         raise ProfileResolutionError(
             ErrorCode.VALIDATION,
-            f"Unknown profile {raw!r}; expected 'local' or 'server' "
+            f"Unknown profile {candidate!r}; expected 'local' or 'server' "
             f"(source={source}, entry_point={entry_point})",
         )
-
-    candidate: ProfileMode = raw  # type: ignore[assignment]
 
     if candidate not in _ALLOWED_BY_ENTRY[entry_point]:
         logger.error(
@@ -76,4 +95,24 @@ def resolve_profile(
             f"entry point {entry_point!r}",
         )
 
-    return candidate
+    return candidate  # type: ignore[return-value, unused-ignore]
+
+
+def _read_profile_from_toml(path: Path) -> str | None:
+    """Read top-level `profile` from .marivo/marivo.toml, or None if absent.
+
+    Wraps malformed-TOML errors as ProfileResolutionError so stdio start
+    fails cleanly instead of crashing with a bare TOMLDecodeError.
+    """
+    if not path.is_file():
+        return None
+    try:
+        with path.open("rb") as fh:
+            data = tomllib.load(fh)
+    except tomllib.TOMLDecodeError as exc:
+        raise ProfileResolutionError(
+            ErrorCode.VALIDATION,
+            f"Malformed TOML in {path}: {exc}",
+        ) from exc
+    value = data.get("profile")
+    return str(value) if value else None
