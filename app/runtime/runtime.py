@@ -37,6 +37,8 @@ class MarivoRuntime:
         self._ports = ports
         self._core = core
         self._svc: SemanticLayerService | None = None  # set via wire_svc()
+        self._semantic_v2_svc: Any = None  # set via wire_semantic_v2_svc()
+        self._datasource_svc: Any = None  # set via wire_datasource_svc()
 
     def wire_svc(self, svc: SemanticLayerService) -> None:
         """Attach the backing service for I/O proxy + intent methods.
@@ -47,6 +49,14 @@ class MarivoRuntime:
         """
         self._svc = svc
 
+    def wire_semantic_v2_svc(self, svc: Any) -> None:
+        """Attach the SemanticModelV2Service for V2 CRUD operations."""
+        self._semantic_v2_svc = svc
+
+    def wire_datasource_svc(self, svc: Any) -> None:
+        """Attach the DatasourceService for datasource operations."""
+        self._datasource_svc = svc
+
     @property
     def core(self) -> CoreEngine:
         """Pure computation facade (no I/O)."""
@@ -56,6 +66,16 @@ class MarivoRuntime:
     def ports(self) -> RuntimePorts:
         """Typed container for all port implementations."""
         return self._ports
+
+    @property
+    def semantic_v2_svc(self) -> Any:
+        """SemanticModelV2Service for V2 CRUD operations."""
+        return self._semantic_v2_svc
+
+    @property
+    def datasource_svc(self) -> Any:
+        """DatasourceService for datasource operations."""
+        return self._datasource_svc
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -341,6 +361,35 @@ class MarivoRuntime:
             )
             return self._svc.get_session_state(str(sid), kwargs)
 
+    def list_sessions(
+        self,
+        status: str | None = None,
+        session_id: str | None = None,
+        limit: int | None = None,
+        page_token: str | None = None,
+    ) -> dict[str, Any]:
+        """List sessions matching optional filters."""
+        return self._require_svc("list_sessions").list_sessions(
+            status=status,
+            session_id=session_id,
+            limit=limit,
+            page_token=page_token,
+        )
+
+    def query_session_state(self, session_id: str, query: dict[str, Any]) -> dict[str, Any]:
+        """Return the canonical SessionStateView with a structured query body."""
+        return self._require_svc("query_session_state").query_session_state(session_id, query)
+
+    def get_proposition_context(self, session_id: str, proposition_id: str) -> dict[str, Any]:
+        """Return PropositionContextView for a proposition."""
+        return self._require_svc("get_proposition_context").get_proposition_context(
+            session_id, proposition_id
+        )
+
+    def discover_catalog(self) -> dict[str, Any]:
+        """Return the API catalog of entities, models, and datasources."""
+        return self._require_svc("discover_catalog").discover_catalog()
+
     # --- Semantic model ops ---
 
     def get_semantic_model(self, selector: Any) -> SemanticModel | None:
@@ -353,5 +402,3 @@ class MarivoRuntime:
         return self._ports.model_store.list(query)
 
     # --- Datasource ops ---
-    # discover_catalog removed (4b-3): MCP tools call
-    # ports.data_source.schema() directly.
