@@ -1,0 +1,29 @@
+{
+  "artifact_id": "obs_revenue_2026_q1_by_region",
+  "step_id": "observe_revenue_q1_by_region",
+  "result": {
+    "rows": [
+      {
+        "item_id": "region_us",
+        "keys": {
+          "region": "US"
+        },
+        "value": 820000.5
+      },
+      {
+        "item_id": "region_eu",
+        "keys": {
+          "region": "EU"
+        },
+        "value": 430000
+      },
+      {
+        "item_id": "region_unknown",
+        "keys": {
+          "region": "unknown"
+        },
+        "value": null
+      }
+    ]
+  }
+}

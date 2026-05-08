@@ -1,0 +1,22 @@
+{
+  "metric": "revenue",
+  "time_scope": {
+    "start": "2026-01-01T00:00:00Z",
+    "end": "2026-02-01T00:00:00Z"
+  },
+  "granularity": "day",
+  "filter": {
+    "dialects": [
+      {
+        "dialect": "ANSI_SQL",
+        "expression": "channel IN ('paid', 'organic')"
+      }
+    ]
+  },
+  "split_by": [
+    "channel"
+  ],
+  "profile": "seasonal_daily",
+  "sensitivity": 0.8,
+  "limit": 10
+}
