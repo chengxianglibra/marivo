@@ -1,0 +1,18 @@
+# AOI Changelog
+
+## 0.1.0 - 2026-05-08
+
+Initial draft publication.
+
+### Added
+
+- Single canonical JSON Schema at `schema/aoi.schema.json`.
+- Narrative specification at `spec.md`.
+- Minimal examples for observe, compare, decompose, and capability declaration.
+- Core `CompareType` enum with `normal`, `yoy`, `mom`, `wow`, `holiday_aligned_yoy`, `weekday_aligned_yoy`, and `weekday_aligned_mon`.
+
+### Deferred
+
+- Formal conformance fixtures.
+- Transport bindings.
+- Governance and certification process.

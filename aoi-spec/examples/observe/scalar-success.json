@@ -1,0 +1,21 @@
+{
+  "artifact_type": "scalar_observation",
+  "artifact_id": "obs_scalar_revenue_2026_q1",
+  "produced_by": {
+    "step_type": "observe",
+    "step_id": "observe_revenue_q1"
+  },
+  "subject": {
+    "metric": "revenue",
+    "time_scope": {
+      "start": "2026-01-01T00:00:00Z",
+      "end": "2026-04-01T00:00:00Z"
+    },
+    "filter": null,
+    "granularity": null,
+    "dimensions": null
+  },
+  "result": {
+    "value": 1250000.5
+  }
+}

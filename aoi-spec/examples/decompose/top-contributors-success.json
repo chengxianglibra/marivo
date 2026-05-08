@@ -1,0 +1,33 @@
+{
+  "artifact_type": "delta_decomposition",
+  "artifact_id": "decomp_revenue_yoy_region",
+  "produced_by": {
+    "step_type": "decompose",
+    "step_id": "decompose_revenue_yoy_by_region"
+  },
+  "subject": {
+    "compare_ref": {
+      "step_type": "compare",
+      "step_id": "compare_revenue_yoy_q1",
+      "artifact_id": "delta_revenue_yoy_q1",
+      "artifact_subtype": "scalar_delta"
+    },
+    "dimension": "region"
+  },
+  "result": {
+    "items": [
+      {
+        "item_id": "region_us",
+        "key": "US",
+        "contribution": 180000.25,
+        "share": 0.72
+      },
+      {
+        "item_id": "region_eu",
+        "key": "EU",
+        "contribution": 70000.25,
+        "share": 0.28
+      }
+    ]
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "spec_version": "0.1.0",
+  "supported_intents": [
+    "observe",
+    "compare",
+    "decompose",
+    "detect",
+    "test"
+  ],
+  "supported_predicate_dialects": [
+    "ANSI_SQL",
+    "DUCKDB"
+  ],
+  "supported_compare_types": [
+    "normal",
+    "yoy",
+    "mom",
+    "wow",
+    "holiday_aligned_yoy",
+    "weekday_aligned_yoy",
+    "weekday_aligned_mon"
+  ],
+  "supported_artifact_types": [
+    "scalar_observation",
+    "time_series_observation",
+    "scalar_delta",
+    "time_series_delta",
+    "delta_decomposition",
+    "anomaly_candidates",
+    "hypothesis_test_result"
+  ]
+}
