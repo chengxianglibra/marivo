@@ -1,7 +1,6 @@
 """Pydantic input models for MCP tool parameters.
 
-Validators preserve wire compatibility with the existing marivo-mcp package.
-No refactoring allowed in Phase 5 — copy verbatim.
+Validators for MCP tool parameter wire compatibility.
 """
 
 from __future__ import annotations

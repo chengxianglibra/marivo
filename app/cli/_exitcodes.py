@@ -1,6 +1,6 @@
 """Exit code constants for the marivo CLI.
 
-marivo-mcp uses exit codes exclusively to determine success/failure;
+marivo uses exit codes exclusively to determine success/failure;
 it does not parse stderr.
 """
 

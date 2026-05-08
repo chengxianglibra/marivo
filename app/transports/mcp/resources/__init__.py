@@ -15,7 +15,7 @@ def register_resources(server: Any, runtime: Any) -> None:
     @server.resource("marivo://server/config")  # type: ignore
     async def server_config() -> str:
         """Expose minimal non-secret runtime configuration for local debugging."""
-        return "marivo-mcp local\ntransport=stdio\n"
+        return "marivo local\ntransport=stdio\n"
 
     @server.resource("marivo://sessions/{session_id}/state")  # type: ignore
     async def session_state(session_id: str) -> dict[str, Any]:
