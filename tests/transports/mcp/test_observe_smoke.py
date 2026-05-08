@@ -10,6 +10,8 @@ from app.transports.mcp.tools import register_tools
 class _FakeRuntime:
     """Minimal stub satisfying register_tools' runtime contract."""
 
+    semantic_v2_svc = None
+
     def observe(self, session_id: str, params: dict) -> dict:
         return {"step_type": "observe", "session_id": session_id}
 
