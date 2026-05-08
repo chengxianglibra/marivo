@@ -1,0 +1,29 @@
+{
+  "artifact_type": "scalar_delta",
+  "artifact_id": "delta_revenue_yoy_q1",
+  "produced_by": {
+    "step_type": "compare",
+    "step_id": "compare_revenue_yoy_q1"
+  },
+  "subject": {
+    "left_ref": {
+      "step_type": "observe",
+      "step_id": "observe_revenue_2026_q1",
+      "artifact_id": "obs_scalar_revenue_2026_q1",
+      "artifact_subtype": "scalar_observation"
+    },
+    "right_ref": {
+      "step_type": "observe",
+      "step_id": "observe_revenue_2025_q1",
+      "artifact_id": "obs_scalar_revenue_2025_q1",
+      "artifact_subtype": "scalar_observation"
+    },
+    "compare_type": "yoy"
+  },
+  "result": {
+    "left_value": 1250000.5,
+    "right_value": 1000000.0,
+    "delta": 250000.5,
+    "matched_time_scope": null
+  }
+}

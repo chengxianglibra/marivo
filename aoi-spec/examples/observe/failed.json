@@ -1,0 +1,32 @@
+{
+  "artifact_type": "scalar_observation",
+  "artifact_id": "obs_scalar_revenue_invalid_filter",
+  "produced_by": {
+    "step_type": "observe",
+    "step_id": "observe_revenue_invalid_filter"
+  },
+  "subject": {
+    "metric": "revenue",
+    "time_scope": {
+      "start": "2026-01-01T00:00:00Z",
+      "end": "2026-04-01T00:00:00Z"
+    },
+    "filter": {
+      "dialects": [
+        {
+          "dialect": "ANSI_SQL",
+          "expression": "unknown_column = 'enterprise'"
+        }
+      ]
+    },
+    "granularity": null,
+    "dimensions": null
+  },
+  "failure": {
+    "code": "observe.invalid_filter",
+    "message": "The filter references a field that cannot be resolved for the metric.",
+    "details": {
+      "field": "unknown_column"
+    }
+  }
+}
