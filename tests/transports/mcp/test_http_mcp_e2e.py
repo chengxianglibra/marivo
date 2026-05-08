@@ -29,16 +29,40 @@ from mcp.server.transport_security import TransportSecuritySettings
 
 from app.api.app_factory import create_app
 from app.transports.mcp.tools import register_tools
+from tests.shared_fixtures import get_seeded_duckdb_path, get_seeded_metadata_path
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture()
-def runtime():
-    """Create a real MarivoRuntime backed by in-memory storage."""
-    app = create_app(db_path=":memory:")
+@pytest.fixture(scope="session")
+def runtime(tmp_path_factory):
+    """Create a real MarivoRuntime backed by file-based storage.
+
+    Uses shared seeded templates (DuckDB + SQLite metadata) instead of
+    ``:memory:`` so conftest's initialize-patch can copy from the cached
+    template instead of rebuilding demo data from scratch (~35 s savings
+    per call).  Session-scoped so the expensive app construction happens
+    once for all five tests.
+    """
+    tmp = tmp_path_factory.mktemp("http_mcp_e2e")
+    db_path = tmp / "analytics.duckdb"
+    meta_path = tmp / "meta.sqlite"
+    get_seeded_duckdb_path(db_path)
+    get_seeded_metadata_path(meta_path)
+
+    from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
+    from app.storage.sqlite_metadata import SQLiteMetadataStore
+
+    analytics = DuckDBAnalyticsEngine(str(db_path))
+    metadata = SQLiteMetadataStore(meta_path)
+
+    app = create_app(
+        db_path=str(db_path),
+        metadata_store=metadata,
+        analytics_engine=analytics,
+    )
     return app.state.runtime
 
 
