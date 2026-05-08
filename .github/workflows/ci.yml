@@ -52,6 +52,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev,trino]"
 
+      - name: Smoke test marivo-stdio entry point
+        run: python -c "from app.transports.mcp.stdio import main; print('marivo-stdio entry point OK')"
+
       - name: Run tests with coverage
         run: |
           pytest --cov=app --cov-report=xml --cov-report=html --cov-report=term-missing
@@ -61,4 +64,3 @@ jobs:
         with:
           file: ./coverage.xml
           fail_ci_if_error: false
-
