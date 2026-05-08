@@ -4,8 +4,9 @@ import json
 import sqlite3
 from pathlib import Path
 
-from app.contracts.ids import SessionId
-from app.contracts.session import SessionEvent
+from app.contracts.ids import SessionId, UserId
+from app.contracts.session import SessionEvent, SessionState
+from app.core.session.rebuild import rebuild_session_state
 
 
 class SqliteSessionStore:
@@ -66,6 +67,19 @@ class SqliteSessionStore:
         finally:
             conn.close()
 
+    def list_sessions(self, owner: UserId) -> list[SessionState]:
+        conn = self._connect()
+        try:
+            rows = conn.execute(
+                "SELECT DISTINCT session_id FROM session_events "
+                "WHERE event_type = 'session_created' AND actor = ?",
+                (str(owner),),
+            ).fetchall()
+        finally:
+            conn.close()
+
+        return [rebuild_session_state(self.load_events(SessionId(row[0]))) for row in rows]
+
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(str(self._db_path))
         conn.execute("PRAGMA journal_mode=WAL")
@@ -86,6 +100,10 @@ class SqliteSessionStore:
                     actor       TEXT,
                     PRIMARY KEY (session_id, seq)
                 )"""
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_session_events_actor "
+                "ON session_events (actor, event_type)"
             )
             conn.commit()
         finally:

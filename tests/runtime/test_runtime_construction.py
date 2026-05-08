@@ -14,7 +14,7 @@ from app.contracts.ids import (
     UserId,
 )
 from app.contracts.semantic import ModelSummary, SemanticModel
-from app.contracts.session import SessionEvent
+from app.contracts.session import SessionEvent, SessionState
 from app.contracts.values import (
     AuditEntry,
     AuthZDecision,
@@ -61,6 +61,9 @@ class StubSessionStore:
         pass
 
     def load_events(self, session_id: SessionId) -> list[SessionEvent]:
+        return []
+
+    def list_sessions(self, owner: UserId) -> list[SessionState]:
         return []
 
 

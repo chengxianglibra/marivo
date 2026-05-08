@@ -25,6 +25,7 @@ from app.contracts.values import (
     TelemetryEvent,
 )
 from app.core.engine import CoreEngine
+from app.core.session.rebuild import rebuild_session_state
 from app.runtime.runtime import MarivoRuntime
 
 # --- Stub port implementations ---
@@ -65,6 +66,13 @@ class RecordingSessionStore:
 
     def load_events(self, session_id: SessionId) -> list[SessionEvent]:
         return list(self._events.get(str(session_id), []))
+
+    def list_sessions(self, owner: UserId) -> list[SessionState]:
+        states: list[SessionState] = []
+        for events in self._events.values():
+            if events and events[0].event_type == "session_created" and events[0].actor == owner:
+                states.append(rebuild_session_state(events))
+        return states
 
 
 class StubEvidenceStore:
