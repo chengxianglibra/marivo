@@ -260,7 +260,7 @@ class SemanticLayerService:
         self.session_manager = SessionManager(metadata_store)
         # Phase 4b-1: set by factory after construction; used by intent runners
         self._runtime: MarivoRuntime | None = None
-        self.step_registry = build_service_step_registry(self)
+        self.step_registry = build_service_step_registry(self._runtime)  # type: ignore[arg-type]
         self.intent_registry = IntentRunnerRegistry()
         self.intent_registry.register(
             "observe",

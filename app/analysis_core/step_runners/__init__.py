@@ -6,19 +6,19 @@ from app.analysis_core.step_registry import StepRunnerRegistry
 from app.analysis_core.step_runners import attribution, generic
 
 if TYPE_CHECKING:
-    from app.service import SemanticLayerService
+    from app.runtime.runtime import MarivoRuntime
 
 
 def build_primitive_step_registry(
-    service: SemanticLayerService, registry: StepRunnerRegistry | None = None
+    runtime: MarivoRuntime, registry: StepRunnerRegistry | None = None
 ) -> StepRunnerRegistry:
     registry = registry or StepRunnerRegistry()
-    generic.register(registry, service)
-    attribution.register(registry, service)
+    generic.register(registry, runtime)
+    attribution.register(registry, runtime)
     return registry
 
 
-def build_service_step_registry(service: SemanticLayerService) -> StepRunnerRegistry:
+def build_service_step_registry(runtime: MarivoRuntime) -> StepRunnerRegistry:
     registry = StepRunnerRegistry()
-    build_primitive_step_registry(service, registry)
+    build_primitive_step_registry(runtime, registry)
     return registry
