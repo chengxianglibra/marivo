@@ -1,7 +1,7 @@
-# AOI v0.1 Design — Analysis Operation Interface
+# AOI v0.1 — Analysis Operation Interface
 
 **Date:** 2026-05-07
-**Status:** Draft (brainstorming approved)
+**Status:** Draft
 **Scope:** Spec-first design for a public, schema-only standard that defines analysis-operation contracts, asymmetric to OSI (which defines analysis-object contracts).
 
 ---
@@ -420,7 +420,7 @@ Implementation-private metadata may exist in SDKs, logs, database rows, traces, 
 
 ### 5.1 Row-level data
 
-AOI v0.1 has no row-level extension mechanism. Every list-shaped core result row carries `item_id` for stable reference, but no implementation-specific row metadata is attached to AOI artifacts.
+AOI v0.1 has no row-level private metadata attachment point. Every list-shaped core result row carries `item_id` for stable reference, but no implementation-specific row metadata is attached to AOI artifacts.
 
 Current Marivo row-level candidates remain outside AOI v0.1:
 
@@ -493,7 +493,7 @@ Spec changes are managed by PR + linked design document. Once external adoption 
 
 ### 7.1 Directory structure
 
-The spec is materialized as a self-contained directory at `aoi-spec/` within the marivo repository, designed to be extractable later.
+The spec is materialized as this self-contained `aoi-spec/` directory, designed to be extractable later.
 
 ```
 aoi-spec/
@@ -563,11 +563,7 @@ Appendix C: Glossary
 
 ### 7.6 v0.1 location
 
-```
-marivo/
-├── docs/superpowers/specs/2026-05-07-aoi-v0.1-design.md  (this doc)
-└── aoi-spec/                                              (the spec itself)
-```
+This directory is the AOI v0.1 publication artifact. It is self-contained and can be copied into a standalone repository without resolving paths outside `aoi-spec/`.
 
 ---
 

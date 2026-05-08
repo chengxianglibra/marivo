@@ -1,0 +1,8 @@
+{
+  "artifact_id": "decomp_revenue_yoy_region_failed",
+  "step_id": "decompose_revenue_yoy_by_region",
+  "failure": {
+    "code": "decompose.metric_not_attributable",
+    "message": "The compared artifact cannot be decomposed by the requested dimension."
+  }
+}

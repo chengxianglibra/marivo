@@ -1,0 +1,378 @@
+version: 0.1.0
+
+# AOI - Analysis Operation Interface v0.1 readable schema
+#
+# This YAML file follows the OSI core-spec style: enumerations are top-level
+# fields, schema sections use snake_case names, and object shapes are written
+# as readable contract sketches. The canonical machine-validation schema is
+# aoi.schema.json.
+
+# Enumerations
+
+# Supported bucket sizes for time-bucketed requests and result points.
+time_granularities:
+  - hour      # Calendar hour bucket.
+  - day       # Calendar day bucket.
+  - week      # Calendar week bucket.
+  - month     # Calendar month bucket.
+  - quarter   # Calendar quarter bucket.
+  - year      # Calendar year bucket.
+
+# Supported comparison modes for compare requests.
+compare_types:
+  - normal                 # Compare the referenced artifacts as-is.
+  - yoy                    # Year-over-year comparison.
+  - mom                    # Month-over-month comparison.
+  - wow                    # Week-over-week comparison.
+  - holiday_aligned_yoy    # Year-over-year comparison aligned by holiday calendar.
+  - weekday_aligned_yoy    # Year-over-year comparison aligned by weekday.
+  - weekday_aligned_mom    # Month-over-month comparison aligned by weekday.
+
+# Statistical test families supported by hypothesis test requests.
+hypothesis_families:
+  - two_sample_mean        # Difference in means between two independent samples.
+  - two_sample_proportion  # Difference in proportions between two independent samples.
+  - paired_mean            # Difference in means for paired observations.
+
+# Direction of the statistical alternative hypothesis.
+hypothesis_alternatives:
+  - two_sided  # Test for any difference.
+  - greater    # Test whether left is greater than right.
+  - less       # Test whether left is less than right.
+
+# Supported measurement kinds for test requests.
+test_kinds:
+  - numeric  # Numeric metric test.
+  - rate     # Rate or proportion metric test.
+
+# Supported correlation methods.
+correlation_methods:
+  - pearson   # Linear correlation coefficient.
+  - spearman  # Rank correlation coefficient.
+
+# Foundation primitives
+
+# Multi-dialect boolean filter expression, following the OSI Expression shape.
+expression:
+  # Required: one or more dialect-specific boolean expressions.
+  dialects:
+    # One expression variant for a concrete SQL dialect.
+    - dialect: string       # Optional. Recommended values use uppercase snake case, e.g. ANSI_SQL.
+      expression: string    # Required. Boolean expression in the declared dialect.
+
+# Absolute time range used by requests and result caveats.
+time_scope:
+  # Required: inclusive/exclusive time range semantics are implementation-defined by the caller contract.
+  start: iso8601_datetime   # Required: range start timestamp.
+  end: iso8601_datetime     # Required: range end timestamp.
+
+# Map of dimension or split names to their string values.
+dimension_key_map:
+  # Required: arbitrary dimension names are object keys; values are normalized string labels.
+  additional_properties: string
+
+# Scalar dimension value used for contribution keys.
+dimension_value:
+  # Required: concrete scalar value type.
+  type: string_or_number_or_boolean
+
+  # Required: true because null is a valid dimension value when the grouped dimension is null or missing.
+  nullable: true
+
+# Blocking failure returned instead of a result.
+analysis_failure:
+  # Required: portable machine-readable failure code scoped by intent, e.g. compare.scope_mismatch.
+  code: string
+
+  # Required: portable human-readable failure explanation.
+  message: string
+
+# Statistical hypothesis configuration for test requests.
+hypothesis:
+  # Required: statistical test family, one of hypothesis_families.
+  family: hypothesis_families
+
+  # Required: alternative hypothesis direction, one of hypothesis_alternatives.
+  alternative: hypothesis_alternatives
+
+  # Required: significance threshold, range (0, 1). Lower is stricter; higher rejects the null hypothesis more easily.
+  alpha: number
+
+  # Required, nullable: display label for the hypothesis.
+  label: string
+
+# Paired source slice used by test requests.
+slice:
+  # Required: time range for this side of the test.
+  time_scope: time_scope
+
+  # Required, nullable: filter expression for this side of the test. Null means no filter.
+  filter: expression
+
+# Requests
+
+# Observe a metric as scalar, time series, or segmented values.
+observe:
+  # Required: metric identifier to observe.
+  metric: string
+
+  # Required: analysis time range.
+  time_scope: time_scope
+
+  # Required, nullable: filter expression. Null means no filter.
+  filter: expression
+
+  # Optional, nullable: mode selector. Non-null value from time_granularities requests a time_series_observation_result.
+  granularity: time_granularities
+
+  # Optional, nullable: mode selector. Non-empty string list requests a segmented_observation_result.
+  dimensions: string[]
+
+# Compare two upstream artifacts and produce a delta result.
+compare:
+  # Required: artifact_id for the left/current input artifact.
+  left_artifact_id: string
+
+  # Required: artifact_id for the right/baseline input artifact.
+  right_artifact_id: string
+
+  # Optional: comparison mode from compare_types; omitted means normal.
+  compare_type: compare_types
+
+# Decompose a compare result by one dimension.
+decompose:
+  # Required: artifact_id of the compare artifact to decompose.
+  compare_artifact_id: string
+
+  # Required: dimension name used for attribution.
+  dimension: string
+
+  # Optional: maximum number of contribution rows to return, range [1, +infinity).
+  limit: integer
+
+# Correlate two upstream time-series artifacts.
+correlate:
+  # Required: artifact_id for the left time-series artifact.
+  left_artifact_id: string
+
+  # Required: artifact_id for the right time-series artifact.
+  right_artifact_id: string
+
+  # Optional: correlation method, one of correlation_methods.
+  method: correlation_methods
+
+# Detect anomalous buckets or segments for a metric.
+detect:
+  # Required: metric identifier to inspect.
+  metric: string
+
+  # Required: analysis time range.
+  time_scope: time_scope
+
+  # Required: bucket size for anomaly detection, one of time_granularities.
+  granularity: time_granularities
+
+  # Required, nullable: filter expression. Null means no filter.
+  filter: expression
+
+  # Optional, nullable: string list of dimensions used to split independent anomaly series.
+  split_by: string[]
+
+  # Optional, nullable: implementation-defined detection profile name.
+  profile: string
+
+  # Optional, nullable: detection sensitivity, range [0, 1]. Higher returns more candidate anomalies; lower is stricter.
+  sensitivity: number
+
+  # Optional: maximum number of anomaly candidates to return, range [1, +infinity).
+  limit: integer
+
+# Run a statistical test between two source slices.
+test:
+  # Required: metric identifier to test.
+  metric: string
+
+  # Required: left/current source slice.
+  left: slice
+
+  # Required: right/baseline source slice.
+  right: slice
+
+  # Required: metric kind, one of test_kinds.
+  kind: test_kinds
+
+  # Required: hypothesis configuration.
+  hypothesis: hypothesis
+
+# Forecast future values from an upstream time-series artifact.
+forecast:
+  # Required: artifact_id of the source time-series artifact.
+  source_artifact_id: string
+
+  # Required: number of future buckets to forecast, range [1, +infinity).
+  horizon: integer
+
+  # Optional, nullable: implementation-defined forecasting profile name.
+  profile: string
+
+# Artifact envelope and result variants
+
+# Shared artifact envelope returned by every AOI operation.
+artifact:
+  # Required: stable artifact identifier.
+  artifact_id: string
+
+  # Required: producing step identifier; resolves request context outside this artifact.
+  step_id: string
+
+  # Present on success. Exactly one of result or failure must be present.
+  result:
+    # Result body must match one of the AOI result schemas below.
+    one_of:
+      - scalar_observation_result      # Scalar metric value.
+      - time_series_observation_result # Time-bucketed metric values.
+      - segmented_observation_result   # Dimension-segmented metric values.
+      - scalar_delta_result            # Scalar comparison delta.
+      - time_series_delta_result       # Time-bucketed comparison deltas.
+      - segmented_delta_result         # Dimension-segmented comparison deltas.
+      - delta_decomposition_result     # Contribution breakdown for a compare result.
+      - anomaly_candidates_result      # Ranked anomalous buckets or segments.
+      - association_result             # Correlation/association statistics.
+      - hypothesis_test_result         # Statistical hypothesis test output.
+      - forecast_series_result         # Forecasted future time-series values.
+
+  # Present on blocking failure. Exactly one of result or failure must be present.
+  failure: analysis_failure
+
+# Observation results
+
+# Result for scalar observe requests.
+scalar_observation_result:
+  # Required, nullable: observed metric value. Null means no observation exists for the slice.
+  # Numeric range follows the metric domain. Higher/lower has the metric's normal business meaning.
+  value: number
+
+# Result for time-series observe requests.
+time_series_observation_result:
+  # Required: ordered observed values by time bucket.
+  points:
+    # One bucketed observation point.
+    - bucket_start: iso8601_datetime  # Required: bucket start timestamp.
+      value: number                  # Required, nullable: observed metric value. Null means absent. Range follows the metric domain; higher/lower has the metric's normal business meaning.
+
+# Result for segmented observe requests.
+segmented_observation_result:
+  # Required: observed values by segment.
+  rows:
+    # One segmented observation row.
+    - item_id: string                 # Required: stable row identifier.
+      keys: dimension_key_map         # Required: segment dimension values.
+      value: number                  # Required, nullable: observed metric value. Null means absent. Range follows the metric domain; higher/lower has the metric's normal business meaning.
+
+# Compare results
+
+# Result for scalar compare requests.
+scalar_delta_result:
+  # Required, nullable: left/current scalar value. Null means absent. Range follows the metric domain.
+  left_value: number
+
+  # Required, nullable: right/baseline scalar value. Null means absent. Range follows the metric domain.
+  right_value: number
+
+  # Required, nullable: computed left-minus-right delta. Null means not computable.
+  # Range follows the metric domain difference. Positive means left/current is higher than right/baseline; negative means lower; larger absolute value means a larger change.
+  delta: number
+
+  # Required, nullable: time range actually compared. Null means the full referenced scope was used.
+  matched_time_scope: time_scope
+
+# Result for time-series compare requests.
+time_series_delta_result:
+  # Required: comparison values by time bucket.
+  points:
+    # One bucketed comparison point.
+    - bucket_start: iso8601_datetime  # Required: bucket start timestamp.
+      left_value: number             # Required, nullable: left/current bucket value. Null means absent. Range follows the metric domain.
+      right_value: number            # Required, nullable: right/baseline bucket value. Null means absent. Range follows the metric domain.
+      delta: number                  # Required, nullable: left-minus-right delta. Null means not computable. Positive means left/current is higher; negative means lower; larger absolute value means larger change.
+
+  # Required, nullable: time range actually compared. Null means the full referenced scope was used.
+  matched_time_scope: time_scope
+
+# Result for segmented compare requests.
+segmented_delta_result:
+  # Required: comparison values by segment.
+  rows:
+    # One segmented comparison row.
+    - item_id: string                 # Required: stable row identifier.
+      keys: dimension_key_map         # Required: segment dimension values.
+      left_value: number             # Required, nullable: left/current segment value. Null means absent. Range follows the metric domain.
+      right_value: number            # Required, nullable: right/baseline segment value. Null means absent. Range follows the metric domain.
+      delta: number                  # Required, nullable: left-minus-right delta. Null means not computable. Positive means left/current is higher; negative means lower; larger absolute value means larger change.
+
+  # Required, nullable: time range actually compared. Null means the full referenced scope was used.
+  matched_time_scope: time_scope
+
+# Decompose, detect, correlate, test, and forecast results
+
+# Result for decompose requests.
+delta_decomposition_result:
+  # Required: ranked contribution rows.
+  items:
+    # One contribution row.
+    - item_id: string                              # Required: stable row identifier.
+      key: dimension_value                        # Required, nullable: dimension value for this contribution.
+      contribution: number                         # Required: signed contribution in metric units; finite number with no fixed bound. Positive increases the compared delta; negative offsets it; larger absolute value means a stronger driver.
+      share: number                                # Required: signed contribution ratio to the total delta; finite number with no fixed bound because offsetting contributors may produce negative or greater-than-1 shares. Larger absolute value means higher relative importance.
+
+# Result for detect requests.
+anomaly_candidates_result:
+  # Required: ranked anomaly candidates.
+  items:
+    # One anomaly candidate.
+    - item_id: string                         # Required: stable row identifier.
+      bucket_start: iso8601_datetime          # Required: bucket start timestamp.
+      value: number                           # Required: observed metric value; range follows the metric domain. Higher/lower has the metric's normal business meaning.
+      score: number                           # Required: anomaly score, range [0, +infinity). Higher means more anomalous within the same implementation and scoring profile.
+      series_keys: dimension_key_map          # Required, nullable: split-series dimension values. Null means unsplit series.
+
+# Result for correlate requests.
+association_result:
+  # Required: correlation or association coefficient, range [-1, 1].
+  # Higher positive values mean stronger positive association; values near 0 mean weak/no association under the chosen method; lower negative values mean stronger inverse association.
+  coefficient: number
+
+  # Required, nullable: p-value when available. Null means unavailable. Range is [0, 1]; lower means stronger evidence against the null association model.
+  p_value: number
+
+  # Required: number of matched observation pairs used, range [0, +infinity). Higher usually means a more stable estimate, subject to data quality.
+  n_pairs: integer
+
+  # Required, nullable: time range actually matched. Null means the full referenced scope was used.
+  matched_time_scope: time_scope
+
+# Result for test requests.
+hypothesis_test_result:
+  # Required: test statistic. Range and sign semantics are hypothesis-family specific; larger absolute values usually mean stronger separation from the null model.
+  statistic: number
+
+  # Required: p-value for the test. Range is [0, 1]; lower means stronger evidence against the null hypothesis.
+  p_value: number
+
+  # Required: hypothesis decision.
+  decision:
+    # Required, nullable: true when the null hypothesis is rejected; false when not; null when undecidable.
+    reject_null: boolean
+
+  # Required: non-blocking caveats about assumptions; empty string list when none are reported.
+  assumption_notes: string[]
+
+# Result for forecast requests.
+forecast_series_result:
+  # Required: forecasted values by future bucket.
+  points:
+    # One forecasted point.
+    - bucket_start: iso8601_datetime # Required: forecast bucket start timestamp.
+      value: number                  # Required: forecast metric value; range follows the metric domain. Higher/lower has the metric's normal business meaning.
+      ci_low: number                # Required, nullable: lower confidence interval bound in metric units. Null means unavailable. When present with ci_high, must be <= ci_high; lower values mean a lower plausible outcome.
+      ci_high: number               # Required, nullable: upper confidence interval bound in metric units. Null means unavailable. When present with ci_low, must be >= ci_low; higher values mean a higher plausible outcome.

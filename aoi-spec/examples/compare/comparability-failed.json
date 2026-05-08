@@ -1,0 +1,8 @@
+{
+  "artifact_id": "delta_revenue_holiday_yoy_failed",
+  "step_id": "compare_revenue_holiday_yoy",
+  "failure": {
+    "code": "compare.compare_type_data_unavailable",
+    "message": "Comparison data is unavailable for the requested type."
+  }
+}

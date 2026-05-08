@@ -1,0 +1,20 @@
+{
+  "artifact_id": "decomp_revenue_yoy_region",
+  "step_id": "decompose_revenue_yoy_by_region",
+  "result": {
+    "items": [
+      {
+        "item_id": "region_us",
+        "key": "US",
+        "contribution": 180000.25,
+        "share": 0.72
+      },
+      {
+        "item_id": "region_eu",
+        "key": "EU",
+        "contribution": 70000.25,
+        "share": 0.28
+      }
+    ]
+  }
+}

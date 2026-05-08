@@ -1,0 +1,20 @@
+{
+  "artifact_id": "obs_daily_revenue_2026_q1",
+  "step_id": "observe_daily_revenue_q1",
+  "result": {
+    "points": [
+      {
+        "bucket_start": "2026-01-01T00:00:00Z",
+        "value": 100
+      },
+      {
+        "bucket_start": "2026-01-02T00:00:00Z",
+        "value": null
+      },
+      {
+        "bucket_start": "2026-01-03T00:00:00Z",
+        "value": 125.25
+      }
+    ]
+  }
+}
