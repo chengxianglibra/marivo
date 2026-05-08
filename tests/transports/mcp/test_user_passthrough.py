@@ -1,4 +1,5 @@
 """X-Marivo-User passthrough test for MCP middleware."""
+
 from __future__ import annotations
 
 import pytest
@@ -27,6 +28,7 @@ async def _run_through_middleware(headers: list[tuple[bytes, bytes]]) -> str | N
         "server": ("test", 80),
         "asgi": {"version": "3.0"},
     }
+
     async def _receive():
         return {"type": "http.request", "body": b""}
 
