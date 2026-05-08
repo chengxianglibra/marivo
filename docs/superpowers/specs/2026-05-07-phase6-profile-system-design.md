@@ -1,7 +1,23 @@
 # Phase 6: Profile System + SemanticLayerService Removal — Design Spec
 
+> **STATUS: SUPERSEDED (2026-05-08)**
+>
+> This design bundled too much into a single phase (profile factories + `_svc` removal +
+> `SemanticLayerService` deletion + `SessionManager` deletion + native event-sourced
+> `SqlSessionStore` + 12 server adapter splits + contract test infrastructure). It has been
+> replaced by a decomposed structure:
+>
+> - [Phase 6.1 — Runtime Self-Sufficiency](./2026-05-08-phase6.1-runtime-self-sufficiency-design.md) (current)
+> - Phase 6.2 — Server Profile Boundary (TBD)
+> - Phase 6.3 — Contract & Parity Tests (TBD)
+> - Phase 8 — Production Server Adapters (parent spec §12)
+>
+> Refer to the new specs. The content below is preserved for historical reference only.
+
+---
+
 **Date:** 2026-05-07
-**Status:** Draft
+**Status:** Superseded
 **Parent spec:** `docs/superpowers/specs/2026-05-06-marivo-platform-architecture-design.md`
 **Phase:** 6 of 7 (execution order 5)
 
