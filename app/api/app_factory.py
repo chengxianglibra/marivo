@@ -186,4 +186,5 @@ def create_app(
     app.add_middleware(TimingMiddleware)
     include_api_routers(app)
     mount_mcp_app(app, services.runtime)
+    services.runtime.wire_app(app)
     return app

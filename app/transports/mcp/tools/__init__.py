@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.transports.mcp.tools.catalog import register_catalog_tools
 from app.transports.mcp.tools.intents import (
     register_attribute,
     register_compare,
@@ -31,3 +32,4 @@ def register_tools(server: Any, runtime: Any) -> None:
     register_diagnose(server, runtime)
     register_validate(server, runtime)
     register_session_tools(server, runtime)
+    register_catalog_tools(server, runtime)

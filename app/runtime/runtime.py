@@ -4,6 +4,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
+from app.contracts.errors import ErrorCode, NotFoundError, ValidationError
 from app.contracts.ids import ModelId, SessionId, StepId, UserId
 from app.contracts.semantic import ModelSummary, SemanticModel
 from app.contracts.session import SessionEvent, SessionState
@@ -39,6 +40,7 @@ class MarivoRuntime:
         self._svc: SemanticLayerService | None = None  # set via wire_svc()
         self._semantic_v2_svc: Any = None  # set via wire_semantic_v2_svc()
         self._datasource_svc: Any = None  # set via wire_datasource_svc()
+        self._app: Any = None  # set via wire_app()
 
     def wire_svc(self, svc: SemanticLayerService) -> None:
         """Attach the backing service for I/O proxy + intent methods.
@@ -56,6 +58,10 @@ class MarivoRuntime:
     def wire_datasource_svc(self, svc: Any) -> None:
         """Attach the DatasourceService for datasource operations."""
         self._datasource_svc = svc
+
+    def wire_app(self, app: Any) -> None:
+        """Store reference to the FastAPI app for OpenAPI introspection."""
+        self._app = app
 
     @property
     def core(self) -> CoreEngine:
@@ -402,3 +408,230 @@ class MarivoRuntime:
         return self._ports.model_store.list(query)
 
     # --- Datasource ops ---
+
+    # --- OpenAPI introspection ---
+
+    _SCHEMA_REF_PREFIX = "#/components/schemas/"
+    _ALLOWED_EXPANDS = frozenset({"request", "response", "schemas"})
+    _HTTP_METHODS = ("get", "put", "post", "delete", "options", "head", "patch", "trace")
+    _MAX_EXPANSION_DEPTH = 5
+
+    def _require_app(self, method_name: str) -> Any:
+        assert self._app is not None, f"Runtime.{method_name} requires _app (not yet wired)"
+        return self._app
+
+    def _get_openapi_spec(self) -> dict[str, Any]:
+        app = self._require_app("_get_openapi_spec")
+        spec = app.openapi()
+        if not isinstance(spec, dict):
+            msg = "FastAPI OpenAPI schema is not a JSON object."
+            raise NotFoundError(ErrorCode.NOT_FOUND, msg)
+        return spec
+
+    def _get_component_schemas(self, spec: dict[str, Any]) -> dict[str, Any]:
+        components = spec.get("components")
+        if not isinstance(components, dict):
+            return {}
+        schemas = components.get("schemas")
+        if not isinstance(schemas, dict):
+            return {}
+        return schemas
+
+    @staticmethod
+    def _collect_schema_refs(value: Any, refs: set[str]) -> None:
+        if isinstance(value, dict):
+            ref = value.get("$ref")
+            if isinstance(ref, str) and ref.startswith(MarivoRuntime._SCHEMA_REF_PREFIX):
+                refs.add(ref.removeprefix(MarivoRuntime._SCHEMA_REF_PREFIX))
+            for nested in value.values():
+                MarivoRuntime._collect_schema_refs(nested, refs)
+            return
+        if isinstance(value, list):
+            for nested in value:
+                MarivoRuntime._collect_schema_refs(nested, refs)
+
+    @staticmethod
+    def _expand_schema_refs(
+        component_schemas: dict[str, Any],
+        root_refs: Any,
+        depth: int,
+    ) -> dict[str, Any]:
+        expanded: dict[str, Any] = {}
+        frontier = set(root_refs)
+        for _ in range(depth):
+            if not frontier:
+                break
+            next_frontier: set[str] = set()
+            for schema_name in sorted(frontier):
+                if schema_name in expanded:
+                    continue
+                schema = component_schemas.get(schema_name)
+                if not isinstance(schema, dict):
+                    msg = f"OpenAPI schema references missing component schema {schema_name!r}."
+                    raise NotFoundError(ErrorCode.NOT_FOUND, msg)
+                expanded[schema_name] = schema
+                discovered_refs: set[str] = set()
+                MarivoRuntime._collect_schema_refs(schema, discovered_refs)
+                next_frontier.update(discovered_refs)
+            frontier = next_frontier.difference(expanded)
+        return {name: expanded[name] for name in sorted(expanded)}
+
+    def list_openapi_paths(self) -> dict[str, Any]:
+        spec = self._get_openapi_spec()
+        paths = spec.get("paths", {})
+        component_schemas = self._get_component_schemas(spec)
+
+        path_entries: list[dict[str, Any]] = []
+        for path in sorted(paths):
+            path_item = paths[path]
+            if not isinstance(path_item, dict):
+                continue
+            operations: list[dict[str, Any]] = []
+            for method in self._HTTP_METHODS:
+                operation = path_item.get(method)
+                if not isinstance(operation, dict):
+                    continue
+                tags = operation.get("tags")
+                operations.append(
+                    {
+                        "method": method,
+                        "operation_id": operation.get("operationId"),
+                        "summary": operation.get("summary"),
+                        "tags": tags if isinstance(tags, list) else [],
+                    }
+                )
+            path_entries.append(
+                {
+                    "path": path,
+                    "operations": operations,
+                }
+            )
+
+        return {
+            "openapi": spec.get("openapi"),
+            "info": spec.get("info"),
+            "paths": path_entries,
+            "schemas": sorted(component_schemas),
+        }
+
+    def get_openapi_schema(self, schema_name: str, depth: int = 1) -> dict[str, Any]:
+        spec = self._get_openapi_spec()
+        component_schemas = self._get_component_schemas(spec)
+        component_schema = component_schemas.get(schema_name)
+        if not isinstance(component_schema, dict):
+            msg = f"OpenAPI schema {schema_name!r} not found."
+            raise NotFoundError(ErrorCode.NOT_FOUND, msg)
+
+        schema_refs: set[str] = set()
+        self._collect_schema_refs(component_schema, schema_refs)
+        schema_refs.discard(schema_name)
+        return {
+            "schema_name": schema_name,
+            "depth": depth,
+            "schema": component_schema,
+            "schemas": self._expand_schema_refs(component_schemas, schema_refs, depth),
+        }
+
+    def get_openapi_fragment(
+        self,
+        path: str,
+        operation: str | None = None,
+        expand: list[str] | None = None,
+        depth: int = 1,
+    ) -> dict[str, Any]:
+        spec = self._get_openapi_spec()
+        expand_values: set[str] = set()
+        if expand:
+            for item in expand:
+                for token in item.split(","):
+                    normalized = token.strip()
+                    if normalized:
+                        expand_values.add(normalized)
+        invalid = sorted(expand_values - self._ALLOWED_EXPANDS)
+        if invalid:
+            allowed = ", ".join(sorted(self._ALLOWED_EXPANDS))
+            rejected = ", ".join(invalid)
+            msg = f"Invalid expand values: {rejected}. Allowed values: {allowed}."
+            raise ValidationError(ErrorCode.VALIDATION, msg)
+
+        paths = spec.get("paths", {})
+        path_item = paths.get(path)
+        if not isinstance(path_item, dict):
+            msg = f"OpenAPI path {path!r} not found."
+            raise NotFoundError(ErrorCode.NOT_FOUND, msg)
+
+        fragment: dict[str, Any]
+        schema_source: Any
+        if operation is None:
+            if "request" in expand_values or "response" in expand_values:
+                msg = "'operation' is required when expand includes 'request' or 'response'."
+                raise ValidationError(ErrorCode.VALIDATION, msg)
+            fragment = {"path_item": path_item}
+            schema_source = path_item
+        else:
+            operation_fragment = path_item.get(operation)
+            if not isinstance(operation_fragment, dict):
+                msg = f"OpenAPI operation {operation!r} not found for path."
+                raise NotFoundError(ErrorCode.NOT_FOUND, msg)
+            fragment = {"operation": operation_fragment}
+            if "request" in expand_values and "requestBody" in operation_fragment:
+                fragment["request_body"] = operation_fragment["requestBody"]
+            if "response" in expand_values and "responses" in operation_fragment:
+                fragment["responses"] = operation_fragment["responses"]
+            schema_source = fragment
+
+        if "schemas" in expand_values:
+            schema_refs: set[str] = set()
+            self._collect_schema_refs(schema_source, schema_refs)
+            fragment["schemas"] = self._expand_schema_refs(
+                self._get_component_schemas(spec), schema_refs, depth
+            )
+
+        return {
+            "path": path,
+            "operation": operation,
+            "expand": sorted(expand_values),
+            "depth": depth,
+            "fragment": fragment,
+        }
+
+    def get_openapi_path_fragment(
+        self,
+        path: str,
+        expand: list[str] | None = None,
+        depth: int = 1,
+    ) -> dict[str, Any]:
+        spec = self._get_openapi_spec()
+        expand_values: set[str] = set()
+        if expand:
+            for item in expand:
+                for token in item.split(","):
+                    normalized = token.strip()
+                    if normalized:
+                        expand_values.add(normalized)
+        invalid = sorted(expand_values - self._ALLOWED_EXPANDS)
+        if invalid:
+            allowed = ", ".join(sorted(self._ALLOWED_EXPANDS))
+            rejected = ", ".join(invalid)
+            msg = f"Invalid expand values: {rejected}. Allowed values: {allowed}."
+            raise ValidationError(ErrorCode.VALIDATION, msg)
+
+        paths = spec.get("paths", {})
+        path_item = paths.get(path)
+        if not isinstance(path_item, dict):
+            msg = f"OpenAPI path {path!r} not found."
+            raise NotFoundError(ErrorCode.NOT_FOUND, msg)
+
+        result: dict[str, Any] = {
+            "path": path,
+            "expand": sorted(expand_values),
+            "depth": depth,
+            "path_item": path_item,
+        }
+        if "schemas" in expand_values:
+            schema_refs: set[str] = set()
+            self._collect_schema_refs(path_item, schema_refs)
+            result["schemas"] = self._expand_schema_refs(
+                self._get_component_schemas(spec), schema_refs, depth
+            )
+        return result
