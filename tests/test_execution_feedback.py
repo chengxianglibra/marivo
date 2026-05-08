@@ -286,13 +286,13 @@ class ExecutionFeedbackIntegrationTests(unittest.TestCase):
         cls.temp_dir.cleanup()
 
     def test_make_provenance_includes_routing_feedback_context(self) -> None:
-        app = cast("Any", self.client.app)
-        service = app.state.services.service
-        service._routing_feedback_context = {
+        from app.runtime.semantic_ops import _make_provenance
+
+        routing_feedback = {
             "code": "routing_no_common_engine",
             "category": "routing",
         }
-        provenance = service._make_provenance("SELECT 1")
+        provenance = _make_provenance("SELECT 1", routing=routing_feedback)
         self.assertIn("routing", provenance)
         self.assertEqual(provenance["routing"]["code"], "routing_no_common_engine")
 

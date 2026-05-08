@@ -185,9 +185,7 @@ class _LazyBundle:
             cache = {}
             objtype._bundle_cache = cache
         if self._cache_key not in cache:
-            session_id = obj.service.create_session(f"attr {self.name} cache", {}, {}, {})[
-                "session_id"
-            ]
+            session_id = obj.service.create_session(f"attr {self.name} cache").session_id
             cache[self._session_key] = session_id
             cache[self._cache_key] = obj._run_attribute(
                 session_id,
@@ -250,7 +248,7 @@ class AttributeRunnerServiceTests(unittest.TestCase):
         cls.temp_dir.cleanup()
 
     def _make_session(self) -> str:
-        return self.service.create_session("attr test", {}, {}, {})["session_id"]
+        return self.service.create_session("attr test").session_id
 
     @classmethod
     def _run_attribute(
@@ -1288,7 +1286,7 @@ class AttributeEndpointTests(unittest.TestCase):
             return {"result_type": "attribute_bundle"}
 
         with patch.object(
-            self.client.app.state.services.service, "run_intent", side_effect=_capture_run_intent
+            self.client.app.state.services.runtime, "attribute", side_effect=_capture_run_intent
         ):
             resp = self.client.post(
                 f"/sessions/{self.session_id}/intents/attribute",
@@ -1385,8 +1383,8 @@ class AttributeEndpointTests(unittest.TestCase):
             )
 
         with patch.object(
-            self.client.app.state.services.service,
-            "run_intent",
+            self.client.app.state.services.runtime,
+            "attribute",
             side_effect=_raise_additivity_violation,
         ):
             resp = self.client.post(

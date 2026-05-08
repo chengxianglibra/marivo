@@ -21,7 +21,6 @@ from app.api.router import include_api_routers
 from app.config import MarivoConfig, load_config, resolve_config_path, resolve_metadata_path
 from app.observability import TimingMiddleware
 from app.profiles.server import _resolve_storage as _resolve_storage_for_server
-from app.service import SemanticLayerService
 from app.storage.analytics import AnalyticsEngine
 from app.storage.metadata import MetadataStore
 from app.storage.sqlite_metadata import SQLiteMetadataStore
@@ -49,10 +48,6 @@ def _resolve_storage(
         metadata_config = config.metadata
 
         if config_path_explicit and db_path is not None:
-            # When an explicit config path is provided alongside a db_path,
-            # the original code skips the db_path carveout and requires
-            # metadata to be defined in config. Pre-create the store so the
-            # lifted helper won't fall into the carveout.
             if metadata_config is None:
                 raise RuntimeError(
                     "Marivo config must define metadata.engine=sqlite|mysql when "
@@ -65,25 +60,14 @@ def _resolve_storage(
                     )
                 resolved_metadata_path = resolve_metadata_path(config_path, metadata_config.path)
                 metadata_store = SQLiteMetadataStore(resolved_metadata_path)
-            # mysql and other engines are handled by the lifted helper.
         elif not config_path_explicit and db_path is not None and str(db_path) == ":memory:":
-            # The original code's carveout condition
-            #   db_path is not None and not config_path_explicit
-            # also matched ":memory:" db_path, creating a sidecar
-            # .meta.sqlite. The lifted helper excludes :memory: from its
-            # carveout, so pre-create the store here.
             metadata_store = SQLiteMetadataStore(Path(":memory:").with_suffix(".meta.sqlite"))
         elif (
             metadata_config is not None
             and metadata_config.engine == "sqlite"
             and metadata_config.path is not None
         ):
-            # config_path_explicit=False with sqlite config: pre-resolve
-            # workspace-relative path so the lifted helper's sqlite branch
-            # (which uses metadata_config.path directly) gets the right path.
             resolved_metadata_path = resolve_metadata_path(config_path, metadata_config.path)
-            # Only pre-create when the lifted helper would NOT use the
-            # db_path carveout (i.e., no real db_path).
             if db_path is None or str(db_path) == ":memory:":
                 metadata_store = SQLiteMetadataStore(resolved_metadata_path)
 
@@ -92,7 +76,7 @@ def _resolve_storage(
 
 def _build_services(
     *,
-    resolved_path: Path | str,  # Analytics path; str ":memory:" means in-memory DuckDB.
+    resolved_path: Path | str,
     metadata_store: MetadataStore,
     analytics_engine: AnalyticsEngine,
     config: MarivoConfig,
@@ -100,10 +84,6 @@ def _build_services(
     from app.profiles.resolver import resolve_profile
     from app.profiles.server import ServerConfig, create_server_runtime
 
-    # Defense-in-depth guard: enterprise HTTP entry must resolve to "server"
-    # profile. Misconfiguration (MARIVO_PROFILE=local, profile: local in
-    # marivo.yaml) fails fast here with a typed VALIDATION error instead of
-    # silently constructing an enterprise runtime against local-only stubs.
     resolve_profile(entry_point="server_http", service_config=config)
 
     composition = create_server_runtime(
@@ -114,27 +94,11 @@ def _build_services(
             analytics_engine=analytics_engine,
         )
     )
-    # Backward-compat shim: SemanticLayerService is still referenced by
-    # sessions.py and health.py via AppServices.service.  Construct it from
-    # the same components so the legacy path works until 6.1 drops the field.
-    service = SemanticLayerService(
-        composition.metadata_store,
-        composition.analytics_engine,
-        query_router=composition.query_router,
-        config=config,
-        metrics=composition.metrics,
-    )
-    # Wire the runtime back onto the service so legacy intent runners that
-    # traverse service._runtime continue to work.
-    service._runtime = composition.runtime
-    composition.runtime.wire_datasource_svc(composition.datasource_service)
-    composition.runtime.wire_semantic_v2_svc(composition.semantic_v2_service)
 
     return AppServices(
         resolved_path=composition.resolved_analytics_path,
         config=config,
         runtime=composition.runtime,
-        service=service,
         datasource_service=composition.datasource_service,
         query_router=composition.query_router,
         metadata_store=composition.metadata_store,
@@ -148,7 +112,6 @@ def _attach_state(app: FastAPI, services: AppServices) -> None:
     app.state.services = services
     app.state.config = services.config
     app.state.runtime = services.runtime
-    app.state.service = services.service
     app.state.datasource_service = services.datasource_service
     app.state.query_router = services.query_router
     app.state.metadata_store = services.metadata_store

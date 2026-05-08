@@ -5,7 +5,7 @@ Coverage:
 - ``GET /sessions/{id}/propositions/{pid}/runtime-status``   — proposition-level runtime status
 - ``materialize_proposition_context_view``                   — invariant checks with published
                                                                and unassessed propositions
-- ``SessionManager.get_proposition_runtime_status``          — unit tests for stage derivation
+- ``SqlSessionStoreAdapter.get_proposition_runtime_status``  — unit tests for stage derivation
 """
 
 from __future__ import annotations
@@ -673,14 +673,14 @@ class TestPropositionRuntimeStatus(unittest.TestCase):
 
     @property
     def _manager(self):
-        """Access the SessionManager through the runtime's test service for unit tests."""
-        return self.runtime._test_svc.session_manager
+        from app.adapters.server.wrappers import SqlSessionStoreAdapter
+
+        return SqlSessionStoreAdapter(self.store)
 
     def _get_status(self, proposition_id: str) -> dict[str, Any]:
         return self._manager.get_proposition_runtime_status(
             self.session_id,
             proposition_id,
-            proposal_repo=self.repos["proposal_repo"],
         )
 
     def _run_pipeline(self) -> tuple[str, str]:
@@ -712,7 +712,6 @@ class TestPropositionRuntimeStatus(unittest.TestCase):
             self._manager.get_proposition_runtime_status(
                 self.session_id,  # wrong session
                 other_prop,
-                proposal_repo=self.repos["proposal_repo"],
             )
 
     # -- Stage derivation (unassessed) ----------------------------------------

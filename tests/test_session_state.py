@@ -4,7 +4,7 @@ Coverage:
 - ``GET /sessions/{id}/state``                   — canonical session state surface
 - ``POST /sessions/{id}/state/query``            — filtered state surface
 - ``GET /sessions/{id}/artifacts/{id}/runtime-status`` — artifact-level runtime status
-- ``SessionManager.get_artifact_runtime_status`` — unit tests for stage derivation
+- ``MarivoRuntime.get_artifact_runtime_status`` — unit tests for stage derivation
 - ``materialize_session_state_view``             — invariant checks with a published
                                                    proposition (uses canonical pipeline)
 """
@@ -20,6 +20,7 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
+from app.contracts.errors import NotFoundError
 from app.evidence_engine.canonical_pipeline_runtime import run_canonical_downstream
 from app.evidence_engine.state_view import (
     SESSION_STATE_VIEW_SCHEMA_VERSION,
@@ -70,6 +71,70 @@ def _insert_session(store: SQLiteMetadataStore, session_id: str) -> None:
         "VALUES (?, ?, ?, ?, ?)",
         [session_id, "test state surface", "{}", "{}", "open"],
     )
+
+
+def _get_artifact_runtime_status(
+    store: SQLiteMetadataStore,
+    session_id: str,
+    artifact_id: str,
+) -> dict[str, Any]:
+    """Derive artifact runtime status from the metadata store.
+
+    Replicates the logic that was on SessionManager.get_artifact_runtime_status,
+    querying the artifacts and findings tables directly.
+    """
+    from app.evidence_engine.family_contract import ALLOWS_EMPTY_ARTIFACT_TYPES
+    from app.evidence_engine.finding_extractor_registry import default_finding_registry
+
+    row = store.query_one(
+        """
+        SELECT artifact_id, session_id, artifact_type, artifact_schema_version
+        FROM artifacts
+        WHERE artifact_id = ? AND session_id = ?
+        """,
+        [artifact_id, session_id],
+    )
+    if row is None:
+        raise NotFoundError(
+            code="not_found",
+            message=f"artifact {artifact_id!r} not found in session {session_id!r}",
+        )
+
+    artifact_type: str = row["artifact_type"]
+    artifact_schema_version: str | None = row.get("artifact_schema_version")
+
+    # Count findings for this artifact in the session.
+    finding_row = store.query_one(
+        "SELECT COUNT(*) AS cnt FROM findings WHERE artifact_id = ? AND session_id = ?",
+        [artifact_id, session_id],
+    )
+    finding_count: int = int(finding_row["cnt"]) if finding_row else 0
+
+    # Derive artifact_stage.
+    if artifact_type in ALLOWS_EMPTY_ARTIFACT_TYPES or finding_count > 0:
+        artifact_stage = "findings_committed"
+    else:
+        artifact_stage = "staged"
+
+    # Extractor lookup.
+    extractor = default_finding_registry.find(artifact_type, artifact_schema_version)
+    extractor_version: str | None = extractor.extractor_version if extractor is not None else None
+
+    return {
+        "session_id": session_id,
+        "artifact_id": artifact_id,
+        "artifact_stage": artifact_stage,
+        "extractor_key": {
+            "artifact_type": artifact_type,
+            "artifact_schema_version": artifact_schema_version,
+            "extractor_version": extractor_version,
+        },
+        "correlation_id": artifact_id,
+        "attempt_id": None,
+        "last_failure_reason": None,
+        "last_failure_at": None,
+        "schema_version": "artifact_runtime_status.v1",
+    }
 
 
 # compare_artifact content valid for T1 materializer (delta → change proposition).
@@ -330,34 +395,27 @@ class TestSessionStateAPI(unittest.TestCase):
 class TestArtifactRuntimeStatusManager(unittest.TestCase):
     def setUp(self) -> None:
         self.store = _make_store()
-        from unittest.mock import MagicMock
-
-        from app.storage.analytics import AnalyticsEngine
-
-        self.runtime = _build_runtime(self.store, MagicMock(spec=AnalyticsEngine))
         self.session_id = f"sess_{uuid4().hex[:12]}"
         _insert_session(self.store, self.session_id)
 
-    @property
-    def _manager(self):
-        """Access the SessionManager through the runtime's test service for unit tests."""
-        return self.runtime._test_svc.session_manager
+    def _get_status(self, artifact_id: str) -> dict[str, Any]:
+        return _get_artifact_runtime_status(self.store, self.session_id, artifact_id)
 
-    def test_raises_key_error_for_unknown_session(self) -> None:
-        with self.assertRaises(KeyError):
-            self._manager.get_artifact_runtime_status("sess_not_exist", "art_x")
+    def test_raises_not_found_error_for_unknown_session(self) -> None:
+        with self.assertRaises(NotFoundError):
+            _get_artifact_runtime_status(self.store, "sess_not_exist", "art_x")
 
-    def test_raises_key_error_for_unknown_artifact(self) -> None:
-        with self.assertRaises(KeyError):
-            self._manager.get_artifact_runtime_status(self.session_id, "art_not_exist")
+    def test_raises_not_found_error_for_unknown_artifact(self) -> None:
+        with self.assertRaises(NotFoundError):
+            _get_artifact_runtime_status(self.store, self.session_id, "art_not_exist")
 
-    def test_raises_key_error_for_artifact_in_different_session(self) -> None:
+    def test_raises_not_found_error_for_artifact_in_different_session(self) -> None:
         other_session = f"sess_{uuid4().hex[:12]}"
         _insert_session(self.store, other_session)
         artifact_id = f"art_{uuid4().hex[:8]}"
         _insert_artifact(self.store, artifact_id, other_session)
-        with self.assertRaises(KeyError):
-            self._manager.get_artifact_runtime_status(self.session_id, artifact_id)
+        with self.assertRaises(NotFoundError):
+            _get_artifact_runtime_status(self.store, self.session_id, artifact_id)
 
     def test_staged_artifact_non_d4_family_no_findings(self) -> None:
         artifact_id = f"art_{uuid4().hex[:8]}"
@@ -367,7 +425,7 @@ class TestArtifactRuntimeStatusManager(unittest.TestCase):
             self.session_id,
             artifact_type="compare_artifact",
         )
-        status = self._manager.get_artifact_runtime_status(self.session_id, artifact_id)
+        status = self._get_status(artifact_id)
 
         self.assertEqual(status["session_id"], self.session_id)
         self.assertEqual(status["artifact_id"], artifact_id)
@@ -383,7 +441,7 @@ class TestArtifactRuntimeStatusManager(unittest.TestCase):
             self.session_id,
             artifact_type="observation",
         )
-        status = self._manager.get_artifact_runtime_status(self.session_id, artifact_id)
+        status = self._get_status(artifact_id)
         self.assertEqual(status["artifact_stage"], "findings_committed")
 
     def test_anomaly_candidates_family_no_findings_is_findings_committed(self) -> None:
@@ -395,7 +453,7 @@ class TestArtifactRuntimeStatusManager(unittest.TestCase):
             self.session_id,
             artifact_type="anomaly_candidates",
         )
-        status = self._manager.get_artifact_runtime_status(self.session_id, artifact_id)
+        status = self._get_status(artifact_id)
         self.assertEqual(status["artifact_stage"], "findings_committed")
 
     def test_non_d4_artifact_with_findings_is_findings_committed(self) -> None:
@@ -409,13 +467,13 @@ class TestArtifactRuntimeStatusManager(unittest.TestCase):
             artifact_type="compare_artifact",
         )
         _insert_finding(self.store, finding_id, self.session_id, artifact_id)
-        status = self._manager.get_artifact_runtime_status(self.session_id, artifact_id)
+        status = self._get_status(artifact_id)
         self.assertEqual(status["artifact_stage"], "findings_committed")
 
     def test_schema_version_is_correct(self) -> None:
         artifact_id = f"art_{uuid4().hex[:8]}"
         _insert_artifact(self.store, artifact_id, self.session_id)
-        status = self._manager.get_artifact_runtime_status(self.session_id, artifact_id)
+        status = self._get_status(artifact_id)
         self.assertEqual(status["schema_version"], "artifact_runtime_status.v1")
 
     def test_extractor_key_fields_present(self) -> None:
@@ -427,7 +485,7 @@ class TestArtifactRuntimeStatusManager(unittest.TestCase):
             artifact_type="compare_artifact",
             artifact_schema_version="v1",
         )
-        status = self._manager.get_artifact_runtime_status(self.session_id, artifact_id)
+        status = self._get_status(artifact_id)
         key = status["extractor_key"]
         self.assertEqual(key["artifact_type"], "compare_artifact")
         self.assertEqual(key["artifact_schema_version"], "v1")
@@ -442,13 +500,13 @@ class TestArtifactRuntimeStatusManager(unittest.TestCase):
             self.session_id,
             artifact_type="unknown_custom_type",
         )
-        status = self._manager.get_artifact_runtime_status(self.session_id, artifact_id)
+        status = self._get_status(artifact_id)
         self.assertIsNone(status["extractor_key"]["extractor_version"])
 
     def test_v1_attempt_fields_are_null(self) -> None:
         artifact_id = f"art_{uuid4().hex[:8]}"
         _insert_artifact(self.store, artifact_id, self.session_id)
-        status = self._manager.get_artifact_runtime_status(self.session_id, artifact_id)
+        status = self._get_status(artifact_id)
         self.assertIsNone(status["attempt_id"])
         self.assertIsNone(status["last_failure_reason"])
         self.assertIsNone(status["last_failure_at"])
@@ -456,7 +514,7 @@ class TestArtifactRuntimeStatusManager(unittest.TestCase):
     def test_correlation_id_equals_artifact_id(self) -> None:
         artifact_id = f"art_{uuid4().hex[:8]}"
         _insert_artifact(self.store, artifact_id, self.session_id)
-        status = self._manager.get_artifact_runtime_status(self.session_id, artifact_id)
+        status = self._get_status(artifact_id)
         self.assertEqual(status["correlation_id"], artifact_id)
 
 

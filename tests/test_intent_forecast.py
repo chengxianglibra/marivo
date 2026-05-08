@@ -36,6 +36,7 @@ from datetime import date as _date
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
@@ -83,7 +84,7 @@ def _make_synthetic_series(n: int = 14, start: str = _SERIES_START) -> list[dict
 
 
 def _inject_observe_artifact(
-    service: Any,
+    runtime: Any,
     session_id: str,
     *,
     series: list[dict] | None = None,
@@ -94,7 +95,7 @@ def _inject_observe_artifact(
     """Insert a synthetic observe step + artifact; return (step_id, artifact_id)."""
     if series is None:
         series = _make_synthetic_series()
-    step_id = service._new_step_id()
+    step_id = f"step_{uuid4().hex[:12]}"
     artifact_content: dict = {
         "schema_version": "1.0",
         "observation_type": observation_type,
@@ -107,10 +108,10 @@ def _inject_observe_artifact(
             "data_complete": None,
         },
     }
-    artifact_id = service._insert_artifact(
+    artifact_id = runtime.insert_artifact(
         session_id, step_id, "time_series", f"{metric}_observe_time_series", artifact_content
     )
-    service._insert_step(
+    runtime.insert_step(
         step_id, session_id, "observe", f"observe {metric}", {"artifact_id": artifact_id}
     )
     return step_id, artifact_id
@@ -140,8 +141,8 @@ class ForecastRunnerServiceTests(unittest.TestCase):
         cls.temp_dir.cleanup()
 
     def _make_session(self) -> str:
-        r = self.service.create_session("forecast test session", {}, {}, {})
-        return r["session_id"]
+        r = self.service.create_session("forecast test session")
+        return r.session_id
 
     def _run_forecast(
         self,
@@ -167,7 +168,7 @@ class ForecastRunnerServiceTests(unittest.TestCase):
         }
         if interval_level is not None:
             body["interval_level"] = interval_level
-        return self.service.run_intent(session_id, "forecast", body)
+        return self.service.forecast(session_id, body)
 
     # ── Success paths ──────────────────────────────────────────────────────────
 
@@ -272,7 +273,7 @@ class ForecastRunnerServiceTests(unittest.TestCase):
         result = self._run_forecast(sid, step_id, artifact_id)
 
         forecast_step_id = result["step_ref"]["step_id"]
-        resolved = self.service._resolve_artifact_with_id(sid, forecast_step_id)
+        resolved = self.service.resolve_artifact_with_id(sid, forecast_step_id)
         self.assertIsNotNone(resolved)
         resolved_aid, content = resolved
         self.assertEqual(resolved_aid, result["artifact_id"])
@@ -351,9 +352,8 @@ class ForecastRunnerServiceTests(unittest.TestCase):
         sid = self._make_session()
         step_id, artifact_id = _inject_observe_artifact(self.service, sid)
         with self.assertRaises(ValueError) as ctx:
-            self.service.run_intent(
+            self.service.forecast(
                 sid,
-                "forecast",
                 {
                     "source_ref": {
                         "step_type": "observe",
@@ -373,9 +373,8 @@ class ForecastRunnerServiceTests(unittest.TestCase):
         sid = self._make_session()
         step_id, artifact_id = _inject_observe_artifact(self.service, sid)
         with self.assertRaises(ValueError) as ctx:
-            self.service.run_intent(
+            self.service.forecast(
                 sid,
-                "forecast",
                 {
                     "source_ref": {
                         "step_type": "compare",
@@ -414,9 +413,8 @@ class ForecastRunnerServiceTests(unittest.TestCase):
         sid = self._make_session()
         step_id, artifact_id = _inject_observe_artifact(self.service, sid)
         with self.assertRaises(ValueError) as ctx:
-            self.service.run_intent(
+            self.service.forecast(
                 sid,
-                "forecast",
                 {
                     "source_ref": {
                         "step_type": "observe",
@@ -445,9 +443,8 @@ class ForecastRunnerServiceTests(unittest.TestCase):
         sid = self._make_session()
         step_id, _ = _inject_observe_artifact(self.service, sid)
         with self.assertRaises(ValueError) as ctx:
-            self.service.run_intent(
+            self.service.forecast(
                 sid,
-                "forecast",
                 {
                     "source_ref": {
                         "step_type": "observe",
@@ -467,9 +464,8 @@ class ForecastRunnerServiceTests(unittest.TestCase):
         """Nonexistent step_id raises ValueError with STEP_NOT_FOUND."""
         sid = self._make_session()
         with self.assertRaises(ValueError) as ctx:
-            self.service.run_intent(
+            self.service.forecast(
                 sid,
-                "forecast",
                 {
                     "source_ref": {
                         "step_type": "observe",
@@ -519,7 +515,7 @@ class ForecastIntentEndpointTests(unittest.TestCase):
         assert r.status_code == 200, r.text
         cls.session_id = r.json()["session_id"]
         cls.obs_step_id, cls.obs_artifact_id = _inject_observe_artifact(
-            cls.client.app.state.services.service,
+            cls.client.app.state.services.runtime,
             cls.session_id,
             metric="http_forecast_dau",
         )

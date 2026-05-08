@@ -73,9 +73,8 @@ def _make_sql_model_store_adapter() -> SqlModelStoreAdapter:
 
 
 def _make_sql_session_store_adapter() -> SqlSessionStoreAdapter:
-    session_manager = MagicMock()
     metadata = MagicMock(spec=["query_one", "query_rows", "execute"])
-    return SqlSessionStoreAdapter(session_manager=session_manager, metadata=metadata)
+    return SqlSessionStoreAdapter(metadata=metadata)
 
 
 def _make_data_source_adapter() -> DataSourceAdapter:

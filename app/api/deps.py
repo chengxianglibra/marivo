@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import cast
 
 from fastapi import HTTPException, Request
 
@@ -14,9 +14,6 @@ from app.runtime.runtime import MarivoRuntime
 from app.semantic_service_v2.service import SemanticModelV2Service
 from app.storage.analytics import AnalyticsEngine
 from app.storage.metadata import MetadataStore
-
-if TYPE_CHECKING:
-    from app.service import SemanticLayerService
 
 
 @dataclass(slots=True)
@@ -30,8 +27,6 @@ class AppServices:
     analytics_engine: AnalyticsEngine
     metrics: MetricsCollector | None
     semantic_v2_service: SemanticModelV2Service
-    # Retained for test/admin access to service internals; not used by API routes.
-    service: SemanticLayerService | None = field(default=None, repr=False)
 
 
 def get_services(request: Request) -> AppServices:

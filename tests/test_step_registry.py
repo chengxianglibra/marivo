@@ -14,6 +14,7 @@ from app.analysis_core import (
     SUPPORTED_INTENT_TYPES,
     SUPPORTED_STEP_TYPES,
 )
+from app.analysis_core.step_runners import build_service_step_registry
 from app.main import create_app
 from tests.shared_fixtures import get_seeded_duckdb_path
 
@@ -32,8 +33,9 @@ class StepRegistryWiringTests(unittest.TestCase):
         cls.temp_dir.cleanup()
 
     def test_service_exposes_supported_step_types(self) -> None:
-        service = self.client.app.state.services.service
-        supported = service.step_registry.supported_step_types()
+        runtime = self.client.app.state.services.runtime
+        registry = build_service_step_registry(runtime)
+        supported = registry.supported_step_types()
 
         self.assertEqual(set(supported), set(SUPPORTED_STEP_TYPES))
         self.assertIn("metric_query", supported)
@@ -53,14 +55,14 @@ class StepRegistryWiringTests(unittest.TestCase):
         self.assertEqual(len(SUPPORTED_INTENT_TYPES), 10)
 
     def test_run_step_rejects_unknown_step_type(self) -> None:
-        service = self.client.app.state.services.service
+        runtime = self.client.app.state.services.runtime
+        registry = build_service_step_registry(runtime)
         session_id = self.client.post("/sessions", json={"goal": "Unknown step guard"}).json()[
             "session_id"
         ]
 
-        with self.assertRaises(ValueError) as ctx:
-            service.run_step(session_id, "not_a_real_step")
-        self.assertIn("Unsupported step type", str(ctx.exception))
+        with self.assertRaises(KeyError):
+            registry.run(session_id, "not_a_real_step")
 
 
 if __name__ == "__main__":

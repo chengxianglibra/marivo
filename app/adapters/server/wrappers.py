@@ -250,24 +250,74 @@ class SqlModelStoreAdapter:
         )
 
 
-class SqlSessionStoreAdapter:
-    """Wraps ``MetadataStore`` + ``SessionManager`` -> ``SessionStore``.
+def _decode_page_token(page_token: str | None) -> int:
+    if page_token is None:
+        return 0
+    try:
+        offset = int(page_token)
+    except ValueError as error:
+        raise ValueError("Invalid page_token. Expected a non-negative integer offset.") from error
+    if offset < 0:
+        raise ValueError("Invalid page_token. Expected a non-negative integer offset.")
+    return offset
 
-    Bridges the CRUD-based ``SessionManager`` to the event-sourced
-    ``SessionStore`` port interface:
+
+def _normalize_limit(limit: int | None) -> int:
+    if limit is None:
+        return 25
+    if limit <= 0:
+        raise ValueError("Invalid limit. Expected a positive integer.")
+    return min(limit, 100)
+
+
+def _session_from_row(row: dict[str, Any]) -> dict[str, Any]:
+    session_id: str = row["session_id"]
+    return {
+        "session_id": session_id,
+        "goal": {"question": row["goal"]},
+        "scope": {
+            "constraints": json.loads(row["constraints_json"])
+            if row.get("constraints_json")
+            else None,
+        },
+        "owner_user": row.get("owner_user"),
+        "lifecycle": {
+            "status": row["status"],
+            "terminal_reason": row.get("terminal_reason"),
+            "ended_at": row.get("ended_at"),
+            "rollover_from_session_id": row.get("rollover_from_session_id"),
+        },
+        "state_summary": {
+            "state_view_ref": {
+                "session_id": session_id,
+                "view_type": "session_state_view",
+            },
+        },
+        "created_at": row["created_at"],
+        "updated_at": row.get("updated_at") or row["created_at"],
+        "schema_version": "analysis_session.v1",
+    }
+
+
+class SqlSessionStoreAdapter:
+    """Wraps ``MetadataStore`` -> ``SessionStore``.
+
+    Implements the ``SessionStore`` port interface using direct
+    ``MetadataStore`` SQL queries (absorbs former SessionManager logic):
 
     * ``append_event`` translates session_created / session_terminated
       events into CRUD INSERT/UPDATE calls.
     * ``load_events`` synthesizes events from the sessions table row.
     * ``list_sessions`` queries sessions filtered by owner.
+    * ``list_sessions_paginated`` returns filtered, paginated sessions.
+    * ``get_proposition_runtime_status`` derives proposition stage from
+      committed canonical DB state.
     """
 
     def __init__(
         self,
-        session_manager: Any,  # SessionManager (late-bound)
         metadata: MetadataStore,
     ) -> None:
-        self._session_manager = session_manager
         self._metadata = metadata
 
     def append_event(self, session_id: SessionId, event: SessionEvent) -> None:
@@ -425,20 +475,96 @@ class SqlSessionStoreAdapter:
     ) -> dict[str, Any]:
         """Return proposition-level operator runtime status.
 
-        Delegates to SessionManager which queries propositions table directly.
+        Derives stage from committed canonical DB state.  v1 does not maintain
+        a real queue / claim / lease / retry system.
         """
-        result: dict[str, Any] = self._session_manager.get_proposition_runtime_status(
-            session_id, proposition_id
+        from app.storage.evidence_repositories import ActionProposalRepository, AssessmentRepository
+
+        row = self._metadata.query_one(
+            """
+            SELECT proposition_id, session_id, externally_visible_assessment_id
+            FROM propositions
+            WHERE proposition_id = ? AND session_id = ?
+            """,
+            [proposition_id, session_id],
         )
-        return result
+        if row is None:
+            raise KeyError(f"proposition {proposition_id!r} not found in session {session_id!r}")
+
+        ev_assessment_id: str | None = row.get("externally_visible_assessment_id")
+
+        assessment_repo = AssessmentRepository(self._metadata)
+        latest = assessment_repo.get_latest(proposition_id)
+
+        proposals: list[dict[str, Any]] = []
+        if latest is not None:
+            proposal_repo = ActionProposalRepository(self._metadata)
+            proposals = proposal_repo.list_by_assessment(session_id, latest["assessment_id"])
+
+        if ev_assessment_id:
+            current_stage = "externally_visible"
+            last_successful_stage: str | None = "publish"
+        elif latest is not None and proposals:
+            current_stage = "publish_ready"
+            last_successful_stage = "proposal_refresh"
+        elif latest is not None:
+            current_stage = "assessment_committed"
+            last_successful_stage = "assessment_committed"
+        else:
+            current_stage = "queued"
+            last_successful_stage = None
+
+        return {
+            "session_id": session_id,
+            "proposition_id": proposition_id,
+            "current_stage": current_stage,
+            "last_successful_stage": last_successful_stage,
+            "current_assessment_id": latest["assessment_id"] if latest is not None else None,
+            "current_attempt": None,
+            "backlog_state": "none",
+            "last_failure_reason": "none",
+            "last_failure_at": None,
+            "schema_version": "proposition_runtime_status.v1",
+        }
 
     def list_sessions_paginated(self, **kwargs: Any) -> dict[str, Any]:
         """Return a paginated list of sessions (server-mode only).
 
-        Delegates to SessionManager.list_sessions for paginated, filtered listing.
+        Supports filtering by status, session_id prefix, and owner_user.
         """
-        result: dict[str, Any] = self._session_manager.list_sessions(**kwargs)
-        return result
+        from app.identity import resolve_user
+
+        status = kwargs.get("status")
+        session_id = kwargs.get("session_id")
+        limit = kwargs.get("limit")
+        page_token = kwargs.get("page_token")
+
+        offset = _decode_page_token(page_token)
+        normalized_limit = _normalize_limit(limit)
+
+        sql = "SELECT * FROM sessions"
+        clauses: list[str] = []
+        params: list[Any] = []
+        if status:
+            clauses.append("status = ?")
+            params.append(status)
+        if session_id:
+            clauses.append("session_id LIKE ?")
+            params.append(f"{session_id}%")
+        current_user = resolve_user()
+        if current_user is not None:
+            clauses.append("owner_user = ?")
+            params.append(current_user)
+        if clauses:
+            sql += " WHERE " + " AND ".join(clauses)
+        sql += " ORDER BY created_at DESC, session_id DESC LIMIT ? OFFSET ?"
+        params.extend([normalized_limit + 1, offset])
+        rows = self._metadata.query_rows(sql, params)
+
+        has_next_page = len(rows) > normalized_limit
+        items = [_session_from_row(row) for row in rows[:normalized_limit]]
+        next_page_token = str(offset + normalized_limit) if has_next_page else None
+        return {"items": items, "next_page_token": next_page_token}
 
 
 class DataSourceAdapter:
