@@ -21,8 +21,9 @@ def test_runtime_creates_session(tmp_path: Path):
     _init_marivo_dir(tmp_path)
     config = LocalConfig(workspace_root=tmp_path)
     runtime = create_local_runtime(config)
-    session_id = runtime.create_session(goal="test")
-    assert session_id is not None
+    state = runtime.create_session(goal="test")
+    assert state is not None
+    assert state.session_id.startswith("sess-")
 
 
 def test_explicit_local_overrides_server_deployment(tmp_path: Path):

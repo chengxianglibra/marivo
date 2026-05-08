@@ -42,6 +42,8 @@ from app.api.models import (
     ValidateRequest,
     ValidateResponse,
 )
+from app.contracts.ids import SessionId, UserId
+from app.contracts.session import SessionState
 from app.execution.errors import ExecutionError
 from app.runtime import SemanticRuntimeNotReadyError
 
@@ -61,6 +63,30 @@ def create_session(payload: SessionCreateRequest, request: Request) -> SessionCr
             goal=payload.goal,
             budget=payload.budget.model_dump(exclude_none=True),
         )
+        # Runtime.create_session returns SessionState; build the API response
+        # from it.  The full AnalysisSession shape is constructed here until
+        # the API response models are simplified in a later phase.
+        if isinstance(result, dict):
+            return SessionCreateResponse.model_validate(result)
+        # result is a SessionState
+        if isinstance(result, SessionState):
+            return SessionCreateResponse.model_validate(
+                {
+                    "session_id": str(result.session_id),
+                    "goal": {"question": result.goal or ""},
+                    "scope": {},
+                    "lifecycle": {"status": result.status},
+                    "state_summary": {
+                        "state_view_ref": {
+                            "session_id": str(result.session_id),
+                            "view_type": "full",
+                        }
+                    },
+                    "created_at": result.created_at,
+                    "updated_at": result.updated_at,
+                    "schema_version": "0.1.0",
+                }
+            )
         return SessionCreateResponse.model_validate(result)
     except ValueError as error:
         if "user_required" in str(error):
@@ -97,8 +123,26 @@ def list_sessions(
 )
 def get_session(session_id: str, request: Request) -> SessionDetailResponse:
     try:
+        result = get_services(request).runtime.get_session(SessionId(session_id))
+        if isinstance(result, dict):
+            return SessionDetailResponse.model_validate(result)
+        # result is a SessionState — build the API response shape
         return SessionDetailResponse.model_validate(
-            get_services(request).runtime.get_session(session_id)
+            {
+                "session_id": str(result.session_id),
+                "goal": {"question": result.goal or ""},
+                "scope": {},
+                "lifecycle": {"status": result.status},
+                "state_summary": {
+                    "state_view_ref": {
+                        "session_id": str(result.session_id),
+                        "view_type": "full",
+                    }
+                },
+                "created_at": result.created_at,
+                "updated_at": result.updated_at,
+                "schema_version": "0.1.0",
+            }
         )
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
@@ -130,10 +174,31 @@ def terminate_session(
 ) -> SessionTerminateResponse:
     """Terminate a session, preventing further intent write operations."""
     try:
+        get_services(request).runtime.terminate_session(
+            SessionId(session_id),
+            actor=UserId("api"),
+            terminal_reason=payload.terminal_reason,
+        )
+        # Fetch the updated session to build the full API response
+        result = get_services(request).runtime.get_session(SessionId(session_id))
+        if isinstance(result, dict):
+            return SessionTerminateResponse.model_validate(result)
         return SessionTerminateResponse.model_validate(
-            get_services(request).runtime.terminate_session(
-                session_id, terminal_reason=payload.terminal_reason
-            )
+            {
+                "session_id": str(result.session_id),
+                "goal": {"question": result.goal or ""},
+                "scope": {},
+                "lifecycle": {"status": result.status},
+                "state_summary": {
+                    "state_view_ref": {
+                        "session_id": str(result.session_id),
+                        "view_type": "full",
+                    }
+                },
+                "created_at": result.created_at,
+                "updated_at": result.updated_at,
+                "schema_version": "0.1.0",
+            }
         )
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
@@ -201,9 +266,30 @@ def get_session_state(
             query["limit"] = limit
         if page_token is not None:
             query["page_token"] = page_token
-        return SessionStateView.model_validate(
-            get_services(request).runtime.get_session_state(session_id, **query)
-        )
+        # When there are query kwargs, use runtime.get_session_state which
+        # falls through to svc for structured queries.  Without kwargs, use
+        # the service directly to get the full SessionStateView shape -- the
+        # runtime method returns a bare SessionState that lacks view fields.
+        if query:
+            result = get_services(request).runtime.get_session_state(SessionId(session_id), **query)
+        else:
+            result = get_services(request).service.query_session_state(session_id, query)
+        if isinstance(result, dict):
+            return SessionStateView.model_validate(result)
+        # result is a SessionState — build minimal view
+        if isinstance(result, SessionState):
+            return SessionStateView.model_validate(
+                {
+                    "session_id": str(result.session_id),
+                    "active_propositions": [],
+                    "backing_findings": [],
+                    "blocking_gaps": [],
+                    "artifact_refs": [],
+                    "focus_subjects": [],
+                    "schema_version": "0.1.0",
+                }
+            )
+        return SessionStateView.model_validate(result)
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
 

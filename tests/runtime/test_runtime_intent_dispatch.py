@@ -1,8 +1,8 @@
-"""Tests for MarivoRuntime intent method dispatch to SemanticLayerService."""
+"""Tests for MarivoRuntime intent method dispatch to intent_execution module."""
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from app.contracts.ids import (
     Action,
@@ -12,6 +12,7 @@ from app.contracts.ids import (
     ModelId,
     ResourceId,
     RevisionId,
+    SessionId,
     UserId,
 )
 from app.contracts.semantic import ModelSummary, SemanticModel
@@ -54,7 +55,15 @@ class StubSessionStore:
         pass
 
     def load_events(self, session_id: object) -> list[SessionEvent]:
-        return []
+        return [
+            SessionEvent(
+                session_id=SessionId("s1"),
+                event_type="session_created",
+                timestamp="2024-01-01T00:00:00Z",
+                payload={"goal": "test"},
+                actor=None,
+            )
+        ]
 
     def list_sessions(self, owner: UserId) -> list[SessionState]:
         return []
@@ -216,83 +225,94 @@ def test_all_intent_methods_exist() -> None:
         assert callable(getattr(rt, name)), f"MarivoRuntime missing intent method: {name}"
 
 
-def test_intent_dispatches_run_intent() -> None:
+def test_intent_dispatches_to_intent_execution() -> None:
     rt = _make_runtime()
     params = {
         "metric": "revenue",
         "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-02-01"},
     }
     for intent_name in INTENT_METHODS:
-        rt.svc.run_intent.reset_mock()
-        method = getattr(rt, intent_name)
-        result = method("sess_123", params)
-        rt.svc.run_intent.assert_called_once_with("sess_123", intent_name, params)
-        assert result == {"status": "ok"}
+        target = f"app.runtime.intent_execution.{intent_name}"
+        with patch(target, return_value={"status": "ok"}) as mock_fn:
+            method = getattr(rt, intent_name)
+            result = method("sess_123", params)
+            mock_fn.assert_called_once_with(rt, SessionId("sess_123"), params)
+            assert result == {"status": "ok"}
 
 
 def test_observe_dispatches() -> None:
     rt = _make_runtime()
-    rt.observe("s1", {"metric": "m"})
-    rt.svc.run_intent.assert_called_with("s1", "observe", {"metric": "m"})
+    with patch("app.runtime.intent_execution.observe", return_value={"status": "ok"}) as mock_fn:
+        rt.observe("s1", {"metric": "m"})
+        mock_fn.assert_called_once_with(rt, SessionId("s1"), {"metric": "m"})
 
 
 def test_compare_dispatches() -> None:
     rt = _make_runtime()
-    rt.compare("s1", {"metric": "m"})
-    rt.svc.run_intent.assert_called_with("s1", "compare", {"metric": "m"})
+    with patch("app.runtime.intent_execution.compare", return_value={"status": "ok"}) as mock_fn:
+        rt.compare("s1", {"metric": "m"})
+        mock_fn.assert_called_once_with(rt, SessionId("s1"), {"metric": "m"})
 
 
 def test_decompose_dispatches() -> None:
     rt = _make_runtime()
-    rt.decompose("s1", {"metric": "m"})
-    rt.svc.run_intent.assert_called_with("s1", "decompose", {"metric": "m"})
+    with patch("app.runtime.intent_execution.decompose", return_value={"status": "ok"}) as mock_fn:
+        rt.decompose("s1", {"metric": "m"})
+        mock_fn.assert_called_once_with(rt, SessionId("s1"), {"metric": "m"})
 
 
 def test_correlate_dispatches() -> None:
     rt = _make_runtime()
-    rt.correlate("s1", {"metric": "m"})
-    rt.svc.run_intent.assert_called_with("s1", "correlate", {"metric": "m"})
+    with patch("app.runtime.intent_execution.correlate", return_value={"status": "ok"}) as mock_fn:
+        rt.correlate("s1", {"metric": "m"})
+        mock_fn.assert_called_once_with(rt, SessionId("s1"), {"metric": "m"})
 
 
 def test_detect_dispatches() -> None:
     rt = _make_runtime()
-    rt.detect("s1", {"metric": "m"})
-    rt.svc.run_intent.assert_called_with("s1", "detect", {"metric": "m"})
+    with patch("app.runtime.intent_execution.detect", return_value={"status": "ok"}) as mock_fn:
+        rt.detect("s1", {"metric": "m"})
+        mock_fn.assert_called_once_with(rt, SessionId("s1"), {"metric": "m"})
 
 
 def test_test_dispatches() -> None:
     rt = _make_runtime()
-    rt.test("s1", {"metric": "m"})
-    rt.svc.run_intent.assert_called_with("s1", "test", {"metric": "m"})
+    with patch("app.runtime.intent_execution.test", return_value={"status": "ok"}) as mock_fn:
+        rt.test("s1", {"metric": "m"})
+        mock_fn.assert_called_once_with(rt, SessionId("s1"), {"metric": "m"})
 
 
 def test_forecast_dispatches() -> None:
     rt = _make_runtime()
-    rt.forecast("s1", {"metric": "m"})
-    rt.svc.run_intent.assert_called_with("s1", "forecast", {"metric": "m"})
+    with patch("app.runtime.intent_execution.forecast", return_value={"status": "ok"}) as mock_fn:
+        rt.forecast("s1", {"metric": "m"})
+        mock_fn.assert_called_once_with(rt, SessionId("s1"), {"metric": "m"})
 
 
 def test_attribute_dispatches() -> None:
     rt = _make_runtime()
-    rt.attribute("s1", {"metric": "m"})
-    rt.svc.run_intent.assert_called_with("s1", "attribute", {"metric": "m"})
+    with patch("app.runtime.intent_execution.attribute", return_value={"status": "ok"}) as mock_fn:
+        rt.attribute("s1", {"metric": "m"})
+        mock_fn.assert_called_once_with(rt, SessionId("s1"), {"metric": "m"})
 
 
 def test_diagnose_dispatches() -> None:
     rt = _make_runtime()
-    rt.diagnose("s1", {"metric": "m"})
-    rt.svc.run_intent.assert_called_with("s1", "diagnose", {"metric": "m"})
+    with patch("app.runtime.intent_execution.diagnose", return_value={"status": "ok"}) as mock_fn:
+        rt.diagnose("s1", {"metric": "m"})
+        mock_fn.assert_called_once_with(rt, SessionId("s1"), {"metric": "m"})
 
 
 def test_validate_dispatches() -> None:
     rt = _make_runtime()
-    rt.validate("s1", {"metric": "m"})
-    rt.svc.run_intent.assert_called_with("s1", "validate", {"metric": "m"})
+    with patch("app.runtime.intent_execution.validate", return_value={"status": "ok"}) as mock_fn:
+        rt.validate("s1", {"metric": "m"})
+        mock_fn.assert_called_once_with(rt, SessionId("s1"), {"metric": "m"})
 
 
 def test_intent_returns_service_result() -> None:
     rt = _make_runtime()
     expected = {"step_id": "step_1", "status": "completed"}
-    rt.svc.run_intent.return_value = expected
-    result = rt.observe("s1", {"metric": "m"})
-    assert result is expected
+    with patch("app.runtime.intent_execution.observe", return_value=expected) as mock_fn:
+        result = rt.observe("s1", {"metric": "m"})
+        assert result is expected
