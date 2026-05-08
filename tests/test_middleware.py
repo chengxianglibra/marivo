@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 from starlette.applications import Starlette
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -73,3 +74,48 @@ def test_is_not_base_http_middleware():
     SSE streaming (e.g. FastMCP streamable-http transport).
     """
     assert not issubclass(UserIdentityMiddleware, BaseHTTPMiddleware)
+
+
+@pytest.mark.asyncio
+async def test_sse_streaming_not_buffered():
+    """Response chunks pass through immediately, not buffered by middleware."""
+    chunks_sent: list[str] = []
+
+    async def sse_app(scope: object, receive: object, send: object) -> None:
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [[b"content-type", b"text/event-stream"]],
+            }
+        )
+        await send({"type": "http.response.body", "body": b"data: chunk1\n\n", "more_body": True})
+        chunks_sent.append("chunk1")
+        await send({"type": "http.response.body", "body": b"data: chunk2\n\n", "more_body": False})
+        chunks_sent.append("chunk2")
+
+    received: list[dict] = []
+
+    async def capture_send(message: dict) -> None:
+        received.append(message)
+
+    wrapped = UserIdentityMiddleware(sse_app)
+    scope: dict = {
+        "type": "http",
+        "method": "GET",
+        "path": "/test",
+        "headers": [],
+        "query_string": b"",
+        "server": ("test", 80),
+        "asgi": {"version": "3.0"},
+    }
+
+    await wrapped(scope, lambda: None, capture_send)
+
+    body_messages = [m for m in received if m["type"] == "http.response.body"]
+    assert len(body_messages) == 2, f"Expected 2 body chunks, got {len(body_messages)}"
+    assert body_messages[0]["body"] == b"data: chunk1\n\n"
+    assert body_messages[0].get("more_body", False) is True
+    assert body_messages[1]["body"] == b"data: chunk2\n\n"
+    # Both chunks were produced by the downstream app
+    assert chunks_sent == ["chunk1", "chunk2"]
