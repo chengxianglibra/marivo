@@ -340,7 +340,7 @@ class TestObserveEmptyTimeSeries(unittest.TestCase):
         self.svc = _make_svc(self.store)
 
     def _commit(self) -> str:
-        return self.svc.svc._commit_artifact_with_extraction(
+        return self.svc._test_svc._commit_artifact_with_extraction(
             _SESSION,
             _STEP_ID,
             "observation",
@@ -369,7 +369,7 @@ class TestObserveEmptySegmented(unittest.TestCase):
         self.svc = _make_svc(self.store)
 
     def _commit(self) -> str:
-        return self.svc.svc._commit_artifact_with_extraction(
+        return self.svc._test_svc._commit_artifact_with_extraction(
             _SESSION,
             _STEP_ID,
             "observation",
@@ -400,7 +400,7 @@ class TestDetectEmptyCommit(unittest.TestCase):
         self.svc = _make_svc(self.store)
 
     def _commit(self) -> str:
-        return self.svc.svc._commit_artifact_with_extraction(
+        return self.svc._test_svc._commit_artifact_with_extraction(
             _SESSION,
             _STEP_ID,
             "anomaly_candidates",
@@ -434,7 +434,7 @@ class TestCompareEmptyRejects(unittest.TestCase):
         self.svc = _make_svc(self.store)
 
     def _commit_empty(self) -> None:
-        self.svc.svc._commit_artifact_with_extraction(
+        self.svc._test_svc._commit_artifact_with_extraction(
             _SESSION,
             _STEP_ID,
             "compare_artifact",
@@ -478,7 +478,7 @@ class TestDecomposeEmptyRejects(unittest.TestCase):
         self.svc = _make_svc(self.store)
 
     def _commit_empty(self) -> None:
-        self.svc.svc._commit_artifact_with_extraction(
+        self.svc._test_svc._commit_artifact_with_extraction(
             _SESSION,
             _STEP_ID,
             "delta_decomposition",
@@ -520,7 +520,7 @@ class TestCorrelateCommit(unittest.TestCase):
     def setUp(self) -> None:
         self.store = _make_store()
         self.svc = _make_svc(self.store)
-        self.artifact_id = self.svc.svc._commit_artifact_with_extraction(
+        self.artifact_id = self.svc._test_svc._commit_artifact_with_extraction(
             _SESSION,
             _STEP_ID,
             "pairwise_time_series_association",
@@ -553,7 +553,7 @@ class TestHypothesisTestCommit(unittest.TestCase):
     def setUp(self) -> None:
         self.store = _make_store()
         self.svc = _make_svc(self.store)
-        self.artifact_id = self.svc.svc._commit_artifact_with_extraction(
+        self.artifact_id = self.svc._test_svc._commit_artifact_with_extraction(
             _SESSION,
             _STEP_ID,
             "hypothesis_test",
@@ -588,7 +588,7 @@ class TestForecastCommit(unittest.TestCase):
     def setUp(self) -> None:
         self.store = _make_store()
         self.svc = _make_svc(self.store)
-        self.artifact_id = self.svc.svc._commit_artifact_with_extraction(
+        self.artifact_id = self.svc._test_svc._commit_artifact_with_extraction(
             _SESSION,
             _STEP_ID,
             "forecast_series",
@@ -613,7 +613,7 @@ class TestForecastCommit(unittest.TestCase):
     def test_one_bucket_produces_one_finding(self) -> None:
         store = _make_store()
         svc = _make_svc(store)
-        art_id = svc.svc._commit_artifact_with_extraction(
+        art_id = svc._test_svc._commit_artifact_with_extraction(
             _SESSION,
             _STEP_ID,
             "forecast_series",

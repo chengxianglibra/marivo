@@ -331,18 +331,15 @@ def get_proposition_runtime_status(
 ) -> dict[str, Any]:
     """Return proposition-level operator runtime status.
 
-    Delegates to runtime.svc.session_manager for proposition DB lookup
-    and stage derivation (pending a propositions port in Task 17).
+    Delegates to the session_store port for proposition DB lookup
+    and stage derivation.
 
     Raises NotFoundError when the proposition is not found in the session.
     """
     assert_session_exists(runtime, session_id)
 
-    # Propositions live in a dedicated DB table, not in the artifact store.
-    # Until a propositions port is defined (Task 17), delegate to the
-    # session_manager which queries the propositions table directly.
     try:
-        return runtime.svc.session_manager.get_proposition_runtime_status(
+        return runtime.ports.session_store.get_proposition_runtime_status(
             str(session_id), proposition_id
         )
     except KeyError as err:

@@ -38,7 +38,7 @@ def _make_metadata_only_service() -> MarivoRuntime:
     ports = MagicMock(spec=RuntimePorts)
     core = CoreEngine()
     runtime = MarivoRuntime(ports, core)
-    runtime.svc = svc
+    runtime._test_svc = svc
     return runtime
 
 
@@ -54,7 +54,7 @@ class StepMetadataPersistenceTests(unittest.TestCase):
         db_path = Path(cls.temp_dir.name) / "step_metadata.duckdb"
         get_seeded_duckdb_path(db_path)
         app = create_app(db_path)
-        cls.service = cast("Any", app.state.runtime.svc)
+        cls.service = cast("Any", app.state.services.service)
         cls.semantic_service = cast("Any", app.state.semantic_service)
         cls.metadata = cls.service.metadata
         now = datetime.now(UTC).isoformat()
@@ -208,7 +208,7 @@ class StepMetadataPersistenceTests(unittest.TestCase):
                 },
             },
         )
-        semantic_metadata = self.service.svc.build_step_semantic_metadata(compiled)
+        semantic_metadata = self.service.build_step_semantic_metadata(compiled)
         self.assertIsNotNone(semantic_metadata)
         self.service._insert_step(
             step_id,
@@ -342,7 +342,7 @@ class StepMetadataPersistenceTests(unittest.TestCase):
             },
         )
 
-        semantic_metadata = self.service.svc.build_step_semantic_metadata(compiled)
+        semantic_metadata = self.service.build_step_semantic_metadata(compiled)
         self.assertIsNotNone(semantic_metadata)
         assert semantic_metadata is not None
         self.assertIsNone(semantic_metadata["compile_context"]["calendar_policy_binding"])
@@ -380,7 +380,7 @@ class StepMetadataPersistenceTests(unittest.TestCase):
         with self.assertRaisesRegex(
             ValueError, "conflicting calendar policy bindings in compiled step metadata"
         ):
-            self.service.svc.build_step_semantic_metadata(compiled_queries)
+            self.service.build_step_semantic_metadata(compiled_queries)
 
     def test_build_step_semantic_metadata_rejects_missing_calendar_policy_binding_field(
         self,
@@ -399,7 +399,7 @@ class StepMetadataPersistenceTests(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(ValueError, "resolved_calendar_alignment missing policy_ref"):
-            self.service.svc.build_step_semantic_metadata(compiled)
+            self.service.build_step_semantic_metadata(compiled)
 
     def test_build_step_semantic_metadata_rejects_empty_calendar_source_lineage(self) -> None:
         compiled = CompiledQuery(
@@ -418,7 +418,7 @@ class StepMetadataPersistenceTests(unittest.TestCase):
         with self.assertRaisesRegex(
             ValueError, "resolved_calendar_alignment missing source_lineage metadata"
         ):
-            self.service.svc.build_step_semantic_metadata(compiled)
+            self.service.build_step_semantic_metadata(compiled)
 
     def test_build_step_semantic_metadata_rejects_invalid_calendar_source_lineage(
         self,
@@ -440,7 +440,7 @@ class StepMetadataPersistenceTests(unittest.TestCase):
             ValueError,
             "resolved_calendar_alignment source_lineage missing calendar_version",
         ):
-            self.service.svc.build_step_semantic_metadata(compiled)
+            self.service.build_step_semantic_metadata(compiled)
 
     def test_build_step_semantic_metadata_allows_identical_calendar_policy_bindings(
         self,
@@ -457,7 +457,7 @@ class StepMetadataPersistenceTests(unittest.TestCase):
             CompiledQuery("SELECT 2", metadata={"resolved_calendar_alignment": dict(alignment)}),
         ]
 
-        semantic_metadata = self.service.svc.build_step_semantic_metadata(compiled_queries)
+        semantic_metadata = self.service.build_step_semantic_metadata(compiled_queries)
         self.assertIsNotNone(semantic_metadata)
         assert semantic_metadata is not None
         self.assertEqual(
@@ -490,7 +490,7 @@ class StepMetadataPersistenceTests(unittest.TestCase):
             ),
         ]
 
-        semantic_metadata = self.service.svc.build_step_semantic_metadata(compiled_queries)
+        semantic_metadata = self.service.build_step_semantic_metadata(compiled_queries)
         self.assertIsNotNone(semantic_metadata)
         assert semantic_metadata is not None
         self.assertEqual(
@@ -521,7 +521,7 @@ class StepMetadataCalendarPolicyBindingUnitTests(unittest.TestCase):
             },
         )
 
-        semantic_metadata = self.service.svc.build_step_semantic_metadata(compiled)
+        semantic_metadata = self.service.build_step_semantic_metadata(compiled)
         self.assertIsNotNone(semantic_metadata)
         assert semantic_metadata is not None
         binding = semantic_metadata["compile_context"]["calendar_policy_binding"]
@@ -548,7 +548,7 @@ class StepMetadataCalendarPolicyBindingUnitTests(unittest.TestCase):
         with self.assertRaisesRegex(
             ValueError, "resolved_calendar_alignment source_lineage missing table_fqn"
         ):
-            self.service.svc.build_step_semantic_metadata(compiled)
+            self.service.build_step_semantic_metadata(compiled)
 
     def test_build_step_semantic_metadata_rejects_missing_calendar_version(
         self,
@@ -571,7 +571,7 @@ class StepMetadataCalendarPolicyBindingUnitTests(unittest.TestCase):
         with self.assertRaisesRegex(
             ValueError, "resolved_calendar_alignment source_lineage missing calendar_version"
         ):
-            self.service.svc.build_step_semantic_metadata(compiled)
+            self.service.build_step_semantic_metadata(compiled)
 
     def test_build_step_semantic_metadata_normalizes_source_lineage_to_required_fields(
         self,
@@ -593,7 +593,7 @@ class StepMetadataCalendarPolicyBindingUnitTests(unittest.TestCase):
             },
         )
 
-        semantic_metadata = self.service.svc.build_step_semantic_metadata(compiled)
+        semantic_metadata = self.service.build_step_semantic_metadata(compiled)
         self.assertIsNotNone(semantic_metadata)
         assert semantic_metadata is not None
         binding = semantic_metadata["compile_context"]["calendar_policy_binding"]

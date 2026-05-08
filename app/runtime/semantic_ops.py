@@ -1626,23 +1626,31 @@ def resolve_engine(
     table_names: list[str],
     *,
     session_id: str | None = None,
-) -> Any:
+) -> tuple[Any, str, dict[str, str]]:
     """Resolve the analytics engine, its type, and qualified table names.
 
-    Thin wrapper delegating to SemanticLayerService._resolve_engine.
-    Will be replaced with a port-based implementation in Task 17.
+    Uses the DataSource port (resolve_tables) to perform routing resolution,
+    then extracts the engine, datasource_type, and qualified names from the
+    RoutingResolutionResult.
     """
-    return runtime.svc._resolve_engine(table_names, session_id=session_id)
+    resolution = runtime.ports.data_source.resolve_tables(table_names, session_id=session_id)
+    qualified = resolution.route.qualified_names if resolution.route is not None else {}
+    return resolution.engine, resolution.datasource_type, qualified
 
 
 def resolve_engine_for_session(
     runtime: MarivoRuntime,
     session_id: str,
     table_names: list[str],
-) -> Any:
+) -> tuple[Any, str, dict[str, str]]:
     """Resolve the analytics engine for a given session.
 
-    Thin wrapper delegating to SemanticLayerService._resolve_engine_for_session.
-    Will be replaced with a port-based implementation in Task 17.
+    Delegates to resolve_engine with session_id. Falls back to calling
+    without session_id if the underlying router does not support it.
     """
-    return runtime.svc._resolve_engine_for_session(session_id, table_names)
+    try:
+        return resolve_engine(runtime, table_names, session_id=session_id)
+    except TypeError as error:
+        if "unexpected keyword argument 'session_id'" not in str(error):
+            raise
+        return resolve_engine(runtime, table_names)

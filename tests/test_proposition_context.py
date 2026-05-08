@@ -673,8 +673,8 @@ class TestPropositionRuntimeStatus(unittest.TestCase):
 
     @property
     def _manager(self):
-        """Access the SessionManager through the runtime's svc for unit tests."""
-        return self.runtime.svc.session_manager
+        """Access the SessionManager through the runtime's test service for unit tests."""
+        return self.runtime._test_svc.session_manager
 
     def _get_status(self, proposition_id: str) -> dict[str, Any]:
         return self._manager.get_proposition_runtime_status(

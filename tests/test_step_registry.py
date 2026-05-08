@@ -32,7 +32,7 @@ class StepRegistryWiringTests(unittest.TestCase):
         cls.temp_dir.cleanup()
 
     def test_service_exposes_supported_step_types(self) -> None:
-        service = self.client.app.state.runtime.svc
+        service = self.client.app.state.services.service
         supported = service.step_registry.supported_step_types()
 
         self.assertEqual(set(supported), set(SUPPORTED_STEP_TYPES))
@@ -53,7 +53,7 @@ class StepRegistryWiringTests(unittest.TestCase):
         self.assertEqual(len(SUPPORTED_INTENT_TYPES), 10)
 
     def test_run_step_rejects_unknown_step_type(self) -> None:
-        service = self.client.app.state.runtime.svc
+        service = self.client.app.state.services.service
         session_id = self.client.post("/sessions", json={"goal": "Unknown step guard"}).json()[
             "session_id"
         ]

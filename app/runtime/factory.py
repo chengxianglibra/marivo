@@ -87,8 +87,6 @@ def create_runtime_from_service(
     )
     core = CoreEngine()
     runtime = MarivoRuntime(ports, core)
-    # Set svc property for semantic_ops resolve_engine compatibility (deprecated)
-    runtime.svc = svc
     runtime.wire_datasource_svc(datasource_svc)
     if semantic_v2_svc is not None:
         runtime.wire_semantic_v2_svc(semantic_v2_svc)

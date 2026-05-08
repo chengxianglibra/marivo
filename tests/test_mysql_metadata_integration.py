@@ -451,7 +451,7 @@ class MySQLMetadataIntegrationTests(unittest.TestCase):
         registry.register(_ObserveSuccessExtractor())
 
         with self.assertRaisesRegex(RuntimeError, "injected finding insert failure"):
-            runtime.svc._commit_artifact_with_extraction(
+            runtime._test_svc._commit_artifact_with_extraction(
                 session_id,
                 step_id,
                 "observation_artifact",

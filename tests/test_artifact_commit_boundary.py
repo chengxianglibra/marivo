@@ -259,7 +259,7 @@ class TestNoExtractorDirectCommit(unittest.TestCase):
         self.registry = FindingExtractorRegistry()  # empty — no extractor registered
 
     def test_no_extractor_artifact_lifecycle_is_committed(self) -> None:
-        artifact_id = self.svc.svc._commit_artifact_with_extraction(
+        artifact_id = self.svc._test_svc._commit_artifact_with_extraction(
             _SESSION_ID,
             _STEP_ID,
             "profile",  # not registered in the empty registry
@@ -274,7 +274,7 @@ class TestNoExtractorDirectCommit(unittest.TestCase):
         self.assertEqual(row["lifecycle"], "committed")
 
     def test_no_extractor_no_findings_written(self) -> None:
-        artifact_id = self.svc.svc._commit_artifact_with_extraction(
+        artifact_id = self.svc._test_svc._commit_artifact_with_extraction(
             _SESSION_ID,
             _STEP_ID,
             "profile",
@@ -286,7 +286,7 @@ class TestNoExtractorDirectCommit(unittest.TestCase):
         self.assertEqual(rows, [])
 
     def test_no_extractor_returns_artifact_id(self) -> None:
-        artifact_id = self.svc.svc._commit_artifact_with_extraction(
+        artifact_id = self.svc._test_svc._commit_artifact_with_extraction(
             _SESSION_ID,
             _STEP_ID,
             "profile",
@@ -311,7 +311,7 @@ class TestExtractionSuccess(unittest.TestCase):
         self.registry.register(_ObserveSuccessExtractor())
 
     def test_success_artifact_lifecycle_is_committed(self) -> None:
-        artifact_id = self.svc.svc._commit_artifact_with_extraction(
+        artifact_id = self.svc._test_svc._commit_artifact_with_extraction(
             _SESSION_ID,
             _STEP_ID,
             "observation_artifact",
@@ -326,7 +326,7 @@ class TestExtractionSuccess(unittest.TestCase):
         self.assertEqual(row["lifecycle"], "committed")
 
     def test_success_findings_persisted(self) -> None:
-        artifact_id = self.svc.svc._commit_artifact_with_extraction(
+        artifact_id = self.svc._test_svc._commit_artifact_with_extraction(
             _SESSION_ID,
             _STEP_ID,
             "observation_artifact",
@@ -340,7 +340,7 @@ class TestExtractionSuccess(unittest.TestCase):
         self.assertEqual(rows[0]["session_id"], _SESSION_ID)
 
     def test_success_finding_id_is_deterministic(self) -> None:
-        artifact_id = self.svc.svc._commit_artifact_with_extraction(
+        artifact_id = self.svc._test_svc._commit_artifact_with_extraction(
             _SESSION_ID,
             _STEP_ID,
             "observation_artifact",
@@ -367,7 +367,7 @@ class TestTransactionRollbackAfterArtifactStage(unittest.TestCase):
 
     def test_finding_insert_failure_rolls_back_staged_artifact(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "injected finding insert failure"):
-            self.svc.svc._commit_artifact_with_extraction(
+            self.svc._test_svc._commit_artifact_with_extraction(
                 _SESSION_ID,
                 _STEP_ID,
                 "observation_artifact",
@@ -413,7 +413,7 @@ class TestExtractionCrashNoArtifact(unittest.TestCase):
 
     def test_extraction_failure_raises(self) -> None:
         with self.assertRaises(RuntimeError):
-            self.svc.svc._commit_artifact_with_extraction(
+            self.svc._test_svc._commit_artifact_with_extraction(
                 _SESSION_ID,
                 _STEP_ID,
                 "observation_artifact",
@@ -424,7 +424,7 @@ class TestExtractionCrashNoArtifact(unittest.TestCase):
 
     def test_extraction_failure_no_artifact_written(self) -> None:
         with contextlib.suppress(RuntimeError):
-            self.svc.svc._commit_artifact_with_extraction(
+            self.svc._test_svc._commit_artifact_with_extraction(
                 _SESSION_ID,
                 _STEP_ID,
                 "observation_artifact",
@@ -442,7 +442,7 @@ class TestExtractionCrashNoArtifact(unittest.TestCase):
 
     def test_extraction_failure_no_findings_written(self) -> None:
         with contextlib.suppress(RuntimeError):
-            self.svc.svc._commit_artifact_with_extraction(
+            self.svc._test_svc._commit_artifact_with_extraction(
                 _SESSION_ID,
                 _STEP_ID,
                 "observation_artifact",
@@ -468,7 +468,7 @@ class TestFamilyEmptyErrorNoArtifact(unittest.TestCase):
 
     def test_family_empty_error_is_raised(self) -> None:
         with self.assertRaises(FamilyEmptyError):
-            self.svc.svc._commit_artifact_with_extraction(
+            self.svc._test_svc._commit_artifact_with_extraction(
                 _SESSION_ID,
                 _STEP_ID,
                 "compare_artifact",
@@ -479,7 +479,7 @@ class TestFamilyEmptyErrorNoArtifact(unittest.TestCase):
 
     def test_family_empty_error_no_artifact_written(self) -> None:
         with contextlib.suppress(FamilyEmptyError):
-            self.svc.svc._commit_artifact_with_extraction(
+            self.svc._test_svc._commit_artifact_with_extraction(
                 _SESSION_ID,
                 _STEP_ID,
                 "compare_artifact",
@@ -497,7 +497,7 @@ class TestFamilyEmptyErrorNoArtifact(unittest.TestCase):
 
     def test_family_empty_error_no_findings_written(self) -> None:
         with contextlib.suppress(FamilyEmptyError):
-            self.svc.svc._commit_artifact_with_extraction(
+            self.svc._test_svc._commit_artifact_with_extraction(
                 _SESSION_ID,
                 _STEP_ID,
                 "compare_artifact",
@@ -523,7 +523,7 @@ class TestCountMismatchNoArtifact(unittest.TestCase):
 
     def test_count_mismatch_raises_value_error(self) -> None:
         with self.assertRaises(ValueError):
-            self.svc.svc._commit_artifact_with_extraction(
+            self.svc._test_svc._commit_artifact_with_extraction(
                 _SESSION_ID,
                 _STEP_ID,
                 "observation_artifact",
@@ -534,7 +534,7 @@ class TestCountMismatchNoArtifact(unittest.TestCase):
 
     def test_count_mismatch_no_artifact_written(self) -> None:
         with contextlib.suppress(ValueError):
-            self.svc.svc._commit_artifact_with_extraction(
+            self.svc._test_svc._commit_artifact_with_extraction(
                 _SESSION_ID,
                 _STEP_ID,
                 "observation_artifact",
@@ -552,7 +552,7 @@ class TestCountMismatchNoArtifact(unittest.TestCase):
 
     def test_count_mismatch_no_findings_written(self) -> None:
         with contextlib.suppress(ValueError):
-            self.svc.svc._commit_artifact_with_extraction(
+            self.svc._test_svc._commit_artifact_with_extraction(
                 _SESSION_ID,
                 _STEP_ID,
                 "observation_artifact",
@@ -578,7 +578,7 @@ class TestFindingIdempotency(unittest.TestCase):
 
     def test_replay_does_not_error(self) -> None:
         """Re-inserting the same finding_id via FindingRepository.create() is silent."""
-        artifact_id = self.svc.svc._commit_artifact_with_extraction(
+        artifact_id = self.svc._test_svc._commit_artifact_with_extraction(
             _SESSION_ID,
             _STEP_ID,
             "observation_artifact",
@@ -612,7 +612,7 @@ class TestFindingIdempotency(unittest.TestCase):
 
     def test_finding_id_is_stable_for_same_artifact(self) -> None:
         """The same artifact payload must produce the same finding_id on replay."""
-        artifact_id = self.svc.svc._commit_artifact_with_extraction(
+        artifact_id = self.svc._test_svc._commit_artifact_with_extraction(
             _SESSION_ID,
             _STEP_ID,
             "observation_artifact",
@@ -641,7 +641,7 @@ class TestObserveAllowsEmpty(unittest.TestCase):
         self.registry.register(_ObserveEmptyExtractor())
 
     def test_observe_empty_artifact_is_committed(self) -> None:
-        artifact_id = self.svc.svc._commit_artifact_with_extraction(
+        artifact_id = self.svc._test_svc._commit_artifact_with_extraction(
             _SESSION_ID,
             _STEP_ID,
             "observation_artifact",
@@ -656,7 +656,7 @@ class TestObserveAllowsEmpty(unittest.TestCase):
         self.assertEqual(row["lifecycle"], "committed")
 
     def test_observe_empty_no_findings_written(self) -> None:
-        artifact_id = self.svc.svc._commit_artifact_with_extraction(
+        artifact_id = self.svc._test_svc._commit_artifact_with_extraction(
             _SESSION_ID,
             _STEP_ID,
             "observation_artifact",
@@ -682,7 +682,7 @@ class TestCompareRejectsEmpty(unittest.TestCase):
 
     def test_compare_empty_raises_family_empty_error(self) -> None:
         with self.assertRaises(FamilyEmptyError) as ctx:
-            self.svc.svc._commit_artifact_with_extraction(
+            self.svc._test_svc._commit_artifact_with_extraction(
                 _SESSION_ID,
                 _STEP_ID,
                 "compare_artifact",
@@ -694,7 +694,7 @@ class TestCompareRejectsEmpty(unittest.TestCase):
 
     def test_compare_empty_no_artifact_written(self) -> None:
         with contextlib.suppress(FamilyEmptyError):
-            self.svc.svc._commit_artifact_with_extraction(
+            self.svc._test_svc._commit_artifact_with_extraction(
                 _SESSION_ID,
                 _STEP_ID,
                 "compare_artifact",

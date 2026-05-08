@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from app.contracts.evidence import Evidence
 from app.contracts.ids import (
     Action,
@@ -69,6 +71,14 @@ class StubSessionStore:
     def list_sessions(self, owner: UserId) -> list[SessionState]:
         return []
 
+    def get_proposition_runtime_status(
+        self, session_id: str, proposition_id: str
+    ) -> dict[str, Any]:
+        raise NotImplementedError
+
+    def list_sessions_paginated(self, **kwargs: Any) -> dict[str, Any]:
+        raise NotImplementedError
+
 
 class StubEvidenceStore:
     def write(self, evidence: Evidence) -> EvidenceRef:
@@ -84,6 +94,9 @@ class StubDataSource:
 
     def schema(self, source_ref: SourceRef) -> SourceSchema:
         return SourceSchema(columns=[])
+
+    def resolve_tables(self, table_names: list[str], *, session_id: str | None = None) -> Any:
+        raise NotImplementedError
 
 
 class StubCacheStore:

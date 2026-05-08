@@ -1288,7 +1288,7 @@ class AttributeEndpointTests(unittest.TestCase):
             return {"result_type": "attribute_bundle"}
 
         with patch.object(
-            self.client.app.state.runtime.svc, "run_intent", side_effect=_capture_run_intent
+            self.client.app.state.services.service, "run_intent", side_effect=_capture_run_intent
         ):
             resp = self.client.post(
                 f"/sessions/{self.session_id}/intents/attribute",
@@ -1385,7 +1385,9 @@ class AttributeEndpointTests(unittest.TestCase):
             )
 
         with patch.object(
-            self.client.app.state.runtime.svc, "run_intent", side_effect=_raise_additivity_violation
+            self.client.app.state.services.service,
+            "run_intent",
+            side_effect=_raise_additivity_violation,
         ):
             resp = self.client.post(
                 f"/sessions/{self.session_id}/intents/attribute",

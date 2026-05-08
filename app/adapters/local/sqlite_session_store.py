@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from pathlib import Path
+from typing import Any
 
 from app.contracts.errors import ErrorCode, NotFoundError
 from app.contracts.ids import SessionId, UserId
@@ -86,6 +87,22 @@ class SqliteSessionStore:
             conn.close()
 
         return [rebuild_session_state(self.load_events(SessionId(row[0]))) for row in rows]
+
+    def get_proposition_runtime_status(
+        self, session_id: str, proposition_id: str
+    ) -> dict[str, Any]:
+        """Proposition runtime status is not available in local mode."""
+        raise NotImplementedError(
+            "get_proposition_runtime_status is not available in local SQLite mode; "
+            "server-mode proposition tracking requires a MetadataStore."
+        )
+
+    def list_sessions_paginated(self, **kwargs: Any) -> dict[str, Any]:
+        """Paginated session listing is not available in local mode."""
+        raise NotImplementedError(
+            "list_sessions_paginated is not available in local SQLite mode; "
+            "server-mode pagination requires a MetadataStore."
+        )
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(str(self._db_path))

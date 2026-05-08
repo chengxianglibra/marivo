@@ -565,7 +565,7 @@ class DetectIntentEndpointTests(unittest.TestCase):
 
         # Register metric pointing to analytics.uniform_events.
         _seed_metadata(
-            cls.client.app.state.runtime.svc.metadata,
+            cls.client.app.state.services.metadata_store,
             db_path=db_path,
             src_suffix="http01",
             metric_name="http_detect_metric",
@@ -574,7 +574,7 @@ class DetectIntentEndpointTests(unittest.TestCase):
             dimensions=["event_date", "dimension.cluster"],
         )
         _seed_metadata(
-            cls.client.app.state.runtime.svc.metadata,
+            cls.client.app.state.services.metadata_store,
             db_path=db_path,
             src_suffix="http02",
             metric_name="http_detect_split_metric",
@@ -625,7 +625,7 @@ class DetectIntentEndpointTests(unittest.TestCase):
         self.assertEqual(r.status_code, 422)
 
     def test_detect_not_ready_metric_returns_409_with_structured_readiness_error(self) -> None:
-        metadata = self.client.app.state.runtime.svc.metadata
+        metadata = self.client.app.state.services.metadata_store
         metric_name = _seed_metadata(
             metadata,
             db_path=self.client.app.state.services.resolved_path,
@@ -661,7 +661,7 @@ class DetectIntentEndpointTests(unittest.TestCase):
         self.assertEqual(detail["readiness_status"], "not_ready")
 
     def test_detect_ready_metric_with_auxiliary_binding_returns_200(self) -> None:
-        metadata = self.client.app.state.runtime.svc.metadata
+        metadata = self.client.app.state.services.metadata_store
         metric_name = _seed_metadata(
             metadata,
             db_path=self.client.app.state.services.resolved_path,
