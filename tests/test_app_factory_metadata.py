@@ -98,7 +98,7 @@ class AppFactoryMetadataResolutionTests(unittest.TestCase):
         )
         analytics: Any = object()
 
-        with patch("app.api.app_factory.MySQLMetadataStore", RecordingMySQLStore):
+        with patch("app.profiles.server.MySQLMetadataStore", RecordingMySQLStore):
             _resolve_storage(None, None, analytics, config, Path("marivo.yaml"), True)
 
         self.assertEqual(
