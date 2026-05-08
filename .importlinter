@@ -90,3 +90,11 @@ ignore_imports =
     app.api.app_factory -> app.service
     app.api.deps -> app.service
     app.api.sessions -> app.runtime
+
+[importlinter:contract:transports-mcp-no-api-internals]
+name = transports/mcp/ must not import app/api/ internals
+type = forbidden
+source_modules =
+    app.transports.mcp
+forbidden_modules =
+    app.api.endpoints
