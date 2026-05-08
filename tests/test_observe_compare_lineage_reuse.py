@@ -54,7 +54,7 @@ def _insert_observe_artifact(
         payload["value"] = value
     if predicate_filter_lineage is not None:
         payload["predicate_filter_lineage"] = predicate_filter_lineage
-    artifact_id = service._insert_artifact(
+    artifact_id = service.insert_artifact(
         session_id,
         step_id,
         "observation",
@@ -72,7 +72,7 @@ def _insert_observe_artifact(
         "artifact_id": artifact_id,
         **payload,
     }
-    service._insert_step(
+    service.insert_step(
         step_id,
         session_id,
         "observe",
@@ -155,7 +155,7 @@ class _CompareReuseTestBase(unittest.TestCase):
         cls.temp_dir.cleanup()
 
     def _service(self) -> Any:
-        return self.client.app.state.services.service
+        return self.client.app.state.services.runtime
 
     def _compare(self, left_step_id: str, right_step_id: str) -> dict[str, Any]:
         r = self.client.post(
@@ -188,7 +188,7 @@ class TestCompareReusesObservationLineage(_CompareReuseTestBase):
     @classmethod
     def setUpClass(cls) -> None:
         super().setUpClass()
-        svc = cls.client.app.state.services.service
+        svc = cls.client.app.state.services.runtime
         lineage = _make_lineage(
             carrier_refs=["predicate.car1"],
             default_refs=["predicate.d1"],
@@ -262,7 +262,7 @@ class TestCompareMultiComponentLineageReuse(_CompareReuseTestBase):
     @classmethod
     def setUpClass(cls) -> None:
         super().setUpClass()
-        svc = cls.client.app.state.services.service
+        svc = cls.client.app.state.services.runtime
         lineage = _make_lineage(
             carrier_refs=["predicate.car1"],
             default_refs=["predicate.d1"],
@@ -326,7 +326,7 @@ class TestCompareLineageMismatchRejection(_CompareReuseTestBase):
     @classmethod
     def setUpClass(cls) -> None:
         super().setUpClass()
-        svc = cls.client.app.state.services.service
+        svc = cls.client.app.state.services.runtime
         # Left: has lineage
         cls.left_lineage = _make_lineage(
             carrier_refs=["predicate.car1"],
@@ -379,7 +379,7 @@ class TestCompareLineageMismatchRejection(_CompareReuseTestBase):
         self.assertIn("predicate filter lineage is missing", r.text)
 
     def test_compare_warns_on_scope_divergence_but_succeeds(self) -> None:
-        svc = self.client.app.state.services.service
+        svc = self.client.app.state.services.runtime
         # Left: carrier car1
         left_lineage = _make_lineage(carrier_refs=["predicate.car1"])
         left_id = f"step_div_left_{self.__class__.__name__.lower()}"

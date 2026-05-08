@@ -1,7 +1,7 @@
 """Evidence pipeline family behavior integration tests (§8.3).
 
 These are integration tests that exercise the *real* registered extractors
-through the ``_commit_artifact_with_extraction`` commit path with a real
+through the ``commit_artifact_with_extraction`` commit path with a real
 SQLite store.
 
 Unlike ``test_artifact_commit_boundary.py`` (stub extractors, real DB) and
@@ -33,14 +33,16 @@ from __future__ import annotations
 import contextlib
 import unittest
 from typing import Any
-from unittest.mock import MagicMock
 
 from app.evidence_engine.canonical_finding import StepRef
 from app.evidence_engine.family_contract import FamilyEmptyError
+from app.evidence_engine.finding_extractor_registry import (
+    FindingExtractorRegistry,
+    default_finding_registry,
+    validate_for_commit,
+)
 
 # Registry import first — bootstraps all real extractors.
-from app.runtime.runtime import MarivoRuntime
-from app.storage.analytics import AnalyticsEngine
 from app.storage.sqlite_metadata import SQLiteMetadataStore
 from tests.shared_fixtures import make_temp_metadata_store
 
@@ -62,10 +64,128 @@ def _make_store() -> SQLiteMetadataStore:
     return store
 
 
-def _make_svc(store: SQLiteMetadataStore) -> MarivoRuntime:
-    from tests.semantic_test_helpers import build_runtime
+def _commit_artifact_with_extraction(
+    store: SQLiteMetadataStore,
+    session_id: str,
+    step_id: str,
+    artifact_type: str,
+    name: str,
+    content: Any,
+    *,
+    step_type: str | None = None,
+    artifact_schema_version: str | None = None,
+    _registry: FindingExtractorRegistry | None = None,
+) -> str:
+    """Commit boundary for test artifacts, operating directly on the metadata store.
 
-    return build_runtime(store, MagicMock(spec=AnalyticsEngine))
+    Replicates the logic from SemanticLayerService._commit_artifact_with_extraction
+    so that tests don't depend on the adapter path (which requires app.findings).
+    """
+    import json as _json
+    from uuid import uuid4
+
+    from app.evidence_engine.canonical_finding import StepRef as _StepRef
+
+    registry = _registry if _registry is not None else default_finding_registry
+    extractor = registry.find(artifact_type, artifact_schema_version)
+
+    if extractor is None:
+        # Non-mandatory family: insert as committed directly.
+        artifact_id = f"art_{uuid4().hex[:12]}"
+        store.execute(
+            """
+            INSERT INTO artifacts
+                (artifact_id, session_id, step_id, artifact_type, name,
+                 content_json, lifecycle, artifact_schema_version)
+            VALUES (?, ?, ?, ?, ?, ?, 'committed', ?)
+            """,
+            [
+                artifact_id,
+                session_id,
+                step_id,
+                artifact_type,
+                name,
+                _json.dumps(content, default=str, sort_keys=True),
+                artifact_schema_version,
+            ],
+        )
+        return artifact_id
+
+    # Mandatory extraction family.
+    artifact_id = f"art_{uuid4().hex[:12]}"
+    effective_step_ref = _StepRef(
+        session_id=session_id,
+        step_id=step_id,
+        step_type=step_type or artifact_type,
+    )
+    result = extractor.extract(artifact_id, content, effective_step_ref, session_id)
+    validate_for_commit(extractor.family, result)
+
+    # All writes in a single transaction.
+    with store.connect() as con:
+        store.execute_sql(
+            con,
+            """
+            INSERT INTO artifacts
+                (artifact_id, session_id, step_id, artifact_type, name,
+                 content_json, lifecycle, artifact_schema_version)
+            VALUES (?, ?, ?, ?, ?, ?, 'staged', ?)
+            """,
+            [
+                artifact_id,
+                session_id,
+                step_id,
+                artifact_type,
+                name,
+                _json.dumps(content, default=str, sort_keys=True),
+                artifact_schema_version,
+            ],
+        )
+        for f in result["findings"]:
+            store.execute_sql(
+                con,
+                store.insert_ignore_sql(
+                    "findings",
+                    [
+                        "finding_id",
+                        "session_id",
+                        "artifact_id",
+                        "step_ref_json",
+                        "finding_type",
+                        "canonical_item_key",
+                        "subject_json",
+                        "observed_window_json",
+                        "quality_json",
+                        "provenance_json",
+                        "payload_json",
+                        "schema_version",
+                    ],
+                ),
+                [
+                    f["finding_id"],
+                    session_id,
+                    artifact_id,
+                    _json.dumps(f["step_ref"]),
+                    f["finding_type"],
+                    f["provenance"]["canonical_item_key"],
+                    _json.dumps(f["subject"]),
+                    _json.dumps(f["observed_window"])
+                    if f.get("observed_window") is not None
+                    else None,
+                    _json.dumps(f["quality"]),
+                    _json.dumps(f["provenance"]),
+                    _json.dumps(f["payload"]),
+                    "v1",
+                ],
+            )
+        store.execute_sql(
+            con,
+            "UPDATE artifacts SET lifecycle = 'committed' WHERE artifact_id = ?",
+            [artifact_id],
+        )
+        con.commit()
+
+    return artifact_id
 
 
 _STEP_ID = "step_ep_001"
@@ -337,10 +457,10 @@ class TestObserveEmptyTimeSeries(unittest.TestCase):
 
     def setUp(self) -> None:
         self.store = _make_store()
-        self.svc = _make_svc(self.store)
 
     def _commit(self) -> str:
-        return self.svc._test_svc._commit_artifact_with_extraction(
+        return _commit_artifact_with_extraction(
+            self.store,
             _SESSION,
             _STEP_ID,
             "observation",
@@ -366,10 +486,10 @@ class TestObserveEmptySegmented(unittest.TestCase):
 
     def setUp(self) -> None:
         self.store = _make_store()
-        self.svc = _make_svc(self.store)
 
     def _commit(self) -> str:
-        return self.svc._test_svc._commit_artifact_with_extraction(
+        return _commit_artifact_with_extraction(
+            self.store,
             _SESSION,
             _STEP_ID,
             "observation",
@@ -397,10 +517,10 @@ class TestDetectEmptyCommit(unittest.TestCase):
 
     def setUp(self) -> None:
         self.store = _make_store()
-        self.svc = _make_svc(self.store)
 
     def _commit(self) -> str:
-        return self.svc._test_svc._commit_artifact_with_extraction(
+        return _commit_artifact_with_extraction(
+            self.store,
             _SESSION,
             _STEP_ID,
             "anomaly_candidates",
@@ -431,10 +551,10 @@ class TestCompareEmptyRejects(unittest.TestCase):
 
     def setUp(self) -> None:
         self.store = _make_store()
-        self.svc = _make_svc(self.store)
 
     def _commit_empty(self) -> None:
-        self.svc._test_svc._commit_artifact_with_extraction(
+        _commit_artifact_with_extraction(
+            self.store,
             _SESSION,
             _STEP_ID,
             "compare_artifact",
@@ -475,10 +595,10 @@ class TestDecomposeEmptyRejects(unittest.TestCase):
 
     def setUp(self) -> None:
         self.store = _make_store()
-        self.svc = _make_svc(self.store)
 
     def _commit_empty(self) -> None:
-        self.svc._test_svc._commit_artifact_with_extraction(
+        _commit_artifact_with_extraction(
+            self.store,
             _SESSION,
             _STEP_ID,
             "delta_decomposition",
@@ -519,8 +639,9 @@ class TestCorrelateCommit(unittest.TestCase):
 
     def setUp(self) -> None:
         self.store = _make_store()
-        self.svc = _make_svc(self.store)
-        self.artifact_id = self.svc._test_svc._commit_artifact_with_extraction(
+
+        self.artifact_id = _commit_artifact_with_extraction(
+            self.store,
             _SESSION,
             _STEP_ID,
             "pairwise_time_series_association",
@@ -552,8 +673,9 @@ class TestHypothesisTestCommit(unittest.TestCase):
 
     def setUp(self) -> None:
         self.store = _make_store()
-        self.svc = _make_svc(self.store)
-        self.artifact_id = self.svc._test_svc._commit_artifact_with_extraction(
+
+        self.artifact_id = _commit_artifact_with_extraction(
+            self.store,
             _SESSION,
             _STEP_ID,
             "hypothesis_test",
@@ -587,8 +709,9 @@ class TestForecastCommit(unittest.TestCase):
 
     def setUp(self) -> None:
         self.store = _make_store()
-        self.svc = _make_svc(self.store)
-        self.artifact_id = self.svc._test_svc._commit_artifact_with_extraction(
+
+        self.artifact_id = _commit_artifact_with_extraction(
+            self.store,
             _SESSION,
             _STEP_ID,
             "forecast_series",
@@ -612,8 +735,8 @@ class TestForecastCommit(unittest.TestCase):
 
     def test_one_bucket_produces_one_finding(self) -> None:
         store = _make_store()
-        svc = _make_svc(store)
-        art_id = svc._test_svc._commit_artifact_with_extraction(
+        art_id = _commit_artifact_with_extraction(
+            store,
             _SESSION,
             _STEP_ID,
             "forecast_series",

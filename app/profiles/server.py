@@ -131,6 +131,8 @@ def create_server_runtime(config: ServerConfig) -> ServerComposition:
         marivo_config=config.marivo_config,
     )
     runtime = MarivoRuntime(ports, CoreEngine())
+    runtime.wire_datasource_svc(datasource_service)
+    runtime.wire_semantic_v2_svc(semantic_v2)
 
     return ServerComposition(
         runtime=runtime,
@@ -168,7 +170,6 @@ def _build_server_ports(
         SqlSessionStoreAdapter,
         TomlRuntimeConfigAdapter,
     )
-    from app.session.session_manager import SessionManager
     from app.storage.evidence_repositories import (
         ActionProposalRepository,
         AssessmentRepository,
@@ -189,7 +190,7 @@ def _build_server_ports(
 
     return RuntimePorts(
         model_store=SqlModelStoreAdapter(semantic_v2_service, metadata_store),
-        session_store=SqlSessionStoreAdapter(SessionManager(metadata_store), metadata_store),
+        session_store=SqlSessionStoreAdapter(metadata_store),
         evidence_store=MetadataEvidenceStoreAdapter(
             finding_repo=finding_repo,
             proposition_repo=proposition_repo,

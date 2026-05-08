@@ -888,7 +888,7 @@ class ArtifactLifecycleTests(unittest.TestCase):
         get_seeded_duckdb_path(db_path)
         _seed_default_calendar_source_metadata(db_path)
         cls.app = create_app(db_path)
-        cls.service = cls.app.state.services.service
+        cls.service = cls.app.state.services.runtime
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -897,7 +897,7 @@ class ArtifactLifecycleTests(unittest.TestCase):
     def _make_session(self) -> str:
 
         session_id = f"sess_{uuid4().hex[:12]}"
-        self.service.metadata.execute(
+        self.service.ports.metadata.execute(
             "INSERT INTO sessions (session_id, goal, constraints_json, budget_json, status) "
             "VALUES (?, ?, '{}', '{}', 'open')",
             [session_id, "lifecycle test"],
@@ -907,10 +907,10 @@ class ArtifactLifecycleTests(unittest.TestCase):
     def test_insert_artifact_staged_lifecycle(self) -> None:
         session_id = self._make_session()
         step_id = f"step_{session_id[:8]}"
-        artifact_id = self.service._insert_artifact(
+        artifact_id = self.service.insert_artifact(
             session_id, step_id, "observation", "test", {"v": 1}, lifecycle="staged"
         )
-        row = self.service.metadata.query_one(
+        row = self.service.ports.metadata.query_one(
             "SELECT lifecycle FROM artifacts WHERE artifact_id = ?", [artifact_id]
         )
         self.assertIsNotNone(row)
@@ -919,11 +919,14 @@ class ArtifactLifecycleTests(unittest.TestCase):
     def test_commit_artifact_transitions_to_committed(self) -> None:
         session_id = self._make_session()
         step_id = f"step_{session_id[:8]}"
-        artifact_id = self.service._insert_artifact(
+        artifact_id = self.service.insert_artifact(
             session_id, step_id, "observation", "test", {"v": 2}, lifecycle="staged"
         )
-        self.service._commit_artifact(artifact_id)
-        row = self.service.metadata.query_one(
+        self.service.ports.metadata.execute(
+            "UPDATE artifacts SET lifecycle = 'committed' WHERE artifact_id = ?",
+            [artifact_id],
+        )
+        row = self.service.ports.metadata.query_one(
             "SELECT lifecycle FROM artifacts WHERE artifact_id = ?", [artifact_id]
         )
         self.assertIsNotNone(row)
@@ -933,8 +936,8 @@ class ArtifactLifecycleTests(unittest.TestCase):
         session_id = self._make_session()
         step_id = f"step_{session_id[:8]}"
         content = {"observation_type": "scalar", "value": 42.0}
-        self.service._insert_artifact(session_id, step_id, "observation", "test", content)
-        result = self.service._resolve_artifact_for_ref(session_id, step_id)
+        self.service.insert_artifact(session_id, step_id, "observation", "test", content)
+        result = self.service.resolve_artifact_for_ref(session_id, step_id)
         self.assertIsNotNone(result)
         self.assertEqual(result["observation_type"], "scalar")
         self.assertEqual(result["value"], 42.0)
@@ -943,14 +946,14 @@ class ArtifactLifecycleTests(unittest.TestCase):
         """Staged artifacts are not returned by ref resolution."""
         session_id = self._make_session()
         step_id = f"step_{session_id[:8]}_staged"
-        self.service._insert_artifact(
+        self.service.insert_artifact(
             session_id, step_id, "observation", "test", {"v": 3}, lifecycle="staged"
         )
-        result = self.service._resolve_artifact_for_ref(session_id, step_id)
+        result = self.service.resolve_artifact_for_ref(session_id, step_id)
         self.assertIsNone(result)
 
     def test_resolve_artifact_for_ref_not_found_returns_none(self) -> None:
-        result = self.service._resolve_artifact_for_ref("sess_nonexistent", "step_none")
+        result = self.service.resolve_artifact_for_ref("sess_nonexistent", "step_none")
         self.assertIsNone(result)
 
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from app.contracts.ids import (
     Action,
@@ -193,12 +193,9 @@ def _make_ports() -> object:
 
 
 def _make_runtime() -> MarivoRuntime:
-    mock_svc = MagicMock()
-    mock_svc.run_intent.return_value = {"status": "ok"}
     ports = _make_ports()
     core = CoreEngine()
     rt = MarivoRuntime(ports=ports, core=core)
-    rt._test_svc = mock_svc
     return rt
 
 

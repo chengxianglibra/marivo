@@ -15,7 +15,6 @@ forbidden_modules =
     app.semantic_runtime
     app.semantic_service_v2
     app.execution
-    app.session
     app.registry
     app.adapters
     app.cli
@@ -33,7 +32,6 @@ forbidden_modules =
     app.semantic_runtime
     app.semantic_service_v2
     app.execution
-    app.session
     app.registry
     app.adapters
     app.cli
@@ -46,15 +44,6 @@ source_modules =
 forbidden_modules =
     app.analysis_core
     app.evidence_engine
-
-[importlinter:contract:runtime-no-service]
-name = runtime/ must not import app.service or app.session.session_manager
-type = forbidden
-source_modules =
-    app.runtime
-forbidden_modules =
-    app.service
-    app.session.session_manager
 
 [importlinter:contract:core-no-io]
 name = core/ must not import I/O or ports
@@ -69,12 +58,10 @@ forbidden_modules =
     app.semantic_runtime
     app.semantic_service_v2
     app.execution
-    app.session
     app.registry
     app.adapters
     app.cli
     app.ports
-    app.service
 
 [importlinter:contract:runtime-must-use-core]
 name = runtime/ must use core/ for domain logic
@@ -95,10 +82,7 @@ forbidden_modules =
     app.analysis_core
     app.evidence_engine
     app.semantic_runtime
-    app.service
-    app.session.session_manager
 ignore_imports =
-    app.api.app_factory -> app.service
     app.api.sessions -> app.runtime
 
 [importlinter:contract:transports-mcp-no-api-internals]
@@ -116,3 +100,12 @@ source_modules =
     app.profiles
 forbidden_modules =
     app.runtime.factory
+
+[importlinter:contract:no-app-service]
+name = No module may import app.service or app.session.session_manager
+type = forbidden
+source_modules =
+    app
+forbidden_modules =
+    app.service
+    app.session.session_manager

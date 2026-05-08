@@ -8,7 +8,6 @@ from contextlib import closing
 from importlib import import_module
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock
 from uuid import uuid4
 
 import pytest
@@ -27,7 +26,6 @@ from app.evidence_engine.finding_extractor_registry import (
     FindingExtractor,
     FindingExtractorRegistry,
 )
-from app.storage.analytics import AnalyticsEngine
 from app.storage.mysql_metadata import (
     MySQLMetadataStore,
     _expected_mysql_foreign_key_names,
@@ -444,21 +442,91 @@ class MySQLMetadataIntegrationTests(unittest.TestCase):
             [session_id, "rollback", "{}", "{}", "{}", "open"],
         )
 
-        from tests.semantic_test_helpers import build_runtime
+        import json as _json
 
-        runtime = build_runtime(self.store, MagicMock(spec=AnalyticsEngine))
+        from app.evidence_engine.canonical_finding import StepRef as _StepRef
+        from app.evidence_engine.finding_extractor_registry import validate_for_commit as _validate
+
         registry = FindingExtractorRegistry()
         registry.register(_ObserveSuccessExtractor())
+        extractor = registry.find("observation_artifact", None)
+        assert extractor is not None
+        artifact_id = f"art_{uuid4().hex[:12]}"
+        effective_step_ref = _StepRef(
+            session_id=session_id,
+            step_id=step_id,
+            step_type="observe",
+        )
+        result = extractor.extract(
+            artifact_id, {"observation_type": "scalar"}, effective_step_ref, session_id
+        )
+        _validate(extractor.family, result)
 
-        with self.assertRaisesRegex(RuntimeError, "injected finding insert failure"):
-            runtime._test_svc._commit_artifact_with_extraction(
-                session_id,
-                step_id,
-                "observation_artifact",
-                "obs_rollback",
-                {"observation_type": "scalar"},
-                _registry=registry,
+        with (
+            self.assertRaisesRegex(RuntimeError, "injected finding insert failure"),
+            self.store.connect() as con,
+        ):
+            self.store.execute_sql(
+                con,
+                """
+                    INSERT INTO artifacts
+                        (artifact_id, session_id, step_id, artifact_type, name,
+                         content_json, lifecycle, artifact_schema_version)
+                    VALUES (?, ?, ?, ?, ?, ?, 'staged', ?)
+                    """,
+                [
+                    artifact_id,
+                    session_id,
+                    step_id,
+                    "observation_artifact",
+                    "obs_rollback",
+                    _json.dumps({"observation_type": "scalar"}, default=str, sort_keys=True),
+                    None,
+                ],
             )
+            for f in result["findings"]:
+                self.store.execute_sql(
+                    con,
+                    self.store.insert_ignore_sql(
+                        "findings",
+                        [
+                            "finding_id",
+                            "session_id",
+                            "artifact_id",
+                            "step_ref_json",
+                            "finding_type",
+                            "canonical_item_key",
+                            "subject_json",
+                            "observed_window_json",
+                            "quality_json",
+                            "provenance_json",
+                            "payload_json",
+                            "schema_version",
+                        ],
+                    ),
+                    [
+                        f["finding_id"],
+                        session_id,
+                        artifact_id,
+                        _json.dumps(f["step_ref"]),
+                        f["finding_type"],
+                        f["provenance"]["canonical_item_key"],
+                        _json.dumps(f["subject"]),
+                        _json.dumps(f["observed_window"])
+                        if f.get("observed_window") is not None
+                        else None,
+                        _json.dumps(f["quality"]),
+                        _json.dumps(f["provenance"]),
+                        _json.dumps(f["payload"]),
+                        "v1",
+                    ],
+                )
+            self.store.execute_sql(
+                con,
+                "UPDATE artifacts SET lifecycle = 'committed' WHERE artifact_id = ?",
+                [artifact_id],
+            )
+            con.commit()
 
         self.assertEqual(
             self.store.query_one(

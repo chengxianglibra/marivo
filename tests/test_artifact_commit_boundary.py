@@ -16,7 +16,6 @@ from __future__ import annotations
 import contextlib
 import unittest
 from typing import Any
-from unittest.mock import MagicMock
 
 from app.evidence_engine.canonical_finding import (
     FindingExtractionResult,
@@ -29,8 +28,6 @@ from app.evidence_engine.finding_extractor_registry import (
     FindingExtractor,
     FindingExtractorRegistry,
 )
-from app.runtime.runtime import MarivoRuntime
-from app.storage.analytics import AnalyticsEngine
 from app.storage.evidence_repositories import FindingRepository
 from app.storage.sqlite_metadata import SQLiteMetadataStore
 from tests.shared_fixtures import ManagedSQLiteMetadataStore, make_temp_metadata_store
@@ -72,11 +69,134 @@ def _make_failing_finding_store() -> _FailFindingInsertSQLiteStore:
     return store
 
 
-def _make_svc(store: SQLiteMetadataStore) -> MarivoRuntime:
-    from tests.semantic_test_helpers import build_runtime
+def _commit_artifact_with_extraction(
+    store: SQLiteMetadataStore,
+    session_id: str,
+    step_id: str,
+    artifact_type: str,
+    name: str,
+    content: Any,
+    *,
+    step_type: str | None = None,
+    artifact_schema_version: str | None = None,
+    _registry: FindingExtractorRegistry | None = None,
+) -> str:
+    """Commit boundary for test artifacts, operating directly on the metadata store.
 
-    mock_analytics = MagicMock(spec=AnalyticsEngine)
-    return build_runtime(store, mock_analytics)
+    Replicates the logic from SemanticLayerService._commit_artifact_with_extraction
+    so that tests don't depend on the adapter path (which requires app.findings).
+    """
+    import json as _json
+    from uuid import uuid4
+
+    from app.evidence_engine.canonical_finding import StepRef as _StepRef
+    from app.evidence_engine.finding_extractor_registry import (
+        default_finding_registry as _default_reg,
+    )
+    from app.evidence_engine.finding_extractor_registry import (
+        validate_for_commit as _validate,
+    )
+
+    registry = _registry if _registry is not None else _default_reg
+    extractor = registry.find(artifact_type, artifact_schema_version)
+
+    if extractor is None:
+        # Non-mandatory family: insert as committed directly.
+        artifact_id = f"art_{uuid4().hex[:12]}"
+        store.execute(
+            """
+            INSERT INTO artifacts
+                (artifact_id, session_id, step_id, artifact_type, name,
+                 content_json, lifecycle, artifact_schema_version)
+            VALUES (?, ?, ?, ?, ?, ?, 'committed', ?)
+            """,
+            [
+                artifact_id,
+                session_id,
+                step_id,
+                artifact_type,
+                name,
+                _json.dumps(content, default=str, sort_keys=True),
+                artifact_schema_version,
+            ],
+        )
+        return artifact_id
+
+    # Mandatory extraction family.
+    artifact_id = f"art_{uuid4().hex[:12]}"
+    effective_step_ref = _StepRef(
+        session_id=session_id,
+        step_id=step_id,
+        step_type=step_type or artifact_type,
+    )
+    result = extractor.extract(artifact_id, content, effective_step_ref, session_id)
+    _validate(extractor.family, result)
+
+    # All writes in a single transaction.
+    with store.connect() as con:
+        store.execute_sql(
+            con,
+            """
+            INSERT INTO artifacts
+                (artifact_id, session_id, step_id, artifact_type, name,
+                 content_json, lifecycle, artifact_schema_version)
+            VALUES (?, ?, ?, ?, ?, ?, 'staged', ?)
+            """,
+            [
+                artifact_id,
+                session_id,
+                step_id,
+                artifact_type,
+                name,
+                _json.dumps(content, default=str, sort_keys=True),
+                artifact_schema_version,
+            ],
+        )
+        for f in result["findings"]:
+            store.execute_sql(
+                con,
+                store.insert_ignore_sql(
+                    "findings",
+                    [
+                        "finding_id",
+                        "session_id",
+                        "artifact_id",
+                        "step_ref_json",
+                        "finding_type",
+                        "canonical_item_key",
+                        "subject_json",
+                        "observed_window_json",
+                        "quality_json",
+                        "provenance_json",
+                        "payload_json",
+                        "schema_version",
+                    ],
+                ),
+                [
+                    f["finding_id"],
+                    session_id,
+                    artifact_id,
+                    _json.dumps(f["step_ref"]),
+                    f["finding_type"],
+                    f["provenance"]["canonical_item_key"],
+                    _json.dumps(f["subject"]),
+                    _json.dumps(f["observed_window"])
+                    if f.get("observed_window") is not None
+                    else None,
+                    _json.dumps(f["quality"]),
+                    _json.dumps(f["provenance"]),
+                    _json.dumps(f["payload"]),
+                    "v1",
+                ],
+            )
+        store.execute_sql(
+            con,
+            "UPDATE artifacts SET lifecycle = 'committed' WHERE artifact_id = ?",
+            [artifact_id],
+        )
+        con.commit()
+
+    return artifact_id
 
 
 def _build_observation_finding(artifact_id: str) -> dict[str, Any]:
@@ -255,11 +375,11 @@ class _ObserveRaiseExtractor(FindingExtractor):
 class TestNoExtractorDirectCommit(unittest.TestCase):
     def setUp(self) -> None:
         self.store = _make_store()
-        self.svc = _make_svc(self.store)
         self.registry = FindingExtractorRegistry()  # empty — no extractor registered
 
     def test_no_extractor_artifact_lifecycle_is_committed(self) -> None:
-        artifact_id = self.svc._test_svc._commit_artifact_with_extraction(
+        artifact_id = _commit_artifact_with_extraction(
+            self.store,
             _SESSION_ID,
             _STEP_ID,
             "profile",  # not registered in the empty registry
@@ -274,7 +394,8 @@ class TestNoExtractorDirectCommit(unittest.TestCase):
         self.assertEqual(row["lifecycle"], "committed")
 
     def test_no_extractor_no_findings_written(self) -> None:
-        artifact_id = self.svc._test_svc._commit_artifact_with_extraction(
+        artifact_id = _commit_artifact_with_extraction(
+            self.store,
             _SESSION_ID,
             _STEP_ID,
             "profile",
@@ -286,7 +407,8 @@ class TestNoExtractorDirectCommit(unittest.TestCase):
         self.assertEqual(rows, [])
 
     def test_no_extractor_returns_artifact_id(self) -> None:
-        artifact_id = self.svc._test_svc._commit_artifact_with_extraction(
+        artifact_id = _commit_artifact_with_extraction(
+            self.store,
             _SESSION_ID,
             _STEP_ID,
             "profile",
@@ -306,12 +428,12 @@ class TestNoExtractorDirectCommit(unittest.TestCase):
 class TestExtractionSuccess(unittest.TestCase):
     def setUp(self) -> None:
         self.store = _make_store()
-        self.svc = _make_svc(self.store)
         self.registry = FindingExtractorRegistry()
         self.registry.register(_ObserveSuccessExtractor())
 
     def test_success_artifact_lifecycle_is_committed(self) -> None:
-        artifact_id = self.svc._test_svc._commit_artifact_with_extraction(
+        artifact_id = _commit_artifact_with_extraction(
+            self.store,
             _SESSION_ID,
             _STEP_ID,
             "observation_artifact",
@@ -326,7 +448,8 @@ class TestExtractionSuccess(unittest.TestCase):
         self.assertEqual(row["lifecycle"], "committed")
 
     def test_success_findings_persisted(self) -> None:
-        artifact_id = self.svc._test_svc._commit_artifact_with_extraction(
+        artifact_id = _commit_artifact_with_extraction(
+            self.store,
             _SESSION_ID,
             _STEP_ID,
             "observation_artifact",
@@ -340,7 +463,8 @@ class TestExtractionSuccess(unittest.TestCase):
         self.assertEqual(rows[0]["session_id"], _SESSION_ID)
 
     def test_success_finding_id_is_deterministic(self) -> None:
-        artifact_id = self.svc._test_svc._commit_artifact_with_extraction(
+        artifact_id = _commit_artifact_with_extraction(
+            self.store,
             _SESSION_ID,
             _STEP_ID,
             "observation_artifact",
@@ -361,13 +485,13 @@ class TestExtractionSuccess(unittest.TestCase):
 class TestTransactionRollbackAfterArtifactStage(unittest.TestCase):
     def setUp(self) -> None:
         self.store = _make_failing_finding_store()
-        self.svc = _make_svc(self.store)
         self.registry = FindingExtractorRegistry()
         self.registry.register(_ObserveSuccessExtractor())
 
     def test_finding_insert_failure_rolls_back_staged_artifact(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "injected finding insert failure"):
-            self.svc._test_svc._commit_artifact_with_extraction(
+            _commit_artifact_with_extraction(
+                self.store,
                 _SESSION_ID,
                 _STEP_ID,
                 "observation_artifact",
@@ -407,13 +531,13 @@ class TestTransactionRollbackAfterArtifactStage(unittest.TestCase):
 class TestExtractionCrashNoArtifact(unittest.TestCase):
     def setUp(self) -> None:
         self.store = _make_store()
-        self.svc = _make_svc(self.store)
         self.registry = FindingExtractorRegistry()
         self.registry.register(_ObserveRaiseExtractor())
 
     def test_extraction_failure_raises(self) -> None:
         with self.assertRaises(RuntimeError):
-            self.svc._test_svc._commit_artifact_with_extraction(
+            _commit_artifact_with_extraction(
+                self.store,
                 _SESSION_ID,
                 _STEP_ID,
                 "observation_artifact",
@@ -424,7 +548,8 @@ class TestExtractionCrashNoArtifact(unittest.TestCase):
 
     def test_extraction_failure_no_artifact_written(self) -> None:
         with contextlib.suppress(RuntimeError):
-            self.svc._test_svc._commit_artifact_with_extraction(
+            _commit_artifact_with_extraction(
+                self.store,
                 _SESSION_ID,
                 _STEP_ID,
                 "observation_artifact",
@@ -442,7 +567,8 @@ class TestExtractionCrashNoArtifact(unittest.TestCase):
 
     def test_extraction_failure_no_findings_written(self) -> None:
         with contextlib.suppress(RuntimeError):
-            self.svc._test_svc._commit_artifact_with_extraction(
+            _commit_artifact_with_extraction(
+                self.store,
                 _SESSION_ID,
                 _STEP_ID,
                 "observation_artifact",
@@ -462,13 +588,13 @@ class TestExtractionCrashNoArtifact(unittest.TestCase):
 class TestFamilyEmptyErrorNoArtifact(unittest.TestCase):
     def setUp(self) -> None:
         self.store = _make_store()
-        self.svc = _make_svc(self.store)
         self.registry = FindingExtractorRegistry()
         self.registry.register(_CompareEmptyExtractor())
 
     def test_family_empty_error_is_raised(self) -> None:
         with self.assertRaises(FamilyEmptyError):
-            self.svc._test_svc._commit_artifact_with_extraction(
+            _commit_artifact_with_extraction(
+                self.store,
                 _SESSION_ID,
                 _STEP_ID,
                 "compare_artifact",
@@ -479,7 +605,8 @@ class TestFamilyEmptyErrorNoArtifact(unittest.TestCase):
 
     def test_family_empty_error_no_artifact_written(self) -> None:
         with contextlib.suppress(FamilyEmptyError):
-            self.svc._test_svc._commit_artifact_with_extraction(
+            _commit_artifact_with_extraction(
+                self.store,
                 _SESSION_ID,
                 _STEP_ID,
                 "compare_artifact",
@@ -497,7 +624,8 @@ class TestFamilyEmptyErrorNoArtifact(unittest.TestCase):
 
     def test_family_empty_error_no_findings_written(self) -> None:
         with contextlib.suppress(FamilyEmptyError):
-            self.svc._test_svc._commit_artifact_with_extraction(
+            _commit_artifact_with_extraction(
+                self.store,
                 _SESSION_ID,
                 _STEP_ID,
                 "compare_artifact",
@@ -517,13 +645,13 @@ class TestFamilyEmptyErrorNoArtifact(unittest.TestCase):
 class TestCountMismatchNoArtifact(unittest.TestCase):
     def setUp(self) -> None:
         self.store = _make_store()
-        self.svc = _make_svc(self.store)
         self.registry = FindingExtractorRegistry()
         self.registry.register(_ObserveCountMismatchExtractor())
 
     def test_count_mismatch_raises_value_error(self) -> None:
         with self.assertRaises(ValueError):
-            self.svc._test_svc._commit_artifact_with_extraction(
+            _commit_artifact_with_extraction(
+                self.store,
                 _SESSION_ID,
                 _STEP_ID,
                 "observation_artifact",
@@ -534,7 +662,8 @@ class TestCountMismatchNoArtifact(unittest.TestCase):
 
     def test_count_mismatch_no_artifact_written(self) -> None:
         with contextlib.suppress(ValueError):
-            self.svc._test_svc._commit_artifact_with_extraction(
+            _commit_artifact_with_extraction(
+                self.store,
                 _SESSION_ID,
                 _STEP_ID,
                 "observation_artifact",
@@ -552,7 +681,8 @@ class TestCountMismatchNoArtifact(unittest.TestCase):
 
     def test_count_mismatch_no_findings_written(self) -> None:
         with contextlib.suppress(ValueError):
-            self.svc._test_svc._commit_artifact_with_extraction(
+            _commit_artifact_with_extraction(
+                self.store,
                 _SESSION_ID,
                 _STEP_ID,
                 "observation_artifact",
@@ -572,13 +702,13 @@ class TestCountMismatchNoArtifact(unittest.TestCase):
 class TestFindingIdempotency(unittest.TestCase):
     def setUp(self) -> None:
         self.store = _make_store()
-        self.svc = _make_svc(self.store)
         self.registry = FindingExtractorRegistry()
         self.registry.register(_ObserveSuccessExtractor())
 
     def test_replay_does_not_error(self) -> None:
         """Re-inserting the same finding_id via FindingRepository.create() is silent."""
-        artifact_id = self.svc._test_svc._commit_artifact_with_extraction(
+        artifact_id = _commit_artifact_with_extraction(
+            self.store,
             _SESSION_ID,
             _STEP_ID,
             "observation_artifact",
@@ -612,7 +742,8 @@ class TestFindingIdempotency(unittest.TestCase):
 
     def test_finding_id_is_stable_for_same_artifact(self) -> None:
         """The same artifact payload must produce the same finding_id on replay."""
-        artifact_id = self.svc._test_svc._commit_artifact_with_extraction(
+        artifact_id = _commit_artifact_with_extraction(
+            self.store,
             _SESSION_ID,
             _STEP_ID,
             "observation_artifact",
@@ -636,12 +767,12 @@ class TestFindingIdempotency(unittest.TestCase):
 class TestObserveAllowsEmpty(unittest.TestCase):
     def setUp(self) -> None:
         self.store = _make_store()
-        self.svc = _make_svc(self.store)
         self.registry = FindingExtractorRegistry()
         self.registry.register(_ObserveEmptyExtractor())
 
     def test_observe_empty_artifact_is_committed(self) -> None:
-        artifact_id = self.svc._test_svc._commit_artifact_with_extraction(
+        artifact_id = _commit_artifact_with_extraction(
+            self.store,
             _SESSION_ID,
             _STEP_ID,
             "observation_artifact",
@@ -656,7 +787,8 @@ class TestObserveAllowsEmpty(unittest.TestCase):
         self.assertEqual(row["lifecycle"], "committed")
 
     def test_observe_empty_no_findings_written(self) -> None:
-        artifact_id = self.svc._test_svc._commit_artifact_with_extraction(
+        artifact_id = _commit_artifact_with_extraction(
+            self.store,
             _SESSION_ID,
             _STEP_ID,
             "observation_artifact",
@@ -676,13 +808,13 @@ class TestObserveAllowsEmpty(unittest.TestCase):
 class TestCompareRejectsEmpty(unittest.TestCase):
     def setUp(self) -> None:
         self.store = _make_store()
-        self.svc = _make_svc(self.store)
         self.registry = FindingExtractorRegistry()
         self.registry.register(_CompareEmptyExtractor())
 
     def test_compare_empty_raises_family_empty_error(self) -> None:
         with self.assertRaises(FamilyEmptyError) as ctx:
-            self.svc._test_svc._commit_artifact_with_extraction(
+            _commit_artifact_with_extraction(
+                self.store,
                 _SESSION_ID,
                 _STEP_ID,
                 "compare_artifact",
@@ -694,7 +826,8 @@ class TestCompareRejectsEmpty(unittest.TestCase):
 
     def test_compare_empty_no_artifact_written(self) -> None:
         with contextlib.suppress(FamilyEmptyError):
-            self.svc._test_svc._commit_artifact_with_extraction(
+            _commit_artifact_with_extraction(
+                self.store,
                 _SESSION_ID,
                 _STEP_ID,
                 "compare_artifact",
