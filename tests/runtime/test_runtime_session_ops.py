@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from app.contracts.errors import NotFoundError
 from app.contracts.ids import (
     Action,
     ArtifactId,
@@ -66,7 +67,13 @@ class RecordingSessionStore:
         self._events[key].append(event)
 
     def load_events(self, session_id: SessionId) -> list[SessionEvent]:
-        return list(self._events.get(str(session_id), []))
+        key = str(session_id)
+        if key not in self._events:
+            raise NotFoundError(
+                code="SESSION_NOT_FOUND",
+                message=f"Session {session_id!r} not found",
+            )
+        return list(self._events[key])
 
     def list_sessions(self, owner: UserId) -> list[SessionState]:
         states: list[SessionState] = []
@@ -204,18 +211,18 @@ def _make_runtime(session_store: RecordingSessionStore | None = None) -> MarivoR
 # --- Session lifecycle tests (ports-based) ---
 
 
-def test_create_session_returns_session_id() -> None:
+def test_create_session_returns_session_state() -> None:
     rt = _make_runtime()
     result = rt.create_session("Analyze revenue")
-    assert isinstance(result, str)
-    assert result.startswith("sess-")
+    assert isinstance(result, SessionState)
+    assert result.session_id.startswith("sess-")
 
 
 def test_create_session_appends_created_event() -> None:
     store = RecordingSessionStore()
     rt = _make_runtime(session_store=store)
-    session_id = rt.create_session("Analyze revenue")
-    events = store.load_events(session_id)
+    state = rt.create_session("Analyze revenue")
+    events = store.load_events(state.session_id)
     assert len(events) == 1
     assert events[0].event_type == "session_created"
     assert events[0].payload["goal"] == "Analyze revenue"
@@ -224,51 +231,53 @@ def test_create_session_appends_created_event() -> None:
 def test_create_session_passes_kwargs_in_payload() -> None:
     store = RecordingSessionStore()
     rt = _make_runtime(session_store=store)
-    session_id = rt.create_session("Goal", budget={"max_steps": 5})
-    events = store.load_events(session_id)
+    state = rt.create_session("Goal", budget={"max_steps": 5})
+    events = store.load_events(state.session_id)
     assert events[0].payload["budget"] == {"max_steps": 5}
 
 
 def test_get_session_returns_state() -> None:
     rt = _make_runtime()
-    session_id = rt.create_session("Test goal")
-    state = rt.get_session(session_id)
-    assert state is not None
-    assert isinstance(state, SessionState)
-    assert state.session_id == session_id
-    assert state.goal == "Test goal"
-    assert state.status == "active"
+    state = rt.create_session("Test goal")
+    fetched = rt.get_session(state.session_id)
+    assert isinstance(fetched, SessionState)
+    assert fetched.session_id == state.session_id
+    assert fetched.goal == "Test goal"
+    assert fetched.status == "active"
 
 
-def test_get_session_returns_none_for_unknown() -> None:
+def test_get_session_raises_not_found_for_unknown() -> None:
     rt = _make_runtime()
-    result = rt.get_session(SessionId("nonexistent"))
-    assert result is None
+    import pytest
+
+    with pytest.raises(NotFoundError):
+        rt.get_session(SessionId("nonexistent"))
 
 
 def test_terminate_session_appends_terminated_event() -> None:
     store = RecordingSessionStore()
     rt = _make_runtime(session_store=store)
-    session_id = rt.create_session("Test goal")
-    rt.terminate_session(session_id)
-    events = store.load_events(session_id)
+    state = rt.create_session("Test goal")
+    rt.terminate_session(state.session_id, actor=UserId("test-user"))
+    events = store.load_events(state.session_id)
     assert len(events) == 2
     assert events[1].event_type == "session_terminated"
 
 
 def test_get_session_state_returns_rebuilt_state() -> None:
     rt = _make_runtime()
-    session_id = rt.create_session("Test goal")
-    rt.terminate_session(session_id)
-    state = rt.get_session_state(session_id)
-    assert state is not None
-    assert state.status == "terminated"
+    state = rt.create_session("Test goal")
+    rt.terminate_session(state.session_id, actor=UserId("test-user"))
+    fetched = rt.get_session_state(state.session_id)
+    assert fetched.status == "terminated"
 
 
-def test_get_session_state_returns_none_for_unknown() -> None:
+def test_get_session_state_raises_not_found_for_unknown() -> None:
     rt = _make_runtime()
-    result = rt.get_session_state(SessionId("nonexistent"))
-    assert result is None
+    import pytest
+
+    with pytest.raises(NotFoundError):
+        rt.get_session_state(SessionId("nonexistent"))
 
 
 # --- Semantic model ops tests ---

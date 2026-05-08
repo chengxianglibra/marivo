@@ -1,23 +1,18 @@
 from __future__ import annotations
 
-import uuid
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from app.contracts.errors import ErrorCode, NotFoundError, ValidationError
 from app.contracts.ids import ModelId, SessionId, StepId, UserId
 from app.contracts.semantic import ModelSummary, SemanticModel
-from app.contracts.session import SessionEvent, SessionState
-from app.core.session.rebuild import rebuild_session_state
+from app.contracts.session import SessionState
+from app.runtime import intent_execution
+from app.runtime import session as session_ops
 
 if TYPE_CHECKING:
     from app.core.engine import CoreEngine
     from app.runtime.ports import RuntimePorts
     from app.service import SemanticLayerService
-
-
-def _iso_now() -> str:
-    return datetime.now(UTC).isoformat()
 
 
 class MarivoRuntime:
@@ -241,146 +236,145 @@ class MarivoRuntime:
         return self._svc
 
     def observe(self, session_id: str, params: dict[str, Any]) -> dict[str, Any]:
-        return self.svc.run_intent(session_id, "observe", params)
+        return intent_execution.observe(self, SessionId(session_id), params)
 
     def compare(self, session_id: str, params: dict[str, Any]) -> dict[str, Any]:
-        return self.svc.run_intent(session_id, "compare", params)
+        return intent_execution.compare(self, SessionId(session_id), params)
 
     def decompose(self, session_id: str, params: dict[str, Any]) -> dict[str, Any]:
-        return self.svc.run_intent(session_id, "decompose", params)
+        return intent_execution.decompose(self, SessionId(session_id), params)
 
     def correlate(self, session_id: str, params: dict[str, Any]) -> dict[str, Any]:
-        return self.svc.run_intent(session_id, "correlate", params)
+        return intent_execution.correlate(self, SessionId(session_id), params)
 
     def detect(self, session_id: str, params: dict[str, Any]) -> dict[str, Any]:
-        return self.svc.run_intent(session_id, "detect", params)
+        return intent_execution.detect(self, SessionId(session_id), params)
 
     def test(self, session_id: str, params: dict[str, Any]) -> dict[str, Any]:
-        return self.svc.run_intent(session_id, "test", params)
+        return intent_execution.test(self, SessionId(session_id), params)
 
     def forecast(self, session_id: str, params: dict[str, Any]) -> dict[str, Any]:
-        return self.svc.run_intent(session_id, "forecast", params)
+        return intent_execution.forecast(self, SessionId(session_id), params)
 
     def attribute(self, session_id: str, params: dict[str, Any]) -> dict[str, Any]:
-        return self.svc.run_intent(session_id, "attribute", params)
+        return intent_execution.attribute(self, SessionId(session_id), params)
 
     def diagnose(self, session_id: str, params: dict[str, Any]) -> dict[str, Any]:
-        return self.svc.run_intent(session_id, "diagnose", params)
+        return intent_execution.diagnose(self, SessionId(session_id), params)
 
     def validate(self, session_id: str, params: dict[str, Any]) -> dict[str, Any]:
-        return self.svc.run_intent(session_id, "validate", params)
+        return intent_execution.validate(self, SessionId(session_id), params)
 
-    # --- Session lifecycle (ports-based, svc fallback) ---
+    # --- Session lifecycle (delegates to runtime/session, svc fallback) ---
 
-    def create_session(self, goal: str, **kwargs: Any) -> SessionId | dict[str, Any]:
-        """Create a new session.
+    def create_session(
+        self, goal: str, actor: UserId | None = None, **kwargs: Any
+    ) -> SessionState | dict[str, Any]:
+        """Create a new session, returning the rebuilt SessionState.
 
-        Uses ports.session_store when available. Falls back to svc
-        when the session store adapter does not implement the
-        event-sourced interface (e.g. SqlSessionStoreAdapter).
+        Delegates to runtime/session.  Falls back to svc when the
+        session store adapter raises NotImplementedError (e.g.
+        SqlSessionStoreAdapter which is CRUD-based, not event-sourced).
+        The svc fallback returns the raw AnalysisSession-shaped dict to
+        preserve fields (owner_user, scope, etc.) that SessionState
+        does not carry.
         """
         try:
-            session_id = SessionId(f"sess-{uuid.uuid4().hex[:12]}")
-            event = SessionEvent(
-                session_id=session_id,
-                event_type="session_created",
-                timestamp=_iso_now(),
-                payload={"goal": goal, **kwargs},
-                actor=None,
-            )
-            self._ports.session_store.append_event(session_id, event)
-            return session_id
+            return session_ops.create_session(self, goal, actor, **kwargs)
         except NotImplementedError:
-            # Session store adapter not yet event-sourced; delegate to svc
-            assert self._svc is not None, (
-                "Runtime.create_session: session_store raised NotImplementedError "
-                "and no svc fallback is available"
-            )
-            return self._svc.create_session(goal, **kwargs)
-
-    def get_session(self, session_id: str | SessionId) -> SessionState | dict[str, Any] | None:
-        """Get session state by ID.
-
-        Uses ports.session_store when available. Falls back to svc
-        when the session store adapter does not implement the
-        event-sourced interface.
-        """
-        sid = SessionId(session_id) if isinstance(session_id, str) else session_id
-        try:
-            events = self._ports.session_store.load_events(sid)
-            if not events:
-                return None
-            return rebuild_session_state(events)
-        except NotImplementedError:
-            assert self._svc is not None, (
-                "Runtime.get_session: session_store raised NotImplementedError "
-                "and no svc fallback is available"
-            )
-            return self._svc.get_session(str(sid))
-
-    def terminate_session(
-        self, session_id: str | SessionId, **kwargs: Any
-    ) -> dict[str, Any] | None:
-        """Terminate a session.
-
-        Uses ports.session_store when available. Falls back to svc
-        when the session store adapter does not implement the
-        event-sourced interface.
-        """
-        sid = SessionId(session_id) if isinstance(session_id, str) else session_id
-        try:
-            event = SessionEvent(
-                session_id=sid,
-                event_type="session_terminated",
-                timestamp=_iso_now(),
-                payload={},
-                actor=None,
-            )
-            self._ports.session_store.append_event(sid, event)
-            return None
-        except NotImplementedError:
-            assert self._svc is not None, (
-                "Runtime.terminate_session: session_store raised NotImplementedError "
-                "and no svc fallback is available"
-            )
-            return self._svc.terminate_session(str(sid), **kwargs)
-
-    def get_session_state(
-        self, session_id: str | SessionId, **kwargs: Any
-    ) -> SessionState | dict[str, Any] | None:
-        """Get session state view by ID.
-
-        Uses ports.session_store when available. Falls back to svc
-        when the session store adapter does not implement the
-        event-sourced interface.
-        """
-        sid = SessionId(session_id) if isinstance(session_id, str) else session_id
-        try:
-            events = self._ports.session_store.load_events(sid)
-            if not events:
-                return None
-            return rebuild_session_state(events)
-        except NotImplementedError:
-            assert self._svc is not None, (
-                "Runtime.get_session_state: session_store raised NotImplementedError "
-                "and no svc fallback is available"
-            )
-            return self._svc.get_session_state(str(sid), kwargs)
+            return self._require_svc("create_session").create_session(goal, **kwargs)
 
     def list_sessions(
+        self, owner: UserId | None = None, **kwargs: Any
+    ) -> list[SessionState] | dict[str, Any]:
+        """Return sessions, optionally filtered by *owner*.
+
+        When owner is provided and the port path works, returns sessions
+        owned by that user.  Falls back to svc when the port path raises
+        NotImplementedError or when owner is not provided (legacy
+        pagination-based listing).
+        """
+        if owner is not None:
+            try:
+                return session_ops.list_sessions(self, owner)
+            except NotImplementedError:
+                pass
+        return self._require_svc("list_sessions").list_sessions(**kwargs)
+
+    def get_session(self, session_id: SessionId) -> SessionState | dict[str, Any]:
+        """Get session state by ID.  Raises NotFoundError if not found.
+
+        Delegates to runtime/session.  Falls back to svc when the
+        session store adapter raises NotImplementedError.
+        """
+        try:
+            return session_ops.get_session(self, session_id)
+        except NotImplementedError:
+            return self._require_svc("get_session").get_session(str(session_id))
+
+    def terminate_session(
         self,
-        status: str | None = None,
-        session_id: str | None = None,
-        limit: int | None = None,
-        page_token: str | None = None,
+        session_id: SessionId,
+        actor: UserId,
+        terminal_reason: str = "user_closed",
+    ) -> None:
+        """Terminate a session.  Raises NotFoundError/ForbiddenError/ValidationError.
+
+        Delegates to runtime/session.  Falls back to svc when the
+        session store adapter raises NotImplementedError.
+        """
+        try:
+            session_ops.terminate_session(self, session_id, actor, terminal_reason=terminal_reason)
+        except NotImplementedError:
+            self._require_svc("terminate_session").terminate_session(
+                str(session_id), terminal_reason=terminal_reason
+            )
+
+    def get_session_state(
+        self, session_id: SessionId, **kwargs: Any
+    ) -> SessionState | dict[str, Any]:
+        """Get session state view by ID.
+
+        When kwargs are provided (structured query from the API),
+        delegates to svc because the port-based path returns a flat
+        SessionState which lacks proposition/finding/gap context.
+        Without kwargs, delegates to get_session (port-first, svc fallback).
+        Will be properly repointed in Task 14.
+        """
+        if kwargs:
+            return self._require_svc("get_session_state").get_session_state(str(session_id), kwargs)
+        return self.get_session(session_id)
+
+    def get_session_runtime_status(self, session_id: SessionId) -> dict[str, Any]:
+        """Return session-level operator runtime status."""
+        try:
+            return session_ops.get_session_runtime_status(self, session_id)
+        except NotImplementedError:
+            return self._require_svc("get_session_runtime_status").get_session_runtime_status(
+                str(session_id)
+            )
+
+    def get_artifact_runtime_status(
+        self, session_id: SessionId, artifact_id: str
     ) -> dict[str, Any]:
-        """List sessions matching optional filters."""
-        return self._require_svc("list_sessions").list_sessions(
-            status=status,
-            session_id=session_id,
-            limit=limit,
-            page_token=page_token,
-        )
+        """Return artifact-level operator runtime status."""
+        try:
+            return session_ops.get_artifact_runtime_status(self, session_id, artifact_id)
+        except NotImplementedError:
+            return self._require_svc("get_artifact_runtime_status").get_artifact_runtime_status(
+                str(session_id), artifact_id
+            )
+
+    def get_proposition_runtime_status(
+        self, session_id: SessionId, proposition_id: str
+    ) -> dict[str, Any]:
+        """Return proposition-level operator runtime status."""
+        try:
+            return session_ops.get_proposition_runtime_status(self, session_id, proposition_id)
+        except NotImplementedError:
+            return self._require_svc(
+                "get_proposition_runtime_status"
+            ).get_proposition_runtime_status(str(session_id), proposition_id)
 
     def query_session_state(self, session_id: str, query: dict[str, Any]) -> dict[str, Any]:
         """Return the canonical SessionStateView with a structured query body."""
