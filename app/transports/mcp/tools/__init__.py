@@ -17,6 +17,7 @@ from app.transports.mcp.tools.intents import (
     register_test_intent,
     register_validate,
 )
+from app.transports.mcp.tools.semantic import register_semantic_tools
 from app.transports.mcp.tools.session import register_session_tools
 
 
@@ -33,3 +34,4 @@ def register_tools(server: Any, runtime: Any) -> None:
     register_validate(server, runtime)
     register_session_tools(server, runtime)
     register_catalog_tools(server, runtime)
+    register_semantic_tools(server, runtime)
