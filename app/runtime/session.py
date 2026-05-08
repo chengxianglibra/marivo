@@ -350,3 +350,161 @@ def get_proposition_runtime_status(
             code=ErrorCode.NOT_FOUND,
             message=f"proposition {proposition_id!r} not found in session {session_id!r}",
         ) from err
+
+
+# ---------------------------------------------------------------------------
+# Session state view / proposition context (Task 17 — port-based)
+# ---------------------------------------------------------------------------
+
+
+def get_session_state_view(
+    runtime: MarivoRuntime, session_id: SessionId, query: dict[str, Any]
+) -> dict[str, Any]:
+    """Return the canonical SessionStateView for a session.
+
+    Delegates to materialize_session_state_view using evidence repos
+    from runtime.ports.evidence_repos (server mode).
+    """
+    from app.evidence_engine.state_view import materialize_session_state_view
+
+    repos = runtime.ports.evidence_repos
+    if repos is None:
+        raise NotImplementedError(
+            "get_session_state_view requires evidence_repos (server mode only)"
+        )
+    assert_session_exists(runtime, session_id)
+    return materialize_session_state_view(
+        session_id=str(session_id),
+        query=query,
+        proposition_repo=repos["proposition_repo"],
+        assessment_repo=repos["assessment_repo"],
+        finding_repo=repos["finding_repo"],
+        gap_repo=repos["gap_repo"],
+        inference_record_repo=repos["inference_record_repo"],
+        proposal_repo=repos["proposal_repo"],
+    )
+
+
+def query_session_state(
+    runtime: MarivoRuntime, session_id: str, query: dict[str, Any]
+) -> dict[str, Any]:
+    """Return the canonical SessionStateView with a structured query body.
+
+    Identical to get_session_state_view; the HTTP layer separates GET
+    and POST but the implementation does not distinguish.
+    """
+    return get_session_state_view(runtime, SessionId(session_id), query)
+
+
+def get_proposition_context(
+    runtime: MarivoRuntime, session_id: str, proposition_id: str
+) -> dict[str, Any]:
+    """Return PropositionContextView for a proposition."""
+    from app.evidence_engine.context_view import materialize_proposition_context_view
+
+    repos = runtime.ports.evidence_repos
+    if repos is None:
+        raise NotImplementedError(
+            "get_proposition_context requires evidence_repos (server mode only)"
+        )
+    return materialize_proposition_context_view(
+        session_id=session_id,
+        proposition_id=proposition_id,
+        proposition_repo=repos["proposition_repo"],
+        assessment_repo=repos["assessment_repo"],
+        finding_repo=repos["finding_repo"],
+        gap_repo=repos["gap_repo"],
+        inference_record_repo=repos["inference_record_repo"],
+        proposal_repo=repos["proposal_repo"],
+    )
+
+
+def discover_catalog(runtime: MarivoRuntime) -> dict[str, Any]:
+    """Return the API catalog of entities, models, and datasources."""
+    from typing import Any as AnyT
+
+    metadata = runtime.ports.metadata
+    semantic_repository = runtime.ports.semantic_repository
+    analytics = runtime.ports.analytics
+
+    if metadata is None or semantic_repository is None or analytics is None:
+        raise NotImplementedError(
+            "discover_catalog requires metadata, semantic_repository, and analytics (server mode only)"
+        )
+
+    # Entities
+    entity_rows = metadata.query_rows(
+        """
+        SELECT entity_ref, entity_contract_id
+        FROM semantic_entity_contracts
+        WHERE status = 'published'
+        ORDER BY entity_ref
+        """
+    )
+    entities: list[dict[str, AnyT]] = []
+    for row in entity_rows:
+        resolved_entity = semantic_repository.resolve_entity(
+            str(row["entity_ref"]).removeprefix("entity.")
+        )
+        if resolved_entity is None:
+            continue
+        entities.append({"id": resolved_entity.name, "keys": list(resolved_entity.key_refs)})
+
+    # Metrics
+    metric_rows = metadata.query_rows(
+        """
+        SELECT metric_ref
+        FROM semantic_metric_contracts
+        WHERE status = 'published'
+        ORDER BY metric_ref
+        """
+    )
+    metrics: list[dict[str, AnyT]] = []
+    for row in metric_rows:
+        resolved_metric = semantic_repository.resolve_metric(
+            str(row["metric_ref"]).removeprefix("metric.")
+        )
+        if resolved_metric is None:
+            continue
+        metrics.append(
+            {
+                "id": resolved_metric.name,
+                "label": resolved_metric.display_name,
+                "definition": resolved_metric.definition_sql,
+                "dimensions": list(resolved_metric.dimensions),
+            }
+        )
+
+    # Assets
+    assets: list[dict[str, AnyT]] = []
+    for fqn in (
+        "analytics.ad_events",
+        "analytics.player_qoe",
+        "analytics.recommendation_events",
+        "analytics.watch_events",
+    ):
+        native_name = fqn.rsplit(".", 1)[-1]
+        asset: dict[str, AnyT] = {
+            "id": native_name,
+            "kind": "table",
+            "fqn": fqn,
+            "source_id": None,
+        }
+        try:
+            asset["row_count"] = analytics.table_row_count(fqn)
+        except Exception:
+            asset["row_count"] = None
+        assets.append(asset)
+
+    # Policies
+    policies = [
+        "Results are aggregate-only in the MVP.",
+        "Evidence graph keeps support and contradiction links for every claim.",
+    ]
+
+    return {
+        "entities": entities,
+        "metrics": metrics,
+        "assets": assets,
+        "policies": policies,
+    }

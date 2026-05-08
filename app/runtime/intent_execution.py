@@ -115,10 +115,9 @@ def _run(
     - Assert the session exists and is open
     - Call the intent runner with (runtime, session_id, params)
 
-    The session assertion currently uses the session_store port to
+    The session assertion uses the session_store port to
     load events and verify the session is active.  If the port is not
-    yet available, falls back to the legacy session_manager via
-    runtime._svc.
+    yet available, falls back to session_ops.assert_session_is_open.
     """
     _assert_session_is_open(runtime, session_id)
     return intent_runner(runtime, session_id, params)
@@ -128,7 +127,7 @@ def _assert_session_is_open(runtime: MarivoRuntime, session_id: SessionId) -> No
     """Assert that a session exists and is open (active).
 
     Uses the session_store port when available. Falls back to the
-    legacy session_manager via runtime._svc when the port does not
+    legacy session_manager via runtime.svc when the port does not
     support the operation.
     """
     session_store = runtime.ports.session_store
@@ -146,9 +145,14 @@ def _assert_session_is_open(runtime: MarivoRuntime, session_id: SessionId) -> No
             )
     except (NotImplementedError, AttributeError):
         # Session store does not support load_events; fall back to svc
-        if runtime._svc is not None:
-            runtime._svc.session_manager.assert_session_is_open(session_id)
-        # If no svc either, skip assertion -- intent runner will fail
-        # naturally on a bad session_id.
+        # (retained for semantic_ops compatibility during migration).
+        try:
+            from app.runtime import session as session_ops
+
+            session_ops.assert_session_is_open(runtime, session_id)
+        except (NotImplementedError, AttributeError):
+            # If session_ops cannot assert either, skip -- intent runner
+            # will fail naturally on a bad session_id.
+            pass
     except NotFoundError as exc:
         raise KeyError(f"Unknown session: {session_id}") from exc

@@ -22,8 +22,6 @@ class MarivoRuntime:
     runtime/intent_execution.  Session lifecycle methods delegate to
     runtime/session.  Artifact/step I/O methods use ports directly.
     Semantic methods route through runtime/semantic_ops.
-    Ghost methods (query_session_state, get_proposition_context,
-    discover_catalog) still use _svc pending Task 17 audit.
     """
 
     def __init__(
@@ -33,20 +31,12 @@ class MarivoRuntime:
     ) -> None:
         self._ports = ports
         self._core = core
-        self._svc: SemanticLayerService | None = None  # set via wire_svc()
+        self._svc: SemanticLayerService | None = (
+            None  # retained for svc property (semantic_ops compat)
+        )
         self._semantic_v2_svc: Any = None  # set via wire_semantic_v2_svc()
         self._datasource_svc: Any = None  # set via wire_datasource_svc()
         self._app: Any = None  # set via wire_app()
-
-    def wire_svc(self, svc: SemanticLayerService) -> None:
-        """Attach the backing service for ghost methods.
-
-        Retained for ghost methods (query_session_state,
-        get_proposition_context, discover_catalog) and for
-        semantic_ops internals that still reference runtime.svc.
-        Will be removed after Task 17.
-        """
-        self._svc = svc
 
     def wire_semantic_v2_svc(self, svc: Any) -> None:
         """Attach the SemanticModelV2Service for V2 CRUD operations."""
@@ -79,15 +69,6 @@ class MarivoRuntime:
     def datasource_svc(self) -> Any:
         """DatasourceService for datasource operations."""
         return self._datasource_svc
-
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
-
-    def _require_svc(self, method_name: str) -> SemanticLayerService:
-        """Return self._svc, asserting it has been wired."""
-        assert self._svc is not None, f"Runtime.{method_name} requires _svc (not yet wired)"
-        return self._svc
 
     # ------------------------------------------------------------------
     # Artifact / Step I/O  (ports-direct)
@@ -136,8 +117,7 @@ class MarivoRuntime:
     # Semantic / Routing I/O  (via semantic_ops)
     # ------------------------------------------------------------------
     # These methods route through runtime/semantic_ops which internally
-    # uses runtime.svc for semantic_repository and related internals.
-    # The svc dependency will be cleaned up in Task 17.
+    # uses runtime.svc for resolve_engine internals (pending migration).
 
     def resolve_metric_execution_context(self, *args: Any, **kwargs: Any) -> Any:
         from app.runtime import semantic_ops
@@ -203,13 +183,22 @@ class MarivoRuntime:
 
     @property
     def svc(self) -> SemanticLayerService:
-        """Return the backing service, asserting it has been wired.
+        """Return the backing service for semantic_ops resolve_engine internals.
 
-        Retained for semantic_ops and ghost method access.
-        Will be removed after Task 17.
+        DEPRECATED: This property is retained only because semantic_ops
+        resolve_engine/resolve_engine_for_session still reference it.
+        It will be removed once those functions are migrated away from svc.
+        Accessing it when _svc is not wired raises an AssertionError.
         """
+        # _svc is set temporarily via the svc setter below; will be removed
+        # when semantic_ops no longer needs it.
         assert self._svc is not None, "MarivoRuntime.svc accessed before wiring"
         return self._svc
+
+    @svc.setter
+    def svc(self, value: SemanticLayerService) -> None:
+        """Set the backing service (retained for semantic_ops compatibility)."""
+        self._svc = value
 
     def observe(self, session_id: str, params: dict[str, Any]) -> dict[str, Any]:
         return intent_execution.observe(self, SessionId(session_id), params)
@@ -258,12 +247,14 @@ class MarivoRuntime:
         """Return sessions, optionally filtered by *owner*.
 
         When owner is provided, delegates to session_ops.
-        Falls back to svc when owner is not provided (legacy
-        pagination-based listing via MCP API).
+        When owner is not provided, delegates to svc.session_manager
+        for paginated listing (pending migration to port-based pagination).
         """
         if owner is not None:
             return session_ops.list_sessions(self, owner)
-        return self._require_svc("list_sessions").list_sessions(**kwargs)
+        # Paginated listing without owner — still uses svc.session_manager
+        # until a port-based pagination API is defined.
+        return self.svc.session_manager.list_sessions(**kwargs)
 
     def get_session(self, session_id: SessionId) -> SessionState | dict[str, Any]:
         """Get session state by ID.  Raises NotFoundError if not found.
@@ -290,13 +281,12 @@ class MarivoRuntime:
         """Get session state view by ID.
 
         When kwargs are provided (structured query from the API),
-        delegates to svc because the port-based path returns a flat
-        SessionState which lacks proposition/finding/gap context.
+        delegates to session_ops.get_session_state_view which uses
+        evidence_repos from runtime.ports (server mode).
         Without kwargs, delegates to get_session.
-        Will be properly repointed in Task 14.
         """
         if kwargs:
-            return self._require_svc("get_session_state").get_session_state(str(session_id), kwargs)
+            return session_ops.get_session_state_view(self, session_id, kwargs)
         return self.get_session(session_id)
 
     def get_session_runtime_status(self, session_id: SessionId) -> dict[str, Any]:
@@ -315,21 +305,19 @@ class MarivoRuntime:
         """Return proposition-level operator runtime status."""
         return session_ops.get_proposition_runtime_status(self, session_id, proposition_id)
 
-    # --- Ghost methods (still use _svc, pending Task 17 audit) ---
+    # --- Evidence context / catalog (delegated to session_ops) ---
 
     def query_session_state(self, session_id: str, query: dict[str, Any]) -> dict[str, Any]:
         """Return the canonical SessionStateView with a structured query body."""
-        return self._require_svc("query_session_state").query_session_state(session_id, query)
+        return session_ops.query_session_state(self, session_id, query)
 
     def get_proposition_context(self, session_id: str, proposition_id: str) -> dict[str, Any]:
         """Return PropositionContextView for a proposition."""
-        return self._require_svc("get_proposition_context").get_proposition_context(
-            session_id, proposition_id
-        )
+        return session_ops.get_proposition_context(self, session_id, proposition_id)
 
     def discover_catalog(self) -> dict[str, Any]:
         """Return the API catalog of entities, models, and datasources."""
-        return self._require_svc("discover_catalog").discover_catalog()
+        return session_ops.discover_catalog(self)
 
     # --- Semantic model ops ---
 
