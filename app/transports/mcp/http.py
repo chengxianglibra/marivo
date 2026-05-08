@@ -25,7 +25,7 @@ def mount_mcp_app(
     from app.transports.mcp.tools import register_tools
 
     server = FastMCP(
-        "marivo-mcp",
+        "marivo",
         stateless_http=True,
         json_response=True,
     )

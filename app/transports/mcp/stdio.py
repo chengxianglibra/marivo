@@ -21,7 +21,7 @@ def main() -> None:
     config = LocalConfig(workspace_root=workspace)
     runtime = create_local_runtime(config, explicit_local=True)
 
-    server = FastMCP("marivo-mcp")
+    server = FastMCP("marivo")
     register_tools(server, runtime)
     register_resources(server, runtime)
     server.run()  # stdio is FastMCP default
