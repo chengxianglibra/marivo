@@ -24,7 +24,7 @@ from app.evidence_engine.context_view import (
     PROPOSITION_CONTEXT_VIEW_SCHEMA_VERSION,
     materialize_proposition_context_view,
 )
-from app.session import SessionManager
+from app.runtime.runtime import MarivoRuntime
 from app.storage.evidence_repositories import (
     ActionProposalRepository,
     AssessmentRepository,
@@ -43,6 +43,12 @@ from tests.shared_fixtures import get_seeded_duckdb_path, make_temp_metadata_sto
 
 def _make_store() -> SQLiteMetadataStore:
     return make_temp_metadata_store()
+
+
+def _build_runtime(store: SQLiteMetadataStore, analytics: Any) -> MarivoRuntime:
+    from tests.semantic_test_helpers import build_runtime
+
+    return build_runtime(store, analytics)
 
 
 def _make_repos(store: SQLiteMetadataStore) -> dict[str, Any]:
@@ -652,17 +658,26 @@ class TestContextViewMaterializer(unittest.TestCase):
 
 
 class TestPropositionRuntimeStatus(unittest.TestCase):
-    """Tests SessionManager.get_proposition_runtime_status against real DB state."""
+    """Tests MarivoRuntime.get_proposition_runtime_status against real DB state."""
 
     def setUp(self) -> None:
         self.store = _make_store()
         self.session_id = f"sess_{uuid4().hex[:12]}"
         _insert_session(self.store, self.session_id)
         self.repos = _make_repos(self.store)
-        self.manager = SessionManager(self.store)
+        from unittest.mock import MagicMock
+
+        from app.storage.analytics import AnalyticsEngine
+
+        self.runtime = _build_runtime(self.store, MagicMock(spec=AnalyticsEngine))
+
+    @property
+    def _manager(self):
+        """Access the SessionManager through the runtime's svc for unit tests."""
+        return self.runtime.svc.session_manager
 
     def _get_status(self, proposition_id: str) -> dict[str, Any]:
-        return self.manager.get_proposition_runtime_status(
+        return self._manager.get_proposition_runtime_status(
             self.session_id,
             proposition_id,
             proposal_repo=self.repos["proposal_repo"],
@@ -694,7 +709,7 @@ class TestPropositionRuntimeStatus(unittest.TestCase):
         _insert_bare_proposition(self.store, other_prop, other_session)
 
         with self.assertRaises(KeyError):
-            self.manager.get_proposition_runtime_status(
+            self._manager.get_proposition_runtime_status(
                 self.session_id,  # wrong session
                 other_prop,
                 proposal_repo=self.repos["proposal_repo"],

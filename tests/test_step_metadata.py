@@ -10,7 +10,7 @@ from typing import Any, ClassVar, cast
 from app.analysis_core.compiler import CompiledQuery
 from app.api.app_factory import create_app
 from app.evidence_engine.ref_boundary import assert_no_canonical_refs_in_semantic_payload
-from app.service import SemanticLayerService
+from app.runtime.runtime import MarivoRuntime
 from tests.semantic_test_helpers import (
     ensure_published_typed_metric,
     ensure_published_typed_metric_binding,
@@ -27,8 +27,19 @@ _VALID_SOURCE_LINEAGE = {
 }
 
 
-def _make_metadata_only_service() -> SemanticLayerService:
-    return cast("SemanticLayerService", object.__new__(SemanticLayerService))
+def _make_metadata_only_service() -> MarivoRuntime:
+    from unittest.mock import MagicMock
+
+    from app.core.engine import CoreEngine
+    from app.runtime.ports import RuntimePorts
+    from app.service import SemanticLayerService
+
+    svc = cast("SemanticLayerService", object.__new__(SemanticLayerService))
+    ports = MagicMock(spec=RuntimePorts)
+    core = CoreEngine()
+    runtime = MarivoRuntime(ports, core)
+    runtime.svc = svc
+    return runtime
 
 
 class StepMetadataPersistenceTests(unittest.TestCase):
@@ -197,7 +208,7 @@ class StepMetadataPersistenceTests(unittest.TestCase):
                 },
             },
         )
-        semantic_metadata = self.service.build_step_semantic_metadata(compiled)
+        semantic_metadata = self.service.svc.build_step_semantic_metadata(compiled)
         self.assertIsNotNone(semantic_metadata)
         self.service._insert_step(
             step_id,
@@ -331,7 +342,7 @@ class StepMetadataPersistenceTests(unittest.TestCase):
             },
         )
 
-        semantic_metadata = self.service.build_step_semantic_metadata(compiled)
+        semantic_metadata = self.service.svc.build_step_semantic_metadata(compiled)
         self.assertIsNotNone(semantic_metadata)
         assert semantic_metadata is not None
         self.assertIsNone(semantic_metadata["compile_context"]["calendar_policy_binding"])
@@ -369,7 +380,7 @@ class StepMetadataPersistenceTests(unittest.TestCase):
         with self.assertRaisesRegex(
             ValueError, "conflicting calendar policy bindings in compiled step metadata"
         ):
-            self.service.build_step_semantic_metadata(compiled_queries)
+            self.service.svc.build_step_semantic_metadata(compiled_queries)
 
     def test_build_step_semantic_metadata_rejects_missing_calendar_policy_binding_field(
         self,
@@ -388,7 +399,7 @@ class StepMetadataPersistenceTests(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(ValueError, "resolved_calendar_alignment missing policy_ref"):
-            self.service.build_step_semantic_metadata(compiled)
+            self.service.svc.build_step_semantic_metadata(compiled)
 
     def test_build_step_semantic_metadata_rejects_empty_calendar_source_lineage(self) -> None:
         compiled = CompiledQuery(
@@ -407,7 +418,7 @@ class StepMetadataPersistenceTests(unittest.TestCase):
         with self.assertRaisesRegex(
             ValueError, "resolved_calendar_alignment missing source_lineage metadata"
         ):
-            self.service.build_step_semantic_metadata(compiled)
+            self.service.svc.build_step_semantic_metadata(compiled)
 
     def test_build_step_semantic_metadata_rejects_invalid_calendar_source_lineage(
         self,
@@ -429,7 +440,7 @@ class StepMetadataPersistenceTests(unittest.TestCase):
             ValueError,
             "resolved_calendar_alignment source_lineage missing calendar_version",
         ):
-            self.service.build_step_semantic_metadata(compiled)
+            self.service.svc.build_step_semantic_metadata(compiled)
 
     def test_build_step_semantic_metadata_allows_identical_calendar_policy_bindings(
         self,
@@ -446,7 +457,7 @@ class StepMetadataPersistenceTests(unittest.TestCase):
             CompiledQuery("SELECT 2", metadata={"resolved_calendar_alignment": dict(alignment)}),
         ]
 
-        semantic_metadata = self.service.build_step_semantic_metadata(compiled_queries)
+        semantic_metadata = self.service.svc.build_step_semantic_metadata(compiled_queries)
         self.assertIsNotNone(semantic_metadata)
         assert semantic_metadata is not None
         self.assertEqual(
@@ -479,7 +490,7 @@ class StepMetadataPersistenceTests(unittest.TestCase):
             ),
         ]
 
-        semantic_metadata = self.service.build_step_semantic_metadata(compiled_queries)
+        semantic_metadata = self.service.svc.build_step_semantic_metadata(compiled_queries)
         self.assertIsNotNone(semantic_metadata)
         assert semantic_metadata is not None
         self.assertEqual(
@@ -510,7 +521,7 @@ class StepMetadataCalendarPolicyBindingUnitTests(unittest.TestCase):
             },
         )
 
-        semantic_metadata = self.service.build_step_semantic_metadata(compiled)
+        semantic_metadata = self.service.svc.build_step_semantic_metadata(compiled)
         self.assertIsNotNone(semantic_metadata)
         assert semantic_metadata is not None
         binding = semantic_metadata["compile_context"]["calendar_policy_binding"]
@@ -537,7 +548,7 @@ class StepMetadataCalendarPolicyBindingUnitTests(unittest.TestCase):
         with self.assertRaisesRegex(
             ValueError, "resolved_calendar_alignment source_lineage missing table_fqn"
         ):
-            self.service.build_step_semantic_metadata(compiled)
+            self.service.svc.build_step_semantic_metadata(compiled)
 
     def test_build_step_semantic_metadata_rejects_missing_calendar_version(
         self,
@@ -560,7 +571,7 @@ class StepMetadataCalendarPolicyBindingUnitTests(unittest.TestCase):
         with self.assertRaisesRegex(
             ValueError, "resolved_calendar_alignment source_lineage missing calendar_version"
         ):
-            self.service.build_step_semantic_metadata(compiled)
+            self.service.svc.build_step_semantic_metadata(compiled)
 
     def test_build_step_semantic_metadata_normalizes_source_lineage_to_required_fields(
         self,
@@ -582,7 +593,7 @@ class StepMetadataCalendarPolicyBindingUnitTests(unittest.TestCase):
             },
         )
 
-        semantic_metadata = self.service.build_step_semantic_metadata(compiled)
+        semantic_metadata = self.service.svc.build_step_semantic_metadata(compiled)
         self.assertIsNotNone(semantic_metadata)
         assert semantic_metadata is not None
         binding = semantic_metadata["compile_context"]["calendar_policy_binding"]

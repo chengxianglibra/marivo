@@ -39,7 +39,7 @@ from app.evidence_engine.canonical_finding import StepRef
 from app.evidence_engine.family_contract import FamilyEmptyError
 
 # Registry import first — bootstraps all real extractors.
-from app.service import SemanticLayerService
+from app.runtime.runtime import MarivoRuntime
 from app.storage.analytics import AnalyticsEngine
 from app.storage.sqlite_metadata import SQLiteMetadataStore
 from tests.shared_fixtures import make_temp_metadata_store
@@ -62,8 +62,10 @@ def _make_store() -> SQLiteMetadataStore:
     return store
 
 
-def _make_svc(store: SQLiteMetadataStore) -> SemanticLayerService:
-    return SemanticLayerService(store, MagicMock(spec=AnalyticsEngine))
+def _make_svc(store: SQLiteMetadataStore) -> MarivoRuntime:
+    from tests.semantic_test_helpers import build_runtime
+
+    return build_runtime(store, MagicMock(spec=AnalyticsEngine))
 
 
 _STEP_ID = "step_ep_001"
@@ -338,7 +340,7 @@ class TestObserveEmptyTimeSeries(unittest.TestCase):
         self.svc = _make_svc(self.store)
 
     def _commit(self) -> str:
-        return self.svc._commit_artifact_with_extraction(
+        return self.svc.svc._commit_artifact_with_extraction(
             _SESSION,
             _STEP_ID,
             "observation",
@@ -367,7 +369,7 @@ class TestObserveEmptySegmented(unittest.TestCase):
         self.svc = _make_svc(self.store)
 
     def _commit(self) -> str:
-        return self.svc._commit_artifact_with_extraction(
+        return self.svc.svc._commit_artifact_with_extraction(
             _SESSION,
             _STEP_ID,
             "observation",
@@ -398,7 +400,7 @@ class TestDetectEmptyCommit(unittest.TestCase):
         self.svc = _make_svc(self.store)
 
     def _commit(self) -> str:
-        return self.svc._commit_artifact_with_extraction(
+        return self.svc.svc._commit_artifact_with_extraction(
             _SESSION,
             _STEP_ID,
             "anomaly_candidates",
@@ -432,7 +434,7 @@ class TestCompareEmptyRejects(unittest.TestCase):
         self.svc = _make_svc(self.store)
 
     def _commit_empty(self) -> None:
-        self.svc._commit_artifact_with_extraction(
+        self.svc.svc._commit_artifact_with_extraction(
             _SESSION,
             _STEP_ID,
             "compare_artifact",
@@ -476,7 +478,7 @@ class TestDecomposeEmptyRejects(unittest.TestCase):
         self.svc = _make_svc(self.store)
 
     def _commit_empty(self) -> None:
-        self.svc._commit_artifact_with_extraction(
+        self.svc.svc._commit_artifact_with_extraction(
             _SESSION,
             _STEP_ID,
             "delta_decomposition",
@@ -518,7 +520,7 @@ class TestCorrelateCommit(unittest.TestCase):
     def setUp(self) -> None:
         self.store = _make_store()
         self.svc = _make_svc(self.store)
-        self.artifact_id = self.svc._commit_artifact_with_extraction(
+        self.artifact_id = self.svc.svc._commit_artifact_with_extraction(
             _SESSION,
             _STEP_ID,
             "pairwise_time_series_association",
@@ -551,7 +553,7 @@ class TestHypothesisTestCommit(unittest.TestCase):
     def setUp(self) -> None:
         self.store = _make_store()
         self.svc = _make_svc(self.store)
-        self.artifact_id = self.svc._commit_artifact_with_extraction(
+        self.artifact_id = self.svc.svc._commit_artifact_with_extraction(
             _SESSION,
             _STEP_ID,
             "hypothesis_test",
@@ -586,7 +588,7 @@ class TestForecastCommit(unittest.TestCase):
     def setUp(self) -> None:
         self.store = _make_store()
         self.svc = _make_svc(self.store)
-        self.artifact_id = self.svc._commit_artifact_with_extraction(
+        self.artifact_id = self.svc.svc._commit_artifact_with_extraction(
             _SESSION,
             _STEP_ID,
             "forecast_series",
@@ -611,7 +613,7 @@ class TestForecastCommit(unittest.TestCase):
     def test_one_bucket_produces_one_finding(self) -> None:
         store = _make_store()
         svc = _make_svc(store)
-        art_id = svc._commit_artifact_with_extraction(
+        art_id = svc.svc._commit_artifact_with_extraction(
             _SESSION,
             _STEP_ID,
             "forecast_series",
