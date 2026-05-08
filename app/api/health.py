@@ -15,4 +15,4 @@ def health(request: Request) -> dict[str, str]:
 
 @router.get("/catalog")
 def catalog(request: Request) -> dict[str, object]:
-    return get_services(request).service.discover_catalog()
+    return get_services(request).runtime.discover_catalog()

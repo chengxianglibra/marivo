@@ -106,7 +106,7 @@ def list_sessions(
     page_token: str | None = Query(default=None),
 ) -> SessionListResponse:
     try:
-        result = get_services(request).service.list_sessions(  # TODO(phase3b): migrate to runtime
+        result = get_services(request).runtime.list_sessions(
             status=status,
             session_id=session_id,
             limit=limit,
@@ -155,9 +155,7 @@ def get_session(session_id: str, request: Request) -> SessionDetailResponse:
 def get_session_runtime_status(session_id: str, request: Request) -> SessionRuntimeStatusResponse:
     try:
         return SessionRuntimeStatusResponse.model_validate(
-            get_services(request).service.get_session_runtime_status(
-                session_id
-            )  # TODO(phase3b): migrate to runtime
+            get_services(request).runtime.get_session_runtime_status(SessionId(session_id))
         )
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
@@ -336,9 +334,9 @@ def get_artifact_runtime_status(
     """
     try:
         return ArtifactRuntimeStatusResponse.model_validate(
-            get_services(request).service.get_artifact_runtime_status(
-                session_id, artifact_id
-            )  # TODO(phase3b): migrate to runtime
+            get_services(request).runtime.get_artifact_runtime_status(
+                SessionId(session_id), artifact_id
+            )
         )
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
@@ -389,9 +387,9 @@ def get_proposition_runtime_status(
     """
     try:
         return PropositionRuntimeStatusResponse.model_validate(
-            get_services(request).service.get_proposition_runtime_status(
-                session_id, proposition_id
-            )  # TODO(phase3b): migrate to runtime
+            get_services(request).runtime.get_proposition_runtime_status(
+                SessionId(session_id), proposition_id
+            )
         )
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
