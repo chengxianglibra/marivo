@@ -622,8 +622,21 @@ def _resolve_runtime_metric_contract(
     runtime: MarivoRuntime, metric_ref: str
 ) -> ResolvedSemanticObject | None:
     metric_ref = _coerce_metric_ref(metric_ref)
+    repo = runtime.ports.semantic_repository
+    if repo is None:
+        raise SemanticRuntimeNotReadyError(
+            f"Semantic repository not available: {metric_ref}",
+            semantic_ref=metric_ref,
+            object_kind="metric",
+            lifecycle_status="unknown",
+            readiness_status="unavailable",
+            blocking_requirements=[],
+            capabilities={},
+            dependency_refs=[],
+        )
     try:
-        return runtime.svc.semantic_repository.resolve_metric_ref(metric_ref)
+        result: ResolvedSemanticObject | None = repo.resolve_metric_ref(metric_ref)
+        return result
     except (
         SemanticRuntimeInvalidRefError,
         SemanticRuntimeNotFoundError,
@@ -835,8 +848,20 @@ def resolve_metric_execution_context(
     """Resolve the full execution context for a metric, including table, bindings, and routing."""
     metric_ref = _coerce_metric_ref(metric_ref)
     metric_name = metric_name_from_ref(metric_ref)
+    repo = runtime.ports.semantic_repository
+    if repo is None:
+        raise SemanticRuntimeNotReadyError(
+            f"Semantic repository not available: {metric_ref}",
+            semantic_ref=metric_ref,
+            object_kind="metric",
+            lifecycle_status="unknown",
+            readiness_status="unavailable",
+            blocking_requirements=[],
+            capabilities={},
+            dependency_refs=[],
+        )
     try:
-        availability = runtime.svc.semantic_repository.inspect_ref(metric_ref)
+        availability = repo.inspect_ref(metric_ref)
     except (SemanticRuntimeInvalidRefError, SemanticRuntimeNotFoundError):
         raise ValueError(f"Metric '{metric_name}' not found or not published") from None
 
@@ -941,7 +966,19 @@ def resolve_metric(
     metric_name: str,
 ) -> Any:
     """Resolve a metric by name from the semantic repository."""
-    return runtime.svc.semantic_repository.resolve_metric(metric_name)
+    repo = runtime.ports.semantic_repository
+    if repo is None:
+        raise SemanticRuntimeNotReadyError(
+            f"Semantic repository not available: metric.{metric_name}",
+            semantic_ref=f"metric.{metric_name}",
+            object_kind="metric",
+            lifecycle_status="unknown",
+            readiness_status="unavailable",
+            blocking_requirements=[],
+            capabilities={},
+            dependency_refs=[],
+        )
+    return repo.resolve_metric(metric_name)
 
 
 def resolve_metric_table(
@@ -987,7 +1024,10 @@ def resolve_metric_dimensions(
 
 def _resolve_entity_dimensions(runtime: MarivoRuntime, entity_ref: str) -> list[str]:
     """Get canonical dimensions exposed by published entity bindings."""
-    result = resolve_entity_binding_dimensions(runtime.svc.metadata, entity_ref)
+    metadata = runtime.ports.metadata
+    if metadata is None:
+        return []
+    result = resolve_entity_binding_dimensions(metadata, entity_ref)
     return list(result) if result is not None else []
 
 
@@ -1001,17 +1041,19 @@ def compile_step_with_feedback(
     """Compile an analysis step IR into a query, with error feedback.
 
     Injects semantic_repository and compatibility_profile_reader from the
-    runtime's backing service, plus calendar_data_reader when available.
+    runtime's ports, plus calendar_data_reader when available.
     """
     effective_semantic_context = dict(semantic_context or {})
-    effective_semantic_context.setdefault("semantic_repository", runtime.svc.semantic_repository)
-    effective_semantic_context.setdefault(
-        "compatibility_profile_reader",
-        runtime.svc._published_compatibility_profiles_for_subject_ref,
-    )
-    if runtime.svc.calendar_data_reader is not None:
+    repo = runtime.ports.semantic_repository
+    if repo is not None:
+        effective_semantic_context.setdefault("semantic_repository", repo)
         effective_semantic_context.setdefault(
-            "calendar_data_reader", runtime.svc.calendar_data_reader
+            "compatibility_profile_reader",
+            repo._published_compatibility_profiles_for_subject_ref,
+        )
+    if runtime.ports.calendar_data_reader is not None:
+        effective_semantic_context.setdefault(
+            "calendar_data_reader", runtime.ports.calendar_data_reader
         )
     try:
         compiled = compile_step(
@@ -1060,8 +1102,11 @@ def resolve_windowed_query_time_axis(
             request.resolved_time_axis.override_partition_hour_column,
         )
     )
+    time_provider = runtime.ports.time_axis_metadata_provider
+    if time_provider is None:
+        raise ValueError("time_axis_metadata_provider not available in local mode")
     try:
-        metadata_context = runtime.svc.time_axis_metadata_provider.load_for_windowed_query(
+        metadata_context = time_provider.load_for_windowed_query(
             table_name=request.table,
             metric_name=metric_name,
         )
@@ -1069,9 +1114,7 @@ def resolve_windowed_query_time_axis(
         if not has_explicit_override:
             raise
         metadata_context = TimeAxisMetadataContext(
-            available_columns=runtime.svc.time_axis_metadata_provider.load_available_columns(
-                request.table
-            )
+            available_columns=time_provider.load_available_columns(request.table)
         )
 
     available_columns = list(metadata_context.available_columns)
@@ -1186,7 +1229,10 @@ def _resolve_predicate_ref_to_filter(
     table_name: str | None = None,
 ) -> str | None:
     """Resolve a predicate_ref to a SQL filter expression."""
-    row = runtime.svc.metadata.query_one(
+    metadata = runtime.ports.metadata
+    if metadata is None:
+        raise ValueError("metadata port not available in local mode")
+    row = metadata.query_one(
         "SELECT payload_json FROM semantic_predicate_contracts "
         "WHERE predicate_ref = ? AND status = 'published'",
         [predicate_ref],
@@ -1510,7 +1556,10 @@ def build_step_semantic_metadata(
 def _resolve_metric_direction(runtime: MarivoRuntime, metric_ref: str) -> str | None:
     """Look up a published metric's desired_direction for recommendation policy."""
     metric_ref = _coerce_metric_ref(metric_ref)
-    resolved = runtime.svc.semantic_resolver.resolve_metric(metric_name_from_ref(metric_ref))
+    resolver = runtime.ports.semantic_resolver
+    if resolver is None:
+        return None
+    resolved = resolver.resolve_metric(metric_name_from_ref(metric_ref))
     return resolved.desired_direction if resolved else None
 
 
@@ -1550,15 +1599,16 @@ def _resolve_entity_for_metric(runtime: MarivoRuntime, metric_ref: str) -> dict[
     """Return the published entity linked to the given metric name, or None."""
     try:
         metric_ref = _coerce_metric_ref(metric_ref)
-        resolved_metric = runtime.svc.semantic_repository.resolve_metric_ref(metric_ref)
+        repo = runtime.ports.semantic_repository
+        if repo is None:
+            return None
+        resolved_metric = repo.resolve_metric_ref(metric_ref)
         observed_entity_ref = resolved_metric.semantic_object.get("header", {}).get(
             "observed_entity_ref"
         )
         if not observed_entity_ref:
             return None
-        resolved_entity = runtime.svc.semantic_repository.resolve_entity(
-            str(observed_entity_ref).removeprefix("entity.")
-        )
+        resolved_entity = repo.resolve_entity(str(observed_entity_ref).removeprefix("entity."))
         if resolved_entity is None:
             return None
         return {
