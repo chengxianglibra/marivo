@@ -42,12 +42,49 @@ from app.api.models import (
     ValidateRequest,
     ValidateResponse,
 )
+from app.contracts.errors import ForbiddenError, NotFoundError, ValidationError
 from app.contracts.ids import SessionId, UserId
 from app.contracts.session import SessionState
 from app.execution.errors import ExecutionError
 from app.runtime import SemanticRuntimeNotReadyError
 
 router = APIRouter()
+
+
+# ── Helpers ────────────────────────────────────────────────────────────────────
+
+
+def _session_state_to_api_dict(result: SessionState) -> dict[str, Any]:
+    """Convert a SessionState to the API-facing AnalysisSession-shaped dict."""
+    # Map event-sourced status to API status:
+    #   "active" -> "open", "terminated" -> "closed"
+    api_status = result.status
+    if api_status == "active":
+        api_status = "open"
+    elif api_status == "terminated":
+        api_status = "closed"
+    return {
+        "session_id": str(result.session_id),
+        "goal": {"question": result.goal or ""},
+        "scope": {
+            "constraints": result.constraints or {},
+        },
+        "owner_user": str(result.owner_user) if result.owner_user else None,
+        "lifecycle": {
+            "status": api_status,
+            "terminal_reason": result.terminal_reason,
+            "ended_at": result.ended_at,
+        },
+        "state_summary": {
+            "state_view_ref": {
+                "session_id": str(result.session_id),
+                "view_type": "session_state_view",
+            }
+        },
+        "created_at": result.created_at,
+        "updated_at": result.updated_at,
+        "schema_version": "analysis_session.v1",
+    }
 
 
 # ── Session lifecycle ─────────────────────────────────────────────────────────
@@ -59,8 +96,13 @@ router = APIRouter()
 )
 def create_session(payload: SessionCreateRequest, request: Request) -> SessionCreateResponse:
     try:
+        from app.identity import resolve_user
+
+        current_user = resolve_user()
+        actor = UserId(current_user) if current_user else None
         result = get_services(request).runtime.create_session(
             goal=payload.goal,
+            actor=actor,
             budget=payload.budget.model_dump(exclude_none=True),
         )
         # Runtime.create_session returns SessionState; build the API response
@@ -70,23 +112,7 @@ def create_session(payload: SessionCreateRequest, request: Request) -> SessionCr
             return SessionCreateResponse.model_validate(result)
         # result is a SessionState
         if isinstance(result, SessionState):
-            return SessionCreateResponse.model_validate(
-                {
-                    "session_id": str(result.session_id),
-                    "goal": {"question": result.goal or ""},
-                    "scope": {},
-                    "lifecycle": {"status": result.status},
-                    "state_summary": {
-                        "state_view_ref": {
-                            "session_id": str(result.session_id),
-                            "view_type": "full",
-                        }
-                    },
-                    "created_at": result.created_at,
-                    "updated_at": result.updated_at,
-                    "schema_version": "0.1.0",
-                }
-            )
+            return SessionCreateResponse.model_validate(_session_state_to_api_dict(result))
         return SessionCreateResponse.model_validate(result)
     except ValueError as error:
         if "user_required" in str(error):
@@ -127,24 +153,8 @@ def get_session(session_id: str, request: Request) -> SessionDetailResponse:
         if isinstance(result, dict):
             return SessionDetailResponse.model_validate(result)
         # result is a SessionState — build the API response shape
-        return SessionDetailResponse.model_validate(
-            {
-                "session_id": str(result.session_id),
-                "goal": {"question": result.goal or ""},
-                "scope": {},
-                "lifecycle": {"status": result.status},
-                "state_summary": {
-                    "state_view_ref": {
-                        "session_id": str(result.session_id),
-                        "view_type": "full",
-                    }
-                },
-                "created_at": result.created_at,
-                "updated_at": result.updated_at,
-                "schema_version": "0.1.0",
-            }
-        )
-    except KeyError as error:
+        return SessionDetailResponse.model_validate(_session_state_to_api_dict(result))
+    except (KeyError, NotFoundError) as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
 
 
@@ -154,10 +164,19 @@ def get_session(session_id: str, request: Request) -> SessionDetailResponse:
 )
 def get_session_runtime_status(session_id: str, request: Request) -> SessionRuntimeStatusResponse:
     try:
-        return SessionRuntimeStatusResponse.model_validate(
-            get_services(request).runtime.get_session_runtime_status(SessionId(session_id))
-        )
-    except KeyError as error:
+        result = get_services(request).runtime.get_session_runtime_status(SessionId(session_id))
+        # Strip extra fields not in the API response model
+        api_result = {
+            "session_id": result["session_id"],
+            "overall_status": result["overall_status"],
+            "last_successful_stage": result.get("last_successful_stage"),
+            "blocked_reason": result["blocked_reason"],
+            "backlog_summary": result["backlog_summary"],
+            "updated_at": result["updated_at"],
+            "schema_version": result["schema_version"],
+        }
+        return SessionRuntimeStatusResponse.model_validate(api_result)
+    except (KeyError, NotFoundError) as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
 
 
@@ -172,35 +191,25 @@ def terminate_session(
 ) -> SessionTerminateResponse:
     """Terminate a session, preventing further intent write operations."""
     try:
+        from app.identity import resolve_user
+
+        current_user = resolve_user()
+        actor = UserId(current_user) if current_user else UserId("api")
         get_services(request).runtime.terminate_session(
             SessionId(session_id),
-            actor=UserId("api"),
+            actor=actor,
             terminal_reason=payload.terminal_reason,
         )
         # Fetch the updated session to build the full API response
         result = get_services(request).runtime.get_session(SessionId(session_id))
         if isinstance(result, dict):
             return SessionTerminateResponse.model_validate(result)
-        return SessionTerminateResponse.model_validate(
-            {
-                "session_id": str(result.session_id),
-                "goal": {"question": result.goal or ""},
-                "scope": {},
-                "lifecycle": {"status": result.status},
-                "state_summary": {
-                    "state_view_ref": {
-                        "session_id": str(result.session_id),
-                        "view_type": "full",
-                    }
-                },
-                "created_at": result.created_at,
-                "updated_at": result.updated_at,
-                "schema_version": "0.1.0",
-            }
-        )
-    except KeyError as error:
+        return SessionTerminateResponse.model_validate(_session_state_to_api_dict(result))
+    except (KeyError, NotFoundError) as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
-    except ValueError as error:
+    except ForbiddenError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+    except (ValueError, ValidationError) as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
 
 
@@ -284,11 +293,11 @@ def get_session_state(
                     "blocking_gaps": [],
                     "artifact_refs": [],
                     "focus_subjects": [],
-                    "schema_version": "0.1.0",
+                    "schema_version": "analysis_session.v1",
                 }
             )
         return SessionStateView.model_validate(result)
-    except KeyError as error:
+    except (KeyError, NotFoundError) as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
 
 
@@ -313,7 +322,7 @@ def query_session_state(
                 session_id, query
             )  # TODO(phase3b): migrate to runtime
         )
-    except KeyError as error:
+    except (KeyError, NotFoundError) as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
 
 
@@ -338,7 +347,7 @@ def get_artifact_runtime_status(
                 SessionId(session_id), artifact_id
             )
         )
-    except KeyError as error:
+    except (KeyError, NotFoundError) as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
 
 
@@ -366,7 +375,7 @@ def get_proposition_context(
                 session_id, proposition_id
             )  # TODO(phase3b): migrate to runtime
         )
-    except KeyError as error:
+    except (KeyError, NotFoundError) as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
 
 
@@ -391,7 +400,7 @@ def get_proposition_runtime_status(
                 SessionId(session_id), proposition_id
             )
         )
-    except KeyError as error:
+    except (KeyError, NotFoundError) as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
 
 

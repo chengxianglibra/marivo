@@ -15,11 +15,12 @@ is acceptable. These will be filled in during integration testing.
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
 from app.config import MarivoConfig
-from app.contracts.errors import DomainError, ErrorCode
+from app.contracts.errors import DomainError, ErrorCode, NotFoundError
 from app.contracts.evidence import Assessment, Evidence, Finding, Proposition
 from app.contracts.ids import (
     Action,
@@ -252,12 +253,13 @@ class SqlModelStoreAdapter:
 class SqlSessionStoreAdapter:
     """Wraps ``MetadataStore`` + ``SessionManager`` -> ``SessionStore``.
 
-    The existing ``SessionManager`` is CRUD-based (not event-sourced), so
-    the event-sourced interface of ``SessionStore`` does not map cleanly.
+    Bridges the CRUD-based ``SessionManager`` to the event-sourced
+    ``SessionStore`` port interface:
 
-    Phase 3a: raises ``NotImplementedError`` for both methods. A minimal
-    bridge will be provided in a later phase when the session model
-    converges.
+    * ``append_event`` translates session_created / session_terminated
+      events into CRUD INSERT/UPDATE calls.
+    * ``load_events`` synthesizes events from the sessions table row.
+    * ``list_sessions`` queries sessions filtered by owner.
     """
 
     def __init__(
@@ -271,38 +273,152 @@ class SqlSessionStoreAdapter:
     def append_event(self, session_id: SessionId, event: SessionEvent) -> None:
         """Append an event to the session event log.
 
-        Phase 3a: not implemented; the existing SessionManager is CRUD,
-        not event-sourced.
+        Translates ``session_created`` and ``session_terminated`` events
+        into CRUD operations on the sessions table.
         """
-        raise NotImplementedError(
-            "SqlSessionStoreAdapter.append_event: the existing SessionManager "
-            "is CRUD-based, not event-sourced. Event sourcing bridge will be "
-            "added in a later phase."
+        if event.event_type == "session_created":
+            goal = event.payload.get("goal", "")
+            constraints = event.payload.get("constraints")
+            budget = event.payload.get("budget")
+            raw_filter = event.payload.get("raw_filter")
+            owner_user = str(event.actor) if event.actor else ""
+            self._metadata.execute(
+                """
+                INSERT INTO sessions (
+                    session_id,
+                    goal,
+                    constraints_json,
+                    budget_json,
+                    owner_user,
+                    status,
+                    raw_filter
+                )
+                VALUES (?, ?, ?, ?, ?, 'open', ?)
+                """,
+                [
+                    str(session_id),
+                    goal,
+                    json.dumps(constraints or {}, default=str, sort_keys=True),
+                    json.dumps(budget or {}, default=str, sort_keys=True),
+                    owner_user,
+                    raw_filter,
+                ],
+            )
+            return
+
+        if event.event_type == "session_terminated":
+            terminal_reason = event.payload.get("terminal_reason", "user_closed")
+            self._metadata.execute(
+                f"""
+                UPDATE sessions
+                SET status = 'closed',
+                    terminal_reason = ?,
+                    ended_at = {self._metadata.dialect.now_sql()},
+                    updated_at = {self._metadata.dialect.now_sql()}
+                WHERE session_id = ?
+                """,
+                [terminal_reason, str(session_id)],
+            )
+            return
+
+        # Other event types are silently ignored in the CRUD bridge
+        # because the sessions table only tracks created/terminated state.
+        logger.debug(
+            "SqlSessionStoreAdapter.append_event: ignoring event_type=%s "
+            "for session_id=%s (CRUD bridge only handles session_created/"
+            "session_terminated)",
+            event.event_type,
+            session_id,
         )
 
     def load_events(self, session_id: SessionId) -> list[SessionEvent]:
         """Load events from the session event log.
 
-        Phase 3a: not implemented; the existing SessionManager is CRUD,
-        not event-sourced.
+        Synthesizes events from the sessions table row.  Returns a
+        ``session_created`` event for every session, and a
+        ``session_terminated`` event if the session is closed.
+        Raises NotFoundError when the session does not exist.
         """
-        raise NotImplementedError(
-            "SqlSessionStoreAdapter.load_events: the existing SessionManager "
-            "is CRUD-based, not event-sourced. Event sourcing bridge will be "
-            "added in a later phase."
+        row = self._metadata.query_one(
+            "SELECT * FROM sessions WHERE session_id = ?",
+            [str(session_id)],
         )
+        if row is None:
+            raise NotFoundError(
+                code=ErrorCode.NOT_FOUND,
+                message=f"Session {session_id!r} not found",
+            )
+
+        events: list[SessionEvent] = []
+        created_payload: dict[str, Any] = {"goal": row["goal"]}
+        constraints_json = row.get("constraints_json")
+        if constraints_json:
+            created_payload["constraints"] = json.loads(constraints_json)
+        budget_json = row.get("budget_json")
+        if budget_json:
+            created_payload["budget"] = json.loads(budget_json)
+
+        owner_user = row.get("owner_user") or ""
+        actor = UserId(owner_user) if owner_user else None
+
+        events.append(
+            SessionEvent(
+                session_id=session_id,
+                event_type="session_created",
+                timestamp=row["created_at"],
+                payload=created_payload,
+                actor=actor,
+            )
+        )
+
+        if row["status"] in ("closed", "terminated"):
+            terminal_reason = row.get("terminal_reason", "user_closed")
+            ended_at = row.get("ended_at") or row.get("updated_at") or row["created_at"]
+            events.append(
+                SessionEvent(
+                    session_id=session_id,
+                    event_type="session_terminated",
+                    timestamp=ended_at,
+                    payload={"terminal_reason": terminal_reason},
+                    actor=None,
+                )
+            )
+
+        return events
 
     def list_sessions(self, owner: UserId) -> list[SessionState]:
         """List sessions owned by ``owner``.
 
-        Phase 3a: not implemented; the existing SessionManager is CRUD,
-        not event-sourced.
+        Queries the sessions table filtered by owner_user.
         """
-        raise NotImplementedError(
-            "SqlSessionStoreAdapter.list_sessions: the existing SessionManager "
-            "is CRUD-based, not event-sourced. Event sourcing bridge will be "
-            "added in a later phase."
+        rows = self._metadata.query_rows(
+            "SELECT * FROM sessions WHERE owner_user = ? ORDER BY created_at DESC",
+            [str(owner)],
         )
+        result: list[SessionState] = []
+        for row in rows:
+            sid = SessionId(row["session_id"])
+            status = "active" if row["status"] == "open" else row["status"]
+            if status == "closed":
+                status = "terminated"
+            constraints_json = row.get("constraints_json")
+            budget_json = row.get("budget_json")
+            constraints = json.loads(constraints_json) if constraints_json else None
+            budget = json.loads(budget_json) if budget_json else None
+            owner_user_val = row.get("owner_user") or None
+            result.append(
+                SessionState(
+                    session_id=sid,
+                    status=status,
+                    goal=row["goal"],
+                    owner_user=UserId(owner_user_val) if owner_user_val else None,
+                    constraints=constraints,
+                    budget=budget,
+                    created_at=row["created_at"],
+                    updated_at=row.get("updated_at") or row["created_at"],
+                )
+            )
+        return result
 
 
 class DataSourceAdapter:

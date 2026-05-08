@@ -266,7 +266,7 @@ class RuntimeConfig(Protocol):
 
 **No client profile:** There is no client profile. Remote agents connect to the enterprise server via HTTP MCP transport (mounted on the same FastAPI app at `/mcp`). The MCP tool schema is identical between local stdio and enterprise HTTP MCP because both surfaces target the same `MarivoRuntime` semantics. Authorization differences (e.g. enterprise `AuthZ` rejecting an action) appear as standard error responses.
 
-**Local-mode safety guard:** The local profile factory must refuse to construct a `MarivoRuntime` when the runtime detects an enterprise deployment context (e.g. `MARIVO_DEPLOYMENT=server` env var, or presence of a `server.toml` config). This prevents `NoopAuthZ` from accidentally bypassing enterprise authorization.
+**Local-mode safety guard:** The local profile factory must refuse to construct a `MarivoRuntime` when the runtime detects an enterprise deployment context (e.g. `MARIVO_PROFILE=server` env var, or `profile = "server"` in the loaded `marivo.toml`). This prevents `NoopAuthZ` from accidentally bypassing enterprise authorization. The mechanism is `resolve_profile()` (Phase 6.2), which fails closed when an entry point's expected profile is overridden by an incompatible source.
 
 **LocalTelemetry default:** `LocalTelemetry` is no-op by default. Local users opt-in via `marivo.toml` (`[telemetry] sink = "file"`), which writes to `.marivo/telemetry.jsonl`. No telemetry leaves the host without explicit opt-in.
 
