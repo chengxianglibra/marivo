@@ -324,6 +324,9 @@ class MetadataStepStoreAdapter:
             )
 
     def list_steps(self, session_id: SessionId) -> list[Step]:
+        # Shallow read: semantic_metadata is stored in a separate
+        # step_metadata table and is not joined here.  Callers that
+        # need it should query the metadata repo directly.
         rows = self._metadata.query(
             "SELECT step_id, session_id, step_type, summary, result_json, "
             "provenance_json, created_at FROM steps "
@@ -332,6 +335,7 @@ class MetadataStepStoreAdapter:
         )
         result: list[Step] = []
         for row in rows:
+            prov_raw = row["provenance_json"]
             result.append(
                 Step(
                     step_id=StepId(str(row["step_id"])),
@@ -339,7 +343,7 @@ class MetadataStepStoreAdapter:
                     step_type=str(row["step_type"]),
                     summary=str(row["summary"]),
                     result=json.loads(str(row["result_json"])),
-                    provenance=json.loads(str(row["provenance_json"])),
+                    provenance=json.loads(str(prov_raw)) if prov_raw else None,
                     created_at=str(row["created_at"]),
                 )
             )
