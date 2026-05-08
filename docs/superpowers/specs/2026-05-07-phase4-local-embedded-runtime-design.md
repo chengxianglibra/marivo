@@ -513,11 +513,11 @@ When `marivo-mcp[local]` is not installed, `mode = "local"` produces a clear ins
 
 Embedded stdio process lifecycle equals one session's lifecycle:
 
-1. Process starts → read config → `create_local_runtime()` → `runtime.create_session()` → store `session_id` as `backend._default_session_id`
-2. Each tool call → if `session_id` not provided by MCP client, `EmbeddedBackend._sync_call()` injects `backend._default_session_id`
+1. stdio and HTTP MCP both require explicit `session_id` on every tool call that operates on a session. There is no implicit default.
+2. The MCP client's first call must be `create_session`, after which the returned `session_id` is passed to subsequent intent calls. This makes stdio and HTTP MCP wire-identical.
 3. stdin closes → `runtime.terminate_session()` → process exits
 
-The implicit `session_id` is stored on the `EmbeddedBackend` instance. MCP clients can still provide an explicit `session_id` in tool calls to override the default. MCP clients may also create additional sessions via the `create_session` tool.
+There is no implicit `session_id` storage; every tool call must provide one explicitly. MCP clients can still provide an explicit `session_id` in tool calls to override the default. MCP clients may also create additional sessions via the `create_session` tool.
 
 ### 6.8 Unchanged Components
 
