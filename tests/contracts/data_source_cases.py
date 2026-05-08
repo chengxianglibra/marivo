@@ -7,7 +7,7 @@ import pytest
 from app.contracts.errors import ErrorCode, NotFoundError, ValidationError
 from app.contracts.ids import DatasourceId
 from app.contracts.values import LogicalQuery, SourceRef
-from tests.contracts.contract_harness import ContractCase
+from tests.contracts.contract_cases import ContractCase
 
 
 def _run_execute_query(adapter, _: Path) -> None:

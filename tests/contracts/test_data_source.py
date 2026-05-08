@@ -21,7 +21,7 @@ data_source_factories = [
 def test_duckdb_data_source_contract_cases(tmp_path: Path) -> None:
     results = run_contract_cases(
         adapter_name="DuckDBDataSource",
-        factory=lambda _path: DuckDBDataSource(path=None),
+        factory=_make_duckdb_data_source,
         cases=DATA_SOURCE_CASES,
         tmp_path=tmp_path,
     )
