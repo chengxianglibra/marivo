@@ -30,6 +30,7 @@ from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
 from app.storage.metadata import MetadataStore
 from app.storage.mysql_metadata import MySQLMetadataStore
 from app.storage.sqlite_metadata import SQLiteMetadataStore
+from app.transports.mcp.http import mount_mcp_app
 
 logger = logging.getLogger(__name__)
 
@@ -182,4 +183,5 @@ def create_app(
     app.add_middleware(UserIdentityMiddleware)
     app.add_middleware(TimingMiddleware)
     include_api_routers(app)
+    mount_mcp_app(app, services.runtime)
     return app
