@@ -6,9 +6,9 @@ No refactoring allowed in Phase 5 — copy verbatim.
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal, TypeAlias
 
-from pydantic import BaseModel, BeforeValidator, model_validator
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
 
 
 def _reject_observe_time_scope_string(v: Any) -> Any:
@@ -21,6 +21,18 @@ def _reject_observe_time_scope_string(v: Any) -> Any:
             "Shorthand strings like '2024-03-01~2024-03-31' are not accepted."
         )
     return v
+
+
+def _reject_json_string(v: Any) -> Any:
+    """Reject JSON-encoded strings; require structured object form."""
+    if isinstance(v, str):
+        raise ValueError(
+            "mcp_structured_object_required: Pass a structured object, not a JSON-encoded string."
+        )
+    return v
+
+
+JsonObject: TypeAlias = dict[str, object]  # noqa: UP040
 
 
 class McpObserveTimeScope(BaseModel):
@@ -41,6 +53,58 @@ class McpObserveTimeScope(BaseModel):
 ObserveTimeScope = Annotated[
     McpObserveTimeScope, BeforeValidator(_reject_observe_time_scope_string)
 ]
+
+
+McpStructuredObject = Annotated[
+    JsonObject,
+    BeforeValidator(_reject_json_string),
+]
+
+
+class McpObservationRef(BaseModel):
+    """MCP-visible ref for compare inputs; mirrors CompareRequest ObservationRef."""
+
+    model_config = ConfigDict(extra="allow")
+
+    session_id: str | None = Field(
+        default=None,
+        description="Session containing the upstream observe step. Defaults to path session.",
+    )
+    step_id: str = Field(description='Required upstream observe step id, e.g. "step_obs_current".')
+    step_type: Literal["observe"] = Field(
+        description='Required literal "observe"; compare consumes observe step refs.',
+    )
+
+
+class McpArtifactRef(BaseModel):
+    """MCP-visible generic artifact ref for downstream intent inputs."""
+
+    model_config = ConfigDict(extra="allow")
+
+    session_id: str | None = Field(
+        default=None,
+        description="Session containing the upstream step. Defaults to path session.",
+    )
+    step_id: str = Field(description='Required upstream step id, e.g. "step_compare_1".')
+    step_type: str = Field(description='Required upstream step type, e.g. "compare".')
+
+
+class McpCompareArtifactRef(McpArtifactRef):
+    """MCP-visible ref for decompose inputs; step_type must be compare."""
+
+    step_type: Literal["compare"] = Field(
+        description='Required literal "compare"; decompose consumes compare step refs.',
+    )
+
+
+class McpDetectTimeScope(BaseModel):
+    """MCP-visible detect time_scope contract."""
+
+    model_config = ConfigDict(extra="allow")
+
+    kind: Literal["range"] = Field(description='Required literal "range".')
+    start: str = Field(description="Inclusive start of the range, ISO-8601 date or datetime.")
+    end: str = Field(description="Exclusive end of the range, ISO-8601 date or datetime.")
 
 
 class ObserveScope(BaseModel):
