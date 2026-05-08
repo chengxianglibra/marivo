@@ -1,0 +1,5 @@
+{
+  "compare_artifact_id": "delta_revenue_yoy_q1_by_region",
+  "dimension": "region",
+  "limit": 5
+}

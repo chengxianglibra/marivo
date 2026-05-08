@@ -1,0 +1,38 @@
+{
+  "metric": "average_order_value",
+  "left": {
+    "time_scope": {
+      "start": "2026-01-01T00:00:00Z",
+      "end": "2026-02-01T00:00:00Z"
+    },
+    "filter": {
+      "dialects": [
+        {
+          "dialect": "ANSI_SQL",
+          "expression": "experiment_group = 'treatment'"
+        }
+      ]
+    }
+  },
+  "right": {
+    "time_scope": {
+      "start": "2026-01-01T00:00:00Z",
+      "end": "2026-02-01T00:00:00Z"
+    },
+    "filter": {
+      "dialects": [
+        {
+          "dialect": "ANSI_SQL",
+          "expression": "experiment_group = 'control'"
+        }
+      ]
+    }
+  },
+  "kind": "numeric",
+  "hypothesis": {
+    "family": "two_sample_mean",
+    "alternative": "greater",
+    "alpha": 0.05,
+    "label": "Treatment increases AOV"
+  }
+}

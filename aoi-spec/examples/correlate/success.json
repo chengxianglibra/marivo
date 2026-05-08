@@ -1,0 +1,13 @@
+{
+  "artifact_id": "assoc_revenue_ad_spend_q1",
+  "step_id": "correlate_revenue_ad_spend_q1",
+  "result": {
+    "coefficient": 0.82,
+    "p_value": 0.004,
+    "n_pairs": 31,
+    "matched_time_scope": {
+      "start": "2026-01-01T00:00:00Z",
+      "end": "2026-02-01T00:00:00Z"
+    }
+  }
+}

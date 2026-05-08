@@ -1,0 +1,1104 @@
+{
+  "version": "0.1.0",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aoi.dev/schemas/0.1.0/aoi.schema.json",
+  "title": "AOI v0.1",
+  "description": "Analysis Operation Interface v0.1 canonical schema.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/requests/observe"
+    },
+    {
+      "$ref": "#/$defs/requests/compare"
+    },
+    {
+      "$ref": "#/$defs/requests/decompose"
+    },
+    {
+      "$ref": "#/$defs/requests/correlate"
+    },
+    {
+      "$ref": "#/$defs/requests/detect"
+    },
+    {
+      "$ref": "#/$defs/requests/test"
+    },
+    {
+      "$ref": "#/$defs/requests/forecast"
+    },
+    {
+      "$ref": "#/$defs/artifacts/Artifact"
+    }
+  ],
+  "$defs": {
+    "primitives": {
+      "ISO8601": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "TimeScope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "start",
+          "end"
+        ],
+        "properties": {
+          "start": {
+            "$ref": "#/$defs/primitives/ISO8601"
+          },
+          "end": {
+            "$ref": "#/$defs/primitives/ISO8601"
+          }
+        }
+      },
+      "TimeGranularity": {
+        "type": "string",
+        "enum": [
+          "hour",
+          "day",
+          "week",
+          "month",
+          "quarter",
+          "year"
+        ]
+      },
+      "CompareType": {
+        "type": "string",
+        "default": "normal",
+        "enum": [
+          "normal",
+          "yoy",
+          "mom",
+          "wow",
+          "holiday_aligned_yoy",
+          "weekday_aligned_yoy",
+          "weekday_aligned_mom"
+        ]
+      },
+      "HypothesisFamily": {
+        "type": "string",
+        "enum": [
+          "two_sample_mean",
+          "two_sample_proportion",
+          "paired_mean"
+        ]
+      },
+      "HypothesisAlternative": {
+        "type": "string",
+        "enum": [
+          "two_sided",
+          "greater",
+          "less"
+        ]
+      },
+      "TestKind": {
+        "type": "string",
+        "enum": [
+          "numeric",
+          "rate"
+        ]
+      },
+      "CorrelationMethod": {
+        "type": "string",
+        "enum": [
+          "pearson",
+          "spearman"
+        ]
+      },
+      "AnalysisFailure": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "Slice": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "time_scope",
+          "filter"
+        ],
+        "properties": {
+          "time_scope": {
+            "$ref": "#/$defs/primitives/TimeScope"
+          },
+          "filter": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/primitives/Expression"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "NumberOrNull": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "Expression": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "dialects"
+        ],
+        "properties": {
+          "dialects": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "expression"
+              ],
+              "properties": {
+                "dialect": {
+                  "type": "string",
+                  "default": "ANSI_SQL"
+                },
+                "expression": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        }
+      },
+      "Hypothesis": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "family",
+          "alternative",
+          "alpha",
+          "label"
+        ],
+        "properties": {
+          "family": {
+            "$ref": "#/$defs/primitives/HypothesisFamily"
+          },
+          "alternative": {
+            "$ref": "#/$defs/primitives/HypothesisAlternative"
+          },
+          "alpha": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "exclusiveMaximum": 1
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "DimensionKeyMap": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "string"
+        },
+        "required": []
+      }
+    },
+    "requests": {
+      "observe": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "metric",
+          "time_scope",
+          "filter"
+        ],
+        "properties": {
+          "metric": {
+            "type": "string",
+            "minLength": 1
+          },
+          "time_scope": {
+            "$ref": "#/$defs/primitives/TimeScope"
+          },
+          "filter": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/primitives/Expression"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "granularity": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/primitives/TimeGranularity"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "dimensions": {
+            "anyOf": [
+              {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "oneOf": [
+          {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "granularity"
+                  ]
+                },
+                {
+                  "required": [
+                    "dimensions"
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "properties": {
+              "granularity": {
+                "$ref": "#/$defs/primitives/TimeGranularity"
+              }
+            },
+            "not": {
+              "properties": {
+                "dimensions": {
+                  "type": "array"
+                }
+              },
+              "required": [
+                "dimensions"
+              ]
+            },
+            "required": [
+              "granularity"
+            ]
+          },
+          {
+            "properties": {
+              "dimensions": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "not": {
+              "properties": {
+                "granularity": {
+                  "$ref": "#/$defs/primitives/TimeGranularity"
+                }
+              },
+              "required": [
+                "granularity"
+              ]
+            },
+            "required": [
+              "dimensions"
+            ]
+          },
+          {
+            "properties": {
+              "granularity": {
+                "type": "null"
+              },
+              "dimensions": {
+                "type": "null"
+              }
+            },
+            "required": [
+              "granularity",
+              "dimensions"
+            ]
+          }
+        ]
+      },
+      "compare": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "left_artifact_id",
+          "right_artifact_id"
+        ],
+        "properties": {
+          "compare_type": {
+            "$ref": "#/$defs/primitives/CompareType"
+          },
+          "left_artifact_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "right_artifact_id": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "decompose": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "compare_artifact_id",
+          "dimension"
+        ],
+        "properties": {
+          "dimension": {
+            "type": "string",
+            "minLength": 1
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "compare_artifact_id": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "correlate": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "left_artifact_id",
+          "right_artifact_id"
+        ],
+        "properties": {
+          "method": {
+            "$ref": "#/$defs/primitives/CorrelationMethod"
+          },
+          "left_artifact_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "right_artifact_id": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "detect": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "metric",
+          "time_scope",
+          "granularity",
+          "filter"
+        ],
+        "properties": {
+          "metric": {
+            "type": "string",
+            "minLength": 1
+          },
+          "time_scope": {
+            "$ref": "#/$defs/primitives/TimeScope"
+          },
+          "granularity": {
+            "$ref": "#/$defs/primitives/TimeGranularity"
+          },
+          "filter": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/primitives/Expression"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "split_by": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "profile": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sensitivity": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "test": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "metric",
+          "left",
+          "right",
+          "kind",
+          "hypothesis"
+        ],
+        "properties": {
+          "metric": {
+            "type": "string",
+            "minLength": 1
+          },
+          "left": {
+            "$ref": "#/$defs/primitives/Slice"
+          },
+          "right": {
+            "$ref": "#/$defs/primitives/Slice"
+          },
+          "kind": {
+            "$ref": "#/$defs/primitives/TestKind"
+          },
+          "hypothesis": {
+            "$ref": "#/$defs/primitives/Hypothesis"
+          }
+        }
+      },
+      "forecast": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "source_artifact_id",
+          "horizon"
+        ],
+        "properties": {
+          "horizon": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "profile": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "source_artifact_id": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "artifacts": {
+      "Artifact": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "artifact_id",
+          "step_id"
+        ],
+        "properties": {
+          "artifact_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "step_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/artifacts/ScalarObservationResult"
+              },
+              {
+                "$ref": "#/$defs/artifacts/TimeSeriesObservationResult"
+              },
+              {
+                "$ref": "#/$defs/artifacts/SegmentedObservationResult"
+              },
+              {
+                "$ref": "#/$defs/artifacts/ScalarDeltaResult"
+              },
+              {
+                "$ref": "#/$defs/artifacts/TimeSeriesDeltaResult"
+              },
+              {
+                "$ref": "#/$defs/artifacts/SegmentedDeltaResult"
+              },
+              {
+                "$ref": "#/$defs/artifacts/DeltaDecompositionResult"
+              },
+              {
+                "$ref": "#/$defs/artifacts/AnomalyCandidatesResult"
+              },
+              {
+                "$ref": "#/$defs/artifacts/AssociationResult"
+              },
+              {
+                "$ref": "#/$defs/artifacts/HypothesisTestResult"
+              },
+              {
+                "$ref": "#/$defs/artifacts/ForecastSeriesResult"
+              }
+            ]
+          },
+          "failure": {
+            "$ref": "#/$defs/primitives/AnalysisFailure"
+          }
+        },
+        "oneOf": [
+          {
+            "required": [
+              "result"
+            ],
+            "not": {
+              "required": [
+                "failure"
+              ]
+            }
+          },
+          {
+            "required": [
+              "failure"
+            ],
+            "not": {
+              "required": [
+                "result"
+              ]
+            }
+          }
+        ]
+      },
+      "ArtifactEnvelope": {
+        "type": "object",
+        "required": [
+          "artifact_id",
+          "step_id"
+        ],
+        "properties": {
+          "artifact_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "step_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "failure": {
+            "$ref": "#/$defs/primitives/AnalysisFailure"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ScalarObservationResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "value"
+        ],
+        "properties": {
+          "value": {
+            "$ref": "#/$defs/primitives/NumberOrNull"
+          }
+        }
+      },
+      "TimeSeriesObservationResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "points"
+        ],
+        "properties": {
+          "points": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/artifacts/TimeSeriesPoint"
+            }
+          }
+        }
+      },
+      "SegmentedObservationResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "rows"
+        ],
+        "properties": {
+          "rows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/artifacts/SegmentedObservationRow"
+            }
+          }
+        }
+      },
+      "ScalarDeltaResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "left_value",
+          "right_value",
+          "delta",
+          "matched_time_scope"
+        ],
+        "properties": {
+          "left_value": {
+            "$ref": "#/$defs/primitives/NumberOrNull"
+          },
+          "right_value": {
+            "$ref": "#/$defs/primitives/NumberOrNull"
+          },
+          "delta": {
+            "$ref": "#/$defs/primitives/NumberOrNull"
+          },
+          "matched_time_scope": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/primitives/TimeScope"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "TimeSeriesDeltaResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "points",
+          "matched_time_scope"
+        ],
+        "properties": {
+          "points": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/artifacts/DeltaPoint"
+            }
+          },
+          "matched_time_scope": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/primitives/TimeScope"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "SegmentedDeltaResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "rows",
+          "matched_time_scope"
+        ],
+        "properties": {
+          "rows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/artifacts/SegmentedDeltaRow"
+            }
+          },
+          "matched_time_scope": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/primitives/TimeScope"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "DeltaDecompositionResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/artifacts/DecompositionItem"
+            }
+          }
+        }
+      },
+      "AnomalyCandidatesResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/artifacts/AnomalyCandidate"
+            }
+          }
+        }
+      },
+      "AssociationResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "coefficient",
+          "p_value",
+          "n_pairs",
+          "matched_time_scope"
+        ],
+        "properties": {
+          "coefficient": {
+            "type": "number",
+            "minimum": -1,
+            "maximum": 1
+          },
+          "p_value": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "n_pairs": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "matched_time_scope": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/primitives/TimeScope"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "HypothesisTestResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "statistic",
+          "p_value",
+          "decision",
+          "assumption_notes"
+        ],
+        "properties": {
+          "statistic": {
+            "type": "number"
+          },
+          "p_value": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "decision": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "reject_null"
+            ],
+            "properties": {
+              "reject_null": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          },
+          "assumption_notes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "ForecastSeriesResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "points"
+        ],
+        "properties": {
+          "points": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "bucket_start",
+                "value",
+                "ci_low",
+                "ci_high"
+              ],
+              "properties": {
+                "bucket_start": {
+                  "$ref": "#/$defs/primitives/ISO8601"
+                },
+                "value": {
+                  "type": "number"
+                },
+                "ci_low": {
+                  "$ref": "#/$defs/primitives/NumberOrNull"
+                },
+                "ci_high": {
+                  "$ref": "#/$defs/primitives/NumberOrNull"
+                }
+              }
+            }
+          }
+        }
+      },
+      "TimeSeriesPoint": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "bucket_start",
+          "value"
+        ],
+        "properties": {
+          "bucket_start": {
+            "$ref": "#/$defs/primitives/ISO8601"
+          },
+          "value": {
+            "$ref": "#/$defs/primitives/NumberOrNull"
+          }
+        }
+      },
+      "SegmentedObservationRow": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "item_id",
+          "keys",
+          "value"
+        ],
+        "properties": {
+          "item_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "keys": {
+            "$ref": "#/$defs/primitives/DimensionKeyMap"
+          },
+          "value": {
+            "$ref": "#/$defs/primitives/NumberOrNull"
+          }
+        }
+      },
+      "DeltaPoint": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "bucket_start",
+          "left_value",
+          "right_value",
+          "delta"
+        ],
+        "properties": {
+          "bucket_start": {
+            "$ref": "#/$defs/primitives/ISO8601"
+          },
+          "left_value": {
+            "$ref": "#/$defs/primitives/NumberOrNull"
+          },
+          "right_value": {
+            "$ref": "#/$defs/primitives/NumberOrNull"
+          },
+          "delta": {
+            "$ref": "#/$defs/primitives/NumberOrNull"
+          }
+        }
+      },
+      "SegmentedDeltaRow": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "item_id",
+          "keys",
+          "left_value",
+          "right_value",
+          "delta"
+        ],
+        "properties": {
+          "item_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "keys": {
+            "$ref": "#/$defs/primitives/DimensionKeyMap"
+          },
+          "left_value": {
+            "$ref": "#/$defs/primitives/NumberOrNull"
+          },
+          "right_value": {
+            "$ref": "#/$defs/primitives/NumberOrNull"
+          },
+          "delta": {
+            "$ref": "#/$defs/primitives/NumberOrNull"
+          }
+        }
+      },
+      "DecompositionItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "item_id",
+          "key",
+          "contribution",
+          "share"
+        ],
+        "properties": {
+          "item_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "contribution": {
+            "type": "number"
+          },
+          "share": {
+            "type": "number"
+          }
+        }
+      },
+      "AnomalyCandidate": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "item_id",
+          "bucket_start",
+          "value",
+          "score",
+          "series_keys"
+        ],
+        "properties": {
+          "item_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "bucket_start": {
+            "$ref": "#/$defs/primitives/ISO8601"
+          },
+          "value": {
+            "type": "number"
+          },
+          "score": {
+            "type": "number",
+            "minimum": 0
+          },
+          "series_keys": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/primitives/DimensionKeyMap"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}
