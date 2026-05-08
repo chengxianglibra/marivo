@@ -28,6 +28,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 
 from app.api.app_factory import create_app
+from app.storage.sqlite_metadata import SQLiteMetadataStore
 from app.transports.mcp.tools import register_tools
 
 # ---------------------------------------------------------------------------
@@ -36,9 +37,10 @@ from app.transports.mcp.tools import register_tools
 
 
 @pytest.fixture()
-def runtime():
+def runtime(tmp_path):
     """Create a real MarivoRuntime backed by in-memory storage."""
-    app = create_app(db_path=":memory:")
+    metadata_store = SQLiteMetadataStore(tmp_path / "meta.sqlite")
+    app = create_app(db_path=":memory:", metadata_store=metadata_store)
     return app.state.runtime
 
 
