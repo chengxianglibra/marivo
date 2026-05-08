@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.ports.artifact_store import ArtifactStore, StepStore
+from app.ports.artifact_store import ArtifactStore
 from app.ports.audit_log import AuditLog
 from app.ports.authz import AuthZ
 from app.ports.cache_store import CacheStore
@@ -9,6 +9,7 @@ from app.ports.evidence_store import EvidenceStore
 from app.ports.model_store import ModelStore
 from app.ports.runtime_config import RuntimeConfig
 from app.ports.session_store import SessionStore
+from app.ports.step_store import StepStore
 from app.ports.telemetry import Telemetry
 
 
