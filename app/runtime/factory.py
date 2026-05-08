@@ -24,6 +24,7 @@ from app.runtime.runtime import MarivoRuntime
 if TYPE_CHECKING:
     from app.config import MarivoConfig
     from app.datasources import DatasourceService
+    from app.semantic_service_v2.service import SemanticModelV2Service
     from app.service import SemanticLayerService
 
 
@@ -31,6 +32,7 @@ def create_runtime_from_service(
     svc: SemanticLayerService,
     datasource_svc: DatasourceService,
     config: MarivoConfig,
+    semantic_v2_svc: SemanticModelV2Service | None = None,
 ) -> MarivoRuntime:
     """Phase 3a factory: wraps existing infrastructure into Runtime."""
 
@@ -72,6 +74,9 @@ def create_runtime_from_service(
     core = CoreEngine()
     runtime = MarivoRuntime(ports, core)
     runtime.wire_svc(svc)
+    runtime.wire_datasource_svc(datasource_svc)
+    if semantic_v2_svc is not None:
+        runtime.wire_semantic_v2_svc(semantic_v2_svc)
 
     # Phase 4b-1: expose runtime on svc so intent runners can access I/O + pure methods
     svc._runtime = runtime

@@ -109,7 +109,9 @@ def _build_services(
         cast("SQLiteMetadataStore", metadata_store),
         datasource_service=datasource_service,
     )
-    runtime = create_runtime_from_service(service, datasource_service, config)
+    runtime = create_runtime_from_service(
+        service, datasource_service, config, semantic_v2_svc=semantic_v2_service
+    )
     return AppServices(
         resolved_path=resolved_path,
         config=config,
