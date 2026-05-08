@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -17,6 +16,7 @@ from app.adapters.local.sqlite_session_store import SqliteSessionStore
 from app.adapters.local.toml_runtime_config import TomlRuntimeConfig
 from app.contracts.errors import ErrorCode, ValidationError
 from app.core.engine import CoreEngine
+from app.profiles.resolver import resolve_profile
 from app.runtime.ports import RuntimePorts
 from app.runtime.runtime import MarivoRuntime
 
@@ -33,12 +33,16 @@ class LocalConfig:
 
 def create_local_runtime(
     config: LocalConfig,
-    explicit_local: bool = False,
+    explicit: str | None = None,
 ) -> MarivoRuntime:
     """Create a local embedded MarivoRuntime."""
-    _check_deployment_guard(explicit_local)
-
     marivo_dir = config.workspace_root / ".marivo"
+    resolve_profile(
+        entry_point="local_stdio",
+        explicit=explicit,
+        workspace_config_path=marivo_dir / "marivo.toml",
+    )
+
     data_source = _create_data_source(config.datasource_type, config.datasource_config)
 
     ports = RuntimePorts(
@@ -56,21 +60,6 @@ def create_local_runtime(
     )
     core = CoreEngine()
     return MarivoRuntime(ports, core)
-
-
-def _check_deployment_guard(explicit_local: bool) -> None:
-    """Safety guard: respect MARIVO_DEPLOYMENT=server unless explicitly overridden."""
-    deployment = os.getenv("MARIVO_DEPLOYMENT", "").lower()
-    if deployment == "server" and not explicit_local:
-        raise ValidationError(
-            code=ErrorCode.VALIDATION,
-            message=(
-                "MARIVO_DEPLOYMENT=server is set but no explicit local mode requested. "
-                "Use --profile local or MARIVO_PROFILE=local to override."
-            ),
-        )
-    if deployment == "server" and explicit_local:
-        logger.warning("Running local profile in a server-deployment environment")
 
 
 def _create_data_source(dtype: str, config: dict[str, Any]) -> DuckDBDataSource:

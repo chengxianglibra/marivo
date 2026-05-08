@@ -19,7 +19,7 @@ def main() -> None:
 
     workspace = Path.cwd()
     config = LocalConfig(workspace_root=workspace)
-    runtime = create_local_runtime(config, explicit_local=True)
+    runtime = create_local_runtime(config, explicit="local")
 
     server = FastMCP("marivo")
     register_tools(server, runtime)
