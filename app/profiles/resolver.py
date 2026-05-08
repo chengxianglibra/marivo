@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import Mapping
 from typing import Literal
 
-from app.contracts.errors import DomainError
+from app.contracts.errors import DomainError, ErrorCode
 
 logger = logging.getLogger(__name__)
 
@@ -31,8 +32,48 @@ _ALLOWED_BY_ENTRY: dict[EntryPoint, frozenset[ProfileMode]] = {
 def resolve_profile(
     *,
     entry_point: EntryPoint,
+    explicit: str | None = None,
     env: Mapping[str, str] | None = None,
 ) -> ProfileMode:
-    """Skeleton: returns the entry-point default. Precedence sources
-    added in subsequent tasks."""
-    return _DEFAULT_BY_ENTRY[entry_point]
+    env_map = env if env is not None else os.environ
+
+    # Normalize empty strings to None: MARIVO_PROFILE="" is missing, not "".
+    explicit = explicit or None
+    env_value = env_map.get("MARIVO_PROFILE") or None
+
+    raw: str | None = explicit or env_value
+    source = "explicit" if explicit else ("env" if env_value else None)
+
+    if raw is None:
+        return _DEFAULT_BY_ENTRY[entry_point]
+
+    # raw is now a non-empty string; validate it is a known profile.
+    if raw not in ("local", "server"):
+        logger.error(
+            "profile.unknown entry_point=%s source=%s candidate=%r",
+            entry_point,
+            source,
+            raw,
+        )
+        raise ProfileResolutionError(
+            ErrorCode.VALIDATION,
+            f"Unknown profile {raw!r}; expected 'local' or 'server' "
+            f"(source={source}, entry_point={entry_point})",
+        )
+
+    candidate: ProfileMode = raw  # type: ignore[assignment]
+
+    if candidate not in _ALLOWED_BY_ENTRY[entry_point]:
+        logger.error(
+            "profile.incompatible entry_point=%s source=%s candidate=%s",
+            entry_point,
+            source,
+            candidate,
+        )
+        raise ProfileResolutionError(
+            ErrorCode.VALIDATION,
+            f"Profile {candidate!r} (source={source}) is not allowed at "
+            f"entry point {entry_point!r}",
+        )
+
+    return candidate
