@@ -30,6 +30,7 @@ dev = [
 
 [project.scripts]
 marivo = "app.cli:main"
+marivo-stdio = "app.transports.mcp.stdio:main"
 
 [build-system]
 requires = ["setuptools>=68.0"]
