@@ -27,9 +27,8 @@ class RuntimePorts:
         audit_log: AuditLog,
         telemetry: Telemetry,
         runtime_config: RuntimeConfig,
-        *,
-        artifact_store: ArtifactStore | None = None,
-        step_store: StepStore | None = None,
+        artifact_store: ArtifactStore,
+        step_store: StepStore,
     ) -> None:
         self.model_store = model_store
         self.session_store = session_store
@@ -40,5 +39,5 @@ class RuntimePorts:
         self.audit_log = audit_log
         self.telemetry = telemetry
         self.runtime_config = runtime_config
-        self.artifact_store: ArtifactStore | None = artifact_store
-        self.step_store: StepStore | None = step_store
+        self.artifact_store: ArtifactStore = artifact_store
+        self.step_store: StepStore = step_store
