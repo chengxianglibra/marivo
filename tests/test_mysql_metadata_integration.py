@@ -27,7 +27,6 @@ from app.evidence_engine.finding_extractor_registry import (
     FindingExtractor,
     FindingExtractorRegistry,
 )
-from app.service import SemanticLayerService
 from app.storage.analytics import AnalyticsEngine
 from app.storage.mysql_metadata import (
     MySQLMetadataStore,
@@ -445,12 +444,14 @@ class MySQLMetadataIntegrationTests(unittest.TestCase):
             [session_id, "rollback", "{}", "{}", "{}", "open"],
         )
 
-        service = SemanticLayerService(self.store, MagicMock(spec=AnalyticsEngine))
+        from tests.semantic_test_helpers import build_runtime
+
+        runtime = build_runtime(self.store, MagicMock(spec=AnalyticsEngine))
         registry = FindingExtractorRegistry()
         registry.register(_ObserveSuccessExtractor())
 
         with self.assertRaisesRegex(RuntimeError, "injected finding insert failure"):
-            service._commit_artifact_with_extraction(
+            runtime.svc._commit_artifact_with_extraction(
                 session_id,
                 step_id,
                 "observation_artifact",
