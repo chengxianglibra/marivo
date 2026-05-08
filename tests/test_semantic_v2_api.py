@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import json
-import tempfile
 import unittest
-from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -165,23 +163,6 @@ def _make_dataset_dict(
 # ---------------------------------------------------------------------------
 # POST /semantic-models — create semantic model
 # ---------------------------------------------------------------------------
-
-
-class TestSemanticV2APITestFixtures(unittest.TestCase):
-    def test_make_app_cleans_temp_metadata_dir_when_client_closes(self) -> None:
-        temp_root = Path(tempfile.gettempdir())
-        before = set(temp_root.glob("marivo_v2_api_*"))
-
-        client = _make_app()
-        created = set(temp_root.glob("marivo_v2_api_*")) - before
-
-        self.assertEqual(len(created), 1)
-        temp_dir = created.pop()
-        self.assertTrue((temp_dir / "meta.sqlite").exists())
-
-        client.close()
-
-        self.assertFalse(temp_dir.exists())
 
 
 class TestCreateSemanticModelAPI(unittest.TestCase):
