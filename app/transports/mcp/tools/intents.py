@@ -9,7 +9,7 @@ from app.transports.mcp.tools.schemas import McpObserveTimeScope, ObserveScope
 
 
 def register_observe(server: Any, runtime: Any) -> None:
-    @server.tool()  # type: ignore[misc]
+    @server.tool()  # type: ignore
     async def observe(
         session_id: str,
         metric: str,
