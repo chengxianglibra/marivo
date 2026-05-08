@@ -70,10 +70,25 @@ def create_runtime_from_service(
             metadata,
             step_metadata_repo=svc._step_metadata_repo,
         ),
+        semantic_repository=svc.semantic_repository,
+        semantic_resolver=svc.semantic_resolver,
+        metadata=metadata,
+        evidence_repos={
+            "proposition_repo": svc._proposition_repo,
+            "assessment_repo": svc._assessment_repo,
+            "finding_repo": svc._finding_repo,
+            "gap_repo": svc._gap_repo,
+            "inference_record_repo": svc._inference_record_repo,
+            "proposal_repo": svc._proposal_repo,
+        },
+        analytics=svc.analytics,
+        calendar_data_reader=getattr(svc, "calendar_data_reader", None),
+        time_axis_metadata_provider=getattr(svc, "time_axis_metadata_provider", None),
     )
     core = CoreEngine()
     runtime = MarivoRuntime(ports, core)
-    runtime.wire_svc(svc)
+    # Set svc property for semantic_ops resolve_engine compatibility (deprecated)
+    runtime.svc = svc
     runtime.wire_datasource_svc(datasource_svc)
     if semantic_v2_svc is not None:
         runtime.wire_semantic_v2_svc(semantic_v2_svc)

@@ -280,7 +280,7 @@ def get_session_state(
         if query:
             result = get_services(request).runtime.get_session_state(SessionId(session_id), **query)
         else:
-            result = get_services(request).service.query_session_state(session_id, query)
+            result = get_services(request).runtime.query_session_state(session_id, query)
         if isinstance(result, dict):
             return SessionStateView.model_validate(result)
         # result is a SessionState — build minimal view
@@ -318,9 +318,7 @@ def query_session_state(
     try:
         query = payload.model_dump(exclude_none=True)
         return SessionStateView.model_validate(
-            get_services(request).service.query_session_state(
-                session_id, query
-            )  # TODO(phase3b): migrate to runtime
+            get_services(request).runtime.query_session_state(session_id, query)
         )
     except (KeyError, NotFoundError) as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
@@ -371,9 +369,7 @@ def get_proposition_context(
     """
     try:
         return PropositionContextView.model_validate(
-            get_services(request).service.get_proposition_context(
-                session_id, proposition_id
-            )  # TODO(phase3b): migrate to runtime
+            get_services(request).runtime.get_proposition_context(session_id, proposition_id)
         )
     except (KeyError, NotFoundError) as error:
         raise HTTPException(status_code=404, detail=str(error)) from error

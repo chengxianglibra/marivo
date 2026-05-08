@@ -198,7 +198,7 @@ def _make_runtime() -> MarivoRuntime:
     ports = _make_ports()
     core = CoreEngine()
     rt = MarivoRuntime(ports=ports, core=core)
-    rt.wire_svc(mock_svc)
+    rt.svc = mock_svc
     return rt
 
 

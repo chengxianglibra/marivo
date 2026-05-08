@@ -191,7 +191,7 @@ def build_semantic_layer_service(
         from app.runtime.runtime import MarivoRuntime
 
         runtime = MarivoRuntime(ports, core)
-        runtime.wire_svc(service)
+        runtime.svc = service
         service._runtime = runtime
     return service
 
@@ -218,7 +218,7 @@ def build_runtime(
     ports = MagicMock(spec=RuntimePorts)  # type: ignore[assignment]
     core = CoreEngine()
     runtime = MarivoRuntime(ports, core)
-    runtime.wire_svc(svc)
+    runtime.svc = svc
 
     # Keep svc in sync so intent runners that reach through svc see the
     # same runtime.
