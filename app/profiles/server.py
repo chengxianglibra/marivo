@@ -10,7 +10,6 @@ from app.routing import QueryRouter
 from app.runtime.ports import RuntimePorts
 from app.runtime.runtime import MarivoRuntime
 from app.semantic_service_v2.service import SemanticModelV2Service
-from app.session.session_manager import SessionManager
 from app.storage.analytics import AnalyticsEngine
 from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
 from app.storage.metadata import MetadataStore
@@ -185,12 +184,11 @@ def _build_server_ports(
     inference_repo = InferenceRecordRepository(metadata_store)
     proposal_repo = ActionProposalRepository(metadata_store)
 
-    session_manager = SessionManager(metadata_store)
     step_metadata_repo = StepMetadataRepository(metadata_store)
 
     return RuntimePorts(
         model_store=SqlModelStoreAdapter(semantic_v2_service, metadata_store),
-        session_store=SqlSessionStoreAdapter(session_manager, metadata_store),
+        session_store=SqlSessionStoreAdapter(None, metadata_store),
         evidence_store=MetadataEvidenceStoreAdapter(
             finding_repo=finding_repo,
             proposition_repo=proposition_repo,
