@@ -111,6 +111,7 @@ class CalendarConfig(BaseModel):
 class MarivoConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    profile: str | None = None
     metadata: MetadataConfig | None = None
     calendar: CalendarConfig = Field(default_factory=CalendarConfig)
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
