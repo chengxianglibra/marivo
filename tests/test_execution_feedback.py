@@ -287,7 +287,7 @@ class ExecutionFeedbackIntegrationTests(unittest.TestCase):
 
     def test_make_provenance_includes_routing_feedback_context(self) -> None:
         app = cast("Any", self.client.app)
-        service = app.state.service
+        service = app.state.runtime.svc
         service._routing_feedback_context = {
             "code": "routing_no_common_engine",
             "category": "routing",

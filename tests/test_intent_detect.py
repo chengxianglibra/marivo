@@ -32,7 +32,7 @@ from app.main import create_app
 from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
 from app.storage.sqlite_metadata import SQLiteMetadataStore
 from tests.semantic_test_helpers import (
-    build_semantic_layer_service,
+    build_runtime,
     ensure_published_typed_metric,
     ensure_published_typed_metric_binding,
     seed_duckdb_source_object,
@@ -140,7 +140,7 @@ class DetectRunnerServiceTests(unittest.TestCase):
             dimensions=["event_date", "dimension.cluster"],
         )
 
-        cls.service = build_semantic_layer_service(cls.metadata, cls.analytics)
+        cls.service = build_runtime(cls.metadata, cls.analytics)
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -565,7 +565,7 @@ class DetectIntentEndpointTests(unittest.TestCase):
 
         # Register metric pointing to analytics.uniform_events.
         _seed_metadata(
-            cls.client.app.state.service.metadata,
+            cls.client.app.state.runtime.svc.metadata,
             db_path=db_path,
             src_suffix="http01",
             metric_name="http_detect_metric",
@@ -574,7 +574,7 @@ class DetectIntentEndpointTests(unittest.TestCase):
             dimensions=["event_date", "dimension.cluster"],
         )
         _seed_metadata(
-            cls.client.app.state.service.metadata,
+            cls.client.app.state.runtime.svc.metadata,
             db_path=db_path,
             src_suffix="http02",
             metric_name="http_detect_split_metric",
@@ -625,7 +625,7 @@ class DetectIntentEndpointTests(unittest.TestCase):
         self.assertEqual(r.status_code, 422)
 
     def test_detect_not_ready_metric_returns_409_with_structured_readiness_error(self) -> None:
-        metadata = self.client.app.state.service.metadata
+        metadata = self.client.app.state.runtime.svc.metadata
         metric_name = _seed_metadata(
             metadata,
             db_path=self.client.app.state.services.resolved_path,
@@ -661,7 +661,7 @@ class DetectIntentEndpointTests(unittest.TestCase):
         self.assertEqual(detail["readiness_status"], "not_ready")
 
     def test_detect_ready_metric_with_auxiliary_binding_returns_200(self) -> None:
-        metadata = self.client.app.state.service.metadata
+        metadata = self.client.app.state.runtime.svc.metadata
         metric_name = _seed_metadata(
             metadata,
             db_path=self.client.app.state.services.resolved_path,

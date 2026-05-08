@@ -43,7 +43,7 @@ class StepMetadataPersistenceTests(unittest.TestCase):
         db_path = Path(cls.temp_dir.name) / "step_metadata.duckdb"
         get_seeded_duckdb_path(db_path)
         app = create_app(db_path)
-        cls.service = cast("Any", app.state.service)
+        cls.service = cast("Any", app.state.runtime.svc)
         cls.semantic_service = cast("Any", app.state.semantic_service)
         cls.metadata = cls.service.metadata
         now = datetime.now(UTC).isoformat()

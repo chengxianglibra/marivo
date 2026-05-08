@@ -888,7 +888,7 @@ class ArtifactLifecycleTests(unittest.TestCase):
         get_seeded_duckdb_path(db_path)
         _seed_default_calendar_source_metadata(db_path)
         cls.app = create_app(db_path)
-        cls.service = cls.app.state.service
+        cls.service = cls.app.state.runtime.svc
 
     @classmethod
     def tearDownClass(cls) -> None:

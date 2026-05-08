@@ -171,60 +171,42 @@ def _metadata_store_from_client(client: TestClient) -> MetadataStore:
     return metadata_store
 
 
-def build_semantic_layer_service(
-    metadata: MetadataStore,
-    analytics: AnalyticsEngine,
-) -> SemanticLayerService:
-    from unittest.mock import MagicMock
-
-    from app.core.engine import CoreEngine
-
-    service = SemanticLayerService(metadata, analytics)
-    service.query_router = QueryRouter(metadata, DatasourceService(metadata))
-    # Phase 4b-1: ensure _runtime is set so intent runners can access
-    # I/O methods through the service registration lambdas.
-    if service._runtime is None:
-        from app.runtime.ports import RuntimePorts
-
-        ports = MagicMock(spec=RuntimePorts)  # type: ignore[assignment]
-        core = CoreEngine()
-        from app.runtime.runtime import MarivoRuntime
-
-        runtime = MarivoRuntime(ports, core)
-        runtime.svc = service
-        service._runtime = runtime
-    return service
-
-
 def build_runtime(
     metadata: MetadataStore,
     analytics: AnalyticsEngine,
 ) -> MarivoRuntime:
     """Construct a MarivoRuntime suitable for tests.
 
-    This is the preferred helper for new tests.  It builds the same
-    SemanticLayerService + CoreEngine + RuntimePorts stack that
-    ``build_semantic_layer_service`` sets up, but returns the
-    ``MarivoRuntime`` facade instead.
+    This is the preferred helper for tests.  It builds the
+    SemanticLayerService + CoreEngine + RuntimePorts stack and returns
+    the ``MarivoRuntime`` facade.
     """
     from unittest.mock import MagicMock
 
     from app.core.engine import CoreEngine
     from app.runtime.ports import RuntimePorts
+    from app.service import SemanticLayerService
 
-    svc = build_semantic_layer_service(metadata, analytics)
-    # For test-only usage, shortcut with MagicMock ports rather than
-    # wiring the full adapter stack through create_runtime_from_service.
+    svc = SemanticLayerService(metadata, analytics)
+    svc.query_router = QueryRouter(metadata, DatasourceService(metadata))
     ports = MagicMock(spec=RuntimePorts)  # type: ignore[assignment]
     core = CoreEngine()
     runtime = MarivoRuntime(ports, core)
     runtime.svc = svc
-
-    # Keep svc in sync so intent runners that reach through svc see the
-    # same runtime.
     svc._runtime = runtime
-
     return runtime
+
+
+def build_semantic_layer_service(
+    metadata: MetadataStore,
+    analytics: AnalyticsEngine,
+) -> SemanticLayerService:
+    """Backward-compatible helper: returns the svc attached to a build_runtime.
+
+    Prefer ``build_runtime`` for new tests.
+    """
+    runtime = build_runtime(metadata, analytics)
+    return runtime.svc
 
 
 def seed_duckdb_source_object(

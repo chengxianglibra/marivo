@@ -39,9 +39,10 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from app.main import create_app
-from app.service import SemanticLayerService
+from app.runtime.runtime import MarivoRuntime
 from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
 from app.storage.sqlite_metadata import SQLiteMetadataStore
+from tests.semantic_test_helpers import build_runtime
 from tests.shared_fixtures import get_named_seeded_duckdb_path
 
 
@@ -82,7 +83,7 @@ def _make_synthetic_series(n: int = 14, start: str = _SERIES_START) -> list[dict
 
 
 def _inject_observe_artifact(
-    svc: SemanticLayerService,
+    runtime: MarivoRuntime,
     session_id: str,
     *,
     series: list[dict] | None = None,
@@ -93,7 +94,7 @@ def _inject_observe_artifact(
     """Insert a synthetic observe step + artifact; return (step_id, artifact_id)."""
     if series is None:
         series = _make_synthetic_series()
-    step_id = svc._new_step_id()
+    step_id = runtime.svc._new_step_id()
     artifact_content: dict = {
         "schema_version": "1.0",
         "observation_type": observation_type,
@@ -106,10 +107,10 @@ def _inject_observe_artifact(
             "data_complete": None,
         },
     }
-    artifact_id = svc._insert_artifact(
+    artifact_id = runtime.svc._insert_artifact(
         session_id, step_id, "time_series", f"{metric}_observe_time_series", artifact_content
     )
-    svc._insert_step(
+    runtime.svc._insert_step(
         step_id, session_id, "observe", f"observe {metric}", {"artifact_id": artifact_id}
     )
     return step_id, artifact_id
@@ -119,7 +120,7 @@ def _inject_observe_artifact(
 
 
 class ForecastRunnerServiceTests(unittest.TestCase):
-    """Tests that call run_forecast_intent through SemanticLayerService directly."""
+    """Tests that call run_forecast_intent through MarivoRuntime directly."""
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -132,7 +133,7 @@ class ForecastRunnerServiceTests(unittest.TestCase):
         cls.metadata.initialize()
         cls.analytics.initialize()
 
-        cls.service = SemanticLayerService(cls.metadata, cls.analytics)
+        cls.service = build_runtime(cls.metadata, cls.analytics)
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -518,7 +519,7 @@ class ForecastIntentEndpointTests(unittest.TestCase):
         assert r.status_code == 200, r.text
         cls.session_id = r.json()["session_id"]
         cls.obs_step_id, cls.obs_artifact_id = _inject_observe_artifact(
-            cls.client.app.state.service,
+            cls.client.app.state.runtime.svc,
             cls.session_id,
             metric="http_forecast_dau",
         )
