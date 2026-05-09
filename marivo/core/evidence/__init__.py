@@ -20,6 +20,13 @@ from marivo.core.evidence.assessment import (
     make_assessment_id,
     resolve_assessment_status,
 )
+from marivo.core.evidence.family_contract import (
+    ALLOWS_EMPTY_ARTIFACT_TYPES,
+    FAMILY_ALLOWS_EMPTY,
+    ArtifactFamily,
+    FamilyEmptyError,
+    check_finding_count,
+)
 from marivo.core.evidence.finding_extraction import (
     extract_compare_findings,
     extract_correlate_findings,
@@ -41,8 +48,13 @@ from marivo.core.evidence.proposition_seeding import (
 )
 
 __all__ = [
+    "ALLOWS_EMPTY_ARTIFACT_TYPES",
+    "FAMILY_ALLOWS_EMPTY",
+    "ArtifactFamily",
+    "FamilyEmptyError",
     "bilateral_focus_anchor",
     "canonical_subject_key",
+    "check_finding_count",
     "compute_canonical_diff",
     "decode_seg_component",
     "evaluate_calendar_alignment_requirements",

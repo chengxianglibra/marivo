@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from marivo.analysis_core.compiler import (
+from marivo.core.semantic.compiler import (
     CompiledQuery,
     SemanticCompilerError,
     SemanticRequestCompatibilityError,
 )
-from marivo.analysis_core.ir import AnalysisStepIR
+from marivo.core.semantic.ir import AnalysisStepIR
 from marivo.execution.errors import ExecutionError
 from marivo.routing import RoutingResolutionError
 from marivo.runtime_contracts import ExecutionFeedback
