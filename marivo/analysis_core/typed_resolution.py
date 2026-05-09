@@ -11,9 +11,9 @@ from marivo.analysis_core.calendar_policy import (
     CalendarPolicyResolutionError,
     validate_calendar_policy_ref,
 )
-from marivo.semantic_runtime.errors import SemanticRuntimeError, SemanticRuntimeNotReadyError
-from marivo.semantic_runtime.resolution import ResolvedSemanticObject
-from marivo.semantic_runtime.semantic_metadata import runtime_ref_kind
+from marivo.core.semantic.metadata import runtime_ref_kind
+from marivo.core.semantic.resolution import ResolvedSemanticObject
+from marivo.runtime.errors import SemanticRuntimeError, SemanticRuntimeNotReadyError
 from marivo.time_scope import (
     SemanticMetricValueSpec,
     normalize_aggregate_query_request,
@@ -22,7 +22,7 @@ from marivo.time_scope import (
 
 if TYPE_CHECKING:
     from marivo.analysis_core.ir import AnalysisStepIR
-    from marivo.semantic_runtime import SemanticRuntimeRepository
+    from marivo.runtime.evidence.semantic_repository import SemanticRuntimeRepository
 
 
 RequestClass = Literal["root_metric_process", "typed_ref", "derived_macro"]

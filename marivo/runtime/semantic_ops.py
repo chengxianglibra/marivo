@@ -25,16 +25,15 @@ from marivo.core.semantic.compiler import (
     build_metric_query as compile_metric_query,
 )
 from marivo.core.semantic.ir import AnalysisStepIR
+from marivo.core.semantic.resolution import ResolvedSemanticObject
 from marivo.execution.feedback import compile_failure_from_error
 from marivo.metric_inputs import required_metric_input_slots
-from marivo.semantic_runtime.dimensions import resolve_entity_binding_dimensions
-from marivo.semantic_runtime.errors import (
+from marivo.runtime.errors import (
     SemanticRuntimeInvalidRefError,
     SemanticRuntimeNotFoundError,
     SemanticRuntimeNotReadyError,
     SemanticRuntimeUnpublishedError,
 )
-from marivo.semantic_runtime.resolution import ResolvedSemanticObject
 from marivo.time_axis_metadata import TimeAxisMetadataContext
 from marivo.time_scope import (
     ResolvedWindowedQueryRequest,
@@ -1026,11 +1025,8 @@ def resolve_metric_dimensions(
 
 def _resolve_entity_dimensions(runtime: MarivoRuntime, entity_ref: str) -> list[str]:
     """Get canonical dimensions exposed by published entity bindings."""
-    metadata = runtime.metadata
-    if metadata is None:
-        return []
-    result = resolve_entity_binding_dimensions(metadata, entity_ref)
-    return list(result) if result is not None else []
+    # Stub — entity binding dimensions removed during OSI v2 migration.
+    return []
 
 
 def compile_step_with_feedback(

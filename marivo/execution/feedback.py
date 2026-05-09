@@ -10,8 +10,8 @@ from marivo.core.semantic.compiler import (
 from marivo.core.semantic.ir import AnalysisStepIR
 from marivo.execution.errors import ExecutionError
 from marivo.routing import RoutingResolutionError
+from marivo.runtime.errors import SemanticRuntimeNotReadyError
 from marivo.runtime_contracts import ExecutionFeedback
-from marivo.semantic_runtime.errors import SemanticRuntimeNotReadyError
 
 if TYPE_CHECKING:
     from marivo.execution.federation import FederationPlan

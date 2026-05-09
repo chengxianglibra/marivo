@@ -20,7 +20,7 @@ from marivo.execution.federation import FederationPlanner
 from marivo.execution.feedback import compile_failure_from_error, federation_failure_from_plan
 from marivo.execution.routing_runtime import RoutingRuntime
 from marivo.routing import RoutingFailure, RoutingResolutionError
-from marivo.semantic_runtime.errors import SemanticRuntimeNotReadyError
+from marivo.runtime.errors import SemanticRuntimeNotReadyError
 from marivo.storage.analytics import AnalyticsEngine
 from tests.shared_fixtures import get_seeded_duckdb_path
 

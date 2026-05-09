@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from marivo.runtime.errors import SemanticRuntimeNotReadyError
 from marivo.runtime.ports import RuntimePorts
-from marivo.semantic_runtime.errors import SemanticRuntimeNotReadyError
 
 
 def __getattr__(name: str) -> object:
