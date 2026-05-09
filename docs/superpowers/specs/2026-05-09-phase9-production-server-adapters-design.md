@@ -69,7 +69,7 @@ app/adapters/server/
   authz.py             # NoopAuthZAdapter
   telemetry.py         # LocalTelemetryAdapter
   runtime_config.py    # TomlRuntimeConfigAdapter
-  _legacy_session.py   # Deprecated CRUD bridge (read-only during transition)
+  _legacy_session.py   # DELETED — no legacy bridge needed (Marivo not launched)
 ```
 
 **FileAuditLog reuse:** Server mode reuses the local `FileAuditLog` implementation unchanged. The server profile factory configures it with a server-appropriate log path.
@@ -142,13 +142,7 @@ This contract is added to the `SessionStore` contract test suite and applies uni
 
 ### 3.5 sessions table removal
 
-The existing `sessions` CRUD table is removed after event-sourced reconstruction parity is validated. Downstream tables that reference `sessions` via foreign keys (`findings`, `plans`, etc.) must have their FK constraints removed or retargeted before dropping the `sessions` table. Under MySQL, FK constraints are enforced; under SQLite they are advisory. The migration sequence:
-
-1. Identify all FK references to `sessions.session_id` in the schema.
-2. Remove or retarget those FK constraints (e.g., remove the FK if the child table does not need referential integrity against sessions, or change the FK target to a `session_id` column in `session_events`).
-3. Drop the `sessions` table.
-
-The `SqlSessionStoreAdapter` CRUD bridge (current `wrappers.py`) moves to `_legacy_session.py` during 9.1 and is deleted before 9.2 closes.
+The `sessions` CRUD table and its `SqlSessionStoreAdapter` are removed. Downstream tables that reference `sessions` via foreign keys (`findings`, `plans`, etc.) have their FK constraints removed. Under MySQL, FK constraints are enforced; under SQLite they are advisory. Since Marivo has not launched, no migration of existing data is needed — the DDL is changed directly.
 
 ### 3.6 list_sessions_paginated
 
@@ -255,9 +249,9 @@ class ServerConfig:
 
 When `file_store_dir` or `audit_dir` is `None`, the server profile reads the path from `marivo_config` or uses a sensible default relative to the metadata store location.
 
-### 5.4 Shared SQLAlchemy engine
+### 5.4 Shared MetadataStore instance
 
-`create_server_runtime()` creates a single shared SQLAlchemy engine for the metadata DB and passes it to all adapters that need metadata DB access (`SqlModelStoreAdapter`, `SqlSessionStore`, `MetadataArtifactStoreAdapter`, `MetadataStepStoreAdapter`, `CredentialStore`, `DatasourceRegistry`). This prevents N adapters from creating N independent connection pools against the same database, which causes connection pool exhaustion under load.
+`create_server_runtime()` creates a single shared `MetadataStore` instance for the metadata DB and passes it to all adapters that need metadata DB access (`SqlModelStoreAdapter`, `SqlSessionStore`, `MetadataArtifactStoreAdapter`, `MetadataStepStoreAdapter`, `CredentialStore`, `DatasourceRegistry`). This prevents N adapters from creating N independent connection pools against the same database, which causes connection pool exhaustion under load. The `MetadataStore` manages its own connection pool (via `LifoQueue` for SQLite, via PyMySQL for MySQL); no separate SQLAlchemy engine is needed.
 
 ### 5.5 Credential security note
 
@@ -319,7 +313,7 @@ The local `SqliteSessionStore` at `app/adapters/local/sqlite_session_store.py` i
 3. Rename `payload` column to `payload_json`.
 4. Update index from `(actor, event_type)` to `(event_type, actor)`.
 
-This ensures both local and server adapters share identical DDL, enabling shared contract tests and eliminating developer confusion. Existing `.marivo` databases need a one-time migration (recreate the table with the new schema).
+This ensures both local and server adapters share identical DDL, enabling shared contract tests and eliminating developer confusion. Since Marivo has not launched, no migration of existing databases is needed — the schema is changed directly.
 
 ### 6.7 Atomicity of step + event writes
 
@@ -496,14 +490,14 @@ Parity failures are blocking (§8.3).
 - [ ] `RoutingDataSource.resolve_tables()` delegates to `RoutingRuntime`
 - [ ] Server mode uses `MetadataEvidenceStoreAdapter` with implemented `read()` method
 - [ ] Server mode uses `FileAuditLog` with server directory path
-- [ ] `create_server_runtime()` creates a single shared SQLAlchemy engine for all metadata DB adapters
+- [ ] `create_server_runtime()` creates a single shared MetadataStore instance for all metadata DB adapters (no N independent connection pools)
 - [ ] `RuntimePorts` no longer carries `semantic_repository`, `metadata`, `evidence_repos`, `analytics`, `calendar_data_reader`, or `time_axis_metadata_provider`; no `datasource_registry` field added
 - [ ] `wire_datasource_svc()` and `wire_semantic_v2_svc()` are removed from `MarivoRuntime`
 - [ ] `LogicalQuery` gains `datasource_id: DatasourceId | None = None`
 - [ ] `ServerComposition` no longer carries `datasource_service`, `query_router`, or `semantic_v2_service`
-- [ ] `_legacy_session.py` provides read-only access to the deprecated `sessions` table
+- [ ] `_legacy_session.py` does not exist — no legacy bridge needed
 - [ ] Local `SqliteSessionStore` schema harmonized with server schema (event_id, payload_json, UNIQUE constraint)
-- [ ] FK constraints referencing `sessions` table identified and removed/retargeted
+- [ ] FK constraints referencing `sessions` table removed from DDL
 - [ ] All existing tests green
 
 ### 9.2 closes when:
@@ -514,7 +508,8 @@ Parity failures are blocking (§8.3).
 - [ ] Contract tests cover `SessionStore`, `StepStore`, `ArtifactStore`, and `EvidenceStore` (cases in §10)
 - [ ] Parity gate is blocking: local/server parity failures fail CI
 - [ ] MySQL-backed server adapter contract tests pass in CI
-- [ ] `_legacy_session.py` and the `sessions` table are removed
+- [ ] `_legacy_session.py` does not exist — never created since no legacy bridge is needed
+- [ ] `sessions` table DDL is removed from schema.py
 
 ---
 
