@@ -36,22 +36,3 @@ def extract_marivo_extension(  # noqa: UP047 — PEP 695 not yet supported by my
         if ext.vendor_name == MARIVO_VENDOR:
             return extension_type.model_validate_json(ext.data)
     return None
-
-
-def build_custom_extensions(
-    marivo_ext: BaseModel | None = None,
-    *others: OsiCustomExtensionLike,
-) -> list[OsiCustomExtensionLike]:
-    """Build a custom_extensions list from a MARIVO extension model and optional other extensions."""
-    from marivo.api.models.osi import CustomExtension
-
-    result: list[OsiCustomExtensionLike] = []
-    if marivo_ext is not None:
-        result.append(
-            CustomExtension(
-                vendor_name="MARIVO",
-                data=marivo_ext.model_dump_json(exclude_none=True),
-            )
-        )
-    result.extend(others)
-    return result

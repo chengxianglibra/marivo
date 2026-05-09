@@ -244,7 +244,7 @@ def test_marivo_metric_filter():
 def test_extract_marivo_extension_from_custom_extensions():
     from marivo.api.models.marivo_extensions import MarivoSemanticModelExtension
     from marivo.api.models.osi import CustomExtension
-    from marivo.semantic_service_v2.extensions import extract_marivo_extension
+    from marivo.core.semantic.extensions import extract_marivo_extension
 
     exts = [CustomExtension(vendor_name="MARIVO", data='{"visibility": "public"}')]
     result = extract_marivo_extension(exts, MarivoSemanticModelExtension)
@@ -255,7 +255,7 @@ def test_extract_marivo_extension_from_custom_extensions():
 def test_extract_marivo_extension_returns_none_when_absent():
     from marivo.api.models.marivo_extensions import MarivoSemanticModelExtension
     from marivo.api.models.osi import CustomExtension
-    from marivo.semantic_service_v2.extensions import extract_marivo_extension
+    from marivo.core.semantic.extensions import extract_marivo_extension
 
     exts = [CustomExtension(vendor_name="COMMON", data="{}")]
     result = extract_marivo_extension(exts, MarivoSemanticModelExtension)
@@ -264,7 +264,7 @@ def test_extract_marivo_extension_returns_none_when_absent():
 
 def test_extract_marivo_extension_returns_none_for_empty():
     from marivo.api.models.marivo_extensions import MarivoSemanticModelExtension
-    from marivo.semantic_service_v2.extensions import extract_marivo_extension
+    from marivo.core.semantic.extensions import extract_marivo_extension
 
     result = extract_marivo_extension(None, MarivoSemanticModelExtension)
     assert result is None
@@ -272,7 +272,7 @@ def test_extract_marivo_extension_returns_none_for_empty():
 
 def test_build_custom_extensions_with_marivo():
     from marivo.api.models.marivo_extensions import MarivoSemanticModelExtension
-    from marivo.semantic_service_v2.extensions import build_custom_extensions
+    from marivo.runtime.semantic.osi_storage import build_custom_extensions
 
     exts = build_custom_extensions(MarivoSemanticModelExtension(visibility="public"))
     assert len(exts) == 1
@@ -284,7 +284,7 @@ def test_build_custom_extensions_with_marivo():
 def test_build_custom_extensions_with_marivo_and_others():
     from marivo.api.models.marivo_extensions import MarivoSemanticModelExtension
     from marivo.api.models.osi import CustomExtension
-    from marivo.semantic_service_v2.extensions import build_custom_extensions
+    from marivo.runtime.semantic.osi_storage import build_custom_extensions
 
     other = CustomExtension(vendor_name="COMMON", data='{"note": "test"}')
     exts = build_custom_extensions(MarivoSemanticModelExtension(visibility="public"), other)

@@ -6,12 +6,12 @@ from typing import cast
 
 from fastapi import HTTPException, Request
 
+from marivo.adapters.server.semantic_service_adapter import SemanticServiceAdapter
 from marivo.config import MarivoConfig
 from marivo.datasources import DatasourceService
 from marivo.observability import MetricsCollector
 from marivo.routing import QueryRouter
 from marivo.runtime.runtime import MarivoRuntime
-from marivo.semantic_service_v2.service import SemanticModelV2Service
 from marivo.storage.analytics import AnalyticsEngine
 from marivo.storage.metadata import MetadataStore
 
@@ -26,7 +26,7 @@ class AppServices:
     metadata_store: MetadataStore
     analytics_engine: AnalyticsEngine
     metrics: MetricsCollector | None
-    semantic_v2_service: SemanticModelV2Service
+    semantic_v2_service: SemanticServiceAdapter
 
 
 def get_services(request: Request) -> AppServices:

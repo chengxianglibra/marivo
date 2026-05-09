@@ -8,10 +8,12 @@ import unittest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from marivo.adapters.server.semantic_service_adapter import (
+    SemanticServiceAdapter as SemanticModelV2Service,
+)
 from marivo.api.models.osi import OSI_SPEC_VERSION
 from marivo.api.semantic_v2 import router as semantic_v2_router
 from marivo.datasources import DatasourceService
-from marivo.semantic_service_v2.service import SemanticModelV2Service
 from tests.shared_fixtures import ManagedSQLiteMetadataStore, make_temp_metadata_store
 
 
@@ -531,7 +533,7 @@ class TestImportOSIDocumentAPI(unittest.TestCase):
             ],
         }
         resp = client.post("/semantic-models/import", json=doc)
-        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.status_code, 422)
 
 
 class TestPerModelImport(unittest.TestCase):
