@@ -4,10 +4,10 @@ import logging
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from marivo.execution.feedback import federation_failure_from_plan
+from marivo.runtime.semantic.feedback import federation_failure_from_plan
 from marivo.storage.analytics import AnalyticsEngine
 
-logger = logging.getLogger("marivo.execution")
+logger = logging.getLogger("marivo.runtime.execution")
 
 
 def _optional_str(value: Any) -> str | None:

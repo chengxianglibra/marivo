@@ -3,11 +3,11 @@ from __future__ import annotations
 import json
 import unittest
 
+from marivo.adapters.server.translation import DefaultQueryTranslator, request_from_compiled_query
+from marivo.contracts.errors import ExecutionError
 from marivo.core.semantic.compiler import CompiledQuery
-from marivo.execution.errors import ExecutionError
-from marivo.execution.federation import FederationPlanner, FederationRuntime
-from marivo.execution.translation import DefaultQueryTranslator, request_from_compiled_query
 from marivo.observability import JSONFormatter
+from marivo.runtime.execution.federation import FederationPlanner, FederationRuntime
 from marivo.runtime.semantic.executor import execute_compiled
 
 
@@ -129,7 +129,7 @@ class FederationRuntimeTests(unittest.TestCase):
         runtime = FederationRuntime()
         engine = FakeEngine()
 
-        with self.assertLogs("marivo.execution", level="INFO") as captured:
+        with self.assertLogs("marivo.runtime.execution", level="INFO") as captured:
             runtime.execute(engine, translated_sql="SELECT 1")
 
         self.assertEqual(engine.last_sql, "SELECT 1")

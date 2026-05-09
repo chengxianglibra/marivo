@@ -2,19 +2,19 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from marivo.contracts.errors import ExecutionError
 from marivo.core.semantic.compiler import (
     CompiledQuery,
     SemanticCompilerError,
     SemanticRequestCompatibilityError,
 )
 from marivo.core.semantic.ir import AnalysisStepIR
-from marivo.execution.errors import ExecutionError
 from marivo.routing import RoutingResolutionError
 from marivo.runtime.errors import SemanticRuntimeNotReadyError
 from marivo.runtime_contracts import ExecutionFeedback
 
 if TYPE_CHECKING:
-    from marivo.execution.federation import FederationPlan
+    from marivo.runtime.execution.federation import FederationPlan
 
 
 def routing_feedback_from_error(

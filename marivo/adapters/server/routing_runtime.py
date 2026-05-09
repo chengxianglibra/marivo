@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from marivo.execution.feedback import routing_feedback_from_error
 from marivo.routing import ResolvedRoute
+from marivo.runtime.semantic.feedback import routing_feedback_from_error
 from marivo.runtime_contracts import ExecutionFeedback
 from marivo.storage.analytics import AnalyticsEngine
 

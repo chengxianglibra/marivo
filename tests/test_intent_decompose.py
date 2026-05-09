@@ -4,7 +4,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from marivo.execution.errors import ExecutionError
+from marivo.contracts.errors import ExecutionError
 from marivo.runtime.intents.decompose import (
     _extract_date_range,
     _infer_compare_grain,

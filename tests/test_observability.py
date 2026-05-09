@@ -126,7 +126,7 @@ class JSONFormatterTests(unittest.TestCase):
     def test_format_includes_extra_fields(self) -> None:
         formatter = JSONFormatter()
         record = logging.LogRecord(
-            name="marivo.execution",
+            name="marivo.runtime.execution",
             level=logging.INFO,
             pathname="test.py",
             lineno=1,

@@ -48,7 +48,7 @@ class DataSourceAdapter:
 
     def resolve_tables(self, table_names: list[str], *, session_id: str | None = None) -> Any:
         """Delegate table resolution to the QueryRouter via RoutingRuntime."""
-        from marivo.execution.routing_runtime import RoutingRuntime
+        from marivo.adapters.server.routing_runtime import RoutingRuntime
 
         routing_runtime = RoutingRuntime(self._router, self._engine)
         return routing_runtime.resolve_tables(table_names, session_id=session_id)
@@ -214,7 +214,7 @@ class RoutingDataSource:
 
     def resolve_tables(self, table_names: list[str], *, session_id: str | None = None) -> Any:
         """Delegate table resolution to the QueryRouter via RoutingRuntime."""
-        from marivo.execution.routing_runtime import RoutingRuntime
+        from marivo.adapters.server.routing_runtime import RoutingRuntime
 
         runtime = RoutingRuntime(self._query_router, self._default_engine)
         return runtime.resolve_tables(table_names, session_id=session_id)
