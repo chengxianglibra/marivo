@@ -1,12 +1,12 @@
 # DEPRECATED: Pure SQL builders and IR snapshot helpers extracted to
-# app.core.semantic.compiler.  The compile_step orchestrator and I/O-coupled
+# marivo.core.semantic.compiler.  The compile_step orchestrator and I/O-coupled
 # helpers remain here for now.
 from __future__ import annotations
 
 import hashlib
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date, datetime
 from typing import TYPE_CHECKING, Any, Literal, cast
 
@@ -62,36 +62,22 @@ from marivo.analysis_core.validator import (
     validate_compiler_inputs,
     validation_error_message,
 )
+from marivo.core.semantic.compiler import (  # re-exported — canonical source
+    CompiledQuery,
+    SemanticCompilerError,
+    SemanticRequestCompatibilityError,
+)
 from marivo.evidence_engine.ref_boundary import assert_no_canonical_refs_in_semantic_payload
 from marivo.semantic_runtime import SemanticRuntimeRepository
 from marivo.semantic_runtime.resolution import ResolvedSemanticObject
 
-
-@dataclass(slots=True)
-class CompiledQuery:
-    """Minimal compile artifact used by the phase-1 refactor."""
-
-    sql: str
-    params: list[Any] = field(default_factory=list)
-    metadata: dict[str, Any] = field(default_factory=dict)
-    ir_bundle: IrBundle | None = None
-    compile_error: SemanticCompileError | None = None
-
-
-class SemanticCompilerError(ValueError):
-    """Structured compiler failure that preserves the compile gate diagnosis."""
-
-    def __init__(self, compile_error: SemanticCompileError) -> None:
-        super().__init__(compile_error["message"])
-        self.compile_error = compile_error
-
-
-class SemanticRequestCompatibilityError(ValueError):
-    """Structured request-level compatibility failure."""
-
-    def __init__(self, detail: dict[str, Any]) -> None:
-        super().__init__(str(detail["message"]))
-        self.detail = detail
+__all__ = [
+    "CompiledQuery",
+    "SemanticCompilerError",
+    "SemanticRequestCompatibilityError",
+    "build_metric_query",
+    "compile_step",
+]
 
 
 @dataclass(slots=True)
