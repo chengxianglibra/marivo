@@ -9,9 +9,9 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
+from marivo.adapters.metadata import MetadataStore
+from marivo.ports.analytics import AnalyticsEngine
 from marivo.runtime.runtime import MarivoRuntime
-from marivo.storage.analytics import AnalyticsEngine
-from marivo.storage.metadata import MetadataStore
 
 # Stub names for deleted model types — these are no longer functional.
 # The helper functions that use them will raise NotImplementedError at runtime.

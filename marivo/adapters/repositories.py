@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from marivo.storage.metadata import MetadataStore
+from marivo.adapters.metadata import MetadataStore
 
 
 def _now_iso() -> str:

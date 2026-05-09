@@ -8,11 +8,11 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
+from marivo.adapters.dialect import SQLITE_METADATA_DIALECT, MetadataDialect
+from marivo.adapters.local.sqlite_metadata import SQLiteMetadataStore
+from marivo.adapters.metadata import MetadataStore
 from marivo.api.app_factory import _resolve_storage
 from marivo.config import MarivoConfig, MetadataConfig
-from marivo.storage.dialect import SQLITE_METADATA_DIALECT, MetadataDialect
-from marivo.storage.metadata import MetadataStore
-from marivo.storage.sqlite_metadata import SQLiteMetadataStore
 
 
 class DummyMetadataStore(MetadataStore):

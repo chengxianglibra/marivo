@@ -22,8 +22,8 @@ def _make_sqlite_session_store(tmp_path: Path) -> SqliteSessionStore:
 
 
 def _make_sql_session_store(tmp_path: Path) -> SqlSessionStore:
+    from marivo.adapters.local.sqlite_metadata import SQLiteMetadataStore
     from marivo.adapters.server.session_store import SqlSessionStore
-    from marivo.storage.sqlite_metadata import SQLiteMetadataStore
 
     store = SQLiteMetadataStore(tmp_path / "test.meta.sqlite")
     store.initialize()

@@ -11,6 +11,7 @@ from typing import Any, TypeVar
 
 from fastapi import HTTPException
 
+from marivo.adapters.metadata import MetadataStore
 from marivo.contracts.errors import (
     ConflictError,
     DomainError,
@@ -19,7 +20,6 @@ from marivo.contracts.errors import (
     ValidationError,
 )
 from marivo.runtime.semantic.semantic_service import SemanticModelV2Service
-from marivo.storage.metadata import MetadataStore
 
 _T = TypeVar("_T")
 

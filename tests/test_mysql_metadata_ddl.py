@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 import unittest
 
-from marivo.storage.schema import MYSQL_METADATA_DDL, metadata_ddl_for_backend
+from marivo.adapters.schema import MYSQL_METADATA_DDL, metadata_ddl_for_backend
 
 
 def _columns_from_constraint(columns_sql: str) -> list[str]:

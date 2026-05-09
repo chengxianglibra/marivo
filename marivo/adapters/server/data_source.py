@@ -7,8 +7,8 @@ from marivo.adapters.server.datasource_registry import DatasourceRegistry
 from marivo.contracts.errors import DomainError, ErrorCode, NotFoundError, ValidationError
 from marivo.contracts.ids import DatasourceId
 from marivo.contracts.values import ColumnInfo, LogicalQuery, QueryResult, SourceRef, SourceSchema
+from marivo.ports.analytics import AnalyticsEngine
 from marivo.routing import QueryRouter
-from marivo.storage.analytics import AnalyticsEngine
 
 logger = logging.getLogger(__name__)
 

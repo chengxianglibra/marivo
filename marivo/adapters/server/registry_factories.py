@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from marivo.adapters.base import CatalogAdapter
-from marivo.storage.analytics import AnalyticsEngine
+from marivo.ports.analytics import AnalyticsEngine
 
 SUPPORTED_DATASOURCE_TYPES: tuple[str, ...] = ("duckdb", "trino")
 
@@ -70,11 +70,11 @@ def build_catalog_adapter(datasource_type: str, connection: dict[str, Any]) -> C
 def build_analytics_engine(datasource_type: str, connection: dict[str, Any]) -> AnalyticsEngine:
     validate_datasource_type(datasource_type)
     if datasource_type == "duckdb":
-        from marivo.storage.duckdb_analytics import DuckDBAnalyticsEngine
+        from marivo.adapters.local.duckdb_analytics import DuckDBAnalyticsEngine
 
         return DuckDBAnalyticsEngine(_duckdb_path(connection))
     if datasource_type == "trino":
-        from marivo.storage.trino_analytics import TrinoAnalyticsEngine
+        from marivo.adapters.server.trino_analytics import TrinoAnalyticsEngine
 
         return TrinoAnalyticsEngine(**_trino_connect_kwargs(connection))
     raise ValueError(f"Unsupported datasource type: {datasource_type}")

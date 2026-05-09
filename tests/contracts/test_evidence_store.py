@@ -25,12 +25,12 @@ def _make_file_evidence_store(tmp_path: Path) -> FileEvidenceStore:
 
 
 def _make_metadata_evidence_store(tmp_path: Path) -> MetadataEvidenceStoreAdapter:
-    from marivo.storage.evidence_repositories import (
+    from marivo.adapters.local.sqlite_metadata import SQLiteMetadataStore
+    from marivo.adapters.server.evidence_repositories import (
         AssessmentRepository,
         FindingRepository,
         PropositionRepository,
     )
-    from marivo.storage.sqlite_metadata import SQLiteMetadataStore
 
     store = SQLiteMetadataStore(tmp_path / "test.meta.sqlite")
     store.initialize()

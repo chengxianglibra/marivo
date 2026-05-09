@@ -32,17 +32,17 @@ from __future__ import annotations
 
 from typing import TypedDict
 
-from marivo.evidence_engine.proposal_refresh_run import (
-    PublishReadyBundle,
-    assemble_bundle_from_assessment,
-)
-from marivo.storage.evidence_repositories import (
+from marivo.adapters.server.evidence_repositories import (
     ActionProposalRepository,
     AssessmentRepository,
     EvidenceGapRepository,
     FindingRepository,
     InferenceRecordRepository,
     PropositionRepository,
+)
+from marivo.evidence_engine.proposal_refresh_run import (
+    PublishReadyBundle,
+    assemble_bundle_from_assessment,
 )
 
 # ---------------------------------------------------------------------------

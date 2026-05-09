@@ -17,6 +17,8 @@ import contextlib
 import unittest
 from typing import Any
 
+from marivo.adapters.local.sqlite_metadata import SQLiteMetadataStore
+from marivo.adapters.server.evidence_repositories import FindingRepository
 from marivo.evidence_engine.canonical_finding import (
     FindingExtractionResult,
     StepRef,
@@ -28,8 +30,6 @@ from marivo.evidence_engine.finding_extractor_registry import (
     FindingExtractor,
     FindingExtractorRegistry,
 )
-from marivo.storage.evidence_repositories import FindingRepository
-from marivo.storage.sqlite_metadata import SQLiteMetadataStore
 from tests.shared_fixtures import ManagedSQLiteMetadataStore, make_temp_metadata_store
 
 # ---------------------------------------------------------------------------

@@ -85,12 +85,12 @@ def _make_evidence_store_adapter() -> MetadataEvidenceStoreAdapter:
     import tempfile
     from pathlib import Path
 
-    from marivo.storage.evidence_repositories import (
+    from marivo.adapters.local.sqlite_metadata import SQLiteMetadataStore
+    from marivo.adapters.server.evidence_repositories import (
         AssessmentRepository,
         FindingRepository,
         PropositionRepository,
     )
-    from marivo.storage.sqlite_metadata import SQLiteMetadataStore
 
     tmp = Path(tempfile.mkdtemp())
     store = SQLiteMetadataStore(tmp / "test.meta.sqlite")

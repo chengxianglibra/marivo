@@ -20,8 +20,8 @@ from pathlib import Path
 
 import duckdb
 
-from marivo.storage.duckdb_analytics import DuckDBAnalyticsEngine
-from marivo.storage.sqlite_metadata import SQLiteMetadataStore
+from marivo.adapters.local.duckdb_analytics import DuckDBAnalyticsEngine
+from marivo.adapters.local.sqlite_metadata import SQLiteMetadataStore
 
 # Capture the original (unpatched) initialize before conftest.py monkeys it.
 # This prevents _build_default_template from re-entering the template build
@@ -563,7 +563,7 @@ def get_named_seeded_duckdb_path(dest: Path, template_name: str) -> Path:
 
 
 def _build_metadata_template(db_path: Path) -> None:
-    from marivo.storage.schema import METADATA_DDL, metadata_schema_marker_row
+    from marivo.adapters.schema import METADATA_DDL, metadata_schema_marker_row
 
     db_path.parent.mkdir(parents=True, exist_ok=True)
     con = sqlite3.connect(str(db_path))
@@ -585,7 +585,7 @@ def _build_metadata_template(db_path: Path) -> None:
 
 
 def _metadata_template_valid(db_path: Path) -> bool:
-    from marivo.storage.schema import metadata_schema_marker_row
+    from marivo.adapters.schema import metadata_schema_marker_row
 
     if not db_path.exists():
         return False

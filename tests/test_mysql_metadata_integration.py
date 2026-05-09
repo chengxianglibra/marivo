@@ -14,6 +14,12 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 
+from marivo.adapters.schema import expected_metadata_tables, metadata_schema_marker_row
+from marivo.adapters.server.mysql_metadata import (
+    MySQLMetadataStore,
+    _expected_mysql_foreign_key_names,
+    _expected_mysql_index_names,
+)
 from marivo.api.app_factory import create_app
 from marivo.config import MetadataConfig
 from marivo.evidence_engine.canonical_finding import (
@@ -26,12 +32,6 @@ from marivo.evidence_engine.finding_extractor_registry import (
     FindingExtractor,
     FindingExtractorRegistry,
 )
-from marivo.storage.mysql_metadata import (
-    MySQLMetadataStore,
-    _expected_mysql_foreign_key_names,
-    _expected_mysql_index_names,
-)
-from marivo.storage.schema import expected_metadata_tables, metadata_schema_marker_row
 from tests.shared_fixtures import get_seeded_duckdb_path
 
 MYSQL_TEST_DSN = os.environ.get("MARIVO_TEST_MYSQL_DSN")

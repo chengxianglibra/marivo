@@ -17,6 +17,7 @@ import sqlite3
 import unittest
 from typing import get_type_hints
 
+from marivo.adapters.schema import METADATA_DDL
 from marivo.evidence_engine.canonical_finding import FindingRef
 from marivo.evidence_engine.canonical_refs import (
     ArtifactLineageRef,
@@ -34,7 +35,6 @@ from marivo.evidence_engine.canonical_refs import (
     PropositionSeedRef,
     PropositionSeedRole,
 )
-from marivo.storage.schema import METADATA_DDL
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from marivo.adapters.metadata import MetadataStore
 from marivo.api.models.marivo_extensions import (
     MarivoSemanticModelExtension,
 )
@@ -43,7 +44,6 @@ from marivo.runtime.semantic.osi_storage import (
     relationship_to_storage,
     storage_to_model,
 )
-from marivo.storage.metadata import MetadataStore
 
 
 class SemanticModelV2Service:

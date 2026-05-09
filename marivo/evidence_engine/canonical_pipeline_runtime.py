@@ -28,6 +28,15 @@ from __future__ import annotations
 import logging
 from typing import Any, TypedDict
 
+from marivo.adapters.metadata import MetadataStore
+from marivo.adapters.server.evidence_repositories import (
+    ActionProposalRepository,
+    AssessmentRepository,
+    EvidenceGapRepository,
+    FindingRepository,
+    InferenceRecordRepository,
+    PropositionRepository,
+)
 from marivo.evidence_engine.assessment_evaluation_context import (
     build_assessment_evaluation_context,
 )
@@ -49,15 +58,6 @@ from marivo.evidence_engine.publish_switch import (
     PublishSwitchResult,
     execute_publish_switch,
 )
-from marivo.storage.evidence_repositories import (
-    ActionProposalRepository,
-    AssessmentRepository,
-    EvidenceGapRepository,
-    FindingRepository,
-    InferenceRecordRepository,
-    PropositionRepository,
-)
-from marivo.storage.metadata import MetadataStore
 
 logger = logging.getLogger(__name__)
 

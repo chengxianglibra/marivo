@@ -3,10 +3,10 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from marivo.adapters.metadata import MetadataStore
 from marivo.contracts.errors import DomainError, ErrorCode
 from marivo.contracts.ids import ModelId, RevisionId, UserId
 from marivo.contracts.semantic import ModelSummary, SemanticModel
-from marivo.storage.metadata import MetadataStore
 
 logger = logging.getLogger(__name__)
 

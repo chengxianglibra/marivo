@@ -13,14 +13,8 @@ import json
 import unittest
 from typing import Any
 
-from marivo.evidence_engine.assessment_recompute import make_assessment_id
-from marivo.evidence_engine.canonical_pipeline_runtime import run_canonical_downstream
-from marivo.evidence_engine.replay_recovery import (
-    RECOVERY_CHECKPOINT_SCHEMA_VERSION,
-    get_proposition_checkpoint,
-    recover_proposition_pipeline,
-)
-from marivo.storage.evidence_repositories import (
+from marivo.adapters.local.sqlite_metadata import SQLiteMetadataStore
+from marivo.adapters.server.evidence_repositories import (
     ActionProposalRepository,
     AssessmentRepository,
     EvidenceGapRepository,
@@ -28,7 +22,13 @@ from marivo.storage.evidence_repositories import (
     InferenceRecordRepository,
     PropositionRepository,
 )
-from marivo.storage.sqlite_metadata import SQLiteMetadataStore
+from marivo.evidence_engine.assessment_recompute import make_assessment_id
+from marivo.evidence_engine.canonical_pipeline_runtime import run_canonical_downstream
+from marivo.evidence_engine.replay_recovery import (
+    RECOVERY_CHECKPOINT_SCHEMA_VERSION,
+    get_proposition_checkpoint,
+    recover_proposition_pipeline,
+)
 from tests.shared_fixtures import make_temp_metadata_store
 
 # ---------------------------------------------------------------------------

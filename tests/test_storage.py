@@ -5,9 +5,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from marivo.storage.duckdb_analytics import DuckDBAnalyticsEngine
-from marivo.storage.schema import METADATA_SCHEMA_MARKER_TABLE, metadata_schema_marker_row
-from marivo.storage.sqlite_metadata import SQLiteMetadataStore
+from marivo.adapters.local.duckdb_analytics import DuckDBAnalyticsEngine
+from marivo.adapters.local.sqlite_metadata import SQLiteMetadataStore
+from marivo.adapters.schema import METADATA_SCHEMA_MARKER_TABLE, metadata_schema_marker_row
 from tests import shared_fixtures
 
 

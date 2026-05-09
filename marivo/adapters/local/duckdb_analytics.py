@@ -9,7 +9,7 @@ from typing import Any
 
 import duckdb
 
-from marivo.storage.analytics import AnalyticsEngine
+from marivo.ports.analytics import AnalyticsEngine
 
 # DDL for the analytical (demo data) tables that live in DuckDB.
 _ANALYTICS_DDL = """

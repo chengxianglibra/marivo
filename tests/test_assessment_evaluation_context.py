@@ -23,6 +23,14 @@ import json
 import unittest
 from typing import Any
 
+from marivo.adapters.local.sqlite_metadata import SQLiteMetadataStore
+from marivo.adapters.server.evidence_repositories import (
+    AssessmentRepository,
+    EvidenceGapRepository,
+    FindingRepository,
+    InferenceRecordRepository,
+    PropositionRepository,
+)
 from marivo.evidence_engine.assessment_evaluation_context import (
     EVALUATION_CONTEXT_SCHEMA_VERSION,
     AssessmentEvaluationContext,
@@ -31,14 +39,6 @@ from marivo.evidence_engine.assessment_evaluation_context import (
     _subject_compatible,
     build_assessment_evaluation_context,
 )
-from marivo.storage.evidence_repositories import (
-    AssessmentRepository,
-    EvidenceGapRepository,
-    FindingRepository,
-    InferenceRecordRepository,
-    PropositionRepository,
-)
-from marivo.storage.sqlite_metadata import SQLiteMetadataStore
 from tests.shared_fixtures import make_temp_metadata_store
 
 # ---------------------------------------------------------------------------

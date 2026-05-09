@@ -19,13 +19,8 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
-from marivo.evidence_engine.canonical_pipeline_runtime import run_canonical_downstream
-from marivo.evidence_engine.context_view import (
-    PROPOSITION_CONTEXT_VIEW_SCHEMA_VERSION,
-    materialize_proposition_context_view,
-)
-from marivo.runtime.runtime import MarivoRuntime
-from marivo.storage.evidence_repositories import (
+from marivo.adapters.local.sqlite_metadata import SQLiteMetadataStore
+from marivo.adapters.server.evidence_repositories import (
     ActionProposalRepository,
     AssessmentRepository,
     EvidenceGapRepository,
@@ -33,7 +28,12 @@ from marivo.storage.evidence_repositories import (
     InferenceRecordRepository,
     PropositionRepository,
 )
-from marivo.storage.sqlite_metadata import SQLiteMetadataStore
+from marivo.evidence_engine.canonical_pipeline_runtime import run_canonical_downstream
+from marivo.evidence_engine.context_view import (
+    PROPOSITION_CONTEXT_VIEW_SCHEMA_VERSION,
+    materialize_proposition_context_view,
+)
+from marivo.runtime.runtime import MarivoRuntime
 from tests.shared_fixtures import get_seeded_duckdb_path, make_temp_metadata_store
 
 # ---------------------------------------------------------------------------
@@ -670,7 +670,7 @@ class TestPropositionRuntimeStatus(unittest.TestCase):
         self.repos = _make_repos(self.store)
         from unittest.mock import MagicMock
 
-        from marivo.storage.analytics import AnalyticsEngine
+        from marivo.ports.analytics import AnalyticsEngine
 
         self.runtime = _build_runtime(self.store, MagicMock(spec=AnalyticsEngine))
 

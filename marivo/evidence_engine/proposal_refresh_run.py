@@ -32,7 +32,7 @@ import hashlib
 import json
 from typing import Any, TypedDict, cast
 
-from marivo.storage.evidence_repositories import (
+from marivo.adapters.server.evidence_repositories import (
     ActionProposalRepository,
     AssessmentRepository,
     EvidenceGapRepository,
