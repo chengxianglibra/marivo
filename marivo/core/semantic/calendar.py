@@ -1,6 +1,6 @@
 """Pure calendar alignment computation for the semantic layer.
 
-Extracted from ``app.analysis_core.calendar_*`` modules as part of Phase 3c.
+Extracted from ``marivo.analysis_core.calendar_*`` modules as part of Phase 3c.
 
 This module contains all pure computation for calendar alignment:
 - Baseline window resolution
@@ -11,7 +11,7 @@ This module contains all pure computation for calendar alignment:
 - Strictness level and rollup-safety evaluation
 
 The I/O-bound parts (loading holiday/event data from databases) remain in
-``app.analysis_core``.
+``marivo.analysis_core``.
 """
 
 from __future__ import annotations

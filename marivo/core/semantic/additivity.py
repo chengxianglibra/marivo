@@ -1,6 +1,6 @@
 """Pure additivity capability derivation for metrics.
 
-Extracted from ``app.analysis_core.additivity_capabilities`` as part of
+Extracted from ``marivo.analysis_core.additivity_capabilities`` as part of
 Phase 3c.  This module is already fully pure -- it reads from a metric
 header dict and returns a capability result.
 

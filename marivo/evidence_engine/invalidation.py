@@ -127,7 +127,7 @@ def soft_invalidate_finding(
     This function:
 
     1. Marks *finding_id* as soft-invalidated via
-       :meth:`~app.storage.evidence_repositories.FindingRepository.soft_invalidate`.
+       :meth:`~marivo.storage.evidence_repositories.FindingRepository.soft_invalidate`.
     2. Identifies propositions seeded by this finding.
     3. For each affected proposition with a published bundle, schedules
        ``recompute_assessment`` and ``bundle_rollback`` repair actions.
@@ -138,7 +138,7 @@ def soft_invalidate_finding(
 
     **The repair actions are not executed** — they are returned as a plan.
     Callers should drive execution via
-    :func:`~app.evidence_engine.replay_recovery.recover_proposition_pipeline`
+    :func:`~marivo.evidence_engine.replay_recovery.recover_proposition_pipeline`
     or the main downstream pipeline.
 
     Parameters

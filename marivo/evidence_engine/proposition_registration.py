@@ -6,9 +6,9 @@ Implements the seeding registration protocol described in
 ## Registration protocol
 
 1. Compute ``identity_key`` from judgment-semantic fields via
-   :func:`~app.evidence_engine.proposition_normalizer.normalize_proposition_identity`.
+   :func:`~marivo.evidence_engine.proposition_normalizer.normalize_proposition_identity`.
 2. Derive ``proposition_id`` via
-   :func:`~app.evidence_engine.proposition_normalizer.make_proposition_id`.
+   :func:`~marivo.evidence_engine.proposition_normalizer.make_proposition_id`.
 3. Look up existing proposition: ``PropositionRepository.get_by_identity_key``.
 4. **On miss (CREATE)**:
    - Persist the proposition row (includes ``seed_finding_refs_json``).
@@ -71,7 +71,7 @@ def register_system_seeded_proposition(
     Parameters
     ----------
     repo:
-        The :class:`~app.storage.evidence_repositories.PropositionRepository`
+        The :class:`~marivo.storage.evidence_repositories.PropositionRepository`
         instance for this session's metadata store.
     session_id:
         Session the proposition belongs to.

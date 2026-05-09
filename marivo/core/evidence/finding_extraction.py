@@ -1,12 +1,12 @@
 """Pure finding extraction functions for the evidence pipeline.
 
-Extracted from ``app.evidence_engine.*_extractor`` modules as part of
+Extracted from ``marivo.evidence_engine.*_extractor`` modules as part of
 Phase 3c.  Each ``extract_*`` function takes an artifact payload dict and
 produces a list of finding dicts without any I/O side effects.
 
 The original extractor *classes* (which implement ``FindingExtractor`` and
 are registered in the ``FindingExtractorRegistry``) still live in
-``app.evidence_engine`` and delegate to these pure functions.  This keeps
+``marivo.evidence_engine`` and delegate to these pure functions.  This keeps
 the registry / bootstrap wiring intact while making the core computation
 testable and reusable without database access.
 

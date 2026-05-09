@@ -1,6 +1,6 @@
 """Pure computation for the evidence pipeline.
 
-Extracted from ``app.evidence_engine`` as part of Phase 3c.  All functions
+Extracted from ``marivo.evidence_engine`` as part of Phase 3c.  All functions
 here are pure: they accept pre-loaded data and return deterministic results
 without accessing databases, repositories, or other I/O-bound services.
 

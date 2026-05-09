@@ -1,6 +1,6 @@
 """Pure SQL compilation and IR construction helpers.
 
-Extracted from ``app.analysis_core.compiler`` as part of Phase 3c.
+Extracted from ``marivo.analysis_core.compiler`` as part of Phase 3c.
 
 This module contains only pure computation:
 - SQL query builders for metric_query, aggregate_query, sample_rows, etc.

@@ -1,8 +1,8 @@
 """Analysis-core primitives for the incremental refactor.
 
 .. deprecated:: Phase 3c
-    This package is superseded by ``app.core.intent`` and ``app.core.semantic``.
-    New code should import from the ``app.core.*`` packages directly.
+    This package is superseded by ``marivo.core.intent`` and ``marivo.core.semantic``.
+    New code should import from the ``marivo.core.*`` packages directly.
     This module will be removed in Phase 3d.
 """
 

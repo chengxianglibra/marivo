@@ -13,7 +13,7 @@ Wires the full post-commit canonical pipeline:
 
 Entry point: :func:`run_canonical_downstream`.
 
-Call this immediately after :func:`~app.service.SemanticLayerService.commit_artifact_with_findings`
+Call this immediately after :meth:`~marivo.runtime.runtime.MarivoRuntime.commit_artifact_with_extraction`
 succeeds.  The function is synchronous; async scheduling is a Phase 4h / Phase 5 concern.
 
 Design contracts:
