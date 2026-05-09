@@ -5,17 +5,17 @@ from collections.abc import Mapping
 from datetime import UTC, date, datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
-from marivo.analysis_core.calendar_policy import (
+from marivo.core.intent.primitives import make_provenance, new_step_id
+from marivo.core.semantic.calendar import (
     CalendarPolicyResolutionError,
     validate_calendar_policy_ref,
 )
-from marivo.analysis_core.executor import execute_compiled
-from marivo.analysis_core.ir import AnalysisStepIR
-from marivo.core.intent.primitives import make_provenance, new_step_id
+from marivo.core.semantic.ir import AnalysisStepIR
 from marivo.core.semantic.step_metadata import build_step_semantic_metadata
 from marivo.evidence_engine.ref_boundary import assert_no_canonical_refs_in_semantic_payload
 from marivo.runtime.intents._helpers import commit_step_result
 from marivo.runtime.intents.calendar_alignment_metadata import normalize_resolved_policy_summary
+from marivo.runtime.semantic.executor import execute_compiled
 from marivo.time_contracts import TimeGrain, bucket_window, normalize_hour_boundary
 from marivo.time_scope import normalize_metric_query_request
 

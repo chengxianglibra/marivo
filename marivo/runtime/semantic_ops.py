@@ -14,7 +14,6 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
-from marivo.analysis_core.compiler import compile_step
 from marivo.contracts.errors import ErrorCode, NotFoundError
 from marivo.contracts.semantic import SemanticModel
 from marivo.core.semantic.compiler import (
@@ -34,6 +33,7 @@ from marivo.runtime.errors import (
     SemanticRuntimeNotReadyError,
     SemanticRuntimeUnpublishedError,
 )
+from marivo.runtime.semantic.compile_step import compile_step
 from marivo.time_axis_metadata import TimeAxisMetadataContext
 from marivo.time_scope import (
     ResolvedWindowedQueryRequest,
@@ -1768,8 +1768,8 @@ def run_metric_query(
     runtime: MarivoRuntime, session_id: str, params: dict[str, Any]
 ) -> dict[str, Any]:
     """Generic metric comparison step driven by semantic metric definitions."""
-    from marivo.analysis_core.executor import execute_compiled
     from marivo.core.intent.primitives import new_step_id
+    from marivo.runtime.semantic.executor import execute_compiled
     from marivo.time_scope import normalize_metric_query_request
 
     resolved = normalize_metric_query_request(params)
@@ -1917,8 +1917,8 @@ def run_profile_table(
     runtime: MarivoRuntime, session_id: str, params: dict[str, Any]
 ) -> dict[str, Any]:
     """Profile a table: row count, column stats (null rate, distinct count)."""
-    from marivo.analysis_core.executor import execute_compiled
     from marivo.core.intent.primitives import new_step_id
+    from marivo.runtime.semantic.executor import execute_compiled
 
     table_name = params.get("table_name")
     if not table_name:
@@ -2097,8 +2097,8 @@ def run_sample_rows(
     runtime: MarivoRuntime, session_id: str, params: dict[str, Any]
 ) -> dict[str, Any]:
     """Return a sample of rows from a table."""
-    from marivo.analysis_core.executor import execute_compiled
     from marivo.core.intent.primitives import new_step_id
+    from marivo.runtime.semantic.executor import execute_compiled
 
     table_name = params.get("table_name")
     if not table_name:
@@ -2203,8 +2203,8 @@ def run_aggregate_query(
     runtime: MarivoRuntime, session_id: str, params: dict[str, Any]
 ) -> dict[str, Any]:
     """Run an ad-hoc GROUP BY + aggregation query."""
-    from marivo.analysis_core.executor import execute_compiled
     from marivo.core.intent.primitives import new_step_id
+    from marivo.runtime.semantic.executor import execute_compiled
     from marivo.time_scope import (
         AdHocAggregateValueSpec,
         normalize_aggregate_query_request,
@@ -2293,8 +2293,8 @@ def run_attribute_change(
     runtime: MarivoRuntime, session_id: str, params: dict[str, Any]
 ) -> dict[str, Any]:
     """Attribute a metric change across candidate dimensions."""
-    from marivo.analysis_core.executor import execute_compiled
     from marivo.core.intent.primitives import new_step_id
+    from marivo.runtime.semantic.executor import execute_compiled
 
     metric_name = params.get("metric_name")
     table_name = params.get("table_name")

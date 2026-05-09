@@ -1,32 +1,32 @@
-# DEPRECATED: Pure SQL builders and IR snapshot helpers extracted to
-# marivo.core.semantic.compiler.  The compile_step orchestrator and I/O-coupled
-# helpers remain here for now.
+"""I/O-bound compile_step orchestrator.
+
+Extracted from ``marivo.analysis_core.compiler``.  Pure SQL builder helpers
+live in ``marivo.core.semantic.compiler``; this module keeps only the
+I/O-coupled orchestration (resolution, validation, IR bundle construction).
+"""
+
 from __future__ import annotations
 
 import hashlib
-import re
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import Any, Literal, TypedDict, cast
 
-if TYPE_CHECKING:
-    from marivo.analysis_core.predicate_validator import NormalizedPredicateInput
-
-from marivo.analysis_core.calendar_alignment_baseline import resolve_calendar_baseline_window
-from marivo.analysis_core.calendar_alignment_pairing import (
+from marivo.core.semantic.calendar import (
+    get_calendar_policy,
+    resolve_calendar_baseline_window,
     resolve_calendar_bucket_pairing,
 )
-from marivo.analysis_core.calendar_data_runtime import (
-    CalendarDataReaderLike,
-    CalendarDataReadResult,
-    CalendarDataResolutionError,
+from marivo.core.semantic.compiler import (
+    CompiledQuery,
+    SemanticCompilerError,
+    SemanticRequestCompatibilityError,
+    build_aggregate_comparison_query,
+    build_metric_query,
+    build_windowed_aggregate_query,
 )
-from marivo.analysis_core.calendar_policy import (
-    get_calendar_policy,
-)
-from marivo.analysis_core.capability_profiles import derive_compiler_state
-from marivo.analysis_core.ir import (
+from marivo.core.semantic.ir import (
     STEP_ARTIFACT_KINDS,
     AnalysisStepIR,
     ArtifactLineageEntry,
@@ -51,702 +51,231 @@ from marivo.analysis_core.ir import (
     ValidationRecord,
     ValidationSummary,
 )
-from marivo.analysis_core.typed_resolution import (
+from marivo.core.semantic.resolution import ResolvedSemanticObject
+from marivo.evidence_engine.ref_boundary import assert_no_canonical_refs_in_semantic_payload
+from marivo.runtime.evidence.semantic_repository import SemanticRuntimeRepository
+from marivo.runtime.semantic.analysis_validator import (
+    ValidationIssue,
+    validate_compiler_inputs,
+    validation_error_message,
+)
+from marivo.runtime.semantic.calendar_data_runtime import (
+    CalendarDataReaderLike,
+    CalendarDataReadResult,
+    CalendarDataResolutionError,
+)
+from marivo.runtime.semantic.resolution_orchestrator import (
     NormalizedCompilerRequest,
     ResolvedCompilerInputs,
     normalize_step_request,
     resolve_compiler_inputs,
 )
-from marivo.analysis_core.validator import (
-    ValidationIssue,
-    validate_compiler_inputs,
-    validation_error_message,
-)
-from marivo.core.semantic.compiler import (  # re-exported — canonical source
-    CompiledQuery,
-    SemanticCompilerError,
-    SemanticRequestCompatibilityError,
-)
-from marivo.core.semantic.resolution import ResolvedSemanticObject
-from marivo.evidence_engine.ref_boundary import assert_no_canonical_refs_in_semantic_payload
-from marivo.runtime.evidence.semantic_repository import SemanticRuntimeRepository
 
 __all__ = [
-    "CompiledQuery",
-    "SemanticCompilerError",
-    "SemanticRequestCompatibilityError",
-    "build_metric_query",
     "compile_step",
 ]
 
+# ── Capability profile stubs (inlined from analysis_core.capability_profiles) ──
+
 
 @dataclass(slots=True)
-class _ScopedQueryParts:
-    cte_sql: str
-    params: list[Any]
+class DerivedMetricCapabilities:
+    supports_observe: bool = True
+    supports_compare: bool = False
+    supports_decompose: bool = False
+    supports_attribute: bool = False
+    supports_test: bool = False
+    supports_detect: bool = False
+    supports_validate: bool = False
+    time_rollup_allowed: bool = False
+    dimension_policy: str = "none"
+    time_axis_policy: str = "non_additive"
+    additive_dimensions: list[str] | None = None
+    capability_condition: str | None = None
 
 
-_CALENDAR_ALIGNMENT_SUPPORTED_GRAINS = frozenset({"day", "week", "month"})
+@dataclass(slots=True)
+class DerivedProcessCapabilities:
+    supports_time_projection: bool = False
+    supports_experiment_inference: bool = False
+    supports_cohort_inference: bool = False
+    inferential_ready: bool | None = None
+    supported_sample_summaries: list[str] = field(default_factory=list)
 
 
-def _build_scoped_query_parts(
-    table_name: str,
-    scoped_query: Mapping[str, Any],
-    *,
-    include_period: bool,
-) -> _ScopedQueryParts:
-    """Build the shared scoped CTE for windowed query execution.
+@dataclass(slots=True)
+class DerivedBindingCapabilities:
+    inferential_ready: bool | None = None
 
-    ``include_period`` controls whether the CTE also materializes an internal
-    ``_period`` column for compare-style compilation. Single-window callers set
-    this to ``False`` because they aggregate only the current window.
-    """
-    analysis_time_expr = str(scoped_query.get("analysis_time_expr") or "").strip()
-    if not analysis_time_expr:
-        raise ValueError("scoped_query requires 'analysis_time_expr'")
 
-    mode = _require_scoped_query_mode(scoped_query)
-    analysis_time_kind = str(scoped_query.get("analysis_time_kind") or "").strip()
-    engine_type = str(scoped_query.get("engine_type") or "").strip().lower()
+@dataclass(slots=True)
+class MetricProcessRequirements:
+    contract_modes: list[str] = field(default_factory=list)
+    context_kinds: list[str] = field(default_factory=list)
+    entity_refs: list[str] = field(default_factory=list)
+    population_subject_refs: list[str] = field(default_factory=list)
+    required_relationship_refs: list[str] = field(default_factory=list)
+    grain_compatibility: dict[str, Any] | None = None
+    time_compatibility: dict[str, Any] | None = None
+    field_profile_requirements: list[dict[str, Any]] = field(default_factory=list)
 
-    current = dict(scoped_query.get("current") or {})
-    current_start = str(current.get("start") or "").strip()
-    current_end = str(current.get("end") or "").strip()
-    if not current_start or not current_end:
-        raise ValueError("scoped_query requires current.start and current.end")
 
-    # For date_field with CAST expression, skip the CAST-based predicate
-    # and rely on partition_pruning_predicate for time filtering.
-    # The CAST expression is still used for SELECT/GROUP BY (DATE_TRUNC).
-    filters: list[str]
-    params: list[Any]
-    if analysis_time_kind == "date_field" and "CAST(" in analysis_time_expr:
-        # Don't add CAST-based predicate; partition_pruning_predicate handles filtering
-        filters = []
-        params = []
-        current_start = ""
-        current_end = ""
-    else:
-        current_start = _format_scoped_bound(scoped_query, current_start)
-        current_end = _format_scoped_bound(scoped_query, current_end)
-        current_predicate, current_params = _build_scoped_time_predicate(
-            analysis_time_expr,
-            current_start,
-            current_end,
-            analysis_time_kind=analysis_time_kind,
-            engine_type=engine_type,
-        )
-        filters = [f"({current_predicate})"]
-        params = list(current_params)
+@dataclass(slots=True)
+class ProfileTrace:
+    subject_ref: str
+    profile_ref: str | None
+    subject_revision: int | None
+    resolved_subject_revision: int | None
+    applied: bool
+    reason: str
 
-    if include_period:
-        select_prefix = ["'current' AS _period"] if mode == "single_window" else []
-    else:
-        select_prefix = []
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "subject_ref": self.subject_ref,
+            "profile_ref": self.profile_ref,
+            "subject_revision": self.subject_revision,
+            "resolved_subject_revision": self.resolved_subject_revision,
+            "applied": self.applied,
+            "reason": self.reason,
+        }
 
-    if mode == "compare":
-        # Compare mode also needs to handle CAST expression case
-        baseline = dict(scoped_query.get("baseline") or {})
-        baseline_start = str(baseline.get("start") or "").strip()
-        baseline_end = str(baseline.get("end") or "").strip()
-        if not baseline_start or not baseline_end:
-            raise ValueError("scoped_query compare mode requires baseline.start and baseline.end")
 
-        if analysis_time_kind == "date_field" and "CAST(" in analysis_time_expr:
-            # For CAST expression, compare mode cannot work without time predicates
-            # This is a limitation; partition_pruning_predicate covers one window only
-            raise ValueError(
-                "compare mode is not supported for date_field with CAST expression; "
-                "the time axis must be resolved to a native date column or timestamp"
-            )
+@dataclass(slots=True)
+class ProfileValidationIssue:
+    code: str
+    message: str
+    subject_ref: str
+    details: dict[str, Any] = field(default_factory=dict)
 
-        baseline_start = _format_scoped_bound(scoped_query, baseline_start)
-        baseline_end = _format_scoped_bound(scoped_query, baseline_end)
-        baseline_predicate, baseline_params = _build_scoped_time_predicate(
-            analysis_time_expr,
-            baseline_start,
-            baseline_end,
-            analysis_time_kind=analysis_time_kind,
-            engine_type=engine_type,
-        )
-        if include_period:
-            select_prefix = [
-                "CASE",
-                f"                    WHEN {current_predicate} THEN 'current'",
-                f"                    WHEN {baseline_predicate} THEN 'baseline'",
-                "                END AS _period",
-            ]
-            params = [
-                *current_params,
-                *baseline_params,
-                *current_params,
-                *baseline_params,
-            ]
-        filters = [f"(({current_predicate}) OR ({baseline_predicate}))"]
-        if not include_period:
-            params = [*current_params, *baseline_params]
 
-    filter_fields = (
-        "partition_pruning_predicate",
-        "session_constraints_filter",
-        "session_raw_filter",
-        "scope_constraints_filter",
-        "scope_predicate_filter",
+@dataclass
+class DerivedCompilerState:
+    metric_capabilities: DerivedMetricCapabilities | None = None
+    process_capabilities: DerivedProcessCapabilities | None = None
+    binding_capabilities: dict[str, DerivedBindingCapabilities] = field(default_factory=dict)
+    metric_requirements: MetricProcessRequirements = field(
+        default_factory=MetricProcessRequirements
     )
-    for field_name in filter_fields:
-        value = str(scoped_query.get(field_name) or "").strip()
-        if value:
-            filters.append(f"({value})")
-
-    if include_period and select_prefix:
-        if len(select_prefix) == 1:
-            select_sql = f"{select_prefix[0]},\n                *"
-        else:
-            select_sql = "\n".join(select_prefix) + ",\n                *"
-    else:
-        select_sql = "*"
-
-    where_sql = "\n                AND ".join(filters)
-    cte_sql = f"""
-        scoped AS (
-            SELECT
-                {select_sql}
-            FROM {table_name}
-            WHERE {where_sql}
-        )
-    """
-    return _ScopedQueryParts(cte_sql=cte_sql, params=params)
-
-
-def _build_scoped_time_predicate(
-    analysis_time_expr: str,
-    start: str,
-    end: str,
-    *,
-    analysis_time_kind: str,
-    engine_type: str,
-) -> tuple[str, list[Any]]:
-    if analysis_time_kind in {"timestamp", "partition_fields"} and engine_type == "trino":
-        start_literal = _trino_timestamp_literal(start)
-        end_literal = _trino_timestamp_literal(end)
-        return (
-            f"{analysis_time_expr} >= {start_literal} AND {analysis_time_expr} < {end_literal}",
-            [],
-        )
-    return f"{analysis_time_expr} >= ? AND {analysis_time_expr} < ?", [start, end]
-
-
-def _trino_timestamp_literal(value: str) -> str:
-    parsed = datetime.fromisoformat(value.replace(" ", "T"))
-    return f"TIMESTAMP '{parsed.strftime('%Y-%m-%d %H:%M:%S')}'"
-
-
-def _format_scoped_bound(scoped_query: Mapping[str, Any], value: str) -> str:
-    analysis_time_kind = str(scoped_query.get("analysis_time_kind") or "").strip()
-    engine_type = str(scoped_query.get("engine_type") or "").strip().lower()
-    if analysis_time_kind == "timestamp":
-        if engine_type == "trino":
-            return value.replace("T", " ")
-        return value
-    if analysis_time_kind != "date_field":
-        return value
-    return _format_scoped_day_value(
-        value,
-        str(scoped_query.get("analysis_time_format") or "").strip() or None,
-    )
-
-
-def _format_scoped_day_value(value: str, date_format: str | None) -> str:
-    if date_format == "yyyymmdd" and re.fullmatch(r"\d{8}", value):
-        return value
-    parsed = _parse_scoped_day_value(value)
-    if date_format == "yyyymmdd":
-        return parsed.strftime("%Y%m%d")
-    return parsed.isoformat()
-
-
-def _parse_scoped_day_value(value: str) -> date:
-    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
-        return date.fromisoformat(value)
-    return datetime.fromisoformat(value).date()
-
-
-def _require_scoped_query_mode(scoped_query: Mapping[str, Any]) -> str:
-    mode = str(scoped_query.get("mode") or "").strip()
-    if mode not in {"single_window", "compare"}:
-        raise ValueError("scoped_query.mode must be 'single_window' or 'compare'")
-    return mode
-
-
-def _normalize_metric_query_order(order: str, *, mode: str) -> tuple[str, str]:
-    normalized_mode = str(mode or "").strip().lower()
-    normalized = str(order or "").strip().upper()
-    if normalized_mode == "compare":
-        if normalized in {"ASC", "DESC"}:
-            return ("delta_pct", normalized)
-        if normalized in {"DELTA_PCT ASC", "DELTA_PCT DESC"}:
-            field, direction = normalized.split()
-            return (field.lower(), direction)
-        raise ValueError(
-            f"Invalid metric_query compare order '{order}'; must be delta_pct ASC or DESC"
-        )
-    if normalized_mode == "single_window":
-        if normalized in {
-            "CURRENT_VALUE ASC",
-            "CURRENT_VALUE DESC",
-            "CURRENT_SESSIONS ASC",
-            "CURRENT_SESSIONS DESC",
-        }:
-            field, direction = normalized.split()
-            return (field.lower(), direction)
-        raise ValueError(
-            f"Invalid metric_query single_window order '{order}'; must be current_value/current_sessions ASC or DESC"
-        )
-    raise ValueError("metric_query order mode must be 'compare' or 'single_window'")
-
-
-def build_metric_query(
-    metric_name: str,
-    table_name: str,
-    metric_sql: str,
-    dimensions: list[str],
-    dimension_sql_expressions: Mapping[str, str] | None = None,
-    date_column: str = "event_date",
-    order: str = "DELTA_PCT ASC",
-    limit: int = 10,
-    filter_expr: str | None = None,
-    scoped_query: Mapping[str, Any] | None = None,
-) -> str:
-    """Build metric_query SQL for compare and single-window semantic metric queries.
-
-    When *dimensions* is empty, an aggregate-only query is produced
-    (no GROUP BY on dimensions). ``scoped_query.mode == 'compare'`` emits
-    current-vs-baseline columns; ``single_window`` emits current-window
-    observation columns only.
-    """
-
-    del metric_name
-
-    dimension_sql_expressions = dimension_sql_expressions or {}
-    select_dimension_exprs: list[str] = []
-    group_dimension_exprs: list[str] = []
-    for dimension in dimensions:
-        expr = str(dimension_sql_expressions.get(dimension) or dimension).strip()
-        if expr != dimension:
-            select_dimension_exprs.append(f'{expr} AS "{dimension}"')
-            group_dimension_exprs.append(expr)
-            continue
-        select_dimension_exprs.append(dimension)
-        group_dimension_exprs.append(dimension)
-
-    if dimensions:
-        dim_cols = ", ".join(select_dimension_exprs)
-        group_dim_cols = ", ".join(group_dimension_exprs)
-        group_by_period = f"GROUP BY period, {group_dim_cols}"
-        group_by_dims = f"GROUP BY {group_dim_cols}"
-        select_dims = f"{dim_cols},"
-    else:
-        group_by_period = "GROUP BY period"
-        group_by_dims = ""
-        select_dims = ""
-
-    if scoped_query is not None:
-        mode = _require_scoped_query_mode(scoped_query)
-        effective_order = order
-        if not str(effective_order or "").strip():
-            effective_order = "CURRENT_VALUE DESC" if mode == "single_window" else "DELTA_PCT ASC"
-        order_field, order_direction = _normalize_metric_query_order(effective_order, mode=mode)
-        if mode == "single_window":
-            scoped = _build_scoped_query_parts(table_name, scoped_query, include_period=False)
-            group_clause = f"GROUP BY {', '.join(group_dimension_exprs)}" if dimensions else ""
-            order_clause = f"ORDER BY {order_field} {order_direction}" if order else ""
-            return f"""
-                WITH {scoped.cte_sql}
-                SELECT
-                    {select_dims}
-                    ROUND({metric_sql}, 2) AS current_value,
-                    COUNT(*) AS current_sessions
-                FROM scoped
-                {group_clause}
-                {order_clause}
-                LIMIT {limit}
-            """
-
-        scoped = _build_scoped_query_parts(table_name, scoped_query, include_period=True)
-        return f"""
-            WITH {scoped.cte_sql},
-            by_period AS (
-                SELECT
-                    _period AS period,
-                    {select_dims}
-                    {metric_sql} AS metric_value,
-                    COUNT(*) AS session_count
-                FROM scoped
-                {group_by_period}
-            ),
-            pivoted AS (
-                SELECT
-                    {select_dims}
-                    MAX(CASE WHEN period = 'current' THEN metric_value END) AS current_value,
-                    MAX(CASE WHEN period = 'baseline' THEN metric_value END) AS baseline_value,
-                    MAX(CASE WHEN period = 'current' THEN session_count END) AS current_sessions,
-                    MAX(CASE WHEN period = 'baseline' THEN session_count END) AS baseline_sessions
-                FROM by_period
-                {group_by_dims}
-            )
-            SELECT
-                {select_dims}
-                ROUND(current_value, 2) AS current_value,
-                ROUND(baseline_value, 2) AS baseline_value,
-                ROUND(((current_value - baseline_value) * 1.0 / NULLIF(baseline_value, 0)) * 100, 2) AS delta_pct,
-                current_sessions,
-                baseline_sessions
-            FROM pivoted
-            ORDER BY {order_field} {order_direction}
-            LIMIT {limit}
-        """
-
-    legacy_order_field, legacy_order_direction = _normalize_metric_query_order(
-        order, mode="compare"
-    )
-    filter_clause = f" AND {filter_expr}" if filter_expr else ""
-
-    return f"""
-        WITH periodized AS (
-            SELECT
-                CASE
-                    WHEN {date_column} BETWEEN ? AND ? THEN 'current'
-                    WHEN {date_column} BETWEEN ? AND ? THEN 'baseline'
-                END AS period,
-                *
-            FROM {table_name}
-            WHERE {date_column} BETWEEN ? AND ?{filter_clause}
-        ),
-        by_period AS (
-            SELECT
-                period,
-                {select_dims}
-                {metric_sql} AS metric_value,
-                COUNT(*) AS session_count
-            FROM periodized
-            {group_by_period}
-        ),
-        pivoted AS (
-            SELECT
-                {select_dims}
-                MAX(CASE WHEN period = 'current' THEN metric_value END) AS current_value,
-                MAX(CASE WHEN period = 'baseline' THEN metric_value END) AS baseline_value,
-                MAX(CASE WHEN period = 'current' THEN session_count END) AS current_sessions,
-                MAX(CASE WHEN period = 'baseline' THEN session_count END) AS baseline_sessions
-            FROM by_period
-            {group_by_dims}
-        )
-        SELECT
-            {select_dims}
-            ROUND(current_value, 2) AS current_value,
-            ROUND(baseline_value, 2) AS baseline_value,
-            ROUND(((current_value - baseline_value) * 1.0 / NULLIF(baseline_value, 0)) * 100, 2) AS delta_pct,
-            current_sessions,
-            baseline_sessions
-        FROM pivoted
-        ORDER BY {legacy_order_field} {legacy_order_direction}
-        LIMIT {limit}
-    """
-
-
-def _metric_query_dimension_sql_expressions(
-    dimensions: list[str],
-    imported_dimension_sources: list[dict[str, Any]],
-) -> dict[str, str]:
-    physical_names = {
-        str(source.get("dimension_ref")): str(source.get("physical_name"))
-        for source in imported_dimension_sources
-        if source.get("dimension_ref") is not None and source.get("physical_name") is not None
-    }
-    return {
-        dimension: physical_names[dimension]
-        for dimension in dimensions
-        if dimension in physical_names
-    }
-
-
-def _extract_agg_alias(expr: str) -> str:
-    """Extract alias from e.g. 'count(*) as query_count' → 'query_count'.
-
-    Raises ValueError if no alias found (required for compare_period mode).
-    """
-    match = re.search(r"\bAS\s+(\w+)\s*$", expr, re.IGNORECASE)
-    if match:
-        return match.group(1)
-    raise ValueError(
-        f"aggregate_query with compare_period=True requires aliases in all aggregate "
-        f"expressions. Missing alias in: {expr!r}"
-    )
-
-
-def _expand_group_by_aliases(select_exprs: list[str], group_by: list[str]) -> list[str]:
-    """Expand SELECT aliases referenced in GROUP BY to their full expressions.
-
-    Trino (standard SQL) rejects GROUP BY alias references; DuckDB accepts them.
-    This expansion makes compiled SQL portable across engines.
-
-    Example:
-        select_exprs = ["CASE WHEN x = 1 THEN 'a' ELSE 'b' END AS cat", "count(*) AS n"]
-        group_by     = ["cat"]
-        → returns    ["CASE WHEN x = 1 THEN 'a' ELSE 'b' END"]
-    """
-    alias_to_expr: dict[str, str] = {}
-    for expr in select_exprs:
-        m = re.search(r"^(.*?)\s+AS\s+(\w+)\s*$", expr.strip(), re.IGNORECASE)
-        if m:
-            alias_to_expr[m.group(2).lower()] = m.group(1).strip()
-
-    expanded: list[str] = []
-    for item in group_by:
-        key = item.strip().lower()
-        expanded.append(alias_to_expr.get(key, item))
-    return expanded
-
-
-def _normalize_typed_aggregate_measures(raw_measures: Any) -> list[tuple[str, str]]:
-    if not isinstance(raw_measures, list) or not raw_measures:
-        raise ValueError("aggregate_query requires 'measures' param (list of measure objects)")
-
-    normalized: list[tuple[str, str]] = []
-    for measure in raw_measures:
-        if not isinstance(measure, Mapping):
-            raise ValueError("aggregate_query measures must be objects with 'expr' and 'as'")
-        expr = str(measure.get("expr") or "").strip()
-        alias = str(measure.get("as") or "").strip()
-        if not expr or not alias:
-            raise ValueError("aggregate_query measures must include non-empty 'expr' and 'as'")
-        normalized.append((expr, alias))
-    return normalized
-
-
-def build_windowed_aggregate_query(
-    table_name: str,
-    measures: list[Mapping[str, Any]] | list[dict[str, Any]],
-    group_by: list[str],
-    *,
-    order_by: str | None = None,
-    limit: int = 100,
-    scoped_query: Mapping[str, Any] | None = None,
-) -> str:
-    """Build typed aggregate_query SQL for single-window and compare modes.
-
-    This is the execution-facing compiler path for the TSU aggregate contract:
-    grouping is expressed via ``group_by`` and values are expressed only via
-    ``measures``. When ``scoped_query.mode == 'compare'``, the shared
-    scoped/periodized comparison skeleton is used.
-    """
-
-    agg_exprs = _normalize_typed_aggregate_measures(measures)
-    group_by_sql = ", ".join(group_by)
-    agg_select = ", ".join(f"{expr} AS {alias}" for expr, alias in agg_exprs)
-    select_prefix = f"{group_by_sql}, " if group_by_sql else ""
-
-    compare_mode = (
-        scoped_query is not None and str(scoped_query.get("mode") or "").strip() == "compare"
-    )
-    if compare_mode:
-        assert scoped_query is not None
-        first_alias = agg_exprs[0][1]
-        effective_order_by = order_by or f"{first_alias}_delta_pct DESC"
-        scoped = _build_scoped_query_parts(table_name, scoped_query, include_period=True)
-        by_period_select_prefix = f"_period, {group_by_sql}, " if group_by_sql else "_period, "
-
-        pivot_parts: list[str] = []
-        final_parts: list[str] = []
-        for _, alias in agg_exprs:
-            pivot_parts.append(
-                f"MAX(CASE WHEN _period = 'current' THEN {alias} END) AS {alias}_current"
-            )
-            pivot_parts.append(
-                f"MAX(CASE WHEN _period = 'baseline' THEN {alias} END) AS {alias}_baseline"
-            )
-            final_parts.append(f"{alias}_current")
-            final_parts.append(f"{alias}_baseline")
-            final_parts.append(
-                f"ROUND(({alias}_current - {alias}_baseline) * 1.0 / NULLIF({alias}_baseline, 0) * 100, 2) "
-                f"AS {alias}_delta_pct"
-            )
-
-        by_period_group_by = (
-            f"GROUP BY _period, {group_by_sql}" if group_by_sql else "GROUP BY _period"
-        )
-        pivot_group_by = f"GROUP BY {group_by_sql}" if group_by_sql else ""
-        pivot_select_prefix = f"{group_by_sql},\n            " if group_by_sql else ""
-        final_select_prefix = f"{group_by_sql},\n            " if group_by_sql else ""
-        return f"""
-            WITH {scoped.cte_sql},
-            by_period AS (
-                SELECT {by_period_select_prefix}{agg_select}
-                FROM scoped
-                {by_period_group_by}
-            ),
-            pivoted AS (
-                SELECT {pivot_select_prefix}{",\n            ".join(pivot_parts)}
-                FROM by_period
-                {pivot_group_by}
-            )
-            SELECT {final_select_prefix}{",\n            ".join(final_parts)}
-            FROM pivoted
-            ORDER BY {effective_order_by}
-            LIMIT {limit}
-        """
-
-    group_clause = f" GROUP BY {group_by_sql}" if group_by_sql else ""
-    order_clause = f" ORDER BY {order_by}" if order_by else ""
-
-    if scoped_query is not None:
-        scoped = _build_scoped_query_parts(table_name, scoped_query, include_period=False)
-        return (
-            f"WITH {scoped.cte_sql} "
-            f"SELECT {select_prefix}{agg_select} FROM scoped{group_clause}{order_clause} LIMIT {limit}"
-        )
-
-    return f"SELECT {select_prefix}{agg_select} FROM {table_name}{group_clause}{order_clause} LIMIT {limit}"
-
-
-def build_aggregate_comparison_query(
-    table_name: str,
-    select_exprs: list[str],
-    group_by: list[str],
-    date_column: str,
-    order_by: str | None = None,
-    limit: int = 100,
-    filter_expr: str | None = None,
-    scoped_query: Mapping[str, Any] | None = None,
-) -> str:
-    """Build a current-vs-baseline comparison query for ad-hoc aggregate steps.
-
-    Mirrors ``build_metric_query`` but driven by user-supplied ``select``
-    and ``group_by`` instead of a registered semantic metric.
-
-    SQL ``?`` placeholder order (6 params, same as build_metric_query):
-        current_start, current_end,   (CASE WHEN … THEN 'current')
-        baseline_start, baseline_end, (CASE WHEN … THEN 'baseline')
-        baseline_start, current_end   (outer WHERE range)
-    """
-    # Identify aggregate expressions: those NOT in group_by (or containing an AS alias)
-    agg_exprs: list[tuple[str, str]] = []  # (expr, alias)
-    for expr in select_exprs:
-        stripped = expr.strip()
-        if stripped in group_by:
-            continue  # plain dimension column — skip
-        alias = _extract_agg_alias(stripped)
-        agg_exprs.append((stripped, alias))
-
-    if not agg_exprs:
-        raise ValueError(
-            "compare_period requires at least one aggregate expression with an alias in 'select'"
-        )
-
-    group_by_cols = ", ".join(group_by)
-    # Expanded form for by_period GROUP BY (Trino-safe: full expressions, not aliases)
-    group_by_cols_expanded = ", ".join(_expand_group_by_aliases(select_exprs, group_by))
-    agg_select = ", ".join(expr for expr, _ in agg_exprs)
-
-    pivot_parts: list[str] = []
-    for _, alias in agg_exprs:
-        pivot_parts.append(
-            f"MAX(CASE WHEN _period = 'current' THEN {alias} END) AS {alias}_current"
-        )
-        pivot_parts.append(
-            f"MAX(CASE WHEN _period = 'baseline' THEN {alias} END) AS {alias}_baseline"
-        )
-    pivot_select = ",\n            ".join(pivot_parts)
-
-    final_parts: list[str] = []
-    for _, alias in agg_exprs:
-        final_parts.append(f"{alias}_current")
-        final_parts.append(f"{alias}_baseline")
-        final_parts.append(
-            f"ROUND(({alias}_current - {alias}_baseline) * 1.0 / NULLIF({alias}_baseline, 0) * 100, 2)"
-            f" AS {alias}_delta_pct"
-        )
-    final_select_agg = ",\n            ".join(final_parts)
-
-    first_alias = agg_exprs[0][1]
-    effective_order_by = order_by or f"{first_alias}_delta_pct DESC"
-
-    scoped_from = f"FROM {table_name}"
-    if scoped_query is not None:
-        scoped = _build_scoped_query_parts(table_name, scoped_query, include_period=True)
-        scoped_from = "FROM scoped"
-        with_prefix = f"WITH {scoped.cte_sql},"
-    else:
-        filter_clause = f" AND {filter_expr}" if filter_expr else ""
-        with_prefix = ""
-
-    by_period_group_by = (
-        f"GROUP BY _period, {group_by_cols_expanded}"
-        if group_by_cols_expanded
-        else "GROUP BY _period"
-    )
-    pivot_group_by = f"GROUP BY {group_by_cols}" if group_by_cols else ""
-    by_period_select_prefix = f"_period, {group_by_cols}, " if group_by_cols else "_period, "
-    pivot_select_prefix = f"{group_by_cols},\n            " if group_by_cols else ""
-    final_select_prefix = f"{group_by_cols},\n            " if group_by_cols else ""
-
-    if scoped_query is not None:
-        return f"""
-            {with_prefix}
-            by_period AS (
-                SELECT {by_period_select_prefix}{agg_select}
-                {scoped_from}
-                {by_period_group_by}
-            ),
-            pivoted AS (
-                SELECT {pivot_select_prefix}{pivot_select}
-                FROM by_period
-                {pivot_group_by}
-            )
-            SELECT {final_select_prefix}{final_select_agg}
-            FROM pivoted
-            ORDER BY {effective_order_by}
-            LIMIT {limit}
-        """
-
-    filter_clause = f" AND {filter_expr}" if filter_expr else ""
-    by_period_group_by = (
-        f"GROUP BY _period, {group_by_cols_expanded}"
-        if group_by_cols_expanded
-        else "GROUP BY _period"
-    )
-    pivot_group_by = f"GROUP BY {group_by_cols}" if group_by_cols else ""
-    by_period_select_prefix = f"_period, {group_by_cols}, " if group_by_cols else "_period, "
-    pivot_select_prefix = f"{group_by_cols},\n            " if group_by_cols else ""
-    final_select_prefix = f"{group_by_cols},\n            " if group_by_cols else ""
-
-    return f"""
-        WITH periodized AS (
-            SELECT
-                CASE
-                    WHEN {date_column} BETWEEN ? AND ? THEN 'current'
-                    WHEN {date_column} BETWEEN ? AND ? THEN 'baseline'
-                END AS _period,
-                *
-            FROM {table_name}
-            WHERE {date_column} BETWEEN ? AND ?{filter_clause}
-        ),
-        by_period AS (
-            SELECT {by_period_select_prefix}{agg_select}
-            FROM periodized
-            {by_period_group_by}
-        ),
-        pivoted AS (
-            SELECT {pivot_select_prefix}{pivot_select}
-            FROM by_period
-            {pivot_group_by}
-        )
-        SELECT {final_select_prefix}{final_select_agg}
-        FROM pivoted
-        ORDER BY {effective_order_by}
-        LIMIT {limit}
-    """
+    profile_traces: list[ProfileTrace] = field(default_factory=list)
+    profile_validation_issues: list[ProfileValidationIssue] = field(default_factory=list)
+    usage_trace: list[dict[str, Any]] = field(default_factory=list)
 
+    def capabilities_payload(self) -> dict[str, Any]:
+        return {}
+
+
+def derive_compiler_state(*_args: Any, **_kwargs: Any) -> DerivedCompilerState:
+    """Stub — returns default state during OSI v2 migration.  See Task 7."""
+    return DerivedCompilerState()
+
+
+# ── Predicate validator stubs (inlined from analysis_core.predicate_validator) ──
+# These are preserved for import compatibility only — all return empty results.
+
+
+@dataclass(slots=True)
+class PredicateRefWithUsage:
+    ref: str
+    required_usage: Any = ""
+    usage: str = ""
+    scope_expression: dict[str, Any] | None = None
+
+
+@dataclass(slots=True)
+class PredicateLayerRef:
+    layer: str
+    ref: str
+
+
+@dataclass(slots=True)
+class ResolvedAtom:
+    ref: str
+    usage: str
+    operator: str = ""
+    value: Any = None
+    scope_expression: dict[str, Any] | None = None
+
+
+class NormalizedPredicateAtom(TypedDict, total=False):
+    ref: str
+    usage: str
+    operator: str
+    value: Any
+    scope_expression: dict[str, Any]
+
+
+class NormalizedComponentPredicateInput(TypedDict, total=False):
+    component_ref: str
+    atoms: list[NormalizedPredicateAtom]
+
+
+class NormalizedPredicateInput(TypedDict, total=False):
+    metric_ref: str
+    components: list[NormalizedComponentPredicateInput]
+
+
+class ComponentLoweringInput(TypedDict, total=False):
+    component_ref: str
+    binding_ref: str
+    atoms: list[NormalizedPredicateAtom]
+
+
+class LoweringPrecheckDiagnostic(TypedDict, total=False):
+    component_ref: str
+    atom_ref: str
+    code: str
+    message: str
+
+
+def validate_predicate_contracts(*_args: Any, **_kwargs: Any) -> list[Any]:
+    return []
+
+
+def validate_request_scope(*_args: Any, **_kwargs: Any) -> list[Any]:
+    return []
+
+
+def validate_predicate_conflicts(*_args: Any, **_kwargs: Any) -> list[Any]:
+    return []
+
+
+def build_predicate_filter_lineage(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+    return {}
+
+
+def build_normalized_predicate_input(*_args: Any, **_kwargs: Any) -> NormalizedPredicateInput:
+    return NormalizedPredicateInput()
+
+
+def build_component_lowering_inputs(*_args: Any, **_kwargs: Any) -> list[ComponentLoweringInput]:
+    return []
+
+
+def run_lowering_precheck(*_args: Any, **_kwargs: Any) -> list[Any]:
+    return []
+
+
+def collect_component_fields(*_args: Any, **_kwargs: Any) -> list[str]:
+    return []
+
+
+def collect_layered_predicate_refs(*_args: Any, **_kwargs: Any) -> list[PredicateLayerRef]:
+    return []
+
+
+# ── Scoped query helpers (imported from core.semantic.compiler) ──
+# These are needed by compile_step but live in core now.  We import them
+# at module level so the compile_step function can call them.
+
+from marivo.core.semantic.compiler import (  # noqa: E402
+    _build_scoped_query_parts,
+    _expand_group_by_aliases,
+    _metric_query_dimension_sql_expressions,
+    _normalize_metric_query_order,
+    _require_scoped_query_mode,
+)
+
+# ── Validation gate order (needed by _build_validation_trace) ──
 
 _VALIDATION_GATE_ORDER: tuple[
     Literal[
@@ -782,6 +311,12 @@ _VALIDATION_GATE_ORDER: tuple[
     "dimension_additivity",
     "lowering_precheck",
 )
+
+
+_CALENDAR_ALIGNMENT_SUPPORTED_GRAINS = frozenset({"day", "week", "month"})
+
+
+# ── I/O-bound helper functions ──
 
 
 def _build_compile_error(validation_message: str, validation_result: Any) -> SemanticCompileError:
@@ -1323,16 +858,8 @@ def _measurement_node(
     inferential_summary_mode = _optional_str(header.get("inferential_summary_mode"))
     if inferential_summary_mode is not None:
         node["inferential_summary_mode"] = inferential_summary_mode
-    # Attach predicate filter lineage if repository is available
     normalized_predicate_input: NormalizedPredicateInput | None = None
     if semantic_repository is not None and resolved_inputs is not None:
-        from marivo.analysis_core.predicate_validator import (
-            build_normalized_predicate_input,
-            build_predicate_filter_lineage,
-            collect_component_fields,
-            collect_layered_predicate_refs,
-        )
-
         layered_refs = collect_layered_predicate_refs(resolved_inputs)
         component_fields = collect_component_fields(resolved_inputs)
         if layered_refs or component_fields:
@@ -1721,11 +1248,9 @@ def compile_step(
         table_name = _require_param(step, "table_name")
         limit = int(params.get("limit", 10))
 
-        # Column selection
         columns = params.get("columns")
         columns_clause = ", ".join(columns) if columns else "*"
 
-        # WHERE clause construction
         where_parts: list[str] = []
         if params.get("filter"):
             where_parts.append(str(params["filter"]))

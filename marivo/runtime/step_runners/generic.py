@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from marivo.analysis_core.step_registry import StepRunnerRegistry
+from marivo.core.intent.step_registry import StepRunnerRegistry
 
 if TYPE_CHECKING:
     from marivo.runtime.runtime import MarivoRuntime

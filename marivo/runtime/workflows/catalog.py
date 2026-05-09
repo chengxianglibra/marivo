@@ -1,5 +1,5 @@
 from __future__ import annotations
 
-from marivo.analysis_core.composites import CompositeWorkflowSpec
+from marivo.runtime.semantic.composites import CompositeWorkflowSpec
 
 WORKFLOW_SPECS: dict[str, CompositeWorkflowSpec] = {}

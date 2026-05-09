@@ -3,12 +3,12 @@ from __future__ import annotations
 import unittest
 from datetime import date
 
-from marivo.analysis_core.calendar_alignment_pairing import (
+from marivo.core.semantic.calendar import (
     _nearest_same_weekday,
     build_calendar_annotation_rows,
+    get_calendar_policy,
     resolve_calendar_bucket_pairing,
 )
-from marivo.analysis_core.calendar_policy import get_calendar_policy
 
 
 def _annotation(

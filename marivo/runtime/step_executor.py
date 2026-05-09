@@ -8,9 +8,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from marivo.analysis_core.step_runners import build_service_step_registry
 from marivo.core.intent.step_registry import StepRunnerRegistry
 from marivo.core.semantic.ir import AnalysisStepIR
+from marivo.runtime.step_runners import build_service_step_registry
 
 if TYPE_CHECKING:
     from marivo.runtime.runtime import MarivoRuntime

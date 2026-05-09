@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from marivo.analysis_core.calendar_policy import (
+from marivo.core.semantic.calendar import (
     CalendarPolicyResolutionError,
     get_calendar_policy,
     policy_registry_summary,

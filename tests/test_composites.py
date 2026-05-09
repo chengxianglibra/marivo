@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import unittest
 
-from marivo.analysis_core import (
+from marivo.runtime.semantic.composites import (
     CompositeStepTemplate,
-    CompositeWorkflowRuntime,
     CompositeWorkflowSpec,
+)
+from marivo.runtime.workflows import (
+    CompositeWorkflowRuntime,
 )
 
 

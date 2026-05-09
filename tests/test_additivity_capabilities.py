@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from marivo.analysis_core.additivity_capabilities import (
+from marivo.core.semantic.additivity import (
     derive_additivity_capabilities,
 )
 

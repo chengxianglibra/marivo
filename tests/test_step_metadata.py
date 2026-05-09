@@ -7,8 +7,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, ClassVar, cast
 
-from marivo.analysis_core.compiler import CompiledQuery
 from marivo.api.app_factory import create_app
+from marivo.core.semantic.compiler import CompiledQuery
 from marivo.evidence_engine.ref_boundary import assert_no_canonical_refs_in_semantic_payload
 from marivo.runtime.runtime import MarivoRuntime
 from marivo.runtime.semantic_ops import build_step_semantic_metadata

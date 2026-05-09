@@ -11,7 +11,6 @@ source_modules =
 forbidden_modules =
     marivo.api
     marivo.storage
-    marivo.analysis_core
     marivo.evidence_engine
     marivo.execution
     marivo.adapters
@@ -25,7 +24,6 @@ source_modules =
 forbidden_modules =
     marivo.api
     marivo.storage
-    marivo.analysis_core
     marivo.evidence_engine
     marivo.execution
     marivo.adapters
@@ -37,18 +35,13 @@ type = forbidden
 source_modules =
     marivo.runtime
 forbidden_modules =
-    marivo.analysis_core
     marivo.evidence_engine
 ignore_imports =
-    marivo.runtime.semantic_ops -> marivo.analysis_core.compiler
-    marivo.runtime.semantic_ops -> marivo.analysis_core.executor
     marivo.runtime.semantic_ops -> marivo.evidence_engine.ref_boundary
-    marivo.runtime.step_executor -> marivo.analysis_core.step_runners
+    marivo.runtime.semantic.compile_step -> marivo.evidence_engine.ref_boundary
     marivo.runtime.session -> marivo.evidence_engine.context_view
     marivo.runtime.session -> marivo.evidence_engine.state_view
-    marivo.runtime.intents.* -> marivo.analysis_core.*
     marivo.runtime.intents.* -> marivo.evidence_engine.*
-    marivo.analysis_core.compiler -> marivo.evidence_engine.ref_boundary
 
 [importlinter:contract:core-no-io]
 name = core/ must not import I/O or ports
@@ -58,7 +51,6 @@ source_modules =
 forbidden_modules =
     marivo.api
     marivo.storage
-    marivo.analysis_core
     marivo.evidence_engine
     marivo.execution
     marivo.adapters
@@ -72,15 +64,12 @@ source_modules =
     marivo.api
     marivo.cli
 forbidden_modules =
-    marivo.analysis_core
     marivo.evidence_engine
 ignore_imports =
     marivo.api.sessions -> marivo.runtime
-    marivo.runtime.* -> marivo.analysis_core.*
     marivo.runtime.* -> marivo.evidence_engine.*
-    marivo.runtime.intents.* -> marivo.analysis_core.*
+    marivo.runtime.semantic.* -> marivo.evidence_engine.*
     marivo.runtime.intents.* -> marivo.evidence_engine.*
-    marivo.analysis_core.* -> marivo.evidence_engine.*
     marivo.adapters.server.artifact_store -> marivo.evidence_engine.canonical_finding
 
 [importlinter:contract:transports-mcp-no-api-internals]
