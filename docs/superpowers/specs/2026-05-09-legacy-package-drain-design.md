@@ -117,7 +117,11 @@ Linter: Update `marivo.intents.*` → `marivo.runtime.intents.*` in
 
 ### B4. `analysis_core/` — 23 files
 
-Delete re-export shims, move I/O modules to `runtime/` as-is.
+Delete re-export shims and duplicates (where `core/` already has the pure
+logic). Extract remaining I/O-bound functions into `runtime/` sub-packages.
+Do NOT move files that contain pure logic already present in `core/` — delete
+the duplicates and extract only the I/O-bound functions that lack a `core/`
+equivalent.
 
 **Delete (re-export shims — callers already use `core/`):**
 
@@ -132,17 +136,22 @@ Delete re-export shims, move I/O modules to `runtime/` as-is.
 | `capability_profiles.py` | Stub for import compat |
 | `predicate_validator.py` | Stub for import compat |
 
-**Move to `runtime/` sub-packages (I/O-bound, as-is):**
+**Extract I/O-bound functions (delete pure duplicates, keep only I/O):**
+
+| File | Action | Target |
+|------|--------|--------|
+| `compiler.py` | Delete pure re-exports (already in `core.semantic.compiler`). Extract `compile_step()` only. | `runtime/semantic/compile_step.py` |
+| `typed_resolution.py` | Delete pure data classes (already in `core.semantic.typed_resolution`). Extract `normalize_step_request()`, `resolve_compiler_inputs()` only. | `runtime/semantic/resolution_orchestrator.py` |
+| `validator.py` | Delete pure re-exports (already in `core.semantic.validator`). Extract I/O-bound `validate_compiler_inputs()` only. | `runtime/semantic/analysis_validator.py` |
+
+**Move to `runtime/` sub-packages (I/O-bound, no `core/` equivalent):**
 
 | File | Target |
 |------|--------|
-| `compiler.py` | `runtime/semantic/compiler.py` |
 | `executor.py` | `runtime/semantic/executor.py` |
 | `step_runners/` | `runtime/step_runners/` |
 | `workflows/` | `runtime/workflows/` |
 | `calendar_data_runtime.py` | `runtime/semantic/calendar_data_runtime.py` |
-| `typed_resolution.py` | `runtime/semantic/typed_resolution.py` |
-| `validator.py` | `runtime/semantic/analysis_validator.py` |
 | `composites.py` | `runtime/semantic/composites.py` |
 
 Callers to update: `runtime/semantic_ops.py`, `runtime/step_executor.py`,
@@ -361,11 +370,11 @@ surfaces-must-use-runtime:
 marivo.analysis_core.compiler -> marivo.evidence_engine.ref_boundary
 ```
 
-When B4 moves `compiler.py` to `runtime/semantic/compiler.py`, the old entry
-is removed and a NEW entry must be added:
+When B4 extracts `compile_step()` to `runtime/semantic/compile_step.py`, the old
+entry is removed and a NEW entry must be added:
 
 ```
-marivo.runtime.semantic.compiler -> marivo.evidence_engine.ref_boundary
+marivo.runtime.semantic.compile_step -> marivo.evidence_engine.ref_boundary
 ```
 
 This new entry is removed when B8 drains `evidence_engine/`. The spec must
@@ -378,7 +387,7 @@ now create `runtime → evidence_engine` violations:
 
 ```
 runtime-no-direct-core-orchestration:
-  marivo.runtime.semantic.compiler -> marivo.evidence_engine.ref_boundary
+  marivo.runtime.semantic.compile_step -> marivo.evidence_engine.ref_boundary
 ```
 
 ---
