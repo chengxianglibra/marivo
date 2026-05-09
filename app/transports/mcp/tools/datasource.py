@@ -9,7 +9,7 @@ from app.transports.mcp.tools._async_bridge import call_runtime
 
 
 def register_datasource_tools(server: Any, runtime: Any) -> None:
-    svc = runtime.datasource_svc
+    svc = runtime.get_service("datasource")
 
     # ------------------------------------------------------------------
     # CRUD

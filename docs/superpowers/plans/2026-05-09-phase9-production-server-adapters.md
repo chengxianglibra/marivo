@@ -2472,11 +2472,12 @@ git commit -m "test(ci): add MySQL-backed session store contract tests"
 
 ---
 
-### Task 21: Promote parity gate to blocking and remove `sessions` table DDL
+### Task 21: Promote parity gate to blocking
+
+> **Architecture decision:** The `sessions` table is retained as a read model / materialized view alongside `session_events`. Both tables are written to (dual-write) — `session_events` is the authoritative event log, `sessions` provides efficient query access for owner/status filtering and pagination. Removing the `sessions` table and replacing it with pure event-sourced queries is deferred to a future phase, where a proper materialized view or projection table can be designed with migration support.
 
 **Files:**
 - Modify: `tests/contracts/test_parity.py` (promote from xfail to hard assert)
-- Modify: `app/storage/schema.py` (remove `sessions` table DDL)
 
 - [ ] **Step 1: Promote parity tests from observable to blocking**
 
@@ -2488,27 +2489,16 @@ for r in results:
     assert r.remote_status == "passed", f"Remote {r.case_name} failed: {r.detail}"
 ```
 
-- [ ] **Step 2: Remove `sessions` table DDL from `schema.py`**
-
-Remove the `CREATE TABLE IF NOT EXISTS sessions (...)` block and any associated indexes from `METADATA_DDL`.
-
-Also update `_expected_mysql_foreign_key_names` to remove any remaining sessions-related entries.
-
-- [ ] **Step 3: Update all references to `sessions` table**
-
-Run: `rg '"sessions"|'sessions'" app/ tests/`
-Ensure no code still reads from or writes to the `sessions` table.
-
-- [ ] **Step 4: Run full test suite**
+- [ ] **Step 2: Run full test suite**
 
 Run: `pytest tests/ -x -q --timeout=60`
 Expected: All pass
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 3: Commit**
 
 ```bash
-git add tests/contracts/test_parity.py app/storage/schema.py
-git commit -m "feat(phase9): promote parity gate to blocking, remove sessions table DDL"
+git add tests/contracts/test_parity.py
+git commit -m "test(contracts): promote parity gate to blocking assertions"
 ```
 
 ---
@@ -2551,8 +2541,11 @@ rg "test-mysql:" Makefile && echo "PASS" || echo "FAIL"
 # _legacy_session.py is gone
 test ! -f app/adapters/server/_legacy_session.py && echo "PASS" || echo "FAIL"
 
-# sessions table DDL removed
-rg "CREATE TABLE.*sessions" app/storage/schema.py && echo "FAIL" || echo "PASS"
+# sessions table retained as read model (dual-write with session_events)
+rg "CREATE TABLE.*sessions" app/storage/schema.py && echo "PASS (retained)" || echo "FAIL"
+
+# session_events table exists
+rg "CREATE TABLE.*session_events" app/storage/schema.py && echo "PASS" || echo "FAIL"
 ```
 
 - [ ] **Step 3: Run full test suite**
@@ -2617,7 +2610,7 @@ Task 19 (test-mysql extras + CI job) ← independent
   ↓
 Task 20 (MySQL contract tests) ← depends on Tasks 4, 19
   ↓
-Task 21 (Parity gate + sessions DDL removal) ← depends on Tasks 16, 17, 18
+Task 21 (Parity gate — sessions table retained as read model) ← depends on Tasks 17, 18
   ↓
 Task 22 (Final verification) ← depends on all
 ```

@@ -95,16 +95,21 @@ def _build_services(
         )
     )
 
+    runtime = composition.runtime
+    datasource_service = runtime.get_service("datasource")
+    query_router = runtime.get_service("query_router")
+    semantic_v2_service = runtime.get_service("semantic_v2")
+
     return AppServices(
         resolved_path=composition.resolved_analytics_path,
         config=config,
-        runtime=composition.runtime,
-        datasource_service=composition.datasource_service,
-        query_router=composition.query_router,
+        runtime=runtime,
+        datasource_service=datasource_service,
+        query_router=query_router,
         metadata_store=composition.metadata_store,
         analytics_engine=composition.analytics_engine,
         metrics=composition.metrics,
-        semantic_v2_service=composition.semantic_v2_service,
+        semantic_v2_service=semantic_v2_service,
     )
 
 

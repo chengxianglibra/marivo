@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from app.contracts.errors import ErrorCode, NotFoundError, ValidationError
 from app.contracts.ids import ModelId, SessionId, StepId, UserId
 from app.contracts.semantic import ModelSummary, SemanticModel
-from app.contracts.session import SessionState
+from app.contracts.session import SessionEvent, SessionState
 from app.runtime import intent_execution
 from app.runtime import session as session_ops
 
@@ -30,21 +31,45 @@ class MarivoRuntime:
     ) -> None:
         self._ports = ports
         self._core = core
-        self._semantic_v2_svc: Any = None  # set via wire_semantic_v2_svc()
-        self._datasource_svc: Any = None  # set via wire_datasource_svc()
+        self._services: dict[str, Any] = {}
         self._app: Any = None  # set via wire_app()
+        self._metadata: Any = None  # set via wire_metadata()
+        self._analytics: Any = None  # set via wire_analytics()
+        self._evidence_repos: Any = None  # set via wire_evidence_repos()
+        self._calendar_data_reader: Any = None  # set via wire_calendar_data_reader()
+        self._time_axis_metadata_provider: Any = None  # set via wire_time_axis_metadata_provider()
 
-    def wire_semantic_v2_svc(self, svc: Any) -> None:
-        """Attach the SemanticModelV2Service for V2 CRUD operations."""
-        self._semantic_v2_svc = svc
+    def register_service(self, name: str, service: Any) -> None:
+        """Register a non-port service for transport-layer access."""
+        self._services[name] = service
 
-    def wire_datasource_svc(self, svc: Any) -> None:
-        """Attach the DatasourceService for datasource operations."""
-        self._datasource_svc = svc
+    def get_service(self, name: str) -> Any:
+        """Retrieve a registered service. Raises KeyError if not found."""
+        return self._services[name]
 
     def wire_app(self, app: Any) -> None:
         """Store reference to the FastAPI app for OpenAPI introspection."""
         self._app = app
+
+    def wire_metadata(self, metadata: Any) -> None:
+        """Attach the MetadataStore for direct DB access (server mode)."""
+        self._metadata = metadata
+
+    def wire_analytics(self, analytics: Any) -> None:
+        """Attach the AnalyticsEngine for query execution (server mode)."""
+        self._analytics = analytics
+
+    def wire_evidence_repos(self, repos: Any) -> None:
+        """Attach the evidence repository dict (server mode)."""
+        self._evidence_repos = repos
+
+    def wire_calendar_data_reader(self, reader: Any) -> None:
+        """Attach the calendar data reader (server mode)."""
+        self._calendar_data_reader = reader
+
+    def wire_time_axis_metadata_provider(self, provider: Any) -> None:
+        """Attach the time axis metadata provider (server mode)."""
+        self._time_axis_metadata_provider = provider
 
     @property
     def core(self) -> CoreEngine:
@@ -57,14 +82,39 @@ class MarivoRuntime:
         return self._ports
 
     @property
-    def semantic_v2_svc(self) -> Any:
-        """SemanticModelV2Service for V2 CRUD operations."""
-        return self._semantic_v2_svc
+    def semantic_repository(self) -> Any:
+        """SemanticModelV2Service used as semantic repository (server mode)."""
+        return self._services.get("semantic_v2")
 
     @property
-    def datasource_svc(self) -> Any:
-        """DatasourceService for datasource operations."""
-        return self._datasource_svc
+    def semantic_resolver(self) -> Any:
+        """SemanticModelV2Service used as semantic resolver (server mode)."""
+        return self._services.get("semantic_v2")
+
+    @property
+    def metadata(self) -> Any:
+        """MetadataStore for direct DB access (server mode)."""
+        return self._metadata
+
+    @property
+    def analytics(self) -> Any:
+        """AnalyticsEngine for query execution (server mode)."""
+        return self._analytics
+
+    @property
+    def evidence_repos(self) -> Any:
+        """Evidence repository dict (server mode)."""
+        return self._evidence_repos
+
+    @property
+    def calendar_data_reader(self) -> Any:
+        """Calendar data reader (server mode)."""
+        return self._calendar_data_reader
+
+    @property
+    def time_axis_metadata_provider(self) -> Any:
+        """Time axis metadata provider (server mode)."""
+        return self._time_axis_metadata_provider
 
     # ------------------------------------------------------------------
     # Artifact / Step I/O  (ports-direct)
@@ -96,8 +146,64 @@ class MarivoRuntime:
         return str(artifact_id), content
 
     def commit_artifact_with_extraction(self, *args: Any, **kwargs: Any) -> str:
-        """Canonical commit boundary for mandatory-extraction artifacts."""
-        result = self._ports.artifact_store.commit_artifact_with_extraction(*args, **kwargs)
+        """Canonical commit boundary for mandatory-extraction artifacts.
+
+        After a successful commit, appends a ``step_completed`` event to the
+        session event log so that session state always reflects step completion
+        timestamps.
+
+        When the session store is a ``SqlSessionStore`` and the metadata
+        store is available via ``runtime.metadata``, both the artifact commit
+        and the event append happen inside a single database transaction,
+        guaranteeing atomicity.  Otherwise falls back to separate
+        transactions.
+        """
+        # Extract session_id and step_id for the step_completed event.
+        # commit_artifact_with_extraction is called positionally as:
+        #   (session_id, step_id, artifact_type, name, content, *, step_type=...)
+        # or via kwargs.
+        session_id = kwargs.get("session_id") or (args[0] if args else None)
+        step_id = kwargs.get("step_id") or (args[1] if len(args) > 1 else None)
+
+        session_store = self._ports.session_store
+        metadata = self._metadata
+
+        # Attempt atomic write when both SqlSessionStore and MetadataStore
+        # are available (server mode).
+        if (
+            session_id
+            and step_id
+            and metadata is not None
+            and hasattr(session_store, "append_event_with_connection")
+        ):
+            with metadata.connect() as con:
+                kwargs["con"] = con
+                result = self._ports.artifact_store.commit_artifact_with_extraction(*args, **kwargs)
+                session_store.append_event_with_connection(
+                    SessionId(str(session_id)),
+                    SessionEvent(
+                        session_id=SessionId(str(session_id)),
+                        event_type="step_completed",
+                        timestamp=datetime.now(UTC).isoformat(),
+                        payload={"step_id": str(step_id)},
+                        actor=None,
+                    ),
+                    con,
+                )
+                con.commit()
+        else:
+            result = self._ports.artifact_store.commit_artifact_with_extraction(*args, **kwargs)
+            if session_id and step_id:
+                session_store.append_event(
+                    SessionId(str(session_id)),
+                    SessionEvent(
+                        session_id=SessionId(str(session_id)),
+                        event_type="step_completed",
+                        timestamp=datetime.now(UTC).isoformat(),
+                        payload={"step_id": str(step_id)},
+                        actor=None,
+                    ),
+                )
         return str(result)
 
     def insert_step(self, *args: Any, **kwargs: Any) -> None:

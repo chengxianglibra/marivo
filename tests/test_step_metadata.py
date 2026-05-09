@@ -55,7 +55,7 @@ class StepMetadataPersistenceTests(unittest.TestCase):
         app = create_app(db_path)
         cls.service = cast("Any", app.state.services.runtime)
         cls.semantic_service = cast("Any", app.state.semantic_v2_service)
-        cls.metadata = cls.service.ports.metadata
+        cls.metadata = cls.service.metadata
         now = datetime.now(UTC).isoformat()
         seed_duckdb_source_object(
             cls.metadata,

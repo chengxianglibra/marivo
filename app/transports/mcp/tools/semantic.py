@@ -8,7 +8,7 @@ from app.transports.mcp.tools._async_bridge import call_runtime
 
 
 def register_semantic_tools(server: Any, runtime: Any) -> None:
-    svc = runtime.semantic_v2_svc
+    svc = runtime.get_service("semantic_v2")
 
     # ------------------------------------------------------------------
     # SemanticModel CRUD

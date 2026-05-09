@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import threading
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -8,6 +10,10 @@ from app.adapters.local.sqlite_session_store import SqliteSessionStore
 from app.contracts.errors import ErrorCode, NotFoundError
 from app.contracts.ids import SessionId, UserId
 from app.contracts.session import SessionEvent
+from tests.contracts.session_store_cases import SESSION_STORE_CASES
+
+if TYPE_CHECKING:
+    from app.adapters.server.session_store import SqlSessionStore
 
 
 def _make_sqlite_session_store(tmp_path: Path) -> SqliteSessionStore:
@@ -15,8 +21,18 @@ def _make_sqlite_session_store(tmp_path: Path) -> SqliteSessionStore:
     return SqliteSessionStore(db_path)
 
 
+def _make_sql_session_store(tmp_path: Path) -> SqlSessionStore:
+    from app.adapters.server.session_store import SqlSessionStore
+    from app.storage.sqlite_metadata import SQLiteMetadataStore
+
+    store = SQLiteMetadataStore(tmp_path / "test.meta.sqlite")
+    store.initialize()
+    return SqlSessionStore(store)
+
+
 session_store_factories = [
     ("SqliteSessionStore", _make_sqlite_session_store),
+    ("SqlSessionStore", _make_sql_session_store),
 ]
 
 
@@ -154,3 +170,146 @@ def test_actor_preserved(name, factory, tmp_path):
     store.append_event(session_id, event)
     loaded = store.load_events(session_id)
     assert loaded[0].actor == "test_user"
+
+
+@pytest.mark.parametrize("name,factory", session_store_factories)
+def test_concurrent_append_both_stored(name, factory, tmp_path):
+    store = factory(tmp_path)
+    session_id = SessionId("sess-concurrent")
+    store.append_event(
+        session_id,
+        SessionEvent(
+            session_id=session_id,
+            event_type="session_created",
+            timestamp="2026-05-07T10:00:00Z",
+            payload={"goal": "concurrent test"},
+            actor=UserId("alice"),
+        ),
+    )
+    results: dict[str, str | None] = {"t1": None, "t2": None}
+
+    def append_event(thread_id: str, event_type: str) -> None:
+        try:
+            store.append_event(
+                session_id,
+                SessionEvent(
+                    session_id=session_id,
+                    event_type=event_type,
+                    timestamp="2026-05-07T10:00:01Z",
+                    payload={"thread": thread_id},
+                    actor=None,
+                ),
+            )
+            results[thread_id] = "ok"
+        except Exception as e:
+            results[thread_id] = str(e)
+
+    t1 = threading.Thread(target=append_event, args=("t1", "step_completed"))
+    t2 = threading.Thread(target=append_event, args=("t2", "step_completed"))
+    t1.start()
+    t2.start()
+    t1.join(timeout=10)
+    t2.join(timeout=10)
+    events = store.load_events(session_id)
+    assert len(events) == 3  # created + 2 step_completed
+
+
+@pytest.mark.parametrize("name,factory", session_store_factories)
+def test_other_event_types_not_dropped(name, factory, tmp_path):
+    """Verify that event types other than session_created/session_terminated
+    are persisted and recoverable (unlike the CRUD bridge which silently
+    dropped them)."""
+    store = factory(tmp_path)
+    session_id = SessionId("sess-events")
+    store.append_event(
+        session_id,
+        SessionEvent(
+            session_id=session_id,
+            event_type="session_created",
+            timestamp="2026-05-07T10:00:00Z",
+            payload={"goal": "event types test"},
+            actor=UserId("alice"),
+        ),
+    )
+    store.append_event(
+        session_id,
+        SessionEvent(
+            session_id=session_id,
+            event_type="step_inserted",
+            timestamp="2026-05-07T10:00:01Z",
+            payload={"step_id": "step-1"},
+            actor=None,
+        ),
+    )
+    store.append_event(
+        session_id,
+        SessionEvent(
+            session_id=session_id,
+            event_type="step_completed",
+            timestamp="2026-05-07T10:00:02Z",
+            payload={"step_id": "step-1"},
+            actor=None,
+        ),
+    )
+    store.append_event(
+        session_id,
+        SessionEvent(
+            session_id=session_id,
+            event_type="session_terminated",
+            timestamp="2026-05-07T10:00:03Z",
+            payload={"terminal_reason": "user_closed"},
+            actor=None,
+        ),
+    )
+    events = store.load_events(session_id)
+    assert len(events) == 4
+    assert [e.event_type for e in events] == [
+        "session_created",
+        "step_inserted",
+        "step_completed",
+        "session_terminated",
+    ]
+
+
+@pytest.mark.parametrize("name,factory", session_store_factories)
+def test_step_completed_guarantee(name, factory, tmp_path):
+    """After commit_step_result, a step_completed event must exist in the session."""
+    store = factory(tmp_path)
+    session_id = SessionId("sess-step")
+    store.append_event(
+        session_id,
+        SessionEvent(
+            session_id=session_id,
+            event_type="session_created",
+            timestamp="2026-05-07T10:00:00Z",
+            payload={"goal": "step test"},
+            actor=UserId("alice"),
+        ),
+    )
+    # Directly append the event (simulating what runtime does)
+    store.append_event(
+        session_id,
+        SessionEvent(
+            session_id=session_id,
+            event_type="step_completed",
+            timestamp="2026-05-07T10:01:00Z",
+            payload={"step_id": "step-1"},
+            actor=None,
+        ),
+    )
+    events = store.load_events(session_id)
+    step_events = [e for e in events if e.event_type == "step_completed"]
+    assert len(step_events) == 1
+    assert step_events[0].payload["step_id"] == "step-1"
+
+
+# ── Contract-case-driven tests ──────────────────────────────────────────
+# These use the shared SESSION_STORE_CASES from session_store_cases.py so
+# that the same contract logic can be reused in parity tests.
+
+
+@pytest.mark.parametrize("name,factory", session_store_factories)
+@pytest.mark.parametrize("case", SESSION_STORE_CASES, ids=lambda c: c.name)
+def test_contract_case(name, factory, case, tmp_path):
+    store = factory(tmp_path)
+    case.run(store, tmp_path)

@@ -35,7 +35,7 @@ def register_resources(server: Any, runtime: Any) -> None:
     async def semantic_family(family: str) -> dict[str, Any]:
         """Mirror semantic family list endpoints without adding MCP-only filtering semantics."""
         if family == "models":
-            return await call_runtime(runtime.semantic_v2_svc.list_semantic_models)
+            return await call_runtime(runtime.get_service("semantic_v2").list_semantic_models)
         supported = ", ".join(_SUPPORTED_SEMANTIC_FAMILIES)
         raise ValueError(
             f"Unsupported semantic family {family!r}. "

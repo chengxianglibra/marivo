@@ -40,20 +40,25 @@ def _init_state_db(db_path: Path) -> None:
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute(
         """CREATE TABLE IF NOT EXISTS session_events (
+            event_id    INTEGER PRIMARY KEY AUTOINCREMENT,
             session_id  TEXT NOT NULL,
             seq         INTEGER NOT NULL,
             event_type  TEXT NOT NULL,
             timestamp   TEXT NOT NULL,
-            payload     TEXT NOT NULL,
             actor       TEXT,
-            PRIMARY KEY (session_id, seq)
+            payload_json TEXT NOT NULL,
+            UNIQUE(session_id, seq)
         )"""
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_session_events_sid ON session_events (session_id)")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_session_events_owner ON session_events (event_type, actor)"
     )
     conn.execute(
         """CREATE TABLE IF NOT EXISTS cache_entries (
-            key         TEXT PRIMARY KEY,
-            value       TEXT NOT NULL,
-            expires_at  TEXT
+            key        TEXT PRIMARY KEY,
+            value      BLOB NOT NULL,
+            expires_at TEXT
         )"""
     )
     conn.commit()

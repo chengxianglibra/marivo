@@ -27,6 +27,7 @@ dev = [
     "types-PyYAML>=6.0",
     "import-linter>=2.0",
 ]
+test-mysql = ["testcontainers[mysql]"]
 
 [project.scripts]
 marivo = "app.cli:main"
@@ -35,6 +36,11 @@ marivo-stdio = "app.transports.mcp.stdio:main"
 [build-system]
 requires = ["setuptools>=68.0"]
 build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+markers = [
+    "mysql: tests requiring a MySQL container",
+]
 
 [tool.setuptools.packages.find]
 include = ["app*"]

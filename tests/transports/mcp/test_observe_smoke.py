@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from mcp.server.fastmcp import FastMCP
 
 from app.transports.mcp.tools import register_tools
@@ -10,8 +12,10 @@ from app.transports.mcp.tools import register_tools
 class _FakeRuntime:
     """Minimal stub satisfying register_tools' runtime contract."""
 
-    semantic_v2_svc = None
-    datasource_svc = None
+    _services: dict[str, Any] = {"semantic_v2": None, "datasource": None}
+
+    def get_service(self, name: str) -> Any:
+        return self._services[name]
 
     def observe(self, session_id: str, params: dict) -> dict:
         return {"step_type": "observe", "session_id": session_id}

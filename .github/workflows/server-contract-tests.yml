@@ -1,0 +1,21 @@
+name: Server Contract Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  server-contract-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev,mysql,test-mysql]"
+      - run: pytest tests/contracts/ -m "not mysql" -v
+      - run: pytest tests/contracts/ -m mysql -v
+      - run: pytest tests/contracts/test_parity.py -v

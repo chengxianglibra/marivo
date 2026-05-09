@@ -1,4 +1,4 @@
-"""Tests for port adapter wrappers in app.adapters.server.wrappers.
+"""Tests for port adapter wrappers in app.adapters.server.
 
 Verifies that each adapter satisfies its corresponding Port Protocol by
 checking structural method conformance (same approach as
@@ -11,17 +11,15 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from app.adapters.server.wrappers import (
-    DataSourceAdapter,
-    FileAuditLogAdapter,
-    LocalTelemetryAdapter,
-    MetadataCacheStoreAdapter,
-    MetadataEvidenceStoreAdapter,
-    NoopAuthZAdapter,
-    SqlModelStoreAdapter,
-    SqlSessionStoreAdapter,
-    TomlRuntimeConfigAdapter,
-)
+from app.adapters.server.audit_log import FileAuditLogAdapter
+from app.adapters.server.authz import NoopAuthZAdapter
+from app.adapters.server.cache_store import InMemoryCacheStore
+from app.adapters.server.data_source import DataSourceAdapter
+from app.adapters.server.evidence_store import MetadataEvidenceStoreAdapter
+from app.adapters.server.model_store import SqlModelStoreAdapter
+from app.adapters.server.runtime_config import TomlRuntimeConfigAdapter
+from app.adapters.server.session_store import SqlSessionStoreAdapter
+from app.adapters.server.telemetry import LocalTelemetryAdapter
 from app.config import MarivoConfig
 from app.contracts.evidence import Evidence, Finding
 from app.contracts.ids import (
@@ -84,19 +82,28 @@ def _make_data_source_adapter() -> DataSourceAdapter:
 
 
 def _make_evidence_store_adapter() -> MetadataEvidenceStoreAdapter:
-    finding_repo = MagicMock()
-    proposition_repo = MagicMock()
-    assessment_repo = MagicMock()
+    import tempfile
+    from pathlib import Path
+
+    from app.storage.evidence_repositories import (
+        AssessmentRepository,
+        FindingRepository,
+        PropositionRepository,
+    )
+    from app.storage.sqlite_metadata import SQLiteMetadataStore
+
+    tmp = Path(tempfile.mkdtemp())
+    store = SQLiteMetadataStore(tmp / "test.meta.sqlite")
+    store.initialize()
     return MetadataEvidenceStoreAdapter(
-        finding_repo=finding_repo,
-        proposition_repo=proposition_repo,
-        assessment_repo=assessment_repo,
+        finding_repo=FindingRepository(store),
+        proposition_repo=PropositionRepository(store),
+        assessment_repo=AssessmentRepository(store),
     )
 
 
-def _make_cache_store_adapter() -> MetadataCacheStoreAdapter:
-    metadata = MagicMock(spec=["query_one", "query_rows", "execute"])
-    return MetadataCacheStoreAdapter(metadata=metadata)
+def _make_cache_store_adapter() -> InMemoryCacheStore:
+    return InMemoryCacheStore()
 
 
 # ---------------------------------------------------------------------------
@@ -204,25 +211,33 @@ def test_sql_model_store_get_returns_none_when_not_found() -> None:
     adapter = _make_sql_model_store_adapter()
     selector = MagicMock()
     selector.name = "nonexistent"
-    adapter._service.get_semantic_model.side_effect = Exception("not found")
+    selector.owner = None
+    adapter._metadata.query_one.return_value = None
     result = adapter.get(selector)
     assert result is None
 
 
-def test_sql_model_store_list_delegates_to_service() -> None:
+def test_sql_model_store_list_returns_empty_when_no_match() -> None:
     adapter = _make_sql_model_store_adapter()
-    adapter._service.list_semantic_models.return_value = []
+    adapter._metadata.query_rows.return_value = []
     query = MagicMock()
     query.owner = None
+    query.include_public = True
+    query.include_private = False
     result = adapter.list(query)
     assert isinstance(result, list)
+    assert len(result) == 0
 
 
-def test_sql_model_store_save_raises_not_implemented() -> None:
+def test_sql_model_store_save_returns_model_id() -> None:
     adapter = _make_sql_model_store_adapter()
+    adapter._metadata.query_one.side_effect = [
+        None,  # no existing model
+        {"model_id": 1},  # newly inserted row
+    ]
     model = SemanticModel(name="test")
-    with pytest.raises(NotImplementedError):
-        adapter.save(model, actor=UserId("u1"), expected_revision=None)
+    model_id = adapter.save(model, actor=UserId("u1"), expected_revision=None)
+    assert model_id is not None
 
 
 # ---------------------------------------------------------------------------
@@ -330,24 +345,30 @@ def test_evidence_store_write_returns_evidence_ref() -> None:
         ],
     )
     result = adapter.write(evidence)
-    assert result == EvidenceRef("ref1")
+    # write() now returns a deterministic SHA-256 hash computed from
+    # the evidence content (excluding the ref field), consistent with
+    # FileEvidenceStore.
+    assert isinstance(result, str)
+    assert len(result) == 64  # SHA-256 hex digest
 
 
-def test_evidence_store_read_raises_not_implemented() -> None:
+def test_evidence_store_read_raises_not_found_for_missing() -> None:
     adapter = _make_evidence_store_adapter()
-    with pytest.raises(NotImplementedError):
-        adapter.read(EvidenceRef("ref1"))
+    from app.contracts.errors import NotFoundError
+
+    with pytest.raises(NotFoundError):
+        adapter.read(EvidenceRef("0" * 64))
 
 
 # ---------------------------------------------------------------------------
-# MetadataCacheStoreAdapter
+# InMemoryCacheStore
 # ---------------------------------------------------------------------------
 
 
 def test_cache_store_satisfies_protocol() -> None:
     adapter = _make_cache_store_adapter()
     for name in _protocol_method_names(CacheStore):
-        assert callable(getattr(adapter, name)), f"MetadataCacheStoreAdapter missing {name}"
+        assert callable(getattr(adapter, name)), f"InMemoryCacheStore missing {name}"
 
 
 def test_cache_store_get_returns_none_for_missing_key() -> None:

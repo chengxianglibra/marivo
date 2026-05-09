@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -9,6 +10,10 @@ from app.contracts.errors import ErrorCode, NotFoundError
 from app.contracts.ids import SessionId, UserId
 from app.contracts.session import SessionEvent, SessionState
 from app.core.session.rebuild import rebuild_session_state
+
+logger = logging.getLogger(__name__)
+
+_UNIQ_RETRIES = 3
 
 
 class SqliteSessionStore:
@@ -25,34 +30,55 @@ class SqliteSessionStore:
         self._ensure_schema()
 
     def append_event(self, session_id: SessionId, event: SessionEvent) -> None:
-        conn = self._connect()
-        try:
-            row = conn.execute(
-                "SELECT COALESCE(MAX(seq), 0) FROM session_events WHERE session_id = ?",
-                (session_id,),
-            ).fetchone()
-            next_seq = (row[0] if row else 0) + 1
-            conn.execute(
-                "INSERT INTO session_events (session_id, seq, event_type, timestamp, payload, actor) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (
-                    session_id,
-                    next_seq,
-                    event.event_type,
-                    event.timestamp,
-                    json.dumps(event.payload, sort_keys=True),
-                    event.actor,
-                ),
-            )
-            conn.commit()
-        finally:
-            conn.close()
+        """Append an event with UNIQUE-violation retry for concurrent writes.
+
+        Uses BEGIN IMMEDIATE to acquire a write lock early, preventing
+        the race where two concurrent readers see the same MAX(seq).
+        """
+        for attempt in range(_UNIQ_RETRIES):
+            conn = self._connect()
+            try:
+                conn.execute("BEGIN IMMEDIATE")
+                row = conn.execute(
+                    "SELECT COALESCE(MAX(seq), 0) FROM session_events WHERE session_id = ?",
+                    (session_id,),
+                ).fetchone()
+                next_seq = (row[0] if row else 0) + 1
+                conn.execute(
+                    "INSERT INTO session_events (session_id, seq, event_type, timestamp, payload_json, actor) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (
+                        session_id,
+                        next_seq,
+                        event.event_type,
+                        event.timestamp,
+                        json.dumps(event.payload, sort_keys=True),
+                        event.actor,
+                    ),
+                )
+                conn.commit()
+                return
+            except sqlite3.IntegrityError:
+                conn.rollback()
+                if attempt < _UNIQ_RETRIES - 1:
+                    logger.debug(
+                        "SqliteSessionStore: UNIQUE violation on seq=%d for "
+                        "session_id=%s, retry %d/%d",
+                        next_seq,
+                        session_id,
+                        attempt + 1,
+                        _UNIQ_RETRIES,
+                    )
+                    continue
+                raise
+            finally:
+                conn.close()
 
     def load_events(self, session_id: SessionId) -> list[SessionEvent]:
         conn = self._connect()
         try:
             rows = conn.execute(
-                "SELECT session_id, event_type, timestamp, payload, actor "
+                "SELECT session_id, event_type, timestamp, payload_json, actor "
                 "FROM session_events WHERE session_id = ? ORDER BY seq",
                 (session_id,),
             ).fetchall()
@@ -105,7 +131,7 @@ class SqliteSessionStore:
         )
 
     def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(str(self._db_path))
+        conn = sqlite3.connect(str(self._db_path), isolation_level=None)
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA busy_timeout=5000")
         conn.execute("PRAGMA foreign_keys=ON")
@@ -114,21 +140,26 @@ class SqliteSessionStore:
     def _ensure_schema(self) -> None:
         conn = self._connect()
         try:
+            conn.execute("BEGIN IMMEDIATE")
             conn.execute(
                 """CREATE TABLE IF NOT EXISTS session_events (
+                    event_id    INTEGER PRIMARY KEY AUTOINCREMENT,
                     session_id  TEXT NOT NULL,
                     seq         INTEGER NOT NULL,
                     event_type  TEXT NOT NULL,
                     timestamp   TEXT NOT NULL,
-                    payload     TEXT NOT NULL,
                     actor       TEXT,
-                    PRIMARY KEY (session_id, seq)
+                    payload_json TEXT NOT NULL,
+                    UNIQUE(session_id, seq)
                 )"""
             )
             conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_session_events_actor "
-                "ON session_events (actor, event_type)"
+                "CREATE INDEX IF NOT EXISTS idx_session_events_sid ON session_events (session_id)"
             )
-            conn.commit()
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_session_events_owner "
+                "ON session_events (event_type, actor)"
+            )
+            conn.execute("COMMIT")
         finally:
             conn.close()
