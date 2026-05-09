@@ -6,9 +6,9 @@ import os
 from pathlib import Path
 from typing import Any
 
-from marivo.cli._exitcodes import EXIT_WORKSPACE_ROOT_UNAVAILABLE
-from marivo.cli._output import CliError
-from marivo.cli._workspace import (
+from marivo.transports.cli._exitcodes import EXIT_WORKSPACE_ROOT_UNAVAILABLE
+from marivo.transports.cli._output import CliError
+from marivo.transports.cli._workspace import (
     bootstrap_config_path,
     dot_marivo_path,
     metadata_db_path,

@@ -3,8 +3,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from marivo.cli._exitcodes import EXIT_WORKSPACE_ROOT_UNAVAILABLE
-from marivo.cli._output import CliError
+from marivo.transports.cli._exitcodes import EXIT_WORKSPACE_ROOT_UNAVAILABLE
+from marivo.transports.cli._output import CliError
 
 
 def resolve_workspace_root(explicit_root: str | None) -> Path:

@@ -30,7 +30,7 @@ dev = [
 test-mysql = ["testcontainers[mysql]"]
 
 [project.scripts]
-marivo = "marivo.cli:main"
+marivo = "marivo.transports.cli:main"
 marivo-stdio = "marivo.transports.mcp.stdio:main"
 
 [build-system]

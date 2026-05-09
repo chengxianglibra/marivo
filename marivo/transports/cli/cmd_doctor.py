@@ -8,20 +8,20 @@ from typing import Any
 import httpx
 import yaml
 
-from marivo.cli._exitcodes import (
+from marivo.config import MarivoConfig, resolve_metadata_path
+from marivo.transports.cli._exitcodes import (
     EXIT_CONFIG_INVALID,
     EXIT_RUNTIME_NOT_RUNNING,
     EXIT_SUCCESS,
     EXIT_WORKSPACE_ROOT_UNAVAILABLE,
 )
-from marivo.cli._manifest import read_manifest, validate_manifest_schema
-from marivo.cli._output import CliError
-from marivo.cli._workspace import (
+from marivo.transports.cli._manifest import read_manifest, validate_manifest_schema
+from marivo.transports.cli._output import CliError
+from marivo.transports.cli._workspace import (
     bootstrap_config_path,
     dot_marivo_path,
     runtime_manifest_path,
 )
-from marivo.config import MarivoConfig, resolve_metadata_path
 
 
 def add_arguments(parser: argparse.ArgumentParser) -> None:
@@ -47,7 +47,7 @@ def handle(args: argparse.Namespace) -> dict[str, Any]:
     # Remaining checks need a valid workspace root
     workspace_root: Path | None = None
     if check["ok"]:
-        from marivo.cli._workspace import resolve_workspace_root as _resolve
+        from marivo.transports.cli._workspace import resolve_workspace_root as _resolve
 
         workspace_root = _resolve(getattr(args, "workspace_root", None))
 
@@ -117,7 +117,7 @@ def handle(args: argparse.Namespace) -> dict[str, Any]:
 def _check_workspace_root(explicit_root: str | None) -> tuple[dict[str, Any], int]:
     """Check 1: workspace root is valid."""
     try:
-        from marivo.cli._workspace import resolve_workspace_root
+        from marivo.transports.cli._workspace import resolve_workspace_root
 
         root = resolve_workspace_root(explicit_root)
         return _check(

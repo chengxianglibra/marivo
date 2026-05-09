@@ -12,16 +12,17 @@ from typing import Any
 
 import httpx
 
-from marivo.cli._exitcodes import (
+from marivo.config import load_config, resolve_metadata_path
+from marivo.transports.cli._exitcodes import (
     EXIT_CONFIG_INVALID,
     EXIT_FAILURE,
     EXIT_HEALTH_CHECK_FAILED,
     EXIT_INVALID_USAGE,
     EXIT_PORT_UNAVAILABLE,
 )
-from marivo.cli._manifest import RuntimeManifest
-from marivo.cli._output import CliError
-from marivo.cli._workspace import (
+from marivo.transports.cli._manifest import RuntimeManifest
+from marivo.transports.cli._output import CliError
+from marivo.transports.cli._workspace import (
     bootstrap_config_path,
     dot_marivo_path,
     log_dir_path,
@@ -29,8 +30,7 @@ from marivo.cli._workspace import (
     resolve_workspace_root,
     runtime_manifest_path,
 )
-from marivo.cli.cmd_init_local import BOOTSTRAP_CONFIG_YAML
-from marivo.config import load_config, resolve_metadata_path
+from marivo.transports.cli.cmd_init_local import BOOTSTRAP_CONFIG_YAML
 
 
 def add_arguments(parser: argparse.ArgumentParser) -> None:

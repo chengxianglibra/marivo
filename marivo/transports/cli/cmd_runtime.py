@@ -9,15 +9,19 @@ from typing import Any
 
 import httpx
 
-from marivo.cli._exitcodes import (
+from marivo.transports.cli._exitcodes import (
     EXIT_FAILURE,
     EXIT_HEALTH_CHECK_FAILED,
     EXIT_INVALID_USAGE,
     EXIT_RUNTIME_NOT_RUNNING,
 )
-from marivo.cli._manifest import delete_manifest, read_manifest, validate_manifest_schema
-from marivo.cli._output import CliError
-from marivo.cli._workspace import pid_file_path, resolve_workspace_root, runtime_manifest_path
+from marivo.transports.cli._manifest import delete_manifest, read_manifest, validate_manifest_schema
+from marivo.transports.cli._output import CliError
+from marivo.transports.cli._workspace import (
+    pid_file_path,
+    resolve_workspace_root,
+    runtime_manifest_path,
+)
 
 
 def add_arguments(parser: argparse.ArgumentParser) -> None:

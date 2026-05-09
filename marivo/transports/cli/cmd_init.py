@@ -7,14 +7,14 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from marivo.cli._exitcodes import EXIT_WORKSPACE_ROOT_UNAVAILABLE
-from marivo.cli._output import CliError
-from marivo.cli._workspace import (
+from marivo.contracts.values import LAYOUT_VERSION
+from marivo.transports.cli._exitcodes import EXIT_WORKSPACE_ROOT_UNAVAILABLE
+from marivo.transports.cli._output import CliError
+from marivo.transports.cli._workspace import (
     dot_marivo_path,
     resolve_workspace_root,
     toml_config_path,
 )
-from marivo.contracts.values import LAYOUT_VERSION
 
 DEFAULT_TOML = (
     '[profile]\nmode = "local"\n\n[datasource]\ntype = "duckdb"\n\n[telemetry]\nsink = "none"\n'

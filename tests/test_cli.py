@@ -10,8 +10,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from marivo.cli import _format_text_result
-from marivo.cli._exitcodes import (
+from marivo.config import resolve_metadata_path
+from marivo.transports.cli import _format_text_result
+from marivo.transports.cli._exitcodes import (
     EXIT_CONFIG_INVALID,
     EXIT_FAILURE,
     EXIT_HEALTH_CHECK_FAILED,
@@ -19,14 +20,13 @@ from marivo.cli._exitcodes import (
     EXIT_RUNTIME_NOT_RUNNING,
     EXIT_WORKSPACE_ROOT_UNAVAILABLE,
 )
-from marivo.cli._manifest import RuntimeManifest
-from marivo.cli._output import CliError
-from marivo.cli.cmd_doctor import handle as doctor_handle
-from marivo.cli.cmd_init_local import BOOTSTRAP_CONFIG_YAML
-from marivo.cli.cmd_init_local import handle as init_local_handle
-from marivo.cli.cmd_runtime import handle as runtime_handle
-from marivo.cli.cmd_serve_local import handle as serve_local_handle
-from marivo.config import resolve_metadata_path
+from marivo.transports.cli._manifest import RuntimeManifest
+from marivo.transports.cli._output import CliError
+from marivo.transports.cli.cmd_doctor import handle as doctor_handle
+from marivo.transports.cli.cmd_init_local import BOOTSTRAP_CONFIG_YAML
+from marivo.transports.cli.cmd_init_local import handle as init_local_handle
+from marivo.transports.cli.cmd_runtime import handle as runtime_handle
+from marivo.transports.cli.cmd_serve_local import handle as serve_local_handle
 from marivo.transports.http.app_factory import create_app
 
 
@@ -181,13 +181,15 @@ class LocalCliContractTests(unittest.TestCase):
             proc.pid = 43210
 
             with (
-                patch("marivo.cli.cmd_serve_local._discover_port", return_value=49152),
-                patch("marivo.cli.cmd_serve_local.subprocess.Popen", return_value=proc) as popen,
+                patch("marivo.transports.cli.cmd_serve_local._discover_port", return_value=49152),
                 patch(
-                    "marivo.cli.cmd_serve_local.httpx.get",
+                    "marivo.transports.cli.cmd_serve_local.subprocess.Popen", return_value=proc
+                ) as popen,
+                patch(
+                    "marivo.transports.cli.cmd_serve_local.httpx.get",
                     return_value=_HealthResponse(200, {"status": "ok"}),
                 ),
-                patch("marivo.cli.cmd_serve_local.time.sleep"),
+                patch("marivo.transports.cli.cmd_serve_local.time.sleep"),
             ):
                 result = serve_local_handle(
                     argparse.Namespace(
@@ -219,13 +221,13 @@ class LocalCliContractTests(unittest.TestCase):
             proc.pid = 43210
 
             with (
-                patch("marivo.cli.cmd_serve_local._discover_port", return_value=49152),
-                patch("marivo.cli.cmd_serve_local.subprocess.Popen", return_value=proc),
+                patch("marivo.transports.cli.cmd_serve_local._discover_port", return_value=49152),
+                patch("marivo.transports.cli.cmd_serve_local.subprocess.Popen", return_value=proc),
                 patch(
-                    "marivo.cli.cmd_serve_local.httpx.get",
+                    "marivo.transports.cli.cmd_serve_local.httpx.get",
                     return_value=_HealthResponse(200, {"status": "starting"}),
                 ),
-                patch("marivo.cli.cmd_serve_local.time.sleep"),
+                patch("marivo.transports.cli.cmd_serve_local.time.sleep"),
                 self.assertRaises(CliError) as exc,
             ):
                 serve_local_handle(
@@ -275,9 +277,9 @@ class LocalCliContractTests(unittest.TestCase):
             manifest.write_atomic(dot_marivo / "runtime.json")
 
             with (
-                patch("marivo.cli.cmd_runtime.os.kill"),
+                patch("marivo.transports.cli.cmd_runtime.os.kill"),
                 patch(
-                    "marivo.cli.cmd_runtime.httpx.get",
+                    "marivo.transports.cli.cmd_runtime.httpx.get",
                     return_value=_HealthResponse(200, {"status": "ok"}),
                 ),
             ):
@@ -329,7 +331,7 @@ class LocalCliContractTests(unittest.TestCase):
             ).write_atomic(manifest_path)
 
             with (
-                patch("marivo.cli.cmd_runtime.os.kill", side_effect=ProcessLookupError),
+                patch("marivo.transports.cli.cmd_runtime.os.kill", side_effect=ProcessLookupError),
                 self.assertRaises(CliError) as exc,
             ):
                 runtime_handle(
@@ -361,9 +363,9 @@ class LocalCliContractTests(unittest.TestCase):
             ).write_atomic(dot_marivo / "runtime.json")
 
             with (
-                patch("marivo.cli.cmd_runtime.os.kill"),
+                patch("marivo.transports.cli.cmd_runtime.os.kill"),
                 patch(
-                    "marivo.cli.cmd_runtime.httpx.get",
+                    "marivo.transports.cli.cmd_runtime.httpx.get",
                     return_value=_HealthResponse(200, {"status": "starting"}),
                 ),
                 self.assertRaises(CliError) as exc,
@@ -422,7 +424,7 @@ class LocalCliContractTests(unittest.TestCase):
             ).write_atomic(manifest_path)
             pid_path.write_text("43210\n")
 
-            with patch("marivo.cli.cmd_runtime.os.kill", side_effect=ProcessLookupError):
+            with patch("marivo.transports.cli.cmd_runtime.os.kill", side_effect=ProcessLookupError):
                 result = runtime_handle(
                     argparse.Namespace(
                         runtime_command="stop",
@@ -475,10 +477,10 @@ class LocalCliContractTests(unittest.TestCase):
 
             with (
                 patch(
-                    "marivo.cli.cmd_runtime.os.kill",
+                    "marivo.transports.cli.cmd_runtime.os.kill",
                     side_effect=[None, None, ProcessLookupError],
                 ) as kill,
-                patch("marivo.cli.cmd_runtime.time.sleep"),
+                patch("marivo.transports.cli.cmd_runtime.time.sleep"),
             ):
                 result = runtime_handle(
                     argparse.Namespace(
@@ -512,9 +514,11 @@ class LocalCliContractTests(unittest.TestCase):
             ).write_atomic(manifest_path)
 
             with (
-                patch("marivo.cli.cmd_runtime.os.kill"),
-                patch("marivo.cli.cmd_runtime.time.monotonic", side_effect=[0.0, 0.0, 1.0]),
-                patch("marivo.cli.cmd_runtime.time.sleep"),
+                patch("marivo.transports.cli.cmd_runtime.os.kill"),
+                patch(
+                    "marivo.transports.cli.cmd_runtime.time.monotonic", side_effect=[0.0, 0.0, 1.0]
+                ),
+                patch("marivo.transports.cli.cmd_runtime.time.sleep"),
                 self.assertRaises(CliError) as exc,
             ):
                 runtime_handle(
@@ -549,7 +553,7 @@ class LocalCliContractTests(unittest.TestCase):
 
             with (
                 patch(
-                    "marivo.cli.cmd_runtime.os.kill",
+                    "marivo.transports.cli.cmd_runtime.os.kill",
                     side_effect=[None, PermissionError],
                 ),
                 self.assertRaises(CliError) as exc,
@@ -586,9 +590,11 @@ class LocalCliContractTests(unittest.TestCase):
             pid_path.write_text("43210\n")
 
             with (
-                patch("marivo.cli.cmd_runtime.os.kill") as kill,
-                patch("marivo.cli.cmd_runtime.time.monotonic", side_effect=[0.0, 0.0, 1.0]),
-                patch("marivo.cli.cmd_runtime.time.sleep"),
+                patch("marivo.transports.cli.cmd_runtime.os.kill") as kill,
+                patch(
+                    "marivo.transports.cli.cmd_runtime.time.monotonic", side_effect=[0.0, 0.0, 1.0]
+                ),
+                patch("marivo.transports.cli.cmd_runtime.time.sleep"),
             ):
                 result = runtime_handle(
                     argparse.Namespace(
@@ -658,9 +664,9 @@ class LocalCliContractTests(unittest.TestCase):
             ).write_atomic(dot_marivo / "runtime.json")
 
             with (
-                patch("marivo.cli.cmd_doctor.os.kill"),
+                patch("marivo.transports.cli.cmd_doctor.os.kill"),
                 patch(
-                    "marivo.cli.cmd_doctor.httpx.get",
+                    "marivo.transports.cli.cmd_doctor.httpx.get",
                     return_value=_HealthResponse(200, {"status": "ok"}),
                 ),
             ):

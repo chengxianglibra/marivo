@@ -4,8 +4,8 @@ import argparse
 import sys
 from typing import Any
 
-from marivo.cli._exitcodes import EXIT_FAILURE, EXIT_INVALID_USAGE, EXIT_SUCCESS
-from marivo.cli._output import (
+from marivo.transports.cli._exitcodes import EXIT_FAILURE, EXIT_INVALID_USAGE, EXIT_SUCCESS
+from marivo.transports.cli._output import (
     CliError,
     detect_format,
     emit_diagnostic,
@@ -13,24 +13,24 @@ from marivo.cli._output import (
     emit_text,
     format_error_json,
 )
-from marivo.cli.cmd_calendar import add_arguments as calendar_add_arguments
-from marivo.cli.cmd_calendar import handle as calendar_handle
-from marivo.cli.cmd_doctor import add_arguments as doctor_add_arguments
-from marivo.cli.cmd_doctor import handle as doctor_handle
-from marivo.cli.cmd_init import add_arguments as init_add_arguments
-from marivo.cli.cmd_init import handle as init_handle
-from marivo.cli.cmd_init_local import add_arguments as init_local_add_arguments
-from marivo.cli.cmd_init_local import handle as init_local_handle
-from marivo.cli.cmd_runtime import add_arguments as runtime_add_arguments
-from marivo.cli.cmd_runtime import handle as runtime_handle
-from marivo.cli.cmd_serve import add_arguments as serve_add_arguments
-from marivo.cli.cmd_serve import handle as serve_handle
-from marivo.cli.cmd_serve_local import add_arguments as serve_local_add_arguments
-from marivo.cli.cmd_serve_local import handle as serve_local_handle
+from marivo.transports.cli.cmd_calendar import add_arguments as calendar_add_arguments
+from marivo.transports.cli.cmd_calendar import handle as calendar_handle
+from marivo.transports.cli.cmd_doctor import add_arguments as doctor_add_arguments
+from marivo.transports.cli.cmd_doctor import handle as doctor_handle
+from marivo.transports.cli.cmd_init import add_arguments as init_add_arguments
+from marivo.transports.cli.cmd_init import handle as init_handle
+from marivo.transports.cli.cmd_init_local import add_arguments as init_local_add_arguments
+from marivo.transports.cli.cmd_init_local import handle as init_local_handle
+from marivo.transports.cli.cmd_runtime import add_arguments as runtime_add_arguments
+from marivo.transports.cli.cmd_runtime import handle as runtime_handle
+from marivo.transports.cli.cmd_serve import add_arguments as serve_add_arguments
+from marivo.transports.cli.cmd_serve import handle as serve_handle
+from marivo.transports.cli.cmd_serve_local import add_arguments as serve_local_add_arguments
+from marivo.transports.cli.cmd_serve_local import handle as serve_local_handle
 
 
 def main() -> None:
-    """CLI entry point registered as [project.scripts] marivo = "marivo.cli:main"."""
+    """CLI entry point registered as [project.scripts] marivo = "marivo.transports.cli:main"."""
     parser = _build_parser()
     args = parser.parse_args()
 

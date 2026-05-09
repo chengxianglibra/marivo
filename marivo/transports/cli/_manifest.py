@@ -7,8 +7,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from marivo.cli._exitcodes import EXIT_CONFIG_INVALID, EXIT_RUNTIME_NOT_RUNNING
-from marivo.cli._output import CliError
+from marivo.transports.cli._exitcodes import EXIT_CONFIG_INVALID, EXIT_RUNTIME_NOT_RUNNING
+from marivo.transports.cli._output import CliError
 
 MANIFEST_VERSION: str = "0.1.0"
 MANIFEST_MODE: str = "local"
