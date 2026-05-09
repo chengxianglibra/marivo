@@ -12,14 +12,14 @@ from marivo.transports.cli._output import CliError
 
 
 def add_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--config", type=str, default=None, help="YAML config file path")
+    parser.add_argument("-c", "--config", type=str, default=None, help="YAML config file path")
     parser.add_argument(
-        "--host", type=str, default="127.0.0.1", help="Bind address (default: 127.0.0.1)"
+        "-H", "--host", type=str, default="127.0.0.1", help="Bind address (default: 127.0.0.1)"
     )
-    parser.add_argument("--port", type=int, default=8000, help="Bind port (default: 8000)")
-    parser.add_argument("--log-level", type=str, default=None, help="Log level")
+    parser.add_argument("-p", "--port", type=int, default=8000, help="Bind port (default: 8000)")
+    parser.add_argument("-l", "--log-level", type=str, default=None, help="Log level")
     parser.add_argument(
-        "--format", type=str, choices=["json", "text"], default=None, help="Output format"
+        "-f", "--format", type=str, choices=["json", "text"], default=None, help="Output format"
     )
 
 

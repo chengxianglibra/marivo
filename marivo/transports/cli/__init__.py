@@ -19,14 +19,10 @@ from marivo.transports.cli.cmd_doctor import add_arguments as doctor_add_argumen
 from marivo.transports.cli.cmd_doctor import handle as doctor_handle
 from marivo.transports.cli.cmd_init import add_arguments as init_add_arguments
 from marivo.transports.cli.cmd_init import handle as init_handle
-from marivo.transports.cli.cmd_init_local import add_arguments as init_local_add_arguments
-from marivo.transports.cli.cmd_init_local import handle as init_local_handle
 from marivo.transports.cli.cmd_runtime import add_arguments as runtime_add_arguments
 from marivo.transports.cli.cmd_runtime import handle as runtime_handle
 from marivo.transports.cli.cmd_serve import add_arguments as serve_add_arguments
 from marivo.transports.cli.cmd_serve import handle as serve_handle
-from marivo.transports.cli.cmd_serve_local import add_arguments as serve_local_add_arguments
-from marivo.transports.cli.cmd_serve_local import handle as serve_local_handle
 
 
 def main() -> None:
@@ -74,20 +70,6 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     serve_add_arguments(serve_parser)
     serve_parser.set_defaults(handler=serve_handle)
-
-    # marivo serve-local
-    serve_local_parser = subparsers.add_parser(
-        "serve-local", help="Start workspace-scoped local daemon"
-    )
-    serve_local_add_arguments(serve_local_parser)
-    serve_local_parser.set_defaults(handler=serve_local_handle)
-
-    # marivo init-local
-    init_local_parser = subparsers.add_parser(
-        "init-local", help="Create .marivo/ directory and minimal config"
-    )
-    init_local_add_arguments(init_local_parser)
-    init_local_parser.set_defaults(handler=init_local_handle)
 
     # marivo init
     init_parser = subparsers.add_parser("init", help="Create .marivo/ directory with TOML layout")

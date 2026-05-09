@@ -3,14 +3,31 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from marivo.local.state_layout import (
+    bootstrap_config_path,
+    dot_marivo_path,
+    pid_file_path,
+    runtime_manifest_path,
+    toml_config_path,
+)
 from marivo.transports.cli._exitcodes import EXIT_WORKSPACE_ROOT_UNAVAILABLE
 from marivo.transports.cli._output import CliError
+
+# Re-export path helpers for backward compatibility
+__all__ = [
+    "bootstrap_config_path",
+    "dot_marivo_path",
+    "pid_file_path",
+    "resolve_workspace_root",
+    "runtime_manifest_path",
+    "toml_config_path",
+]
 
 
 def resolve_workspace_root(explicit_root: str | None) -> Path:
     """Resolve workspace root per T1.3 priority chain (CLI subset).
 
-    Priority: explicit --workspace-root > MARIVO_WORKSPACE_ROOT env > os.getcwd() > error.
+    Priority: explicit -w/--workspace > MARIVO_WORKSPACE_ROOT env > os.getcwd() > error.
 
     Returns absolute real path.
     """
@@ -40,7 +57,7 @@ def resolve_workspace_root(explicit_root: str | None) -> Path:
 
     tried: list[str] = []
     if explicit_root is not None:
-        tried.append("--workspace-root")
+        tried.append("-w/--workspace")
     if os.getenv("MARIVO_WORKSPACE_ROOT"):
         tried.append("MARIVO_WORKSPACE_ROOT")
     tried.append("cwd")
@@ -75,31 +92,3 @@ def _validate(path: Path) -> Path:
             f"Workspace root does not exist or is not a directory: {real}",
         )
     return real
-
-
-def dot_marivo_path(workspace_root: Path) -> Path:
-    return workspace_root / ".marivo"
-
-
-def bootstrap_config_path(workspace_root: Path) -> Path:
-    return workspace_root / ".marivo" / "marivo.yaml"
-
-
-def metadata_db_path(workspace_root: Path) -> Path:
-    return workspace_root / ".marivo" / "metadata.sqlite"
-
-
-def runtime_manifest_path(workspace_root: Path) -> Path:
-    return workspace_root / ".marivo" / "runtime.json"
-
-
-def pid_file_path(workspace_root: Path) -> Path:
-    return workspace_root / ".marivo" / "run" / "marivo.pid"
-
-
-def log_dir_path(workspace_root: Path) -> Path:
-    return workspace_root / ".marivo" / "logs"
-
-
-def toml_config_path(workspace_root: Path) -> Path:
-    return workspace_root / ".marivo" / "marivo.toml"
