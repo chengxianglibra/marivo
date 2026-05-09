@@ -5,9 +5,9 @@ import unittest
 from pathlib import Path
 from uuid import uuid4
 
-import marivo.analysis_core.executor as executor_module
 import marivo.runtime.intents.observe as observe_module
-from marivo.analysis_core.compiler import CompiledQuery
+import marivo.runtime.semantic.executor as executor_module
+from marivo.core.semantic.compiler import CompiledQuery
 from marivo.main import create_app
 from marivo.runtime.intents.observe import run_observe_intent
 from marivo.time_axis_metadata import TimeAxisMetadataContext

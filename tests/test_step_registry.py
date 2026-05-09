@@ -6,7 +6,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from marivo.analysis_core import (
+from marivo.core.intent.primitives import (
     ATOMIC_INTENT_TYPES,
     COMPOSITE_STEP_TYPES,
     DERIVED_INTENT_TYPES,
@@ -14,8 +14,8 @@ from marivo.analysis_core import (
     SUPPORTED_INTENT_TYPES,
     SUPPORTED_STEP_TYPES,
 )
-from marivo.analysis_core.step_runners import build_service_step_registry
 from marivo.main import create_app
+from marivo.runtime.step_runners import build_service_step_registry
 from tests.shared_fixtures import get_seeded_duckdb_path
 
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from marivo.analysis_core import (
+from marivo.core.semantic.ir import (
     AnalysisStepIR,
     ArtifactExpectation,
     ExecutionPlanIR,

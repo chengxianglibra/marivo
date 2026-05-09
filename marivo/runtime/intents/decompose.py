@@ -5,12 +5,12 @@ import hashlib
 from datetime import UTC, date, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
-from marivo.analysis_core.additivity_capabilities import derive_additivity_capabilities
-from marivo.analysis_core.executor import execute_compiled
-from marivo.analysis_core.ir import AnalysisStepIR
 from marivo.core.intent.primitives import new_step_id
+from marivo.core.semantic.additivity import derive_additivity_capabilities
+from marivo.core.semantic.ir import AnalysisStepIR
 from marivo.execution.errors import ExecutionError
 from marivo.runtime.intents._helpers import commit_step_result
+from marivo.runtime.semantic.executor import execute_compiled
 from marivo.time_scope import normalize_metric_query_request
 
 if TYPE_CHECKING:

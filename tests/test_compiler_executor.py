@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import unittest
 
-from marivo.analysis_core.compiler import (
+from marivo.core.semantic.compiler import (
     _expand_group_by_aliases,
     build_aggregate_comparison_query,
     build_metric_query,
-    compile_step,
 )
-from marivo.analysis_core.executor import execute_compiled
-from marivo.analysis_core.ir import AnalysisStepIR
+from marivo.core.semantic.ir import AnalysisStepIR
+from marivo.runtime.semantic.compile_step import compile_step
+from marivo.runtime.semantic.executor import execute_compiled
 
 
 class FakeEngine:

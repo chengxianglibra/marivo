@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from marivo.analysis_core.compiler import CompiledQuery
+from marivo.core.semantic.compiler import CompiledQuery
 from marivo.execution.errors import ExecutionError
 from marivo.execution.federation import FederationRuntime
 from marivo.execution.feedback import engine_failure_from_error, translation_failure_from_error

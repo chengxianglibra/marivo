@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from marivo.analysis_core.step_registry import StepRunnerRegistry
-from marivo.analysis_core.step_runners import attribution, generic
+from marivo.core.intent.step_registry import StepRunnerRegistry
+from marivo.runtime.step_runners import attribution, generic
 
 if TYPE_CHECKING:
     from marivo.runtime.runtime import MarivoRuntime

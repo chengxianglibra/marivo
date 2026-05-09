@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, cast
 
-from marivo.analysis_core.calendar_policy import (
+from marivo.core.semantic.calendar import (
     CalendarPolicyResolutionError,
     validate_calendar_policy_ref,
 )
@@ -21,7 +21,7 @@ from marivo.time_scope import (
 )
 
 if TYPE_CHECKING:
-    from marivo.analysis_core.ir import AnalysisStepIR
+    from marivo.core.semantic.ir import AnalysisStepIR
     from marivo.runtime.evidence.semantic_repository import SemanticRuntimeRepository
 
 

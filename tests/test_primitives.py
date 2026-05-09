@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from marivo.analysis_core import (
+from marivo.core.intent.primitives import (
     COMPOSITE_STEP_TYPES,
     PRIMITIVE_STEP_TYPES,
     STEP_TAXONOMY,

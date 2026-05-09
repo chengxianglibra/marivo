@@ -7,7 +7,6 @@ from typing import Any, ClassVar, cast
 
 from fastapi.testclient import TestClient
 
-from marivo.analysis_core.executor import execute_compiled
 from marivo.api.app_factory import create_app
 from marivo.core.semantic.compiler import (
     CompiledQuery,
@@ -21,6 +20,7 @@ from marivo.execution.feedback import compile_failure_from_error, federation_fai
 from marivo.execution.routing_runtime import RoutingRuntime
 from marivo.routing import RoutingFailure, RoutingResolutionError
 from marivo.runtime.errors import SemanticRuntimeNotReadyError
+from marivo.runtime.semantic.executor import execute_compiled
 from marivo.storage.analytics import AnalyticsEngine
 from tests.shared_fixtures import get_seeded_duckdb_path
 

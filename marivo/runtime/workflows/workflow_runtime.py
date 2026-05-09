@@ -3,9 +3,9 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from marivo.analysis_core.composites import CompositeWorkflowSpec
-from marivo.analysis_core.ir import AnalysisStepIR, step_ir_from_mapping
-from marivo.analysis_core.workflows.catalog import WORKFLOW_SPECS
+from marivo.core.semantic.ir import AnalysisStepIR, step_ir_from_mapping
+from marivo.runtime.semantic.composites import CompositeWorkflowSpec
+from marivo.runtime.workflows.catalog import WORKFLOW_SPECS
 
 
 class CompositeWorkflowRuntime:

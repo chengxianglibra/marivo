@@ -9,15 +9,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from marivo.analysis_core.capability_profiles import DerivedCompilerState
-from marivo.analysis_core.typed_resolution import (
+from marivo.runtime.semantic.resolution_orchestrator import (
     ResolvedCompilerInputs,
     ResolvedRelationship,
 )
 
 if TYPE_CHECKING:
-    from marivo.analysis_core.predicate_validator import PredicateRefWithUsage
     from marivo.runtime.evidence.semantic_repository import SemanticRuntimeRepository
+    from marivo.runtime.semantic.compile_step import DerivedCompilerState, PredicateRefWithUsage
 
 
 @dataclass(slots=True)
@@ -741,7 +740,7 @@ def _gate_predicate_contracts(
     predicate_refs = _collect_predicate_refs(resolved_inputs)
     if not predicate_refs:
         return []
-    from marivo.analysis_core.predicate_validator import validate_predicate_contracts
+    from marivo.runtime.semantic.compile_step import validate_predicate_contracts
 
     return validate_predicate_contracts(
         predicate_refs=predicate_refs,
@@ -758,7 +757,7 @@ def _gate_scope_validation(
     request_scope_ref = resolved_inputs.normalized_request.request_scope_predicate_ref
     if not request_scope_ref:
         return []
-    from marivo.analysis_core.predicate_validator import validate_request_scope
+    from marivo.runtime.semantic.compile_step import validate_request_scope
 
     upstream_predicates = [
         ref
@@ -778,7 +777,7 @@ def _gate_predicate_conflict(
 ) -> list[ValidationIssue]:
     if semantic_repository is None:
         return []
-    from marivo.analysis_core.predicate_validator import (
+    from marivo.runtime.semantic.compile_step import (
         collect_layered_predicate_refs,
         validate_predicate_conflicts,
     )
@@ -797,8 +796,8 @@ def _collect_predicate_refs(
 ) -> list[PredicateRefWithUsage]:
     """Extract all predicate refs from resolved metric, bindings, and request scope,
     tagged with their usage context."""
-    from marivo.analysis_core.predicate_validator import PredicateRefWithUsage
     from marivo.api.models.base import PredicateUsage
+    from marivo.runtime.semantic.compile_step import PredicateRefWithUsage
 
     refs: list[PredicateRefWithUsage] = []
     seen: set[tuple[str, str]] = set()
@@ -1114,7 +1113,7 @@ def _gate_lowering_precheck(
     # TODO: normalized_predicate_input is also computed in _measurement_node;
     # consider threading it through derived_state or resolved_inputs to avoid
     # the duplicate build_normalized_predicate_input call.
-    from marivo.analysis_core.predicate_validator import (
+    from marivo.runtime.semantic.compile_step import (
         build_normalized_predicate_input,
         collect_component_fields,
         collect_layered_predicate_refs,
