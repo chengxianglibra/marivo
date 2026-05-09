@@ -42,10 +42,9 @@ from marivo.api.models import (
     ValidateRequest,
     ValidateResponse,
 )
-from marivo.contracts.errors import ForbiddenError, NotFoundError, ValidationError
+from marivo.contracts.errors import ExecutionError, ForbiddenError, NotFoundError, ValidationError
 from marivo.contracts.ids import SessionId, UserId
 from marivo.contracts.session import SessionState
-from marivo.execution.errors import ExecutionError
 from marivo.runtime import SemanticRuntimeNotReadyError
 
 router = APIRouter()

@@ -1,6 +1,6 @@
 """Runtime-based WorkflowStepExecutor implementation.
 
-Implements the WorkflowStepExecutor protocol from marivo.execution.orchestrator
+Implements the WorkflowStepExecutor protocol from marivo.runtime.execution.orchestrator
 using the semantic_ops.run_* step registry built with MarivoRuntime.
 """
 

@@ -13,9 +13,9 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
+from marivo.contracts.errors import ExecutionError
 from marivo.core.intent.primitives import new_step_id
 from marivo.core.semantic.additivity import derive_additivity_capabilities
-from marivo.execution.errors import ExecutionError
 from marivo.runtime.intents.compare import run_compare_intent
 from marivo.runtime.intents.decompose import run_decompose_intent
 from marivo.runtime.intents.observe import run_observe_intent

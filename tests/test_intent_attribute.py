@@ -1368,7 +1368,7 @@ class AttributeEndpointTests(unittest.TestCase):
 
     def test_http_additivity_violation_returns_409(self) -> None:
         """POST with disallowed dimensions on subset policy returns 409 with structured payload."""
-        from marivo.execution.errors import ExecutionError
+        from marivo.contracts.errors import ExecutionError
 
         def _raise_additivity_violation(
             session_id: str, intent: str, payload: dict[str, Any]

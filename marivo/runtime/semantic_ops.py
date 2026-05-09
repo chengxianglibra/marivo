@@ -25,7 +25,6 @@ from marivo.core.semantic.compiler import (
 )
 from marivo.core.semantic.ir import AnalysisStepIR
 from marivo.core.semantic.resolution import ResolvedSemanticObject
-from marivo.execution.feedback import compile_failure_from_error
 from marivo.metric_inputs import required_metric_input_slots
 from marivo.runtime.errors import (
     SemanticRuntimeInvalidRefError,
@@ -34,6 +33,7 @@ from marivo.runtime.errors import (
     SemanticRuntimeUnpublishedError,
 )
 from marivo.runtime.semantic.compile_step import compile_step
+from marivo.runtime.semantic.feedback import compile_failure_from_error
 from marivo.time_axis_metadata import TimeAxisMetadataContext
 from marivo.time_scope import (
     ResolvedWindowedQueryRequest,

@@ -5,7 +5,7 @@ from typing import Any, Protocol
 
 from marivo.core.semantic.compiler import CompiledQuery
 from marivo.dialect import translate as translate_sql
-from marivo.execution.federation import FederationPlan, FederationPlanner
+from marivo.runtime.execution.federation import FederationPlan, FederationPlanner
 
 
 def _optional_str(value: Any) -> str | None:
