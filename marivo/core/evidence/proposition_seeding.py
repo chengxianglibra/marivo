@@ -1,6 +1,6 @@
 """Pure proposition seeding logic extracted from the evidence pipeline.
 
-Extracted from ``app.evidence_engine.proposition_seeding_run`` as part of
+Extracted from ``marivo.evidence_engine.proposition_seeding_run`` as part of
 Phase 3c.  This module contains only the pure computation portions:
 - Template materialization logic (T1-T6)
 - Segment key parsing and decoding

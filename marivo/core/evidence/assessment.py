@@ -1,6 +1,6 @@
 """Pure assessment computation logic extracted from the evidence pipeline.
 
-Extracted from ``app.evidence_engine.assessment_recompute`` as part of
+Extracted from ``marivo.evidence_engine.assessment_recompute`` as part of
 Phase 3c.  This module contains only the pure computation portions:
 - Assessment ID generation
 - Status resolution algorithm

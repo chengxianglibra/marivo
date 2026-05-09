@@ -1,6 +1,6 @@
 """Pure semantic validation logic for compiler inputs.
 
-Extracted from ``app.analysis_core.validator`` as part of Phase 3c.
+Extracted from ``marivo.analysis_core.validator`` as part of Phase 3c.
 
 This module contains only pure computation:
 - ValidationIssue and ValidationResult data classes

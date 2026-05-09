@@ -1,6 +1,6 @@
 """Pure typed resolution data classes and helpers.
 
-Extracted from ``app.analysis_core.typed_resolution`` as part of Phase 3c.
+Extracted from ``marivo.analysis_core.typed_resolution`` as part of Phase 3c.
 
 This module contains only pure computation:
 - Data classes for normalized requests and resolved inputs
