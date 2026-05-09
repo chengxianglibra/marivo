@@ -59,7 +59,20 @@ created: 2026-05-02
 | `2026-05-01-semantic-layer-update-modes-design.md` | canonical | docs/api/semantic.md |
 | `2026-05-02-api-schema-hardening-design.md` | canonical | docs/api/ |
 | `2026-05-02-dataset-native-grounding-design.md` | canonical | docs/api/semantic.md |
+| `2026-05-04-remove-analysis-sessions-design.md` | completed | (implemented) |
+| `2026-05-06-marivo-platform-architecture-design.md` | completed | `docs/architecture-invariants.md` |
+| `2026-05-06-phase2-contracts-ports-design.md` | completed | phase of architecture |
+| `2026-05-06-unified-user-identity-design.md` | completed | (implemented) |
+| `2026-05-07-aoi-v0.1-design.md` | draft | docs/superpowers/specs/ |
+| `2026-05-07-phase3-runtime-decoupling-design.md` | completed | phase of architecture |
+| `2026-05-07-phase4-local-embedded-runtime-design.md` | completed | phase of architecture |
+| `2026-05-07-phase6-profile-system-design.md` | archived | superseded by phase 6.1/6.2 |
+| `2026-05-08-phase5-mcp-dual-mode-design.md` | completed | phase of architecture |
+| `2026-05-08-phase6.1-runtime-self-sufficiency-design.md` | completed | phase of architecture |
+| `2026-05-08-phase6.2-server-profile-boundary-design.md` | completed | phase of architecture |
 | `2026-05-09-phase6.3-contract-parity-tests-design.md` | draft | docs/superpowers/specs/ |
+| `2026-05-09-phase7-namespace-cutover-design.md` | completed | phase of architecture |
+| `2026-05-09-phase9-production-server-adapters-design.md` | completed | phase of architecture |
 
 ### Canonical Gaps
 

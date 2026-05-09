@@ -16,18 +16,9 @@ this file focused on stable rules that should be loaded for every coding task.
 
 ## Test Performance
 
-- Never use `db_path=":memory:"` in function-scoped fixtures that call
-  `create_app()` or construct a full runtime. The `:memory:` path bypasses
-  conftest's DuckDB/SQLite template-copy patches, forcing a full demo-data
-  rebuild on every test (~24 s each). Instead, use file-based storage with
-  `get_seeded_duckdb_path()` and `get_seeded_metadata_path()` from
-  `tests/shared_fixtures.py` so the cached templates are copied in.
-- Use `scope="session"` for expensive fixtures (full app construction,
-  runtime setup). Tests that only read state or create independent records
-  (sessions, evidence) are safe to share. Full suite target: under 20 s.
-- When adding E2E or integration tests that need a real runtime, follow the
-  pattern in `tests/transports/mcp/test_http_mcp_e2e.py`: session-scoped
-  fixture + shared seeded templates.
+- Use shared seeded templates and session-scoped fixtures; see
+  [`.agents/skills/marivo-test-fixtures/SKILL.md`](.agents/skills/marivo-test-fixtures/SKILL.md)
+  for details.
 
 ## Python And Typing
 
