@@ -6,10 +6,10 @@ from pathlib import Path
 from uuid import uuid4
 
 import marivo.analysis_core.executor as executor_module
-import marivo.intents.observe as observe_module
+import marivo.runtime.intents.observe as observe_module
 from marivo.analysis_core.compiler import CompiledQuery
-from marivo.intents.observe import run_observe_intent
 from marivo.main import create_app
+from marivo.runtime.intents.observe import run_observe_intent
 from marivo.time_axis_metadata import TimeAxisMetadataContext
 from marivo.time_scope import (
     AdHocAggregateValueSpec,

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from marivo.intents._helpers import commit_step_result
+from marivo.runtime.intents._helpers import commit_step_result
 
 
 def test_commit_step_result_returns_dict_with_step_ref():

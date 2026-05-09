@@ -682,7 +682,7 @@ class DiagnoseValidationBoundaryTests(unittest.TestCase):
 
 class DiagnoseHourFollowupRegressionTests(unittest.TestCase):
     def test_hour_candidate_followup_reaches_driver_rows_even_if_metric_grain_is_day(self) -> None:
-        from marivo.intents.diagnose import run_diagnose_intent
+        from marivo.runtime.intents.diagnose import run_diagnose_intent
 
         runtime = MagicMock()
         runtime.core = MagicMock()
@@ -784,10 +784,17 @@ class DiagnoseHourFollowupRegressionTests(unittest.TestCase):
         }
 
         with (
-            patch("marivo.intents.diagnose.run_detect_intent", return_value=detect_result),
-            patch("marivo.intents.diagnose.run_observe_intent", side_effect=observe_results),
-            patch("marivo.intents.diagnose.run_compare_intent", return_value=compare_result),
-            patch("marivo.intents.diagnose.run_decompose_intent", return_value=decompose_result),
+            patch("marivo.runtime.intents.diagnose.run_detect_intent", return_value=detect_result),
+            patch(
+                "marivo.runtime.intents.diagnose.run_observe_intent", side_effect=observe_results
+            ),
+            patch(
+                "marivo.runtime.intents.diagnose.run_compare_intent", return_value=compare_result
+            ),
+            patch(
+                "marivo.runtime.intents.diagnose.run_decompose_intent",
+                return_value=decompose_result,
+            ),
         ):
             bundle = run_diagnose_intent(
                 runtime,
@@ -824,7 +831,7 @@ class CombineScopeTests(unittest.TestCase):
     """Unit tests for _combine_scope helper in isolation."""
 
     def _fn(self, base, slc):
-        from marivo.intents.diagnose import _combine_scope
+        from marivo.runtime.intents.diagnose import _combine_scope
 
         return _combine_scope(base, slc)
 

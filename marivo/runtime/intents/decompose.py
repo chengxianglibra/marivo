@@ -10,7 +10,7 @@ from marivo.analysis_core.executor import execute_compiled
 from marivo.analysis_core.ir import AnalysisStepIR
 from marivo.core.intent.primitives import new_step_id
 from marivo.execution.errors import ExecutionError
-from marivo.intents._helpers import commit_step_result
+from marivo.runtime.intents._helpers import commit_step_result
 from marivo.time_scope import normalize_metric_query_request
 
 if TYPE_CHECKING:

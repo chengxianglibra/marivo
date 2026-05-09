@@ -254,7 +254,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
         return runtime
 
     def _run_scalar(self, runtime: MagicMock) -> dict[str, Any]:
-        from marivo.intents.observe import run_observe_intent
+        from marivo.runtime.intents.observe import run_observe_intent
 
         runtime.resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
         runtime.resolve_metric_sql_for_execution.return_value = "SUM(val)"
@@ -271,7 +271,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
             "metric": "m1",
             "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
         }
-        with patch("marivo.intents.observe.execute_compiled") as mock_exec:
+        with patch("marivo.runtime.intents.observe.execute_compiled") as mock_exec:
             mock_exec.return_value.rows = []
             return run_observe_intent(runtime, _SESSION, params)
 
@@ -307,7 +307,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
         self.assertIsNone(artifact_payload["resolved_policy_summary"])
 
     def test_observe_hour_granularity_rejects_date_only_range(self) -> None:
-        from marivo.intents.observe import run_observe_intent
+        from marivo.runtime.intents.observe import run_observe_intent
 
         runtime = self._make_runtime()
         with self.assertRaisesRegex(
@@ -324,7 +324,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
             )
 
     def test_observe_rejects_unknown_calendar_policy_ref(self) -> None:
-        from marivo.intents.observe import run_observe_intent
+        from marivo.runtime.intents.observe import run_observe_intent
 
         runtime = self._make_runtime()
         with self.assertRaisesRegex(
@@ -342,7 +342,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
             )
 
     def test_observe_forwards_calendar_policy_ref_to_internal_compile_step(self) -> None:
-        from marivo.intents.observe import run_observe_intent
+        from marivo.runtime.intents.observe import run_observe_intent
 
         runtime = self._make_runtime()
         captured: dict[str, Any] = {}
@@ -373,7 +373,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
 
         runtime.compile_step.side_effect = _capture_compile
 
-        with patch("marivo.intents.observe.execute_compiled") as mock_exec:
+        with patch("marivo.runtime.intents.observe.execute_compiled") as mock_exec:
             mock_exec.return_value.rows = []
             run_observe_intent(
                 runtime,
@@ -389,7 +389,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
         self.assertEqual(captured["time_scope"]["grain"], "day")
 
     def test_observe_freezes_resolved_policy_summary_in_artifact(self) -> None:
-        from marivo.intents.observe import run_observe_intent
+        from marivo.runtime.intents.observe import run_observe_intent
 
         runtime = self._make_runtime()
         runtime.core.normalize_intent_metric_ref.side_effect = lambda metric: metric
@@ -413,7 +413,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
         }
         runtime.compile_step.return_value = _make_compiled_mock_with_calendar_alignment()
 
-        with patch("marivo.intents.observe.execute_compiled") as mock_exec:
+        with patch("marivo.runtime.intents.observe.execute_compiled") as mock_exec:
             mock_exec.return_value.rows = [{"current_value": 42.0}]
             result = run_observe_intent(
                 runtime,
@@ -487,7 +487,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
         self.assertEqual(result["resolved_policy_summary"]["comparability_warnings"], [])
 
     def test_observe_accepts_holiday_only_calendar_lineage(self) -> None:
-        from marivo.intents.observe import run_observe_intent
+        from marivo.runtime.intents.observe import run_observe_intent
 
         runtime = self._make_runtime()
         runtime.core.normalize_intent_metric_ref.side_effect = lambda metric: metric
@@ -515,7 +515,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
         # build_step_semantic_metadata is now a pure function imported directly
         # by observe.py from marivo.runtime.semantic.step_metadata; no proxy needed.
 
-        with patch("marivo.intents.observe.execute_compiled") as mock_exec:
+        with patch("marivo.runtime.intents.observe.execute_compiled") as mock_exec:
             mock_exec.return_value.rows = [{"current_value": 42.0}]
             result = run_observe_intent(
                 runtime,
@@ -550,7 +550,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
         )
 
     def test_observe_rejects_malformed_resolved_policy_summary_missing_field(self) -> None:
-        from marivo.intents.observe import run_observe_intent
+        from marivo.runtime.intents.observe import run_observe_intent
 
         runtime = self._make_runtime()
         runtime.core.normalize_intent_metric_ref.side_effect = lambda metric: metric
@@ -577,7 +577,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
         runtime.compile_step.return_value = compiled
 
         with (
-            patch("marivo.intents.observe.execute_compiled") as mock_exec,
+            patch("marivo.runtime.intents.observe.execute_compiled") as mock_exec,
             self.assertRaisesRegex(ValueError, "malformed resolved calendar alignment metadata"),
         ):
             mock_exec.return_value.rows = [{"current_value": 42.0}]
@@ -592,7 +592,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
             )
 
     def test_observe_rejects_malformed_resolved_policy_summary_extra_coverage_field(self) -> None:
-        from marivo.intents.observe import run_observe_intent
+        from marivo.runtime.intents.observe import run_observe_intent
 
         runtime = self._make_runtime()
         runtime.core.normalize_intent_metric_ref.side_effect = lambda metric: metric
@@ -621,7 +621,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
         runtime.compile_step.return_value = compiled
 
         with (
-            patch("marivo.intents.observe.execute_compiled") as mock_exec,
+            patch("marivo.runtime.intents.observe.execute_compiled") as mock_exec,
             self.assertRaisesRegex(ValueError, "malformed resolved calendar alignment metadata"),
         ):
             mock_exec.return_value.rows = [{"current_value": 42.0}]
@@ -636,7 +636,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
             )
 
     def test_observe_rejects_malformed_resolved_policy_summary_bucket_pairing(self) -> None:
-        from marivo.intents.observe import run_observe_intent
+        from marivo.runtime.intents.observe import run_observe_intent
 
         runtime = self._make_runtime()
         runtime.core.normalize_intent_metric_ref.side_effect = lambda metric: metric
@@ -663,7 +663,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
         runtime.compile_step.return_value = compiled
 
         with (
-            patch("marivo.intents.observe.execute_compiled") as mock_exec,
+            patch("marivo.runtime.intents.observe.execute_compiled") as mock_exec,
             self.assertRaisesRegex(ValueError, "malformed resolved calendar alignment metadata"),
         ):
             mock_exec.return_value.rows = [{"current_value": 42.0}]
@@ -678,7 +678,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
             )
 
     def test_observe_rejects_malformed_resolved_policy_summary_inconsistent_coverage(self) -> None:
-        from marivo.intents.observe import run_observe_intent
+        from marivo.runtime.intents.observe import run_observe_intent
 
         runtime = self._make_runtime()
         runtime.core.normalize_intent_metric_ref.side_effect = lambda metric: metric
@@ -709,7 +709,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
         runtime.compile_step.return_value = compiled
 
         with (
-            patch("marivo.intents.observe.execute_compiled") as mock_exec,
+            patch("marivo.runtime.intents.observe.execute_compiled") as mock_exec,
             self.assertRaisesRegex(ValueError, "malformed resolved calendar alignment metadata"),
         ):
             mock_exec.return_value.rows = [{"current_value": 42.0}]
@@ -726,7 +726,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
     def test_observe_time_series_returns_aligned_baseline_and_yoy_series_for_day_grain(
         self,
     ) -> None:
-        from marivo.intents.observe import run_observe_intent
+        from marivo.runtime.intents.observe import run_observe_intent
 
         runtime = self._make_runtime()
         runtime.core.normalize_intent_metric_ref.side_effect = lambda metric: metric
@@ -753,7 +753,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
             _make_compiled_mock(),
         ]
 
-        with patch("marivo.intents.observe.execute_compiled") as mock_exec:
+        with patch("marivo.runtime.intents.observe.execute_compiled") as mock_exec:
             mock_exec.side_effect = [
                 MagicMock(
                     rows=[
@@ -805,7 +805,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
         )
 
     def test_observe_segmented_returns_segmented_yoy_for_calendar_alignment(self) -> None:
-        from marivo.intents.observe import run_observe_intent
+        from marivo.runtime.intents.observe import run_observe_intent
 
         runtime = self._make_runtime()
         runtime.core.normalize_intent_metric_ref.side_effect = lambda metric: metric
@@ -829,7 +829,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
         }
         runtime.compile_step.return_value = _make_compiled_mock_with_calendar_alignment()
 
-        with patch("marivo.intents.observe.execute_compiled") as mock_exec:
+        with patch("marivo.runtime.intents.observe.execute_compiled") as mock_exec:
             mock_exec.return_value = MagicMock(
                 rows=[
                     {
@@ -890,7 +890,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
         )
 
     def test_observe_segmented_omits_segmented_yoy_without_calendar_alignment(self) -> None:
-        from marivo.intents.observe import run_observe_intent
+        from marivo.runtime.intents.observe import run_observe_intent
 
         runtime = self._make_runtime()
         runtime.core.normalize_intent_metric_ref.side_effect = lambda metric: metric
@@ -914,7 +914,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
         }
         runtime.compile_step.return_value = _make_compiled_mock()
 
-        with patch("marivo.intents.observe.execute_compiled") as mock_exec:
+        with patch("marivo.runtime.intents.observe.execute_compiled") as mock_exec:
             mock_exec.return_value = MagicMock(rows=[{"platform": "web", "current_value": 120.0}])
             result = run_observe_intent(
                 runtime,
@@ -931,7 +931,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
     def test_observe_time_series_rebuilds_baseline_scoped_query_for_partition_pruning(
         self,
     ) -> None:
-        from marivo.intents.observe import run_observe_intent
+        from marivo.runtime.intents.observe import run_observe_intent
 
         runtime = self._make_runtime()
         runtime.core.normalize_intent_metric_ref.side_effect = lambda metric: metric
@@ -975,7 +975,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
             _make_compiled_mock(),
         ]
 
-        with patch("marivo.intents.observe.execute_compiled") as mock_exec:
+        with patch("marivo.runtime.intents.observe.execute_compiled") as mock_exec:
             mock_exec.side_effect = [
                 MagicMock(rows=[{"bucket_start": "2026-04-01", "value": 120.0}]),
                 MagicMock(rows=[{"bucket_start": "2025-04-02", "value": 100.0}]),
@@ -1016,7 +1016,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
     def test_observe_time_series_backfills_missing_requested_bucket_and_records_data_coverage(
         self,
     ) -> None:
-        from marivo.intents.observe import run_observe_intent
+        from marivo.runtime.intents.observe import run_observe_intent
 
         runtime = self._make_runtime()
         runtime.core.normalize_intent_metric_ref.side_effect = lambda metric: metric
@@ -1043,7 +1043,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
             _make_compiled_mock(),
         ]
 
-        with patch("marivo.intents.observe.execute_compiled") as mock_exec:
+        with patch("marivo.runtime.intents.observe.execute_compiled") as mock_exec:
             mock_exec.side_effect = [
                 MagicMock(rows=[{"bucket_start": "2026-04-01", "value": 120.0}]),
                 MagicMock(rows=[{"bucket_start": "2025-04-02", "value": 100.0}]),
@@ -1085,7 +1085,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
     def test_observe_time_series_sets_data_complete_true_when_all_requested_buckets_present(
         self,
     ) -> None:
-        from marivo.intents.observe import run_observe_intent
+        from marivo.runtime.intents.observe import run_observe_intent
 
         runtime = self._make_runtime()
         runtime.core.normalize_intent_metric_ref.side_effect = lambda metric: metric
@@ -1112,7 +1112,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
             _make_compiled_mock(),
         ]
 
-        with patch("marivo.intents.observe.execute_compiled") as mock_exec:
+        with patch("marivo.runtime.intents.observe.execute_compiled") as mock_exec:
             mock_exec.side_effect = [
                 MagicMock(
                     rows=[
@@ -1137,7 +1137,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
         self.assertEqual(result["analytical_metadata"]["quality_status"], "ready")
 
     def test_observe_time_series_without_rows_marks_backfilled_buckets_incomplete(self) -> None:
-        from marivo.intents.observe import run_observe_intent
+        from marivo.runtime.intents.observe import run_observe_intent
 
         runtime = self._make_runtime()
         runtime.core.normalize_intent_metric_ref.side_effect = lambda metric: metric
@@ -1161,7 +1161,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
         }
         runtime.compile_step.return_value = _make_compiled_mock()
 
-        with patch("marivo.intents.observe.execute_compiled") as mock_exec:
+        with patch("marivo.runtime.intents.observe.execute_compiled") as mock_exec:
             mock_exec.return_value = MagicMock(rows=[])
             result = run_observe_intent(
                 runtime,
@@ -1184,7 +1184,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
         self.assertEqual(result["analytical_metadata"]["quality_status"], "not_ready")
 
     def test_observe_hour_granularity_uses_hour_internal_grain(self) -> None:
-        from marivo.intents.observe import run_observe_intent
+        from marivo.runtime.intents.observe import run_observe_intent
 
         runtime = self._make_runtime()
         captured: dict[str, Any] = {}
@@ -1228,14 +1228,14 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
             },
             "granularity": "hour",
         }
-        with patch("marivo.intents.observe.execute_compiled") as mock_exec:
+        with patch("marivo.runtime.intents.observe.execute_compiled") as mock_exec:
             mock_exec.return_value.rows = []
             run_observe_intent(runtime, _SESSION, params)
 
         self.assertEqual(captured["grain"], "hour")
 
     def _run_numeric_summary(self, runtime: MagicMock) -> dict[str, Any]:
-        from marivo.intents.observe import run_observe_intent
+        from marivo.runtime.intents.observe import run_observe_intent
 
         runtime.core.normalize_intent_metric_ref.side_effect = lambda metric: metric
         runtime.core.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix(
@@ -1258,7 +1258,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
             "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
             "result_mode": "numeric_sample_summary",
         }
-        with patch("marivo.intents.observe.execute_compiled") as mock_exec:
+        with patch("marivo.runtime.intents.observe.execute_compiled") as mock_exec:
             mock_exec.return_value.rows = [
                 {"n": 5, "mean": 10.0, "variance": 1.0, "std": 1.0, "min_val": 8.0, "max_val": 12.0}
             ]
@@ -1282,7 +1282,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
         self.assertEqual(args[2], "observation")
 
     def test_observe_numeric_summary_forwards_and_freezes_calendar_policy(self) -> None:
-        from marivo.intents.observe import run_observe_intent
+        from marivo.runtime.intents.observe import run_observe_intent
 
         runtime = self._make_runtime()
         captured: dict[str, Any] = {}
@@ -1313,7 +1313,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
 
         runtime.compile_step.side_effect = _capture_compile
 
-        with patch("marivo.intents.observe.execute_compiled") as mock_exec:
+        with patch("marivo.runtime.intents.observe.execute_compiled") as mock_exec:
             mock_exec.return_value.rows = [
                 {"n": 5, "mean": 10.0, "variance": 1.0, "std": 1.0, "min_val": 8.0, "max_val": 12.0}
             ]
@@ -1341,7 +1341,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
         )
 
     def _run_rate_summary(self, runtime: MagicMock) -> dict[str, Any]:
-        from marivo.intents.observe import run_observe_intent
+        from marivo.runtime.intents.observe import run_observe_intent
 
         runtime.core.normalize_intent_metric_ref.side_effect = lambda metric: metric
         runtime.core.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix(
@@ -1364,7 +1364,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
             "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
             "result_mode": "rate_sample_summary",
         }
-        with patch("marivo.intents.observe.execute_compiled") as mock_exec:
+        with patch("marivo.runtime.intents.observe.execute_compiled") as mock_exec:
             mock_exec.return_value.rows = [{"n": 100, "k": 50.0}]
             return run_observe_intent(runtime, _SESSION, params)
 
@@ -1386,7 +1386,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
         self.assertEqual(args[2], "observation")
 
     def test_observe_rate_summary_forwards_and_freezes_calendar_policy(self) -> None:
-        from marivo.intents.observe import run_observe_intent
+        from marivo.runtime.intents.observe import run_observe_intent
 
         runtime = self._make_runtime()
         captured: dict[str, Any] = {}
@@ -1417,7 +1417,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
 
         runtime.compile_step.side_effect = _capture_compile
 
-        with patch("marivo.intents.observe.execute_compiled") as mock_exec:
+        with patch("marivo.runtime.intents.observe.execute_compiled") as mock_exec:
             mock_exec.return_value.rows = [{"n": 100, "k": 50.0}]
             result = run_observe_intent(
                 runtime,
@@ -1458,7 +1458,7 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
         return runtime
 
     def _run_scalar_compare(self, runtime: MagicMock) -> dict[str, Any]:
-        from marivo.intents.compare import run_compare_intent
+        from marivo.runtime.intents.compare import run_compare_intent
 
         runtime.resolve_artifact_for_ref.side_effect = [
             _scalar_observation("m1"),
@@ -1488,7 +1488,7 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
         self.assertEqual(args[2], "compare_artifact")
 
     def test_compare_reuses_frozen_calendar_alignment_summary(self) -> None:
-        from marivo.intents.compare import run_compare_intent
+        from marivo.runtime.intents.compare import run_compare_intent
 
         runtime = self._make_runtime()
         left = _scalar_observation("m1")
@@ -1535,7 +1535,7 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
         )
 
     def test_compare_requires_alignment_metadata_on_both_sides(self) -> None:
-        from marivo.intents.compare import run_compare_intent
+        from marivo.runtime.intents.compare import run_compare_intent
 
         runtime = self._make_runtime()
         left = _scalar_observation("m1")
@@ -1565,7 +1565,7 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
             )
 
     def test_compare_rejects_calendar_version_mismatch(self) -> None:
-        from marivo.intents.compare import run_compare_intent
+        from marivo.runtime.intents.compare import run_compare_intent
 
         runtime = self._make_runtime()
         left = _scalar_observation("m1")
@@ -1598,7 +1598,7 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
             )
 
     def test_calendar_version_mismatch_issue_keeps_structured_details(self) -> None:
-        from marivo.intents.calendar_alignment_metadata import (
+        from marivo.runtime.intents.calendar_alignment_metadata import (
             resolve_calendar_alignment_reuse_for_intent,
         )
 
@@ -1623,7 +1623,7 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
         )
 
     def test_compare_marks_needs_attention_for_upstream_calendar_warnings(self) -> None:
-        from marivo.intents.compare import run_compare_intent
+        from marivo.runtime.intents.compare import run_compare_intent
 
         runtime = self._make_runtime()
         left = _scalar_observation("m1")
@@ -1669,7 +1669,7 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
         )
 
     def test_compare_marks_needs_attention_for_incomplete_calendar_coverage(self) -> None:
-        from marivo.intents.compare import run_compare_intent
+        from marivo.runtime.intents.compare import run_compare_intent
 
         runtime = self._make_runtime()
         left = _scalar_observation("m1")
@@ -1741,7 +1741,7 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
     def test_compare_warns_on_metric_data_coverage_without_relabeling_alignment_coverage(
         self,
     ) -> None:
-        from marivo.intents.compare import run_compare_intent
+        from marivo.runtime.intents.compare import run_compare_intent
 
         runtime = self._make_runtime()
         left = _time_series_observation(
@@ -1816,7 +1816,7 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
         )
 
     def test_compare_rejects_unresolved_weekday_pairing_tie(self) -> None:
-        from marivo.intents.compare import run_compare_intent
+        from marivo.runtime.intents.compare import run_compare_intent
 
         runtime = self._make_runtime()
         left = _scalar_observation("m1")
@@ -1849,7 +1849,7 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
             )
 
     def test_compare_rejects_non_dict_resolved_policy_summary(self) -> None:
-        from marivo.intents.compare import run_compare_intent
+        from marivo.runtime.intents.compare import run_compare_intent
 
         runtime = self._make_runtime()
         left = _scalar_observation("m1")
@@ -1880,7 +1880,7 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
             )
 
     def test_compare_rejects_missing_coverage_summary(self) -> None:
-        from marivo.intents.compare import run_compare_intent
+        from marivo.runtime.intents.compare import run_compare_intent
 
         runtime = self._make_runtime()
         left = _scalar_observation("m1")
@@ -1913,7 +1913,7 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
             )
 
     def test_compare_rejects_non_string_warning_entry(self) -> None:
-        from marivo.intents.compare import run_compare_intent
+        from marivo.runtime.intents.compare import run_compare_intent
 
         runtime = self._make_runtime()
         left = _scalar_observation("m1")
@@ -1946,7 +1946,7 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
             )
 
     def test_compare_rejects_negative_bucket_counts(self) -> None:
-        from marivo.intents.compare import run_compare_intent
+        from marivo.runtime.intents.compare import run_compare_intent
 
         runtime = self._make_runtime()
         left = _scalar_observation("m1")
@@ -1981,7 +1981,7 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
             )
 
     def test_compare_rejects_inconsistent_coverage_summary(self) -> None:
-        from marivo.intents.compare import run_compare_intent
+        from marivo.runtime.intents.compare import run_compare_intent
 
         runtime = self._make_runtime()
         left = _scalar_observation("m1")
@@ -2016,7 +2016,7 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
             )
 
     def test_compare_time_series_commits_time_series_delta(self) -> None:
-        from marivo.intents.compare import run_compare_intent
+        from marivo.runtime.intents.compare import run_compare_intent
 
         runtime = self._make_runtime()
         runtime.resolve_artifact_for_ref.side_effect = [
@@ -2065,7 +2065,7 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
         )
 
     def test_compare_time_series_reuses_calendar_aligned_pairing_for_summary_basis(self) -> None:
-        from marivo.intents.compare import run_compare_intent
+        from marivo.runtime.intents.compare import run_compare_intent
 
         runtime = self._make_runtime()
         left = _time_series_observation(
@@ -2139,7 +2139,7 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
         self.assertEqual(result["rows"][0]["right_value"], 9.0)
 
     def test_compare_time_series_missing_granularity_fails(self) -> None:
-        from marivo.intents.compare import run_compare_intent
+        from marivo.runtime.intents.compare import run_compare_intent
 
         runtime = self._make_runtime()
         left = _time_series_observation("m1")
@@ -2169,7 +2169,7 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
             )
 
     def test_compare_time_series_empty_series_fails_before_commit(self) -> None:
-        from marivo.intents.compare import run_compare_intent
+        from marivo.runtime.intents.compare import run_compare_intent
 
         runtime = self._make_runtime()
         runtime.resolve_artifact_for_ref.side_effect = [
@@ -2200,7 +2200,7 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
         runtime.commit_artifact_with_extraction.assert_not_called()
 
     def test_compare_time_series_mode_rejects_scalar_artifacts(self) -> None:
-        from marivo.intents.compare import run_compare_intent
+        from marivo.runtime.intents.compare import run_compare_intent
 
         runtime = self._make_runtime()
         runtime.resolve_artifact_for_ref.side_effect = [
@@ -2245,7 +2245,7 @@ class TestDecomposeRunnerCommitPath(unittest.TestCase):
     def _run_decompose(
         self, runtime: MagicMock, compare_artifact: dict[str, Any] | None = None
     ) -> dict[str, Any]:
-        from marivo.intents.decompose import run_decompose_intent
+        from marivo.runtime.intents.decompose import run_decompose_intent
 
         if compare_artifact is None:
             compare_artifact = {
@@ -2309,7 +2309,7 @@ class TestDecomposeRunnerCommitPath(unittest.TestCase):
             "compare_ref": {"step_id": "step_compare", "session_id": _SESSION},
             "dimension": "dim1",
         }
-        with patch("marivo.intents.decompose.execute_compiled") as mock_exec:
+        with patch("marivo.runtime.intents.decompose.execute_compiled") as mock_exec:
             # Return 1 row for both left and right segmented queries.
             # Configure metadata.get() to return None so the query_hash branch skips.
             mock_result = MagicMock()
@@ -2424,7 +2424,7 @@ class TestDetectRunnerCommitPath(unittest.TestCase):
         return runtime
 
     def _run_detect(self, runtime: MagicMock) -> dict[str, Any]:
-        from marivo.intents.detect import run_detect_intent
+        from marivo.runtime.intents.detect import run_detect_intent
 
         runtime.core.normalize_intent_metric_ref.return_value = "m1"
         runtime.core.metric_name_from_ref.return_value = "m1"
@@ -2445,7 +2445,7 @@ class TestDetectRunnerCommitPath(unittest.TestCase):
             "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-31"},
             "granularity": "day",
         }
-        with patch("marivo.intents.detect.execute_compiled") as mock_exec:
+        with patch("marivo.runtime.intents.detect.execute_compiled") as mock_exec:
             # 9 points with one spike (day 5 = 200) to produce ≥1 anomaly candidate.
             # mean≈111, std≈31, z(200)≈2.83 > balanced threshold 2.0.
             mock_exec.return_value.rows = [
@@ -2521,7 +2521,7 @@ class TestCorrelateRunnerCommitPath(unittest.TestCase):
         return runtime
 
     def _run_correlate(self, runtime: MagicMock) -> dict[str, Any]:
-        from marivo.intents.correlate import run_correlate_intent
+        from marivo.runtime.intents.correlate import run_correlate_intent
 
         params = {
             "left_ref": {"step_id": "step_left", "session_id": _SESSION},
@@ -2575,7 +2575,7 @@ class TestTestRunnerCommitPath(unittest.TestCase):
         return runtime
 
     def _run_test(self, runtime: MagicMock) -> dict[str, Any]:
-        from marivo.intents.test import run_test_intent
+        from marivo.runtime.intents.test import run_test_intent
 
         left_id, right_id = "art_left001", "art_right001"
         params = {
@@ -2648,7 +2648,7 @@ class TestForecastRunnerCommitPath(unittest.TestCase):
         return runtime
 
     def _run_forecast(self, runtime: MagicMock) -> dict[str, Any]:
-        from marivo.intents.forecast import run_forecast_intent
+        from marivo.runtime.intents.forecast import run_forecast_intent
 
         artifact_id = "art_ts001"
         params = {

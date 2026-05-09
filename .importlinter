@@ -46,8 +46,8 @@ ignore_imports =
     marivo.runtime.step_executor -> marivo.analysis_core.step_runners
     marivo.runtime.session -> marivo.evidence_engine.context_view
     marivo.runtime.session -> marivo.evidence_engine.state_view
-    marivo.intents.* -> marivo.analysis_core.*
-    marivo.intents.* -> marivo.evidence_engine.*
+    marivo.runtime.intents.* -> marivo.analysis_core.*
+    marivo.runtime.intents.* -> marivo.evidence_engine.*
     marivo.analysis_core.compiler -> marivo.evidence_engine.ref_boundary
 
 [importlinter:contract:core-no-io]
@@ -78,8 +78,8 @@ ignore_imports =
     marivo.api.sessions -> marivo.runtime
     marivo.runtime.* -> marivo.analysis_core.*
     marivo.runtime.* -> marivo.evidence_engine.*
-    marivo.intents.* -> marivo.analysis_core.*
-    marivo.intents.* -> marivo.evidence_engine.*
+    marivo.runtime.intents.* -> marivo.analysis_core.*
+    marivo.runtime.intents.* -> marivo.evidence_engine.*
     marivo.analysis_core.* -> marivo.evidence_engine.*
     marivo.adapters.server.artifact_store -> marivo.evidence_engine.canonical_finding
 
