@@ -6,17 +6,21 @@ target architecture packages: `contracts/`, `core/`, `ports/`, `runtime/`,
 
 ## Principles
 
-1. **Move I/O modules as-is** — no internal refactoring. I/O-bound functions
-   like `compile_step` move to `runtime/` with behavior unchanged.
+1. **Move I/O modules as-is** — no internal refactoring, *unless* the module
+   seriously violates the target architecture (e.g., HTTP coupling in runtime,
+   direct storage imports in orchestration). Violating modules are split during
+   the move. Conforming modules move unchanged.
 2. **Delete re-export shims** — modules that re-export from `core/` are
    deleted; callers use `core/` directly.
 3. **Big-bang moves** — no temporary shims. Each package is moved/deleted in
    one commit.
 4. **Import linter stays enforced** — `.importlinter` contracts are updated
    alongside each drain. `ignore_imports` entries are removed as imports are
-   resolved.
+   resolved. New chain entries are added when file moves create new violations.
 5. **Validation gate** — `lint-imports` + `pytest` must pass after each
    package drain. Zero dangling `from marivo.<old_package>` references remain.
+6. **Runtime is organized, not flat** — I/O modules land in focused
+   sub-packages under `runtime/`, not in a flat directory.
 
 ## Execution Tracks
 
@@ -24,12 +28,15 @@ Three parallel tracks with internal dependency ordering.
 
 ```
 Track 1:  B1 ── B2                          (parallel, no deps)
-Track 2:  B3 ── B5 ── B4 ── B6              (sequential chain)
+Track 2:  B3 ── B5 ── B4 ── B6              (sequential chain, B1 must complete before B4)
 Track 3:  B7 ── B8 ── B9 ── B10 ── B11      (sequential)
 ```
 
-Cross-track merge conflicts (e.g., both B6 and B7 touch `adapters/server/`)
-are resolved via normal git merge.
+Cross-track dependencies:
+- **B1 must complete before B4** — `analysis_core/compiler.py` imports from
+  `semantic_runtime`, which B1 deletes.
+- Cross-track merge conflicts (e.g., both B6 and B7 touch `adapters/server/`)
+  are resolved via normal git merge.
 
 ---
 
@@ -45,7 +52,7 @@ Delete stubs, move active modules to their targets.
 | `status_utils.py` | Delete (returns constants) |
 | `resolution.py` | Delete stubs, extract `ResolvedSemanticObject` to `core/semantic/` if used |
 | `errors.py` | Move to `runtime/errors.py` |
-| `repository.py` | Move to `runtime/semantic_repository.py` |
+| `repository.py` | Move to `runtime/evidence/semantic_repository.py` |
 | `semantic_metadata.py` | Move to `core/semantic/metadata.py` |
 | `__init__.py` | Delete |
 
@@ -72,13 +79,15 @@ Move to `adapters/server/`. Only `adapters/server/` imports from it.
 
 ### B3. `semantic_service_v2/` — 5 files
 
-Split into runtime orchestration + adapter persistence.
+Split into runtime orchestration + adapter persistence. This module seriously
+violates the target architecture (imports HTTPException from FastAPI,
+SQLiteMetadataStore directly), so it must be split during the move.
 
 | File | Action |
 |------|--------|
-| `service.py` | Split: orchestration → `runtime/semantic_service.py`, persistence → merge into `adapters/server/model_store.py` |
+| `service.py` | Split: orchestration logic → `runtime/semantic/semantic_service.py`, HTTP/storage coupling → `adapters/server/semantic_service_adapter.py`. Replace HTTPException with domain errors in runtime/, keep HTTPException in adapter. |
 | `storage.py` | Merge into `adapters/server/model_store.py` |
-| `validation.py` | Move to `runtime/semantic_validation.py` (if I/O) or `core/semantic/validator.py` (if pure) |
+| `validation.py` | Move to `runtime/semantic/semantic_validation.py` (if I/O) or `core/semantic/validator.py` (if pure) |
 | `extensions.py` | Move to `core/semantic/extensions.py` (pure logic) |
 | `__init__.py` | Delete |
 
@@ -90,7 +99,7 @@ after drain.
 
 ### B5. `intents/` — 14 files
 
-`git mv` to `runtime/intents/`.
+`git mv` to `runtime/intents/` (sub-package under runtime).
 
 | File | Action |
 |------|--------|
@@ -123,18 +132,18 @@ Delete re-export shims, move I/O modules to `runtime/` as-is.
 | `capability_profiles.py` | Stub for import compat |
 | `predicate_validator.py` | Stub for import compat |
 
-**Move to `runtime/` (I/O-bound, as-is):**
+**Move to `runtime/` sub-packages (I/O-bound, as-is):**
 
 | File | Target |
 |------|--------|
-| `compiler.py` | `runtime/compiler.py` |
-| `executor.py` | `runtime/executor.py` |
+| `compiler.py` | `runtime/semantic/compiler.py` |
+| `executor.py` | `runtime/semantic/executor.py` |
 | `step_runners/` | `runtime/step_runners/` |
 | `workflows/` | `runtime/workflows/` |
-| `calendar_data_runtime.py` | `runtime/calendar_data_runtime.py` |
-| `typed_resolution.py` | `runtime/typed_resolution.py` |
-| `validator.py` | `runtime/analysis_validator.py` |
-| `composites.py` | `runtime/composites.py` |
+| `calendar_data_runtime.py` | `runtime/semantic/calendar_data_runtime.py` |
+| `typed_resolution.py` | `runtime/semantic/typed_resolution.py` |
+| `validator.py` | `runtime/semantic/analysis_validator.py` |
+| `composites.py` | `runtime/semantic/composites.py` |
 
 Callers to update: `runtime/semantic_ops.py`, `runtime/step_executor.py`,
 `execution/orchestrator.py`, `profiles/`, `intents/` (now `runtime/intents/`).
@@ -148,11 +157,11 @@ Split into runtime orchestration + adapter implementations.
 
 | File | Target |
 |------|--------|
-| `orchestrator.py` | `runtime/orchestrator.py` |
-| `feedback.py` | `runtime/feedback.py` |
+| `orchestrator.py` | `runtime/execution/orchestrator.py` |
+| `feedback.py` | `runtime/semantic/feedback.py` |
 | `routing_runtime.py` | `adapters/server/routing_runtime.py` |
 | `translation.py` | `adapters/server/translation.py` |
-| `federation.py` | `runtime/federation.py` |
+| `federation.py` | `runtime/execution/federation.py` |
 | `capabilities.py` | `contracts/capabilities.py` |
 | `errors.py` | Merge into `contracts/errors.py` |
 | `__init__.py` | Delete |
@@ -202,24 +211,24 @@ Delete shims + deprecated extractors, split remaining into runtime/core/adapters
 | `family_contract.py` | Re-export shim from `core.evidence.family_contract` |
 | 7 deprecated extractors | Delegate to `core.evidence.finding_extraction` |
 
-**Move to `runtime/` (I/O-bound):**
+**Move to `runtime/evidence/` (I/O-bound):**
 
 | File | Target |
 |------|--------|
-| `canonical_pipeline_runtime.py` | `runtime/canonical_pipeline.py` |
-| `state_view.py` | `runtime/state_view.py` |
-| `context_view.py` | `runtime/context_view.py` |
-| `ref_boundary.py` | `runtime/ref_boundary.py` |
-| `publish_switch.py` | `runtime/publish_switch.py` |
-| `invalidation.py` | `runtime/invalidation.py` |
-| `replay_recovery.py` | `runtime/replay_recovery.py` |
-| `proposal_refresh_run.py` | `runtime/proposal_refresh.py` |
-| `proposition_registration.py` | `runtime/proposition_registration.py` |
-| `proposition_seed_registry.py` | `runtime/proposition_seed_registry.py` |
-| `assessment_evaluation_context.py` | `runtime/assessment_context.py` |
-| `assessment_recompute.py` | `runtime/assessment_recompute.py` |
-| `proposition_seeding_run.py` | `runtime/proposition_seeding.py` |
-| `finding_extractor_registry.py` | `runtime/finding_extractor_registry.py` |
+| `canonical_pipeline_runtime.py` | `runtime/evidence/canonical_pipeline.py` |
+| `state_view.py` | `runtime/evidence/state_view.py` |
+| `context_view.py` | `runtime/evidence/context_view.py` |
+| `ref_boundary.py` | `runtime/evidence/ref_boundary.py` |
+| `publish_switch.py` | `runtime/evidence/publish_switch.py` |
+| `invalidation.py` | `runtime/evidence/invalidation.py` |
+| `replay_recovery.py` | `runtime/evidence/replay_recovery.py` |
+| `proposal_refresh_run.py` | `runtime/evidence/proposal_refresh.py` |
+| `proposition_registration.py` | `runtime/evidence/proposition_registration.py` |
+| `proposition_seed_registry.py` | `runtime/evidence/proposition_seed_registry.py` |
+| `assessment_evaluation_context.py` | `runtime/evidence/assessment_context.py` |
+| `assessment_recompute.py` | `runtime/evidence/assessment_recompute.py` |
+| `proposition_seeding_run.py` | `runtime/evidence/proposition_seeding.py` |
+| `finding_extractor_registry.py` | `runtime/evidence/finding_extractor_registry.py` |
 
 **Move to `core/evidence/` (pure logic):**
 
@@ -229,11 +238,11 @@ Delete shims + deprecated extractors, split remaining into runtime/core/adapters
 | `canonical_refs.py` | `core/evidence/canonical_refs.py` |
 | `proposition_normalizer.py` | `core/evidence/proposition_normalizer.py` |
 
-**Split:**
+**Split (violates spec — must split during move):**
 
 | File | Target |
 |------|--------|
-| `canonical_finding.py` | Pure logic → `core/evidence/canonical_finding.py`, I/O → `runtime/` |
+| `canonical_finding.py` (703 lines) | Pure logic (dataclasses, value objects, computation) → `core/evidence/canonical_finding.py`. I/O-bound methods (repository access, pipeline integration) → `runtime/evidence/canonical_finding_ops.py`. |
 
 Linter: Remove all `evidence_engine` entries from
 `runtime-no-direct-core-orchestration` and `surfaces-must-use-runtime`.
@@ -352,10 +361,25 @@ surfaces-must-use-runtime:
 marivo.analysis_core.compiler -> marivo.evidence_engine.ref_boundary
 ```
 
-This entry in `runtime-no-direct-core-orchestration` is removed when B4
-deletes `analysis_core/compiler.py` (the import moves with the file to
-`runtime/compiler.py`, where it becomes `runtime → evidence_engine` and is
-then removed when B8 drains `evidence_engine`).
+When B4 moves `compiler.py` to `runtime/semantic/compiler.py`, the old entry
+is removed and a NEW entry must be added:
+
+```
+marivo.runtime.semantic.compiler -> marivo.evidence_engine.ref_boundary
+```
+
+This new entry is removed when B8 drains `evidence_engine/`. The spec must
+track this chain explicitly — import-linter does not infer file moves.
+
+### Chain entries after B4 (analysis_core drain)
+
+After B4, these new `ignore_imports` entries are needed because moved files
+now create `runtime → evidence_engine` violations:
+
+```
+runtime-no-direct-core-orchestration:
+  marivo.runtime.semantic.compiler -> marivo.evidence_engine.ref_boundary
+```
 
 ---
 
@@ -367,8 +391,19 @@ After each package drain:
 2. `pytest` passes (no new failures)
 3. `grep -r "from marivo\.<old_package>" marivo/` returns zero results
 4. Old package directory fully removed
+5. Test files importing `from marivo.<old_package>` are also updated (not
+   just source files)
 
 No new tests needed — behavior is unchanged, only file locations change.
+
+## Rollback Strategy
+
+Each package drain is a single commit. Rollback is `git revert <sha>`.
+For large moves (B9/B10), the revert diff is large but mechanical —
+no manual intervention needed.
+
+If a drain breaks tests or the import linter, fix before committing.
+Do not commit with known failures.
 
 ## Commit Strategy
 
