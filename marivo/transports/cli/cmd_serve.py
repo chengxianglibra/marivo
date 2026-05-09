@@ -7,8 +7,8 @@ from typing import Any
 
 import uvicorn
 
-from marivo.cli._exitcodes import EXIT_CONFIG_INVALID, EXIT_PORT_UNAVAILABLE
-from marivo.cli._output import CliError
+from marivo.transports.cli._exitcodes import EXIT_CONFIG_INVALID, EXIT_PORT_UNAVAILABLE
+from marivo.transports.cli._output import CliError
 
 
 def add_arguments(parser: argparse.ArgumentParser) -> None:

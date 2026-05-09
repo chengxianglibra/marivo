@@ -7,8 +7,8 @@ import csv
 from pathlib import Path
 from typing import Any
 
-from marivo.cli._exitcodes import EXIT_INVALID_USAGE
-from marivo.cli._output import CliError
+from marivo.transports.cli._exitcodes import EXIT_INVALID_USAGE
+from marivo.transports.cli._output import CliError
 
 _REQUIRED_COLUMNS = {"calendar_date", "weekday", "is_weekend", "is_workday"}
 

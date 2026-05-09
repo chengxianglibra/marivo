@@ -10,7 +10,7 @@ source_modules =
     marivo.contracts
 forbidden_modules =
     marivo.adapters
-    marivo.cli
+    marivo.transports.cli
 
 [importlinter:contract:ports-isolation]
 name = ports/ must not import app internals
@@ -19,7 +19,7 @@ source_modules =
     marivo.ports
 forbidden_modules =
     marivo.adapters
-    marivo.cli
+    marivo.transports.cli
 
 [importlinter:contract:runtime-no-direct-core-orchestration]
 name = runtime/ must not bypass service.py for core orchestration
@@ -36,7 +36,7 @@ source_modules =
     marivo.core
 forbidden_modules =
     marivo.adapters
-    marivo.cli
+    marivo.transports.cli
     marivo.ports
 
 [importlinter:contract:surfaces-must-use-runtime]
@@ -44,7 +44,7 @@ name = transports/http/ and cli/ must go through runtime
 type = forbidden
 source_modules =
     marivo.transports.http
-    marivo.cli
+    marivo.transports.cli
 forbidden_modules =
     marivo.core.orchestration
 ignore_imports =
