@@ -1,8 +1,16 @@
-# Legacy Import Debt — I/O-Bound Cross-Boundary Imports
+# Legacy Import Debt — I/O-Bound Cross-Boundary Imports & Package Drain Plan
+
+Target architecture (§4 of `2026-05-06-marivo-platform-architecture-design.md`) defines
+these packages as the permanent structure: `contracts/`, `core/`, `ports/`, `runtime/`,
+`adapters/`, `transports/`, `profiles/`, `local/`. All other top-level packages under
+`marivo/` are legacy and must eventually be drained and deleted.
+
+---
+
+## Part A: I/O-Bound Cross-Boundary Imports (18 items)
 
 These 18 imports remain I/O-bound with no `core/` equivalent. They require deeper
-refactoring (port extraction, service wiring inversion, or package migration) and
-are tracked here for future phases.
+refactoring (port extraction, service wiring inversion, or package migration).
 
 ## 1. `compile_step` — I/O-coupled compiler orchestrator
 
@@ -134,3 +142,249 @@ ignore_imports =
 ```
 
 Each `ignore_imports` entry should be removed when the corresponding import is resolved.
+
+---
+
+## Part B: Legacy Package Drain Plan
+
+Suggested ordering by dependency depth — drain packages that are depended on by
+fewest others first. Each entry includes file count, current status, target
+destination, key blockers, and coupling to other legacy packages.
+
+### B1. `semantic_runtime/` — 7 files | Difficulty: LOW
+
+Mostly stubs already. Only `repository.py` (247 lines) and `errors.py` have real logic.
+All files carry "Legacy semantic_runtime stubs" headers.
+
+| File | Status | Target |
+|------|--------|--------|
+| `errors.py` | Active — `SemanticRuntimeNotReadyError` etc. used by `runtime/__init__.py` | Move to `runtime/errors.py` or `contracts/errors.py` |
+| `repository.py` | Active — `SemanticRuntimeRepository` used by `analysis_core/compiler.py` | Move to `runtime/` or absorb into port-backed runtime |
+| `resolution.py` | Stub — `ResolvedSemanticObject` dataclass + `NotImplementedError` stubs | Extract types to `core/semantic/`, delete stubs |
+| `dimensions.py` | Stub — returns `[]` | Delete |
+| `status_utils.py` | Stub — returns `"draft"` / `"not_ready"` | Delete |
+| `semantic_metadata.py` | Active — `SUPPORTED_RUNTIME_REF_KINDS`, `runtime_ref_kind()` | Move to `core/semantic/` |
+| `__init__.py` | Re-exports | Delete after files moved |
+
+**Blockers:** `analysis_core/compiler.py` imports `SemanticRuntimeRepository`. `runtime/semantic_ops.py` imports `semantic_runtime.{dimensions,errors,resolution}`. Must redirect these first.
+
+**Linter contract entries to remove:** `runtime.* -> semantic_runtime.*` wildcards in `surfaces-must-use-runtime`.
+
+### B2. `registry/` — 4 files | Difficulty: LOW
+
+Datasource registry and factory logic. Only referenced by `adapters/server/`.
+
+| File | Status | Target |
+|------|--------|--------|
+| `datasource_registry.py` | Active — `DatasourceRegistry` class | `adapters/server/datasource_registry.py` |
+| `factories.py` | Active — builds analytics engines and catalog adapters | `adapters/server/factories.py` |
+| `__init__.py` | Re-exports | Delete after files moved |
+
+**Blockers:** `adapters/server/data_source.py` imports from `registry.datasource_registry`. Simple file move + import update.
+
+**Linter contract entries:** No contract explicitly targets `registry/`. Add `registry-isolation` if needed during migration.
+
+### B3. `semantic_service_v2/` — 5 files | Difficulty: MEDIUM
+
+Old service layer explicitly slated for demolition in Phase 6.1 design.
+
+| File | Status | Target |
+|------|--------|--------|
+| `service.py` | Active — CRUD for OSI-aligned semantic models | `runtime/semantic_ops.py` (orchestration) + `adapters/server/model_store.py` (persistence) |
+| `storage.py` | Active — OSI to storage row mapping | `adapters/server/model_store.py` |
+| `validation.py` | Active — write-time validation | `core/semantic/validator.py` or `runtime/` |
+| `extensions.py` | Active — custom_extensions parsing | `core/semantic/` (pure) or `runtime/` |
+| `__init__.py` | Re-exports | Delete after files moved |
+
+**Blockers:** `profiles/server.py` imports `semantic_service_v2.service`. Must rewire server profile to use `adapters/server/model_store.py` directly.
+
+**Linter contract entries:** Add `no-semantic-service-v2` contract before starting drain.
+
+### B4. `analysis_core/` — 23 files | Difficulty: MEDIUM–HIGH
+
+Heavily deprecated. `ir.py`, `step_registry.py`, `compiler.py` already re-export from `core/`.
+Remaining I/O-bound modules: `executor.py`, `compiler.py` (compile_step), `calendar_data_runtime.py`,
+`step_runners/`, `workflows/`, `capability_profiles.py`, `predicate_validator.py`.
+
+| File | Status | Target |
+|------|--------|--------|
+| `ir.py` | Re-export shim from `core.semantic.ir` | Delete when no external importers |
+| `step_registry.py` | Re-export shim from `core.intent.step_registry` | Delete when no external importers |
+| `intent_registry.py` | Re-export shim from `core.intent.intent_registry` | Delete when no external importers |
+| `primitives.py` | Re-export shim from `core.intent.primitives` | Delete when no external importers |
+| `compiler.py` | Re-exports types + `compile_step` (I/O) | Move `compile_step` to `runtime/`, delete rest |
+| `executor.py` | Active — `execute_compiled` (I/O) | Replace with `ports.data_source.execute()`, delete |
+| `calendar_data_runtime.py` | Active — calendar data reading (I/O) | Move to `runtime/` or port-backed adapter |
+| `step_runners/` | Active — I/O-bound step runners | Register in runtime factory, delete |
+| `workflows/` | Active — `CompositeWorkflowRuntime` | Move expansion to `core/`, execution to `runtime/` |
+| `capability_profiles.py` | Stub for import compat | Delete |
+| `predicate_validator.py` | Stub for import compat | Delete |
+| `validator.py` | Re-exports + `validate_compiler_inputs` (I/O) | Move orchestrator to `runtime/`, delete |
+| `typed_resolution.py` | Re-exports + `normalize_step_request`/`resolve_compiler_inputs` (I/O) | Move I/O functions to `runtime/`, delete |
+| `calendar_*.py` | Re-export shims from `core.semantic.calendar` | Delete when no external importers |
+| `additivity_capabilities.py` | Re-export shim from `core.semantic.additivity` | Delete when no external importers |
+| `composites.py` | Active — workflow templates | Move to `core/intent/` or `runtime/` |
+| `__init__.py` | Re-exports | Delete after all submodules gone |
+
+**Blockers:** Part A items #1–4, #8. See above for resolution paths.
+
+**Linter contract entries to remove:** All `analysis_core` entries in `runtime-no-direct-core-orchestration` and `surfaces-must-use-runtime`.
+
+### B5. `intents/` — 14 files | Difficulty: MEDIUM
+
+10 intent runners + helpers. Not deprecated (correct architectural layer for I/O orchestration),
+but `intents/` as a standalone package is not in the target structure.
+
+| File | Status | Target |
+|------|--------|--------|
+| `observe.py` … `validate.py` (10 runners) | Active | Keep as `runtime/intents/` subpackage, or register via `core.intent.IntentRunnerRegistry` |
+| `_helpers.py` | Active — `commit_step_result()` | `runtime/` |
+| `calendar_alignment_metadata.py` | Active — I/O-coupled helper | `runtime/` |
+| `predicate_lineage_reuse.py` | Active — I/O-coupled helper | `runtime/` |
+| `__init__.py` | Re-exports | Update after move |
+
+**Blockers:** Part A item #7. The `runtime/intent_execution.py` imports all 10 runners directly. Either:
+- (a) Move `intents/` to `runtime/intents/` (simplest — just a `git mv` + import update)
+- (b) Register runners in `core.intent.IntentRunnerRegistry` and look up by name
+
+**Linter contract entries to remove:** `marivo.intents.* -> marivo.analysis_core.*` / `marivo.evidence_engine.*` (these resolve when `intents/` stops importing from legacy packages).
+
+### B6. `execution/` — 8 files | Difficulty: MEDIUM
+
+Query routing, execution orchestration, federation. Not in target architecture.
+
+| File | Status | Target |
+|------|--------|--------|
+| `orchestrator.py` | Active — `WorkflowOrchestrator` | `runtime/` (orchestration) |
+| `routing_runtime.py` | Active — `RoutingRuntime` | `adapters/server/` (routing adapter) |
+| `feedback.py` | Active — routing/compile feedback builders | `runtime/` |
+| `federation.py` | Active — `FederationPlanner`, `FederationRuntime` | `runtime/` or `adapters/` |
+| `translation.py` | Active — `DefaultQueryTranslator` | `adapters/` (dialect translation is adapter concern) |
+| `capabilities.py` | Active — engine capability profiles | `contracts/` (value objects) or `adapters/` |
+| `errors.py` | Active — `ExecutionError` | `contracts/errors.py` |
+| `__init__.py` | Re-exports | Delete after files moved |
+
+**Blockers:** Part A item #8 (`CompositeWorkflowRuntime`). `adapters/server/data_source.py` imports `execution.routing_runtime`. `runtime/semantic_ops.py` imports `execution.feedback`.
+
+**Linter contract entries:** Add `execution-isolation` contract before starting drain.
+
+### B7. `storage/` — 12 files | Difficulty: MEDIUM
+
+Storage implementations (SQLite, DuckDB, MySQL). Not in target — implementations belong in `adapters/`.
+
+| File | Status | Target |
+|------|--------|--------|
+| `sqlite_metadata.py` | Active — `SQLiteMetadataStore` | `adapters/local/` or `adapters/server/` |
+| `duckdb_analytics.py` | Active — `DuckDBAnalyticsEngine` | `adapters/local/` |
+| `mysql_metadata.py` | Active — `MySQLMetadataStore` | `adapters/server/` |
+| `trino_analytics.py` | Active — `TrinoAnalyticsEngine` | `adapters/server/` |
+| `analytics.py` | Active — `AnalyticsEngine` protocol | `ports/` (protocol) + `adapters/` (implementations) |
+| `metadata.py` | Active — metadata access layer | `adapters/` |
+| `evidence_repositories.py` | Active — evidence repo implementations | `adapters/server/` |
+| `step_metadata_repository.py` | Active — step metadata repo | `adapters/server/` |
+| `schema.py` | Active — schema management | `adapters/` |
+| `repositories.py` | Active — repo implementations | `adapters/` |
+| `factories.py` | Active — storage factory | `adapters/` |
+| `__init__.py` | Re-exports | Delete after files moved |
+
+**Blockers:** `profiles/server.py` imports heavily from `storage/`. `adapters/server/*.py` imports from `storage/`. Must update all importers after move.
+
+**Linter contract entries:** Add `storage-isolation` contract before starting drain.
+
+### B8. `evidence_engine/` — 27 files | Difficulty: HIGH
+
+Largest legacy package. Partially extracted to `core/evidence/`. Canonical pipeline runtime,
+state views, context views, and many I/O-bound modules remain.
+
+| File | Status | Target |
+|------|--------|--------|
+| `family_contract.py` | Re-export shim from `core.evidence.family_contract` | Delete when no external importers |
+| `observe_extractor.py` … `test_extractor.py` (7) | Deprecated — delegate to `core.evidence.finding_extraction` | Delete when `finding_extractor_registry.py` updated |
+| `canonical_finding.py` | Deprecated (703 lines) | Absorb into `core/evidence/` and `adapters/` |
+| `assessment_recompute.py` | Deprecated — I/O pipeline | Move 9-step pipeline to `runtime/`, pure logic already in `core/` |
+| `proposition_seeding_run.py` | Deprecated — I/O pipeline | Move to `runtime/` |
+| `canonical_pipeline_runtime.py` | Active — pipeline orchestration | `runtime/` |
+| `finding_extractor_registry.py` | Active — registry wiring | `runtime/` or `adapters/` |
+| `ref_boundary.py` | Active — runtime ref-boundary policy | `runtime/` (or extract pure logic to `core/`) |
+| `state_view.py` | Active — session state materialization | `runtime/` (Part A item #5) |
+| `context_view.py` | Active — proposition context materialization | `runtime/` (Part A item #6) |
+| `publish_switch.py` | Active — evidence publishing | `runtime/` |
+| `invalidation.py` | Active — cache invalidation | `runtime/` |
+| `replay_recovery.py` | Active — replay recovery | `runtime/` |
+| `version_policy.py` | Active — evidence versioning | `core/evidence/` (pure) or `runtime/` |
+| `canonical_refs.py` | Active — canonical reference utilities | `core/evidence/` |
+| `proposal_refresh_run.py` | Active — proposal refresh pipeline | `runtime/` |
+| `proposition_registration.py` | Active — proposition registration | `runtime/` |
+| `proposition_seed_registry.py` | Active — seed registry | `runtime/` or `adapters/` |
+| `proposition_normalizer.py` | Active — normalization | `core/evidence/` (pure) or `runtime/` |
+| `assessment_evaluation_context.py` | Active — evaluation context | `runtime/` |
+| `__init__.py` | Re-exports | Delete after all submodules gone |
+
+**Blockers:** Part A items #3, #5, #6. Deep coupling with `runtime/`, `adapters/`, and `analysis_core/`. Should be drained last among the "logic" packages.
+
+**Linter contract entries to remove:** All `evidence_engine` entries in `runtime-no-direct-core-orchestration` and `surfaces-must-use-runtime`.
+
+### B9. `api/` — 25 files | Difficulty: HIGH (large move)
+
+FastAPI routes, middleware, models, OpenAPI. In the target architecture, HTTP routes
+belong in `transports/http/`. Not a "drain" — a physical rename + import rewrite.
+
+| File | Status | Target |
+|------|--------|--------|
+| `app_factory.py` | Active | `transports/http/app_factory.py` |
+| `deps.py` | Active — dependency injection | `transports/http/deps.py` |
+| `sessions.py` | Active — session routes | `transports/http/sessions.py` |
+| `models/` | Active — Pydantic request/response schemas | `transports/http/models/` (or split pure types to `contracts/`) |
+| `middleware.py` | Active — `UserIdentityMiddleware` | `transports/http/middleware.py` |
+| `endpoints/` | Active — route handlers | `transports/http/endpoints/` |
+| Other files | Active | `transports/http/` |
+
+**Blockers:** Massive import rewrite. Every file that imports `marivo.api.*` must be updated.
+`transports/mcp/http.py` mounts the API app. `profiles/server.py` imports `api.app_factory`.
+
+**Linter contract entries:** `transports-mcp-no-api-internals` must be updated to new paths.
+
+### B10. `cli/` — 12 files | Difficulty: MEDIUM (large move)
+
+CLI commands. In the target architecture, CLI belongs in `transports/cli/`. Physical rename.
+
+| File | Status | Target |
+|------|--------|--------|
+| All command files | Active | `transports/cli/` |
+
+**Blockers:** Import rewrite for all `marivo.cli.*` importers.
+
+**Linter contract entries:** Update `surfaces-must-use-runtime` source_modules from `marivo.cli` to `marivo.transports.cli`.
+
+### B11. Missing target package: `local/`
+
+The architecture design (§4) specifies a `local/` package: "Local-mode utilities: state
+layout, init, WAL helpers." This package does not exist yet. Related logic is currently
+scattered across `profiles/local.py`, `adapters/local/`, and `cli/init.py`.
+
+---
+
+## Suggested Execution Order
+
+```
+Phase 1 (LOW difficulty):
+  B1. semantic_runtime/   → mostly stubs, easiest
+  B2. registry/           → only adapters/server/ depends on it
+
+Phase 2 (MEDIUM difficulty):
+  B3. semantic_service_v2/ → Phase 6.1 already designed the demolition
+  B5. intents/            → git mv to runtime/intents/ + import update
+
+Phase 3 (MEDIUM–HIGH difficulty):
+  B4. analysis_core/      → drain remaining I/O orchestrators into runtime/ports
+  B6. execution/          → absorb into runtime/ and adapters/
+  B7. storage/            → move implementations into adapters/
+
+Phase 4 (HIGH difficulty):
+  B8. evidence_engine/    → largest package, deepest coupling
+
+Phase 5 (Physical rename):
+  B9.  api/  → transports/http/
+  B10. cli/  → transports/cli/
+  B11. Create local/ from scattered utilities
+```
