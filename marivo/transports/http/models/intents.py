@@ -12,13 +12,13 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from marivo.api.models.base import validate_ref_prefix
-from marivo.api.models.json_contract import JsonObject, JsonScalar, ScalarMap
 from marivo.core.semantic.calendar import (
     CalendarPolicyResolutionError,
     validate_calendar_policy_ref,
 )
 from marivo.time_contracts import normalize_hour_boundary
+from marivo.transports.http.models.base import validate_ref_prefix
+from marivo.transports.http.models.json_contract import JsonObject, JsonScalar, ScalarMap
 
 
 class ObservationRef(BaseModel):

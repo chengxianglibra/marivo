@@ -4,7 +4,7 @@ from typing import Any
 
 from fastapi import FastAPI
 
-from marivo.api import (
+from marivo.transports.http import (
     calendar,
     datasources,
     health,

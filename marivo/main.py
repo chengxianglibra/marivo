@@ -1,6 +1,6 @@
 from typing import Any
 
-from marivo.api.app_factory import create_app
+from marivo.transports.http.app_factory import create_app
 
 # Lazy ASGI app: deferred until first access so that importing this module
 # (e.g. `from marivo.main import create_app`) does not open DuckDB or seed data.

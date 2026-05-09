@@ -6,7 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from marivo.api.models.json_contract import ScalarMap
+from marivo.transports.http.models.json_contract import ScalarMap
 
 
 class SessionTerminateRequest(BaseModel):

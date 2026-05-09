@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pydantic import RootModel
 
-from marivo.api.models.json_contract import JsonObject
+from marivo.transports.http.models.json_contract import JsonObject
 
 
 class ObserveResponse(RootModel[JsonObject]):

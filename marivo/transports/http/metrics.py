@@ -5,7 +5,7 @@ from typing import Any
 from fastapi import APIRouter, Query, Request
 from starlette.responses import PlainTextResponse
 
-from marivo.api.deps import get_services
+from marivo.transports.http.deps import get_services
 
 router = APIRouter()
 

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request
 
-from marivo.api.deps import get_services
-from marivo.api.models.calendar import (
+from marivo.transports.http.deps import get_services
+from marivo.transports.http.models.calendar import (
     CalendarDataLoadRequest,
     CalendarDataLoadResponse,
     CalendarVersionItem,

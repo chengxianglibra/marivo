@@ -7,7 +7,6 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from marivo.api.models.osi import OSI_SPEC_VERSION
 from marivo.contracts.errors import (
     ConflictError,
     DomainError,
@@ -16,6 +15,7 @@ from marivo.contracts.errors import (
     ValidationError,
 )
 from marivo.runtime.semantic.semantic_service import SemanticModelV2Service
+from marivo.transports.http.models.osi import OSI_SPEC_VERSION
 from tests.shared_fixtures import (
     ManagedSQLiteMetadataStore,
     make_temp_metadata_store,

@@ -11,8 +11,8 @@ from unittest.mock import patch
 from marivo.adapters.dialect import SQLITE_METADATA_DIALECT, MetadataDialect
 from marivo.adapters.local.sqlite_metadata import SQLiteMetadataStore
 from marivo.adapters.metadata import MetadataStore
-from marivo.api.app_factory import _resolve_storage
 from marivo.config import MarivoConfig, MetadataConfig
+from marivo.transports.http.app_factory import _resolve_storage
 
 
 class DummyMetadataStore(MetadataStore):

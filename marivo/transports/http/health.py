@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Request
 
-from marivo.api.deps import get_services
+from marivo.transports.http.deps import get_services
 
 router = APIRouter()
 
