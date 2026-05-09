@@ -9,7 +9,6 @@ type = forbidden
 source_modules =
     marivo.contracts
 forbidden_modules =
-    marivo.api
     marivo.adapters
     marivo.cli
 
@@ -19,7 +18,6 @@ type = forbidden
 source_modules =
     marivo.ports
 forbidden_modules =
-    marivo.api
     marivo.adapters
     marivo.cli
 
@@ -37,29 +35,28 @@ type = forbidden
 source_modules =
     marivo.core
 forbidden_modules =
-    marivo.api
     marivo.adapters
     marivo.cli
     marivo.ports
 
 [importlinter:contract:surfaces-must-use-runtime]
-name = api/ and cli/ must go through runtime
+name = transports/http/ and cli/ must go through runtime
 type = forbidden
 source_modules =
-    marivo.api
+    marivo.transports.http
     marivo.cli
 forbidden_modules =
     marivo.core.orchestration
 ignore_imports =
-    marivo.api.sessions -> marivo.runtime
+    marivo.transports.http.sessions -> marivo.runtime
 
 [importlinter:contract:transports-mcp-no-api-internals]
-name = transports/mcp/ must not import app/api/ internals
+name = transports/mcp/ must not import transports/http/ internals
 type = forbidden
 source_modules =
     marivo.transports.mcp
 forbidden_modules =
-    marivo.api.endpoints
+    marivo.transports.http.endpoints
 
 [importlinter:contract:profiles-do-not-import-runtime-factory]
 name = profiles must not import the deleted runtime factory

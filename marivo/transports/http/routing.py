@@ -2,14 +2,14 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Request
 
-from marivo.api.deps import get_services
-from marivo.api.models import (
+from marivo.routing import RoutingIntent
+from marivo.transports.http.deps import get_services
+from marivo.transports.http.models import (
     RouteEngineResponse,
     RouteResolveRequest,
     RouteResolveResponse,
     RoutingDetail,
 )
-from marivo.routing import RoutingIntent
 
 router = APIRouter()
 

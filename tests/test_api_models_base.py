@@ -4,7 +4,7 @@ import unittest
 
 from pydantic import ValidationError
 
-from marivo.api.models.base import (
+from marivo.transports.http.models.base import (
     AdditivityConstraints,
     ApiErrorDetail,
     BindingScope,

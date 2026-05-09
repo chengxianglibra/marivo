@@ -5,7 +5,7 @@ from typing import Any
 
 from fastapi import FastAPI
 
-from marivo.api.router import include_api_routers
+from marivo.transports.http.router import include_api_routers
 
 SCOPED_PATH_PREFIXES = (
     "/semantic-models",  # fully typed, GREEN

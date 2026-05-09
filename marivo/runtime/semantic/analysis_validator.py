@@ -796,8 +796,8 @@ def _collect_predicate_refs(
 ) -> list[PredicateRefWithUsage]:
     """Extract all predicate refs from resolved metric, bindings, and request scope,
     tagged with their usage context."""
-    from marivo.api.models.base import PredicateUsage
     from marivo.runtime.semantic.compile_step import PredicateRefWithUsage
+    from marivo.transports.http.models.base import PredicateUsage
 
     refs: list[PredicateRefWithUsage] = []
     seen: set[tuple[str, str]] = set()

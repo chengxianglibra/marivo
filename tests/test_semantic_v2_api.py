@@ -11,9 +11,9 @@ from fastapi.testclient import TestClient
 from marivo.adapters.server.semantic_service_adapter import (
     SemanticServiceAdapter as SemanticModelV2Service,
 )
-from marivo.api.models.osi import OSI_SPEC_VERSION
-from marivo.api.semantic_v2 import router as semantic_v2_router
 from marivo.datasources import DatasourceService
+from marivo.transports.http.models.osi import OSI_SPEC_VERSION
+from marivo.transports.http.semantic_v2 import router as semantic_v2_router
 from tests.shared_fixtures import ManagedSQLiteMetadataStore, make_temp_metadata_store
 
 

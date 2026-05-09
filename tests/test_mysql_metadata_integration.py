@@ -20,7 +20,6 @@ from marivo.adapters.server.mysql_metadata import (
     _expected_mysql_foreign_key_names,
     _expected_mysql_index_names,
 )
-from marivo.api.app_factory import create_app
 from marivo.config import MetadataConfig
 from marivo.core.evidence.canonical_finding import (
     FindingExtractionResult,
@@ -32,6 +31,7 @@ from marivo.runtime.evidence.finding_extractor_registry import (
     FindingExtractor,
     FindingExtractorRegistry,
 )
+from marivo.transports.http.app_factory import create_app
 from tests.shared_fixtures import get_seeded_duckdb_path
 
 MYSQL_TEST_DSN = os.environ.get("MARIVO_TEST_MYSQL_DSN")

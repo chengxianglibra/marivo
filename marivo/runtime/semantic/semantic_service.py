@@ -9,16 +9,6 @@ from __future__ import annotations
 from typing import Any
 
 from marivo.adapters.metadata import MetadataStore
-from marivo.api.models.marivo_extensions import (
-    MarivoSemanticModelExtension,
-)
-from marivo.api.models.osi import (
-    Dataset,
-    Metric,
-    OSIDocument,
-    Relationship,
-    SemanticModel,
-)
 from marivo.contracts.errors import (
     ConflictError,
     ErrorCode,
@@ -43,6 +33,16 @@ from marivo.runtime.semantic.osi_storage import (
     model_to_storage,
     relationship_to_storage,
     storage_to_model,
+)
+from marivo.transports.http.models.marivo_extensions import (
+    MarivoSemanticModelExtension,
+)
+from marivo.transports.http.models.osi import (
+    Dataset,
+    Metric,
+    OSIDocument,
+    Relationship,
+    SemanticModel,
 )
 
 

@@ -11,23 +11,23 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from marivo.api.models.marivo_extensions import (
+from marivo.core.semantic.extensions import (
+    OsiCustomExtensionLike,
+    extract_marivo_extension,
+)
+from marivo.transports.http.models.marivo_extensions import (
     MarivoDatasetExtension,
     MarivoFieldExtension,
     MarivoMetricExtension,
     MarivoRelationshipExtension,
     MarivoSemanticModelExtension,
 )
-from marivo.api.models.osi import (
+from marivo.transports.http.models.osi import (
     Dataset,
     Field,
     Metric,
     Relationship,
     SemanticModel,
-)
-from marivo.core.semantic.extensions import (
-    OsiCustomExtensionLike,
-    extract_marivo_extension,
 )
 
 
@@ -36,7 +36,7 @@ def build_custom_extensions(
     *others: OsiCustomExtensionLike,
 ) -> list[OsiCustomExtensionLike]:
     """Build a custom_extensions list from a MARIVO extension model and optional other extensions."""
-    from marivo.api.models.osi import CustomExtension
+    from marivo.transports.http.models.osi import CustomExtension
 
     result: list[OsiCustomExtensionLike] = []
     if marivo_ext is not None:

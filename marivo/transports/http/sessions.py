@@ -5,8 +5,12 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
-from marivo.api.deps import get_services, http_error
-from marivo.api.models import (
+from marivo.contracts.errors import ExecutionError, ForbiddenError, NotFoundError, ValidationError
+from marivo.contracts.ids import SessionId, UserId
+from marivo.contracts.session import SessionState
+from marivo.runtime import SemanticRuntimeNotReadyError
+from marivo.transports.http.deps import get_services, http_error
+from marivo.transports.http.models import (
     ArtifactRef,
     ArtifactRuntimeStatusResponse,
     AttributeRequest,
@@ -42,10 +46,6 @@ from marivo.api.models import (
     ValidateRequest,
     ValidateResponse,
 )
-from marivo.contracts.errors import ExecutionError, ForbiddenError, NotFoundError, ValidationError
-from marivo.contracts.ids import SessionId, UserId
-from marivo.contracts.session import SessionState
-from marivo.runtime import SemanticRuntimeNotReadyError
 
 router = APIRouter()
 

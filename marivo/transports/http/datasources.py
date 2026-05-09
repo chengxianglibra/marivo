@@ -5,8 +5,8 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
-from marivo.api.deps import get_services
-from marivo.api.models import (
+from marivo.transports.http.deps import get_services
+from marivo.transports.http.models import (
     BrowseSchemaItem,
     BrowseTableItem,
     DatasourceColumnResponse,

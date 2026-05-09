@@ -10,7 +10,6 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from marivo.api.app_factory import create_app
 from marivo.cli import _format_text_result
 from marivo.cli._exitcodes import (
     EXIT_CONFIG_INVALID,
@@ -28,6 +27,7 @@ from marivo.cli.cmd_init_local import handle as init_local_handle
 from marivo.cli.cmd_runtime import handle as runtime_handle
 from marivo.cli.cmd_serve_local import handle as serve_local_handle
 from marivo.config import resolve_metadata_path
+from marivo.transports.http.app_factory import create_app
 
 
 class _HealthResponse:

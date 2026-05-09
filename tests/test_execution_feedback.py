@@ -8,7 +8,6 @@ from typing import Any, ClassVar, cast
 from fastapi.testclient import TestClient
 
 from marivo.adapters.server.routing_runtime import RoutingRuntime
-from marivo.api.app_factory import create_app
 from marivo.contracts.errors import ExecutionError
 from marivo.core.semantic.compiler import (
     CompiledQuery,
@@ -25,6 +24,7 @@ from marivo.runtime.semantic.feedback import (
     compile_failure_from_error,
     federation_failure_from_plan,
 )
+from marivo.transports.http.app_factory import create_app
 from tests.shared_fixtures import get_seeded_duckdb_path
 
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict
 
-from marivo.api.models.json_contract import JsonObject, ScalarMap
+from marivo.transports.http.models.json_contract import JsonObject, ScalarMap
 
 
 class SessionGoal(BaseModel):

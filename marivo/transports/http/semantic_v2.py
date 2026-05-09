@@ -13,8 +13,9 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from marivo.adapters.server.semantic_service_adapter import SemanticServiceAdapter
-from marivo.api.models.json_contract import ScalarMap
-from marivo.api.models.osi import (
+from marivo.identity import resolve_user
+from marivo.transports.http.models.json_contract import ScalarMap
+from marivo.transports.http.models.osi import (
     OSI_SPEC_VERSION,
     Dataset,
     Metric,
@@ -22,7 +23,6 @@ from marivo.api.models.osi import (
     Relationship,
     SemanticModel,
 )
-from marivo.identity import resolve_user
 
 router = APIRouter(prefix="/semantic-models", tags=["semantic-models"])
 

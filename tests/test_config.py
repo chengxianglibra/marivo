@@ -11,9 +11,9 @@ from fastapi.testclient import TestClient
 
 from marivo.adapters.local.duckdb_analytics import DuckDBAnalyticsEngine
 from marivo.adapters.local.sqlite_metadata import SQLiteMetadataStore
-from marivo.api.app_factory import create_app
 from marivo.config import MarivoConfig, load_config
 from marivo.datasources import DatasourceService
+from marivo.transports.http.app_factory import create_app
 from tests.shared_fixtures import get_seeded_duckdb_path
 
 
