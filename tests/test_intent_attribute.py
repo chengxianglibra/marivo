@@ -34,8 +34,8 @@ from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
 
-from marivo.intents.attribute import run_attribute_intent
 from marivo.main import create_app
+from marivo.runtime.intents.attribute import run_attribute_intent
 from marivo.runtime.runtime import MarivoRuntime
 from marivo.storage.duckdb_analytics import DuckDBAnalyticsEngine
 from marivo.storage.sqlite_metadata import SQLiteMetadataStore
@@ -741,9 +741,16 @@ class AttributeRunnerServiceTests(unittest.TestCase):
             }
 
         with (
-            patch("marivo.intents.attribute.run_observe_intent", side_effect=observe_results),
-            patch("marivo.intents.attribute.run_compare_intent", return_value=compare_result),
-            patch("marivo.intents.attribute.run_decompose_intent", side_effect=_decompose_result),
+            patch(
+                "marivo.runtime.intents.attribute.run_observe_intent", side_effect=observe_results
+            ),
+            patch(
+                "marivo.runtime.intents.attribute.run_compare_intent", return_value=compare_result
+            ),
+            patch(
+                "marivo.runtime.intents.attribute.run_decompose_intent",
+                side_effect=_decompose_result,
+            ),
         ):
             bundle = run_attribute_intent(
                 runtime,
@@ -813,9 +820,11 @@ class AttributeRunnerServiceTests(unittest.TestCase):
             }
 
         with (
-            patch("marivo.intents.attribute.run_observe_intent", side_effect=_capture_observe),
             patch(
-                "marivo.intents.attribute.run_compare_intent",
+                "marivo.runtime.intents.attribute.run_observe_intent", side_effect=_capture_observe
+            ),
+            patch(
+                "marivo.runtime.intents.attribute.run_compare_intent",
                 return_value={
                     "step_ref": {"step_id": "step_compare", "step_type": "compare"},
                     "artifact_id": "artifact_compare",
@@ -828,7 +837,7 @@ class AttributeRunnerServiceTests(unittest.TestCase):
                 },
             ),
             patch(
-                "marivo.intents.attribute.run_decompose_intent",
+                "marivo.runtime.intents.attribute.run_decompose_intent",
                 return_value={
                     "step_ref": {"step_id": "step_decompose", "step_type": "decompose"},
                     "artifact_id": "artifact_decompose",
@@ -887,7 +896,7 @@ class AttributeRunnerServiceTests(unittest.TestCase):
 
         with (
             patch(
-                "marivo.intents.attribute.run_observe_intent",
+                "marivo.runtime.intents.attribute.run_observe_intent",
                 side_effect=[
                     {
                         "step_ref": {"step_id": "step_left_obs", "step_type": "observe"},
@@ -912,7 +921,7 @@ class AttributeRunnerServiceTests(unittest.TestCase):
                 ],
             ),
             patch(
-                "marivo.intents.attribute.run_compare_intent",
+                "marivo.runtime.intents.attribute.run_compare_intent",
                 return_value={
                     "step_ref": {"step_id": "step_compare", "step_type": "compare"},
                     "artifact_id": "artifact_compare",
@@ -925,7 +934,7 @@ class AttributeRunnerServiceTests(unittest.TestCase):
                 },
             ),
             patch(
-                "marivo.intents.attribute.run_decompose_intent",
+                "marivo.runtime.intents.attribute.run_decompose_intent",
                 return_value={
                     "step_ref": {"step_id": "step_decompose", "step_type": "decompose"},
                     "artifact_id": "artifact_decompose",
@@ -1173,15 +1182,15 @@ class AttributeHourWindowTests(unittest.TestCase):
 
         with (
             patch(
-                "marivo.intents.attribute.run_observe_intent",
+                "marivo.runtime.intents.attribute.run_observe_intent",
                 side_effect=observe_results,
             ) as observe_mock,
             patch(
-                "marivo.intents.attribute.run_compare_intent",
+                "marivo.runtime.intents.attribute.run_compare_intent",
                 return_value=compare_result,
             ),
             patch(
-                "marivo.intents.attribute.run_decompose_intent",
+                "marivo.runtime.intents.attribute.run_decompose_intent",
                 return_value=decompose_result,
             ),
         ):

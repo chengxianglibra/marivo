@@ -14,8 +14,8 @@ from marivo.analysis_core.ir import AnalysisStepIR
 from marivo.core.intent.primitives import make_provenance, new_step_id
 from marivo.core.semantic.step_metadata import build_step_semantic_metadata
 from marivo.evidence_engine.ref_boundary import assert_no_canonical_refs_in_semantic_payload
-from marivo.intents._helpers import commit_step_result
-from marivo.intents.calendar_alignment_metadata import normalize_resolved_policy_summary
+from marivo.runtime.intents._helpers import commit_step_result
+from marivo.runtime.intents.calendar_alignment_metadata import normalize_resolved_policy_summary
 from marivo.time_contracts import TimeGrain, bucket_window, normalize_hour_boundary
 from marivo.time_scope import normalize_metric_query_request
 

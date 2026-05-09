@@ -5,9 +5,13 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from marivo.core.intent.primitives import new_step_id
-from marivo.intents._helpers import commit_step_result
-from marivo.intents.calendar_alignment_metadata import resolve_calendar_alignment_reuse_for_intent
-from marivo.intents.predicate_lineage_reuse import resolve_predicate_lineage_reuse_for_intent
+from marivo.runtime.intents._helpers import commit_step_result
+from marivo.runtime.intents.calendar_alignment_metadata import (
+    resolve_calendar_alignment_reuse_for_intent,
+)
+from marivo.runtime.intents.predicate_lineage_reuse import (
+    resolve_predicate_lineage_reuse_for_intent,
+)
 
 if TYPE_CHECKING:
     from marivo.runtime.runtime import MarivoRuntime

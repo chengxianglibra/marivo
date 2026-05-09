@@ -5,7 +5,7 @@ from __future__ import annotations
 import unittest
 
 from marivo.analysis_core.compiler import CompiledQuery
-from marivo.intents.observe import _extract_predicate_filter_lineage
+from marivo.runtime.intents.observe import _extract_predicate_filter_lineage
 
 
 def _make_ir_bundle(nodes: list[dict]) -> dict:

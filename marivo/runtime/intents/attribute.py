@@ -16,9 +16,9 @@ from typing import TYPE_CHECKING, Any
 from marivo.analysis_core.additivity_capabilities import derive_additivity_capabilities
 from marivo.core.intent.primitives import new_step_id
 from marivo.execution.errors import ExecutionError
-from marivo.intents.compare import run_compare_intent
-from marivo.intents.decompose import run_decompose_intent
-from marivo.intents.observe import run_observe_intent
+from marivo.runtime.intents.compare import run_compare_intent
+from marivo.runtime.intents.decompose import run_decompose_intent
+from marivo.runtime.intents.observe import run_observe_intent
 
 if TYPE_CHECKING:
     from marivo.runtime.runtime import MarivoRuntime

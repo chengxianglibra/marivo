@@ -17,7 +17,7 @@ from datetime import date as _date
 from typing import TYPE_CHECKING, Any
 
 from marivo.core.intent.primitives import new_step_id
-from marivo.intents._helpers import commit_step_result
+from marivo.runtime.intents._helpers import commit_step_result
 
 if TYPE_CHECKING:
     from marivo.runtime.runtime import MarivoRuntime

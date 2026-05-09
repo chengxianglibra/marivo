@@ -19,8 +19,8 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from marivo.core.intent.primitives import new_step_id
-from marivo.intents.observe import run_observe_intent
-from marivo.intents.test import run_test_intent
+from marivo.runtime.intents.observe import run_observe_intent
+from marivo.runtime.intents.test import run_test_intent
 
 if TYPE_CHECKING:
     from marivo.runtime.runtime import MarivoRuntime

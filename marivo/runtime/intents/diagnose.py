@@ -20,10 +20,10 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, cast
 
 from marivo.core.intent.primitives import new_step_id
-from marivo.intents.compare import run_compare_intent
-from marivo.intents.decompose import run_decompose_intent
-from marivo.intents.detect import run_detect_intent
-from marivo.intents.observe import run_observe_intent
+from marivo.runtime.intents.compare import run_compare_intent
+from marivo.runtime.intents.decompose import run_decompose_intent
+from marivo.runtime.intents.detect import run_detect_intent
+from marivo.runtime.intents.observe import run_observe_intent
 from marivo.time_contracts import TimeGrain, normalize_hour_boundary, previous_adjacent_window
 
 if TYPE_CHECKING:
