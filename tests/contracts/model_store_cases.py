@@ -43,7 +43,9 @@ def _expect_summary_fields(adapter, _: Path) -> None:
         )
     )
     assert len(results) >= 1
-    summary = next(result for result in results if result.name == "summary")
+    names = {summary.name for summary in results}
+    assert "summary" in names
+    summary = next(summary for summary in results if summary.name == "summary")
     assert summary.description == "summary model"
     assert summary.visibility == "public"
     assert summary.owner == UserId("owner1")
