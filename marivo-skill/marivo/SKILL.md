@@ -5,7 +5,7 @@ description: "Use Marivo for HTTP-based, evidence-first analytics work: semantic
 
 # Marivo Skill
 
-Marivo is an **HTTP-only agentic analytics system**. Treat the HTTP API as the product boundary. Do not assume a hidden planner layer, a text-to-SQL public contract, old `/steps/*` routes, MCP-owned evidence, or any required MCP layer.
+Marivo is an **agentic analytics system** that runs in two modes: a local MCP stdio mode with embedded runtime (no HTTP) and an enterprise HTTP API mode. **This skill covers the HTTP API surface only.** Treat the HTTP API as the product boundary for everything below. Do not assume a hidden planner layer, a text-to-SQL public contract, old `/steps/*` routes, MCP-owned evidence, or any required MCP layer.
 
 Use this file to decide **which Marivo surface to use next**. Do not use it as the full field-level contract reference.
 
@@ -31,7 +31,7 @@ Use this skill when the task involves any of these:
 - troubleshooting lifecycle/readiness, source sync, routing, grounding, or execution auth problems
 - preferring structured Marivo evidence over ad hoc SQL or MCP summaries
 
-Skip this skill when the task is unrelated to Marivo's HTTP surfaces.
+Skip this skill when the task is unrelated to Marivo's HTTP API surfaces (for local MCP stdio mode, this skill does not apply).
 
 ## Choose The Surface First
 

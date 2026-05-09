@@ -30,17 +30,37 @@
 - 使用 `TYPE_CHECKING` 处理循环导入
 - 使用 `| None` 而不是 `Optional[]`（Python 3.10+语法）
 
+## 项目结构
+
+```
+marivo/
+  contracts/     # 共享域类型：ID、值对象、错误码
+  core/          # 纯域逻辑，零 I/O
+  runtime/       # 用例编排层
+  ports/         # Protocol 接口定义
+  adapters/      # Port 实现（local/server）
+  profiles/      # Profile 工厂（create_local_runtime / create_server_runtime）
+  transports/    # 传输层（CLI, MCP, HTTP API）
+  api/           # FastAPI HTTP 路由
+```
+
+## 架构约束
+
+- `core/` 不得导入 adapter、transport 或存储库（由 import-linter 在 CI 中强制执行）
+- Surface 层（transports / api）只做协议转换，必须通过 Runtime 层访问业务逻辑
+- 详细约束参见 `docs/architecture-invariants.md`
+
 ## 开发工具
 
 ### 安装开发依赖
 ```bash
-pip install -e ".[dev,trino]"
+.venv/bin/pip install -e ".[dev,trino]"
 ```
 
 ### Pre-commit Hooks
 安装pre-commit hooks以在提交前自动检查代码：
 ```bash
-pip install pre-commit
+.venv/bin/pip install pre-commit
 pre-commit install
 ```
 
@@ -51,25 +71,19 @@ pre-commit run --all-files
 
 ### 代码格式化
 ```bash
-# 检查格式问题
-ruff format --check .
-
-# 自动格式化
-ruff format .
+# 自动格式化（包含 ruff format 和 ruff check --fix）
+make format
 ```
 
 ### Linting
 ```bash
 # 检查代码问题
-ruff check .
-
-# 自动修复可修复的问题
-ruff check --fix .
+make lint
 ```
 
 ### 类型检查
 ```bash
-mypy marivo
+make typecheck
 ```
 
 ## 测试
@@ -77,32 +91,32 @@ mypy marivo
 ### 运行测试
 ```bash
 # 运行所有测试（并行）
-pytest
+make test
 
 # 运行特定测试文件
-pytest tests/test_sessions.py
+.venv/bin/pytest tests/test_sessions.py
 
 # 运行特定测试方法
-pytest tests/test_sessions.py::SessionAPITests::test_get_session_after_create
+.venv/bin/pytest tests/test_sessions.py::SessionAPITests::test_get_session_after_create
 
 # 显示详细输出
-pytest -v
+.venv/bin/pytest -v
 
 # 显示print输出
-pytest -s
+.venv/bin/pytest -s
 ```
 
 ### 测试覆盖率
 ```bash
 # 生成覆盖率报告
-pytest --cov=marivo --cov-report=term-missing
+.venv/bin/pytest --cov=marivo --cov-report=term-missing
 
 # 生成HTML覆盖率报告
-pytest --cov=marivo --cov-report=html
+.venv/bin/pytest --cov=marivo --cov-report=html
 # 然后打开 htmlcov/index.html
 
 # 生成XML覆盖率报告（用于CI）
-pytest --cov=marivo --cov-report=xml
+.venv/bin/pytest --cov=marivo --cov-report=xml
 ```
 
 ### 测试要求
@@ -116,10 +130,10 @@ pytest --cov=marivo --cov-report=xml
 ## 提交规范
 
 ### 提交前检查清单
-- [ ] 代码已格式化（`ruff format .`）
-- [ ] 通过linting检查（`ruff check .`）
-- [ ] 通过类型检查（`mypy marivo`）
-- [ ] 所有测试通过（`pytest`）
+- [ ] 代码已格式化（`make format`）
+- [ ] 通过linting检查（`make lint`）
+- [ ] 通过类型检查（`make typecheck`）
+- [ ] 所有测试通过（`make test`）
 - [ ] 测试覆盖率满足要求
 - [ ] 更新了相关文档
 
@@ -145,13 +159,13 @@ pytest --cov=marivo --cov-report=xml
 ## 常见问题
 
 ### Q: 如何修复格式问题？
-A: 运行 `ruff format .` 自动格式化所有文件。
+A: 运行 `make format` 自动格式化所有文件（包含 import 排序）。
 
 ### Q: 如何修复import顺序问题？
-A: Ruff会自动修复，运行 `ruff check --fix .`。
+A: `make format` 会自动修复 import 排序。
 
 ### Q: Mypy报告类型错误怎么办？
 A: 添加正确的类型注解。如果是第三方库缺少类型定义，可以在pyproject.toml中配置忽略。
 
 ### Q: 测试失败怎么办？
-A: 检查错误信息，修复代码或测试。使用 `pytest -v -s` 查看详细输出。
+A: 检查错误信息，修复代码或测试。使用 `.venv/bin/pytest -v -s` 查看详细输出。

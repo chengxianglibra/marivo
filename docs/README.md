@@ -9,6 +9,10 @@
 
 ## For Developers
 
+### Architecture
+
+- [`architecture-invariants.md`](architecture-invariants.md) — Five core architecture invariants (Core Isolation, Domain-Only Ports, Surface→Runtime Only, Profile Factory Exclusivity, Mode Separation)
+
 ### Internal Design Specs (`specs/`)
 
 Long-lived, canonical design documents. These are the authoritative source for

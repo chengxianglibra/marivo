@@ -1,14 +1,17 @@
 # Marivo — Agentic Analytics System
 
-Stateful sessions, semantic discovery, typed analysis steps, deterministic evidence packaging, HTTP API. Not a text-to-SQL tool.
+Stateful sessions, semantic discovery, typed analysis steps, deterministic evidence packaging. Dual-mode: local agentic (MCP stdio) and enterprise (HTTP API). Not a text-to-SQL tool.
 
 ## Features
 
-- **FastAPI service**: sessions, typed intents, semantic catalog, source/engine registries, bindings with routing, async jobs, observability
+- **Five-layer architecture**: Surfaces → Runtime → Core Engine → Ports → Adapters, with strict Core isolation enforced by import-linter
+- **Dual-mode**: local agentic (MCP stdio, no daemon, `.marivo/` workspace) + enterprise (HTTP API, centralized governance)
+- **Profile system**: adapter composition via `profiles/local.py` and `profiles/server.py` — same Runtime, different backends
+- **Typed intents**: sessions, semantic catalog, source/engine registries, bindings with routing, async jobs, observability
 - **Evidence packaging**: observations (5 types), claims with confidence/inference_level (L0–L5), evidence edges, recommendations with causal_basis
 - **Readiness signal**: 5-dimensional readiness + suggested_action + live_claims after each typed analysis step
 - **Causal checkers**: deterministic inference-level upgrades
-- **Dual-backend**: SQLite (metadata) + DuckDB (analytics)
+- **Dual-backend**: SQLite (metadata) + DuckDB/Trino (analytics)
 - **Independent UI**: React console in `frontend/` for HTTP API operations, semantic readiness, and evidence review
 
 ## Quick Start
@@ -16,13 +19,19 @@ Stateful sessions, semantic discovery, typed analysis steps, deterministic evide
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -e .
+
+# Local mode (MCP stdio, no daemon)
+.venv/bin/marivo init --workspace-root .
+# Configure your MCP client to use: .venv/bin/marivo mcp stdio
+
+# HTTP server mode
 .venv/bin/marivo init-local --workspace-root .
 .venv/bin/marivo serve-local --workspace-root .
 ```
 
-`marivo init-local` creates `.marivo/marivo.yaml` and the local metadata layout.
-`marivo serve-local` starts the canonical HTTP service, waits for `/health`, and
-writes `.marivo/runtime.json` for reuse by local agents.
+`marivo init` / `marivo init-local` creates `.marivo/marivo.yaml` and the local metadata layout.
+`marivo serve-local` starts the HTTP service, waits for `/health`, and writes
+`.marivo/runtime.json` for reuse by local agents.
 
 Useful local runtime checks:
 
@@ -66,30 +75,28 @@ metadata:
 ```
 
 `marivo init-local` writes the local workspace config automatically. For custom service
-configuration, copy this shape to `marivo.yaml` or set `MARIVO_CONFIG`. Source,
-engine, and mapping inventory is managed via the HTTP API, not YAML config.
+configuration, copy this shape to `marivo.yaml` or set `MARIVO_CONFIG`. Profile
+selection is resolved per entry point via `profiles/resolver.py`. Source, engine,
+and mapping inventory is managed via the HTTP API, not YAML config.
 
 ## Agent Setup
 
-Marivo remains HTTP-only. The optional MCP adapter in `marivo-mcp/` is a
-client-side adapter over the canonical HTTP API.
+MCP is integrated in `marivo/transports/mcp/` with two transports:
 
-Generate a local auto-managed MCP client config:
+- **stdio** (local agentic): embedded in-process, no daemon required
+- **HTTP MCP** (enterprise): connects to a running Marivo HTTP service
 
-```bash
-cd marivo-mcp
-.venv/bin/marivo-mcp init --workspace-root /absolute/path/to/workspace --print-config
+Configure your MCP client for local stdio mode:
+
+```json
+{
+  "command": ".venv/bin/marivo",
+  "args": ["mcp", "stdio"],
+  "cwd": "/absolute/path/to/workspace"
+}
 ```
 
-Generate a remote explicit config:
-
-```bash
-cd marivo-mcp
-.venv/bin/marivo-mcp init --mode remote --base-url http://127.0.0.1:8000 --print-config
-```
-
-See `marivo-mcp/README.md` for Codex config writing, Streamable HTTP transport,
-workspace-root guards, and remote failure behavior.
+For enterprise HTTP MCP, point your client at the running Marivo service endpoint.
 
 ## Example
 
@@ -130,24 +137,35 @@ curl -s http://127.0.0.1:8000/sessions/<id>/state | python3 -m json.tool
 ## Architecture
 
 ```
-HTTP → FastAPI → Services → Analysis Core + Evidence Engine + Storage
+Surfaces (CLI, MCP stdio+HTTP, HTTP API, SDK)
+  → Runtime (session, semantic ops, intent execution, evidence ops)
+    → Core Engine (pure domain logic, zero I/O)
+      → Ports (Protocol interfaces: ModelStore, SessionStore, EvidenceStore, DataSource)
+        → Adapters/Profiles (local: File/SQLite/DuckDB; server: SQL/Trino)
 ```
 
-An external MCP adapter lives in `marivo-mcp/`. It is a separate subproject and
-does not change Marivo's HTTP-only product boundary. Local MCP startup resolves
-or starts the HTTP runtime through `marivo serve-local`; remote MCP startup uses
-an explicit `MARIVO_BASE_URL` and never falls back to local runtime.
+**Dual-mode deployment:**
 
-- **Services**: SemanticLayerService, SourceService, EngineService, BindingService, QueryRouter, SemanticService, GovernanceService, JobService
-- **Analysis core**: IR, compiler, executor, primitives, composites
+- **Local agentic**: MCP stdio transport, no daemon, short-lived processes, SQLite + DuckDB, `.marivo/` workspace
+- **Enterprise**: HTTP API + HTTP MCP, centralized governance, SQLite/MySQL metadata
+
+MCP transports live in `marivo/transports/mcp/` (stdio and HTTP). `core/` contains
+pure domain logic with zero I/O dependencies — enforced by import-linter in CI.
+
+- **Surfaces**: CLI, MCP (stdio + HTTP), HTTP API
+- **Runtime**: SemanticLayerService, SourceService, EngineService, BindingService, QueryRouter, SemanticService, GovernanceService, JobService
+- **Core engine**: IR, compiler, executor, primitives, composites
 - **Evidence engine**: extractors, synthesizers, causal checkers, readiness
-- **Storage**: SQLite metadata + DuckDB/Trino analytics
+- **Ports & Adapters**: SQLite/MySQL metadata + DuckDB/Trino analytics, FileModelStore, SqlModelStore, etc.
 
 ## Key Concepts
 
 - **Canonical read surfaces**: session decisions come from `/sessions/{id}/state`; proposition closure comes from `/sessions/{id}/propositions/{pid}/context`
 - **Inference levels**: L0=correlation, L1=consistency, L2=temporal precedence, L3=mechanism
 - **Published semantic contracts**: runtime resolution and typed analysis should rely on published semantic objects
+- **Profiles**: local and server profiles compose different adapters for the same Runtime (`profiles/local.py`, `profiles/server.py`)
+- **Core isolation**: `core/` contains pure domain logic with zero I/O — no imports of adapters, transports, or storage libraries
+- **Ports**: domain-defined abstract interfaces (Protocol classes) for storage, data access, and external integrations
 
 ## Tests
 
