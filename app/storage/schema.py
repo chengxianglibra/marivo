@@ -29,6 +29,20 @@ METADATA_DDL: list[str] = [
     )
     """,
     """
+    CREATE TABLE IF NOT EXISTS session_events (
+        event_id     INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id   TEXT NOT NULL,
+        seq          INTEGER NOT NULL,
+        event_type   TEXT NOT NULL,
+        timestamp    TEXT NOT NULL,
+        actor        TEXT,
+        payload_json TEXT NOT NULL,
+        UNIQUE(session_id, seq)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_session_events_sid ON session_events(session_id)",
+    "CREATE INDEX IF NOT EXISTS idx_session_events_owner ON session_events(event_type, actor)",
+    """
     CREATE TABLE IF NOT EXISTS steps (
         step_id         TEXT PRIMARY KEY,
         session_id      TEXT NOT NULL,
@@ -738,7 +752,7 @@ METADATA_DDL: list[str] = [
     """
     CREATE TABLE IF NOT EXISTS plans (
         plan_id         TEXT PRIMARY KEY,
-        session_id      TEXT NOT NULL REFERENCES sessions(session_id),
+        session_id      TEXT NOT NULL,
         status          TEXT NOT NULL DEFAULT 'draft',
         steps_json      TEXT NOT NULL DEFAULT '[]',
         created_at      TEXT NOT NULL,
@@ -753,7 +767,7 @@ METADATA_DDL: list[str] = [
     """
     CREATE TABLE IF NOT EXISTS findings (
         finding_id          TEXT PRIMARY KEY,
-        session_id          TEXT NOT NULL REFERENCES sessions(session_id),  -- denorm: session_id also lives in step_ref_json; kept for efficient indexed queries
+        session_id          TEXT NOT NULL,  -- denorm: session_id also lives in step_ref_json; kept for efficient indexed queries
         artifact_id         TEXT NOT NULL REFERENCES artifacts(artifact_id),
         step_ref_json       TEXT NOT NULL,
         finding_type        TEXT NOT NULL,
@@ -780,7 +794,7 @@ METADATA_DDL: list[str] = [
     """
     CREATE TABLE IF NOT EXISTS propositions (
         proposition_id          TEXT PRIMARY KEY,
-        session_id              TEXT NOT NULL REFERENCES sessions(session_id),
+        session_id              TEXT NOT NULL,
         proposition_type        TEXT NOT NULL,
         subject_json            TEXT NOT NULL,
         origin_json             TEXT NOT NULL,
@@ -804,7 +818,7 @@ METADATA_DDL: list[str] = [
     """
     CREATE TABLE IF NOT EXISTS assessments (
         assessment_id                   TEXT PRIMARY KEY,
-        session_id                      TEXT NOT NULL REFERENCES sessions(session_id),
+        session_id                      TEXT NOT NULL,
         proposition_id                  TEXT NOT NULL REFERENCES propositions(proposition_id),
         assessment_type                 TEXT NOT NULL,
         snapshot_seq                    INTEGER NOT NULL,
@@ -830,7 +844,7 @@ METADATA_DDL: list[str] = [
     """
     CREATE TABLE IF NOT EXISTS evidence_gaps (
         gap_id                          TEXT PRIMARY KEY,
-        session_id                      TEXT NOT NULL REFERENCES sessions(session_id),
+        session_id                      TEXT NOT NULL,
         proposition_id                  TEXT NOT NULL REFERENCES propositions(proposition_id),
         gap_kind                        TEXT NOT NULL,
         title                           TEXT NOT NULL DEFAULT '',
@@ -855,7 +869,7 @@ METADATA_DDL: list[str] = [
     """
     CREATE TABLE IF NOT EXISTS inference_records (
         inference_record_id             TEXT PRIMARY KEY,
-        session_id                      TEXT NOT NULL REFERENCES sessions(session_id),
+        session_id                      TEXT NOT NULL,
         proposition_id                  TEXT NOT NULL REFERENCES propositions(proposition_id),
         assessment_id                   TEXT NOT NULL REFERENCES assessments(assessment_id),
         rule_id                         TEXT NOT NULL,
@@ -881,7 +895,7 @@ METADATA_DDL: list[str] = [
     """
     CREATE TABLE IF NOT EXISTS action_proposals (
         action_proposal_id              TEXT PRIMARY KEY,
-        session_id                      TEXT NOT NULL REFERENCES sessions(session_id),
+        session_id                      TEXT NOT NULL,
         action_kind                     TEXT NOT NULL,
         primary_assessment_ref_json     TEXT NOT NULL,
         related_assessment_refs_json    TEXT NOT NULL DEFAULT '[]',

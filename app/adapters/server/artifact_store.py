@@ -81,11 +81,18 @@ class MetadataArtifactStoreAdapter:
         *,
         step_type: str | None = None,
         artifact_schema_version: str | None = None,
+        con: Any | None = None,
     ) -> ArtifactId:
         """Canonical commit boundary for mandatory-extraction artifacts.
 
         Mirrors SemanticLayerService._commit_artifact_with_extraction
         but operates through the port interface.
+
+        When *con* is provided, all writes execute on that existing
+        connection so the caller can coordinate a shared transaction
+        (e.g. atomically appending a session event).  The caller is
+        responsible for calling ``con.commit()`` when using an external
+        connection.
         """
         from app.findings.commit_boundary import validate_for_commit
         from app.findings.registry import default_finding_registry
@@ -95,6 +102,19 @@ class MetadataArtifactStoreAdapter:
 
         if extractor is None:
             # Non-mandatory family: insert as committed directly.
+            if con is not None:
+                self._insert_artifact_on_con(
+                    con,
+                    session_id,
+                    step_id,
+                    artifact_type,
+                    name,
+                    content,
+                    "committed",
+                    artifact_schema_version,
+                )
+                # Caller commits
+                return ArtifactId(f"art_{uuid4().hex[:12]}")
             return self.insert_artifact(
                 session_id,
                 step_id,
@@ -117,10 +137,9 @@ class MetadataArtifactStoreAdapter:
         result = extractor.extract(artifact_id, content, effective_step_ref, session_id)
         validate_for_commit(extractor.family, result)
 
-        # All writes in a single transaction
-        with self._metadata.connect() as con:
+        def _do_writes(c: Any) -> None:
             self._metadata.execute_sql(
-                con,
+                c,
                 """
                 INSERT INTO artifacts
                     (artifact_id, session_id, step_id, artifact_type, name,
@@ -139,7 +158,7 @@ class MetadataArtifactStoreAdapter:
             )
             for f in result["findings"]:
                 self._metadata.execute_sql(
-                    con,
+                    c,
                     self._metadata.insert_ignore_sql(
                         "findings",
                         [
@@ -175,11 +194,19 @@ class MetadataArtifactStoreAdapter:
                     ],
                 )
             self._metadata.execute_sql(
-                con,
+                c,
                 "UPDATE artifacts SET lifecycle = 'committed' WHERE artifact_id = ?",
                 [artifact_id],
             )
-            con.commit()
+
+        if con is not None:
+            # Caller manages the transaction; just do the writes.
+            _do_writes(con)
+        else:
+            # Open our own transaction.
+            with self._metadata.connect() as c:
+                _do_writes(c)
+                c.commit()
 
         # Trigger canonical downstream pipeline for committed findings
         if result["findings"]:
@@ -193,6 +220,40 @@ class MetadataArtifactStoreAdapter:
                 )
 
         return ArtifactId(artifact_id)
+
+    def _insert_artifact_on_con(
+        self,
+        con: Any,
+        session_id: SessionId,
+        step_id: StepId,
+        artifact_type: str,
+        name: str,
+        content: Any,
+        lifecycle: str,
+        artifact_schema_version: str | None,
+    ) -> str:
+        """INSERT an artifact row on an existing connection (no commit)."""
+        artifact_id = f"art_{uuid4().hex[:12]}"
+        self._metadata.execute_sql(
+            con,
+            """
+            INSERT INTO artifacts
+                (artifact_id, session_id, step_id, artifact_type, name,
+                 content_json, lifecycle, artifact_schema_version)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                artifact_id,
+                session_id,
+                step_id,
+                artifact_type,
+                name,
+                self._dump(content),
+                lifecycle,
+                artifact_schema_version,
+            ],
+        )
+        return artifact_id
 
     def _run_canonical_downstream(self, session_id: str, findings: list[dict[str, Any]]) -> None:
         """Trigger the canonical downstream pipeline for committed findings."""

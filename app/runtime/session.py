@@ -360,11 +360,11 @@ def get_session_state_view(
     """Return the canonical SessionStateView for a session.
 
     Delegates to materialize_session_state_view using evidence repos
-    from runtime.ports.evidence_repos (server mode).
+    from runtime.evidence_repos (server mode).
     """
     from app.evidence_engine.state_view import materialize_session_state_view
 
-    repos = runtime.ports.evidence_repos
+    repos = runtime.evidence_repos
     if repos is None:
         raise NotImplementedError(
             "get_session_state_view requires evidence_repos (server mode only)"
@@ -399,7 +399,7 @@ def get_proposition_context(
     """Return PropositionContextView for a proposition."""
     from app.evidence_engine.context_view import materialize_proposition_context_view
 
-    repos = runtime.ports.evidence_repos
+    repos = runtime.evidence_repos
     if repos is None:
         raise NotImplementedError(
             "get_proposition_context requires evidence_repos (server mode only)"
@@ -420,9 +420,9 @@ def discover_catalog(runtime: MarivoRuntime) -> dict[str, Any]:
     """Return the API catalog of entities, models, and datasources."""
     from typing import Any as AnyT
 
-    metadata = runtime.ports.metadata
-    semantic_repository = runtime.ports.semantic_repository
-    analytics = runtime.ports.analytics
+    metadata = runtime.metadata
+    semantic_repository = runtime.semantic_repository
+    analytics = runtime.analytics
 
     if metadata is None or semantic_repository is None or analytics is None:
         raise NotImplementedError(

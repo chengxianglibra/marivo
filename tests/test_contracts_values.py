@@ -151,6 +151,16 @@ def test_logical_query() -> None:
     assert q.params == {"key": "val"}
 
 
+def test_logical_query_datasource_id_default() -> None:
+    q = LogicalQuery(sql="SELECT 1")
+    assert q.datasource_id is None
+
+
+def test_logical_query_datasource_id_explicit() -> None:
+    q = LogicalQuery(sql="SELECT 1", datasource_id=DatasourceId("ds_abc"))
+    assert q.datasource_id == "ds_abc"
+
+
 def test_query_result() -> None:
     r = QueryResult(columns=["a"], rows=[{"a": 1}], row_count=1)
     assert r.columns == ["a"]

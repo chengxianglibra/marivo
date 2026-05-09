@@ -74,6 +74,21 @@ class MetadataSchemaBootstrapTests(unittest.TestCase):
         self.assertEqual(marker["schema_version"], METADATA_SCHEMA_VERSION)
         self.assertEqual(marker["ddl_fingerprint"], metadata_ddl_fingerprint("mysql"))
 
+    def test_session_events_table_created_by_initialize(self) -> None:
+        import tempfile
+        from pathlib import Path
+
+        from app.storage.sqlite_metadata import SQLiteMetadataStore
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = SQLiteMetadataStore(Path(tmp) / "test.meta.sqlite")
+            store.initialize()
+            with store.connect() as con:
+                rows = store.query_rows(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='session_events'",
+                )
+            self.assertEqual(len(rows), 1)
+
     def test_dataset_native_grounding_removed_tables_are_not_expected(self) -> None:
         removed_tables = {
             "source_objects",

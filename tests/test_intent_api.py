@@ -897,8 +897,8 @@ class ArtifactLifecycleTests(unittest.TestCase):
     def _make_session(self) -> str:
 
         session_id = f"sess_{uuid4().hex[:12]}"
-        self.service.ports.metadata.execute(
-            "INSERT INTO sessions (session_id, goal, constraints_json, budget_json, status) "
+        self.service.metadata.execute(
+            "INSERT INTO session_events (session_id, goal, constraints_json, budget_json, status) "
             "VALUES (?, ?, '{}', '{}', 'open')",
             [session_id, "lifecycle test"],
         )
@@ -910,7 +910,7 @@ class ArtifactLifecycleTests(unittest.TestCase):
         artifact_id = self.service.insert_artifact(
             session_id, step_id, "observation", "test", {"v": 1}, lifecycle="staged"
         )
-        row = self.service.ports.metadata.query_one(
+        row = self.service.metadata.query_one(
             "SELECT lifecycle FROM artifacts WHERE artifact_id = ?", [artifact_id]
         )
         self.assertIsNotNone(row)
@@ -922,11 +922,11 @@ class ArtifactLifecycleTests(unittest.TestCase):
         artifact_id = self.service.insert_artifact(
             session_id, step_id, "observation", "test", {"v": 2}, lifecycle="staged"
         )
-        self.service.ports.metadata.execute(
+        self.service.metadata.execute(
             "UPDATE artifacts SET lifecycle = 'committed' WHERE artifact_id = ?",
             [artifact_id],
         )
-        row = self.service.ports.metadata.query_one(
+        row = self.service.metadata.query_one(
             "SELECT lifecycle FROM artifacts WHERE artifact_id = ?", [artifact_id]
         )
         self.assertIsNotNone(row)

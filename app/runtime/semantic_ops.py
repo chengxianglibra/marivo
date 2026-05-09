@@ -622,7 +622,7 @@ def _resolve_runtime_metric_contract(
     runtime: MarivoRuntime, metric_ref: str
 ) -> ResolvedSemanticObject | None:
     metric_ref = _coerce_metric_ref(metric_ref)
-    repo = runtime.ports.semantic_repository
+    repo = runtime.semantic_repository
     if repo is None:
         raise SemanticRuntimeNotReadyError(
             f"Semantic repository not available: {metric_ref}",
@@ -848,7 +848,7 @@ def resolve_metric_execution_context(
     """Resolve the full execution context for a metric, including table, bindings, and routing."""
     metric_ref = _coerce_metric_ref(metric_ref)
     metric_name = metric_name_from_ref(metric_ref)
-    repo = runtime.ports.semantic_repository
+    repo = runtime.semantic_repository
     if repo is None:
         raise SemanticRuntimeNotReadyError(
             f"Semantic repository not available: {metric_ref}",
@@ -966,7 +966,7 @@ def resolve_metric(
     metric_name: str,
 ) -> Any:
     """Resolve a metric by name from the semantic repository."""
-    repo = runtime.ports.semantic_repository
+    repo = runtime.semantic_repository
     if repo is None:
         raise SemanticRuntimeNotReadyError(
             f"Semantic repository not available: metric.{metric_name}",
@@ -1024,7 +1024,7 @@ def resolve_metric_dimensions(
 
 def _resolve_entity_dimensions(runtime: MarivoRuntime, entity_ref: str) -> list[str]:
     """Get canonical dimensions exposed by published entity bindings."""
-    metadata = runtime.ports.metadata
+    metadata = runtime.metadata
     if metadata is None:
         return []
     result = resolve_entity_binding_dimensions(metadata, entity_ref)
@@ -1044,17 +1044,15 @@ def compile_step_with_feedback(
     runtime's ports, plus calendar_data_reader when available.
     """
     effective_semantic_context = dict(semantic_context or {})
-    repo = runtime.ports.semantic_repository
+    repo = runtime.semantic_repository
     if repo is not None:
         effective_semantic_context.setdefault("semantic_repository", repo)
         effective_semantic_context.setdefault(
             "compatibility_profile_reader",
             repo._published_compatibility_profiles_for_subject_ref,
         )
-    if runtime.ports.calendar_data_reader is not None:
-        effective_semantic_context.setdefault(
-            "calendar_data_reader", runtime.ports.calendar_data_reader
-        )
+    if runtime.calendar_data_reader is not None:
+        effective_semantic_context.setdefault("calendar_data_reader", runtime.calendar_data_reader)
     try:
         compiled = compile_step(
             step,
@@ -1102,7 +1100,7 @@ def resolve_windowed_query_time_axis(
             request.resolved_time_axis.override_partition_hour_column,
         )
     )
-    time_provider = runtime.ports.time_axis_metadata_provider
+    time_provider = runtime.time_axis_metadata_provider
     if time_provider is None:
         raise ValueError("time_axis_metadata_provider not available in local mode")
     try:
@@ -1229,7 +1227,7 @@ def _resolve_predicate_ref_to_filter(
     table_name: str | None = None,
 ) -> str | None:
     """Resolve a predicate_ref to a SQL filter expression."""
-    metadata = runtime.ports.metadata
+    metadata = runtime.metadata
     if metadata is None:
         raise ValueError("metadata port not available in local mode")
     row = metadata.query_one(
@@ -1556,7 +1554,7 @@ def build_step_semantic_metadata(
 def _resolve_metric_direction(runtime: MarivoRuntime, metric_ref: str) -> str | None:
     """Look up a published metric's desired_direction for recommendation policy."""
     metric_ref = _coerce_metric_ref(metric_ref)
-    resolver = runtime.ports.semantic_resolver
+    resolver = runtime.semantic_resolver
     if resolver is None:
         return None
     resolved = resolver.resolve_metric(metric_name_from_ref(metric_ref))
@@ -1599,7 +1597,7 @@ def _resolve_entity_for_metric(runtime: MarivoRuntime, metric_ref: str) -> dict[
     """Return the published entity linked to the given metric name, or None."""
     try:
         metric_ref = _coerce_metric_ref(metric_ref)
-        repo = runtime.ports.semantic_repository
+        repo = runtime.semantic_repository
         if repo is None:
             return None
         resolved_metric = repo.resolve_metric_ref(metric_ref)

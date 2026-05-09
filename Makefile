@@ -1,4 +1,4 @@
-.PHONY: test typecheck lint format check
+.PHONY: test typecheck lint format check test-mysql
 
 VENV_PYTHON := .venv/bin/python
 VENV_PYTEST := .venv/bin/pytest
@@ -23,5 +23,9 @@ format:
 	@./scripts/require-venv.sh ruff
 	@$(VENV_RUFF) format .
 	@$(VENV_RUFF) check --fix .
+
+test-mysql:
+	pip install -e ".[mysql,test-mysql]"
+	$(VENV_PYTEST) tests/contracts/ -m mysql
 
 check: lint typecheck test

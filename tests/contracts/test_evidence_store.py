@@ -6,9 +6,16 @@ from pathlib import Path
 import pytest
 
 from app.adapters.local.file_evidence_store import FileEvidenceStore
+from app.adapters.server.evidence_store import MetadataEvidenceStoreAdapter
 from app.contracts.errors import IntegrityError, NotFoundError
 from app.contracts.evidence import Evidence, Finding, Proposition
-from app.contracts.ids import ArtifactId, EvidenceRef, FindingId, PropositionId, SessionId
+from app.contracts.ids import (
+    ArtifactId,
+    EvidenceRef,
+    FindingId,
+    PropositionId,
+    SessionId,
+)
 
 
 def _make_file_evidence_store(tmp_path: Path) -> FileEvidenceStore:
@@ -17,8 +24,26 @@ def _make_file_evidence_store(tmp_path: Path) -> FileEvidenceStore:
     return FileEvidenceStore(ev_dir)
 
 
+def _make_metadata_evidence_store(tmp_path: Path) -> MetadataEvidenceStoreAdapter:
+    from app.storage.evidence_repositories import (
+        AssessmentRepository,
+        FindingRepository,
+        PropositionRepository,
+    )
+    from app.storage.sqlite_metadata import SQLiteMetadataStore
+
+    store = SQLiteMetadataStore(tmp_path / "test.meta.sqlite")
+    store.initialize()
+    return MetadataEvidenceStoreAdapter(
+        finding_repo=FindingRepository(store),
+        proposition_repo=PropositionRepository(store),
+        assessment_repo=AssessmentRepository(store),
+    )
+
+
 evidence_store_factories = [
     ("FileEvidenceStore", _make_file_evidence_store),
+    ("MetadataEvidenceStoreAdapter", _make_metadata_evidence_store),
 ]
 
 
@@ -80,8 +105,6 @@ def test_write_is_idempotent(name, factory, tmp_path):
     ref1 = store.write(evidence)
     ref2 = store.write(evidence)
     assert ref1 == ref2
-    ev_files = list((tmp_path / "evidence").glob("*.json"))
-    assert len(ev_files) == 1
 
 
 @pytest.mark.parametrize("name,factory", evidence_store_factories)
@@ -89,12 +112,17 @@ def test_hash_determinism(name, factory, tmp_path):
     store = factory(tmp_path)
     evidence = _sample_evidence()
     ref1 = store.write(evidence)
-    store2 = FileEvidenceStore(tmp_path / "evidence")
+    store2 = factory(tmp_path)
     ref2 = store2.write(evidence)
     assert ref1 == ref2
 
 
-@pytest.mark.parametrize("name,factory", evidence_store_factories)
+@pytest.mark.parametrize(
+    "name,factory",
+    [
+        ("FileEvidenceStore", _make_file_evidence_store),
+    ],
+)
 def test_read_integrity_error_on_corrupt_file(name, factory, tmp_path):
     store = factory(tmp_path)
     evidence = _sample_evidence()

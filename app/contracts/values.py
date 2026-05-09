@@ -104,6 +104,7 @@ class LogicalQuery(BaseModel):
 
     sql: str
     params: dict[str, Any] = {}
+    datasource_id: DatasourceId | None = None
 
 
 class QueryResult(BaseModel):

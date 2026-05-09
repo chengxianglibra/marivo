@@ -30,9 +30,6 @@ def test_server_composition_has_expected_fields() -> None:
         "runtime",
         "metadata_store",
         "analytics_engine",
-        "datasource_service",
-        "query_router",
-        "semantic_v2_service",
         "metrics",
         "resolved_analytics_path",
     }
@@ -62,16 +59,14 @@ def test_create_server_runtime_returns_server_composition(tmp_path) -> None:
 
 
 def test_create_server_runtime_ports_are_wrapper_adapters(tmp_path) -> None:
-    from app.adapters.server.wrappers import (
-        DataSourceAdapter,
-        FileAuditLogAdapter,
-        MetadataCacheStoreAdapter,
-        MetadataEvidenceStoreAdapter,
-        NoopAuthZAdapter,
-        SqlModelStoreAdapter,
-        SqlSessionStoreAdapter,
-        TomlRuntimeConfigAdapter,
-    )
+    from app.adapters.server.audit_log import FileAuditLogAdapter
+    from app.adapters.server.authz import NoopAuthZAdapter
+    from app.adapters.server.cache_store import InMemoryCacheStore
+    from app.adapters.server.data_source import RoutingDataSource
+    from app.adapters.server.evidence_store import MetadataEvidenceStoreAdapter
+    from app.adapters.server.model_store import SqlModelStoreAdapter
+    from app.adapters.server.runtime_config import TomlRuntimeConfigAdapter
+    from app.adapters.server.session_store import SqlSessionStore
     from app.profiles.server import create_server_runtime
     from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
     from app.storage.sqlite_metadata import SQLiteMetadataStore
@@ -86,10 +81,10 @@ def test_create_server_runtime_ports_are_wrapper_adapters(tmp_path) -> None:
     )
     ports = composition.runtime.ports
     assert isinstance(ports.model_store, SqlModelStoreAdapter)
-    assert isinstance(ports.session_store, SqlSessionStoreAdapter)
+    assert isinstance(ports.session_store, SqlSessionStore)
     assert isinstance(ports.evidence_store, MetadataEvidenceStoreAdapter)
-    assert isinstance(ports.data_source, DataSourceAdapter)
-    assert isinstance(ports.cache_store, MetadataCacheStoreAdapter)
+    assert isinstance(ports.data_source, RoutingDataSource)
+    assert isinstance(ports.cache_store, InMemoryCacheStore)
     assert isinstance(ports.authz, NoopAuthZAdapter)
     assert isinstance(ports.audit_log, FileAuditLogAdapter)
     assert isinstance(ports.runtime_config, TomlRuntimeConfigAdapter)

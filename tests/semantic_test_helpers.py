@@ -178,7 +178,7 @@ def build_runtime(
     CoreEngine + RuntimePorts stack and returns the ``MarivoRuntime`` facade.
 
     The metadata store and analytics engine are wired into the ports
-    container so that runtime.ports.metadata and runtime.ports.analytics
+    container so that runtime.metadata and runtime.analytics
     are available for tests that need direct store access.
 
     A real ``MetadataArtifactStoreAdapter`` is wired as ``ports.artifact_store``
@@ -195,18 +195,18 @@ def build_runtime(
         MetadataArtifactStoreAdapter,
         MetadataStepStoreAdapter,
     )
-    from app.adapters.server.wrappers import SqlSessionStoreAdapter
+    from app.adapters.server.session_store import SqlSessionStoreAdapter
     from app.core.engine import CoreEngine
     from app.runtime.ports import RuntimePorts
 
     ports = MagicMock(spec=RuntimePorts)  # type: ignore[assignment]
-    ports.metadata = metadata
-    ports.analytics = analytics
     ports.artifact_store = MetadataArtifactStoreAdapter(metadata)
     ports.session_store = SqlSessionStoreAdapter(metadata)
     ports.step_store = MetadataStepStoreAdapter(metadata)
     core = CoreEngine()
     runtime = MarivoRuntime(ports, core)
+    runtime.wire_metadata(metadata)
+    runtime.wire_analytics(analytics)
     return runtime
 
 

@@ -9,7 +9,7 @@ from mcp.server.fastmcp import FastMCP
 
 
 class _FakeSvc:
-    """Minimal stub satisfying semantic_v2_svc / datasource_svc contracts."""
+    """Minimal stub satisfying semantic_v2 / datasource service contracts."""
 
     def create_semantic_model(self, **kw):
         return {}
@@ -108,8 +108,10 @@ class _FakeSvc:
 class FakeRuntime:
     """Minimal stub satisfying register_tools' runtime contract."""
 
-    semantic_v2_svc = _FakeSvc()
-    datasource_svc = _FakeSvc()
+    _services: dict[str, _FakeSvc] = {"semantic_v2": _FakeSvc(), "datasource": _FakeSvc()}
+
+    def get_service(self, name: str) -> _FakeSvc:
+        return self._services[name]
 
     # Methods called by call_runtime in intent tools
     def observe(self, **kw):
