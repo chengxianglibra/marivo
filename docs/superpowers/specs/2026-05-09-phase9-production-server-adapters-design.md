@@ -110,7 +110,10 @@ CREATE TABLE session_events (
   UNIQUE(session_id, seq)
 );
 CREATE INDEX idx_session_events_sid ON session_events(session_id);
+CREATE INDEX idx_session_events_owner ON session_events(event_type, actor);
 ```
+
+The `idx_session_events_owner` index supports `list_sessions(owner)` without a full table scan. It covers the common query pattern `WHERE event_type = 'session_created' AND actor = ?`.
 
 **DDL strategy:** The core column set and constraints are identical across SQLite and MySQL. The `MetadataStore.initialize()` method handles dialect-specific DDL (type mappings, auto-increment syntax) the same way it does for existing tables.
 
@@ -118,6 +121,7 @@ CREATE INDEX idx_session_events_sid ON session_events(session_id);
 
 - Only INSERT operations. No UPDATE or DELETE.
 - `seq` is monotonic per `session_id`, starting at 1. The adapter computes `seq = MAX(seq) + 1` within the same transaction as the INSERT.
+- Concurrent `append_event` calls for the same session may hit the `UNIQUE(session_id, seq)` constraint. The adapter catches `IntegrityError`, re-reads `MAX(seq)`, and retries with the next seq value (max 3 attempts). This prevents silent event loss under concurrent writes.
 - All event types from `SessionEvent` are persisted, not just `session_created` / `session_terminated`.
 
 ### 3.3 Read path
@@ -264,6 +268,8 @@ class TrinoEngineAdapter:
     def schema(self, source_ref: SourceRef) -> SourceSchema: ...
 ```
 
+**Optional dependency handling:** The `trino` Python package is an optional dependency. If it is not installed, `TrinoEngineAdapter.execute()` and `schema()` catch `ImportError` and raise `DomainError(DATASOURCE_UNAVAILABLE)` with an actionable message (e.g. "Trino driver not installed; pip install marivo[trino]"). This prevents confusing stack traces when a Trino datasource is configured but the driver is missing.
+
 ### 4.7 Extension point
 
 Additional engine adapters (Snowflake, BigQuery) follow the same `EngineAdapter` pattern. Phase 9 defines the interface and ships DuckDB + Trino; future engines register into the `engines` dict in `create_server_runtime()`.
@@ -295,6 +301,14 @@ class ServerConfig:
 ```
 
 When `file_store_dir` or `audit_dir` is `None`, the server profile reads the path from `marivo_config` or uses a sensible default relative to the metadata store location.
+
+### 5.4 Shared SQLAlchemy engine
+
+`create_server_runtime()` creates a single shared SQLAlchemy engine for the metadata DB and passes it to all adapters that need metadata DB access (`SqlModelStoreAdapter`, `SqlSessionStore`, `MetadataArtifactStoreAdapter`, `MetadataStepStoreAdapter`, `CredentialStore`, `DatasourceRegistry`). This prevents N adapters from creating N independent connection pools against the same database, which causes connection pool exhaustion under load.
+
+### 5.5 Credential security note
+
+`CredentialStore` reads datasource credentials from `datasources.config_json` in the same plaintext format used by the current `DatasourceService`. Phase 9 does not change the credential storage format. Credential encryption is a separate concern for a future phase.
 
 ---
 
@@ -457,6 +471,7 @@ Phase 9 must not introduce Redis, OpenTelemetry, OIDC/RBAC, or production author
 - [ ] `RoutingDataSource` routes to DuckDB and Trino based on datasource metadata
 - [ ] `CredentialStore` and `DatasourceRegistry` read from metadata DB
 - [ ] Server mode uses `FileEvidenceStore` and `FileAuditLog` with server directory paths
+- [ ] `create_server_runtime()` creates a single shared SQLAlchemy engine for all metadata DB adapters
 - [ ] `RuntimePorts` no longer carries `semantic_repository`, `metadata`, `evidence_repos`, `analytics`, `calendar_data_reader`, or `time_axis_metadata_provider`
 - [ ] `wire_datasource_svc()` and `wire_semantic_v2_svc()` are removed from `MarivoRuntime`
 - [ ] `LogicalQuery` gains `datasource_id: DatasourceId | None = None`
