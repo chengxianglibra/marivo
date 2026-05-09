@@ -67,9 +67,9 @@ from marivo.core.semantic.compiler import (  # re-exported — canonical source
     SemanticCompilerError,
     SemanticRequestCompatibilityError,
 )
+from marivo.core.semantic.resolution import ResolvedSemanticObject
 from marivo.evidence_engine.ref_boundary import assert_no_canonical_refs_in_semantic_payload
-from marivo.semantic_runtime import SemanticRuntimeRepository
-from marivo.semantic_runtime.resolution import ResolvedSemanticObject
+from marivo.runtime.evidence.semantic_repository import SemanticRuntimeRepository
 
 __all__ = [
     "CompiledQuery",

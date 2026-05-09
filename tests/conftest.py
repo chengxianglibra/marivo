@@ -56,7 +56,6 @@ collect_ignore_glob = [
     "test_observe_compare_lineage_reuse.py",
     "test_compiler_executor.py",
     "test_datasources.py",
-    "test_status_utils.py",
     "test_api_models_base.py",
 ]
 

@@ -5,11 +5,11 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from marivo.semantic_runtime.errors import (
+from marivo.core.semantic.resolution import ResolvedSemanticObject, RuntimeSemanticAvailability
+from marivo.runtime.errors import (
     SemanticRuntimeNotFoundError,
     SemanticRuntimeUnpublishedError,
 )
-from marivo.semantic_runtime.resolution import ResolvedSemanticObject, RuntimeSemanticAvailability
 from marivo.storage.metadata import MetadataStore
 
 

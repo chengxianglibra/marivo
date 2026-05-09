@@ -17,7 +17,7 @@ from marivo.analysis_core.typed_resolution import (
 
 if TYPE_CHECKING:
     from marivo.analysis_core.predicate_validator import PredicateRefWithUsage
-    from marivo.semantic_runtime.repository import SemanticRuntimeRepository
+    from marivo.runtime.evidence.semantic_repository import SemanticRuntimeRepository
 
 
 @dataclass(slots=True)

@@ -15,7 +15,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from marivo.semantic_runtime.semantic_metadata import runtime_ref_kind
+from marivo.core.semantic.metadata import runtime_ref_kind
 
 _SEMANTIC_REF_FIELD_NAMES = frozenset(
     {
