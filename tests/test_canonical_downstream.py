@@ -30,12 +30,12 @@ from marivo.adapters.server.evidence_repositories import (
     InferenceRecordRepository,
     PropositionRepository,
 )
-from marivo.evidence_engine.canonical_pipeline_runtime import (
+from marivo.runtime.evidence.canonical_pipeline import (
     CANONICAL_DOWNSTREAM_SCHEMA_VERSION,
     CanonicalDownstreamResult,
     run_canonical_downstream,
 )
-from marivo.evidence_engine.publish_switch import assemble_externally_visible_bundle
+from marivo.runtime.evidence.publish_switch import assemble_externally_visible_bundle
 from tests.shared_fixtures import make_temp_metadata_store
 
 # ---------------------------------------------------------------------------

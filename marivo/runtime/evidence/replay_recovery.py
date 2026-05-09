@@ -42,15 +42,15 @@ from marivo.adapters.server.evidence_repositories import (
     InferenceRecordRepository,
     PropositionRepository,
 )
-from marivo.evidence_engine.canonical_pipeline_runtime import (
+from marivo.runtime.evidence.canonical_pipeline import (
     PropositionPipelineResult,
     run_single_proposition_pipeline,
 )
-from marivo.evidence_engine.proposal_refresh_run import (
+from marivo.runtime.evidence.proposal_refresh import (
     ProposalRefreshResult,
     run_action_proposal_refresh,
 )
-from marivo.evidence_engine.publish_switch import (
+from marivo.runtime.evidence.publish_switch import (
     PublishSwitchResult,
     execute_publish_switch,
 )

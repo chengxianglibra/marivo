@@ -28,8 +28,8 @@ from marivo.adapters.server.evidence_repositories import (
     InferenceRecordRepository,
     PropositionRepository,
 )
-from marivo.evidence_engine.canonical_pipeline_runtime import run_canonical_downstream
-from marivo.evidence_engine.context_view import (
+from marivo.runtime.evidence.canonical_pipeline import run_canonical_downstream
+from marivo.runtime.evidence.context_view import (
     PROPOSITION_CONTEXT_VIEW_SCHEMA_VERSION,
     materialize_proposition_context_view,
 )

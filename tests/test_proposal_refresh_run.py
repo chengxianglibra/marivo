@@ -30,12 +30,12 @@ from marivo.adapters.server.evidence_repositories import (
     InferenceRecordRepository,
     PropositionRepository,
 )
-from marivo.evidence_engine.assessment_evaluation_context import build_assessment_evaluation_context
-from marivo.evidence_engine.assessment_recompute import (
+from marivo.runtime.evidence.assessment_context import build_assessment_evaluation_context
+from marivo.runtime.evidence.assessment_recompute import (
     make_assessment_id,
     recompute_proposition_assessment,
 )
-from marivo.evidence_engine.proposal_refresh_run import (
+from marivo.runtime.evidence.proposal_refresh import (
     BUNDLE_SCHEMA_VERSION,
     REFRESH_SCHEMA_VERSION,
     ProposalRefreshResult,

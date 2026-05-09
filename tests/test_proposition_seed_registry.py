@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import unittest
 
-from marivo.evidence_engine.proposition_seed_registry import (
+from marivo.runtime.evidence.proposition_seed_registry import (
     CompositeSeedTemplateSpec,
     SeedSlotSpec,
     SeedTemplateBase,

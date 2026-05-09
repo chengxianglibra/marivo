@@ -38,8 +38,8 @@ from marivo.adapters.server.evidence_repositories import (
     InferenceRecordRepository,
     PropositionRepository,
 )
-from marivo.evidence_engine.assessment_evaluation_context import build_assessment_evaluation_context
-from marivo.evidence_engine.assessment_recompute import (
+from marivo.runtime.evidence.assessment_context import build_assessment_evaluation_context
+from marivo.runtime.evidence.assessment_recompute import (
     RECOMPUTE_SCHEMA_VERSION,
     AssessmentRecomputeResult,
     make_assessment_id,
@@ -742,7 +742,7 @@ class TestGapReopenCreatesNewGapId(_RecomputeBase):
         prior_assessment_ids: list[str],
     ) -> AssessmentRecomputeResult:
         """Call recompute with a manually-assembled context (bypasses carry-forward)."""
-        from marivo.evidence_engine.assessment_evaluation_context import (
+        from marivo.runtime.evidence.assessment_context import (
             EVALUATION_CONTEXT_SCHEMA_VERSION,
             AssessmentEvaluationContext,
         )
@@ -1100,7 +1100,7 @@ class TestComparabilityGateIntegration(_RecomputeBase):
         current_latest_assessment_id: str | None,
         prior_assessment_ids: list[str],
     ) -> AssessmentRecomputeResult:
-        from marivo.evidence_engine.assessment_evaluation_context import (
+        from marivo.runtime.evidence.assessment_context import (
             EVALUATION_CONTEXT_SCHEMA_VERSION,
             AssessmentEvaluationContext,
         )

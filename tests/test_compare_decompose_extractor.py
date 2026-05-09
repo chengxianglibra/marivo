@@ -23,7 +23,7 @@ from __future__ import annotations
 import unittest
 from typing import Any
 
-from marivo.evidence_engine.canonical_finding import (
+from marivo.core.evidence.canonical_finding import (
     StepRef,
     make_finding_id,
     make_item_identity,
@@ -31,13 +31,13 @@ from marivo.evidence_engine.canonical_finding import (
 
 # Registry must be imported first so bootstrap runs before individual extractors
 # are imported (same pattern as test_detect_extractor.py).
-from marivo.evidence_engine.finding_extractor_registry import (
+from marivo.runtime.evidence.finding_extractor_registry import (
     default_finding_registry,
     validate_for_commit,
 )
-from marivo.evidence_engine.compare_extractor import CompareArtifactExtractor
-from marivo.evidence_engine.decompose_extractor import DecomposeArtifactExtractor
-from marivo.evidence_engine.family_contract import FamilyEmptyError
+from marivo.runtime.evidence.compare_extractor import CompareArtifactExtractor
+from marivo.runtime.evidence.decompose_extractor import DecomposeArtifactExtractor
+from marivo.core.evidence.family_contract import FamilyEmptyError
 from tests.finding_identity_testutil import (
     assert_finding_id_stable,
     assert_projection_order_excluded,

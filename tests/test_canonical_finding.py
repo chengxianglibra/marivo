@@ -13,7 +13,7 @@ import json
 import typing
 import unittest
 
-from marivo.evidence_engine.canonical_finding import (
+from marivo.core.evidence.canonical_finding import (
     AnomalyCandidateFinding,
     AnyFinding,
     ArtifactItemRef,

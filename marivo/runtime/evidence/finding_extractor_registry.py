@@ -25,8 +25,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any, ClassVar
 
-from marivo.evidence_engine.canonical_finding import FindingExtractionResult, StepRef
-from marivo.evidence_engine.family_contract import check_finding_count as _check_finding_count
+from marivo.core.evidence.canonical_finding import FindingExtractionResult, StepRef
+from marivo.core.evidence.family_contract import check_finding_count as _check_finding_count
 
 # Canonical fallback version for artifacts that pre-date schema versioning.
 _NULL_VERSION_FALLBACK = "v1"
@@ -354,13 +354,13 @@ __all__ = [
 
 def _bootstrap_finding_extractors() -> None:
     """Import and register all 4d-* finding extractors into default_finding_registry."""
-    from marivo.evidence_engine.compare_extractor import CompareArtifactExtractor
-    from marivo.evidence_engine.correlate_extractor import CorrelateArtifactExtractor
-    from marivo.evidence_engine.decompose_extractor import DecomposeArtifactExtractor
-    from marivo.evidence_engine.detect_extractor import DetectArtifactExtractor
-    from marivo.evidence_engine.forecast_extractor import ForecastArtifactExtractor
-    from marivo.evidence_engine.observe_extractor import ObserveArtifactExtractor
-    from marivo.evidence_engine.test_extractor import TestArtifactExtractor
+    from marivo.runtime.evidence.compare_extractor import CompareArtifactExtractor
+    from marivo.runtime.evidence.correlate_extractor import CorrelateArtifactExtractor
+    from marivo.runtime.evidence.decompose_extractor import DecomposeArtifactExtractor
+    from marivo.runtime.evidence.detect_extractor import DetectArtifactExtractor
+    from marivo.runtime.evidence.forecast_extractor import ForecastArtifactExtractor
+    from marivo.runtime.evidence.observe_extractor import ObserveArtifactExtractor
+    from marivo.runtime.evidence.test_extractor import TestArtifactExtractor
 
     default_finding_registry.register(ObserveArtifactExtractor())
     default_finding_registry.register(DetectArtifactExtractor())

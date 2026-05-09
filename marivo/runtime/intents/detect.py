@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, cast
 from marivo.core.intent.primitives import make_provenance, new_step_id
 from marivo.core.semantic.ir import AnalysisStepIR
 from marivo.core.semantic.step_metadata import build_step_semantic_metadata
-from marivo.evidence_engine.ref_boundary import assert_no_canonical_refs_in_semantic_payload
+from marivo.runtime.evidence.ref_boundary import assert_no_canonical_refs_in_semantic_payload
 from marivo.runtime.semantic.executor import execute_compiled
 from marivo.time_contracts import (
     TimeGrain,

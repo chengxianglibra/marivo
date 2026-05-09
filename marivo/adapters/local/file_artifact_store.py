@@ -144,8 +144,8 @@ class FileArtifactStore:
         writes findings as a sidecar JSON file instead of to a DB.
         Skips the canonical downstream pipeline (server-only).
         """
-        from marivo.evidence_engine.canonical_finding import StepRef
-        from marivo.evidence_engine.finding_extractor_registry import (
+        from marivo.core.evidence.canonical_finding import StepRef
+        from marivo.runtime.evidence.finding_extractor_registry import (
             default_finding_registry,
             validate_for_commit,
         )

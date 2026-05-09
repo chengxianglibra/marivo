@@ -15,13 +15,13 @@ import contextlib
 import unittest
 from typing import Any
 
-from marivo.evidence_engine.canonical_finding import (
+from marivo.core.evidence.canonical_finding import (
     AnyFinding,
     FindingExtractionResult,
     StepRef,
 )
-from marivo.evidence_engine.family_contract import FamilyEmptyError
-from marivo.evidence_engine.finding_extractor_registry import (
+from marivo.core.evidence.family_contract import FamilyEmptyError
+from marivo.runtime.evidence.finding_extractor_registry import (
     FindingExtractor,
     FindingExtractorRegistry,
     default_finding_registry,
@@ -527,7 +527,7 @@ class TestDefaultFindingRegistry(unittest.TestCase):
         self.assertIn(("anomaly_candidates", "v1"), default_finding_registry.registered_keys())
 
     def test_default_finding_registry_is_module_level_singleton(self) -> None:
-        from marivo.evidence_engine.finding_extractor_registry import (
+        from marivo.runtime.evidence.finding_extractor_registry import (
             default_finding_registry as dr2,
         )
 

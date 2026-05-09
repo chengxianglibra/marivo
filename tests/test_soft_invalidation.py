@@ -15,8 +15,8 @@ from marivo.adapters.server.evidence_repositories import (
     InferenceRecordRepository,
     PropositionRepository,
 )
-from marivo.evidence_engine.canonical_pipeline_runtime import run_canonical_downstream
-from marivo.evidence_engine.invalidation import (
+from marivo.runtime.evidence.canonical_pipeline import run_canonical_downstream
+from marivo.runtime.evidence.invalidation import (
     INVALIDATION_SCHEMA_VERSION,
     InvalidationResult,
     soft_invalidate_finding,
@@ -460,7 +460,7 @@ class TestSoftInvalidateFindingFunction(unittest.TestCase):
         _setup_session_artifact_finding(store2)
         repos2 = _make_repos(store2)
         # Only run seeding, not the full downstream (no assessment published).
-        from marivo.evidence_engine.proposition_seeding_run import (
+        from marivo.runtime.evidence.proposition_seeding import (
             SimpleMaterializationContext,
             run_system_seeded_propositions,
         )

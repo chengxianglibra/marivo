@@ -30,8 +30,8 @@ from marivo.adapters.server.evidence_repositories import (
     PropositionRepository,
 )
 from marivo.contracts.errors import NotFoundError
-from marivo.evidence_engine.canonical_pipeline_runtime import run_canonical_downstream
-from marivo.evidence_engine.state_view import (
+from marivo.runtime.evidence.canonical_pipeline import run_canonical_downstream
+from marivo.runtime.evidence.state_view import (
     SESSION_STATE_VIEW_SCHEMA_VERSION,
     materialize_session_state_view,
 )
@@ -83,8 +83,8 @@ def _get_artifact_runtime_status(
     Replicates the logic that was on SessionManager.get_artifact_runtime_status,
     querying the artifacts and findings tables directly.
     """
-    from marivo.evidence_engine.family_contract import ALLOWS_EMPTY_ARTIFACT_TYPES
-    from marivo.evidence_engine.finding_extractor_registry import default_finding_registry
+    from marivo.core.evidence.family_contract import ALLOWS_EMPTY_ARTIFACT_TYPES
+    from marivo.runtime.evidence.finding_extractor_registry import default_finding_registry
 
     row = store.query_one(
         """

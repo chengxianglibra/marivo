@@ -37,7 +37,7 @@ from __future__ import annotations
 
 from typing import Any, Literal, TypedDict, Union
 
-from marivo.evidence_engine.canonical_finding import FindingType
+from marivo.core.evidence.canonical_finding import FindingType
 
 # Finding types that are eligible to trigger system-seeded propositions.
 # ``"observation"`` is intentionally excluded: observation findings do not

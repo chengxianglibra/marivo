@@ -52,7 +52,7 @@ from marivo.core.semantic.ir import (
     ValidationSummary,
 )
 from marivo.core.semantic.resolution import ResolvedSemanticObject
-from marivo.evidence_engine.ref_boundary import assert_no_canonical_refs_in_semantic_payload
+from marivo.runtime.evidence.ref_boundary import assert_no_canonical_refs_in_semantic_payload
 from marivo.runtime.evidence.semantic_repository import SemanticRuntimeRepository
 from marivo.runtime.semantic.analysis_validator import (
     ValidationIssue,

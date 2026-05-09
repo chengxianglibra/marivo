@@ -37,7 +37,7 @@ from __future__ import annotations
 import unittest
 from typing import Any
 
-from marivo.evidence_engine.canonical_finding import (
+from marivo.core.evidence.canonical_finding import (
     StepRef,
     make_finding_id,
     make_item_identity,
@@ -45,14 +45,14 @@ from marivo.evidence_engine.canonical_finding import (
 
 # Registry must be imported first so bootstrap runs before individual extractors
 # are imported (same bootstrap pattern as other 4d-* test files).
-from marivo.evidence_engine.finding_extractor_registry import (
+from marivo.runtime.evidence.finding_extractor_registry import (
     default_finding_registry,
     validate_for_commit,
 )
-from marivo.evidence_engine.correlate_extractor import CorrelateArtifactExtractor
-from marivo.evidence_engine.test_extractor import TestArtifactExtractor
-from marivo.evidence_engine.forecast_extractor import ForecastArtifactExtractor
-from marivo.evidence_engine.family_contract import FamilyEmptyError
+from marivo.runtime.evidence.correlate_extractor import CorrelateArtifactExtractor
+from marivo.runtime.evidence.test_extractor import TestArtifactExtractor
+from marivo.runtime.evidence.forecast_extractor import ForecastArtifactExtractor
+from marivo.core.evidence.family_contract import FamilyEmptyError
 from tests.finding_identity_testutil import assert_finding_id_stable
 
 # ---------------------------------------------------------------------------
