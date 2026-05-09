@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from app.dialect import translate
+from marivo.dialect import translate
 
 
 class DialectPassthroughTests(unittest.TestCase):

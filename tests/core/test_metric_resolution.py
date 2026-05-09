@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.core.semantic.metric_resolution import (
+from marivo.core.semantic.metric_resolution import (
     MetricBindingResolution,
     MetricCarrierRoutePreflight,
     MetricExecutionContext,

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from app.core.semantic.validator import (
+from marivo.core.semantic.validator import (
     ValidationIssue,
     ValidationResult,
     _expected_metric_input_types,

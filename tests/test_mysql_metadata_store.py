@@ -3,12 +3,12 @@ from __future__ import annotations
 import unittest
 from typing import Any
 
-from app.storage.mysql_metadata import (
+from marivo.storage.mysql_metadata import (
     MySQLMetadataStore,
     _expected_mysql_foreign_key_names,
     _expected_mysql_index_names,
 )
-from app.storage.schema import expected_metadata_tables, metadata_schema_marker_row
+from marivo.storage.schema import expected_metadata_tables, metadata_schema_marker_row
 
 
 class FakeCursor:

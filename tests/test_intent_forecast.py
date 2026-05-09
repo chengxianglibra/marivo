@@ -40,9 +40,9 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
-from app.main import create_app
-from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
-from app.storage.sqlite_metadata import SQLiteMetadataStore
+from marivo.main import create_app
+from marivo.storage.duckdb_analytics import DuckDBAnalyticsEngine
+from marivo.storage.sqlite_metadata import SQLiteMetadataStore
 from tests.semantic_test_helpers import build_runtime
 from tests.shared_fixtures import get_named_seeded_duckdb_path
 

@@ -7,21 +7,21 @@ from typing import Any, ClassVar, cast
 
 from fastapi.testclient import TestClient
 
-from app.analysis_core.compiler import (
+from marivo.analysis_core.compiler import (
     CompiledQuery,
     SemanticCompilerError,
     SemanticRequestCompatibilityError,
 )
-from app.analysis_core.executor import execute_compiled
-from app.analysis_core.ir import AnalysisStepIR
-from app.api.app_factory import create_app
-from app.execution.errors import ExecutionError
-from app.execution.federation import FederationPlanner
-from app.execution.feedback import compile_failure_from_error, federation_failure_from_plan
-from app.execution.routing_runtime import RoutingRuntime
-from app.routing import RoutingFailure, RoutingResolutionError
-from app.semantic_runtime.errors import SemanticRuntimeNotReadyError
-from app.storage.analytics import AnalyticsEngine
+from marivo.analysis_core.executor import execute_compiled
+from marivo.analysis_core.ir import AnalysisStepIR
+from marivo.api.app_factory import create_app
+from marivo.execution.errors import ExecutionError
+from marivo.execution.federation import FederationPlanner
+from marivo.execution.feedback import compile_failure_from_error, federation_failure_from_plan
+from marivo.execution.routing_runtime import RoutingRuntime
+from marivo.routing import RoutingFailure, RoutingResolutionError
+from marivo.semantic_runtime.errors import SemanticRuntimeNotReadyError
+from marivo.storage.analytics import AnalyticsEngine
 from tests.shared_fixtures import get_seeded_duckdb_path
 
 
@@ -286,7 +286,7 @@ class ExecutionFeedbackIntegrationTests(unittest.TestCase):
         cls.temp_dir.cleanup()
 
     def test_make_provenance_includes_routing_feedback_context(self) -> None:
-        from app.runtime.semantic_ops import _make_provenance
+        from marivo.runtime.semantic_ops import _make_provenance
 
         routing_feedback = {
             "code": "routing_no_common_engine",

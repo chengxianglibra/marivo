@@ -30,7 +30,7 @@ jobs:
         run: ruff format --check .
 
       - name: Type check with mypy
-        run: mypy app
+        run: mypy marivo
 
   test:
     runs-on: ubuntu-latest
@@ -53,11 +53,11 @@ jobs:
           pip install -e ".[dev,trino]"
 
       - name: Smoke test marivo-stdio entry point
-        run: python -c "from app.transports.mcp.stdio import main; print('marivo-stdio entry point OK')"
+        run: python -c "from marivo.transports.mcp.stdio import main; print('marivo-stdio entry point OK')"
 
       - name: Run tests with coverage
         run: |
-          pytest --cov=app --cov-report=xml --cov-report=html --cov-report=term-missing
+          pytest --cov=marivo --cov-report=xml --cov-report=html --cov-report=term-missing
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4

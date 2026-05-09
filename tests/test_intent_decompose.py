@@ -4,8 +4,8 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from app.execution.errors import ExecutionError
-from app.intents.decompose import (
+from marivo.execution.errors import ExecutionError
+from marivo.intents.decompose import (
     _extract_date_range,
     _infer_compare_grain,
     _normalize_decompose_compare_input,
@@ -198,11 +198,11 @@ class DecomposeHourWindowTests(unittest.TestCase):
 
         with (
             patch(
-                "app.intents.decompose.normalize_metric_query_request",
+                "marivo.intents.decompose.normalize_metric_query_request",
                 side_effect=_capture_normalize,
             ),
             patch(
-                "app.intents.decompose.execute_compiled",
+                "marivo.intents.decompose.execute_compiled",
                 return_value=SimpleNamespace(rows=[], metadata={"translated_sql": "SELECT 1"}),
             ),
         ):
@@ -561,7 +561,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
         mock_result.rows = [{"dimension.country": "US", "current_value": 50.0}]
         mock_result.metadata.get.return_value = None
 
-        with patch("app.intents.decompose.execute_compiled", return_value=mock_result):
+        with patch("marivo.intents.decompose.execute_compiled", return_value=mock_result):
             result = run_decompose_intent(
                 runtime,
                 "session_1",
@@ -585,7 +585,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
         mock_result.rows = [{"dimension.country": "US", "current_value": 50.0}]
         mock_result.metadata.get.return_value = None
 
-        with patch("app.intents.decompose.execute_compiled", return_value=mock_result):
+        with patch("marivo.intents.decompose.execute_compiled", return_value=mock_result):
             result = run_decompose_intent(
                 runtime,
                 "session_1",
@@ -609,7 +609,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
         mock_result.rows = [{"dimension.country": "US", "current_value": 50.0}]
         mock_result.metadata.get.return_value = None
 
-        with patch("app.intents.decompose.execute_compiled", return_value=mock_result):
+        with patch("marivo.intents.decompose.execute_compiled", return_value=mock_result):
             result = run_decompose_intent(
                 runtime,
                 "session_1",
@@ -635,7 +635,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
         mock_result.rows = [{"dimension.country": "US", "current_value": 50.0}]
         mock_result.metadata.get.return_value = None
 
-        with patch("app.intents.decompose.execute_compiled", return_value=mock_result):
+        with patch("marivo.intents.decompose.execute_compiled", return_value=mock_result):
             result = run_decompose_intent(
                 runtime,
                 "session_1",
@@ -659,7 +659,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
         mock_result2.rows = [{"dimension.country": "US", "current_value": 50.0}]
         mock_result2.metadata.get.return_value = None
 
-        with patch("app.intents.decompose.execute_compiled", return_value=mock_result2):
+        with patch("marivo.intents.decompose.execute_compiled", return_value=mock_result2):
             result2 = run_decompose_intent(
                 core2,
                 ports2,
@@ -685,7 +685,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
         mock_result.rows = [{"dimension.country": "US", "current_value": 50.0}]
         mock_result.metadata.get.return_value = None
 
-        with patch("app.intents.decompose.execute_compiled", return_value=mock_result):
+        with patch("marivo.intents.decompose.execute_compiled", return_value=mock_result):
             result = run_decompose_intent(
                 runtime,
                 "session_1",
@@ -710,7 +710,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
         mock_result.rows = [{"dimension.country": "US", "current_value": 50.0}]
         mock_result.metadata.get.return_value = None
 
-        with patch("app.intents.decompose.execute_compiled", return_value=mock_result):
+        with patch("marivo.intents.decompose.execute_compiled", return_value=mock_result):
             result = run_decompose_intent(
                 runtime,
                 "session_1",
@@ -750,7 +750,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
         mock_result.rows = [{"dimension.country": "US", "current_value": 50.0}]
         mock_result.metadata.get.return_value = None
 
-        with patch("app.intents.decompose.execute_compiled", return_value=mock_result):
+        with patch("marivo.intents.decompose.execute_compiled", return_value=mock_result):
             result = run_decompose_intent(
                 runtime,
                 "session_1",
@@ -826,7 +826,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
         mock_result.rows = [{"dimension.country": "US", "current_value": 50.0}]
         mock_result.metadata.get.return_value = None
 
-        with patch("app.intents.decompose.execute_compiled", return_value=mock_result):
+        with patch("marivo.intents.decompose.execute_compiled", return_value=mock_result):
             result = run_decompose_intent(
                 runtime,
                 "session_1",
@@ -853,7 +853,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
         mock_result.rows = [{"dimension.country": "US", "current_value": 50.0}]
         mock_result.metadata.get.return_value = None
 
-        with patch("app.intents.decompose.execute_compiled", return_value=mock_result):
+        with patch("marivo.intents.decompose.execute_compiled", return_value=mock_result):
             result = run_decompose_intent(
                 runtime,
                 "session_1",
@@ -876,7 +876,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
         mock_result.rows = [{"dimension.country": "US", "current_value": 50.0}]
         mock_result.metadata.get.return_value = None
 
-        with patch("app.intents.decompose.execute_compiled", return_value=mock_result):
+        with patch("marivo.intents.decompose.execute_compiled", return_value=mock_result):
             result = run_decompose_intent(
                 runtime,
                 "session_1",
@@ -900,7 +900,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
         mock_result.rows = [{"dimension.country": "US", "current_value": 50.0}]
         mock_result.metadata.get.return_value = None
 
-        with patch("app.intents.decompose.execute_compiled", return_value=mock_result):
+        with patch("marivo.intents.decompose.execute_compiled", return_value=mock_result):
             result = run_decompose_intent(
                 runtime,
                 "session_1",

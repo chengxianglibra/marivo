@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from app.evidence_engine.ref_boundary import (
+from marivo.evidence_engine.ref_boundary import (
     RefBoundaryError,
     assert_no_canonical_refs_in_semantic_payload,
     assert_no_semantic_refs_in_canonical_payload,

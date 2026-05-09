@@ -3,8 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-from app.contracts.ids import UserId
-from app.contracts.semantic import SemanticModel
+from marivo.contracts.ids import UserId
+from marivo.contracts.semantic import SemanticModel
 from tests.contracts.contract_cases import ContractCase
 
 

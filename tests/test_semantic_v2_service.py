@@ -7,9 +7,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from app.api.models.osi import OSI_SPEC_VERSION
-from app.semantic_service_v2.service import SemanticModelV2Service
-from app.semantic_service_v2.validation import SemanticValidationError
+from marivo.api.models.osi import OSI_SPEC_VERSION
+from marivo.semantic_service_v2.service import SemanticModelV2Service
+from marivo.semantic_service_v2.validation import SemanticValidationError
 from tests.shared_fixtures import (
     ManagedSQLiteMetadataStore,
     make_temp_metadata_store,
@@ -768,7 +768,7 @@ class TestMetricCRUD(unittest.TestCase):
         self.assertEqual(result["name"], "total_revenue")
 
     def test_create_metric_invalid_observed_dataset(self) -> None:
-        from app.semantic_service_v2.validation import SemanticValidationError
+        from marivo.semantic_service_v2.validation import SemanticValidationError
 
         svc = _make_svc()
         svc.create_semantic_model(_make_model_dict(visibility="private", owner_user="alice"))

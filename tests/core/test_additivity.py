@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.core.semantic.additivity import derive_additivity_capabilities
+from marivo.core.semantic.additivity import derive_additivity_capabilities
 
 # ---------------------------------------------------------------------------
 # derive_additivity_capabilities

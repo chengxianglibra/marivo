@@ -22,7 +22,7 @@ from uuid import uuid4
 import duckdb
 from fastapi.testclient import TestClient
 
-from app.api.models import (
+from marivo.api.models import (
     ArtifactRef,
     AttributeRequest,
     CompareRequest,
@@ -31,8 +31,8 @@ from app.api.models import (
     ObservationRef,
     ObserveRequest,
 )
-from app.main import create_app
-from app.storage.sqlite_metadata import SQLiteMetadataStore
+from marivo.main import create_app
+from marivo.storage.sqlite_metadata import SQLiteMetadataStore
 from tests.semantic_test_helpers import seed_duckdb_source_object
 from tests.shared_fixtures import get_seeded_duckdb_path
 
@@ -880,7 +880,7 @@ class ArtifactLifecycleTests(unittest.TestCase):
         import tempfile
         from pathlib import Path
 
-        from app.main import create_app
+        from marivo.main import create_app
         from tests.shared_fixtures import get_seeded_duckdb_path
 
         cls.temp_dir = tempfile.TemporaryDirectory()

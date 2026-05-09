@@ -7,9 +7,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from app.adapters.base import PhysicalObject
-from app.adapters.duckdb_adapter import DuckDBCatalogAdapter
-from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
+from marivo.adapters.base import PhysicalObject
+from marivo.adapters.duckdb_adapter import DuckDBCatalogAdapter
+from marivo.storage.duckdb_analytics import DuckDBAnalyticsEngine
 from tests.shared_fixtures import get_seeded_duckdb_path
 
 
@@ -101,7 +101,7 @@ class DuckDBCatalogAdapterTests(unittest.TestCase):
 
     def test_source_type_registered_in_factory(self) -> None:
         """Verify 'duckdb' source type is handled by the adapter factory."""
-        from app.registry.factories import build_catalog_adapter
+        from marivo.registry.factories import build_catalog_adapter
 
         adapter = build_catalog_adapter("duckdb", {"path": str(self.db_path)})
         self.assertIsInstance(adapter, DuckDBCatalogAdapter)
@@ -112,7 +112,7 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        from app.adapters.trino_adapter import TrinoCatalogAdapter
+        from marivo.adapters.trino_adapter import TrinoCatalogAdapter
 
         cls.adapter = TrinoCatalogAdapter(
             host="mock-trino.example.com",
@@ -163,18 +163,18 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
         self.assertTrue(caps.supports_column_comments)
         self.assertTrue(caps.supports_table_properties)
 
-    @patch("app.adapters.trino_adapter.TrinoCatalogAdapter._connect")
+    @patch("marivo.adapters.trino_adapter.TrinoCatalogAdapter._connect")
     def test_test_connection(self, mock_connect) -> None:
         cursor = self._mock_cursor([(1,)], ["_col0"])
         mock_connect.return_value = self._mock_connection(cursor)
         self.assertTrue(self.adapter.test_connection())
 
-    @patch("app.adapters.trino_adapter.TrinoCatalogAdapter._connect")
+    @patch("marivo.adapters.trino_adapter.TrinoCatalogAdapter._connect")
     def test_test_connection_failure(self, mock_connect) -> None:
         mock_connect.side_effect = Exception("Connection refused")
         self.assertFalse(self.adapter.test_connection())
 
-    @patch("app.adapters.trino_adapter.TrinoCatalogAdapter._connect")
+    @patch("marivo.adapters.trino_adapter.TrinoCatalogAdapter._connect")
     def test_list_schemas(self, mock_connect) -> None:
         cursor = self._mock_cursor(
             [("default",), ("analytics",), ("information_schema",)],
@@ -190,7 +190,7 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
         self.assertEqual(schemas[0].object_type, "schema")
         self.assertEqual(schemas[0].parent_path, "hive")
 
-    @patch("app.adapters.trino_adapter.TrinoCatalogAdapter._query")
+    @patch("marivo.adapters.trino_adapter.TrinoCatalogAdapter._query")
     def test_list_tables(self, mock_query) -> None:
         mock_query.side_effect = [
             [{"Table": "events"}, {"Table": "users"}],
@@ -207,7 +207,7 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
         self.assertEqual(tables[1].native_name, "users")
         self.assertEqual(tables[1].properties["column_count"], 3)
 
-    @patch("app.adapters.trino_adapter.TrinoCatalogAdapter._query")
+    @patch("marivo.adapters.trino_adapter.TrinoCatalogAdapter._query")
     def test_list_tables_falls_back_to_show_columns_for_counts(self, mock_query) -> None:
         mock_query.side_effect = [
             [{"Table": "events"}, {"Table": "users"}],
@@ -222,14 +222,14 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
         self.assertEqual(tables[0].properties["column_count"], 2)
         self.assertEqual(tables[1].properties["column_count"], 1)
 
-    @patch("app.adapters.trino_adapter.TrinoCatalogAdapter._query")
+    @patch("marivo.adapters.trino_adapter.TrinoCatalogAdapter._query")
     def test_list_tables_empty_schema(self, mock_query) -> None:
         mock_query.return_value = []
         tables = self.adapter.list_tables("missing_schema")
         self.assertEqual(tables, [])
         self.assertEqual(mock_query.call_count, 1)
 
-    @patch("app.adapters.trino_adapter.TrinoCatalogAdapter._query")
+    @patch("marivo.adapters.trino_adapter.TrinoCatalogAdapter._query")
     def test_get_table_detail(self, mock_query) -> None:
         mock_query.side_effect = [
             # table existence check
@@ -285,13 +285,13 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
         self.assertEqual(detail.properties["owner"], "analytics_team")
         self.assertEqual(detail.properties["table_properties"]["format"], "ORC")
 
-    @patch("app.adapters.trino_adapter.TrinoCatalogAdapter._query")
+    @patch("marivo.adapters.trino_adapter.TrinoCatalogAdapter._query")
     def test_get_table_detail_not_found(self, mock_query) -> None:
         mock_query.return_value = []
         with self.assertRaises(KeyError):
             self.adapter.get_table_detail("analytics", "nonexistent")
 
-    @patch("app.adapters.trino_adapter.TrinoCatalogAdapter._query")
+    @patch("marivo.adapters.trino_adapter.TrinoCatalogAdapter._query")
     def test_get_table_detail_reads_hive_hidden_table_properties(self, mock_query) -> None:
         mock_query.side_effect = [
             [{"table_name": "events", "table_type": "TABLE"}],
@@ -335,7 +335,7 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
         self.assertEqual(detail.properties["table_properties"]["partitioned_by"], ["ds"])
         self.assertIn("raw_table_properties", detail.properties)
 
-    @patch("app.adapters.trino_adapter.TrinoCatalogAdapter._query")
+    @patch("marivo.adapters.trino_adapter.TrinoCatalogAdapter._query")
     def test_list_columns(self, mock_query) -> None:
         mock_query.side_effect = [
             # columns query
@@ -367,7 +367,7 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
         self.assertFalse(columns[0].properties["nullable"])
         self.assertEqual(columns[0].parent_path, "analytics.events")
 
-    @patch("app.adapters.trino_adapter.TrinoCatalogAdapter._query")
+    @patch("marivo.adapters.trino_adapter.TrinoCatalogAdapter._query")
     def test_list_columns_falls_back_to_show_columns(self, mock_query) -> None:
         mock_query.side_effect = [
             Exception("Not an Iceberg table"),
@@ -385,7 +385,7 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
         self.assertEqual(columns[0].properties["comment"], "ID column")
         self.assertTrue(columns[0].properties["nullable"])
 
-    @patch("app.adapters.trino_adapter.TrinoCatalogAdapter._query")
+    @patch("marivo.adapters.trino_adapter.TrinoCatalogAdapter._query")
     def test_get_table_stats(self, mock_query) -> None:
         mock_query.return_value = [
             {
@@ -422,7 +422,7 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
         self.assertEqual(stats["columns"]["id"]["distinct_count"], 50)
         self.assertEqual(stats["columns"]["name"]["nulls_fraction"], 0.1)
 
-    @patch("app.adapters.trino_adapter.TrinoCatalogAdapter._query")
+    @patch("marivo.adapters.trino_adapter.TrinoCatalogAdapter._query")
     def test_get_table_detail_expands_view_columns_from_table_properties(self, mock_query) -> None:
         mock_query.side_effect = [
             [{"table_name": "v_profiles", "table_type": "VIEW"}],
@@ -466,7 +466,7 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
         self.assertEqual(detail.properties["columns"][1]["comment"], "Age label")
         self.assertFalse(detail.properties["columns"][2]["nullable"])
 
-    @patch("app.adapters.trino_adapter.TrinoCatalogAdapter._query")
+    @patch("marivo.adapters.trino_adapter.TrinoCatalogAdapter._query")
     def test_get_table_detail_corrects_base_table_to_view_from_view_properties(
         self, mock_query
     ) -> None:
@@ -490,7 +490,7 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
 
         self.assertEqual(detail.properties["table_type"], "VIEW")
 
-    @patch("app.adapters.trino_adapter.TrinoCatalogAdapter._query")
+    @patch("marivo.adapters.trino_adapter.TrinoCatalogAdapter._query")
     def test_list_columns_expands_view_columns_from_table_properties(self, mock_query) -> None:
         mock_query.side_effect = [
             [
@@ -526,7 +526,7 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
         self.assertEqual(columns[1].properties["data_type"], "varchar")
         self.assertEqual(columns[1].properties["comment"], "Age label")
 
-    @patch("app.adapters.trino_adapter.TrinoCatalogAdapter._query")
+    @patch("marivo.adapters.trino_adapter.TrinoCatalogAdapter._query")
     def test_list_columns_applies_view_schema_metadata_when_names_already_match(
         self, mock_query
     ) -> None:
@@ -573,7 +573,7 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
         self.assertFalse(columns[1].properties["nullable"])
         self.assertFalse(columns[2].properties["nullable"])
 
-    @patch("app.adapters.trino_adapter.TrinoCatalogAdapter._query")
+    @patch("marivo.adapters.trino_adapter.TrinoCatalogAdapter._query")
     def test_preview_table_uses_expanded_view_output_columns(self, mock_query) -> None:
         mock_query.side_effect = [
             Exception("Column 'key' cannot be resolved"),
@@ -616,8 +616,8 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
 
     def test_source_type_registered_in_factory(self) -> None:
         """Verify 'trino' source type is handled by the adapter factory."""
-        from app.adapters.trino_adapter import TrinoCatalogAdapter
-        from app.registry.factories import build_catalog_adapter
+        from marivo.adapters.trino_adapter import TrinoCatalogAdapter
+        from marivo.registry.factories import build_catalog_adapter
 
         adapter = build_catalog_adapter(
             "trino",
@@ -629,7 +629,7 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
         )
         self.assertIsInstance(adapter, TrinoCatalogAdapter)
 
-    @patch("app.adapters.trino_adapter.TrinoCatalogAdapter._query")
+    @patch("marivo.adapters.trino_adapter.TrinoCatalogAdapter._query")
     def test_list_columns_without_comments(self, mock_query) -> None:
         """Test that list_columns handles missing comments gracefully."""
         mock_query.side_effect = [
@@ -649,7 +649,7 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
         self.assertEqual(len(columns), 1)
         self.assertEqual(columns[0].properties["comment"], "")
 
-    @patch("app.adapters.trino_adapter.TrinoCatalogAdapter._query")
+    @patch("marivo.adapters.trino_adapter.TrinoCatalogAdapter._query")
     def test_get_table_detail_without_properties(self, mock_query) -> None:
         """Test that get_table_detail handles missing table properties gracefully."""
         mock_query.side_effect = [

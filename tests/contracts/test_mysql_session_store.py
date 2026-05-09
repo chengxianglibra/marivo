@@ -12,10 +12,10 @@ pytest.importorskip("pymysql")
 
 from testcontainers.mysql import MySqlContainer  # noqa: E402
 
-from app.adapters.server.session_store import SqlSessionStore  # noqa: E402
-from app.contracts.ids import SessionId  # noqa: E402
-from app.contracts.session import SessionEvent  # noqa: E402
-from app.storage.mysql_metadata import MySQLMetadataStore  # noqa: E402
+from marivo.adapters.server.session_store import SqlSessionStore  # noqa: E402
+from marivo.contracts.ids import SessionId  # noqa: E402
+from marivo.contracts.session import SessionEvent  # noqa: E402
+from marivo.storage.mysql_metadata import MySQLMetadataStore  # noqa: E402
 
 
 @pytest.fixture(scope="module")

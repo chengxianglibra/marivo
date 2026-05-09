@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from app.contracts.evidence import Assessment, Evidence, Finding, Proposition
-from app.contracts.ids import (
+from marivo.contracts.evidence import Assessment, Evidence, Finding, Proposition
+from marivo.contracts.ids import (
     ArtifactId,
     AssessmentId,
     EvidenceRef,
@@ -12,8 +12,8 @@ from app.contracts.ids import (
     SessionId,
     UserId,
 )
-from app.contracts.semantic import ModelSummary, SemanticModel
-from app.contracts.session import SessionEvent, SessionState
+from marivo.contracts.semantic import ModelSummary, SemanticModel
+from marivo.contracts.session import SessionEvent, SessionState
 
 
 def test_session_event() -> None:

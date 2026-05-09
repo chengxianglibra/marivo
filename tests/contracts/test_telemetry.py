@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from app.adapters.local.local_telemetry import LocalTelemetry
-from app.contracts.values import TelemetryEvent
+from marivo.adapters.local.local_telemetry import LocalTelemetry
+from marivo.contracts.values import TelemetryEvent
 
 noop_telemetry_factories = [
     ("LocalTelemetry-none", lambda p: LocalTelemetry(sink="none")),

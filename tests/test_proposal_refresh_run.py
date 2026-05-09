@@ -21,12 +21,12 @@ import json
 import unittest
 from typing import Any
 
-from app.evidence_engine.assessment_evaluation_context import build_assessment_evaluation_context
-from app.evidence_engine.assessment_recompute import (
+from marivo.evidence_engine.assessment_evaluation_context import build_assessment_evaluation_context
+from marivo.evidence_engine.assessment_recompute import (
     make_assessment_id,
     recompute_proposition_assessment,
 )
-from app.evidence_engine.proposal_refresh_run import (
+from marivo.evidence_engine.proposal_refresh_run import (
     BUNDLE_SCHEMA_VERSION,
     REFRESH_SCHEMA_VERSION,
     ProposalRefreshResult,
@@ -34,7 +34,7 @@ from app.evidence_engine.proposal_refresh_run import (
     assemble_publish_ready_bundle,
     run_action_proposal_refresh,
 )
-from app.storage.evidence_repositories import (
+from marivo.storage.evidence_repositories import (
     ActionProposalRepository,
     AssessmentRepository,
     EvidenceGapRepository,
@@ -42,7 +42,7 @@ from app.storage.evidence_repositories import (
     InferenceRecordRepository,
     PropositionRepository,
 )
-from app.storage.sqlite_metadata import SQLiteMetadataStore
+from marivo.storage.sqlite_metadata import SQLiteMetadataStore
 from tests.shared_fixtures import make_temp_metadata_store
 
 # ---------------------------------------------------------------------------

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from app.api.middleware import UserIdentityMiddleware
-from app.identity import current_user
+from marivo.api.middleware import UserIdentityMiddleware
+from marivo.identity import current_user
 
 
 async def _run_through_middleware(headers: list[tuple[bytes, bytes]]) -> str | None:

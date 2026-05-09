@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from app.adapters.local.toml_runtime_config import TomlRuntimeConfig
-from app.contracts.errors import ValidationError
+from marivo.adapters.local.toml_runtime_config import TomlRuntimeConfig
+from marivo.contracts.errors import ValidationError
 
 
 def _make_config(tmp_path: Path) -> TomlRuntimeConfig:

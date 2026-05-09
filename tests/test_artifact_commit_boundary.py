@@ -17,19 +17,19 @@ import contextlib
 import unittest
 from typing import Any
 
-from app.evidence_engine.canonical_finding import (
+from marivo.evidence_engine.canonical_finding import (
     FindingExtractionResult,
     StepRef,
     make_finding_id,
     make_item_identity,
 )
-from app.evidence_engine.family_contract import FamilyEmptyError
-from app.evidence_engine.finding_extractor_registry import (
+from marivo.evidence_engine.family_contract import FamilyEmptyError
+from marivo.evidence_engine.finding_extractor_registry import (
     FindingExtractor,
     FindingExtractorRegistry,
 )
-from app.storage.evidence_repositories import FindingRepository
-from app.storage.sqlite_metadata import SQLiteMetadataStore
+from marivo.storage.evidence_repositories import FindingRepository
+from marivo.storage.sqlite_metadata import SQLiteMetadataStore
 from tests.shared_fixtures import ManagedSQLiteMetadataStore, make_temp_metadata_store
 
 # ---------------------------------------------------------------------------
@@ -89,11 +89,11 @@ def _commit_artifact_with_extraction(
     import json as _json
     from uuid import uuid4
 
-    from app.evidence_engine.canonical_finding import StepRef as _StepRef
-    from app.evidence_engine.finding_extractor_registry import (
+    from marivo.evidence_engine.canonical_finding import StepRef as _StepRef
+    from marivo.evidence_engine.finding_extractor_registry import (
         default_finding_registry as _default_reg,
     )
-    from app.evidence_engine.finding_extractor_registry import (
+    from marivo.evidence_engine.finding_extractor_registry import (
         validate_for_commit as _validate,
     )
 

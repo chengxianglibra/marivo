@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.contracts.errors import (
+from marivo.contracts.errors import (
     ConflictError,
     DomainError,
     ErrorCode,
@@ -95,7 +95,7 @@ def test_subclass_raises() -> None:
 
 
 def test_integrity_error_is_domain_error() -> None:
-    from app.contracts.errors import ErrorCode, IntegrityError
+    from marivo.contracts.errors import ErrorCode, IntegrityError
 
     err = IntegrityError(message="evidence corrupt")
     assert isinstance(err, DomainError)

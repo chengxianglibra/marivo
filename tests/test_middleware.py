@@ -8,8 +8,8 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 from starlette.testclient import TestClient
 
-from app.api.middleware import UserIdentityMiddleware
-from app.identity import current_user
+from marivo.api.middleware import UserIdentityMiddleware
+from marivo.identity import current_user
 
 
 def _capture_user(request: Request) -> JSONResponse:

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.core.engine import CoreEngine
+from marivo.core.engine import CoreEngine
 
 
 def test_core_engine_no_svc_required() -> None:

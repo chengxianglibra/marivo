@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from app.contracts.ids import SessionId, StepId
+from marivo.contracts.ids import SessionId, StepId
 from tests.contracts.contract_cases import ContractCase
 
 

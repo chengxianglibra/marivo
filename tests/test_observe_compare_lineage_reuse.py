@@ -13,8 +13,8 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 
-from app.intents.predicate_lineage_reuse import assert_predicate_lineage_refs_only
-from app.main import create_app
+from marivo.intents.predicate_lineage_reuse import assert_predicate_lineage_refs_only
+from marivo.main import create_app
 from tests.shared_fixtures import get_seeded_duckdb_path
 
 

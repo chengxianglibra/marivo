@@ -34,16 +34,16 @@ import contextlib
 import unittest
 from typing import Any
 
-from app.evidence_engine.canonical_finding import StepRef
-from app.evidence_engine.family_contract import FamilyEmptyError
-from app.evidence_engine.finding_extractor_registry import (
+from marivo.evidence_engine.canonical_finding import StepRef
+from marivo.evidence_engine.family_contract import FamilyEmptyError
+from marivo.evidence_engine.finding_extractor_registry import (
     FindingExtractorRegistry,
     default_finding_registry,
     validate_for_commit,
 )
 
 # Registry import first — bootstraps all real extractors.
-from app.storage.sqlite_metadata import SQLiteMetadataStore
+from marivo.storage.sqlite_metadata import SQLiteMetadataStore
 from tests.shared_fixtures import make_temp_metadata_store
 
 # ---------------------------------------------------------------------------
@@ -84,7 +84,7 @@ def _commit_artifact_with_extraction(
     import json as _json
     from uuid import uuid4
 
-    from app.evidence_engine.canonical_finding import StepRef as _StepRef
+    from marivo.evidence_engine.canonical_finding import StepRef as _StepRef
 
     registry = _registry if _registry is not None else default_finding_registry
     extractor = registry.find(artifact_type, artifact_schema_version)
@@ -756,7 +756,7 @@ class TestSuccessEmptyObserveReplayStability(unittest.TestCase):
     """Re-extracting an empty observe artifact produces 0 findings; no synthetic finding."""
 
     def _extract(self, artifact_id: str, payload: dict[str, Any]) -> Any:
-        from app.evidence_engine.observe_extractor import ObserveArtifactExtractor
+        from marivo.evidence_engine.observe_extractor import ObserveArtifactExtractor
 
         extractor = ObserveArtifactExtractor()
         step_ref = StepRef(session_id=_SESSION, step_id=_STEP_ID, step_type="observe")
@@ -790,7 +790,7 @@ class TestSuccessEmptyDetectReplayStability(unittest.TestCase):
     """Re-extracting an empty detect artifact produces 0 findings; no synthetic finding."""
 
     def _extract(self, artifact_id: str, payload: dict[str, Any]) -> Any:
-        from app.evidence_engine.detect_extractor import DetectArtifactExtractor
+        from marivo.evidence_engine.detect_extractor import DetectArtifactExtractor
 
         extractor = DetectArtifactExtractor()
         step_ref = StepRef(session_id=_SESSION, step_id=_STEP_ID, step_type="detect")
@@ -821,7 +821,7 @@ class TestFindingIdReplayStability(unittest.TestCase):
     """Same artifact_id + payload → same finding_id on every extraction."""
 
     def test_correlate_finding_id_stable_across_re_extraction(self) -> None:
-        from app.evidence_engine.correlate_extractor import CorrelateArtifactExtractor
+        from marivo.evidence_engine.correlate_extractor import CorrelateArtifactExtractor
 
         extractor = CorrelateArtifactExtractor()
         art_id = "art_correlate_replay001"
@@ -837,7 +837,7 @@ class TestFindingIdReplayStability(unittest.TestCase):
         self.assertEqual(len(ids1), 1)
 
     def test_observe_scalar_finding_id_stable_across_re_extraction(self) -> None:
-        from app.evidence_engine.observe_extractor import ObserveArtifactExtractor
+        from marivo.evidence_engine.observe_extractor import ObserveArtifactExtractor
 
         extractor = ObserveArtifactExtractor()
         art_id = "art_observe_scalar_replay001"
@@ -868,7 +868,7 @@ class TestFindingIdReplayStability(unittest.TestCase):
         self.assertEqual(len(ids1), 1)
 
     def test_forecast_finding_ids_stable_across_re_extraction(self) -> None:
-        from app.evidence_engine.forecast_extractor import ForecastArtifactExtractor
+        from marivo.evidence_engine.forecast_extractor import ForecastArtifactExtractor
 
         extractor = ForecastArtifactExtractor()
         art_id = "art_forecast_replay001"

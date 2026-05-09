@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from app.contracts.errors import DomainError, ErrorCode, NotFoundError, ValidationError
-from app.contracts.ids import DatasourceId
-from app.contracts.values import LogicalQuery, SourceRef
+from marivo.contracts.errors import DomainError, ErrorCode, NotFoundError, ValidationError
+from marivo.contracts.ids import DatasourceId
+from marivo.contracts.values import LogicalQuery, SourceRef
 from tests.contracts.contract_cases import ContractCase
 
 

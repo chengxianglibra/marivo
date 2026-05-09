@@ -9,8 +9,8 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from app.main import create_app
-from app.observability import (
+from marivo.main import create_app
+from marivo.observability import (
     JSONFormatter,
     MetricsCollector,
     correlation_execution_stage,

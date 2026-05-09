@@ -18,7 +18,7 @@ from __future__ import annotations
 import unittest
 from typing import Any
 
-from app.evidence_engine.proposition_normalizer import (
+from marivo.evidence_engine.proposition_normalizer import (
     _canonical_decimal,
     _canonical_json,
     make_proposition_id,

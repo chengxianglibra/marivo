@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 import unittest
 
-from app.storage.evidence_repositories import (
+from marivo.storage.evidence_repositories import (
     ActionProposalRepository,
     AssessmentRepository,
     EvidenceGapRepository,
@@ -25,7 +25,7 @@ from app.storage.evidence_repositories import (
     InferenceRecordRepository,
     PropositionRepository,
 )
-from app.storage.sqlite_metadata import SQLiteMetadataStore
+from marivo.storage.sqlite_metadata import SQLiteMetadataStore
 from tests.shared_fixtures import make_temp_metadata_store
 
 # ---------------------------------------------------------------------------

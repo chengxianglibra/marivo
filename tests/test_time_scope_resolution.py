@@ -5,13 +5,13 @@ import unittest
 from pathlib import Path
 from uuid import uuid4
 
-import app.analysis_core.executor as executor_module
-import app.intents.observe as observe_module
-from app.analysis_core.compiler import CompiledQuery
-from app.intents.observe import run_observe_intent
-from app.main import create_app
-from app.time_axis_metadata import TimeAxisMetadataContext
-from app.time_scope import (
+import marivo.analysis_core.executor as executor_module
+import marivo.intents.observe as observe_module
+from marivo.analysis_core.compiler import CompiledQuery
+from marivo.intents.observe import run_observe_intent
+from marivo.main import create_app
+from marivo.time_axis_metadata import TimeAxisMetadataContext
+from marivo.time_scope import (
     AdHocAggregateValueSpec,
     SemanticMetricValueSpec,
     TimeAxisResolver,

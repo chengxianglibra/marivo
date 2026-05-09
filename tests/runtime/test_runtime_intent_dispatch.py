@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from app.contracts.ids import (
+from marivo.contracts.ids import (
     Action,
     ArtifactId,
     CacheKey,
@@ -15,9 +15,9 @@ from app.contracts.ids import (
     SessionId,
     UserId,
 )
-from app.contracts.semantic import ModelSummary, SemanticModel
-from app.contracts.session import SessionEvent, SessionState
-from app.contracts.values import (
+from marivo.contracts.semantic import ModelSummary, SemanticModel
+from marivo.contracts.session import SessionEvent, SessionState
+from marivo.contracts.values import (
     AuditEntry,
     AuthZDecision,
     CacheValue,
@@ -27,8 +27,8 @@ from app.contracts.values import (
     SourceSchema,
     TelemetryEvent,
 )
-from app.core.engine import CoreEngine
-from app.runtime.runtime import MarivoRuntime
+from marivo.core.engine import CoreEngine
+from marivo.runtime.runtime import MarivoRuntime
 
 # --- Stub port implementations ---
 
@@ -172,7 +172,7 @@ class StubStepStore:
 
 
 def _make_ports() -> object:
-    from app.runtime.ports import RuntimePorts
+    from marivo.runtime.ports import RuntimePorts
 
     return RuntimePorts(
         model_store=StubModelStore(),
@@ -229,7 +229,7 @@ def test_intent_dispatches_to_intent_execution() -> None:
         "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-02-01"},
     }
     for intent_name in INTENT_METHODS:
-        target = f"app.runtime.intent_execution.{intent_name}"
+        target = f"marivo.runtime.intent_execution.{intent_name}"
         with patch(target, return_value={"status": "ok"}) as mock_fn:
             method = getattr(rt, intent_name)
             result = method("sess_123", params)
@@ -239,70 +239,82 @@ def test_intent_dispatches_to_intent_execution() -> None:
 
 def test_observe_dispatches() -> None:
     rt = _make_runtime()
-    with patch("app.runtime.intent_execution.observe", return_value={"status": "ok"}) as mock_fn:
+    with patch("marivo.runtime.intent_execution.observe", return_value={"status": "ok"}) as mock_fn:
         rt.observe("s1", {"metric": "m"})
         mock_fn.assert_called_once_with(rt, SessionId("s1"), {"metric": "m"})
 
 
 def test_compare_dispatches() -> None:
     rt = _make_runtime()
-    with patch("app.runtime.intent_execution.compare", return_value={"status": "ok"}) as mock_fn:
+    with patch("marivo.runtime.intent_execution.compare", return_value={"status": "ok"}) as mock_fn:
         rt.compare("s1", {"metric": "m"})
         mock_fn.assert_called_once_with(rt, SessionId("s1"), {"metric": "m"})
 
 
 def test_decompose_dispatches() -> None:
     rt = _make_runtime()
-    with patch("app.runtime.intent_execution.decompose", return_value={"status": "ok"}) as mock_fn:
+    with patch(
+        "marivo.runtime.intent_execution.decompose", return_value={"status": "ok"}
+    ) as mock_fn:
         rt.decompose("s1", {"metric": "m"})
         mock_fn.assert_called_once_with(rt, SessionId("s1"), {"metric": "m"})
 
 
 def test_correlate_dispatches() -> None:
     rt = _make_runtime()
-    with patch("app.runtime.intent_execution.correlate", return_value={"status": "ok"}) as mock_fn:
+    with patch(
+        "marivo.runtime.intent_execution.correlate", return_value={"status": "ok"}
+    ) as mock_fn:
         rt.correlate("s1", {"metric": "m"})
         mock_fn.assert_called_once_with(rt, SessionId("s1"), {"metric": "m"})
 
 
 def test_detect_dispatches() -> None:
     rt = _make_runtime()
-    with patch("app.runtime.intent_execution.detect", return_value={"status": "ok"}) as mock_fn:
+    with patch("marivo.runtime.intent_execution.detect", return_value={"status": "ok"}) as mock_fn:
         rt.detect("s1", {"metric": "m"})
         mock_fn.assert_called_once_with(rt, SessionId("s1"), {"metric": "m"})
 
 
 def test_test_dispatches() -> None:
     rt = _make_runtime()
-    with patch("app.runtime.intent_execution.test", return_value={"status": "ok"}) as mock_fn:
+    with patch("marivo.runtime.intent_execution.test", return_value={"status": "ok"}) as mock_fn:
         rt.test("s1", {"metric": "m"})
         mock_fn.assert_called_once_with(rt, SessionId("s1"), {"metric": "m"})
 
 
 def test_forecast_dispatches() -> None:
     rt = _make_runtime()
-    with patch("app.runtime.intent_execution.forecast", return_value={"status": "ok"}) as mock_fn:
+    with patch(
+        "marivo.runtime.intent_execution.forecast", return_value={"status": "ok"}
+    ) as mock_fn:
         rt.forecast("s1", {"metric": "m"})
         mock_fn.assert_called_once_with(rt, SessionId("s1"), {"metric": "m"})
 
 
 def test_attribute_dispatches() -> None:
     rt = _make_runtime()
-    with patch("app.runtime.intent_execution.attribute", return_value={"status": "ok"}) as mock_fn:
+    with patch(
+        "marivo.runtime.intent_execution.attribute", return_value={"status": "ok"}
+    ) as mock_fn:
         rt.attribute("s1", {"metric": "m"})
         mock_fn.assert_called_once_with(rt, SessionId("s1"), {"metric": "m"})
 
 
 def test_diagnose_dispatches() -> None:
     rt = _make_runtime()
-    with patch("app.runtime.intent_execution.diagnose", return_value={"status": "ok"}) as mock_fn:
+    with patch(
+        "marivo.runtime.intent_execution.diagnose", return_value={"status": "ok"}
+    ) as mock_fn:
         rt.diagnose("s1", {"metric": "m"})
         mock_fn.assert_called_once_with(rt, SessionId("s1"), {"metric": "m"})
 
 
 def test_validate_dispatches() -> None:
     rt = _make_runtime()
-    with patch("app.runtime.intent_execution.validate", return_value={"status": "ok"}) as mock_fn:
+    with patch(
+        "marivo.runtime.intent_execution.validate", return_value={"status": "ok"}
+    ) as mock_fn:
         rt.validate("s1", {"metric": "m"})
         mock_fn.assert_called_once_with(rt, SessionId("s1"), {"metric": "m"})
 
@@ -310,6 +322,6 @@ def test_validate_dispatches() -> None:
 def test_intent_returns_service_result() -> None:
     rt = _make_runtime()
     expected = {"step_id": "step_1", "status": "completed"}
-    with patch("app.runtime.intent_execution.observe", return_value=expected) as mock_fn:
+    with patch("marivo.runtime.intent_execution.observe", return_value=expected) as mock_fn:
         result = rt.observe("s1", {"metric": "m"})
         assert result is expected

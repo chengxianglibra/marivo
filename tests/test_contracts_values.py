@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from app.contracts.ids import DatasourceId, SessionId, StepId, UserId
-from app.contracts.values import (
+from marivo.contracts.ids import DatasourceId, SessionId, StepId, UserId
+from marivo.contracts.values import (
     AuditEntry,
     AuthZDecision,
     CacheValue,

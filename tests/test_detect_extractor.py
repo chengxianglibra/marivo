@@ -17,17 +17,17 @@ from __future__ import annotations
 import unittest
 from typing import Any
 
-from app.evidence_engine.canonical_finding import StepRef
+from marivo.evidence_engine.canonical_finding import StepRef
 
 # finding_extractor_registry must be imported before detect_extractor so the
 # bootstrap runs cleanly (detect_extractor subclasses FindingExtractor from
 # this module; if detect_extractor were loaded first it would trigger the
 # bootstrap while the module is only partially initialised → circular import).
-from app.evidence_engine.finding_extractor_registry import (
+from marivo.evidence_engine.finding_extractor_registry import (
     default_finding_registry,
     validate_for_commit,
 )
-from app.evidence_engine.detect_extractor import DetectArtifactExtractor
+from marivo.evidence_engine.detect_extractor import DetectArtifactExtractor
 from tests.finding_identity_testutil import (
     assert_finding_id_stable,
     assert_projection_order_excluded,

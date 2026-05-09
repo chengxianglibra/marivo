@@ -21,13 +21,13 @@ import json
 import unittest
 from typing import Any
 
-from app.evidence_engine.canonical_pipeline_runtime import (
+from marivo.evidence_engine.canonical_pipeline_runtime import (
     CANONICAL_DOWNSTREAM_SCHEMA_VERSION,
     CanonicalDownstreamResult,
     run_canonical_downstream,
 )
-from app.evidence_engine.publish_switch import assemble_externally_visible_bundle
-from app.storage.evidence_repositories import (
+from marivo.evidence_engine.publish_switch import assemble_externally_visible_bundle
+from marivo.storage.evidence_repositories import (
     ActionProposalRepository,
     AssessmentRepository,
     EvidenceGapRepository,
@@ -35,7 +35,7 @@ from app.storage.evidence_repositories import (
     InferenceRecordRepository,
     PropositionRepository,
 )
-from app.storage.sqlite_metadata import SQLiteMetadataStore
+from marivo.storage.sqlite_metadata import SQLiteMetadataStore
 from tests.shared_fixtures import make_temp_metadata_store
 
 # ---------------------------------------------------------------------------

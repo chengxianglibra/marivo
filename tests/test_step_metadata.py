@@ -7,12 +7,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, ClassVar, cast
 
-from app.analysis_core.compiler import CompiledQuery
-from app.api.app_factory import create_app
-from app.evidence_engine.ref_boundary import assert_no_canonical_refs_in_semantic_payload
-from app.runtime.runtime import MarivoRuntime
-from app.runtime.semantic_ops import build_step_semantic_metadata
-from app.storage.step_metadata_repository import StepMetadataRepository
+from marivo.analysis_core.compiler import CompiledQuery
+from marivo.api.app_factory import create_app
+from marivo.evidence_engine.ref_boundary import assert_no_canonical_refs_in_semantic_payload
+from marivo.runtime.runtime import MarivoRuntime
+from marivo.runtime.semantic_ops import build_step_semantic_metadata
+from marivo.storage.step_metadata_repository import StepMetadataRepository
 from tests.semantic_test_helpers import (
     ensure_published_typed_metric,
     ensure_published_typed_metric_binding,
@@ -32,8 +32,8 @@ _VALID_SOURCE_LINEAGE = {
 def _make_metadata_only_service() -> MarivoRuntime:
     from unittest.mock import MagicMock
 
-    from app.core.engine import CoreEngine
-    from app.runtime.ports import RuntimePorts
+    from marivo.core.engine import CoreEngine
+    from marivo.runtime.ports import RuntimePorts
 
     ports = MagicMock(spec=RuntimePorts)
     core = CoreEngine()

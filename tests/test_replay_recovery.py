@@ -13,14 +13,14 @@ import json
 import unittest
 from typing import Any
 
-from app.evidence_engine.assessment_recompute import make_assessment_id
-from app.evidence_engine.canonical_pipeline_runtime import run_canonical_downstream
-from app.evidence_engine.replay_recovery import (
+from marivo.evidence_engine.assessment_recompute import make_assessment_id
+from marivo.evidence_engine.canonical_pipeline_runtime import run_canonical_downstream
+from marivo.evidence_engine.replay_recovery import (
     RECOVERY_CHECKPOINT_SCHEMA_VERSION,
     get_proposition_checkpoint,
     recover_proposition_pipeline,
 )
-from app.storage.evidence_repositories import (
+from marivo.storage.evidence_repositories import (
     ActionProposalRepository,
     AssessmentRepository,
     EvidenceGapRepository,
@@ -28,7 +28,7 @@ from app.storage.evidence_repositories import (
     InferenceRecordRepository,
     PropositionRepository,
 )
-from app.storage.sqlite_metadata import SQLiteMetadataStore
+from marivo.storage.sqlite_metadata import SQLiteMetadataStore
 from tests.shared_fixtures import make_temp_metadata_store
 
 # ---------------------------------------------------------------------------
@@ -386,7 +386,7 @@ class TestRecoverNothingCommitted(unittest.TestCase):
         _setup(self.store)
         self.repos = _make_repos(self.store)
         # Run only the seeding stage — no assessment committed yet.
-        from app.evidence_engine.proposition_seeding_run import (
+        from marivo.evidence_engine.proposition_seeding_run import (
             SimpleMaterializationContext,
             run_system_seeded_propositions,
         )

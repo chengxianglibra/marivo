@@ -4,9 +4,9 @@ from typing import Any
 
 import pytest
 
-from app.contracts.ids import SessionId
-from app.contracts.session import SessionEvent
-from app.core.session.rebuild import rebuild_session_state
+from marivo.contracts.ids import SessionId
+from marivo.contracts.session import SessionEvent
+from marivo.core.session.rebuild import rebuild_session_state
 
 
 def _event(

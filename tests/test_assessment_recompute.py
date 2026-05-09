@@ -30,21 +30,21 @@ import unittest
 from datetime import UTC
 from typing import Any
 
-from app.evidence_engine.assessment_evaluation_context import build_assessment_evaluation_context
-from app.evidence_engine.assessment_recompute import (
+from marivo.evidence_engine.assessment_evaluation_context import build_assessment_evaluation_context
+from marivo.evidence_engine.assessment_recompute import (
     RECOMPUTE_SCHEMA_VERSION,
     AssessmentRecomputeResult,
     make_assessment_id,
     recompute_proposition_assessment,
 )
-from app.storage.evidence_repositories import (
+from marivo.storage.evidence_repositories import (
     AssessmentRepository,
     EvidenceGapRepository,
     FindingRepository,
     InferenceRecordRepository,
     PropositionRepository,
 )
-from app.storage.sqlite_metadata import SQLiteMetadataStore
+from marivo.storage.sqlite_metadata import SQLiteMetadataStore
 from tests.shared_fixtures import make_temp_metadata_store
 
 # ---------------------------------------------------------------------------
@@ -742,7 +742,7 @@ class TestGapReopenCreatesNewGapId(_RecomputeBase):
         prior_assessment_ids: list[str],
     ) -> AssessmentRecomputeResult:
         """Call recompute with a manually-assembled context (bypasses carry-forward)."""
-        from app.evidence_engine.assessment_evaluation_context import (
+        from marivo.evidence_engine.assessment_evaluation_context import (
             EVALUATION_CONTEXT_SCHEMA_VERSION,
             AssessmentEvaluationContext,
         )
@@ -1100,7 +1100,7 @@ class TestComparabilityGateIntegration(_RecomputeBase):
         current_latest_assessment_id: str | None,
         prior_assessment_ids: list[str],
     ) -> AssessmentRecomputeResult:
-        from app.evidence_engine.assessment_evaluation_context import (
+        from marivo.evidence_engine.assessment_evaluation_context import (
             EVALUATION_CONTEXT_SCHEMA_VERSION,
             AssessmentEvaluationContext,
         )

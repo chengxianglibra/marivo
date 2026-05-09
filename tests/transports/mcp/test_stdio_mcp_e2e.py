@@ -183,14 +183,14 @@ class FakeRuntime:
 
 def test_marivo_stdio_entry_point_callable():
     """The marivo-stdio entry point function is callable."""
-    from app.transports.mcp.stdio import main
+    from marivo.transports.mcp.stdio import main
 
     assert callable(main)
 
 
 def test_stdio_server_registers_tools():
     """A stdio-configured FastMCP server registers the full tool set."""
-    from app.transports.mcp.tools import register_tools
+    from marivo.transports.mcp.tools import register_tools
 
     server = FastMCP("marivo")  # Same name as stdio.py uses
     register_tools(server, FakeRuntime())
@@ -268,13 +268,13 @@ def test_stdio_server_registers_tools():
 def test_marivo_stdio_help_flag():
     """marivo-stdio console script is installed and responds to --help."""
     result = subprocess.run(
-        [sys.executable, "-m", "app.transports.mcp.stdio", "--help"],
+        [sys.executable, "-m", "marivo.transports.mcp.stdio", "--help"],
         capture_output=True,
         text=True,
         timeout=5,
     )
     # The entry point may not support --help directly, but it should not
     # crash with an import error. We just verify it's importable.
-    from app.transports.mcp.stdio import main
+    from marivo.transports.mcp.stdio import main
 
     assert callable(main)

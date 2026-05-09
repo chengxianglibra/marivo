@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from app.redaction import redact_mapping, redact_sensitive_text, redact_url
+from marivo.redaction import redact_mapping, redact_sensitive_text, redact_url
 
 
 class RedactionTests(unittest.TestCase):

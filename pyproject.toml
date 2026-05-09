@@ -30,8 +30,8 @@ dev = [
 test-mysql = ["testcontainers[mysql]"]
 
 [project.scripts]
-marivo = "app.cli:main"
-marivo-stdio = "app.transports.mcp.stdio:main"
+marivo = "marivo.cli:main"
+marivo-stdio = "marivo.transports.mcp.stdio:main"
 
 [build-system]
 requires = ["setuptools>=68.0"]
@@ -43,7 +43,7 @@ markers = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["app*"]
+include = ["marivo*"]
 
 [tool.ruff]
 line-length = 100
@@ -89,10 +89,10 @@ ignore = [
     "B017",    # allow assertRaises(Exception)
     "RUF059",  # allow unused unpacked variables
 ]
-"app/api/**/*.py" = ["B008"]  # allow function calls in FastAPI defaults
+"marivo/api/**/*.py" = ["B008"]  # allow function calls in FastAPI defaults
 
 [tool.ruff.lint.isort]
-known-first-party = ["app"]
+known-first-party = ["marivo"]
 
 [tool.mypy]
 python_version = "3.12"
@@ -114,7 +114,7 @@ module = "tests.*"
 disallow_untyped_defs = false
 
 [tool.coverage.run]
-source = ["app"]
+source = ["marivo"]
 omit = [
     "*/tests/*",
     "*/__pycache__/*",

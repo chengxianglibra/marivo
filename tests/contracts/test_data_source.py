@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from app.adapters.local.duckdb_data_source import DuckDBDataSource
-from app.contracts.ids import DatasourceId
-from app.contracts.values import LogicalQuery
+from marivo.adapters.local.duckdb_data_source import DuckDBDataSource
+from marivo.contracts.ids import DatasourceId
+from marivo.contracts.values import LogicalQuery
 from tests.contracts.contract_harness import run_contract_cases
 from tests.contracts.data_source_cases import DATA_SOURCE_CASES, ROUTING_DATA_SOURCE_CASES
 
@@ -22,11 +22,11 @@ def routing_ds():
     Skips DuckDBAnalyticsEngine.initialize() (which seeds ~35s of demo data)
     because routing tests only run trivial SQL like ``SELECT 42``.
     """
-    from app.adapters.server.data_source import RoutingDataSource
-    from app.datasources import DatasourceService
-    from app.routing import QueryRouter
-    from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
-    from app.storage.sqlite_metadata import SQLiteMetadataStore
+    from marivo.adapters.server.data_source import RoutingDataSource
+    from marivo.datasources import DatasourceService
+    from marivo.routing import QueryRouter
+    from marivo.storage.duckdb_analytics import DuckDBAnalyticsEngine
+    from marivo.storage.sqlite_metadata import SQLiteMetadataStore
 
     engine = DuckDBAnalyticsEngine(":memory:")
     # No initialize() — routing tests only need query_rows() for trivial SQL.
@@ -69,7 +69,7 @@ def test_routing_data_source_default_engine(routing_ds) -> None:
 
 def test_routing_data_source_unknown_datasource(routing_ds) -> None:
     """RoutingDataSource raises DomainError for an unknown datasource_id."""
-    from app.contracts.errors import DomainError, ErrorCode
+    from marivo.contracts.errors import DomainError, ErrorCode
 
     with pytest.raises(DomainError) as exc_info:
         routing_ds.execute(LogicalQuery(sql="SELECT 1", datasource_id=DatasourceId("nonexistent")))

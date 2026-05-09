@@ -7,16 +7,16 @@ from typing import Any
 
 import pytest
 
-from app.contracts.evidence import Evidence, Finding, Proposition
-from app.contracts.ids import (
+from marivo.contracts.evidence import Evidence, Finding, Proposition
+from marivo.contracts.ids import (
     ArtifactId,
     EvidenceRef,
     FindingId,
     PropositionId,
     SessionId,
 )
-from app.contracts.session import SessionEvent
-from app.contracts.values import LAYOUT_VERSION, CacheValue
+from marivo.contracts.session import SessionEvent
+from marivo.contracts.values import LAYOUT_VERSION, CacheValue
 
 
 @pytest.fixture()

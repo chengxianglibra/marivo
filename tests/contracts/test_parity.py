@@ -2,14 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from app.adapters.local.duckdb_data_source import DuckDBDataSource
-from app.adapters.local.file_model_store import FileModelStore
-from app.adapters.local.sqlite_session_store import SqliteSessionStore
-from app.adapters.server.session_store import SqlSessionStore
-from app.config import MarivoConfig
-from app.profiles.server import ServerConfig, create_server_runtime
-from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
-from app.storage.sqlite_metadata import SQLiteMetadataStore
+from marivo.adapters.local.duckdb_data_source import DuckDBDataSource
+from marivo.adapters.local.file_model_store import FileModelStore
+from marivo.adapters.local.sqlite_session_store import SqliteSessionStore
+from marivo.adapters.server.session_store import SqlSessionStore
+from marivo.config import MarivoConfig
+from marivo.profiles.server import ServerConfig, create_server_runtime
+from marivo.storage.duckdb_analytics import DuckDBAnalyticsEngine
+from marivo.storage.sqlite_metadata import SQLiteMetadataStore
 from tests.contracts.data_source_cases import DATA_SOURCE_CASES
 from tests.contracts.model_store_cases import MODEL_STORE_CASES
 from tests.contracts.parity import compare_contract_matrix

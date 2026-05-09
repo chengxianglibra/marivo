@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import unittest
 
-from app.analysis_core import CompositeStepTemplate, CompositeWorkflowRuntime, CompositeWorkflowSpec
+from marivo.analysis_core import (
+    CompositeStepTemplate,
+    CompositeWorkflowRuntime,
+    CompositeWorkflowSpec,
+)
 
 
 class CompositeWorkflowRuntimeTests(unittest.TestCase):

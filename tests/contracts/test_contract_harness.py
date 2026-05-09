@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from app.adapters.local.duckdb_data_source import DuckDBDataSource
+from marivo.adapters.local.duckdb_data_source import DuckDBDataSource
 from tests.contracts.contract_cases import ContractCase
 from tests.contracts.contract_harness import run_contract_cases
 

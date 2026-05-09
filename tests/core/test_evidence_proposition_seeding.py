@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from app.core.evidence.finding_extraction import escape_seg_component
-from app.core.evidence.proposition_seeding import (
+from marivo.core.evidence.finding_extraction import escape_seg_component
+from marivo.core.evidence.proposition_seeding import (
     bilateral_focus_anchor,
     canonical_subject_key,
     decode_seg_component,

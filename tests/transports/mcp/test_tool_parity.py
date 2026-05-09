@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from mcp.server.fastmcp import FastMCP
 
-from app.transports.mcp.tools import register_tools
+from marivo.transports.mcp.tools import register_tools
 
 
 class _FakeSvc:

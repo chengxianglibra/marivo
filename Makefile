@@ -12,7 +12,7 @@ test:
 
 typecheck:
 	@./scripts/require-venv.sh mypy
-	@$(VENV_MYPY) app
+	@$(VENV_MYPY) marivo
 
 lint:
 	@./scripts/require-venv.sh ruff

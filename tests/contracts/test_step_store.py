@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from app.adapters.local.sqlite_step_store import SqliteStepStore
+from marivo.adapters.local.sqlite_step_store import SqliteStepStore
 from tests.contracts.contract_harness import run_contract_cases
 from tests.contracts.step_store_cases import STEP_STORE_CASES
 

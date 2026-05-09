@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from app.contracts.errors import ErrorCode, NotFoundError
-from app.contracts.ids import SessionId, UserId
-from app.contracts.session import SessionEvent
+from marivo.contracts.errors import ErrorCode, NotFoundError
+from marivo.contracts.ids import SessionId, UserId
+from marivo.contracts.session import SessionEvent
 from tests.contracts.contract_cases import ContractCase
 
 

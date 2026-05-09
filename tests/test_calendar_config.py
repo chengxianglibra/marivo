@@ -6,7 +6,7 @@ import unittest
 
 from pydantic import ValidationError
 
-from app.config import CalendarConfig
+from marivo.config import CalendarConfig
 
 
 class CalendarConfigDefaultsTest(unittest.TestCase):
@@ -85,7 +85,7 @@ class CalendarConfigInMarivoConfigTest(unittest.TestCase):
     """CalendarConfig integrates correctly within MarivoConfig."""
 
     def test_marivo_config_calendar_default(self) -> None:
-        from app.config import MarivoConfig
+        from marivo.config import MarivoConfig
 
         cfg = MarivoConfig()
         self.assertIsInstance(cfg.calendar, CalendarConfig)
@@ -93,7 +93,7 @@ class CalendarConfigInMarivoConfigTest(unittest.TestCase):
         self.assertIsNone(cfg.calendar.calendar_version)
 
     def test_marivo_config_calendar_custom(self) -> None:
-        from app.config import MarivoConfig
+        from marivo.config import MarivoConfig
 
         cfg = MarivoConfig(calendar={"region_code": "US", "calendar_version": "v2025.1"})
         self.assertEqual(cfg.calendar.region_code, "US")

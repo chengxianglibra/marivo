@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from app.adapters.local.file_model_store import FileModelStore, _ListQuery, _Selector
-from app.contracts.ids import UserId
-from app.contracts.semantic import SemanticModel
+from marivo.adapters.local.file_model_store import FileModelStore, _ListQuery, _Selector
+from marivo.contracts.ids import UserId
+from marivo.contracts.semantic import SemanticModel
 from tests.contracts.contract_harness import run_contract_cases
 from tests.contracts.model_store_cases import MODEL_STORE_CASES
 

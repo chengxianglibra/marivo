@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.contracts.errors import (
+from marivo.contracts.errors import (
     ConflictError,
     DomainError,
     ErrorCode,
@@ -10,7 +10,7 @@ from app.contracts.errors import (
     NotFoundError,
     ValidationError,
 )
-from app.transports.mcp.tools._async_bridge import call_runtime
+from marivo.transports.mcp.tools._async_bridge import call_runtime
 
 
 @pytest.mark.parametrize(

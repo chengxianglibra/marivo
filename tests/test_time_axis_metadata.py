@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from app.time_axis_metadata import (
+from marivo.time_axis_metadata import (
     normalize_time_capabilities,
 )
 
