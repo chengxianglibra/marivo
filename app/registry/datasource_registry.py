@@ -8,6 +8,7 @@ from typing import Any
 from uuid import uuid4
 
 from app.adapters.base import MAX_PREVIEW_ROWS, CatalogAdapter, PreviewFilters
+from app.contracts.ids import UserId
 from app.identity import resolve_user
 from app.registry.common import now_iso
 from app.registry.factories import build_catalog_adapter, validate_datasource_type
@@ -99,9 +100,7 @@ class DatasourceRegistry:
     ) -> dict[str, Any]:
         validate_datasource_type(datasource_type)
 
-        owner_user = resolve_user()
-        if owner_user is None:
-            raise ValueError("user_required: cannot create datasource without user identity")
+        owner_user = UserId(resolve_user() or "local")
 
         datasource_id = f"ds_{uuid4().hex[:12]}"
         now = now_iso()

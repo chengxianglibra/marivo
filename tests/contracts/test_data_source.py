@@ -15,7 +15,13 @@ def _make_duckdb_data_source(tmp_path: Path) -> DuckDBDataSource:
     return DuckDBDataSource(path=None)
 
 
-def _make_routing_data_source(tmp_path: Path):
+@pytest.fixture(scope="session")
+def routing_ds():
+    """Session-scoped RoutingDataSource shared across routing tests.
+
+    Skips DuckDBAnalyticsEngine.initialize() (which seeds ~35s of demo data)
+    because routing tests only run trivial SQL like ``SELECT 42``.
+    """
     from app.adapters.server.data_source import RoutingDataSource
     from app.datasources import DatasourceService
     from app.routing import QueryRouter
@@ -23,8 +29,8 @@ def _make_routing_data_source(tmp_path: Path):
     from app.storage.sqlite_metadata import SQLiteMetadataStore
 
     engine = DuckDBAnalyticsEngine(":memory:")
-    engine.initialize()
-    metadata = SQLiteMetadataStore(tmp_path / "test.meta.sqlite")
+    # No initialize() — routing tests only need query_rows() for trivial SQL.
+    metadata = SQLiteMetadataStore(Path("/tmp/marivo_test_routing_ds.meta.sqlite"))
     metadata.initialize()
     ds_service = DatasourceService(metadata)
     router = QueryRouter(metadata, ds_service)
@@ -54,30 +60,23 @@ def test_close_idempotent(name, factory, tmp_path):
     store.close()
 
 
-def test_routing_data_source_default_engine(tmp_path: Path) -> None:
+def test_routing_data_source_default_engine(routing_ds) -> None:
     """RoutingDataSource routes queries with no datasource_id to the default engine."""
-    ds = _make_routing_data_source(tmp_path)
-    result = ds.execute(LogicalQuery(sql="SELECT 42 AS answer", params={}))
+    result = routing_ds.execute(LogicalQuery(sql="SELECT 42 AS answer", params={}))
     assert result.row_count == 1
     assert result.rows[0]["answer"] == 42
 
 
-def test_routing_data_source_unknown_datasource(tmp_path: Path) -> None:
+def test_routing_data_source_unknown_datasource(routing_ds) -> None:
     """RoutingDataSource raises DomainError for an unknown datasource_id."""
     from app.contracts.errors import DomainError, ErrorCode
 
-    ds = _make_routing_data_source(tmp_path)
     with pytest.raises(DomainError) as exc_info:
-        ds.execute(LogicalQuery(sql="SELECT 1", datasource_id=DatasourceId("nonexistent")))
+        routing_ds.execute(LogicalQuery(sql="SELECT 1", datasource_id=DatasourceId("nonexistent")))
     assert exc_info.value.code == ErrorCode.DATASOURCE_UNAVAILABLE
 
 
-def test_routing_data_source_contract_cases(tmp_path: Path) -> None:
+def test_routing_data_source_contract_cases(routing_ds) -> None:
     """RoutingDataSource satisfies the routing-specific contract cases."""
-    results = run_contract_cases(
-        adapter_name="RoutingDataSource",
-        factory=_make_routing_data_source,
-        cases=ROUTING_DATA_SOURCE_CASES,
-        tmp_path=tmp_path,
-    )
-    assert all(result.status == "passed" for result in results)
+    for case in ROUTING_DATA_SOURCE_CASES:
+        case.run(routing_ds, Path("/tmp"))

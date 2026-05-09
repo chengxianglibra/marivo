@@ -194,7 +194,7 @@ def terminate_session(
         from app.identity import resolve_user
 
         current_user = resolve_user()
-        actor = UserId(current_user) if current_user else UserId("api")
+        actor = UserId(current_user) if current_user else UserId("local")
         get_services(request).runtime.terminate_session(
             SessionId(session_id),
             actor=actor,
