@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any, Protocol
 
-from marivo.analysis_core.compiler import CompiledQuery
+from marivo.core.semantic.compiler import CompiledQuery
 from marivo.dialect import translate as translate_sql
 from marivo.execution.federation import FederationPlan, FederationPlanner
 

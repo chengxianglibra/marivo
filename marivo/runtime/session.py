@@ -13,8 +13,8 @@ from uuid import uuid4
 from marivo.contracts.errors import ErrorCode, ForbiddenError, NotFoundError, ValidationError
 from marivo.contracts.ids import SessionId, UserId
 from marivo.contracts.session import SessionEvent, SessionState
+from marivo.core.evidence.family_contract import ALLOWS_EMPTY_ARTIFACT_TYPES
 from marivo.core.session.rebuild import rebuild_session_state
-from marivo.evidence_engine.family_contract import ALLOWS_EMPTY_ARTIFACT_TYPES
 from marivo.identity import resolve_user
 
 if TYPE_CHECKING:

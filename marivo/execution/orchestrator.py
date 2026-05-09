@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Any, Protocol
 
-from marivo.analysis_core.ir import AnalysisStepIR
 from marivo.analysis_core.workflows.workflow_runtime import CompositeWorkflowRuntime
+from marivo.core.semantic.ir import AnalysisStepIR
 
 
 class WorkflowStepExecutor(Protocol):

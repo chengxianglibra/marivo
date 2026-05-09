@@ -7,14 +7,14 @@ from typing import Any, ClassVar, cast
 
 from fastapi.testclient import TestClient
 
-from marivo.analysis_core.compiler import (
+from marivo.analysis_core.executor import execute_compiled
+from marivo.api.app_factory import create_app
+from marivo.core.semantic.compiler import (
     CompiledQuery,
     SemanticCompilerError,
     SemanticRequestCompatibilityError,
 )
-from marivo.analysis_core.executor import execute_compiled
-from marivo.analysis_core.ir import AnalysisStepIR
-from marivo.api.app_factory import create_app
+from marivo.core.semantic.ir import AnalysisStepIR
 from marivo.execution.errors import ExecutionError
 from marivo.execution.federation import FederationPlanner
 from marivo.execution.feedback import compile_failure_from_error, federation_failure_from_plan

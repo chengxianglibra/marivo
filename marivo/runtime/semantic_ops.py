@@ -14,15 +14,17 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
-from marivo.analysis_core.compiler import (
-    CompiledQuery,
-    SemanticRequestCompatibilityError,
-    compile_step,
-)
-from marivo.analysis_core.compiler import build_metric_query as compile_metric_query
-from marivo.analysis_core.ir import AnalysisStepIR
+from marivo.analysis_core.compiler import compile_step
 from marivo.contracts.errors import ErrorCode, NotFoundError
 from marivo.contracts.semantic import SemanticModel
+from marivo.core.semantic.compiler import (
+    CompiledQuery,
+    SemanticRequestCompatibilityError,
+)
+from marivo.core.semantic.compiler import (
+    build_metric_query as compile_metric_query,
+)
+from marivo.core.semantic.ir import AnalysisStepIR
 from marivo.execution.feedback import compile_failure_from_error
 from marivo.metric_inputs import required_metric_input_slots
 from marivo.semantic_runtime.dimensions import resolve_entity_binding_dimensions
