@@ -30,7 +30,7 @@ Phase 9 replaces the thin wrapper adapters in `app/adapters/server/wrappers.py` 
 2. Native event-sourced `SqlSessionStore` over `session_events` table (SQLite + MySQL).
 3. `step_completed` event ownership guarantee in `SqlSessionStore`.
 4. `RoutingDataSource` with DuckDB + Trino engine routing, credential store, and datasource registry.
-5. Server file stores: `FileEvidenceStore` and `FileAuditLog` reused from local adapters with server directory paths.
+5. Server file stores: `FileAuditLog` reused from local adapter with server directory path; `MetadataEvidenceStoreAdapter.read()` implemented.
 6. `RuntimePorts` and `ServerComposition` cleanup: remove infrastructure leakage fields and wire methods.
 7. `LogicalQuery` gains `datasource_id` field for engine routing.
 8. `test-mysql` extras group in `pyproject.toml`; Make entrypoint for CI.
@@ -62,7 +62,7 @@ app/adapters/server/
   model_store.py       # SqlModelStoreAdapter
   session_store.py     # NEW: native event-sourced SqlSessionStore
   data_source.py       # NEW: RoutingDataSource
-  evidence_store.py    # Re-export of local FileEvidenceStore with server config
+  evidence_store.py    # MetadataEvidenceStoreAdapter (SQL-backed, with read() implementation)
   artifact_store.py    # existing, stays
   audit_log.py         # Re-export of local FileAuditLog with server config
   cache_store.py       # InMemoryCacheStore (simple dict-backed)
@@ -72,16 +72,9 @@ app/adapters/server/
   _legacy_session.py   # Deprecated CRUD bridge (read-only during transition)
 ```
 
-**FileEvidenceStore and FileAuditLog reuse:** Server mode reuses the local `FileEvidenceStore` and `FileAuditLog` implementations unchanged. The server profile factory configures them with server-appropriate directory paths. No separate server implementation is needed.
+**FileAuditLog reuse:** Server mode reuses the local `FileAuditLog` implementation unchanged. The server profile factory configures it with a server-appropriate log path.
 
-The `evidence_store.py` and `audit_log.py` modules in `app/adapters/server/` re-export from `app/adapters/local/`:
-
-```python
-# app/adapters/server/evidence_store.py
-from app.adapters.local.file_evidence_store import FileEvidenceStore
-
-__all__ = ["FileEvidenceStore"]
-```
+The `audit_log.py` module in `app/adapters/server/` re-exports from `app/adapters/local/`:
 
 ```python
 # app/adapters/server/audit_log.py
@@ -90,7 +83,7 @@ from app.adapters.local.file_audit_log import FileAuditLog
 __all__ = ["FileAuditLog"]
 ```
 
-The `MetadataEvidenceStoreAdapter` in the current `wrappers.py` is removed. Server mode uses `FileEvidenceStore` instead, which is the architecture spec's intent (hash-addressed, filesystem-backed).
+The `MetadataEvidenceStoreAdapter` in the current `wrappers.py` moves to `evidence_store.py` with its `read()` method implemented. Server mode continues using SQL-backed evidence storage.
 
 ---
 
@@ -121,13 +114,21 @@ The `idx_session_events_owner` index supports `list_sessions(owner)` without a f
 
 - Only INSERT operations. No UPDATE or DELETE.
 - `seq` is monotonic per `session_id`, starting at 1. The adapter computes `seq = MAX(seq) + 1` within the same transaction as the INSERT.
-- Concurrent `append_event` calls for the same session may hit the `UNIQUE(session_id, seq)` constraint. The adapter catches `IntegrityError`, re-reads `MAX(seq)`, and retries with the next seq value (max 3 attempts). This prevents silent event loss under concurrent writes.
+- Concurrent `append_event` calls for the same session may hit the `UNIQUE(session_id, seq)` constraint. The adapter catches `IntegrityError`, **ROLLBACKs the failed transaction, starts a NEW transaction**, re-reads `MAX(seq)`, and retries with the next seq value (max 3 attempts). The rollback+new-txn is required under MySQL REPEATABLE READ isolation (default) because a same-transaction retry would see the same snapshot and compute the same duplicate seq, causing an infinite loop.
 - All event types from `SessionEvent` are persisted, not just `session_created` / `session_terminated`.
 
 ### 3.3 Read path
 
 - `load_events(session_id)`: queries `session_events WHERE session_id = ? ORDER BY seq`, returns a `list[SessionEvent]`. Raises `NotFoundError(SESSION_NOT_FOUND)` when no events exist for the session.
-- `list_sessions(owner)`: finds distinct `session_id` values where the `session_created` event has `actor = owner`, then rebuilds each session state using `core.session.rebuild.rebuild_session_state()`.
+- `list_sessions(owner)`: batch-loads all events for matching sessions in a single query, then groups by `session_id` in Python and rebuilds each session state. This avoids the N+1 query pattern (1 query per session for events):
+  ```sql
+  SELECT * FROM session_events
+  WHERE session_id IN (
+    SELECT DISTINCT session_id FROM session_events
+    WHERE event_type = 'session_created' AND actor = ?
+  )
+  ORDER BY session_id, seq
+  ```
 - `list_sessions_paginated(**kwargs)`: same as `list_sessions` with filtering and pagination applied before rebuild.
 
 ### 3.4 step_completed event ownership
@@ -139,9 +140,13 @@ After every successful `commit_step_result()` call, the Runtime appends a `step_
 
 This contract is added to the `SessionStore` contract test suite and applies uniformly to local and server implementations.
 
-### 3.5 sessions table deprecation
+### 3.5 sessions table removal
 
-The existing `sessions` CRUD table becomes read-only during 9.1. A `_legacy_session.py` module provides read-only access for migration verification. After 9.1 validates event-sourced reconstruction parity, the `sessions` table is removed.
+The existing `sessions` CRUD table is removed after event-sourced reconstruction parity is validated. Downstream tables that reference `sessions` via foreign keys (`findings`, `plans`, etc.) must have their FK constraints removed or retargeted before dropping the `sessions` table. Under MySQL, FK constraints are enforced; under SQLite they are advisory. The migration sequence:
+
+1. Identify all FK references to `sessions.session_id` in the schema.
+2. Remove or retarget those FK constraints (e.g., remove the FK if the child table does not need referential integrity against sessions, or change the FK target to a `session_id` column in `session_events`).
+3. Drop the `sessions` table.
 
 The `SqlSessionStoreAdapter` CRUD bridge (current `wrappers.py`) moves to `_legacy_session.py` during 9.1 and is deleted before 9.2 closes.
 
@@ -159,12 +164,12 @@ For MySQL, the paginated query uses a subquery or window function to find distin
 
 ```
 RoutingDataSource
-  ├─ engines: dict[str, EngineAdapter]
-  │    ├─ "duckdb"  -> DuckDBEngineAdapter
-  │    └─ "trino"   -> TrinoEngineAdapter
-  ├─ credential_store: CredentialStore
-  └─ registry: DatasourceRegistry
+  ├─ engine_cache: dict[DatasourceId, AnalyticsEngine]  # lazy, per-datasource
+  ├─ registry: DatasourceRegistry  # reuses app.registry.datasource_registry
+  └─ routing_runtime: RoutingRuntime  # for resolve_tables
 ```
+
+`RoutingDataSource` reuses the existing `DatasourceRegistry` at `app/registry/datasource_registry.py` for datasource metadata lookup and `build_analytics_engine()` for engine construction. No new registry or credential store classes are needed.
 
 ### 4.2 LogicalQuery extension
 
@@ -184,103 +189,51 @@ When `datasource_id` is `None`, `RoutingDataSource` routes to the default DuckDB
 `execute(query)`:
 
 1. Read `query.datasource_id`. If `None`, route to the default DuckDB engine.
-2. Look up the datasource in `DatasourceRegistry` to determine `source_type`.
-3. Select the matching `EngineAdapter` from the `engines` dict.
-4. Delegate `execute()` to the selected adapter.
-5. If the source type has no registered engine adapter, raise `DomainError(DATASOURCE_UNAVAILABLE)`.
+2. Look up or create the `AnalyticsEngine` for the datasource via the per-datasource engine cache:
+   a. If `engine_cache[datasource_id]` exists, use it.
+   b. Otherwise, call `registry.build_analytics_engine(datasource_id)` to construct one, store it in the cache, and use it.
+3. Execute the query via the engine's `query_rows()`.
+4. Wrap any engine exception in `DomainError(QUERY_EXECUTION_FAILED)`.
+5. If the datasource_id is not found in the registry, raise `DomainError(DATASOURCE_UNAVAILABLE)`.
+
+**Engine cache eviction:** The per-datasource cache is unbounded in Phase 9. A TODO is filed to add LRU eviction when session-level auth requires session-scoped cache keys. The cache key currently uses `DatasourceId` only; when session-level Trino auth lands, the key will need `(DatasourceId, session_id)`.
 
 `schema(source_ref)`:
 
-1. Resolve `source_ref.datasource_id` via `DatasourceRegistry`.
-2. Select the matching engine adapter.
-3. Delegate `schema()` to the selected adapter.
+1. Resolve `source_ref.datasource_id` via `DatasourceRegistry.get_adapter()`.
+2. Delegate to the catalog adapter's `list_columns()` method.
+3. Convert to `SourceSchema`.
 
 `resolve_tables(table_names, *, session_id)`:
 
-1. Determine which datasources the table names belong to (via registry or query context).
-2. Delegate to the appropriate engine adapter's resolve logic.
+1. Delegate to the held `RoutingRuntime.resolve_tables()`.
 
-### 4.4 CredentialStore
+### 4.4 Engine adapters
 
-`CredentialStore` reads datasource credentials from the metadata DB `datasources` table. It is an internal implementation detail of `RoutingDataSource`, not a new Port.
+`RoutingDataSource` does not define separate engine adapter classes. Instead, it uses the existing `AnalyticsEngine` hierarchy directly:
 
-```python
-class CredentialStore:
-    def __init__(self, metadata: MetadataStore) -> None:
-        self._metadata = metadata
+- **DuckDB:** `DuckDBAnalyticsEngine` from `app/storage/duckdb_analytics.py`
+- **Trino:** `TrinoAnalyticsEngine` from `app/storage/trino_analytics.py`
 
-    def get_config(self, datasource_id: str) -> dict[str, Any]:
-        """Return connection config for the given datasource."""
-        row = self._metadata.query_one(
-            "SELECT config_json FROM datasources WHERE datasource_id = ?",
-            [datasource_id],
-        )
-        if row is None:
-            raise DomainError(DATASOURCE_UNAVAILABLE, f"Datasource {datasource_id!r} not found")
-        return json.loads(row["config_json"])
-```
+Both are constructed via `DatasourceRegistry.build_analytics_engine(datasource_id)`, which uses the factory in `app/registry/factories.py`. This factory already handles connection parameter extraction, catalog adapter construction, and optional dependency handling.
 
-Credential format by source type:
+**Optional dependency handling:** The `trino` Python package is an optional dependency. `TrinoAnalyticsEngine._connect()` uses `import_module("trino.dbapi")` which raises `ImportError` if trino is not installed. `RoutingDataSource.execute()` catches `ImportError` from the engine and raises `DomainError(DATASOURCE_UNAVAILABLE)` with an actionable message (e.g. "Trino driver not installed; pip install marivo[trino]").
 
-- **DuckDB:** No credentials needed. Config contains `db_path`.
-- **Trino:** Config contains `host`, `port`, `user`, `password`, `http_scheme`, `catalog`, `schema`, `request_timeout`.
+### 4.5 Extension point
 
-### 4.5 DatasourceRegistry
-
-`DatasourceRegistry` reads the `datasources` table to map `datasource_id` to `source_type` + `config`. It is a slim read-only version of the current `DatasourceService`, with CRUD operations removed.
-
-```python
-class DatasourceRegistry:
-    def __init__(self, metadata: MetadataStore) -> None:
-        self._metadata = metadata
-
-    def get(self, datasource_id: str) -> DatasourceEntry:
-        """Return datasource metadata (source_type, config)."""
-        ...
-
-    def list_by_type(self, source_type: str) -> list[DatasourceEntry]:
-        """List all datasources of a given type."""
-        ...
-```
-
-### 4.6 Engine adapters
-
-**DuckDBEngineAdapter** wraps the existing `AnalyticsEngine`:
-
-```python
-class DuckDBEngineAdapter:
-    def __init__(self, engine: AnalyticsEngine) -> None:
-        self._engine = engine
-
-    def execute(self, query: LogicalQuery) -> QueryResult: ...
-    def schema(self, source_ref: SourceRef) -> SourceSchema: ...
-```
-
-**TrinoEngineAdapter** wraps `TrinoCatalogAdapter` for schema operations and uses Trino DB-API for query execution:
-
-```python
-class TrinoEngineAdapter:
-    def __init__(self, catalog_adapter: TrinoCatalogAdapter, connection_params: dict) -> None:
-        self._catalog = catalog_adapter
-        self._params = connection_params
-
-    def execute(self, query: LogicalQuery) -> QueryResult: ...
-    def schema(self, source_ref: SourceRef) -> SourceSchema: ...
-```
-
-**Optional dependency handling:** The `trino` Python package is an optional dependency. If it is not installed, `TrinoEngineAdapter.execute()` and `schema()` catch `ImportError` and raise `DomainError(DATASOURCE_UNAVAILABLE)` with an actionable message (e.g. "Trino driver not installed; pip install marivo[trino]"). This prevents confusing stack traces when a Trino datasource is configured but the driver is missing.
-
-### 4.7 Extension point
-
-Additional engine adapters (Snowflake, BigQuery) follow the same `EngineAdapter` pattern. Phase 9 defines the interface and ships DuckDB + Trino; future engines register into the `engines` dict in `create_server_runtime()`.
+Additional engine types (Snowflake, BigQuery) follow the same `AnalyticsEngine` + `build_analytics_engine()` pattern. Phase 9 ships DuckDB + Trino; future engines register into the `DatasourceRegistry` via `factories.py` and the engine cache handles them automatically.
 
 ---
 
 ## 5. Server File Stores (9.1)
 
-### 5.1 FileEvidenceStore
+### 5.1 EvidenceStore — server keeps SQL-backed adapter
 
-Server mode uses `FileEvidenceStore` from `app/adapters/local/file_evidence_store.py` with a server-configured directory path. No separate server implementation.
+Server mode continues using the SQL-backed evidence adapter (`MetadataEvidenceStoreAdapter` in `wrappers.py`, moving to `evidence_store.py` after split). `FileEvidenceStore` remains local-only.
+
+**Why not switch to FileEvidenceStore:** The current adapter writes canonical findings, propositions, and assessments to multiple SQL tables (`findings`, `propositions`, `assessments`, etc.). Downstream code queries these SQL tables directly via repository classes (`FindingRepository`, `AssessmentRepository`, etc.). `FileEvidenceStore` only stores `Evidence` blobs — it cannot serve SQL queries by session/type. Switching would break the evidence pipeline.
+
+The `MetadataEvidenceStoreAdapter.read()` method (currently `NotImplementedError`) will be implemented as part of Phase 9 to complete the `EvidenceStore` contract. The implementation reconstructs an `Evidence` object from the SQL tables using the repository classes.
 
 ### 5.2 FileAuditLog
 
@@ -330,9 +283,7 @@ The following fields are removed from `RuntimePorts` because they are internal i
 
 ### 6.2 Added fields
 
-| Field | Type | Purpose |
-|-------|------|---------|
-| `datasource_registry` | `Any \| None` | `RoutingDataSource` registry access (server-mode only) |
+No new fields are added to `RuntimePorts`. The `datasource_registry` is internal to `RoutingDataSource`, not a port concern.
 
 ### 6.3 Removed methods
 
@@ -358,6 +309,21 @@ The `datasource_service`, `query_router`, and `semantic_v2_service` fields are r
 ### 6.5 LogicalQuery contract change
 
 `LogicalQuery` gains `datasource_id: DatasourceId | None = None`. This is a contracts-level change that affects the `DataSource` port. All existing call sites that construct `LogicalQuery` without `datasource_id` continue to work because the field defaults to `None` (routed to DuckDB).
+
+### 6.6 Local SqliteSessionStore schema harmonization
+
+The local `SqliteSessionStore` at `app/adapters/local/sqlite_session_store.py` is updated to use the same schema as the server `SqlSessionStore`. Changes:
+
+1. Add `event_id INTEGER PRIMARY KEY AUTOINCREMENT` column.
+2. Change from `PRIMARY KEY (session_id, seq)` to `UNIQUE(session_id, seq)`.
+3. Rename `payload` column to `payload_json`.
+4. Update index from `(actor, event_type)` to `(event_type, actor)`.
+
+This ensures both local and server adapters share identical DDL, enabling shared contract tests and eliminating developer confusion. Existing `.marivo` databases need a one-time migration (recreate the table with the new schema).
+
+### 6.7 Atomicity of step + event writes
+
+When a step result is committed (`commit_step_result()`) and a `step_completed` event is appended, both operations should happen in the same database transaction when using a shared metadata store connection. If the event append fails after the step/artifact commit, the session state is inconsistent. The `SqlSessionStore.append_event()` and step/artifact commits must share a transaction boundary.
 
 ---
 
@@ -419,7 +385,7 @@ Phase 6.3 covers `DataSource` and `ModelStore` only. Phase 9 adds:
 | ModelStore | FileModelStore | SqlModelStoreAdapter | SqlModelStoreAdapter |
 | SessionStore | SqliteSessionStore | SqlSessionStore (event-sourced) | SqlSessionStore (event-sourced) |
 | DataSource | DuckDBDataSource | RoutingDataSource (DuckDB) | RoutingDataSource (DuckDB) |
-| EvidenceStore | FileEvidenceStore | FileEvidenceStore | FileEvidenceStore |
+| EvidenceStore | FileEvidenceStore | MetadataEvidenceStoreAdapter | MetadataEvidenceStoreAdapter |
 | AuditLog | FileAuditLog | FileAuditLog | FileAuditLog |
 | StepStore | SqliteStepStore | MetadataStepStoreAdapter | MetadataStepStoreAdapter |
 | ArtifactStore | — | MetadataArtifactStoreAdapter | MetadataArtifactStoreAdapter |
@@ -461,22 +427,83 @@ Phase 9 must not introduce Redis, OpenTelemetry, OIDC/RBAC, or production author
 
 ---
 
-## 10. Acceptance Criteria
+## 10. Test Coverage Specification
+
+### 10.1 SessionStore contract test cases
+
+| Case | Input | Expected |
+|------|-------|----------|
+| `append_and_load` | Append session_created + step_completed, load events | Returns both events in seq order |
+| `not_found` | Load events for non-existent session | Raises `NotFoundError(SESSION_NOT_FOUND)` |
+| `owner_isolation` | Create sessions for two owners, list by one | Returns only the owned sessions |
+| `event_ordering` | Append 3 events, load | Returns events in seq order |
+| `concurrent_retry` | Two threads append to same session simultaneously | Both events stored, no IntegrityError leaked |
+| `step_completed_guarantee` | Commit step result, then load session events | step_completed event exists with correct timestamp |
+| `other_event_types` | Append non-created/terminated event | Event persisted in session_events (not silently dropped) |
+
+### 10.2 RoutingDataSource contract test cases
+
+| Case | Input | Expected |
+|------|-------|----------|
+| `duckdb_default` | `LogicalQuery(datasource_id=None)` | Routes to DuckDB engine |
+| `duckdb_explicit` | `LogicalQuery(datasource_id="ds_duckdb")` | Routes to DuckDB engine |
+| `trino_routing` | `LogicalQuery(datasource_id="ds_trino")` | Routes to Trino engine |
+| `unknown_datasource` | `LogicalQuery(datasource_id="ds_missing")` | Raises `DomainError(DATASOURCE_UNAVAILABLE)` |
+| `trino_not_installed` | Trino datasource configured, trino package missing | Raises `DomainError(DATASOURCE_UNAVAILABLE)` with install instructions |
+| `resolve_tables` | `resolve_tables(["table1"])` | Delegates to RoutingRuntime |
+
+### 10.3 LogicalQuery.datasource_id test
+
+| Case | Input | Expected |
+|------|-------|----------|
+| `default_none` | `LogicalQuery(sql="SELECT 1")` | `datasource_id` is `None` |
+| `explicit_id` | `LogicalQuery(sql="SELECT 1", datasource_id="ds_abc")` | `datasource_id` is `"ds_abc"` |
+
+### 10.4 list_sessions_paginated test
+
+| Case | Input | Expected |
+|------|-------|----------|
+| `basic_pagination` | 30 sessions, limit=10 | Returns 10 items + next_page_token |
+| `filter_by_status` | Mixed open/closed sessions, status="closed" | Returns only closed sessions |
+| `empty_page` | No matching sessions | Returns empty items, no next_page_token |
+
+### 10.5 Parity tests
+
+The existing `test_parity.py` pattern is extended to cover:
+
+| Port | Local adapter | Server adapter |
+|------|--------------|----------------|
+| SessionStore | SqliteSessionStore | SqlSessionStore (event-sourced) |
+| DataSource | DuckDBDataSource | RoutingDataSource (DuckDB only) |
+| EvidenceStore | FileEvidenceStore | MetadataEvidenceStoreAdapter |
+| StepStore | SqliteStepStore | MetadataStepStoreAdapter |
+| AuditLog | FileAuditLog | FileAuditLog (same adapter) |
+
+Parity failures are blocking (§8.3).
+
+---
+
+## 11. Acceptance Criteria
 
 ### 9.1 closes when:
 
 - [ ] `wrappers.py` is split into individual modules; no adapter class remains in `wrappers.py`
 - [ ] `SqlSessionStore` uses native event-sourced `session_events` table for SQLite and MySQL
+- [ ] `append_event` retries on UNIQUE violation with ROLLBACK + new transaction (max 3 attempts)
+- [ ] `list_sessions` uses batch-load (single subquery + Python grouping) instead of N+1 queries
 - [ ] `step_completed` event ownership is guaranteed and tested
-- [ ] `RoutingDataSource` routes to DuckDB and Trino based on datasource metadata
-- [ ] `CredentialStore` and `DatasourceRegistry` read from metadata DB
-- [ ] Server mode uses `FileEvidenceStore` and `FileAuditLog` with server directory paths
+- [ ] `RoutingDataSource` routes queries to per-datasource cached engines via `DatasourceRegistry.build_analytics_engine()`
+- [ ] `RoutingDataSource.resolve_tables()` delegates to `RoutingRuntime`
+- [ ] Server mode uses `MetadataEvidenceStoreAdapter` with implemented `read()` method
+- [ ] Server mode uses `FileAuditLog` with server directory path
 - [ ] `create_server_runtime()` creates a single shared SQLAlchemy engine for all metadata DB adapters
-- [ ] `RuntimePorts` no longer carries `semantic_repository`, `metadata`, `evidence_repos`, `analytics`, `calendar_data_reader`, or `time_axis_metadata_provider`
+- [ ] `RuntimePorts` no longer carries `semantic_repository`, `metadata`, `evidence_repos`, `analytics`, `calendar_data_reader`, or `time_axis_metadata_provider`; no `datasource_registry` field added
 - [ ] `wire_datasource_svc()` and `wire_semantic_v2_svc()` are removed from `MarivoRuntime`
 - [ ] `LogicalQuery` gains `datasource_id: DatasourceId | None = None`
 - [ ] `ServerComposition` no longer carries `datasource_service`, `query_router`, or `semantic_v2_service`
 - [ ] `_legacy_session.py` provides read-only access to the deprecated `sessions` table
+- [ ] Local `SqliteSessionStore` schema harmonized with server schema (event_id, payload_json, UNIQUE constraint)
+- [ ] FK constraints referencing `sessions` table identified and removed/retargeted
 - [ ] All existing tests green
 
 ### 9.2 closes when:
@@ -484,14 +511,14 @@ Phase 9 must not introduce Redis, OpenTelemetry, OIDC/RBAC, or production author
 - [ ] `test-mysql` extras group exists in `pyproject.toml`
 - [ ] `make test-mysql` runs MySQL-backed contract tests via testcontainers
 - [ ] `server-contract-tests` CI job has `timeout-minutes: 10`
-- [ ] Contract tests cover `SessionStore`, `StepStore`, `ArtifactStore`, and `EvidenceStore`
+- [ ] Contract tests cover `SessionStore`, `StepStore`, `ArtifactStore`, and `EvidenceStore` (cases in §10)
 - [ ] Parity gate is blocking: local/server parity failures fail CI
 - [ ] MySQL-backed server adapter contract tests pass in CI
-- [ ] `_legacy_session.py` and the `sessions` CRUD table are removed
+- [ ] `_legacy_session.py` and the `sessions` table are removed
 
 ---
 
-## 11. Phase Boundary
+## 12. Phase Boundary
 
 Phase 9 does not:
 
