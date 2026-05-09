@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from app.profiles.local import LocalConfig, create_local_runtime
+from marivo.profiles.local import LocalConfig, create_local_runtime
 
 
 def test_creates_runtime_with_all_ports(tmp_path: Path):
@@ -36,7 +36,7 @@ def test_explicit_local_at_local_entry_succeeds(tmp_path: Path):
 
 
 def test_marivo_profile_server_at_local_entry_raises(tmp_path, monkeypatch) -> None:
-    from app.profiles.resolver import ProfileResolutionError
+    from marivo.profiles.resolver import ProfileResolutionError
 
     _init_marivo_dir(tmp_path)
     monkeypatch.setenv("MARIVO_PROFILE", "server")
@@ -54,7 +54,7 @@ def test_marivo_profile_local_at_local_entry_succeeds(tmp_path, monkeypatch) -> 
 
 
 def test_workspace_toml_profile_server_raises(tmp_path, monkeypatch) -> None:
-    from app.profiles.resolver import ProfileResolutionError
+    from marivo.profiles.resolver import ProfileResolutionError
 
     monkeypatch.delenv("MARIVO_PROFILE", raising=False)
     marivo_dir = tmp_path / ".marivo"

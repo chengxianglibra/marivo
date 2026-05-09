@@ -20,14 +20,14 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
-from app.contracts.errors import NotFoundError
-from app.evidence_engine.canonical_pipeline_runtime import run_canonical_downstream
-from app.evidence_engine.state_view import (
+from marivo.contracts.errors import NotFoundError
+from marivo.evidence_engine.canonical_pipeline_runtime import run_canonical_downstream
+from marivo.evidence_engine.state_view import (
     SESSION_STATE_VIEW_SCHEMA_VERSION,
     materialize_session_state_view,
 )
-from app.runtime.runtime import MarivoRuntime
-from app.storage.evidence_repositories import (
+from marivo.runtime.runtime import MarivoRuntime
+from marivo.storage.evidence_repositories import (
     ActionProposalRepository,
     AssessmentRepository,
     EvidenceGapRepository,
@@ -35,7 +35,7 @@ from app.storage.evidence_repositories import (
     InferenceRecordRepository,
     PropositionRepository,
 )
-from app.storage.sqlite_metadata import SQLiteMetadataStore
+from marivo.storage.sqlite_metadata import SQLiteMetadataStore
 from tests.shared_fixtures import get_seeded_duckdb_path, make_temp_metadata_store
 
 # ---------------------------------------------------------------------------
@@ -83,8 +83,8 @@ def _get_artifact_runtime_status(
     Replicates the logic that was on SessionManager.get_artifact_runtime_status,
     querying the artifacts and findings tables directly.
     """
-    from app.evidence_engine.family_contract import ALLOWS_EMPTY_ARTIFACT_TYPES
-    from app.evidence_engine.finding_extractor_registry import default_finding_registry
+    from marivo.evidence_engine.family_contract import ALLOWS_EMPTY_ARTIFACT_TYPES
+    from marivo.evidence_engine.finding_extractor_registry import default_finding_registry
 
     row = store.query_one(
         """
@@ -262,7 +262,7 @@ class TestSessionStateAPI(unittest.TestCase):
         cls.temp_dir = tempfile.TemporaryDirectory()
         db_path = Path(cls.temp_dir.name) / "test.duckdb"
         get_seeded_duckdb_path(db_path)
-        from app.main import create_app
+        from marivo.main import create_app
 
         cls.client = TestClient(create_app(db_path))
 

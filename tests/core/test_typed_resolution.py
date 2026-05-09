@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from app.core.semantic.typed_resolution import (
+from marivo.core.semantic.typed_resolution import (
     EntityComposition,
     FieldResolutionIssue,
     NormalizedCompilerRequest,

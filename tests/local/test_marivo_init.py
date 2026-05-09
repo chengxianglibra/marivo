@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from app.cli.cmd_init import handle
-from app.contracts.values import LAYOUT_VERSION
+from marivo.cli.cmd_init import handle
+from marivo.contracts.values import LAYOUT_VERSION
 
 
 def _make_args(workspace_root: str | None = None) -> argparse.Namespace:

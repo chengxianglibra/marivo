@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.core.engine import CoreEngine
+from marivo.core.engine import CoreEngine
 
 
 def test_core_engine_no_svc_required() -> None:
@@ -20,7 +20,7 @@ def test_build_step_semantic_metadata_delegates() -> None:
     """build_step_semantic_metadata is now a pure function in core/semantic/step_metadata."""
     from unittest.mock import MagicMock
 
-    from app.core.semantic.step_metadata import build_step_semantic_metadata
+    from marivo.core.semantic.step_metadata import build_step_semantic_metadata
 
     compiled = MagicMock()
     compiled.metadata = {"resolved_metric_ref": "metric.test"}

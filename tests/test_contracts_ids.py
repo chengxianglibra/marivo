@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.contracts.ids import (
+from marivo.contracts.ids import (
     Action,
     ActionProposalId,
     ArtifactId,

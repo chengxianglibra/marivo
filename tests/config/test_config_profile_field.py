@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import yaml
 
-from app.config import MarivoConfig, load_config
+from marivo.config import MarivoConfig, load_config
 
 
 def test_marivo_config_profile_field_defaults_to_none() -> None:

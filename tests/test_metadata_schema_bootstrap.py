@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from app.storage.schema import (
+from marivo.storage.schema import (
     METADATA_SCHEMA_MARKER_TABLE,
     METADATA_SCHEMA_VERSION,
     evaluate_metadata_schema_state,
@@ -78,7 +78,7 @@ class MetadataSchemaBootstrapTests(unittest.TestCase):
         import tempfile
         from pathlib import Path
 
-        from app.storage.sqlite_metadata import SQLiteMetadataStore
+        from marivo.storage.sqlite_metadata import SQLiteMetadataStore
 
         with tempfile.TemporaryDirectory() as tmp:
             store = SQLiteMetadataStore(Path(tmp) / "test.meta.sqlite")

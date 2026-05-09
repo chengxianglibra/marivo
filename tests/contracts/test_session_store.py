@@ -6,14 +6,14 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from app.adapters.local.sqlite_session_store import SqliteSessionStore
-from app.contracts.errors import ErrorCode, NotFoundError
-from app.contracts.ids import SessionId, UserId
-from app.contracts.session import SessionEvent
+from marivo.adapters.local.sqlite_session_store import SqliteSessionStore
+from marivo.contracts.errors import ErrorCode, NotFoundError
+from marivo.contracts.ids import SessionId, UserId
+from marivo.contracts.session import SessionEvent
 from tests.contracts.session_store_cases import SESSION_STORE_CASES
 
 if TYPE_CHECKING:
-    from app.adapters.server.session_store import SqlSessionStore
+    from marivo.adapters.server.session_store import SqlSessionStore
 
 
 def _make_sqlite_session_store(tmp_path: Path) -> SqliteSessionStore:
@@ -22,8 +22,8 @@ def _make_sqlite_session_store(tmp_path: Path) -> SqliteSessionStore:
 
 
 def _make_sql_session_store(tmp_path: Path) -> SqlSessionStore:
-    from app.adapters.server.session_store import SqlSessionStore
-    from app.storage.sqlite_metadata import SQLiteMetadataStore
+    from marivo.adapters.server.session_store import SqlSessionStore
+    from marivo.storage.sqlite_metadata import SQLiteMetadataStore
 
     store = SQLiteMetadataStore(tmp_path / "test.meta.sqlite")
     store.initialize()

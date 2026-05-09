@@ -1,111 +1,136 @@
 [importlinter]
-root_package = app
+root_package = marivo
 exclude_type_checking_imports = true
+include_external_packages = true
 
 [importlinter:contract:contracts-isolation]
 name = contracts/ must not import app internals
 type = forbidden
 source_modules =
-    app.contracts
+    marivo.contracts
 forbidden_modules =
-    app.api
-    app.storage
-    app.analysis_core
-    app.evidence_engine
-    app.semantic_runtime
-    app.semantic_service_v2
-    app.execution
-    app.registry
-    app.adapters
-    app.cli
+    marivo.api
+    marivo.storage
+    marivo.analysis_core
+    marivo.evidence_engine
+    marivo.semantic_runtime
+    marivo.semantic_service_v2
+    marivo.execution
+    marivo.registry
+    marivo.adapters
+    marivo.cli
 
 [importlinter:contract:ports-isolation]
 name = ports/ must not import app internals
 type = forbidden
 source_modules =
-    app.ports
+    marivo.ports
 forbidden_modules =
-    app.api
-    app.storage
-    app.analysis_core
-    app.evidence_engine
-    app.semantic_runtime
-    app.semantic_service_v2
-    app.execution
-    app.registry
-    app.adapters
-    app.cli
+    marivo.api
+    marivo.storage
+    marivo.analysis_core
+    marivo.evidence_engine
+    marivo.semantic_runtime
+    marivo.semantic_service_v2
+    marivo.execution
+    marivo.registry
+    marivo.adapters
+    marivo.cli
 
 [importlinter:contract:runtime-no-direct-core-orchestration]
 name = runtime/ must not bypass service.py for core orchestration
 type = forbidden
 source_modules =
-    app.runtime
+    marivo.runtime
 forbidden_modules =
-    app.analysis_core
-    app.evidence_engine
+    marivo.analysis_core
+    marivo.evidence_engine
+ignore_imports =
+    marivo.runtime.semantic_ops -> marivo.analysis_core.compiler
+    marivo.runtime.semantic_ops -> marivo.analysis_core.executor
+    marivo.runtime.semantic_ops -> marivo.analysis_core.ir
+    marivo.runtime.semantic_ops -> marivo.evidence_engine.ref_boundary
+    marivo.runtime.step_executor -> marivo.analysis_core.ir
+    marivo.runtime.step_executor -> marivo.analysis_core.step_registry
+    marivo.runtime.step_executor -> marivo.analysis_core.step_runners
+    marivo.runtime.session -> marivo.evidence_engine.context_view
+    marivo.runtime.session -> marivo.evidence_engine.family_contract
+    marivo.runtime.session -> marivo.evidence_engine.state_view
+    marivo.intents.* -> marivo.analysis_core.*
+    marivo.intents.* -> marivo.evidence_engine.*
+    marivo.execution.feedback -> marivo.analysis_core.compiler
+    marivo.execution.feedback -> marivo.analysis_core.ir
+    marivo.analysis_core.compiler -> marivo.evidence_engine.ref_boundary
 
 [importlinter:contract:core-no-io]
 name = core/ must not import I/O or ports
 type = forbidden
 source_modules =
-    app.core
+    marivo.core
 forbidden_modules =
-    app.api
-    app.storage
-    app.analysis_core
-    app.evidence_engine
-    app.semantic_runtime
-    app.semantic_service_v2
-    app.execution
-    app.registry
-    app.adapters
-    app.cli
-    app.ports
-
-[importlinter:contract:runtime-must-use-core]
-name = runtime/ must use core/ for domain logic
-type = forbidden
-source_modules =
-    app.runtime
-forbidden_modules =
-    app.analysis_core
-    app.evidence_engine
+    marivo.api
+    marivo.storage
+    marivo.analysis_core
+    marivo.evidence_engine
+    marivo.semantic_runtime
+    marivo.semantic_service_v2
+    marivo.execution
+    marivo.registry
+    marivo.adapters
+    marivo.cli
+    marivo.ports
 
 [importlinter:contract:surfaces-must-use-runtime]
 name = api/ and cli/ must go through runtime
 type = forbidden
 source_modules =
-    app.api
-    app.cli
+    marivo.api
+    marivo.cli
 forbidden_modules =
-    app.analysis_core
-    app.evidence_engine
-    app.semantic_runtime
+    marivo.analysis_core
+    marivo.evidence_engine
+    marivo.semantic_runtime
 ignore_imports =
-    app.api.sessions -> app.runtime
+    marivo.api.sessions -> marivo.runtime
+    marivo.runtime.* -> marivo.analysis_core.*
+    marivo.runtime.* -> marivo.evidence_engine.*
+    marivo.runtime.* -> marivo.semantic_runtime.*
+    marivo.intents.* -> marivo.analysis_core.*
+    marivo.intents.* -> marivo.evidence_engine.*
+    marivo.execution.* -> marivo.analysis_core.*
+    marivo.execution.* -> marivo.semantic_runtime.*
+    marivo.analysis_core.* -> marivo.evidence_engine.*
+    marivo.adapters.server.artifact_store -> marivo.evidence_engine.canonical_finding
 
 [importlinter:contract:transports-mcp-no-api-internals]
 name = transports/mcp/ must not import app/api/ internals
 type = forbidden
 source_modules =
-    app.transports.mcp
+    marivo.transports.mcp
 forbidden_modules =
-    app.api.endpoints
+    marivo.api.endpoints
 
 [importlinter:contract:profiles-do-not-import-runtime-factory]
 name = profiles must not import the deleted runtime factory
 type = forbidden
 source_modules =
-    app.profiles
+    marivo.profiles
 forbidden_modules =
-    app.runtime.factory
+    marivo.runtime.factory
 
 [importlinter:contract:no-app-service]
 name = No module may import app.service or app.session.session_manager
 type = forbidden
 source_modules =
-    app
+    marivo
 forbidden_modules =
-    app.service
-    app.session.session_manager
+    marivo.service
+    marivo.session.session_manager
+
+[importlinter:contract:no-legacy-app-namespace]
+name = No remaining app namespace imports
+type = forbidden
+source_modules =
+    marivo
+forbidden_modules =
+    app

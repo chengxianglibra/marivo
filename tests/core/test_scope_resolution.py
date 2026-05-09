@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.core.semantic.scope_resolution import (
+from marivo.core.semantic.scope_resolution import (
     compute_metric_scope_dimension_sources,
     constraints_dict_to_filter,
     dataset_source_to_authority_locator,

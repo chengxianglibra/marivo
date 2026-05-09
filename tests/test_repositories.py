@@ -4,8 +4,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from app.storage.repositories import SessionRepository
-from app.storage.sqlite_metadata import SQLiteMetadataStore
+from marivo.storage.repositories import SessionRepository
+from marivo.storage.sqlite_metadata import SQLiteMetadataStore
 
 
 class RepositorySeamTests(unittest.TestCase):

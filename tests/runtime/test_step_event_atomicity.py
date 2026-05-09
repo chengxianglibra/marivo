@@ -12,10 +12,10 @@ from typing import Any
 
 import pytest
 
-from app.adapters.server.session_store import SqlSessionStore
-from app.contracts.ids import SessionId
-from app.contracts.session import SessionEvent
-from app.storage.sqlite_metadata import SQLiteMetadataStore
+from marivo.adapters.server.session_store import SqlSessionStore
+from marivo.contracts.ids import SessionId
+from marivo.contracts.session import SessionEvent
+from marivo.storage.sqlite_metadata import SQLiteMetadataStore
 
 
 @pytest.fixture()

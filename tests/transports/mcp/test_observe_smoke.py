@@ -6,7 +6,7 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
-from app.transports.mcp.tools import register_tools
+from marivo.transports.mcp.tools import register_tools
 
 
 class _FakeRuntime:
@@ -32,6 +32,6 @@ def test_observe_tool_registered():
 
 def test_marivo_stdio_entry_point_importable():
     """Verify marivo-stdio entry point is importable."""
-    from app.transports.mcp.stdio import main
+    from marivo.transports.mcp.stdio import main
 
     assert callable(main)

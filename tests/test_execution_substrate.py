@@ -3,12 +3,12 @@ from __future__ import annotations
 import json
 import unittest
 
-from app.analysis_core.compiler import CompiledQuery
-from app.analysis_core.executor import execute_compiled
-from app.execution.errors import ExecutionError
-from app.execution.federation import FederationPlanner, FederationRuntime
-from app.execution.translation import DefaultQueryTranslator, request_from_compiled_query
-from app.observability import JSONFormatter
+from marivo.analysis_core.compiler import CompiledQuery
+from marivo.analysis_core.executor import execute_compiled
+from marivo.execution.errors import ExecutionError
+from marivo.execution.federation import FederationPlanner, FederationRuntime
+from marivo.execution.translation import DefaultQueryTranslator, request_from_compiled_query
+from marivo.observability import JSONFormatter
 
 
 class FakeEngine:

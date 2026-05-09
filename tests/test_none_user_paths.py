@@ -11,10 +11,10 @@ import os
 from pathlib import Path
 from unittest.mock import patch
 
-from app.contracts.ids import SessionId, UserId
-from app.contracts.session import SessionState
-from app.identity import resolve_user
-from app.profiles.local import LocalConfig, create_local_runtime
+from marivo.contracts.ids import SessionId, UserId
+from marivo.contracts.session import SessionState
+from marivo.identity import resolve_user
+from marivo.profiles.local import LocalConfig, create_local_runtime
 
 
 def _init_marivo_dir(root: Path) -> None:
@@ -59,8 +59,8 @@ def test_create_session_defaults_to_local_actor(tmp_path: Path) -> None:
 
 
 def test_register_datasource_defaults_to_local(tmp_path: Path) -> None:
-    from app.registry.datasource_registry import DatasourceRegistry
-    from app.storage.sqlite_metadata import SQLiteMetadataStore
+    from marivo.registry.datasource_registry import DatasourceRegistry
+    from marivo.storage.sqlite_metadata import SQLiteMetadataStore
 
     db_path = tmp_path / "metadata.db"
     metadata = SQLiteMetadataStore(db_path)

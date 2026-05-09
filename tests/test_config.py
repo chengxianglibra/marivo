@@ -9,11 +9,11 @@ from typing import ClassVar
 
 from fastapi.testclient import TestClient
 
-from app.api.app_factory import create_app
-from app.config import MarivoConfig, load_config
-from app.datasources import DatasourceService
-from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
-from app.storage.sqlite_metadata import SQLiteMetadataStore
+from marivo.api.app_factory import create_app
+from marivo.config import MarivoConfig, load_config
+from marivo.datasources import DatasourceService
+from marivo.storage.duckdb_analytics import DuckDBAnalyticsEngine
+from marivo.storage.sqlite_metadata import SQLiteMetadataStore
 from tests.shared_fixtures import get_seeded_duckdb_path
 
 

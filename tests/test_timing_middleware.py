@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from app.observability import TimingMiddleware
+from marivo.observability import TimingMiddleware
 
 
 def test_is_not_base_http_middleware():

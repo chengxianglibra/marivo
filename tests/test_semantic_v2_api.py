@@ -8,10 +8,10 @@ import unittest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.api.models.osi import OSI_SPEC_VERSION
-from app.api.semantic_v2 import router as semantic_v2_router
-from app.datasources import DatasourceService
-from app.semantic_service_v2.service import SemanticModelV2Service
+from marivo.api.models.osi import OSI_SPEC_VERSION
+from marivo.api.semantic_v2 import router as semantic_v2_router
+from marivo.datasources import DatasourceService
+from marivo.semantic_service_v2.service import SemanticModelV2Service
 from tests.shared_fixtures import ManagedSQLiteMetadataStore, make_temp_metadata_store
 
 

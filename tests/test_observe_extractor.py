@@ -17,12 +17,12 @@ from __future__ import annotations
 import unittest
 from typing import Any
 
-from app.evidence_engine.canonical_finding import StepRef, make_finding_id, make_item_identity
-from app.evidence_engine.finding_extractor_registry import (
+from marivo.evidence_engine.canonical_finding import StepRef, make_finding_id, make_item_identity
+from marivo.evidence_engine.finding_extractor_registry import (
     default_finding_registry,
     validate_for_commit,
 )
-from app.evidence_engine.observe_extractor import ObserveArtifactExtractor
+from marivo.evidence_engine.observe_extractor import ObserveArtifactExtractor
 from tests.finding_identity_testutil import (
     assert_finding_id_stable,
     assert_projection_order_excluded,

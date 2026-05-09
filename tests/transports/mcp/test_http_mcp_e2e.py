@@ -27,9 +27,9 @@ from mcp.client.streamable_http import streamable_http_client
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 
-from app.api.app_factory import create_app
-from app.storage.sqlite_metadata import SQLiteMetadataStore
-from app.transports.mcp.tools import register_tools
+from marivo.api.app_factory import create_app
+from marivo.storage.sqlite_metadata import SQLiteMetadataStore
+from marivo.transports.mcp.tools import register_tools
 
 # ---------------------------------------------------------------------------
 # Fixtures

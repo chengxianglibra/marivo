@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from app.config import MarivoConfig
-from app.profiles.server import ServerComposition, ServerConfig
+from marivo.config import MarivoConfig
+from marivo.profiles.server import ServerComposition, ServerConfig
 
 
 def test_server_config_constructible_with_marivo_config_only() -> None:
@@ -36,10 +36,10 @@ def test_server_composition_has_expected_fields() -> None:
 
 
 def test_create_server_runtime_returns_server_composition(tmp_path) -> None:
-    from app.profiles.server import create_server_runtime
-    from app.runtime.runtime import MarivoRuntime
-    from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
-    from app.storage.sqlite_metadata import SQLiteMetadataStore
+    from marivo.profiles.server import create_server_runtime
+    from marivo.runtime.runtime import MarivoRuntime
+    from marivo.storage.duckdb_analytics import DuckDBAnalyticsEngine
+    from marivo.storage.sqlite_metadata import SQLiteMetadataStore
 
     meta = SQLiteMetadataStore(tmp_path / "meta.sqlite")
     analytics = DuckDBAnalyticsEngine(":memory:")
@@ -59,17 +59,17 @@ def test_create_server_runtime_returns_server_composition(tmp_path) -> None:
 
 
 def test_create_server_runtime_ports_are_wrapper_adapters(tmp_path) -> None:
-    from app.adapters.server.audit_log import FileAuditLogAdapter
-    from app.adapters.server.authz import NoopAuthZAdapter
-    from app.adapters.server.cache_store import InMemoryCacheStore
-    from app.adapters.server.data_source import RoutingDataSource
-    from app.adapters.server.evidence_store import MetadataEvidenceStoreAdapter
-    from app.adapters.server.model_store import SqlModelStoreAdapter
-    from app.adapters.server.runtime_config import TomlRuntimeConfigAdapter
-    from app.adapters.server.session_store import SqlSessionStore
-    from app.profiles.server import create_server_runtime
-    from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
-    from app.storage.sqlite_metadata import SQLiteMetadataStore
+    from marivo.adapters.server.audit_log import FileAuditLogAdapter
+    from marivo.adapters.server.authz import NoopAuthZAdapter
+    from marivo.adapters.server.cache_store import InMemoryCacheStore
+    from marivo.adapters.server.data_source import RoutingDataSource
+    from marivo.adapters.server.evidence_store import MetadataEvidenceStoreAdapter
+    from marivo.adapters.server.model_store import SqlModelStoreAdapter
+    from marivo.adapters.server.runtime_config import TomlRuntimeConfigAdapter
+    from marivo.adapters.server.session_store import SqlSessionStore
+    from marivo.profiles.server import create_server_runtime
+    from marivo.storage.duckdb_analytics import DuckDBAnalyticsEngine
+    from marivo.storage.sqlite_metadata import SQLiteMetadataStore
 
     composition = create_server_runtime(
         ServerConfig(
@@ -93,18 +93,18 @@ def test_create_server_runtime_ports_are_wrapper_adapters(tmp_path) -> None:
 def test_server_module_does_not_import_app_service() -> None:
     import inspect
 
-    import app.profiles.server as mod
+    import marivo.profiles.server as mod
 
     src = inspect.getsource(mod)
-    assert "from app.service" not in src
-    assert "import app.service" not in src
+    assert "from marivo.service" not in src
+    assert "import marivo.service" not in src
 
 
 def test_server_module_does_not_import_runtime_factory() -> None:
     import inspect
 
-    import app.profiles.server as mod
+    import marivo.profiles.server as mod
 
     src = inspect.getsource(mod)
-    assert "from app.runtime.factory" not in src
-    assert "import app.runtime.factory" not in src
+    assert "from marivo.runtime.factory" not in src
+    assert "import marivo.runtime.factory" not in src

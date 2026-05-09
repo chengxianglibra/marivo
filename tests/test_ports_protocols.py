@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
-from app.contracts.evidence import Evidence
-from app.contracts.ids import (
+from marivo.contracts.evidence import Evidence
+from marivo.contracts.ids import (
     Action,
     CacheKey,
     DatasourceId,
@@ -14,9 +14,9 @@ from app.contracts.ids import (
     SessionId,
     UserId,
 )
-from app.contracts.semantic import ModelSummary, SemanticModel
-from app.contracts.session import SessionEvent, SessionState
-from app.contracts.values import (
+from marivo.contracts.semantic import ModelSummary, SemanticModel
+from marivo.contracts.session import SessionEvent, SessionState
+from marivo.contracts.values import (
     AuditEntry,
     AuthZDecision,
     CacheValue,
@@ -26,7 +26,7 @@ from app.contracts.values import (
     SourceSchema,
     TelemetryEvent,
 )
-from app.core.session.rebuild import rebuild_session_state
+from marivo.core.session.rebuild import rebuild_session_state
 
 # --- Concrete implementations for Protocol satisfaction ---
 
@@ -150,7 +150,7 @@ class InMemoryRuntimeConfig:
 
 
 def test_model_store_import() -> None:
-    from app.ports.model_store import ModelStore
+    from marivo.ports.model_store import ModelStore
 
     assert ModelStore is not None
 
@@ -174,7 +174,7 @@ def test_model_store_list() -> None:
 
 
 def test_session_store_import() -> None:
-    from app.ports.session_store import SessionStore
+    from marivo.ports.session_store import SessionStore
 
     assert SessionStore is not None
 
@@ -193,7 +193,7 @@ def test_session_store_append_and_load() -> None:
 
 
 def test_data_source_import() -> None:
-    from app.ports.data_source import DataSource
+    from marivo.ports.data_source import DataSource
 
     assert DataSource is not None
 
@@ -217,7 +217,7 @@ def test_data_source_schema() -> None:
 
 
 def test_evidence_store_import() -> None:
-    from app.ports.evidence_store import EvidenceStore
+    from marivo.ports.evidence_store import EvidenceStore
 
     assert EvidenceStore is not None
 
@@ -232,7 +232,7 @@ def test_evidence_store_write_and_read() -> None:
 
 
 def test_cache_store_import() -> None:
-    from app.ports.cache_store import CacheStore
+    from marivo.ports.cache_store import CacheStore
 
     assert CacheStore is not None
 
@@ -246,7 +246,7 @@ def test_cache_store_get_and_set() -> None:
 
 
 def test_authz_import() -> None:
-    from app.ports.authz import AuthZ
+    from marivo.ports.authz import AuthZ
 
     assert AuthZ is not None
 
@@ -258,7 +258,7 @@ def test_authz_check() -> None:
 
 
 def test_audit_log_import() -> None:
-    from app.ports.audit_log import AuditLog
+    from marivo.ports.audit_log import AuditLog
 
     assert AuditLog is not None
 
@@ -277,7 +277,7 @@ def test_audit_log_record() -> None:
 
 
 def test_telemetry_import() -> None:
-    from app.ports.telemetry import Telemetry
+    from marivo.ports.telemetry import Telemetry
 
     assert Telemetry is not None
 
@@ -289,7 +289,7 @@ def test_telemetry_emit() -> None:
 
 
 def test_runtime_config_import() -> None:
-    from app.ports.runtime_config import RuntimeConfig
+    from marivo.ports.runtime_config import RuntimeConfig
 
     assert RuntimeConfig is not None
 

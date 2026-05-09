@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from app.core.semantic.compiler import (
+from marivo.core.semantic.compiler import (
     SemanticCompilerError,
     SemanticRequestCompatibilityError,
     build_aggregate_comparison_query,

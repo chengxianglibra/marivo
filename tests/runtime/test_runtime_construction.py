@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.contracts.evidence import Evidence
-from app.contracts.ids import (
+from marivo.contracts.evidence import Evidence
+from marivo.contracts.ids import (
     Action,
     ArtifactId,
     CacheKey,
@@ -16,9 +16,9 @@ from app.contracts.ids import (
     SessionId,
     UserId,
 )
-from app.contracts.semantic import ModelSummary, SemanticModel
-from app.contracts.session import SessionEvent, SessionState
-from app.contracts.values import (
+from marivo.contracts.semantic import ModelSummary, SemanticModel
+from marivo.contracts.session import SessionEvent, SessionState
+from marivo.contracts.values import (
     AuditEntry,
     AuthZDecision,
     CacheValue,
@@ -28,18 +28,18 @@ from app.contracts.values import (
     SourceSchema,
     TelemetryEvent,
 )
-from app.ports.artifact_store import ArtifactStore
-from app.ports.audit_log import AuditLog
-from app.ports.authz import AuthZ
-from app.ports.cache_store import CacheStore
-from app.ports.data_source import DataSource
-from app.ports.evidence_store import EvidenceStore
-from app.ports.model_store import ModelStore
-from app.ports.runtime_config import RuntimeConfig
-from app.ports.session_store import SessionStore
-from app.ports.step_store import StepStore
-from app.ports.telemetry import Telemetry
-from app.runtime.ports import RuntimePorts
+from marivo.ports.artifact_store import ArtifactStore
+from marivo.ports.audit_log import AuditLog
+from marivo.ports.authz import AuthZ
+from marivo.ports.cache_store import CacheStore
+from marivo.ports.data_source import DataSource
+from marivo.ports.evidence_store import EvidenceStore
+from marivo.ports.model_store import ModelStore
+from marivo.ports.runtime_config import RuntimeConfig
+from marivo.ports.session_store import SessionStore
+from marivo.ports.step_store import StepStore
+from marivo.ports.telemetry import Telemetry
+from marivo.runtime.ports import RuntimePorts
 
 # --- Stub implementations for Protocol satisfaction ---
 

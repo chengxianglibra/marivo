@@ -4,8 +4,8 @@ import unittest
 from datetime import date
 from typing import Any, cast
 
-from app.analysis_core.calendar_alignment_baseline import resolve_calendar_baseline_window
-from app.analysis_core.calendar_policy import CalendarBaselineGenerationRule
+from marivo.analysis_core.calendar_alignment_baseline import resolve_calendar_baseline_window
+from marivo.analysis_core.calendar_policy import CalendarBaselineGenerationRule
 
 
 class CalendarAlignmentBaselineTests(unittest.TestCase):

@@ -5,11 +5,11 @@ from pathlib import Path
 
 import pytest
 
-from app.adapters.local.file_evidence_store import FileEvidenceStore
-from app.adapters.server.evidence_store import MetadataEvidenceStoreAdapter
-from app.contracts.errors import IntegrityError, NotFoundError
-from app.contracts.evidence import Evidence, Finding, Proposition
-from app.contracts.ids import (
+from marivo.adapters.local.file_evidence_store import FileEvidenceStore
+from marivo.adapters.server.evidence_store import MetadataEvidenceStoreAdapter
+from marivo.contracts.errors import IntegrityError, NotFoundError
+from marivo.contracts.evidence import Evidence, Finding, Proposition
+from marivo.contracts.ids import (
     ArtifactId,
     EvidenceRef,
     FindingId,
@@ -25,12 +25,12 @@ def _make_file_evidence_store(tmp_path: Path) -> FileEvidenceStore:
 
 
 def _make_metadata_evidence_store(tmp_path: Path) -> MetadataEvidenceStoreAdapter:
-    from app.storage.evidence_repositories import (
+    from marivo.storage.evidence_repositories import (
         AssessmentRepository,
         FindingRepository,
         PropositionRepository,
     )
-    from app.storage.sqlite_metadata import SQLiteMetadataStore
+    from marivo.storage.sqlite_metadata import SQLiteMetadataStore
 
     store = SQLiteMetadataStore(tmp_path / "test.meta.sqlite")
     store.initialize()

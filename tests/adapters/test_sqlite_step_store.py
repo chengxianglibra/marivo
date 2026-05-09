@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from app.adapters.local.sqlite_step_store import SqliteStepStore
-from app.contracts.ids import SessionId, StepId
+from marivo.adapters.local.sqlite_step_store import SqliteStepStore
+from marivo.contracts.ids import SessionId, StepId
 
 
 def _make_sqlite_step_store(tmp_path: Path) -> SqliteStepStore:

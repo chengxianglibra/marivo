@@ -6,16 +6,16 @@ import subprocess
 import sys
 from pathlib import Path
 
-from app.adapters.local.file_evidence_store import FileEvidenceStore
-from app.adapters.local.sqlite_session_store import SqliteSessionStore
-from app.contracts.evidence import Evidence
-from app.contracts.ids import (
+from marivo.adapters.local.file_evidence_store import FileEvidenceStore
+from marivo.adapters.local.sqlite_session_store import SqliteSessionStore
+from marivo.contracts.evidence import Evidence
+from marivo.contracts.ids import (
     ArtifactId,
     EvidenceRef,
     FindingId,
     SessionId,
 )
-from app.contracts.session import SessionEvent
+from marivo.contracts.session import SessionEvent
 
 
 def test_concurrent_appends_no_lost_events(tmp_path: Path) -> None:
@@ -45,9 +45,9 @@ import sys
 import time
 sys.path.insert(0, "{Path(__file__).parent.parent.parent}")
 from pathlib import Path
-from app.adapters.local.sqlite_session_store import SqliteSessionStore
-from app.contracts.ids import SessionId
-from app.contracts.session import SessionEvent
+from marivo.adapters.local.sqlite_session_store import SqliteSessionStore
+from marivo.contracts.ids import SessionId
+from marivo.contracts.session import SessionEvent
 
 store = SqliteSessionStore(Path("{db_path}"))
 sid = SessionId("concurrent-test")
@@ -87,7 +87,7 @@ for i in range(100):
 
 def test_concurrent_evidence_write_idempotent(tmp_path: Path) -> None:
     """Two processes write evidence with same content hash — one file on disk."""
-    from app.contracts.evidence import Finding
+    from marivo.contracts.evidence import Finding
 
     ev_dir = tmp_path / "evidence"
     store = FileEvidenceStore(ev_dir)

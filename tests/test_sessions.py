@@ -6,7 +6,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from app.main import create_app
+from marivo.main import create_app
 from tests.shared_fixtures import get_seeded_duckdb_path
 
 

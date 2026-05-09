@@ -14,8 +14,8 @@ Covers:
 
 import unittest
 
-from app.evidence_engine.canonical_finding import FindingExtractionResult
-from app.evidence_engine.family_contract import (
+from marivo.evidence_engine.canonical_finding import FindingExtractionResult
+from marivo.evidence_engine.family_contract import (
     FAMILY_ALLOWS_EMPTY,
     FamilyEmptyError,
     check_finding_count,

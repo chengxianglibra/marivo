@@ -16,16 +16,16 @@ import json
 import unittest
 from typing import Any
 
-from app.evidence_engine.proposition_normalizer import (
+from marivo.evidence_engine.proposition_normalizer import (
     make_proposition_id,
     normalize_proposition_identity,
 )
-from app.evidence_engine.proposition_registration import (
+from marivo.evidence_engine.proposition_registration import (
     PropositionRegistrationResult,
     register_system_seeded_proposition,
 )
-from app.storage.evidence_repositories import FindingRepository, PropositionRepository
-from app.storage.sqlite_metadata import SQLiteMetadataStore
+from marivo.storage.evidence_repositories import FindingRepository, PropositionRepository
+from marivo.storage.sqlite_metadata import SQLiteMetadataStore
 from tests.shared_fixtures import make_temp_metadata_store
 
 # ---------------------------------------------------------------------------

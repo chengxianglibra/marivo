@@ -4,8 +4,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from app.storage.dialect import MySQLMetadataDialect
-from app.storage.sqlite_metadata import SQLiteMetadataStore
+from marivo.storage.dialect import MySQLMetadataDialect
+from marivo.storage.sqlite_metadata import SQLiteMetadataStore
 
 
 class MetadataDialectTests(unittest.TestCase):

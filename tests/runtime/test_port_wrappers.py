@@ -11,18 +11,18 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from app.adapters.server.audit_log import FileAuditLogAdapter
-from app.adapters.server.authz import NoopAuthZAdapter
-from app.adapters.server.cache_store import InMemoryCacheStore
-from app.adapters.server.data_source import DataSourceAdapter
-from app.adapters.server.evidence_store import MetadataEvidenceStoreAdapter
-from app.adapters.server.model_store import SqlModelStoreAdapter
-from app.adapters.server.runtime_config import TomlRuntimeConfigAdapter
-from app.adapters.server.session_store import SqlSessionStoreAdapter
-from app.adapters.server.telemetry import LocalTelemetryAdapter
-from app.config import MarivoConfig
-from app.contracts.evidence import Evidence, Finding
-from app.contracts.ids import (
+from marivo.adapters.server.audit_log import FileAuditLogAdapter
+from marivo.adapters.server.authz import NoopAuthZAdapter
+from marivo.adapters.server.cache_store import InMemoryCacheStore
+from marivo.adapters.server.data_source import DataSourceAdapter
+from marivo.adapters.server.evidence_store import MetadataEvidenceStoreAdapter
+from marivo.adapters.server.model_store import SqlModelStoreAdapter
+from marivo.adapters.server.runtime_config import TomlRuntimeConfigAdapter
+from marivo.adapters.server.session_store import SqlSessionStoreAdapter
+from marivo.adapters.server.telemetry import LocalTelemetryAdapter
+from marivo.config import MarivoConfig
+from marivo.contracts.evidence import Evidence, Finding
+from marivo.contracts.ids import (
     Action,
     ArtifactId,
     CacheKey,
@@ -32,9 +32,9 @@ from app.contracts.ids import (
     SessionId,
     UserId,
 )
-from app.contracts.semantic import SemanticModel
-from app.contracts.session import SessionEvent
-from app.contracts.values import (
+from marivo.contracts.semantic import SemanticModel
+from marivo.contracts.session import SessionEvent
+from marivo.contracts.values import (
     AuditEntry,
     AuthZDecision,
     CacheValue,
@@ -42,15 +42,15 @@ from app.contracts.values import (
     QueryResult,
     TelemetryEvent,
 )
-from app.ports.audit_log import AuditLog
-from app.ports.authz import AuthZ
-from app.ports.cache_store import CacheStore
-from app.ports.data_source import DataSource
-from app.ports.evidence_store import EvidenceStore
-from app.ports.model_store import ModelStore
-from app.ports.runtime_config import RuntimeConfig
-from app.ports.session_store import SessionStore
-from app.ports.telemetry import Telemetry
+from marivo.ports.audit_log import AuditLog
+from marivo.ports.authz import AuthZ
+from marivo.ports.cache_store import CacheStore
+from marivo.ports.data_source import DataSource
+from marivo.ports.evidence_store import EvidenceStore
+from marivo.ports.model_store import ModelStore
+from marivo.ports.runtime_config import RuntimeConfig
+from marivo.ports.session_store import SessionStore
+from marivo.ports.telemetry import Telemetry
 
 # --- Helper ---
 
@@ -85,12 +85,12 @@ def _make_evidence_store_adapter() -> MetadataEvidenceStoreAdapter:
     import tempfile
     from pathlib import Path
 
-    from app.storage.evidence_repositories import (
+    from marivo.storage.evidence_repositories import (
         AssessmentRepository,
         FindingRepository,
         PropositionRepository,
     )
-    from app.storage.sqlite_metadata import SQLiteMetadataStore
+    from marivo.storage.sqlite_metadata import SQLiteMetadataStore
 
     tmp = Path(tempfile.mkdtemp())
     store = SQLiteMetadataStore(tmp / "test.meta.sqlite")
@@ -277,7 +277,7 @@ def test_sql_session_store_append_event_unknown_type_is_noop() -> None:
 
 
 def test_sql_session_store_load_events_raises_not_found_for_missing() -> None:
-    from app.contracts.errors import NotFoundError
+    from marivo.contracts.errors import NotFoundError
 
     adapter = _make_sql_session_store_adapter()
     adapter._metadata.query_one.return_value = None
@@ -354,7 +354,7 @@ def test_evidence_store_write_returns_evidence_ref() -> None:
 
 def test_evidence_store_read_raises_not_found_for_missing() -> None:
     adapter = _make_evidence_store_adapter()
-    from app.contracts.errors import NotFoundError
+    from marivo.contracts.errors import NotFoundError
 
     with pytest.raises(NotFoundError):
         adapter.read(EvidenceRef("0" * 64))

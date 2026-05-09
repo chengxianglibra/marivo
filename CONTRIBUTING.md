@@ -69,7 +69,7 @@ ruff check --fix .
 
 ### 类型检查
 ```bash
-mypy app
+mypy marivo
 ```
 
 ## 测试
@@ -95,14 +95,14 @@ pytest -s
 ### 测试覆盖率
 ```bash
 # 生成覆盖率报告
-pytest --cov=app --cov-report=term-missing
+pytest --cov=marivo --cov-report=term-missing
 
 # 生成HTML覆盖率报告
-pytest --cov=app --cov-report=html
+pytest --cov=marivo --cov-report=html
 # 然后打开 htmlcov/index.html
 
 # 生成XML覆盖率报告（用于CI）
-pytest --cov=app --cov-report=xml
+pytest --cov=marivo --cov-report=xml
 ```
 
 ### 测试要求
@@ -118,7 +118,7 @@ pytest --cov=app --cov-report=xml
 ### 提交前检查清单
 - [ ] 代码已格式化（`ruff format .`）
 - [ ] 通过linting检查（`ruff check .`）
-- [ ] 通过类型检查（`mypy app`）
+- [ ] 通过类型检查（`mypy marivo`）
 - [ ] 所有测试通过（`pytest`）
 - [ ] 测试覆盖率满足要求
 - [ ] 更新了相关文档

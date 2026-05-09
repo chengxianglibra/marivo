@@ -14,7 +14,7 @@ repos:
       - id: mypy
         additional_dependencies: [types-PyYAML, types-PyMySQL, pydantic, fastapi, starlette]
         args: [--strict, --ignore-missing-imports]
-        files: ^app/
+        files: ^marivo/
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.5.0

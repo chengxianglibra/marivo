@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from app.adapters.local.noop_authz import NoopAuthZ
-from app.contracts.ids import Action, ResourceId, UserId
-from app.contracts.values import AuthZDecision
+from marivo.adapters.local.noop_authz import NoopAuthZ
+from marivo.contracts.ids import Action, ResourceId, UserId
+from marivo.contracts.values import AuthZDecision
 
 noop_authz_factories = [
     ("NoopAuthZ", lambda _: NoopAuthZ()),

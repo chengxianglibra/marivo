@@ -27,8 +27,8 @@ import os
 os.environ.setdefault("LOG_LEVEL", "WARNING")
 os.environ.setdefault("MARIVO_DEFAULT_USER", "test_user")
 
-from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
-from app.storage.sqlite_metadata import SQLiteMetadataStore
+from marivo.storage.duckdb_analytics import DuckDBAnalyticsEngine
+from marivo.storage.sqlite_metadata import SQLiteMetadataStore
 from tests.shared_fixtures import (
     get_seeded_duckdb_path,
     get_seeded_metadata_path,

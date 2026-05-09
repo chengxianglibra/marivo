@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from app.adapters.local.file_artifact_store import FileArtifactStore
+from marivo.adapters.local.file_artifact_store import FileArtifactStore
 from tests.contracts.artifact_store_cases import ARTIFACT_STORE_CASES
 from tests.contracts.contract_harness import run_contract_cases
 

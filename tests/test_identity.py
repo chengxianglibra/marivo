@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from unittest.mock import patch
 
-from app.identity import current_user, resolve_user
+from marivo.identity import current_user, resolve_user
 
 
 def test_returns_contextvar_value_when_set():

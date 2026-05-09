@@ -6,7 +6,7 @@ from datetime import date
 
 import pytest
 
-from app.core.semantic.calendar import (
+from marivo.core.semantic.calendar import (
     CalendarBaselineGenerationRule,
     CalendarMatchingStep,
     CalendarPolicyResolutionError,

@@ -2,7 +2,7 @@
 
 import unittest
 
-from app.semantic_runtime.status_utils import (
+from marivo.semantic_runtime.status_utils import (
     derive_lifecycle_status,
     derive_readiness_status,
 )

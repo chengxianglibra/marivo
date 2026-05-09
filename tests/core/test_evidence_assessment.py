@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.core.evidence.assessment import (
+from marivo.core.evidence.assessment import (
     compute_canonical_diff,
     derive_confidence_grade,
     evaluate_calendar_alignment_requirements,

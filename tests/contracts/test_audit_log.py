@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from app.adapters.local.file_audit_log import FileAuditLog
-from app.contracts.ids import UserId
-from app.contracts.values import AuditEntry
+from marivo.adapters.local.file_audit_log import FileAuditLog
+from marivo.contracts.ids import UserId
+from marivo.contracts.values import AuditEntry
 
 file_audit_log_factories = [
     ("FileAuditLog", lambda p: FileAuditLog(p / "audit.jsonl")),

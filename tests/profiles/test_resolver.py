@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from app.contracts.errors import ErrorCode
-from app.profiles.resolver import (
+from marivo.contracts.errors import ErrorCode
+from marivo.profiles.resolver import (
     ProfileResolutionError,
     resolve_profile,
 )
@@ -99,7 +99,7 @@ def test_incompatible_profile_logs_structured_context(caplog: pytest.LogCaptureF
 
 
 def test_server_entry_reads_marivo_config_profile() -> None:
-    from app.config import MarivoConfig
+    from marivo.config import MarivoConfig
 
     cfg = MarivoConfig(profile="server")
     result = resolve_profile(entry_point="server_http", env={}, service_config=cfg)
@@ -107,7 +107,7 @@ def test_server_entry_reads_marivo_config_profile() -> None:
 
 
 def test_server_entry_service_config_below_explicit() -> None:
-    from app.config import MarivoConfig
+    from marivo.config import MarivoConfig
 
     cfg = MarivoConfig(profile="local")  # incompatible at server entry
     # explicit beats service_config; "server" wins.

@@ -9,9 +9,9 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
-from app.runtime.runtime import MarivoRuntime
-from app.storage.analytics import AnalyticsEngine
-from app.storage.metadata import MetadataStore
+from marivo.runtime.runtime import MarivoRuntime
+from marivo.storage.analytics import AnalyticsEngine
+from marivo.storage.metadata import MetadataStore
 
 # Stub names for deleted model types — these are no longer functional.
 # The helper functions that use them will raise NotImplementedError at runtime.
@@ -191,13 +191,13 @@ def build_runtime(
     """
     from unittest.mock import MagicMock
 
-    from app.adapters.server.artifact_store import (
+    from marivo.adapters.server.artifact_store import (
         MetadataArtifactStoreAdapter,
         MetadataStepStoreAdapter,
     )
-    from app.adapters.server.session_store import SqlSessionStoreAdapter
-    from app.core.engine import CoreEngine
-    from app.runtime.ports import RuntimePorts
+    from marivo.adapters.server.session_store import SqlSessionStoreAdapter
+    from marivo.core.engine import CoreEngine
+    from marivo.runtime.ports import RuntimePorts
 
     ports = MagicMock(spec=RuntimePorts)  # type: ignore[assignment]
     ports.artifact_store = MetadataArtifactStoreAdapter(metadata)

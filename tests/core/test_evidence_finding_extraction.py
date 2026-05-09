@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.core.evidence.finding_extraction import (
+from marivo.core.evidence.finding_extraction import (
     escape_seg_component,
     extract_compare_findings,
     extract_correlate_findings,

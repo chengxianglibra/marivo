@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from app.adapters.local.sqlite_cache_store import SqliteCacheStore
-from app.contracts.ids import CacheKey
-from app.contracts.values import CacheValue
+from marivo.adapters.local.sqlite_cache_store import SqliteCacheStore
+from marivo.contracts.ids import CacheKey
+from marivo.contracts.values import CacheValue
 
 
 def _make_sqlite_cache_store(tmp_path: Path) -> SqliteCacheStore:

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from app.contracts.errors import NotFoundError
-from app.contracts.ids import (
+from marivo.contracts.errors import NotFoundError
+from marivo.contracts.ids import (
     Action,
     ArtifactId,
     CacheKey,
@@ -14,9 +14,9 @@ from app.contracts.ids import (
     SessionId,
     UserId,
 )
-from app.contracts.semantic import ModelSummary, SemanticModel
-from app.contracts.session import SessionEvent, SessionState
-from app.contracts.values import (
+from marivo.contracts.semantic import ModelSummary, SemanticModel
+from marivo.contracts.session import SessionEvent, SessionState
+from marivo.contracts.values import (
     AuditEntry,
     AuthZDecision,
     CacheValue,
@@ -26,9 +26,9 @@ from app.contracts.values import (
     SourceSchema,
     TelemetryEvent,
 )
-from app.core.engine import CoreEngine
-from app.core.session.rebuild import rebuild_session_state
-from app.runtime.runtime import MarivoRuntime
+from marivo.core.engine import CoreEngine
+from marivo.core.session.rebuild import rebuild_session_state
+from marivo.runtime.runtime import MarivoRuntime
 
 # --- Stub port implementations ---
 
@@ -186,7 +186,7 @@ class StubStepStore:
 
 
 def _make_runtime(session_store: RecordingSessionStore | None = None) -> MarivoRuntime:
-    from app.runtime.ports import RuntimePorts
+    from marivo.runtime.ports import RuntimePorts
 
     ports = RuntimePorts(
         model_store=StubModelStore(),

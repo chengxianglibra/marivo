@@ -8,11 +8,11 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
-from app.api.app_factory import _resolve_storage
-from app.config import MarivoConfig, MetadataConfig
-from app.storage.dialect import SQLITE_METADATA_DIALECT, MetadataDialect
-from app.storage.metadata import MetadataStore
-from app.storage.sqlite_metadata import SQLiteMetadataStore
+from marivo.api.app_factory import _resolve_storage
+from marivo.config import MarivoConfig, MetadataConfig
+from marivo.storage.dialect import SQLITE_METADATA_DIALECT, MetadataDialect
+from marivo.storage.metadata import MetadataStore
+from marivo.storage.sqlite_metadata import SQLiteMetadataStore
 
 
 class DummyMetadataStore(MetadataStore):
@@ -98,7 +98,7 @@ class AppFactoryMetadataResolutionTests(unittest.TestCase):
         )
         analytics: Any = object()
 
-        with patch("app.profiles.server.MySQLMetadataStore", RecordingMySQLStore):
+        with patch("marivo.profiles.server.MySQLMetadataStore", RecordingMySQLStore):
             _resolve_storage(None, None, analytics, config, Path("marivo.yaml"), True)
 
         self.assertEqual(

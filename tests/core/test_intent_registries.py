@@ -5,8 +5,8 @@ import sys
 
 import pytest
 
-from app.core.intent.intent_registry import IntentRunnerRegistry
-from app.core.intent.step_registry import StepRunnerRegistry
+from marivo.core.intent.intent_registry import IntentRunnerRegistry
+from marivo.core.intent.step_registry import StepRunnerRegistry
 
 # ---------------------------------------------------------------------------
 # No-I/O import checks
@@ -14,7 +14,7 @@ from app.core.intent.step_registry import StepRunnerRegistry
 
 
 def test_step_registry_has_no_io_imports() -> None:
-    mod_name = "app.core.intent.step_registry"
+    mod_name = "marivo.core.intent.step_registry"
     if mod_name in sys.modules:
         del sys.modules[mod_name]
 
@@ -26,9 +26,9 @@ def test_step_registry_has_no_io_imports() -> None:
         "httpx",
         "aiohttp",
         "requests",
-        "app.service",
-        "app.infrastructure",
-        "app.analysis_core",
+        "marivo.service",
+        "marivo.infrastructure",
+        "marivo.analysis_core",
     }
 
     for attr_name in dir(mod):
@@ -36,13 +36,13 @@ def test_step_registry_has_no_io_imports() -> None:
         module = getattr(obj, "__module__", None)
         if module and any(module.startswith(f) or module == f for f in forbidden):
             pytest.fail(
-                f"app.core.intent.step_registry references I/O module {module!r} "
+                f"marivo.core.intent.step_registry references I/O module {module!r} "
                 f"via attribute {attr_name!r}"
             )
 
 
 def test_intent_registry_has_no_io_imports() -> None:
-    mod_name = "app.core.intent.intent_registry"
+    mod_name = "marivo.core.intent.intent_registry"
     if mod_name in sys.modules:
         del sys.modules[mod_name]
 
@@ -54,9 +54,9 @@ def test_intent_registry_has_no_io_imports() -> None:
         "httpx",
         "aiohttp",
         "requests",
-        "app.service",
-        "app.infrastructure",
-        "app.analysis_core",
+        "marivo.service",
+        "marivo.infrastructure",
+        "marivo.analysis_core",
     }
 
     for attr_name in dir(mod):
@@ -64,7 +64,7 @@ def test_intent_registry_has_no_io_imports() -> None:
         module = getattr(obj, "__module__", None)
         if module and any(module.startswith(f) or module == f for f in forbidden):
             pytest.fail(
-                f"app.core.intent.intent_registry references I/O module {module!r} "
+                f"marivo.core.intent.intent_registry references I/O module {module!r} "
                 f"via attribute {attr_name!r}"
             )
 

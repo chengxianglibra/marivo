@@ -6,13 +6,13 @@ import json
 import unittest
 from typing import Any
 
-from app.evidence_engine.canonical_pipeline_runtime import run_canonical_downstream
-from app.evidence_engine.invalidation import (
+from marivo.evidence_engine.canonical_pipeline_runtime import run_canonical_downstream
+from marivo.evidence_engine.invalidation import (
     INVALIDATION_SCHEMA_VERSION,
     InvalidationResult,
     soft_invalidate_finding,
 )
-from app.storage.evidence_repositories import (
+from marivo.storage.evidence_repositories import (
     ActionProposalRepository,
     AssessmentRepository,
     EvidenceGapRepository,
@@ -20,7 +20,7 @@ from app.storage.evidence_repositories import (
     InferenceRecordRepository,
     PropositionRepository,
 )
-from app.storage.sqlite_metadata import SQLiteMetadataStore
+from marivo.storage.sqlite_metadata import SQLiteMetadataStore
 from tests.shared_fixtures import make_temp_metadata_store
 
 # ---------------------------------------------------------------------------
@@ -460,7 +460,7 @@ class TestSoftInvalidateFindingFunction(unittest.TestCase):
         _setup_session_artifact_finding(store2)
         repos2 = _make_repos(store2)
         # Only run seeding, not the full downstream (no assessment published).
-        from app.evidence_engine.proposition_seeding_run import (
+        from marivo.evidence_engine.proposition_seeding_run import (
             SimpleMaterializationContext,
             run_system_seeded_propositions,
         )

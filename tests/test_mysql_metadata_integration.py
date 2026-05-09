@@ -14,24 +14,24 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 
-from app.api.app_factory import create_app
-from app.config import MetadataConfig
-from app.evidence_engine.canonical_finding import (
+from marivo.api.app_factory import create_app
+from marivo.config import MetadataConfig
+from marivo.evidence_engine.canonical_finding import (
     FindingExtractionResult,
     StepRef,
     make_finding_id,
     make_item_identity,
 )
-from app.evidence_engine.finding_extractor_registry import (
+from marivo.evidence_engine.finding_extractor_registry import (
     FindingExtractor,
     FindingExtractorRegistry,
 )
-from app.storage.mysql_metadata import (
+from marivo.storage.mysql_metadata import (
     MySQLMetadataStore,
     _expected_mysql_foreign_key_names,
     _expected_mysql_index_names,
 )
-from app.storage.schema import expected_metadata_tables, metadata_schema_marker_row
+from marivo.storage.schema import expected_metadata_tables, metadata_schema_marker_row
 from tests.shared_fixtures import get_seeded_duckdb_path
 
 MYSQL_TEST_DSN = os.environ.get("MARIVO_TEST_MYSQL_DSN")
@@ -444,8 +444,10 @@ class MySQLMetadataIntegrationTests(unittest.TestCase):
 
         import json as _json
 
-        from app.evidence_engine.canonical_finding import StepRef as _StepRef
-        from app.evidence_engine.finding_extractor_registry import validate_for_commit as _validate
+        from marivo.evidence_engine.canonical_finding import StepRef as _StepRef
+        from marivo.evidence_engine.finding_extractor_registry import (
+            validate_for_commit as _validate,
+        )
 
         registry = FindingExtractorRegistry()
         registry.register(_ObserveSuccessExtractor())

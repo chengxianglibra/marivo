@@ -30,9 +30,9 @@ from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
 
-from app.main import create_app
-from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
-from app.storage.sqlite_metadata import SQLiteMetadataStore
+from marivo.main import create_app
+from marivo.storage.duckdb_analytics import DuckDBAnalyticsEngine
+from marivo.storage.sqlite_metadata import SQLiteMetadataStore
 from tests.semantic_test_helpers import (
     build_semantic_layer_service,
     ensure_published_typed_metric,
@@ -682,7 +682,7 @@ class DiagnoseValidationBoundaryTests(unittest.TestCase):
 
 class DiagnoseHourFollowupRegressionTests(unittest.TestCase):
     def test_hour_candidate_followup_reaches_driver_rows_even_if_metric_grain_is_day(self) -> None:
-        from app.intents.diagnose import run_diagnose_intent
+        from marivo.intents.diagnose import run_diagnose_intent
 
         runtime = MagicMock()
         runtime.core = MagicMock()
@@ -784,10 +784,10 @@ class DiagnoseHourFollowupRegressionTests(unittest.TestCase):
         }
 
         with (
-            patch("app.intents.diagnose.run_detect_intent", return_value=detect_result),
-            patch("app.intents.diagnose.run_observe_intent", side_effect=observe_results),
-            patch("app.intents.diagnose.run_compare_intent", return_value=compare_result),
-            patch("app.intents.diagnose.run_decompose_intent", return_value=decompose_result),
+            patch("marivo.intents.diagnose.run_detect_intent", return_value=detect_result),
+            patch("marivo.intents.diagnose.run_observe_intent", side_effect=observe_results),
+            patch("marivo.intents.diagnose.run_compare_intent", return_value=compare_result),
+            patch("marivo.intents.diagnose.run_decompose_intent", return_value=decompose_result),
         ):
             bundle = run_diagnose_intent(
                 runtime,
@@ -824,7 +824,7 @@ class CombineScopeTests(unittest.TestCase):
     """Unit tests for _combine_scope helper in isolation."""
 
     def _fn(self, base, slc):
-        from app.intents.diagnose import _combine_scope
+        from marivo.intents.diagnose import _combine_scope
 
         return _combine_scope(base, slc)
 

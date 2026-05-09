@@ -19,13 +19,13 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
-from app.evidence_engine.canonical_pipeline_runtime import run_canonical_downstream
-from app.evidence_engine.context_view import (
+from marivo.evidence_engine.canonical_pipeline_runtime import run_canonical_downstream
+from marivo.evidence_engine.context_view import (
     PROPOSITION_CONTEXT_VIEW_SCHEMA_VERSION,
     materialize_proposition_context_view,
 )
-from app.runtime.runtime import MarivoRuntime
-from app.storage.evidence_repositories import (
+from marivo.runtime.runtime import MarivoRuntime
+from marivo.storage.evidence_repositories import (
     ActionProposalRepository,
     AssessmentRepository,
     EvidenceGapRepository,
@@ -33,7 +33,7 @@ from app.storage.evidence_repositories import (
     InferenceRecordRepository,
     PropositionRepository,
 )
-from app.storage.sqlite_metadata import SQLiteMetadataStore
+from marivo.storage.sqlite_metadata import SQLiteMetadataStore
 from tests.shared_fixtures import get_seeded_duckdb_path, make_temp_metadata_store
 
 # ---------------------------------------------------------------------------
@@ -226,7 +226,7 @@ class TestPropositionContextAPI(unittest.TestCase):
         cls.temp_dir = tempfile.TemporaryDirectory()
         db_path = Path(cls.temp_dir.name) / "test.duckdb"
         get_seeded_duckdb_path(db_path)
-        from app.main import create_app
+        from marivo.main import create_app
 
         cls.client = TestClient(create_app(db_path))
 
@@ -342,7 +342,7 @@ class TestPropositionContextHTTPSuccessPath(unittest.TestCase):
         assert props, "pipeline must seed at least one proposition for a scalar delta finding"
         cls.proposition_id = props[0]["proposition_id"]
 
-        from app.main import create_app
+        from marivo.main import create_app
 
         cls.client = TestClient(create_app(db_path))
 
@@ -670,13 +670,13 @@ class TestPropositionRuntimeStatus(unittest.TestCase):
         self.repos = _make_repos(self.store)
         from unittest.mock import MagicMock
 
-        from app.storage.analytics import AnalyticsEngine
+        from marivo.storage.analytics import AnalyticsEngine
 
         self.runtime = _build_runtime(self.store, MagicMock(spec=AnalyticsEngine))
 
     @property
     def _manager(self):
-        from app.adapters.server.session_store import SqlSessionStoreAdapter
+        from marivo.adapters.server.session_store import SqlSessionStoreAdapter
 
         return SqlSessionStoreAdapter(self.store)
 
