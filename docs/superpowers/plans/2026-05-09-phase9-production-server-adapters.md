@@ -25,7 +25,7 @@
 | `app/adapters/server/authz.py` | `NoopAuthZAdapter` (moved from wrappers.py) |
 | `app/adapters/server/telemetry.py` | `LocalTelemetryAdapter` (moved from wrappers.py) |
 | `app/adapters/server/runtime_config.py` | `TomlRuntimeConfigAdapter` (moved from wrappers.py) |
-| `app/adapters/server/_legacy_session.py` | Deprecated `SqlSessionStoreAdapter` CRUD bridge |
+| `app/adapters/server/_legacy_session.py` | DELETED — no legacy bridge needed (Marivo not launched) |
 | `tests/contracts/session_store_cases.py` | `SESSION_STORE_CASES` for contract + parity tests |
 | `tests/contracts/step_store_cases.py` | `STEP_STORE_CASES` for contract tests |
 | `tests/contracts/artifact_store_cases.py` | `ARTIFACT_STORE_CASES` for contract tests |
@@ -60,7 +60,6 @@
 | File | When |
 |------|------|
 | `app/adapters/server/wrappers.py` | Task 2 (replaced by individual modules) |
-| `app/adapters/server/_legacy_session.py` | Task 17 (9.2 close) |
 
 ---
 
@@ -136,7 +135,6 @@ This is a mechanical refactoring. Each class moves to its own file, `__init__.py
 
 **Files:**
 - Create: `app/adapters/server/{model_store,session_store,data_source,evidence_store,audit_log,cache_store,authz,telemetry,runtime_config}.py`
-- Create: `app/adapters/server/_legacy_session.py`
 - Modify: `app/adapters/server/__init__.py`
 - Delete: `app/adapters/server/wrappers.py`
 - Modify: `app/profiles/server.py` (imports)
@@ -236,25 +234,18 @@ class InMemoryCacheStore:
 
 - [ ] **Step 8: Create `data_source.py`** — move `DataSourceAdapter` from `wrappers.py` lines 570-641 verbatim. This is the CURRENT adapter; Task 6 replaces it with `RoutingDataSource`.
 
-- [ ] **Step 9: Create `_legacy_session.py`** — move `SqlSessionStoreAdapter` from `wrappers.py` lines 302-567 verbatim (including `_decode_page_token`, `_normalize_limit`, `_session_from_row` helpers). Mark the module as deprecated.
-
-```python
-# app/adapters/server/_legacy_session.py
-"""DEPRECATED: CRUD bridge to sessions table.
-
-This module provides read-only access to the deprecated sessions table
-during the transition from CRUD to event-sourced session storage.
-It will be removed before Phase 9.2 closes.
-"""
-```
-
-- [ ] **Step 10: Create `session_store.py`** — placeholder that re-exports from `_legacy_session.py` for now (Task 4 replaces it)
+- [ ] **Step 9: Create `session_store.py`** — placeholder with a stub that raises `NotImplementedError`. Task 4 replaces this with the full `SqlSessionStore`.
 
 ```python
 # app/adapters/server/session_store.py
-from app.adapters.server._legacy_session import SqlSessionStoreAdapter
+"""Session store adapter — Task 4 replaces this with SqlSessionStore."""
 
-__all__ = ["SqlSessionStoreAdapter"]
+
+class SqlSessionStoreAdapter:
+    """Placeholder — replaced by SqlSessionStore in Task 4."""
+
+    def __init__(self, *args, **kwargs):
+        raise NotImplementedError("Use SqlSessionStore after Task 4")
 ```
 
 - [ ] **Step 11: Update `__init__.py`**
@@ -274,7 +265,6 @@ __all__ = [
     "DataSourceAdapter",
     "InMemoryCacheStore",
     "LocalTelemetryAdapter",
-    "MetadataCacheStoreAdapter",
     "MetadataEvidenceStoreAdapter",
     "NoopAuthZAdapter",
     "SqlModelStoreAdapter",
@@ -283,11 +273,7 @@ __all__ = [
 ]
 ```
 
-Note: `MetadataCacheStoreAdapter` alias kept for backward compatibility during transition. In `cache_store.py` add:
-```python
-# Backward-compatible alias
-MetadataCacheStoreAdapter = InMemoryCacheStore
-```
+Note: No backward-compatible aliases are needed — Marivo has not launched.
 
 - [ ] **Step 12: Delete `wrappers.py`**
 
@@ -831,13 +817,15 @@ git commit -m "feat(server): implement event-sourced SqlSessionStore with concur
 
 ### Task 5: Harmonize local `SqliteSessionStore` schema
 
+Since Marivo has not launched, no migration of existing databases is needed. The schema is changed directly.
+
 **Files:**
 - Modify: `app/adapters/local/sqlite_session_store.py`
 - Modify: `tests/contracts/conftest.py` (`_init_state_db`)
 
 - [ ] **Step 1: Update `_ensure_schema` in `SqliteSessionStore`**
 
-Replace the existing `_ensure_schema` method:
+Replace the existing `_ensure_schema` method with the new schema directly (no migration path):
 
 ```python
 def _ensure_schema(self) -> None:
@@ -1682,134 +1670,9 @@ git commit -m "feat(server): add file_store_dir/audit_dir to ServerConfig"
 
 ---
 
-### Task 12: Database migration for existing `.marivo` databases
+### ~~Task 12: Database migration~~ — REMOVED
 
-Existing local `.marivo` databases have the old `session_events` schema (no `event_id`, `payload` instead of `payload_json`, `PRIMARY KEY(session_id, seq)`, index on `(actor, event_type)`). They need a one-time migration.
-
-**Files:**
-- Modify: `app/adapters/local/sqlite_session_store.py` (add migration in `_ensure_schema`)
-
-- [ ] **Step 1: Add migration logic to `_ensure_schema`**
-
-```python
-def _ensure_schema(self) -> None:
-    conn = self._connect()
-    try:
-        # Check if migration is needed
-        existing_cols = self._column_names(conn, "session_events")
-        if existing_cols and "event_id" not in existing_cols:
-            # Migrate: recreate table with new schema
-            conn.execute("ALTER TABLE session_events RENAME TO session_events_old")
-            conn.execute(
-                """CREATE TABLE session_events (
-                    event_id    INTEGER PRIMARY KEY AUTOINCREMENT,
-                    session_id  TEXT NOT NULL,
-                    seq         INTEGER NOT NULL,
-                    event_type  TEXT NOT NULL,
-                    timestamp   TEXT NOT NULL,
-                    actor       TEXT,
-                    payload_json TEXT NOT NULL,
-                    UNIQUE(session_id, seq)
-                )"""
-            )
-            # Copy data, renaming payload → payload_json
-            conn.execute(
-                "INSERT INTO session_events (session_id, seq, event_type, timestamp, payload_json, actor) "
-                "SELECT session_id, seq, event_type, timestamp, payload, actor "
-                "FROM session_events_old"
-            )
-            conn.execute("DROP TABLE session_events_old")
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_session_events_sid "
-                "ON session_events (session_id)"
-            )
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_session_events_owner "
-                "ON session_events (event_type, actor)"
-            )
-            conn.commit()
-            return
-
-        # Fresh schema
-        conn.execute(
-            """CREATE TABLE IF NOT EXISTS session_events (
-                event_id    INTEGER PRIMARY KEY AUTOINCREMENT,
-                session_id  TEXT NOT NULL,
-                seq         INTEGER NOT NULL,
-                event_type  TEXT NOT NULL,
-                timestamp   TEXT NOT NULL,
-                actor       TEXT,
-                payload_json TEXT NOT NULL,
-                UNIQUE(session_id, seq)
-            )"""
-        )
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_session_events_sid "
-            "ON session_events (session_id)"
-        )
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_session_events_owner "
-            "ON session_events (event_type, actor)"
-        )
-        conn.commit()
-    finally:
-        conn.close()
-
-@staticmethod
-def _column_names(conn: sqlite3.Connection, table: str) -> list[str]:
-    rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
-    return [row[1] for row in rows]
-```
-
-- [ ] **Step 2: Write migration test**
-
-```python
-# tests/test_sqlite_session_migration.py
-def test_migrate_old_schema_to_new(tmp_path):
-    """Existing .marivo databases with old schema get auto-migrated."""
-    import sqlite3
-    db_path = tmp_path / "state.db"
-
-    # Create old-style schema
-    conn = sqlite3.connect(str(db_path))
-    conn.execute(
-        """CREATE TABLE session_events (
-            session_id TEXT NOT NULL,
-            seq INTEGER NOT NULL,
-            event_type TEXT NOT NULL,
-            timestamp TEXT NOT NULL,
-            payload TEXT NOT NULL,
-            actor TEXT,
-            PRIMARY KEY (session_id, seq)
-        )"""
-    )
-    conn.execute(
-        "INSERT INTO session_events VALUES ('s1', 1, 'session_created', '2026-01-01', '{}', 'alice')"
-    )
-    conn.commit()
-    conn.close()
-
-    # Open with SqliteSessionStore — triggers migration
-    from app.adapters.local.sqlite_session_store import SqliteSessionStore
-    store = SqliteSessionStore(db_path)
-
-    # Verify new schema
-    events = store.load_events(SessionId("s1"))
-    assert len(events) == 1
-    assert events[0].event_type == "session_created"
-```
-
-- [ ] **Step 3: Run test**
-
-Run: `pytest tests/test_sqlite_session_migration.py -v`
-Expected: PASS
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add app/adapters/local/sqlite_session_store.py tests/test_sqlite_session_migration.py
-git commit -m "feat(local): add one-time migration for session_events schema"
-```
+Since Marivo has not launched, no migration of existing `.marivo` databases is needed. The schema changes are applied directly (Task 5).
 
 ---
 
@@ -2098,9 +1961,9 @@ git commit -m "refactor(server): simplify ServerComposition, update AppServices 
 
 ---
 
-### Task 16: FK audit and removal from schema
+### Task 16: FK removal from schema
 
-Remove `REFERENCES sessions(session_id)` from 6 tables in `schema.py`. Under SQLite these are advisory; under MySQL they are enforced and must be dropped before we can remove the `sessions` table.
+Remove `REFERENCES sessions(session_id)` from 6 tables in `schema.py`. Since Marivo has not launched, no migration of existing databases is needed — the DDL is changed directly.
 
 **Files:**
 - Modify: `app/storage/schema.py`
@@ -2132,27 +1995,12 @@ fk_inference_records_session_id
 fk_action_proposals_session_id
 ```
 
-- [ ] **Step 3: Add migration for existing MySQL databases**
-
-In `MySQLMetadataStore.initialize()`, add a migration step that drops the FK constraints before the schema validation:
-
-```python
-# Drop obsolete FK constraints referencing sessions table
-try:
-    for table in ["plans", "findings", "propositions", "assessments",
-                   "evidence_gaps", "inference_records", "action_proposals"]:
-        fk_name = f"fk_{table}_session_id"
-        self.execute(f"ALTER TABLE {table} DROP FOREIGN KEY {fk_name}")
-except Exception:
-    pass  # FK may not exist (fresh DB or already dropped)
-```
-
-- [ ] **Step 4: Run schema bootstrap tests**
+- [ ] **Step 3: Run schema bootstrap tests**
 
 Run: `pytest tests/test_metadata_schema_bootstrap.py tests/test_mysql_metadata_integration.py -v`
-Expected: PASS (SQLite FK removal is backward compatible)
+Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
 git add app/storage/schema.py app/storage/mysql_metadata.py
@@ -2624,11 +2472,10 @@ git commit -m "test(ci): add MySQL-backed session store contract tests"
 
 ---
 
-### Task 21: Promote parity gate to blocking and remove legacy
+### Task 21: Promote parity gate to blocking and remove `sessions` table DDL
 
 **Files:**
 - Modify: `tests/contracts/test_parity.py` (promote from xfail to hard assert)
-- Delete: `app/adapters/server/_legacy_session.py`
 - Modify: `app/storage/schema.py` (remove `sessions` table DDL)
 
 - [ ] **Step 1: Promote parity tests from observable to blocking**
@@ -2641,43 +2488,27 @@ for r in results:
     assert r.remote_status == "passed", f"Remote {r.case_name} failed: {r.detail}"
 ```
 
-- [ ] **Step 2: Remove `_legacy_session.py`**
-
-```bash
-rm app/adapters/server/_legacy_session.py
-```
-
-- [ ] **Step 3: Remove `sessions` table DDL from `schema.py`**
+- [ ] **Step 2: Remove `sessions` table DDL from `schema.py`**
 
 Remove the `CREATE TABLE IF NOT EXISTS sessions (...)` block and any associated indexes from `METADATA_DDL`.
 
 Also update `_expected_mysql_foreign_key_names` to remove any remaining sessions-related entries.
 
-Add a migration step in `MySQLMetadataStore.initialize()` and `SQLiteMetadataStore.initialize()` to drop the `sessions` table if it exists:
-
-```python
-# In initialize(), after schema bootstrap:
-try:
-    self.execute("DROP TABLE IF EXISTS sessions")
-except Exception:
-    pass
-```
-
-- [ ] **Step 4: Update all references to `sessions` table**
+- [ ] **Step 3: Update all references to `sessions` table**
 
 Run: `rg '"sessions"|'sessions'" app/ tests/`
 Ensure no code still reads from or writes to the `sessions` table.
 
-- [ ] **Step 5: Run full test suite**
+- [ ] **Step 4: Run full test suite**
 
 Run: `pytest tests/ -x -q --timeout=60`
 Expected: All pass
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add tests/contracts/test_parity.py app/adapters/server/_legacy_session.py app/storage/schema.py
-git commit -m "feat(phase9): promote parity gate to blocking, remove legacy sessions table"
+git add tests/contracts/test_parity.py app/storage/schema.py
+git commit -m "feat(phase9): promote parity gate to blocking, remove sessions table DDL"
 ```
 
 ---
@@ -2768,7 +2599,7 @@ Task 10 (Step + event write atomicity) ← depends on Tasks 4, 9
   ↓
 Task 11 (ServerConfig fields) ← depends on Task 8
   ↓
-Task 12 (Database migration) ← depends on Task 5
+Task 12 (REMOVED — no migration needed)
   ↓
 Task 13 (RuntimePorts cleanup) ← depends on Task 8
   ↓
@@ -2776,7 +2607,7 @@ Task 14 (Service registry) ← depends on Task 13
   ↓
 Task 15 (ServerComposition cleanup) ← depends on Task 14
   ↓
-Task 16 (FK audit) ← independent
+Task 16 (FK removal) ← independent
   ↓
 Task 17 (SessionStore contract tests) ← depends on Tasks 4, 5, 9
   ↓
@@ -2786,7 +2617,7 @@ Task 19 (test-mysql extras + CI job) ← independent
   ↓
 Task 20 (MySQL contract tests) ← depends on Tasks 4, 19
   ↓
-Task 21 (Parity gate + legacy removal) ← depends on Tasks 16, 17, 18
+Task 21 (Parity gate + sessions DDL removal) ← depends on Tasks 16, 17, 18
   ↓
 Task 22 (Final verification) ← depends on all
 ```
@@ -2794,5 +2625,5 @@ Task 22 (Final verification) ← depends on all
 Parallelizable groups:
 - Tasks 1, 2, 3, 16, 19 can run in parallel
 - Tasks 4, 5, 6, 7 can run in parallel (after 2 and 3)
-- Tasks 9, 10, 11, 12 can run in parallel (after 4, 5, 8)
+- Tasks 9, 10, 11 can run in parallel (after 4, 5, 8)
 - Tasks 17 and 18 can run in parallel
