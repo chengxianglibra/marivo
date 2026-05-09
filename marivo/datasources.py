@@ -1,4 +1,4 @@
-from marivo.registry.datasource_registry import DatasourceRegistry
+from marivo.adapters.server.datasource_registry import DatasourceRegistry
 
 
 class DatasourceService(DatasourceRegistry):
