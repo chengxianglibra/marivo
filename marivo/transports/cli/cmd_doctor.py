@@ -25,9 +25,11 @@ from marivo.transports.cli._workspace import (
 
 
 def add_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--workspace-root", type=str, default=None, help="Workspace root directory")
     parser.add_argument(
-        "--format", type=str, choices=["json", "text"], default=None, help="Output format"
+        "-w", "--workspace", type=str, default=None, help="Workspace root directory"
+    )
+    parser.add_argument(
+        "-f", "--format", type=str, choices=["json", "text"], default=None, help="Output format"
     )
 
 
@@ -39,7 +41,7 @@ def handle(args: argparse.Namespace) -> dict[str, Any]:
     runtime_failure = False
 
     # Check 1: workspace_root
-    check, code = _check_workspace_root(getattr(args, "workspace_root", None))
+    check, code = _check_workspace_root(getattr(args, "workspace", None))
     checks.append(check)
     if code == EXIT_WORKSPACE_ROOT_UNAVAILABLE:
         workspace_failure = True
@@ -49,7 +51,7 @@ def handle(args: argparse.Namespace) -> dict[str, Any]:
     if check["ok"]:
         from marivo.transports.cli._workspace import resolve_workspace_root as _resolve
 
-        workspace_root = _resolve(getattr(args, "workspace_root", None))
+        workspace_root = _resolve(getattr(args, "workspace", None))
 
     # Check 2: .marivo/ exists and is writable
     if workspace_root is not None:

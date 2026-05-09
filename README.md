@@ -14,36 +14,96 @@ Stateful sessions, semantic discovery, typed analysis steps, deterministic evide
 - **Dual-backend**: SQLite (metadata) + DuckDB/Trino (analytics)
 - **Independent UI**: React console in `frontend/` for HTTP API operations, semantic readiness, and evidence review
 
+## Installation
+
+```bash
+pip install marivo
+```
+
+Optional extras:
+
+```bash
+pip install marivo[mysql]    # MySQL metadata backend
+pip install marivo[trino]    # Trino analytics engine
+pip install marivo[all]      # All optional backends
+```
+
 ## Quick Start
 
+### Local Mode (MCP stdio, no daemon)
+
+Best for individual analysts and AI agent integration. No server process needed.
+
 ```bash
+# Initialize a workspace
+marivo init -w ~/my-project
+
+# Configure your MCP client (Claude Desktop, Cursor, etc.)
+# Command: marivo mcp stdio
+# Working directory: ~/my-project
+```
+
+MCP client configuration example:
+
+```json
+{
+  "command": "marivo",
+  "args": ["mcp", "stdio"],
+  "cwd": "/absolute/path/to/workspace"
+}
+```
+
+### HTTP Server Mode
+
+Best for teams and enterprise deployments. Deploy Marivo as a remote service,
+then connect AI agents via HTTP MCP.
+
+**1. Deploy the server** (on a remote machine or container):
+
+```bash
+marivo serve -c marivo.yaml -H 0.0.0.0 -p 8000
+```
+
+**2. Connect your AI agent** (on your local machine):
+
+`marivo serve` automatically mounts a streamable-HTTP MCP endpoint at `/mcp`.
+Add the remote server to your MCP client config (Claude Desktop, Cursor, etc.):
+
+```json
+{
+  "mcpServers": {
+    "marivo": {
+      "type": "streamable-http",
+      "url": "https://marivo.your-company.com/mcp"
+    }
+  }
+}
+```
+
+The HTTP MCP endpoint is stateless — each request is self-contained with no
+server-side session state. It exposes the same tools and resources as the
+stdio transport.
+
+Useful runtime commands:
+
+```bash
+marivo runtime status -w ~/my-project
+marivo doctor -w ~/my-project
+marivo runtime stop -w ~/my-project
+```
+
+### Development Setup (from source)
+
+For contributors or those who need the latest unreleased changes:
+
+```bash
+git clone https://github.com/lumendata/marivo.git
+cd marivo
 python3 -m venv .venv
-.venv/bin/pip install -e .
+.venv/bin/pip install -e ".[dev]"
 
-# Local mode (MCP stdio, no daemon)
+# Run with explicit venv path
 .venv/bin/marivo init --workspace-root .
-# Configure your MCP client to use: .venv/bin/marivo mcp stdio
-
-# HTTP server mode
-.venv/bin/marivo init-local --workspace-root .
-.venv/bin/marivo serve-local --workspace-root .
-```
-
-`marivo init` / `marivo init-local` creates `.marivo/marivo.yaml` and the local metadata layout.
-`marivo serve-local` starts the HTTP service, waits for `/health`, and writes
-`.marivo/runtime.json` for reuse by local agents.
-
-Useful local runtime checks:
-
-```bash
-.venv/bin/marivo runtime status --workspace-root .
-.venv/bin/marivo doctor --workspace-root .
-.venv/bin/marivo runtime stop --workspace-root .
-```
-
-For direct service development, use the explicit service entrypoint:
-
-```bash
 .venv/bin/marivo serve --config marivo.yaml
 ```
 
@@ -74,7 +134,7 @@ metadata:
 
 ```
 
-`marivo init-local` writes the local workspace config automatically. For custom service
+`marivo init` writes the local workspace config automatically. For custom service
 configuration, copy this shape to `marivo.yaml` or set `MARIVO_CONFIG`. Profile
 selection is resolved per entry point via `profiles/resolver.py`. Source, engine,
 and mapping inventory is managed via the HTTP API, not YAML config.
@@ -84,19 +144,19 @@ and mapping inventory is managed via the HTTP API, not YAML config.
 MCP is integrated in `marivo/transports/mcp/` with two transports:
 
 - **stdio** (local agentic): embedded in-process, no daemon required
-- **HTTP MCP** (enterprise): connects to a running Marivo HTTP service
+- **HTTP MCP** (enterprise): connects to a remote Marivo server (see [HTTP Server Mode](#http-server-mode) above)
 
-Configure your MCP client for local stdio mode:
+### Local stdio mode
+
+Configure your MCP client (Claude Desktop, Cursor, etc.):
 
 ```json
 {
-  "command": ".venv/bin/marivo",
+  "command": "marivo",
   "args": ["mcp", "stdio"],
   "cwd": "/absolute/path/to/workspace"
 }
 ```
-
-For enterprise HTTP MCP, point your client at the running Marivo service endpoint.
 
 ## Example
 

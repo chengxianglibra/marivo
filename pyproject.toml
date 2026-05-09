@@ -17,6 +17,7 @@ dependencies = [
 [project.optional-dependencies]
 mysql = ["PyMySQL>=1.1"]
 trino = ["trino>=0.330"]
+all = ["PyMySQL>=1.1", "trino>=0.330"]
 dev = [
     "pytest>=8",
     "pytest-asyncio>=0.23",

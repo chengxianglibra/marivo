@@ -1,14 +1,11 @@
 from __future__ import annotations
 
 import argparse
-import json
-import os
 import signal
-import stat
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from marivo.config import resolve_metadata_path
 from marivo.transports.cli import _format_text_result
@@ -18,15 +15,11 @@ from marivo.transports.cli._exitcodes import (
     EXIT_HEALTH_CHECK_FAILED,
     EXIT_INVALID_USAGE,
     EXIT_RUNTIME_NOT_RUNNING,
-    EXIT_WORKSPACE_ROOT_UNAVAILABLE,
 )
 from marivo.transports.cli._manifest import RuntimeManifest
 from marivo.transports.cli._output import CliError
 from marivo.transports.cli.cmd_doctor import handle as doctor_handle
-from marivo.transports.cli.cmd_init_local import BOOTSTRAP_CONFIG_YAML
-from marivo.transports.cli.cmd_init_local import handle as init_local_handle
 from marivo.transports.cli.cmd_runtime import handle as runtime_handle
-from marivo.transports.cli.cmd_serve_local import handle as serve_local_handle
 from marivo.transports.http.app_factory import create_app
 
 
@@ -37,6 +30,24 @@ class _HealthResponse:
 
     def json(self) -> dict[str, object]:
         return self._body
+
+
+_BOOTSTRAP_YAML = (
+    "metadata:\n"
+    "  engine: sqlite\n"
+    "  path: .marivo/metadata.sqlite\n"
+    "\n"
+    "observability:\n"
+    "  log_level: INFO\n"
+    "  metrics_enabled: true\n"
+)
+
+
+def _create_bootstrap_yaml(workspace_root: Path) -> None:
+    """Create .marivo/ with a minimal YAML config for doctor tests."""
+    dot_marivo = workspace_root / ".marivo"
+    dot_marivo.mkdir(parents=True, exist_ok=True)
+    (dot_marivo / "marivo.yaml").write_text(_BOOTSTRAP_YAML)
 
 
 class ResolveMetadataPathTests(unittest.TestCase):
@@ -50,89 +61,6 @@ class ResolveMetadataPathTests(unittest.TestCase):
 
 
 class LocalCliContractTests(unittest.TestCase):
-    def test_init_local_reports_metadata_path(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            resolved_root = Path(tmp).resolve()
-            result = init_local_handle(argparse.Namespace(workspace_root=tmp, format="json"))
-
-            self.assertEqual(result["status"], "initialized")
-            self.assertEqual(result["workspace_root"], str(resolved_root))
-            self.assertEqual(
-                result["config_path"],
-                str(resolved_root / ".marivo" / "marivo.yaml"),
-            )
-            self.assertEqual(
-                result["metadata_path"],
-                str(resolved_root / ".marivo" / "metadata.sqlite"),
-            )
-
-    def test_init_local_creates_only_bootstrap_config(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            workspace_root = Path(tmp).resolve()
-
-            init_local_handle(argparse.Namespace(workspace_root=tmp, format="json"))
-
-            dot_marivo = workspace_root / ".marivo"
-            config_path = dot_marivo / "marivo.yaml"
-            self.assertTrue(dot_marivo.is_dir())
-            self.assertEqual(config_path.read_text(), BOOTSTRAP_CONFIG_YAML)
-            self.assertEqual(stat.S_IMODE(config_path.stat().st_mode), 0o644)
-            self.assertFalse((dot_marivo / "metadata.sqlite").exists())
-            self.assertFalse((dot_marivo / "runtime.json").exists())
-            self.assertFalse((dot_marivo / "logs").exists())
-            self.assertFalse((dot_marivo / "run").exists())
-
-    def test_init_local_is_idempotent_and_does_not_overwrite_existing_config(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            workspace_root = Path(tmp).resolve()
-            dot_marivo = workspace_root / ".marivo"
-            dot_marivo.mkdir()
-            config_path = dot_marivo / "marivo.yaml"
-            custom_config = "metadata:\n  engine: sqlite\n  path: custom.sqlite\n"
-            config_path.write_text(custom_config)
-
-            result = init_local_handle(argparse.Namespace(workspace_root=tmp, format="json"))
-
-            self.assertEqual(result["status"], "already_initialized")
-            self.assertEqual(config_path.read_text(), custom_config)
-
-    def test_init_local_resolves_relative_workspace_root_to_canonical_paths(self) -> None:
-        original_cwd = Path.cwd()
-        with tempfile.TemporaryDirectory() as tmp:
-            tmp_root = Path(tmp).resolve()
-            workspace_root = tmp_root / "workspace"
-            workspace_root.mkdir()
-
-            try:
-                os.chdir(tmp_root)
-                result = init_local_handle(
-                    argparse.Namespace(workspace_root="workspace", format="json")
-                )
-            finally:
-                os.chdir(original_cwd)
-
-            self.assertEqual(result["status"], "initialized")
-            self.assertEqual(result["workspace_root"], str(workspace_root))
-            self.assertEqual(
-                result["config_path"],
-                str(workspace_root / ".marivo" / "marivo.yaml"),
-            )
-            self.assertEqual(
-                result["metadata_path"],
-                str(workspace_root / ".marivo" / "metadata.sqlite"),
-            )
-            self.assertFalse((workspace_root / ".marivo" / ".marivo").exists())
-
-    def test_init_local_maps_workspace_write_failures_to_workspace_exit_code(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            with (
-                patch("pathlib.Path.mkdir", side_effect=OSError("permission denied")),
-                self.assertRaises(CliError) as exc,
-            ):
-                init_local_handle(argparse.Namespace(workspace_root=tmp, format="json"))
-
-            self.assertEqual(exc.exception.exit_code, EXIT_WORKSPACE_ROOT_UNAVAILABLE)
-
     def test_runtime_status_without_manifest_reports_stopped(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             resolved_root = Path(tmp).resolve()
@@ -140,7 +68,7 @@ class LocalCliContractTests(unittest.TestCase):
                 runtime_handle(
                     argparse.Namespace(
                         runtime_command="status",
-                        workspace_root=tmp,
+                        workspace=tmp,
                         format="json",
                     )
                 )
@@ -153,113 +81,6 @@ class LocalCliContractTests(unittest.TestCase):
                     "workspace_root": str(resolved_root),
                 },
             )
-
-    def test_serve_local_rejects_invalid_existing_config_before_spawn(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            workspace_root = Path(tmp)
-            dot_marivo = workspace_root / ".marivo"
-            dot_marivo.mkdir()
-            (dot_marivo / "marivo.yaml").write_text("sources:\n  - display_name: invalid\n")
-
-            with self.assertRaises(CliError) as exc:
-                serve_local_handle(
-                    argparse.Namespace(
-                        workspace_root=tmp,
-                        host="127.0.0.1",
-                        port=0,
-                        start_timeout_ms=1000,
-                        format="json",
-                    )
-                )
-
-            self.assertEqual(exc.exception.exit_code, EXIT_CONFIG_INVALID)
-
-    def test_serve_local_starts_daemon_after_health_check_and_writes_manifest(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            workspace_root = Path(tmp).resolve()
-            proc = MagicMock()
-            proc.pid = 43210
-
-            with (
-                patch("marivo.transports.cli.cmd_serve_local._discover_port", return_value=49152),
-                patch(
-                    "marivo.transports.cli.cmd_serve_local.subprocess.Popen", return_value=proc
-                ) as popen,
-                patch(
-                    "marivo.transports.cli.cmd_serve_local.httpx.get",
-                    return_value=_HealthResponse(200, {"status": "ok"}),
-                ),
-                patch("marivo.transports.cli.cmd_serve_local.time.sleep"),
-            ):
-                result = serve_local_handle(
-                    argparse.Namespace(
-                        workspace_root=tmp,
-                        host="127.0.0.1",
-                        port=0,
-                        start_timeout_ms=1000,
-                        format="json",
-                    )
-                )
-
-            manifest_path = workspace_root / ".marivo" / "runtime.json"
-            pid_path = workspace_root / ".marivo" / "run" / "marivo.pid"
-            manifest = json.loads(manifest_path.read_text())
-
-            self.assertEqual(result["status"], "serving")
-            self.assertEqual(result["base_url"], "http://127.0.0.1:49152")
-            self.assertEqual(result["pid"], 43210)
-            self.assertEqual(manifest["base_url"], "http://127.0.0.1:49152")
-            self.assertEqual(manifest["pid"], 43210)
-            self.assertEqual(pid_path.read_text(), "43210\n")
-            self.assertTrue((workspace_root / ".marivo" / "logs" / "marivo.log").is_file())
-            popen.assert_called_once()
-
-    def test_serve_local_health_timeout_stops_daemon_and_does_not_write_manifest(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            workspace_root = Path(tmp).resolve()
-            proc = MagicMock()
-            proc.pid = 43210
-
-            with (
-                patch("marivo.transports.cli.cmd_serve_local._discover_port", return_value=49152),
-                patch("marivo.transports.cli.cmd_serve_local.subprocess.Popen", return_value=proc),
-                patch(
-                    "marivo.transports.cli.cmd_serve_local.httpx.get",
-                    return_value=_HealthResponse(200, {"status": "starting"}),
-                ),
-                patch("marivo.transports.cli.cmd_serve_local.time.sleep"),
-                self.assertRaises(CliError) as exc,
-            ):
-                serve_local_handle(
-                    argparse.Namespace(
-                        workspace_root=tmp,
-                        host="127.0.0.1",
-                        port=0,
-                        start_timeout_ms=1,
-                        format="json",
-                    )
-                )
-
-            self.assertEqual(exc.exception.exit_code, EXIT_HEALTH_CHECK_FAILED)
-            proc.terminate.assert_called_once()
-            self.assertFalse((workspace_root / ".marivo" / "runtime.json").exists())
-
-    def test_serve_local_rejects_invalid_port_and_timeout(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            for port, timeout in ((70000, 1000), (0, 0)):
-                with self.subTest(port=port, timeout=timeout):
-                    with self.assertRaises(CliError) as exc:
-                        serve_local_handle(
-                            argparse.Namespace(
-                                workspace_root=tmp,
-                                host="127.0.0.1",
-                                port=port,
-                                start_timeout_ms=timeout,
-                                format="json",
-                            )
-                        )
-
-                    self.assertEqual(exc.exception.exit_code, EXIT_INVALID_USAGE)
 
     def test_runtime_status_reports_running_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -286,7 +107,7 @@ class LocalCliContractTests(unittest.TestCase):
                 result = runtime_handle(
                     argparse.Namespace(
                         runtime_command="status",
-                        workspace_root=tmp,
+                        workspace=tmp,
                         format="json",
                     )
                 )
@@ -308,7 +129,7 @@ class LocalCliContractTests(unittest.TestCase):
                 runtime_handle(
                     argparse.Namespace(
                         runtime_command="status",
-                        workspace_root=tmp,
+                        workspace=tmp,
                         format="json",
                     )
                 )
@@ -337,7 +158,7 @@ class LocalCliContractTests(unittest.TestCase):
                 runtime_handle(
                     argparse.Namespace(
                         runtime_command="status",
-                        workspace_root=tmp,
+                        workspace=tmp,
                         format="json",
                     )
                 )
@@ -373,7 +194,7 @@ class LocalCliContractTests(unittest.TestCase):
                 runtime_handle(
                     argparse.Namespace(
                         runtime_command="status",
-                        workspace_root=tmp,
+                        workspace=tmp,
                         format="json",
                     )
                 )
@@ -390,7 +211,7 @@ class LocalCliContractTests(unittest.TestCase):
                 runtime_handle(
                     argparse.Namespace(
                         runtime_command="stop",
-                        workspace_root=tmp,
+                        workspace=tmp,
                         force=False,
                         timeout_ms=5000,
                         format="json",
@@ -428,7 +249,7 @@ class LocalCliContractTests(unittest.TestCase):
                 result = runtime_handle(
                     argparse.Namespace(
                         runtime_command="stop",
-                        workspace_root=tmp,
+                        workspace=tmp,
                         force=False,
                         timeout_ms=5000,
                         format="json",
@@ -443,7 +264,7 @@ class LocalCliContractTests(unittest.TestCase):
                 runtime_handle(
                     argparse.Namespace(
                         runtime_command="status",
-                        workspace_root=tmp,
+                        workspace=tmp,
                         format="json",
                     )
                 )
@@ -485,7 +306,7 @@ class LocalCliContractTests(unittest.TestCase):
                 result = runtime_handle(
                     argparse.Namespace(
                         runtime_command="stop",
-                        workspace_root=tmp,
+                        workspace=tmp,
                         force=False,
                         timeout_ms=5000,
                         format="json",
@@ -524,7 +345,7 @@ class LocalCliContractTests(unittest.TestCase):
                 runtime_handle(
                     argparse.Namespace(
                         runtime_command="stop",
-                        workspace_root=tmp,
+                        workspace=tmp,
                         force=False,
                         timeout_ms=1,
                         format="json",
@@ -561,7 +382,7 @@ class LocalCliContractTests(unittest.TestCase):
                 runtime_handle(
                     argparse.Namespace(
                         runtime_command="stop",
-                        workspace_root=tmp,
+                        workspace=tmp,
                         force=False,
                         timeout_ms=5000,
                         format="json",
@@ -599,7 +420,7 @@ class LocalCliContractTests(unittest.TestCase):
                 result = runtime_handle(
                     argparse.Namespace(
                         runtime_command="stop",
-                        workspace_root=tmp,
+                        workspace=tmp,
                         force=True,
                         timeout_ms=1,
                         format="json",
@@ -618,7 +439,7 @@ class LocalCliContractTests(unittest.TestCase):
                 runtime_handle(
                     argparse.Namespace(
                         runtime_command="stop",
-                        workspace_root=tmp,
+                        workspace=tmp,
                         force=False,
                         timeout_ms=0,
                         format="json",
@@ -630,11 +451,11 @@ class LocalCliContractTests(unittest.TestCase):
     def test_doctor_reports_runtime_not_running_without_mutating_workspace(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             workspace_root = Path(tmp).resolve()
-            init_local_handle(argparse.Namespace(workspace_root=tmp, format="json"))
+            _create_bootstrap_yaml(workspace_root)
             before_paths = sorted(p.relative_to(workspace_root) for p in workspace_root.rglob("*"))
 
             with self.assertRaises(CliError) as exc:
-                doctor_handle(argparse.Namespace(workspace_root=tmp, format="json"))
+                doctor_handle(argparse.Namespace(workspace=tmp, format="json"))
 
             after_paths = sorted(p.relative_to(workspace_root) for p in workspace_root.rglob("*"))
             self.assertEqual(before_paths, after_paths)
@@ -651,7 +472,7 @@ class LocalCliContractTests(unittest.TestCase):
     def test_doctor_reports_all_checks_ok_for_healthy_runtime(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             workspace_root = Path(tmp).resolve()
-            init_local_handle(argparse.Namespace(workspace_root=tmp, format="json"))
+            _create_bootstrap_yaml(workspace_root)
             dot_marivo = workspace_root / ".marivo"
             (dot_marivo / "metadata.sqlite").write_text("")
             RuntimeManifest(
@@ -670,7 +491,7 @@ class LocalCliContractTests(unittest.TestCase):
                     return_value=_HealthResponse(200, {"status": "ok"}),
                 ),
             ):
-                result = doctor_handle(argparse.Namespace(workspace_root=tmp, format="json"))
+                result = doctor_handle(argparse.Namespace(workspace=tmp, format="json"))
 
             self.assertTrue(result["ok"])
             self.assertEqual(result["summary"], "6/6 checks passed")
@@ -679,12 +500,12 @@ class LocalCliContractTests(unittest.TestCase):
     def test_doctor_invalid_manifest_is_configuration_failure(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             workspace_root = Path(tmp).resolve()
-            init_local_handle(argparse.Namespace(workspace_root=tmp, format="json"))
+            _create_bootstrap_yaml(workspace_root)
             dot_marivo = workspace_root / ".marivo"
             (dot_marivo / "runtime.json").write_text("{}")
 
             with self.assertRaises(CliError) as exc:
-                doctor_handle(argparse.Namespace(workspace_root=tmp, format="json"))
+                doctor_handle(argparse.Namespace(workspace=tmp, format="json"))
 
             self.assertEqual(exc.exception.exit_code, EXIT_CONFIG_INVALID)
             json_data = exc.exception.json_data

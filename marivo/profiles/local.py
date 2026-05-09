@@ -18,6 +18,15 @@ from marivo.adapters.local.sqlite_step_store import SqliteStepStore
 from marivo.adapters.local.toml_runtime_config import TomlRuntimeConfig
 from marivo.contracts.errors import ErrorCode, ValidationError
 from marivo.core.engine import CoreEngine
+from marivo.local.state_layout import (
+    artifacts_dir,
+    audit_log_path,
+    evidence_dir,
+    models_dir,
+    state_db_path,
+    telemetry_log_path,
+    toml_config_path,
+)
 from marivo.profiles.resolver import resolve_profile
 from marivo.runtime.ports import RuntimePorts
 from marivo.runtime.runtime import MarivoRuntime
@@ -38,29 +47,28 @@ def create_local_runtime(
     explicit: str | None = None,
 ) -> MarivoRuntime:
     """Create a local embedded MarivoRuntime."""
-    marivo_dir = config.workspace_root / ".marivo"
     resolve_profile(
         entry_point="local_stdio",
         explicit=explicit,
-        workspace_config_path=marivo_dir / "marivo.toml",
+        workspace_config_path=toml_config_path(config.workspace_root),
     )
 
     data_source = _create_data_source(config.datasource_type, config.datasource_config)
 
     ports = RuntimePorts(
-        model_store=FileModelStore(marivo_dir / "models"),
-        session_store=SqliteSessionStore(marivo_dir / "state.db"),
-        evidence_store=FileEvidenceStore(marivo_dir / "evidence"),
+        model_store=FileModelStore(models_dir(config.workspace_root)),
+        session_store=SqliteSessionStore(state_db_path(config.workspace_root)),
+        evidence_store=FileEvidenceStore(evidence_dir(config.workspace_root)),
         data_source=data_source,
-        cache_store=SqliteCacheStore(marivo_dir / "state.db"),
+        cache_store=SqliteCacheStore(state_db_path(config.workspace_root)),
         authz=NoopAuthZ(),
-        audit_log=FileAuditLog(marivo_dir / "audit.jsonl"),
+        audit_log=FileAuditLog(audit_log_path(config.workspace_root)),
         telemetry=LocalTelemetry(
-            sink=config.telemetry_sink, log_path=marivo_dir / "telemetry.jsonl"
+            sink=config.telemetry_sink, log_path=telemetry_log_path(config.workspace_root)
         ),
-        runtime_config=TomlRuntimeConfig(marivo_dir / "marivo.toml"),
-        artifact_store=FileArtifactStore(marivo_dir / "artifacts"),
-        step_store=SqliteStepStore(marivo_dir / "state.db"),
+        runtime_config=TomlRuntimeConfig(toml_config_path(config.workspace_root)),
+        artifact_store=FileArtifactStore(artifacts_dir(config.workspace_root)),
+        step_store=SqliteStepStore(state_db_path(config.workspace_root)),
     )
     core = CoreEngine()
     return MarivoRuntime(ports, core)

@@ -11,7 +11,7 @@ from marivo.transports.cli.cmd_init import handle
 
 def _make_args(workspace_root: str | None = None) -> argparse.Namespace:
     ns = argparse.Namespace()
-    ns.workspace_root = workspace_root
+    ns.workspace = workspace_root
     return ns
 
 

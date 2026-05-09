@@ -30,27 +30,30 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     # marivo runtime status
     status_parser = runtime_subparsers.add_parser("status", help="Show local runtime status")
     status_parser.add_argument(
-        "--workspace-root", type=str, default=None, help="Workspace root directory"
+        "-w", "--workspace", type=str, default=None, help="Workspace root directory"
     )
     status_parser.add_argument(
-        "--format", type=str, choices=["json", "text"], default=None, help="Output format"
+        "-f", "--format", type=str, choices=["json", "text"], default=None, help="Output format"
     )
     status_parser.set_defaults(runtime_command="status")
 
     # marivo runtime stop
     stop_parser = runtime_subparsers.add_parser("stop", help="Stop local runtime")
     stop_parser.add_argument(
-        "--workspace-root", type=str, default=None, help="Workspace root directory"
+        "-w", "--workspace", type=str, default=None, help="Workspace root directory"
     )
-    stop_parser.add_argument("--force", action="store_true", help="Send SIGKILL if SIGTERM fails")
     stop_parser.add_argument(
+        "-F", "--force", action="store_true", help="Send SIGKILL if SIGTERM fails"
+    )
+    stop_parser.add_argument(
+        "-t",
         "--timeout-ms",
         type=int,
         default=5000,
         help="Grace period after SIGTERM in ms (default: 5000)",
     )
     stop_parser.add_argument(
-        "--format", type=str, choices=["json", "text"], default=None, help="Output format"
+        "-f", "--format", type=str, choices=["json", "text"], default=None, help="Output format"
     )
     stop_parser.set_defaults(runtime_command="stop")
 
@@ -69,7 +72,7 @@ def handle(args: argparse.Namespace) -> dict[str, Any]:
 
 def _handle_status(args: argparse.Namespace) -> dict[str, Any]:
     """Execute 'marivo runtime status'."""
-    workspace_root = resolve_workspace_root(getattr(args, "workspace_root", None))
+    workspace_root = resolve_workspace_root(getattr(args, "workspace", None))
     manifest_path = runtime_manifest_path(workspace_root)
 
     try:
@@ -131,7 +134,7 @@ def _handle_status(args: argparse.Namespace) -> dict[str, Any]:
 
 def _handle_stop(args: argparse.Namespace) -> dict[str, Any]:
     """Execute 'marivo runtime stop'."""
-    workspace_root = resolve_workspace_root(getattr(args, "workspace_root", None))
+    workspace_root = resolve_workspace_root(getattr(args, "workspace", None))
     manifest_path = runtime_manifest_path(workspace_root)
     pid_path = pid_file_path(workspace_root)
     force: bool = getattr(args, "force", False)
