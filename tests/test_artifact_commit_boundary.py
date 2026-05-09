@@ -19,14 +19,14 @@ from typing import Any
 
 from marivo.adapters.local.sqlite_metadata import SQLiteMetadataStore
 from marivo.adapters.server.evidence_repositories import FindingRepository
-from marivo.evidence_engine.canonical_finding import (
+from marivo.core.evidence.canonical_finding import (
     FindingExtractionResult,
     StepRef,
     make_finding_id,
     make_item_identity,
 )
-from marivo.evidence_engine.family_contract import FamilyEmptyError
-from marivo.evidence_engine.finding_extractor_registry import (
+from marivo.core.evidence.family_contract import FamilyEmptyError
+from marivo.runtime.evidence.finding_extractor_registry import (
     FindingExtractor,
     FindingExtractorRegistry,
 )
@@ -89,11 +89,11 @@ def _commit_artifact_with_extraction(
     import json as _json
     from uuid import uuid4
 
-    from marivo.evidence_engine.canonical_finding import StepRef as _StepRef
-    from marivo.evidence_engine.finding_extractor_registry import (
+    from marivo.core.evidence.canonical_finding import StepRef as _StepRef
+    from marivo.runtime.evidence.finding_extractor_registry import (
         default_finding_registry as _default_reg,
     )
-    from marivo.evidence_engine.finding_extractor_registry import (
+    from marivo.runtime.evidence.finding_extractor_registry import (
         validate_for_commit as _validate,
     )
 

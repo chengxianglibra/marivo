@@ -31,7 +31,7 @@ from marivo.adapters.server.evidence_repositories import (
     InferenceRecordRepository,
     PropositionRepository,
 )
-from marivo.evidence_engine.assessment_evaluation_context import (
+from marivo.runtime.evidence.assessment_context import (
     EVALUATION_CONTEXT_SCHEMA_VERSION,
     AssessmentEvaluationContext,
     _compatible_finding_types,

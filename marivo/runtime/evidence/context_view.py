@@ -31,8 +31,8 @@ from marivo.adapters.server.evidence_repositories import (
     InferenceRecordRepository,
     PropositionRepository,
 )
-from marivo.evidence_engine.publish_switch import assemble_externally_visible_bundle
-from marivo.evidence_engine.ref_boundary import assert_no_semantic_refs_in_canonical_payload
+from marivo.runtime.evidence.publish_switch import assemble_externally_visible_bundle
+from marivo.runtime.evidence.ref_boundary import assert_no_semantic_refs_in_canonical_payload
 
 PROPOSITION_CONTEXT_VIEW_SCHEMA_VERSION = "proposition_context_view.v1"
 

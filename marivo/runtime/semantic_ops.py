@@ -1540,7 +1540,7 @@ def build_step_semantic_metadata(
     parameter for consistency with the other use-case functions in this module.
     """
     from marivo.core.semantic.step_metadata import build_step_semantic_metadata as _build
-    from marivo.evidence_engine.ref_boundary import assert_no_canonical_refs_in_semantic_payload
+    from marivo.runtime.evidence.ref_boundary import assert_no_canonical_refs_in_semantic_payload
 
     _ = runtime  # currently pure, runtime accepted for future semantic resolution
     result: dict[str, Any] | None = _build(compiled_queries)

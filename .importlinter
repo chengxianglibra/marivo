@@ -10,7 +10,6 @@ source_modules =
     marivo.contracts
 forbidden_modules =
     marivo.api
-    marivo.evidence_engine
     marivo.adapters
     marivo.cli
 
@@ -21,7 +20,6 @@ source_modules =
     marivo.ports
 forbidden_modules =
     marivo.api
-    marivo.evidence_engine
     marivo.adapters
     marivo.cli
 
@@ -31,13 +29,7 @@ type = forbidden
 source_modules =
     marivo.runtime
 forbidden_modules =
-    marivo.evidence_engine
-ignore_imports =
-    marivo.runtime.semantic_ops -> marivo.evidence_engine.ref_boundary
-    marivo.runtime.semantic.compile_step -> marivo.evidence_engine.ref_boundary
-    marivo.runtime.session -> marivo.evidence_engine.context_view
-    marivo.runtime.session -> marivo.evidence_engine.state_view
-    marivo.runtime.intents.* -> marivo.evidence_engine.*
+    marivo.core.orchestration
 
 [importlinter:contract:core-no-io]
 name = core/ must not import I/O or ports
@@ -46,7 +38,6 @@ source_modules =
     marivo.core
 forbidden_modules =
     marivo.api
-    marivo.evidence_engine
     marivo.adapters
     marivo.cli
     marivo.ports
@@ -58,13 +49,9 @@ source_modules =
     marivo.api
     marivo.cli
 forbidden_modules =
-    marivo.evidence_engine
+    marivo.core.orchestration
 ignore_imports =
     marivo.api.sessions -> marivo.runtime
-    marivo.runtime.* -> marivo.evidence_engine.*
-    marivo.runtime.semantic.* -> marivo.evidence_engine.*
-    marivo.runtime.intents.* -> marivo.evidence_engine.*
-    marivo.adapters.server.artifact_store -> marivo.evidence_engine.canonical_finding
 
 [importlinter:contract:transports-mcp-no-api-internals]
 name = transports/mcp/ must not import app/api/ internals

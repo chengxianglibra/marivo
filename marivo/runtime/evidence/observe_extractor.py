@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from marivo.evidence_engine.canonical_finding import (
+from marivo.core.evidence.canonical_finding import (
     FindingExtractionResult,
     FindingProvenance,
     FindingQuality,
@@ -39,7 +39,7 @@ from marivo.evidence_engine.canonical_finding import (
     make_finding_id,
     make_item_identity,
 )
-from marivo.evidence_engine.finding_extractor_registry import FindingExtractor
+from marivo.runtime.evidence.finding_extractor_registry import FindingExtractor
 
 # ---------------------------------------------------------------------------
 # Quality helpers

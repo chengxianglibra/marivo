@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import unittest
 
-from marivo.evidence_engine.canonical_finding import (
+from marivo.core.evidence.canonical_finding import (
     make_artifact_item_ref,
     make_canonical_item_key,
     make_finding_id,

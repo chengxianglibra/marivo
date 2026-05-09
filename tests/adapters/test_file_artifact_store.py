@@ -128,7 +128,7 @@ def test_commit_artifact_with_extraction_with_extractor(
     store: FileArtifactStore,
 ) -> None:
     """When an extractor is found, run extraction and write sidecar findings."""
-    from marivo.evidence_engine.finding_extractor_registry import (
+    from marivo.runtime.evidence.finding_extractor_registry import (
         FindingExtractor,
         default_finding_registry,
     )
@@ -185,7 +185,7 @@ def test_commit_artifact_with_extraction_zero_findings_allowed(
     store: FileArtifactStore,
 ) -> None:
     """Extractor that produces zero findings for an observe family (allowed)."""
-    from marivo.evidence_engine.finding_extractor_registry import (
+    from marivo.runtime.evidence.finding_extractor_registry import (
         FindingExtractor,
         default_finding_registry,
     )

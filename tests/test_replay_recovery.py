@@ -22,9 +22,9 @@ from marivo.adapters.server.evidence_repositories import (
     InferenceRecordRepository,
     PropositionRepository,
 )
-from marivo.evidence_engine.assessment_recompute import make_assessment_id
-from marivo.evidence_engine.canonical_pipeline_runtime import run_canonical_downstream
-from marivo.evidence_engine.replay_recovery import (
+from marivo.runtime.evidence.assessment_recompute import make_assessment_id
+from marivo.runtime.evidence.canonical_pipeline import run_canonical_downstream
+from marivo.runtime.evidence.replay_recovery import (
     RECOVERY_CHECKPOINT_SCHEMA_VERSION,
     get_proposition_checkpoint,
     recover_proposition_pipeline,
@@ -386,7 +386,7 @@ class TestRecoverNothingCommitted(unittest.TestCase):
         _setup(self.store)
         self.repos = _make_repos(self.store)
         # Run only the seeding stage — no assessment committed yet.
-        from marivo.evidence_engine.proposition_seeding_run import (
+        from marivo.runtime.evidence.proposition_seeding import (
             SimpleMaterializationContext,
             run_system_seeded_propositions,
         )

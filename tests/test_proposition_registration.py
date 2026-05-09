@@ -18,11 +18,11 @@ from typing import Any
 
 from marivo.adapters.local.sqlite_metadata import SQLiteMetadataStore
 from marivo.adapters.server.evidence_repositories import FindingRepository, PropositionRepository
-from marivo.evidence_engine.proposition_normalizer import (
+from marivo.core.evidence.proposition_normalizer import (
     make_proposition_id,
     normalize_proposition_identity,
 )
-from marivo.evidence_engine.proposition_registration import (
+from marivo.runtime.evidence.proposition_registration import (
     PropositionRegistrationResult,
     register_system_seeded_proposition,
 )

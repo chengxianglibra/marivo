@@ -1,6 +1,6 @@
 """Family-level empty semantics contract for canonical finding extraction.
 
-Extracted from ``marivo.evidence_engine.family_contract`` as part of Phase 3c.
+Extracted from ``marivo.core.evidence.family_contract`` as part of Phase 3c.
 All definitions here are pure: no I/O, no repository access.
 
 Centralises Decision D4 from

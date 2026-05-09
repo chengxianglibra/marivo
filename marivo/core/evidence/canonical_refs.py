@@ -45,7 +45,7 @@ from __future__ import annotations
 
 from typing import Literal, TypedDict
 
-from marivo.evidence_engine.canonical_finding import FindingRef
+from marivo.core.evidence.canonical_finding import FindingRef
 
 # ---------------------------------------------------------------------------
 # Proposition-layer refs

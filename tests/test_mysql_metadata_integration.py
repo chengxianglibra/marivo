@@ -22,13 +22,13 @@ from marivo.adapters.server.mysql_metadata import (
 )
 from marivo.api.app_factory import create_app
 from marivo.config import MetadataConfig
-from marivo.evidence_engine.canonical_finding import (
+from marivo.core.evidence.canonical_finding import (
     FindingExtractionResult,
     StepRef,
     make_finding_id,
     make_item_identity,
 )
-from marivo.evidence_engine.finding_extractor_registry import (
+from marivo.runtime.evidence.finding_extractor_registry import (
     FindingExtractor,
     FindingExtractorRegistry,
 )
@@ -444,8 +444,8 @@ class MySQLMetadataIntegrationTests(unittest.TestCase):
 
         import json as _json
 
-        from marivo.evidence_engine.canonical_finding import StepRef as _StepRef
-        from marivo.evidence_engine.finding_extractor_registry import (
+        from marivo.core.evidence.canonical_finding import StepRef as _StepRef
+        from marivo.runtime.evidence.finding_extractor_registry import (
             validate_for_commit as _validate,
         )
 

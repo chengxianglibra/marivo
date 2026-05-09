@@ -18,8 +18,8 @@ import unittest
 from typing import get_type_hints
 
 from marivo.adapters.schema import METADATA_DDL
-from marivo.evidence_engine.canonical_finding import FindingRef
-from marivo.evidence_engine.canonical_refs import (
+from marivo.core.evidence.canonical_finding import FindingRef
+from marivo.core.evidence.canonical_refs import (
     ArtifactLineageRef,
     AssessmentContextRef,
     AssessmentRef,

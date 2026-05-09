@@ -6,9 +6,9 @@ Implements the seeding registration protocol described in
 ## Registration protocol
 
 1. Compute ``identity_key`` from judgment-semantic fields via
-   :func:`~marivo.evidence_engine.proposition_normalizer.normalize_proposition_identity`.
+   :func:`~marivo.core.evidence.proposition_normalizer.normalize_proposition_identity`.
 2. Derive ``proposition_id`` via
-   :func:`~marivo.evidence_engine.proposition_normalizer.make_proposition_id`.
+   :func:`~marivo.core.evidence.proposition_normalizer.make_proposition_id`.
 3. Look up existing proposition: ``PropositionRepository.get_by_identity_key``.
 4. **On miss (CREATE)**:
    - Persist the proposition row (includes ``seed_finding_refs_json``).
@@ -39,7 +39,7 @@ import json
 from typing import Any, TypedDict
 
 from marivo.adapters.server.evidence_repositories import PropositionRepository
-from marivo.evidence_engine.proposition_normalizer import (
+from marivo.core.evidence.proposition_normalizer import (
     make_proposition_id,
     normalize_proposition_identity,
 )

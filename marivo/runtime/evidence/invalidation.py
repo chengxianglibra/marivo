@@ -138,7 +138,7 @@ def soft_invalidate_finding(
 
     **The repair actions are not executed** — they are returned as a plan.
     Callers should drive execution via
-    :func:`~marivo.evidence_engine.replay_recovery.recover_proposition_pipeline`
+    :func:`~marivo.runtime.evidence.replay_recovery.recover_proposition_pipeline`
     or the main downstream pipeline.
 
     Parameters

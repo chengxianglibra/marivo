@@ -13,7 +13,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any, NotRequired, TypedDict
 
-from marivo.evidence_engine.ref_boundary import RefBoundaryError, RefBoundaryViolation
+from marivo.runtime.evidence.ref_boundary import RefBoundaryError, RefBoundaryViolation
 
 # ---------------------------------------------------------------------------
 # Issue policy table

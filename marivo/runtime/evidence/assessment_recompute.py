@@ -43,7 +43,7 @@ from marivo.adapters.server.evidence_repositories import (
     FindingRepository,
     InferenceRecordRepository,
 )
-from marivo.evidence_engine.assessment_evaluation_context import AssessmentEvaluationContext
+from marivo.runtime.evidence.assessment_context import AssessmentEvaluationContext
 
 _CALENDAR_ALIGNMENT_REQUIRED_STRING_FIELDS: tuple[str, ...] = (
     "policy_ref",

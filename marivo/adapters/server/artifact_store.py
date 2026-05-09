@@ -127,7 +127,7 @@ class MetadataArtifactStoreAdapter:
 
         # Mandatory extraction family
         artifact_id = f"art_{uuid4().hex[:12]}"
-        from marivo.evidence_engine.canonical_finding import StepRef
+        from marivo.core.evidence.canonical_finding import StepRef
 
         effective_step_ref = StepRef(
             session_id=session_id,

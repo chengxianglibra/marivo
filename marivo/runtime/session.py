@@ -361,7 +361,7 @@ def get_session_state_view(
     Delegates to materialize_session_state_view using evidence repos
     from runtime.evidence_repos (server mode).
     """
-    from marivo.evidence_engine.state_view import materialize_session_state_view
+    from marivo.runtime.evidence.state_view import materialize_session_state_view
 
     repos = runtime.evidence_repos
     if repos is None:
@@ -396,7 +396,7 @@ def get_proposition_context(
     runtime: MarivoRuntime, session_id: str, proposition_id: str
 ) -> dict[str, Any]:
     """Return PropositionContextView for a proposition."""
-    from marivo.evidence_engine.context_view import materialize_proposition_context_view
+    from marivo.runtime.evidence.context_view import materialize_proposition_context_view
 
     repos = runtime.evidence_repos
     if repos is None:

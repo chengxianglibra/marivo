@@ -30,8 +30,8 @@ from marivo.adapters.server.evidence_repositories import (
     InferenceRecordRepository,
     PropositionRepository,
 )
-from marivo.evidence_engine.publish_switch import assemble_externally_visible_bundle
-from marivo.evidence_engine.ref_boundary import assert_no_semantic_refs_in_canonical_payload
+from marivo.runtime.evidence.publish_switch import assemble_externally_visible_bundle
+from marivo.runtime.evidence.ref_boundary import assert_no_semantic_refs_in_canonical_payload
 
 SESSION_STATE_VIEW_SCHEMA_VERSION = "session_state_view.v1"
 _DEFAULT_LIMIT = 50

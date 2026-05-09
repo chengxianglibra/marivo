@@ -37,24 +37,24 @@ from marivo.adapters.server.evidence_repositories import (
     InferenceRecordRepository,
     PropositionRepository,
 )
-from marivo.evidence_engine.assessment_evaluation_context import (
+from marivo.runtime.evidence.assessment_context import (
     build_assessment_evaluation_context,
 )
-from marivo.evidence_engine.assessment_recompute import (
+from marivo.runtime.evidence.assessment_recompute import (
     AssessmentRecomputeResult,
     make_assessment_id,
     recompute_proposition_assessment,
 )
-from marivo.evidence_engine.proposal_refresh_run import (
+from marivo.runtime.evidence.proposal_refresh import (
     ProposalRefreshResult,
     run_action_proposal_refresh,
 )
-from marivo.evidence_engine.proposition_seeding_run import (
+from marivo.runtime.evidence.proposition_seeding import (
     SeedingRunResult,
     SimpleMaterializationContext,
     run_system_seeded_propositions,
 )
-from marivo.evidence_engine.publish_switch import (
+from marivo.runtime.evidence.publish_switch import (
     PublishSwitchResult,
     execute_publish_switch,
 )

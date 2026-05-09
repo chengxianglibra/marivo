@@ -12,7 +12,7 @@ from marivo.core.semantic.calendar import (
 )
 from marivo.core.semantic.ir import AnalysisStepIR
 from marivo.core.semantic.step_metadata import build_step_semantic_metadata
-from marivo.evidence_engine.ref_boundary import assert_no_canonical_refs_in_semantic_payload
+from marivo.runtime.evidence.ref_boundary import assert_no_canonical_refs_in_semantic_payload
 from marivo.runtime.intents._helpers import commit_step_result
 from marivo.runtime.intents.calendar_alignment_metadata import normalize_resolved_policy_summary
 from marivo.runtime.semantic.executor import execute_compiled

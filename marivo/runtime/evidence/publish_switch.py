@@ -40,7 +40,7 @@ from marivo.adapters.server.evidence_repositories import (
     InferenceRecordRepository,
     PropositionRepository,
 )
-from marivo.evidence_engine.proposal_refresh_run import (
+from marivo.runtime.evidence.proposal_refresh import (
     PublishReadyBundle,
     assemble_bundle_from_assessment,
 )
