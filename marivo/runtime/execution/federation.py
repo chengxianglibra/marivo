@@ -4,8 +4,8 @@ import logging
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from marivo.ports.analytics import AnalyticsEngine
 from marivo.runtime.semantic.feedback import federation_failure_from_plan
-from marivo.storage.analytics import AnalyticsEngine
 
 logger = logging.getLogger("marivo.runtime.execution")
 

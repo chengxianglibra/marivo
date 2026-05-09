@@ -4,7 +4,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from marivo.storage.metadata import MetadataStore
+from marivo.adapters.metadata import MetadataStore
 from marivo.time_contracts import normalize_timestamp_format, optional_str
 
 TimeGrain = Literal["day", "hour"]

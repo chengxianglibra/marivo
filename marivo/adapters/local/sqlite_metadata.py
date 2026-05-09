@@ -6,9 +6,9 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-from marivo.storage.dialect import SQLITE_METADATA_DIALECT, MetadataDialect
-from marivo.storage.metadata import MetadataStore
-from marivo.storage.schema import metadata_ddl_for_backend, metadata_schema_marker_row
+from marivo.adapters.dialect import SQLITE_METADATA_DIALECT, MetadataDialect
+from marivo.adapters.metadata import MetadataStore
+from marivo.adapters.schema import metadata_ddl_for_backend, metadata_schema_marker_row
 
 _CATALOG_METADATA_SCHEMA_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("semantic_entity_contracts", "catalog_metadata_json", "TEXT NOT NULL DEFAULT '{}'"),

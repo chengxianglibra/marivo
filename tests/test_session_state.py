@@ -20,14 +20,8 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
-from marivo.contracts.errors import NotFoundError
-from marivo.evidence_engine.canonical_pipeline_runtime import run_canonical_downstream
-from marivo.evidence_engine.state_view import (
-    SESSION_STATE_VIEW_SCHEMA_VERSION,
-    materialize_session_state_view,
-)
-from marivo.runtime.runtime import MarivoRuntime
-from marivo.storage.evidence_repositories import (
+from marivo.adapters.local.sqlite_metadata import SQLiteMetadataStore
+from marivo.adapters.server.evidence_repositories import (
     ActionProposalRepository,
     AssessmentRepository,
     EvidenceGapRepository,
@@ -35,7 +29,13 @@ from marivo.storage.evidence_repositories import (
     InferenceRecordRepository,
     PropositionRepository,
 )
-from marivo.storage.sqlite_metadata import SQLiteMetadataStore
+from marivo.contracts.errors import NotFoundError
+from marivo.evidence_engine.canonical_pipeline_runtime import run_canonical_downstream
+from marivo.evidence_engine.state_view import (
+    SESSION_STATE_VIEW_SCHEMA_VERSION,
+    materialize_session_state_view,
+)
+from marivo.runtime.runtime import MarivoRuntime
 from tests.shared_fixtures import get_seeded_duckdb_path, make_temp_metadata_store
 
 # ---------------------------------------------------------------------------

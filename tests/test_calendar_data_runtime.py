@@ -4,13 +4,13 @@ import unittest
 from datetime import date
 from typing import Any, cast
 
+from marivo.adapters.metadata import MetadataStore
 from marivo.config import CalendarConfig
 from marivo.runtime.semantic.calendar_data_runtime import (
     _RESOLVED_CALENDAR_SOURCE,
     CalendarDataReader,
     CalendarDataResolutionError,
 )
-from marivo.storage.metadata import MetadataStore
 
 
 def _calendar_row(

@@ -34,6 +34,14 @@ from __future__ import annotations
 import logging
 from typing import Any, TypedDict
 
+from marivo.adapters.server.evidence_repositories import (
+    ActionProposalRepository,
+    AssessmentRepository,
+    EvidenceGapRepository,
+    FindingRepository,
+    InferenceRecordRepository,
+    PropositionRepository,
+)
 from marivo.evidence_engine.canonical_pipeline_runtime import (
     PropositionPipelineResult,
     run_single_proposition_pipeline,
@@ -45,14 +53,6 @@ from marivo.evidence_engine.proposal_refresh_run import (
 from marivo.evidence_engine.publish_switch import (
     PublishSwitchResult,
     execute_publish_switch,
-)
-from marivo.storage.evidence_repositories import (
-    ActionProposalRepository,
-    AssessmentRepository,
-    EvidenceGapRepository,
-    FindingRepository,
-    InferenceRecordRepository,
-    PropositionRepository,
 )
 
 logger = logging.getLogger(__name__)

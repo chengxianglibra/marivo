@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 from marivo.adapters.base import PhysicalObject
 from marivo.adapters.duckdb_adapter import DuckDBCatalogAdapter
-from marivo.storage.duckdb_analytics import DuckDBAnalyticsEngine
+from marivo.adapters.local.duckdb_analytics import DuckDBAnalyticsEngine
 from tests.shared_fixtures import get_seeded_duckdb_path
 
 

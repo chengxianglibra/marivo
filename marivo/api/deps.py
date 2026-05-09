@@ -6,14 +6,14 @@ from typing import cast
 
 from fastapi import HTTPException, Request
 
+from marivo.adapters.metadata import MetadataStore
 from marivo.adapters.server.semantic_service_adapter import SemanticServiceAdapter
 from marivo.config import MarivoConfig
 from marivo.datasources import DatasourceService
 from marivo.observability import MetricsCollector
+from marivo.ports.analytics import AnalyticsEngine
 from marivo.routing import QueryRouter
 from marivo.runtime.runtime import MarivoRuntime
-from marivo.storage.analytics import AnalyticsEngine
-from marivo.storage.metadata import MetadataStore
 
 
 @dataclass(slots=True)

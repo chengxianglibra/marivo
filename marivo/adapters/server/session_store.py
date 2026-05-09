@@ -4,10 +4,10 @@ import json
 import logging
 from typing import Any
 
+from marivo.adapters.metadata import MetadataStore
 from marivo.contracts.ids import SessionId, UserId
 from marivo.contracts.session import SessionEvent, SessionState
 from marivo.core.session.rebuild import rebuild_session_state
-from marivo.storage.metadata import MetadataStore
 
 logger = logging.getLogger(__name__)
 
@@ -285,7 +285,7 @@ class SqlSessionStoreAdapter:
         Derives stage from committed canonical DB state.  v1 does not maintain
         a real queue / claim / lease / retry system.
         """
-        from marivo.storage.evidence_repositories import (
+        from marivo.adapters.server.evidence_repositories import (
             ActionProposalRepository,
             AssessmentRepository,
         )
@@ -696,7 +696,7 @@ class SqlSessionStore:
         proposition tracking lives in the evidence pipeline tables, not
         in the session event log.
         """
-        from marivo.storage.evidence_repositories import (
+        from marivo.adapters.server.evidence_repositories import (
             ActionProposalRepository,
             AssessmentRepository,
         )

@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from marivo.ports.analytics import AnalyticsEngine
 from marivo.routing import ResolvedRoute
 from marivo.runtime.semantic.feedback import routing_feedback_from_error
 from marivo.runtime_contracts import ExecutionFeedback
-from marivo.storage.analytics import AnalyticsEngine
 
 if False:  # pragma: no cover
     from marivo.routing import QueryRouter

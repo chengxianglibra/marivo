@@ -48,15 +48,15 @@ import json
 from collections.abc import Callable
 from typing import Any, Protocol, TypedDict, cast
 
+from marivo.adapters.metadata import MetadataStore
+from marivo.adapters.server.evidence_repositories import FindingRepository, PropositionRepository
+from marivo.adapters.server.step_metadata_repository import StepMetadataRepository
 from marivo.evidence_engine.proposition_registration import register_system_seeded_proposition
 from marivo.evidence_engine.proposition_seed_registry import (
     SeedTemplateRegistry,
     SeedTemplateSpec,
     default_seed_registry,
 )
-from marivo.storage.evidence_repositories import FindingRepository, PropositionRepository
-from marivo.storage.metadata import MetadataStore
-from marivo.storage.step_metadata_repository import StepMetadataRepository
 
 # ---------------------------------------------------------------------------
 # Public constants

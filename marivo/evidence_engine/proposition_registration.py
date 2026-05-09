@@ -38,11 +38,11 @@ from __future__ import annotations
 import json
 from typing import Any, TypedDict
 
+from marivo.adapters.server.evidence_repositories import PropositionRepository
 from marivo.evidence_engine.proposition_normalizer import (
     make_proposition_id,
     normalize_proposition_identity,
 )
-from marivo.storage.evidence_repositories import PropositionRepository
 
 
 class PropositionRegistrationResult(TypedDict):

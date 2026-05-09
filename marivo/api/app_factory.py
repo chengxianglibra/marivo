@@ -10,6 +10,8 @@ from fastapi.exceptions import RequestValidationError
 from starlette.requests import Request
 from starlette.responses import Response
 
+from marivo.adapters.local.sqlite_metadata import SQLiteMetadataStore
+from marivo.adapters.metadata import MetadataStore
 from marivo.api.deps import AppServices
 from marivo.api.errors import (
     GuidedValidationError,
@@ -20,10 +22,8 @@ from marivo.api.middleware import UserIdentityMiddleware
 from marivo.api.router import include_api_routers
 from marivo.config import MarivoConfig, load_config, resolve_config_path, resolve_metadata_path
 from marivo.observability import TimingMiddleware
+from marivo.ports.analytics import AnalyticsEngine
 from marivo.profiles.server import _resolve_storage as _resolve_storage_for_server
-from marivo.storage.analytics import AnalyticsEngine
-from marivo.storage.metadata import MetadataStore
-from marivo.storage.sqlite_metadata import SQLiteMetadataStore
 from marivo.transports.mcp.http import mount_mcp_app
 
 logger = logging.getLogger(__name__)

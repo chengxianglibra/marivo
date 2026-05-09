@@ -4,7 +4,7 @@ from collections.abc import Callable
 from importlib import import_module
 from typing import Any
 
-from marivo.storage.analytics import AnalyticsEngine
+from marivo.ports.analytics import AnalyticsEngine
 
 
 class TrinoAnalyticsEngine(AnalyticsEngine):

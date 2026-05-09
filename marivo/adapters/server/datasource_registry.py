@@ -8,6 +8,7 @@ from typing import Any
 from uuid import uuid4
 
 from marivo.adapters.base import MAX_PREVIEW_ROWS, CatalogAdapter, PreviewFilters
+from marivo.adapters.metadata import MetadataStore
 from marivo.adapters.server.registry_common import now_iso
 from marivo.adapters.server.registry_factories import (
     build_catalog_adapter,
@@ -15,8 +16,7 @@ from marivo.adapters.server.registry_factories import (
 )
 from marivo.contracts.ids import UserId
 from marivo.identity import resolve_user
-from marivo.storage.analytics import AnalyticsEngine
-from marivo.storage.metadata import MetadataStore
+from marivo.ports.analytics import AnalyticsEngine
 
 logger = logging.getLogger("marivo.datasource_auth")
 

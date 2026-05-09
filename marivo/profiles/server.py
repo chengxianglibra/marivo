@@ -3,19 +3,19 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from marivo.adapters.local.duckdb_analytics import DuckDBAnalyticsEngine
+from marivo.adapters.local.sqlite_metadata import SQLiteMetadataStore
+from marivo.adapters.metadata import MetadataStore
+from marivo.adapters.server.mysql_metadata import MySQLMetadataStore
 from marivo.adapters.server.semantic_service_adapter import SemanticServiceAdapter
+from marivo.adapters.server.step_metadata_repository import StepMetadataRepository
 from marivo.config import MarivoConfig
 from marivo.datasources import DatasourceService
 from marivo.observability import MetricsCollector, setup_logging
+from marivo.ports.analytics import AnalyticsEngine
 from marivo.routing import QueryRouter
 from marivo.runtime.ports import RuntimePorts
 from marivo.runtime.runtime import MarivoRuntime
-from marivo.storage.analytics import AnalyticsEngine
-from marivo.storage.duckdb_analytics import DuckDBAnalyticsEngine
-from marivo.storage.metadata import MetadataStore
-from marivo.storage.mysql_metadata import MySQLMetadataStore
-from marivo.storage.sqlite_metadata import SQLiteMetadataStore
-from marivo.storage.step_metadata_repository import StepMetadataRepository
 
 
 @dataclass
@@ -163,12 +163,7 @@ def _build_server_ports(
     from marivo.adapters.server.authz import NoopAuthZAdapter
     from marivo.adapters.server.cache_store import InMemoryCacheStore
     from marivo.adapters.server.data_source import RoutingDataSource
-    from marivo.adapters.server.evidence_store import MetadataEvidenceStoreAdapter
-    from marivo.adapters.server.model_store import SqlModelStoreAdapter
-    from marivo.adapters.server.runtime_config import TomlRuntimeConfigAdapter
-    from marivo.adapters.server.session_store import SqlSessionStore
-    from marivo.adapters.server.telemetry import LocalTelemetryAdapter
-    from marivo.storage.evidence_repositories import (
+    from marivo.adapters.server.evidence_repositories import (
         ActionProposalRepository,
         AssessmentRepository,
         EvidenceGapRepository,
@@ -176,6 +171,11 @@ def _build_server_ports(
         InferenceRecordRepository,
         PropositionRepository,
     )
+    from marivo.adapters.server.evidence_store import MetadataEvidenceStoreAdapter
+    from marivo.adapters.server.model_store import SqlModelStoreAdapter
+    from marivo.adapters.server.runtime_config import TomlRuntimeConfigAdapter
+    from marivo.adapters.server.session_store import SqlSessionStore
+    from marivo.adapters.server.telemetry import LocalTelemetryAdapter
 
     finding_repo = FindingRepository(metadata_store)
     proposition_repo = PropositionRepository(metadata_store)
@@ -219,7 +219,7 @@ def _build_server_ports(
 
 
 def _build_evidence_repos(metadata_store: MetadataStore) -> dict[str, object]:
-    from marivo.storage.evidence_repositories import (
+    from marivo.adapters.server.evidence_repositories import (
         ActionProposalRepository,
         AssessmentRepository,
         EvidenceGapRepository,

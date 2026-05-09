@@ -36,10 +36,10 @@ def test_server_composition_has_expected_fields() -> None:
 
 
 def test_create_server_runtime_returns_server_composition(tmp_path) -> None:
+    from marivo.adapters.local.duckdb_analytics import DuckDBAnalyticsEngine
+    from marivo.adapters.local.sqlite_metadata import SQLiteMetadataStore
     from marivo.profiles.server import create_server_runtime
     from marivo.runtime.runtime import MarivoRuntime
-    from marivo.storage.duckdb_analytics import DuckDBAnalyticsEngine
-    from marivo.storage.sqlite_metadata import SQLiteMetadataStore
 
     meta = SQLiteMetadataStore(tmp_path / "meta.sqlite")
     analytics = DuckDBAnalyticsEngine(":memory:")
@@ -59,6 +59,8 @@ def test_create_server_runtime_returns_server_composition(tmp_path) -> None:
 
 
 def test_create_server_runtime_ports_are_wrapper_adapters(tmp_path) -> None:
+    from marivo.adapters.local.duckdb_analytics import DuckDBAnalyticsEngine
+    from marivo.adapters.local.sqlite_metadata import SQLiteMetadataStore
     from marivo.adapters.server.audit_log import FileAuditLogAdapter
     from marivo.adapters.server.authz import NoopAuthZAdapter
     from marivo.adapters.server.cache_store import InMemoryCacheStore
@@ -68,8 +70,6 @@ def test_create_server_runtime_ports_are_wrapper_adapters(tmp_path) -> None:
     from marivo.adapters.server.runtime_config import TomlRuntimeConfigAdapter
     from marivo.adapters.server.session_store import SqlSessionStore
     from marivo.profiles.server import create_server_runtime
-    from marivo.storage.duckdb_analytics import DuckDBAnalyticsEngine
-    from marivo.storage.sqlite_metadata import SQLiteMetadataStore
 
     composition = create_server_runtime(
         ServerConfig(

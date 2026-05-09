@@ -22,6 +22,7 @@ from uuid import uuid4
 import duckdb
 from fastapi.testclient import TestClient
 
+from marivo.adapters.local.sqlite_metadata import SQLiteMetadataStore
 from marivo.api.models import (
     ArtifactRef,
     AttributeRequest,
@@ -32,7 +33,6 @@ from marivo.api.models import (
     ObserveRequest,
 )
 from marivo.main import create_app
-from marivo.storage.sqlite_metadata import SQLiteMetadataStore
 from tests.semantic_test_helpers import seed_duckdb_source_object
 from tests.shared_fixtures import get_seeded_duckdb_path
 

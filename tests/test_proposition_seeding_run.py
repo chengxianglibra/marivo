@@ -16,14 +16,14 @@ import json
 import unittest
 from typing import Any
 
+from marivo.adapters.local.sqlite_metadata import SQLiteMetadataStore
+from marivo.adapters.server.evidence_repositories import FindingRepository, PropositionRepository
 from marivo.evidence_engine.proposition_seeding_run import (
     SEEDING_RUN_SCHEMA_VERSION,
     SeedingRunResult,
     SimpleMaterializationContext,
     run_system_seeded_propositions,
 )
-from marivo.storage.evidence_repositories import FindingRepository, PropositionRepository
-from marivo.storage.sqlite_metadata import SQLiteMetadataStore
 from tests.shared_fixtures import make_temp_metadata_store
 
 # ---------------------------------------------------------------------------

@@ -28,7 +28,7 @@ from __future__ import annotations
 import logging
 from typing import Literal, TypedDict
 
-from marivo.storage.evidence_repositories import (
+from marivo.adapters.server.evidence_repositories import (
     ActionProposalRepository,
     AssessmentRepository,
     EvidenceGapRepository,

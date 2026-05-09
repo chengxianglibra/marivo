@@ -6,9 +6,9 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from marivo.adapters.local.sqlite_metadata import SQLiteMetadataStore
 from marivo.datasources import DatasourceService
 from marivo.main import create_app
-from marivo.storage.sqlite_metadata import SQLiteMetadataStore
 from tests.shared_fixtures import get_seeded_duckdb_path
 
 

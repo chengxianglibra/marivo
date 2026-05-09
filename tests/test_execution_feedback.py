@@ -16,6 +16,7 @@ from marivo.core.semantic.compiler import (
     SemanticRequestCompatibilityError,
 )
 from marivo.core.semantic.ir import AnalysisStepIR
+from marivo.ports.analytics import AnalyticsEngine
 from marivo.routing import RoutingFailure, RoutingResolutionError
 from marivo.runtime.errors import SemanticRuntimeNotReadyError
 from marivo.runtime.execution.federation import FederationPlanner
@@ -24,7 +25,6 @@ from marivo.runtime.semantic.feedback import (
     compile_failure_from_error,
     federation_failure_from_plan,
 )
-from marivo.storage.analytics import AnalyticsEngine
 from tests.shared_fixtures import get_seeded_duckdb_path
 
 

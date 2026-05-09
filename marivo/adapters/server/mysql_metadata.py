@@ -8,14 +8,14 @@ from contextlib import contextmanager, suppress
 from importlib import import_module
 from typing import Any
 
-from marivo.redaction import redact_sensitive_text
-from marivo.storage.dialect import MYSQL_METADATA_DIALECT, MetadataDialect
-from marivo.storage.metadata import MetadataStore
-from marivo.storage.schema import (
+from marivo.adapters.dialect import MYSQL_METADATA_DIALECT, MetadataDialect
+from marivo.adapters.metadata import MetadataStore
+from marivo.adapters.schema import (
     evaluate_metadata_schema_state,
     metadata_ddl_for_backend,
     metadata_schema_marker_row,
 )
+from marivo.redaction import redact_sensitive_text
 
 ConnectionFactory = Callable[..., Any]
 

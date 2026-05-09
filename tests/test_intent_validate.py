@@ -37,9 +37,9 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
+from marivo.adapters.local.duckdb_analytics import DuckDBAnalyticsEngine
+from marivo.adapters.local.sqlite_metadata import SQLiteMetadataStore
 from marivo.main import create_app
-from marivo.storage.duckdb_analytics import DuckDBAnalyticsEngine
-from marivo.storage.sqlite_metadata import SQLiteMetadataStore
 from tests.semantic_test_helpers import (
     build_semantic_layer_service,
     ensure_published_typed_metric,

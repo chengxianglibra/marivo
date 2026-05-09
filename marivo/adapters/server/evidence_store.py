@@ -5,10 +5,7 @@ import json
 import logging
 from typing import Any
 
-from marivo.contracts.errors import ErrorCode, NotFoundError
-from marivo.contracts.evidence import Assessment, Evidence, Finding, Proposition
-from marivo.contracts.ids import EvidenceRef
-from marivo.storage.evidence_repositories import (
+from marivo.adapters.server.evidence_repositories import (
     ActionProposalRepository,
     AssessmentRepository,
     EvidenceGapRepository,
@@ -16,6 +13,9 @@ from marivo.storage.evidence_repositories import (
     InferenceRecordRepository,
     PropositionRepository,
 )
+from marivo.contracts.errors import ErrorCode, NotFoundError
+from marivo.contracts.evidence import Assessment, Evidence, Finding, Proposition
+from marivo.contracts.ids import EvidenceRef
 
 logger = logging.getLogger(__name__)
 

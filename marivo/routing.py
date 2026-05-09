@@ -3,10 +3,10 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from marivo.adapters.metadata import MetadataStore
 from marivo.datasources import DatasourceService
+from marivo.ports.analytics import AnalyticsEngine
 from marivo.source_object_locator import qualify_execution_locator
-from marivo.storage.analytics import AnalyticsEngine
-from marivo.storage.metadata import MetadataStore
 
 
 @dataclass

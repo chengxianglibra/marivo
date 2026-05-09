@@ -10,7 +10,6 @@ source_modules =
     marivo.contracts
 forbidden_modules =
     marivo.api
-    marivo.storage
     marivo.evidence_engine
     marivo.adapters
     marivo.cli
@@ -22,7 +21,6 @@ source_modules =
     marivo.ports
 forbidden_modules =
     marivo.api
-    marivo.storage
     marivo.evidence_engine
     marivo.adapters
     marivo.cli
@@ -48,7 +46,6 @@ source_modules =
     marivo.core
 forbidden_modules =
     marivo.api
-    marivo.storage
     marivo.evidence_engine
     marivo.adapters
     marivo.cli

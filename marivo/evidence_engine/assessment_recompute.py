@@ -37,13 +37,13 @@ import json
 from datetime import UTC, datetime
 from typing import Any, TypedDict
 
-from marivo.evidence_engine.assessment_evaluation_context import AssessmentEvaluationContext
-from marivo.storage.evidence_repositories import (
+from marivo.adapters.server.evidence_repositories import (
     AssessmentRepository,
     EvidenceGapRepository,
     FindingRepository,
     InferenceRecordRepository,
 )
+from marivo.evidence_engine.assessment_evaluation_context import AssessmentEvaluationContext
 
 _CALENDAR_ALIGNMENT_REQUIRED_STRING_FIELDS: tuple[str, ...] = (
     "policy_ref",

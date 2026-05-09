@@ -27,7 +27,7 @@ import json
 from datetime import UTC, datetime
 from typing import Any
 
-from marivo.storage.metadata import MetadataStore
+from marivo.adapters.metadata import MetadataStore
 
 # ---------------------------------------------------------------------------
 # Internal helpers

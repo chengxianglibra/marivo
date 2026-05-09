@@ -22,11 +22,11 @@ def routing_ds():
     Skips DuckDBAnalyticsEngine.initialize() (which seeds ~35s of demo data)
     because routing tests only run trivial SQL like ``SELECT 42``.
     """
+    from marivo.adapters.local.duckdb_analytics import DuckDBAnalyticsEngine
+    from marivo.adapters.local.sqlite_metadata import SQLiteMetadataStore
     from marivo.adapters.server.data_source import RoutingDataSource
     from marivo.datasources import DatasourceService
     from marivo.routing import QueryRouter
-    from marivo.storage.duckdb_analytics import DuckDBAnalyticsEngine
-    from marivo.storage.sqlite_metadata import SQLiteMetadataStore
 
     engine = DuckDBAnalyticsEngine(":memory:")
     # No initialize() — routing tests only need query_rows() for trivial SQL.

@@ -34,6 +34,8 @@ import contextlib
 import unittest
 from typing import Any
 
+# Registry import first — bootstraps all real extractors.
+from marivo.adapters.local.sqlite_metadata import SQLiteMetadataStore
 from marivo.evidence_engine.canonical_finding import StepRef
 from marivo.evidence_engine.family_contract import FamilyEmptyError
 from marivo.evidence_engine.finding_extractor_registry import (
@@ -41,9 +43,6 @@ from marivo.evidence_engine.finding_extractor_registry import (
     default_finding_registry,
     validate_for_commit,
 )
-
-# Registry import first — bootstraps all real extractors.
-from marivo.storage.sqlite_metadata import SQLiteMetadataStore
 from tests.shared_fixtures import make_temp_metadata_store
 
 # ---------------------------------------------------------------------------

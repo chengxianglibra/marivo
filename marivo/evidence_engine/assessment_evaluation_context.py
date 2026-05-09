@@ -46,7 +46,7 @@ from __future__ import annotations
 
 from typing import Any, TypedDict
 
-from marivo.storage.evidence_repositories import (
+from marivo.adapters.server.evidence_repositories import (
     AssessmentRepository,
     EvidenceGapRepository,
     FindingRepository,

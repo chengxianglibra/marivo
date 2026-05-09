@@ -5,7 +5,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
 
-from marivo.storage.dialect import MetadataDialect
+from marivo.adapters.dialect import MetadataDialect
 
 
 class MetadataStore(ABC):

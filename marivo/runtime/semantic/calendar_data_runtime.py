@@ -6,9 +6,9 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any, Protocol, runtime_checkable
 
+from marivo.adapters.metadata import MetadataStore
 from marivo.config import CalendarConfig
 from marivo.core.semantic.calendar import CalendarAnnotationRow
-from marivo.storage.metadata import MetadataStore
 
 _RESOLVED_CALENDAR_SOURCE = "calendar"
 
