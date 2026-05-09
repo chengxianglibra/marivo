@@ -3,10 +3,10 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from marivo.adapters.server.datasource_registry import DatasourceRegistry
 from marivo.contracts.errors import DomainError, ErrorCode, NotFoundError, ValidationError
 from marivo.contracts.ids import DatasourceId
 from marivo.contracts.values import ColumnInfo, LogicalQuery, QueryResult, SourceRef, SourceSchema
-from marivo.registry.datasource_registry import DatasourceRegistry
 from marivo.routing import QueryRouter
 from marivo.storage.analytics import AnalyticsEngine
 

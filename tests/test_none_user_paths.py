@@ -59,7 +59,7 @@ def test_create_session_defaults_to_local_actor(tmp_path: Path) -> None:
 
 
 def test_register_datasource_defaults_to_local(tmp_path: Path) -> None:
-    from marivo.registry.datasource_registry import DatasourceRegistry
+    from marivo.adapters.server.datasource_registry import DatasourceRegistry
     from marivo.storage.sqlite_metadata import SQLiteMetadataStore
 
     db_path = tmp_path / "metadata.db"

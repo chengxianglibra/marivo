@@ -15,7 +15,6 @@ forbidden_modules =
     marivo.evidence_engine
     marivo.semantic_service_v2
     marivo.execution
-    marivo.registry
     marivo.adapters
     marivo.cli
 
@@ -31,7 +30,6 @@ forbidden_modules =
     marivo.evidence_engine
     marivo.semantic_service_v2
     marivo.execution
-    marivo.registry
     marivo.adapters
     marivo.cli
 
@@ -66,7 +64,6 @@ forbidden_modules =
     marivo.evidence_engine
     marivo.semantic_service_v2
     marivo.execution
-    marivo.registry
     marivo.adapters
     marivo.cli
     marivo.ports

@@ -101,7 +101,7 @@ class DuckDBCatalogAdapterTests(unittest.TestCase):
 
     def test_source_type_registered_in_factory(self) -> None:
         """Verify 'duckdb' source type is handled by the adapter factory."""
-        from marivo.registry.factories import build_catalog_adapter
+        from marivo.adapters.server.registry_factories import build_catalog_adapter
 
         adapter = build_catalog_adapter("duckdb", {"path": str(self.db_path)})
         self.assertIsInstance(adapter, DuckDBCatalogAdapter)
@@ -616,8 +616,8 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
 
     def test_source_type_registered_in_factory(self) -> None:
         """Verify 'trino' source type is handled by the adapter factory."""
+        from marivo.adapters.server.registry_factories import build_catalog_adapter
         from marivo.adapters.trino_adapter import TrinoCatalogAdapter
-        from marivo.registry.factories import build_catalog_adapter
 
         adapter = build_catalog_adapter(
             "trino",

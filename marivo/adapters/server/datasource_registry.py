@@ -8,10 +8,13 @@ from typing import Any
 from uuid import uuid4
 
 from marivo.adapters.base import MAX_PREVIEW_ROWS, CatalogAdapter, PreviewFilters
+from marivo.adapters.server.registry_common import now_iso
+from marivo.adapters.server.registry_factories import (
+    build_catalog_adapter,
+    validate_datasource_type,
+)
 from marivo.contracts.ids import UserId
 from marivo.identity import resolve_user
-from marivo.registry.common import now_iso
-from marivo.registry.factories import build_catalog_adapter, validate_datasource_type
 from marivo.storage.analytics import AnalyticsEngine
 from marivo.storage.metadata import MetadataStore
 
@@ -370,7 +373,9 @@ class DatasourceRegistry:
         *,
         session_id: str | None = None,
     ) -> AnalyticsEngine:
-        from marivo.registry.factories import build_analytics_engine as _build_analytics_engine
+        from marivo.adapters.server.registry_factories import (
+            build_analytics_engine as _build_analytics_engine,
+        )
 
         datasource = self.get_datasource(datasource_id)
         resolution = self._resolve_runtime_connection(datasource, session_id=session_id)
