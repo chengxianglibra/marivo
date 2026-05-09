@@ -12,6 +12,7 @@ from typing import Any, TypeVar, cast
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
+from marivo.adapters.server.semantic_service_adapter import SemanticServiceAdapter
 from marivo.api.models.json_contract import ScalarMap
 from marivo.api.models.osi import (
     OSI_SPEC_VERSION,
@@ -22,8 +23,6 @@ from marivo.api.models.osi import (
     SemanticModel,
 )
 from marivo.identity import resolve_user
-from marivo.semantic_service_v2.service import SemanticModelV2Service
-from marivo.semantic_service_v2.validation import SemanticValidationError
 
 router = APIRouter(prefix="/semantic-models", tags=["semantic-models"])
 
@@ -57,8 +56,8 @@ class DatasetUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-def _get_service(request: Request) -> SemanticModelV2Service:
-    return cast("SemanticModelV2Service", request.app.state.semantic_v2_service)
+def _get_service(request: Request) -> SemanticServiceAdapter:
+    return cast("SemanticServiceAdapter", request.app.state.semantic_v2_service)
 
 
 def _dump_model(model: BaseModel) -> dict[str, Any]:
@@ -81,8 +80,6 @@ def _run(fn: Callable[[], _T]) -> _T:  # noqa: UP047
         return fn()
     except HTTPException:
         raise
-    except SemanticValidationError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 

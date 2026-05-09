@@ -13,7 +13,6 @@ forbidden_modules =
     marivo.storage
     marivo.analysis_core
     marivo.evidence_engine
-    marivo.semantic_service_v2
     marivo.execution
     marivo.adapters
     marivo.cli
@@ -28,7 +27,6 @@ forbidden_modules =
     marivo.storage
     marivo.analysis_core
     marivo.evidence_engine
-    marivo.semantic_service_v2
     marivo.execution
     marivo.adapters
     marivo.cli
@@ -62,7 +60,6 @@ forbidden_modules =
     marivo.storage
     marivo.analysis_core
     marivo.evidence_engine
-    marivo.semantic_service_v2
     marivo.execution
     marivo.adapters
     marivo.cli

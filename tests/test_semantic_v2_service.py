@@ -8,8 +8,14 @@ import unittest
 from pathlib import Path
 
 from marivo.api.models.osi import OSI_SPEC_VERSION
-from marivo.semantic_service_v2.service import SemanticModelV2Service
-from marivo.semantic_service_v2.validation import SemanticValidationError
+from marivo.contracts.errors import (
+    ConflictError,
+    DomainError,
+    ForbiddenError,
+    NotFoundError,
+    ValidationError,
+)
+from marivo.runtime.semantic.semantic_service import SemanticModelV2Service
 from tests.shared_fixtures import (
     ManagedSQLiteMetadataStore,
     make_temp_metadata_store,
@@ -200,13 +206,11 @@ def _make_dataset_dict(
 
 class TestCreateSemanticModel(unittest.TestCase):
     def test_create_public_model_returns_403(self) -> None:
-        from fastapi import HTTPException
 
         svc = _make_svc()
         model_data = _make_model_dict()
-        with self.assertRaises(HTTPException) as ctx:
+        with self.assertRaises(ForbiddenError):
             svc.create_semantic_model(model_data)
-        self.assertEqual(ctx.exception.status_code, 403)
 
     def test_create_private_model(self) -> None:
         svc = _make_svc()
@@ -225,9 +229,9 @@ class TestCreateSemanticModel(unittest.TestCase):
     def test_create_private_without_owner_fails(self) -> None:
         svc = _make_svc()
         model_data = _make_model_dict(visibility="private")
-        with self.assertRaises(SemanticValidationError) as ctx:
+        with self.assertRaises(ValidationError) as ctx:
             svc.create_semantic_model(model_data)
-        self.assertTrue(any("owner_user" in e["message"] for e in ctx.exception.errors))
+        self.assertIn("owner_user", ctx.exception.message)
 
     def test_create_model_with_datasets_and_fields(self) -> None:
         svc = _make_svc()
@@ -280,12 +284,10 @@ class TestGetSemanticModel(unittest.TestCase):
         self.assertEqual(result["name"], "test_model")
 
     def test_get_nonexistent_model(self) -> None:
-        from fastapi import HTTPException
 
         svc = _make_svc()
-        with self.assertRaises(HTTPException) as ctx:
+        with self.assertRaises(NotFoundError):
             svc.get_semantic_model("nonexistent")
-        self.assertEqual(ctx.exception.status_code, 404)
 
     def test_get_private_model_by_owner(self) -> None:
         svc = _make_svc()
@@ -296,26 +298,22 @@ class TestGetSemanticModel(unittest.TestCase):
         self.assertEqual(result["name"], "private_model")
 
     def test_get_private_model_by_non_owner(self) -> None:
-        from fastapi import HTTPException
 
         svc = _make_svc()
         svc.create_semantic_model(
             _make_model_dict(name="private_model", visibility="private", owner_user="alice")
         )
-        with self.assertRaises(HTTPException) as ctx:
+        with self.assertRaises(NotFoundError):
             svc.get_semantic_model("private_model", requesting_user="bob")
-        self.assertEqual(ctx.exception.status_code, 404)
 
     def test_get_private_model_without_user(self) -> None:
-        from fastapi import HTTPException
 
         svc = _make_svc()
         svc.create_semantic_model(
             _make_model_dict(name="private_model", visibility="private", owner_user="alice")
         )
-        with self.assertRaises(HTTPException) as ctx:
+        with self.assertRaises(NotFoundError):
             svc.get_semantic_model("private_model")
-        self.assertEqual(ctx.exception.status_code, 404)
 
 
 class TestListSemanticModels(unittest.TestCase):
@@ -457,15 +455,12 @@ class TestUpdateSemanticModel(unittest.TestCase):
         self.assertEqual(result["description"], "Updated")
 
     def test_update_nonexistent_model(self) -> None:
-        from fastapi import HTTPException
 
         svc = _make_svc()
-        with self.assertRaises(HTTPException) as ctx:
+        with self.assertRaises(NotFoundError):
             svc.update_semantic_model("nonexistent", {"description": "x"})
-        self.assertEqual(ctx.exception.status_code, 404)
 
     def test_update_official_model_returns_403(self) -> None:
-        from fastapi import HTTPException
 
         svc = _make_svc()
         # Create official model via import
@@ -501,32 +496,26 @@ class TestUpdateSemanticModel(unittest.TestCase):
             ],
         }
         svc.import_osi_document(doc)
-        with self.assertRaises(HTTPException) as ctx:
+        with self.assertRaises(ForbiddenError):
             svc.update_semantic_model("official_model", {"description": "new"})
-        self.assertEqual(ctx.exception.status_code, 403)
 
 
 class TestDeleteSemanticModel(unittest.TestCase):
     def test_delete_model(self) -> None:
-        from fastapi import HTTPException
 
         svc = _make_svc()
         svc.create_semantic_model(_make_model_dict(visibility="private", owner_user="alice"))
         svc.delete_semantic_model("test_model", owner_user="alice")
-        with self.assertRaises(HTTPException) as ctx:
+        with self.assertRaises(NotFoundError):
             svc.get_semantic_model("test_model", requesting_user="alice")
-        self.assertEqual(ctx.exception.status_code, 404)
 
     def test_delete_nonexistent_model(self) -> None:
-        from fastapi import HTTPException
 
         svc = _make_svc()
-        with self.assertRaises(HTTPException) as ctx:
+        with self.assertRaises(NotFoundError):
             svc.delete_semantic_model("nonexistent")
-        self.assertEqual(ctx.exception.status_code, 404)
 
     def test_delete_official_model_returns_403(self) -> None:
-        from fastapi import HTTPException
 
         svc = _make_svc()
         # Create official model via import
@@ -562,9 +551,8 @@ class TestDeleteSemanticModel(unittest.TestCase):
             ],
         }
         svc.import_osi_document(doc)
-        with self.assertRaises(HTTPException) as ctx:
+        with self.assertRaises(ForbiddenError):
             svc.delete_semantic_model("official_model")
-        self.assertEqual(ctx.exception.status_code, 403)
 
     def test_delete_cascades_datasets(self) -> None:
         store = _make_store()
@@ -596,13 +584,11 @@ class TestDatasetCRUD(unittest.TestCase):
         self.assertEqual(result["name"], "orders")
 
     def test_get_nonexistent_dataset(self) -> None:
-        from fastapi import HTTPException
 
         svc = _make_svc()
         svc.create_semantic_model(_make_model_dict(visibility="private", owner_user="alice"))
-        with self.assertRaises(HTTPException) as ctx:
+        with self.assertRaises(NotFoundError):
             svc.get_dataset("test_model", "nonexistent", requesting_user="alice")
-        self.assertEqual(ctx.exception.status_code, 404)
 
     def test_list_datasets(self) -> None:
         svc = _make_svc()
@@ -622,14 +608,12 @@ class TestDatasetCRUD(unittest.TestCase):
         self.assertEqual(result["description"], "Updated orders")
 
     def test_delete_dataset(self) -> None:
-        from fastapi import HTTPException
 
         svc = _make_svc()
         svc.create_semantic_model(_make_model_dict(visibility="private", owner_user="alice"))
         svc.delete_dataset("test_model", "orders", owner_user="alice")
-        with self.assertRaises(HTTPException) as ctx:
+        with self.assertRaises(NotFoundError):
             svc.get_dataset("test_model", "orders", requesting_user="alice")
-        self.assertEqual(ctx.exception.status_code, 404)
 
     def test_dataset_field_data_type_preserved(self) -> None:
         svc = _make_svc()
@@ -644,15 +628,13 @@ class TestDatasetCRUD(unittest.TestCase):
         self.assertEqual(marivo_ext["data_type"], "datetime")
 
     def test_create_duplicate_dataset_returns_409(self) -> None:
-        from fastapi import HTTPException
 
         svc = _make_svc()
         svc.create_semantic_model(_make_model_dict(visibility="private", owner_user="alice"))
         # "orders" already exists in the model
         ds_data = _make_dataset_dict(name="orders", source="analytics.orders_v2")
-        with self.assertRaises(HTTPException) as ctx:
+        with self.assertRaises(ConflictError):
             svc.create_dataset("test_model", ds_data, owner_user="alice")
-        self.assertEqual(ctx.exception.status_code, 409)
 
 
 # ---------------------------------------------------------------------------
@@ -673,27 +655,21 @@ class TestRelationshipCRUD(unittest.TestCase):
         self.assertEqual(result["to"], "customers")
 
     def test_create_relationship_invalid_from(self) -> None:
-        from fastapi import HTTPException
 
         svc = _make_svc()
         svc.create_semantic_model(_make_model_dict(visibility="private", owner_user="alice"))
         rel_data = _make_relationship_dict(from_ds="nonexistent")
-        with self.assertRaises(HTTPException) as ctx:
+        with self.assertRaises(NotFoundError):
             svc.create_relationship("test_model", rel_data, owner_user="alice")
-        self.assertEqual(ctx.exception.status_code, 400)
 
     def test_create_relationship_invalid_to(self) -> None:
-        from fastapi import HTTPException
-
         svc = _make_svc()
         svc.create_semantic_model(_make_model_dict(visibility="private", owner_user="alice"))
         rel_data = _make_relationship_dict(to_ds="nonexistent")
-        with self.assertRaises(HTTPException) as ctx:
+        with self.assertRaises(NotFoundError):
             svc.create_relationship("test_model", rel_data, owner_user="alice")
-        self.assertEqual(ctx.exception.status_code, 400)
 
     def test_create_relationship_mismatched_column_lengths(self) -> None:
-        from fastapi import HTTPException
 
         svc = _make_svc()
         model_data = _make_model_dict(visibility="private", owner_user="alice")
@@ -702,9 +678,8 @@ class TestRelationshipCRUD(unittest.TestCase):
         rel_data = _make_relationship_dict()
         rel_data["from_columns"] = ["customer_id", "region_id"]
         rel_data["to_columns"] = ["customer_id"]
-        with self.assertRaises(HTTPException) as ctx:
+        with self.assertRaises(ValueError):
             svc.create_relationship("test_model", rel_data, owner_user="alice")
-        self.assertEqual(ctx.exception.status_code, 400)
 
     def test_get_relationship(self) -> None:
         svc = _make_svc()
@@ -741,7 +716,6 @@ class TestRelationshipCRUD(unittest.TestCase):
         self.assertEqual(marivo_ext["cardinality"], "many_to_one")
 
     def test_delete_relationship(self) -> None:
-        from fastapi import HTTPException
 
         svc = _make_svc()
         model_data = _make_model_dict(visibility="private", owner_user="alice")
@@ -749,9 +723,8 @@ class TestRelationshipCRUD(unittest.TestCase):
         model_data["relationships"] = [_make_relationship_dict()]
         svc.create_semantic_model(model_data)
         svc.delete_relationship("test_model", "orders_to_customers", owner_user="alice")
-        with self.assertRaises(HTTPException) as ctx:
+        with self.assertRaises(NotFoundError):
             svc.get_relationship("test_model", "orders_to_customers", requesting_user="alice")
-        self.assertEqual(ctx.exception.status_code, 404)
 
 
 # ---------------------------------------------------------------------------
@@ -768,12 +741,10 @@ class TestMetricCRUD(unittest.TestCase):
         self.assertEqual(result["name"], "total_revenue")
 
     def test_create_metric_invalid_observed_dataset(self) -> None:
-        from marivo.semantic_service_v2.validation import SemanticValidationError
-
         svc = _make_svc()
         svc.create_semantic_model(_make_model_dict(visibility="private", owner_user="alice"))
         metric_data = _make_metric_dict(observed_dataset="nonexistent")
-        with self.assertRaises(SemanticValidationError):
+        with self.assertRaises(ValidationError):
             svc.create_metric("test_model", metric_data, owner_user="alice")
 
     def test_get_metric(self) -> None:
@@ -808,15 +779,13 @@ class TestMetricCRUD(unittest.TestCase):
         self.assertEqual(result["description"], "Total revenue metric")
 
     def test_delete_metric(self) -> None:
-        from fastapi import HTTPException
 
         svc = _make_svc()
         svc.create_semantic_model(_make_model_dict(visibility="private", owner_user="alice"))
         svc.create_metric("test_model", _make_metric_dict(), owner_user="alice")
         svc.delete_metric("test_model", "total_revenue", owner_user="alice")
-        with self.assertRaises(HTTPException) as ctx:
+        with self.assertRaises(NotFoundError):
             svc.get_metric("test_model", "total_revenue", requesting_user="alice")
-        self.assertEqual(ctx.exception.status_code, 404)
 
 
 # ---------------------------------------------------------------------------
@@ -826,7 +795,6 @@ class TestMetricCRUD(unittest.TestCase):
 
 class TestValidation(unittest.TestCase):
     def test_invalid_visibility(self) -> None:
-        from fastapi import HTTPException
 
         svc = _make_svc()
         model_data = _make_model_dict()
@@ -834,9 +802,8 @@ class TestValidation(unittest.TestCase):
             if ext["vendor_name"] == "MARIVO":
                 ext["data"] = json.dumps({"visibility": "secret"})
         # Non-private visibility is blocked by CRUD guard before validation
-        with self.assertRaises(HTTPException) as ctx:
+        with self.assertRaises(ForbiddenError):
             svc.create_semantic_model(model_data)
-        self.assertEqual(ctx.exception.status_code, 403)
 
     def test_private_without_owner(self) -> None:
         svc = _make_svc()
@@ -844,25 +811,25 @@ class TestValidation(unittest.TestCase):
         for ext in model_data["custom_extensions"]:
             if ext["vendor_name"] == "MARIVO":
                 ext["data"] = json.dumps({"visibility": "private"})
-        with self.assertRaises(SemanticValidationError) as ctx:
+        with self.assertRaises(ValidationError) as ctx:
             svc.create_semantic_model(model_data)
-        self.assertTrue(any("owner_user" in e["path"] for e in ctx.exception.errors))
+        self.assertIn("owner_user", ctx.exception.message)
 
     def test_relationship_references_unknown_dataset(self) -> None:
         svc = _make_svc()
         model_data = _make_model_dict(visibility="private", owner_user="alice")
         model_data["relationships"] = [_make_relationship_dict(from_ds="nonexistent")]
-        with self.assertRaises(SemanticValidationError) as ctx:
+        with self.assertRaises(ValidationError) as ctx:
             svc.create_semantic_model(model_data)
-        self.assertTrue(any("nonexistent" in e["message"] for e in ctx.exception.errors))
+        self.assertIn("nonexistent", ctx.exception.message)
 
     def test_metric_references_unknown_dataset(self) -> None:
         svc = _make_svc()
         model_data = _make_model_dict(visibility="private", owner_user="alice")
         model_data["metrics"] = [_make_metric_dict(observed_dataset="nonexistent")]
-        with self.assertRaises(SemanticValidationError) as ctx:
+        with self.assertRaises(ValidationError) as ctx:
             svc.create_semantic_model(model_data)
-        self.assertTrue(any("nonexistent" in e["message"] for e in ctx.exception.errors))
+        self.assertIn("nonexistent", ctx.exception.message)
 
     def test_metric_observation_grain_unknown_field(self) -> None:
         svc = _make_svc()
@@ -874,9 +841,9 @@ class TestValidation(unittest.TestCase):
                 data["observation_grain"] = ["nonexistent_field"]
                 ext["data"] = json.dumps(data)
         model_data["metrics"] = [metric]
-        with self.assertRaises(SemanticValidationError) as ctx:
+        with self.assertRaises(ValidationError) as ctx:
             svc.create_semantic_model(model_data)
-        self.assertTrue(any("nonexistent_field" in e["message"] for e in ctx.exception.errors))
+        self.assertIn("nonexistent_field", ctx.exception.message)
 
     def test_metric_primary_time_field_not_time(self) -> None:
         svc = _make_svc()
@@ -888,9 +855,9 @@ class TestValidation(unittest.TestCase):
                 data["primary_time_field"] = "amount"  # not a time field
                 ext["data"] = json.dumps(data)
         model_data["metrics"] = [metric]
-        with self.assertRaises(SemanticValidationError) as ctx:
+        with self.assertRaises(ValidationError) as ctx:
             svc.create_semantic_model(model_data)
-        self.assertTrue(any("not a time field" in e["message"] for e in ctx.exception.errors))
+        self.assertIn("not a time field", ctx.exception.message)
 
     def test_metric_primary_time_field_valid(self) -> None:
         svc = _make_svc()
@@ -919,9 +886,9 @@ class TestValidation(unittest.TestCase):
                 }
                 ext["data"] = json.dumps(data)
         model_data["metrics"] = [metric]
-        with self.assertRaises(SemanticValidationError) as ctx:
+        with self.assertRaises(ValidationError) as ctx:
             svc.create_semantic_model(model_data)
-        self.assertTrue(any("nonexistent_dim" in e["message"] for e in ctx.exception.errors))
+        self.assertIn("nonexistent_dim", ctx.exception.message)
 
 
 # ---------------------------------------------------------------------------
@@ -939,26 +906,22 @@ class TestVisibilityFiltering(unittest.TestCase):
         self.assertEqual(result["name"], "private_model")
 
     def test_other_user_cannot_see_private_model(self) -> None:
-        from fastapi import HTTPException
 
         svc = _make_svc()
         svc.create_semantic_model(
             _make_model_dict(name="private_model", visibility="private", owner_user="alice")
         )
-        with self.assertRaises(HTTPException) as ctx:
+        with self.assertRaises(NotFoundError):
             svc.get_semantic_model("private_model", requesting_user="bob")
-        self.assertEqual(ctx.exception.status_code, 404)
 
     def test_anonymous_cannot_see_private_model(self) -> None:
-        from fastapi import HTTPException
 
         svc = _make_svc()
         svc.create_semantic_model(
             _make_model_dict(name="private_model", visibility="private", owner_user="alice")
         )
-        with self.assertRaises(HTTPException) as ctx:
+        with self.assertRaises(NotFoundError):
             svc.get_semantic_model("private_model")
-        self.assertEqual(ctx.exception.status_code, 404)
 
     def test_list_returns_public_and_owned_private(self) -> None:
         svc = _make_svc()
@@ -1090,7 +1053,6 @@ class TestImportOSIDocument(unittest.TestCase):
         self.assertEqual(results[0]["name"], "imported_model")
 
     def test_import_rejects_private_model(self) -> None:
-        from fastapi import HTTPException
 
         svc = _make_svc()
         doc = {
@@ -1132,9 +1094,8 @@ class TestImportOSIDocument(unittest.TestCase):
                 }
             ],
         }
-        with self.assertRaises(HTTPException) as ctx:
+        with self.assertRaises(DomainError):
             svc.import_osi_document(doc)
-        self.assertEqual(ctx.exception.status_code, 400)
 
     def test_import_increments_revision_on_reimport(self) -> None:
         store = _make_store()
@@ -1454,14 +1415,12 @@ class TestSameNameShadowing(unittest.TestCase):
                 self.assertEqual(data["visibility"], "public")
 
     def test_readiness_respects_visibility(self) -> None:
-        from fastapi import HTTPException
 
         svc = _make_svc()
         svc.create_semantic_model(_make_model_dict(visibility="private", owner_user="alice"))
         # Non-owner should get 404
-        with self.assertRaises(HTTPException) as ctx:
+        with self.assertRaises(NotFoundError):
             svc.get_readiness("test_model", requesting_user="bob")
-        self.assertEqual(ctx.exception.status_code, 404)
         # Owner should succeed
         result = svc.get_readiness("test_model", requesting_user="alice")
         self.assertEqual(result["status"], "ready")
@@ -1488,7 +1447,6 @@ class TestSameNameShadowing(unittest.TestCase):
                 self.assertEqual(data["owner_user"], "bob")
 
     def test_update_private_model_without_owner_returns_403(self) -> None:
-        from fastapi import HTTPException
 
         svc = _make_svc()
         self._make_public_model(svc, "commerce")
@@ -1496,9 +1454,8 @@ class TestSameNameShadowing(unittest.TestCase):
             _make_model_dict(name="commerce", visibility="private", owner_user="alice")
         )
         # Without owner_user, should find the public model and return 403
-        with self.assertRaises(HTTPException) as ctx:
+        with self.assertRaises(ForbiddenError):
             svc.update_semantic_model("commerce", {"description": "new"})
-        self.assertEqual(ctx.exception.status_code, 403)
 
 
 # ---------------------------------------------------------------------------
@@ -1517,12 +1474,10 @@ class TestReadiness(unittest.TestCase):
         self.assertEqual(result["evaluated_semantic_version_id"], None)
 
     def test_get_readiness_nonexistent_model(self) -> None:
-        from fastapi import HTTPException
 
         svc = _make_svc()
-        with self.assertRaises(HTTPException) as ctx:
+        with self.assertRaises(NotFoundError):
             svc.get_readiness("nonexistent")
-        self.assertEqual(ctx.exception.status_code, 404)
 
 
 # ---------------------------------------------------------------------------

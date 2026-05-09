@@ -9,6 +9,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from pydantic import BaseModel
+
 from marivo.api.models.marivo_extensions import (
     MarivoDatasetExtension,
     MarivoFieldExtension,
@@ -23,10 +25,29 @@ from marivo.api.models.osi import (
     Relationship,
     SemanticModel,
 )
-from marivo.semantic_service_v2.extensions import (
-    build_custom_extensions,
+from marivo.core.semantic.extensions import (
+    OsiCustomExtensionLike,
     extract_marivo_extension,
 )
+
+
+def build_custom_extensions(
+    marivo_ext: BaseModel | None = None,
+    *others: OsiCustomExtensionLike,
+) -> list[OsiCustomExtensionLike]:
+    """Build a custom_extensions list from a MARIVO extension model and optional other extensions."""
+    from marivo.api.models.osi import CustomExtension
+
+    result: list[OsiCustomExtensionLike] = []
+    if marivo_ext is not None:
+        result.append(
+            CustomExtension(
+                vendor_name="MARIVO",
+                data=marivo_ext.model_dump_json(exclude_none=True),
+            )
+        )
+    result.extend(others)
+    return result
 
 
 def _ext_to_dicts(extensions: list[Any]) -> list[dict[str, Any]]:

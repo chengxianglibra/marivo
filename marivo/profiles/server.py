@@ -3,13 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from marivo.adapters.server.semantic_service_adapter import SemanticServiceAdapter
 from marivo.config import MarivoConfig
 from marivo.datasources import DatasourceService
 from marivo.observability import MetricsCollector, setup_logging
 from marivo.routing import QueryRouter
 from marivo.runtime.ports import RuntimePorts
 from marivo.runtime.runtime import MarivoRuntime
-from marivo.semantic_service_v2.service import SemanticModelV2Service
 from marivo.storage.analytics import AnalyticsEngine
 from marivo.storage.duckdb_analytics import DuckDBAnalyticsEngine
 from marivo.storage.metadata import MetadataStore
@@ -116,11 +116,8 @@ def create_server_runtime(config: ServerConfig) -> ServerComposition:
     # connection pools against the same database.
     datasource_service = DatasourceService(metadata_store)
     query_router = QueryRouter(metadata_store, datasource_service)
-    # SemanticModelV2Service is typed for SQLiteMetadataStore, but the server
-    # profile always resolves to a SQLite-compatible store (either provided
-    # directly or created by _resolve_storage).
-    semantic_v2 = SemanticModelV2Service(
-        metadata_store,  # type: ignore[arg-type]
+    semantic_v2 = SemanticServiceAdapter(
+        metadata_store,
         datasource_service=datasource_service,
     )
 
@@ -155,7 +152,7 @@ def _build_server_ports(
     analytics_engine: AnalyticsEngine,
     datasource_service: DatasourceService,
     query_router: QueryRouter,
-    semantic_v2_service: SemanticModelV2Service,
+    semantic_v2_service: SemanticServiceAdapter,
     marivo_config: MarivoConfig,
 ) -> RuntimePorts:
     from marivo.adapters.server.artifact_store import (

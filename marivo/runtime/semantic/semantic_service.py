@@ -8,8 +8,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import HTTPException
-
 from marivo.api.models.marivo_extensions import (
     MarivoSemanticModelExtension,
 )
@@ -20,8 +18,21 @@ from marivo.api.models.osi import (
     Relationship,
     SemanticModel,
 )
-from marivo.semantic_service_v2.extensions import extract_marivo_extension
-from marivo.semantic_service_v2.storage import (
+from marivo.contracts.errors import (
+    ConflictError,
+    ErrorCode,
+    ForbiddenError,
+    NotFoundError,
+)
+from marivo.contracts.errors import (
+    ValidationError as DomainValidationError,
+)
+from marivo.core.semantic.extensions import extract_marivo_extension
+from marivo.core.semantic.semantic_validation import (
+    SemanticValidationError,
+    validate_semantic_model,
+)
+from marivo.runtime.semantic.osi_storage import (
     _storage_to_dataset,
     _storage_to_metric,
     _storage_to_relationship,
@@ -32,16 +43,13 @@ from marivo.semantic_service_v2.storage import (
     relationship_to_storage,
     storage_to_model,
 )
-from marivo.semantic_service_v2.validation import (
-    validate_semantic_model,
-)
-from marivo.storage.sqlite_metadata import SQLiteMetadataStore
+from marivo.storage.metadata import MetadataStore
 
 
 class SemanticModelV2Service:
     """CRUD service for OSI-aligned semantic models."""
 
-    def __init__(self, store: SQLiteMetadataStore, datasource_service: Any = None) -> None:
+    def __init__(self, store: MetadataStore, datasource_service: Any = None) -> None:
         self.store = store
         self.datasource_service = datasource_service
 
@@ -73,7 +81,10 @@ class SemanticModelV2Service:
     def _require_model_row(self, name: str, requesting_user: str | None = None) -> dict[str, Any]:
         row = self._get_model_row_by_name(name, requesting_user=requesting_user)
         if row is None:
-            raise HTTPException(status_code=404, detail=f"Semantic model '{name}' not found")
+            raise NotFoundError(
+                ErrorCode.MODEL_NOT_FOUND,
+                f"Semantic model '{name}' not found",
+            )
         return row
 
     def _require_private_model(self, name: str, owner_user: str | None = None) -> dict[str, Any]:
@@ -91,11 +102,14 @@ class SemanticModelV2Service:
             [name],
         )
         if public_row is not None:
-            raise HTTPException(
-                status_code=403,
-                detail=f"Cannot modify official semantic model '{name}' via CRUD; use /semantic-models/import",
+            raise ForbiddenError(
+                ErrorCode.FORBIDDEN,
+                f"Cannot modify official semantic model '{name}' via CRUD; use /semantic-models/import",
             )
-        raise HTTPException(status_code=404, detail=f"Semantic model '{name}' not found")
+        raise NotFoundError(
+            ErrorCode.MODEL_NOT_FOUND,
+            f"Semantic model '{name}' not found",
+        )
 
     def _require_visible_model(
         self, name: str, requesting_user: str | None = None
@@ -107,11 +121,17 @@ class SemanticModelV2Service:
         """
         row = self._get_model_row_by_name(name, requesting_user=requesting_user)
         if row is None:
-            raise HTTPException(status_code=404, detail=f"Semantic model '{name}' not found")
+            raise NotFoundError(
+                ErrorCode.MODEL_NOT_FOUND,
+                f"Semantic model '{name}' not found",
+            )
         if row["visibility"] == "private" and (
             requesting_user is None or requesting_user != row["owner_user"]
         ):
-            raise HTTPException(status_code=404, detail=f"Semantic model '{name}' not found")
+            raise NotFoundError(
+                ErrorCode.MODEL_NOT_FOUND,
+                f"Semantic model '{name}' not found",
+            )
         return row
 
     def _assemble_model(self, model_row: dict[str, Any]) -> dict[str, Any]:
@@ -262,13 +282,11 @@ class SemanticModelV2Service:
         # Reject creation of official models via CRUD
         enriched_pre = self._enrich_model_dict_with_marivo(model_data)
         if enriched_pre.get("visibility", "public") != "private":
-            raise HTTPException(
-                status_code=403,
-                detail=(
-                    "Public (official) models must be created via POST /semantic-models/import. "
-                    "Private models can be created via POST /semantic-models with visibility='private' "
-                    "and an owner_user in the MARIVO extension."
-                ),
+            raise ForbiddenError(
+                ErrorCode.FORBIDDEN,
+                "Public (official) models must be created via POST /semantic-models/import. "
+                "Private models can be created via POST /semantic-models with visibility='private' "
+                "and an owner_user in the MARIVO extension.",
             )
 
         # Reject private model name that conflicts with another private model for same owner
@@ -278,16 +296,23 @@ class SemanticModelV2Service:
                 [model_data.get("name"), enriched_pre.get("owner_user")],
             )
             if private_conflict:
-                raise HTTPException(
-                    status_code=409,
-                    detail=f"Private model '{model_data.get('name')}' already exists for user '{enriched_pre.get('owner_user')}'",
+                raise ConflictError(
+                    ErrorCode.CONFLICT,
+                    f"Private model '{model_data.get('name')}' already exists for user '{enriched_pre.get('owner_user')}'",
                 )
 
         # Enrich for validation (adds MARIVO fields as top-level dict keys)
         enriched = self._enrich_model_dict_with_marivo(model_data)
 
         # Validate
-        validate_semantic_model(enriched)
+        try:
+            validate_semantic_model(enriched)
+        except SemanticValidationError as exc:
+            raise DomainValidationError(
+                code=ErrorCode.VALIDATION,
+                message=str(exc),
+                detail={"errors": exc.errors},
+            ) from exc
 
         # Parse with Pydantic
         model = SemanticModel.model_validate(model_data)
@@ -516,8 +541,9 @@ class SemanticModelV2Service:
             [model_id, ds.name],
         )
         if existing:
-            raise HTTPException(
-                status_code=409, detail=f"Dataset '{ds.name}' already exists in model"
+            raise ConflictError(
+                ErrorCode.CONFLICT,
+                f"Dataset '{ds.name}' already exists in model",
             )
 
         ds_storage = dataset_to_storage(ds, model_id)
@@ -583,9 +609,9 @@ class SemanticModelV2Service:
             [model_row["model_id"], dataset_name],
         )
         if ds_row is None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Dataset '{dataset_name}' not found in model '{model_name}'",
+            raise NotFoundError(
+                ErrorCode.NOT_FOUND,
+                f"Dataset '{dataset_name}' not found in model '{model_name}'",
             )
 
         field_rows = self.store.query_rows(
@@ -630,9 +656,9 @@ class SemanticModelV2Service:
             [model_row["model_id"], dataset_name],
         )
         if ds_row is None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Dataset '{dataset_name}' not found in model '{model_name}'",
+            raise NotFoundError(
+                ErrorCode.NOT_FOUND,
+                f"Dataset '{dataset_name}' not found in model '{model_name}'",
             )
 
         allowed_fields = {"description", "source", "primary_key", "unique_keys"}
@@ -674,9 +700,9 @@ class SemanticModelV2Service:
             [model_row["model_id"], dataset_name],
         )
         if ds_row is None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Dataset '{dataset_name}' not found in model '{model_name}'",
+            raise NotFoundError(
+                ErrorCode.NOT_FOUND,
+                f"Dataset '{dataset_name}' not found in model '{model_name}'",
             )
         self.store.execute(
             "DELETE FROM semantic_datasets WHERE dataset_id = ?",
@@ -701,24 +727,23 @@ class SemanticModelV2Service:
         dataset_names = {ds["name"] for ds in datasets}
 
         if from_ds and from_ds not in dataset_names:
-            raise HTTPException(
-                status_code=400,
-                detail=f"from_dataset '{from_ds}' does not exist in model '{model_name}'",
+            raise NotFoundError(
+                ErrorCode.NOT_FOUND,
+                f"from_dataset '{from_ds}' does not exist in model '{model_name}'",
             )
         if to_ds and to_ds not in dataset_names:
-            raise HTTPException(
-                status_code=400,
-                detail=f"to_dataset '{to_ds}' does not exist in model '{model_name}'",
+            raise NotFoundError(
+                ErrorCode.NOT_FOUND,
+                f"to_dataset '{to_ds}' does not exist in model '{model_name}'",
             )
 
         # Validate from_columns and to_columns have matching lengths
         from_cols = rel_data.get("from_columns")
         to_cols = rel_data.get("to_columns")
         if from_cols is not None and to_cols is not None and len(from_cols) != len(to_cols):
-            raise HTTPException(
-                status_code=400,
-                detail=f"from_columns and to_columns must have matching lengths, "
-                f"got {len(from_cols)} and {len(to_cols)}",
+            raise ValueError(
+                f"from_columns and to_columns must have matching lengths, "
+                f"got {len(from_cols)} and {len(to_cols)}"
             )
 
         rel = Relationship.model_validate(rel_data)
@@ -755,9 +780,9 @@ class SemanticModelV2Service:
             [model_row["model_id"], rel_name],
         )
         if rel_row is None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Relationship '{rel_name}' not found in model '{model_name}'",
+            raise NotFoundError(
+                ErrorCode.NOT_FOUND,
+                f"Relationship '{rel_name}' not found in model '{model_name}'",
             )
         return _storage_to_relationship(dict(rel_row))
 
@@ -786,9 +811,9 @@ class SemanticModelV2Service:
             [model_row["model_id"], rel_name],
         )
         if rel_row is None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Relationship '{rel_name}' not found in model '{model_name}'",
+            raise NotFoundError(
+                ErrorCode.NOT_FOUND,
+                f"Relationship '{rel_name}' not found in model '{model_name}'",
             )
 
         import json
@@ -830,9 +855,9 @@ class SemanticModelV2Service:
             [model_row["model_id"], rel_name],
         )
         if rel_row is None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Relationship '{rel_name}' not found in model '{model_name}'",
+            raise NotFoundError(
+                ErrorCode.NOT_FOUND,
+                f"Relationship '{rel_name}' not found in model '{model_name}'",
             )
         self.store.execute(
             "DELETE FROM semantic_relationships WHERE relationship_id = ?",
@@ -862,11 +887,18 @@ class SemanticModelV2Service:
 
         # Validate metric fields against existing datasets
         if enriched_metric.get("observed_dataset"):
-            from marivo.semantic_service_v2.validation import validate_metric
+            from marivo.core.semantic.semantic_validation import validate_metric
 
             datasets = self.list_datasets(model_name, requesting_user=model_row["owner_user"])
             fields_by_dataset = self._build_fields_by_dataset(datasets)
-            validate_metric(enriched_metric, datasets, fields_by_dataset)
+            try:
+                validate_metric(enriched_metric, datasets, fields_by_dataset)
+            except SemanticValidationError as exc:
+                raise DomainValidationError(
+                    code=ErrorCode.VALIDATION,
+                    message=str(exc),
+                    detail={"errors": exc.errors},
+                ) from exc
 
         metric = Metric.model_validate(metric_data)
         metric_storage = metric_to_storage(metric, model_id)
@@ -905,9 +937,9 @@ class SemanticModelV2Service:
             [model_row["model_id"], metric_name],
         )
         if metric_row is None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Metric '{metric_name}' not found in model '{model_name}'",
+            raise NotFoundError(
+                ErrorCode.NOT_FOUND,
+                f"Metric '{metric_name}' not found in model '{model_name}'",
             )
         return _storage_to_metric(dict(metric_row))
 
@@ -936,9 +968,9 @@ class SemanticModelV2Service:
             [model_row["model_id"], metric_name],
         )
         if metric_row is None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Metric '{metric_name}' not found in model '{model_name}'",
+            raise NotFoundError(
+                ErrorCode.NOT_FOUND,
+                f"Metric '{metric_name}' not found in model '{model_name}'",
             )
 
         import json
@@ -998,9 +1030,9 @@ class SemanticModelV2Service:
             [model_row["model_id"], metric_name],
         )
         if metric_row is None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Metric '{metric_name}' not found in model '{model_name}'",
+            raise NotFoundError(
+                ErrorCode.NOT_FOUND,
+                f"Metric '{metric_name}' not found in model '{model_name}'",
             )
         self.store.execute(
             "DELETE FROM semantic_metrics WHERE metric_id = ?",
@@ -1028,14 +1060,12 @@ class SemanticModelV2Service:
                 sm.custom_extensions, MarivoSemanticModelExtension
             )
             if marivo_ext and marivo_ext.visibility == "private":
-                raise HTTPException(
-                    status_code=400,
-                    detail=(
-                        f"Private model '{sm.name}' cannot be imported via OSI document. "
-                        "The import endpoint creates public (official) models only. "
-                        "To create a private model, use POST /semantic-models with visibility='private' "
-                        "and an owner_user in the MARIVO extension."
-                    ),
+                raise DomainValidationError(
+                    ErrorCode.VALIDATION,
+                    f"Private model '{sm.name}' cannot be imported via OSI document. "
+                    "The import endpoint creates public (official) models only. "
+                    "To create a private model, use POST /semantic-models with visibility='private' "
+                    "and an owner_user in the MARIVO extension.",
                 )
 
         results: list[dict[str, Any]] = []
@@ -1071,7 +1101,14 @@ class SemanticModelV2Service:
 
             # Enrich and validate
             enriched = self._enrich_model_dict_with_marivo(model_dict)
-            validate_semantic_model(enriched)
+            try:
+                validate_semantic_model(enriched)
+            except SemanticValidationError as exc:
+                raise DomainValidationError(
+                    code=ErrorCode.VALIDATION,
+                    message=str(exc),
+                    detail={"errors": exc.errors},
+                ) from exc
 
             # Parse with Pydantic
             model = SemanticModel.model_validate(model_dict)
