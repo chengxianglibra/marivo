@@ -87,8 +87,7 @@ def create_session(
     sid = SessionId(f"sess_{uuid4().hex[:12]}")
     if actor is None:
         resolved = resolve_user()
-        if resolved is not None:
-            actor = UserId(resolved)
+        actor = UserId(resolved) if resolved is not None else UserId("local")
     runtime.ports.session_store.append_event(
         sid,
         SessionEvent(
