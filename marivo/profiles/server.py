@@ -130,8 +130,12 @@ def create_server_runtime(config: ServerConfig) -> ServerComposition:
         marivo_config=config.marivo_config,
     )
     runtime = MarivoRuntime(ports, CoreEngine())
+    from marivo.runtime.evidence.semantic_repository import SemanticRuntimeRepository
+
+    semantic_repo = SemanticRuntimeRepository(metadata_store)
     runtime.register_service("datasource", datasource_service)
     runtime.register_service("semantic_v2", semantic_v2)
+    runtime.register_service("semantic_repository", semantic_repo)
     runtime.register_service("query_router", query_router)
     runtime.wire_evidence_repos(_build_evidence_repos(metadata_store))
     runtime.wire_metadata(metadata_store)

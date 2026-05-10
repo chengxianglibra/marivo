@@ -1047,7 +1047,7 @@ def compile_step_with_feedback(
         effective_semantic_context.setdefault("semantic_repository", repo)
         effective_semantic_context.setdefault(
             "compatibility_profile_reader",
-            repo._published_compatibility_profiles_for_subject_ref,
+            lambda subject_ref: None,
         )
     if runtime.calendar_data_reader is not None:
         effective_semantic_context.setdefault("calendar_data_reader", runtime.calendar_data_reader)

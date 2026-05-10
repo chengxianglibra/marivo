@@ -81,8 +81,12 @@ def create_local_runtime(
     metadata_store.initialize()
     datasource_service = DatasourceService(metadata_store)
     semantic_v2 = SemanticServiceAdapter(metadata_store, datasource_service=datasource_service)
+    from marivo.runtime.evidence.semantic_repository import SemanticRuntimeRepository
+
+    semantic_repo = SemanticRuntimeRepository(metadata_store)
     runtime.register_service("datasource", datasource_service)
     runtime.register_service("semantic_v2", semantic_v2)
+    runtime.register_service("semantic_repository", semantic_repo)
     runtime.wire_metadata(metadata_store)
 
     return runtime
