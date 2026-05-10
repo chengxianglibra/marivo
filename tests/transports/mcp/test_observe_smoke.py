@@ -30,8 +30,8 @@ def test_observe_tool_registered():
     assert "observe" in tool_names, f"observe not found in {tool_names}"
 
 
-def test_marivo_stdio_entry_point_importable():
-    """Verify marivo-stdio entry point is importable."""
-    from marivo.transports.mcp.stdio import main
+def test_marivo_mcp_entry_point_importable():
+    """Verify marivo mcp subcommand handler is importable."""
+    from marivo.transports.cli.cmd_mcp import handle
 
-    assert callable(main)
+    assert callable(handle)

@@ -19,6 +19,8 @@ from marivo.transports.cli.cmd_doctor import add_arguments as doctor_add_argumen
 from marivo.transports.cli.cmd_doctor import handle as doctor_handle
 from marivo.transports.cli.cmd_init import add_arguments as init_add_arguments
 from marivo.transports.cli.cmd_init import handle as init_handle
+from marivo.transports.cli.cmd_mcp import add_arguments as mcp_add_arguments
+from marivo.transports.cli.cmd_mcp import handle as mcp_handle
 from marivo.transports.cli.cmd_runtime import add_arguments as runtime_add_arguments
 from marivo.transports.cli.cmd_runtime import handle as runtime_handle
 from marivo.transports.cli.cmd_serve import add_arguments as serve_add_arguments
@@ -90,6 +92,11 @@ def _build_parser() -> argparse.ArgumentParser:
     runtime_parser = subparsers.add_parser("runtime", help="Manage local runtime")
     runtime_add_arguments(runtime_parser)
     runtime_parser.set_defaults(handler=runtime_handle)
+
+    # marivo mcp
+    mcp_parser = subparsers.add_parser("mcp", help="Start stdio MCP server")
+    mcp_add_arguments(mcp_parser)
+    mcp_parser.set_defaults(handler=mcp_handle)
 
     return parser
 

@@ -1,9 +1,10 @@
-"""Stdio MCP E2E test: verify marivo-stdio server construction and tool registration."""
+"""Stdio MCP E2E test: verify marivo mcp server construction and tool registration."""
 
 from __future__ import annotations
 
 import subprocess
 import sys
+from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
 
@@ -181,11 +182,11 @@ class FakeRuntime:
         return {}
 
 
-def test_marivo_stdio_entry_point_callable():
-    """The marivo-stdio entry point function is callable."""
-    from marivo.transports.mcp.stdio import main
+def test_marivo_mcp_entry_point_callable():
+    """The marivo mcp subcommand handler is callable."""
+    from marivo.transports.cli.cmd_mcp import handle
 
-    assert callable(main)
+    assert callable(handle)
 
 
 def test_stdio_server_registers_tools():
@@ -265,16 +266,13 @@ def test_stdio_server_registers_tools():
         assert tool_name in tool_names, f"Missing tool: {tool_name}"
 
 
-def test_marivo_stdio_help_flag():
-    """marivo-stdio console script is installed and responds to --help."""
+def test_marivo_mcp_help_flag():
+    """marivo mcp subcommand is registered and responds to --help."""
+    marivo_bin = Path(sys.executable).parent / "marivo"
     result = subprocess.run(
-        [sys.executable, "-m", "marivo.transports.mcp.stdio", "--help"],
+        [str(marivo_bin), "mcp", "--help"],
         capture_output=True,
         text=True,
         timeout=5,
     )
-    # The entry point may not support --help directly, but it should not
-    # crash with an import error. We just verify it's importable.
-    from marivo.transports.mcp.stdio import main
-
-    assert callable(main)
+    assert result.returncode == 0
