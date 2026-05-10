@@ -94,8 +94,10 @@ class MetadataArtifactStoreAdapter:
         responsible for calling ``con.commit()`` when using an external
         connection.
         """
-        from marivo.findings.commit_boundary import validate_for_commit
-        from marivo.findings.registry import default_finding_registry
+        from marivo.runtime.evidence.finding_extractor_registry import (
+            default_finding_registry,
+            validate_for_commit,
+        )
 
         registry = default_finding_registry
         extractor = registry.find(artifact_type, artifact_schema_version)
@@ -255,28 +257,25 @@ class MetadataArtifactStoreAdapter:
         )
         return artifact_id
 
-    def _run_canonical_downstream(self, session_id: str, findings: list[dict[str, Any]]) -> None:
+    def _run_canonical_downstream(self, session_id: str, findings: list[Any]) -> None:
         """Trigger the canonical downstream pipeline for committed findings."""
-        try:
-            from marivo.findings.downstream import run_canonical_downstream
+        from marivo.runtime.evidence.canonical_pipeline import run_canonical_downstream
 
-            committed_finding_ids = [f["finding_id"] for f in findings]
-            if self._svc is None:
-                return
-            svc = self._svc
-            run_canonical_downstream(
-                session_id=session_id,
-                trigger_finding_ids=committed_finding_ids,
-                finding_repo=svc._finding_repo,
-                proposition_repo=svc._proposition_repo,
-                assessment_repo=svc._assessment_repo,
-                gap_repo=svc._gap_repo,
-                inference_record_repo=svc._inference_record_repo,
-                proposal_repo=svc._proposal_repo,
-                metadata_store=self._metadata,
-            )
-        except ImportError:
-            pass
+        committed_finding_ids = [f["finding_id"] for f in findings]
+        if self._svc is None:
+            return
+        svc = self._svc
+        run_canonical_downstream(
+            session_id=session_id,
+            trigger_finding_ids=committed_finding_ids,
+            finding_repo=svc._finding_repo,
+            proposition_repo=svc._proposition_repo,
+            assessment_repo=svc._assessment_repo,
+            gap_repo=svc._gap_repo,
+            inference_record_repo=svc._inference_record_repo,
+            proposal_repo=svc._proposal_repo,
+            metadata_store=self._metadata,
+        )
 
     def resolve_artifact_for_ref(
         self,
