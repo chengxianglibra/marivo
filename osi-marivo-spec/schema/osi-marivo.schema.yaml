@@ -1,0 +1,19 @@
+version: 0.1.0
+
+# OSI-Marivo Vendor Extensions v0.1 readable schema
+#
+# This YAML file follows the OSI core-spec style: enumerations are top-level
+# fields, schema sections use snake_case names, and object shapes are written
+# as readable contract sketches. The canonical machine-validation schema is
+# osi-marivo.schema.json.
+
+# Extension payload schemas
+
+# MARIVO extension for Dataset.
+dataset_extension:
+  datasource_id: string        # Required. Marivo datasource reference for routing and schema resolution.
+
+# MARIVO extension for Metric.
+metric_extension:
+  additive_dimensions:         # Dimension and time fields across which the metric is additive.
+    - string
