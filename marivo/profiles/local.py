@@ -13,15 +13,19 @@ from marivo.adapters.local.file_model_store import FileModelStore
 from marivo.adapters.local.local_telemetry import LocalTelemetry
 from marivo.adapters.local.noop_authz import NoopAuthZ
 from marivo.adapters.local.sqlite_cache_store import SqliteCacheStore
+from marivo.adapters.local.sqlite_metadata import SQLiteMetadataStore
 from marivo.adapters.local.sqlite_session_store import SqliteSessionStore
 from marivo.adapters.local.sqlite_step_store import SqliteStepStore
 from marivo.adapters.local.toml_runtime_config import TomlRuntimeConfig
+from marivo.adapters.server.semantic_service_adapter import SemanticServiceAdapter
 from marivo.contracts.errors import ErrorCode, ValidationError
 from marivo.core.engine import CoreEngine
+from marivo.datasources import DatasourceService
 from marivo.local.state_layout import (
     artifacts_dir,
     audit_log_path,
     evidence_dir,
+    metadata_db_path,
     models_dir,
     state_db_path,
     telemetry_log_path,
@@ -71,7 +75,16 @@ def create_local_runtime(
         step_store=SqliteStepStore(state_db_path(config.workspace_root)),
     )
     core = CoreEngine()
-    return MarivoRuntime(ports, core)
+    runtime = MarivoRuntime(ports, core)
+
+    metadata_store = SQLiteMetadataStore(metadata_db_path(config.workspace_root))
+    datasource_service = DatasourceService(metadata_store)
+    semantic_v2 = SemanticServiceAdapter(metadata_store, datasource_service=datasource_service)
+    runtime.register_service("datasource", datasource_service)
+    runtime.register_service("semantic_v2", semantic_v2)
+    runtime.wire_metadata(metadata_store)
+
+    return runtime
 
 
 def _create_data_source(dtype: str, config: dict[str, Any]) -> DuckDBDataSource:
