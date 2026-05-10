@@ -40,10 +40,15 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
+          "field",
           "start",
           "end"
         ],
         "properties": {
+          "field": {
+            "type": "string",
+            "minLength": 1
+          },
           "start": {
             "$ref": "#/$defs/primitives/ISO8601"
           },
