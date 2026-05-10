@@ -1,6 +1,5 @@
 {
   "artifact_id": "delta_daily_revenue_yoy_q1",
-  "step_id": "compare_daily_revenue_yoy_q1",
   "result": {
     "points": [
       {

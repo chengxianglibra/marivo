@@ -1,6 +1,5 @@
 {
   "artifact_id": "anom_revenue_daily_q1",
-  "step_id": "detect_revenue_daily_q1",
   "result": {
     "items": [
       {

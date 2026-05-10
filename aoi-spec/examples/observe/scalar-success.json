@@ -1,6 +1,5 @@
 {
   "artifact_id": "obs_scalar_revenue_2026_q1",
-  "step_id": "observe_revenue_q1",
   "result": {
     "value": 1250000.5
   }

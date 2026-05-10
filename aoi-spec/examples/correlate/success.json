@@ -1,6 +1,5 @@
 {
   "artifact_id": "assoc_revenue_ad_spend_q1",
-  "step_id": "correlate_revenue_ad_spend_q1",
   "result": {
     "coefficient": 0.82,
     "p_value": 0.004,

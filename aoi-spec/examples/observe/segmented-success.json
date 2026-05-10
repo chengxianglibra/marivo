@@ -1,6 +1,5 @@
 {
   "artifact_id": "obs_revenue_2026_q1_by_region",
-  "step_id": "observe_revenue_q1_by_region",
   "result": {
     "rows": [
       {

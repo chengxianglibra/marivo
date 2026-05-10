@@ -1,6 +1,5 @@
 {
   "artifact_id": "delta_revenue_yoy_q1_by_region",
-  "step_id": "compare_revenue_yoy_q1_by_region",
   "result": {
     "rows": [
       {

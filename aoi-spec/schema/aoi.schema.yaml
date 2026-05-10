@@ -222,9 +222,6 @@ artifact:
   # Required: stable artifact identifier.
   artifact_id: string
 
-  # Required: producing step identifier; resolves request context outside this artifact.
-  step_id: string
-
   # Present on success. Exactly one of result or failure must be present.
   result:
     # Result body must match one of the AOI result schemas below.

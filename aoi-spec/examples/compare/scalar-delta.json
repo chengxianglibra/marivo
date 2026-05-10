@@ -1,6 +1,5 @@
 {
   "artifact_id": "delta_revenue_yoy_q1",
-  "step_id": "compare_revenue_yoy_q1",
   "result": {
     "left_value": 1250000.5,
     "right_value": 1000000,

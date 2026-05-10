@@ -1,6 +1,5 @@
 {
   "artifact_id": "assoc_revenue_ad_spend_failed",
-  "step_id": "correlate_revenue_ad_spend_q1",
   "failure": {
     "code": "correlate.insufficient_overlap",
     "message": "The two time-series artifacts do not have enough matched buckets."
