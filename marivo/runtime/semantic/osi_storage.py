@@ -249,12 +249,14 @@ def _storage_to_metric(row: dict[str, Any]) -> dict[str, Any]:
     observation_grain_data = (
         json.loads(row["observation_grain"]) if row.get("observation_grain") is not None else None
     )
-    marivo_ext = MarivoMetricExtension(
-        observed_dataset=row.get("observed_dataset"),
-        observation_grain=observation_grain_data,
-        primary_time_field=row.get("primary_time_field"),
-        additivity=additivity_data,
-        filters=filters_data,
+    marivo_ext = MarivoMetricExtension.model_validate(
+        {
+            "observed_dataset": row.get("observed_dataset"),
+            "observation_grain": observation_grain_data,
+            "primary_time_field": row.get("primary_time_field"),
+            "additivity": additivity_data,
+            "filters": filters_data,
+        }
     )
     result: dict[str, Any] = {
         "name": row["name"],

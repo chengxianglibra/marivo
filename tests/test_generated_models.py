@@ -55,6 +55,12 @@ def test_version_constants_exist() -> None:
     assert AOI_SPEC_VERSION == "0.1.0"
 
 
+def test_marivo_metric_extension_matches_spec() -> None:
+    from marivo.transports.http.models.marivo_extensions import MarivoMetricExtension
+
+    assert set(MarivoMetricExtension.model_fields) == {"additive_dimensions"}
+
+
 def test_malformed_extension_data_rejected() -> None:
     """E9: malformed JSON in MARIVO extension data field."""
     from marivo.core.semantic.extensions import extract_marivo_extension
