@@ -396,10 +396,6 @@ class MarivoRuntime:
         """Return PropositionContextView for a proposition."""
         return session_ops.get_proposition_context(self, session_id, proposition_id)
 
-    def discover_catalog(self) -> dict[str, Any]:
-        """Return the API catalog of entities, models, and datasources."""
-        return session_ops.discover_catalog(self)
-
     # --- Semantic model ops ---
 
     def get_semantic_model(self, selector: Any) -> SemanticModel | None:

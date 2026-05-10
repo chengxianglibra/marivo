@@ -196,89 +196,6 @@ METADATA_DDL: list[str] = [
     )
     """,
     """
-    CREATE TABLE IF NOT EXISTS semantic_entity_contracts (
-        entity_contract_id      TEXT PRIMARY KEY,
-        entity_ref              TEXT NOT NULL UNIQUE,
-        display_name            TEXT NOT NULL,
-        description             TEXT NOT NULL DEFAULT '',
-        properties_json         TEXT NOT NULL DEFAULT '{}',
-        catalog_metadata_json   TEXT NOT NULL DEFAULT '{}',
-        entity_contract_version TEXT NOT NULL,
-        entity_kind             TEXT NOT NULL DEFAULT 'business_entity' CHECK (
-            entity_kind IN (
-                'business_entity',
-                'event_entity',
-                'fact_entity',
-                'snapshot_entity',
-                'derived_entity'
-            )
-        ),
-        uniqueness_scope        TEXT NOT NULL CHECK (
-            uniqueness_scope IN ('global', 'parent_scoped')
-        ),
-        id_stability            TEXT NOT NULL CHECK (
-            id_stability IN ('stable', 'reassignable', 'ephemeral')
-        ),
-        nullable_key_policy     TEXT NOT NULL DEFAULT 'reject' CHECK (
-            nullable_key_policy IN ('reject', 'allow_partial')
-        ),
-        parent_entity_ref       TEXT,
-        cardinality_to_parent   TEXT,
-        ownership_semantics     TEXT,
-        primary_time_ref        TEXT,
-        fields_json             TEXT NOT NULL DEFAULT '[]',
-        binding_json            TEXT,
-        status                  TEXT NOT NULL DEFAULT 'draft' CHECK (
-            status IN ('draft', 'published', 'deprecated')
-        ),
-        revision                INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
-        created_at              TEXT NOT NULL,
-        updated_at              TEXT NOT NULL,
-        CHECK (substr(entity_ref, 1, 7) = 'entity.'),
-        CHECK (
-            parent_entity_ref IS NULL
-            OR substr(parent_entity_ref, 1, 7) = 'entity.'
-        ),
-        CHECK (primary_time_ref IS NULL OR substr(primary_time_ref, 1, 5) = 'time.'),
-        CHECK (
-            parent_entity_ref IS NULL
-            OR (
-                cardinality_to_parent IS NOT NULL
-                AND cardinality_to_parent IN ('one_to_one', 'many_to_one')
-            )
-        ),
-        CHECK (
-            ownership_semantics IS NULL
-            OR ownership_semantics IN ('belongs_to', 'contains', 'derives_from')
-        )
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS semantic_entity_key_refs (
-        entity_contract_id  TEXT NOT NULL REFERENCES semantic_entity_contracts(entity_contract_id) ON DELETE CASCADE,
-        position            INTEGER NOT NULL,
-        key_ref             TEXT NOT NULL,
-        description         TEXT,
-        PRIMARY KEY (entity_contract_id, position),
-        UNIQUE(entity_contract_id, key_ref),
-        CHECK (position > 0),
-        CHECK (substr(key_ref, 1, 4) = 'key.')
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS semantic_entity_stable_descriptors (
-        entity_contract_id  TEXT NOT NULL REFERENCES semantic_entity_contracts(entity_contract_id) ON DELETE CASCADE,
-        position            INTEGER NOT NULL,
-        dimension_ref       TEXT NOT NULL,
-        cardinality         TEXT,
-        PRIMARY KEY (entity_contract_id, position),
-        UNIQUE(entity_contract_id, dimension_ref),
-        CHECK (position > 0),
-        CHECK (substr(dimension_ref, 1, 10) = 'dimension.'),
-        CHECK (cardinality IS NULL OR cardinality IN ('one', 'many'))
-    )
-    """,
-    """
     CREATE TABLE IF NOT EXISTS semantic_metric_contracts (
         metric_contract_id      TEXT PRIMARY KEY,
         metric_ref              TEXT NOT NULL,
@@ -616,8 +533,6 @@ METADATA_DDL: list[str] = [
         CHECK (substr(subject_ref, 1, 7) = 'entity.' OR substr(subject_ref, 1, 8) = 'subject.')
     )
     """,
-    "CREATE INDEX IF NOT EXISTS idx_semantic_entity_key_refs_entity ON semantic_entity_key_refs(entity_contract_id)",
-    "CREATE INDEX IF NOT EXISTS idx_semantic_entity_stable_descriptors_entity ON semantic_entity_stable_descriptors(entity_contract_id)",
     "CREATE INDEX IF NOT EXISTS idx_semantic_metric_contracts_status_ref ON semantic_metric_contracts(status, metric_ref)",
     "CREATE INDEX IF NOT EXISTS idx_semantic_metric_contracts_ref_revision ON semantic_metric_contracts(metric_ref, revision)",
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_semantic_metric_contracts_latest_active ON semantic_metric_contracts(metric_ref) WHERE status = 'published' AND is_latest_active = 1",
@@ -639,40 +554,6 @@ METADATA_DDL: list[str] = [
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_semantic_domain_catalog_status_ref ON semantic_domain_catalog(status, domain_ref)",
-    # -------------------------------------------------------------------------
-    # Entity relationships
-    # -------------------------------------------------------------------------
-    """
-    CREATE TABLE IF NOT EXISTS semantic_entity_relationships (
-        relationship_id                         TEXT PRIMARY KEY,
-        relationship_ref                        TEXT NOT NULL UNIQUE,
-        display_name                            TEXT NOT NULL,
-        description                             TEXT NOT NULL DEFAULT '',
-        left_entity_ref                         TEXT NOT NULL,
-        right_entity_ref                        TEXT NOT NULL,
-        key_alignment_json                      TEXT NOT NULL,
-        time_alignment_json                     TEXT,
-        cardinality                             TEXT NOT NULL CHECK (
-            cardinality IN ('one_to_one', 'many_to_one', 'one_to_many', 'many_to_many')
-        ),
-        grain_compatibility_json                TEXT,
-        snapshot_effective_window_alignment_json TEXT,
-        catalog_metadata_json                   TEXT NOT NULL DEFAULT '{}',
-        status                                  TEXT NOT NULL DEFAULT 'draft' CHECK (
-            status IN ('draft', 'published', 'deprecated')
-        ),
-        revision                                INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
-        created_at                              TEXT NOT NULL,
-        updated_at                              TEXT NOT NULL,
-        CHECK (substr(relationship_ref, 1, 13) = 'relationship.'),
-        CHECK (substr(left_entity_ref, 1, 7) = 'entity.'),
-        CHECK (substr(right_entity_ref, 1, 7) = 'entity.')
-    )
-    """,
-    "CREATE INDEX IF NOT EXISTS idx_semantic_entity_relationships_ref ON semantic_entity_relationships(relationship_ref)",
-    "CREATE INDEX IF NOT EXISTS idx_semantic_entity_relationships_pair ON semantic_entity_relationships(left_entity_ref, right_entity_ref, status, relationship_ref)",
-    "CREATE INDEX IF NOT EXISTS idx_semantic_entity_relationships_right_left ON semantic_entity_relationships(right_entity_ref, left_entity_ref, status, relationship_ref)",
-    "CREATE INDEX IF NOT EXISTS idx_semantic_entity_relationships_status ON semantic_entity_relationships(status)",
     # -------------------------------------------------------------------------
     # Compiler compatibility profiles (Phase 1, Task 1.4)
     # -------------------------------------------------------------------------

@@ -21,7 +21,6 @@ from marivo.core.semantic.compiler import (
     build_validation_trace,
     build_windowed_aggregate_query,
     date_window_from_time_scope,
-    entity_field_snapshot,
     metric_snapshot,
     process_snapshot,
     relationship_snapshot,
@@ -303,7 +302,7 @@ class _FakeIssue:
 def test_build_validation_trace_all_passed() -> None:
     result = _FakeValidationResult([])
     trace = build_validation_trace(result)
-    assert len(trace) == 14  # All gates in _VALIDATION_GATE_ORDER
+    assert len(trace) == 11  # All gates in _VALIDATION_GATE_ORDER
     assert all(record["status"] == "passed" for record in trace)
 
 
@@ -319,7 +318,7 @@ def test_build_validation_summary_basic() -> None:
     result = _FakeValidationResult([], validated_dimension_refs=["dimension.platform"])
     trace = build_validation_trace(result)
     summary = build_validation_summary(result, trace)
-    assert summary["passed_gate_count"] == 14
+    assert summary["passed_gate_count"] == 11
     assert summary["warning_count"] == 0
     assert summary["validated_dimension_refs"] == ["dimension.platform"]
 
@@ -359,23 +358,6 @@ def test_process_snapshot() -> None:
     snap = process_snapshot(process)
     assert snap["process_ref"] == "process.session"
     assert snap["resolved_anchor_time_ref"] == "time.event_date"
-
-
-def test_entity_field_snapshot() -> None:
-    class FakeField:
-        field_ref = "entity.user.field.age"
-        entity_ref = "entity.user"
-        local_field_ref = "field.age"
-        entity_revision = 3
-        source_object_ref = "dataset.users"
-        source_object_fqn = "public.users"
-        carrier_kind = "column"
-        physical_column = "age"
-        physical_expression_locator = None
-
-    snap = entity_field_snapshot(FakeField())
-    assert snap["field_ref"] == "entity.user.field.age"
-    assert snap["physical_column"] == "age"
 
 
 class _FakeRelationship:
@@ -451,12 +433,10 @@ class _FakeRequestNoTime:
 
 
 class _FakeInputs:
-    resolved_entity_fields = {"field.age": object()}
     resolved_metric = _FakeResolvedObject("metric.revenue")
 
 
 class _FakeInputsNoMetric:
-    resolved_entity_fields = {"field.age": object()}
     resolved_metric = None
 
 
@@ -468,11 +448,10 @@ def test_build_lowering_requirements_full() -> None:
         resolved_inputs=_FakeInputs(),
         intent_node_id="intent:0",
     )
-    assert len(reqs) == 3
+    assert len(reqs) == 2
     kinds = [r["requirement_kind"] for r in reqs]
     assert "engine_sql_execution" in kinds
     assert "time_window_filter" in kinds
-    assert "entity_field_grounding" in kinds
 
 
 def test_build_lowering_requirements_no_time() -> None:

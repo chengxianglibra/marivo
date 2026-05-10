@@ -1,4 +1,9 @@
-"""Verify stdio and HTTP MCP transports register an identical tool surface."""
+"""Verify stdio and HTTP MCP transports expose the correct tool surfaces.
+
+HTTP mode registers all tool groups including catalog/OpenAPI introspection.
+Stdio mode omits catalog tools because the local runtime lacks the wired
+FastAPI app and analytics engine required by those tools.
+"""
 
 from __future__ import annotations
 
@@ -164,34 +169,68 @@ class FakeRuntime:
     def get_proposition_context(self, **kw):
         return {}
 
-    def discover_catalog(self, **kw):
-        return {}
 
-    def list_openapi_paths(self, **kw):
-        return {}
-
-    def get_openapi_schema(self, **kw):
-        return {}
-
-    def get_openapi_fragment(self, **kw):
-        return {}
-
-    def get_openapi_path_fragment(self, **kw):
-        return {}
+# Catalog / OpenAPI tools are only registered in HTTP mode.
+_HTTP_ONLY_TOOLS = frozenset(
+    {
+        "health_check",
+        "list_openapi_paths",
+        "get_openapi_schema",
+        "get_openapi_fragment",
+        "get_openapi_path_fragment",
+    }
+)
 
 
-def test_tool_surface_parity():
-    """stdio and HTTP MCP must register identical tool surfaces."""
+def _tool_names(server: FastMCP) -> set[str]:
+    return {t.name for t in server._tool_manager.list_tools()}
+
+
+def test_http_registers_all_tools():
+    """HTTP transport registers the full tool surface including catalog tools."""
+    server = FastMCP("test-http", stateless_http=True, json_response=True)
+    register_tools(server, FakeRuntime(), transport="http")
+    tools = _tool_names(server)
+    assert _HTTP_ONLY_TOOLS.issubset(tools), (
+        f"HTTP mode missing catalog tools: {_HTTP_ONLY_TOOLS - tools}"
+    )
+
+
+def test_stdio_omits_catalog_tools():
+    """Stdio transport omits catalog/OpenAPI tools that require a wired app."""
+    server = FastMCP("test-stdio")
+    register_tools(server, FakeRuntime(), transport="stdio")
+    tools = _tool_names(server)
+    assert _HTTP_ONLY_TOOLS.isdisjoint(tools), (
+        f"Stdio mode should not expose catalog tools: {_HTTP_ONLY_TOOLS & tools}"
+    )
+
+
+def test_shared_tools_identical_schema():
+    """Tools present in both modes have identical parameter schemas."""
     stdio_server = FastMCP("test-stdio")
     http_server = FastMCP("test-http", stateless_http=True, json_response=True)
-    register_tools(stdio_server, FakeRuntime())
-    register_tools(http_server, FakeRuntime())
+    register_tools(stdio_server, FakeRuntime(), transport="stdio")
+    register_tools(http_server, FakeRuntime(), transport="http")
 
     stdio_tools = {t.name: t.parameters for t in stdio_server._tool_manager.list_tools()}
     http_tools = {t.name: t.parameters for t in http_server._tool_manager.list_tools()}
 
-    assert stdio_tools.keys() == http_tools.keys(), (
-        f"Tool name mismatch: stdio={sorted(stdio_tools)} http={sorted(http_tools)}"
-    )
-    for name in stdio_tools:
+    shared = set(stdio_tools) & set(http_tools)
+    for name in sorted(shared):
         assert stdio_tools[name] == http_tools[name], f"Schema diverged for {name}"
+
+
+def test_stdio_is_subset_of_http():
+    """Stdio tool set is a strict subset of HTTP tool set."""
+    stdio_server = FastMCP("test-stdio")
+    http_server = FastMCP("test-http", stateless_http=True, json_response=True)
+    register_tools(stdio_server, FakeRuntime(), transport="stdio")
+    register_tools(http_server, FakeRuntime(), transport="http")
+
+    stdio_tools = _tool_names(stdio_server)
+    http_tools = _tool_names(http_server)
+    assert stdio_tools < http_tools, (
+        f"Stdio tools should be a strict subset of HTTP tools; "
+        f"stdio-only: {stdio_tools - http_tools}"
+    )

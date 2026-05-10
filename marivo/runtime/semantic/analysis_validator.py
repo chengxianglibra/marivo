@@ -1,8 +1,8 @@
 # DEPRECATED: Pure validation logic extracted to app.core.semantic.validator.
 # Data classes (ValidationIssue, ValidationResult), pure gate functions, and
 # helpers live in the core module.  This file retains the orchestrator
-# validate_compiler_inputs and I/O-bound gates (_gate_cross_entity_composition,
-# _gate_predicate_contracts, _gate_scope_validation, _gate_predicate_conflict,
+# validate_compiler_inputs and I/O-bound gates (_gate_predicate_contracts,
+# _gate_scope_validation, _gate_predicate_conflict,
 # _gate_lowering_precheck).
 from __future__ import annotations
 
@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING, Any
 
 from marivo.runtime.semantic.resolution_orchestrator import (
     ResolvedCompilerInputs,
-    ResolvedRelationship,
 )
 
 if TYPE_CHECKING:
@@ -83,15 +82,6 @@ def validate_compiler_inputs(
     issues.extend(_gate_request_shape(step_type, resolved_inputs))
     issues.extend(_gate_intent_support(step_type, resolved_inputs, derived_state))
     issues.extend(_gate_metric_process_compatibility(resolved_inputs, derived_state))
-    issues.extend(_gate_entity_field_resolution(resolved_inputs))
-    issues.extend(_gate_field_usage_compatibility(resolved_inputs, derived_state))
-    issues.extend(
-        _gate_cross_entity_composition(
-            resolved_inputs,
-            derived_state,
-            semantic_repository,
-        )
-    )
     issues.extend(_gate_binding_compatibility(step_type, resolved_inputs))
     issues.extend(_gate_predicate_contracts(resolved_inputs, semantic_repository))
     issues.extend(_gate_scope_validation(resolved_inputs, semantic_repository))
@@ -343,394 +333,6 @@ def _gate_binding_compatibility(
     return []
 
 
-def _gate_entity_field_resolution(resolved_inputs: ResolvedCompilerInputs) -> list[ValidationIssue]:
-    issues: list[ValidationIssue] = []
-    for field_issue in resolved_inputs.field_resolution_issues:
-        issues.append(
-            ValidationIssue(
-                code=field_issue.code,
-                gate="entity_field_resolution",
-                category="readiness"
-                if field_issue.code in {"missing_entity_binding", "missing_entity_field"}
-                else "compatibility",
-                severity="error",
-                message=field_issue.message,
-                subject_ref=field_issue.field_ref,
-                details={
-                    **dict(field_issue.details),
-                    "usage_path": field_issue.usage_path,
-                },
-            )
-        )
-    return issues
-
-
-def _gate_field_usage_compatibility(
-    resolved_inputs: ResolvedCompilerInputs,
-    derived_state: DerivedCompilerState,
-) -> list[ValidationIssue]:
-    issues: list[ValidationIssue] = []
-    for entity_field in resolved_inputs.resolved_entity_fields.values():
-        for usage_path in entity_field.usage_paths:
-            if usage_path.startswith("metric.") and usage_path.endswith(".input_field_ref"):
-                aggregation = _metric_component_aggregation(
-                    resolved_inputs,
-                    usage_path=usage_path,
-                )
-                expected = _expected_metric_input_types(aggregation)
-                if entity_field.value_type is not None and entity_field.value_type not in expected:
-                    issues.append(
-                        _field_usage_issue(
-                            code="invalid_metric_input_type",
-                            field=entity_field,
-                            usage_path=usage_path,
-                            message="Metric component input field has incompatible value_type",
-                            details={
-                                "aggregation": aggregation,
-                                "actual_field_value_type": entity_field.value_type,
-                                "expected_field_value_types": sorted(expected),
-                            },
-                        )
-                    )
-            if (
-                (usage_path == "time.source_field_ref" or usage_path.endswith(".time_ref"))
-                and entity_field.value_type is not None
-                and entity_field.value_type not in {"date", "datetime"}
-            ):
-                issues.append(
-                    _field_usage_issue(
-                        code="invalid_time_field_type",
-                        field=entity_field,
-                        usage_path=usage_path,
-                        message="Time semantic source field must be date/datetime compatible",
-                        details={
-                            "actual_field_value_type": entity_field.value_type,
-                            "expected_field_value_types": ["date", "datetime"],
-                        },
-                    )
-                )
-            if usage_path.endswith(".expression.target_ref"):
-                operator = _predicate_operator_for_usage(resolved_inputs, usage_path)
-                expected = _expected_predicate_operand_types(operator)
-                if (
-                    expected
-                    and entity_field.value_type is not None
-                    and entity_field.value_type not in expected
-                ):
-                    issues.append(
-                        _field_usage_issue(
-                            code="invalid_predicate_operand_type",
-                            field=entity_field,
-                            usage_path=usage_path,
-                            message="Predicate operand field has incompatible value_type",
-                            details={
-                                "operator": operator,
-                                "actual_field_value_type": entity_field.value_type,
-                                "expected_field_value_types": sorted(expected),
-                            },
-                        )
-                    )
-        for requirement in derived_state.metric_requirements.field_profile_requirements:
-            required_field_ref = _optional_str(requirement.get("field_ref"))
-            if required_field_ref != entity_field.field_ref:
-                continue
-            required_value_type = _optional_str(requirement.get("required_value_type"))
-            if (
-                required_value_type is not None
-                and entity_field.value_type is not None
-                and entity_field.value_type != required_value_type
-            ):
-                issues.append(
-                    _field_usage_issue(
-                        code="invalid_metric_input_type",
-                        field=entity_field,
-                        usage_path="compatibility_profile.field_profile_requirements",
-                        message="Field value_type does not satisfy compatibility profile",
-                        details={
-                            "actual_field_value_type": entity_field.value_type,
-                            "required_value_type": required_value_type,
-                        },
-                    )
-                )
-            nullable_allowed = requirement.get("nullable_allowed")
-            if nullable_allowed is False and entity_field.nullable is True:
-                issues.append(
-                    _field_usage_issue(
-                        code="invalid_metric_input_type",
-                        field=entity_field,
-                        usage_path="compatibility_profile.field_profile_requirements",
-                        message="Nullable field does not satisfy compatibility profile",
-                        details={
-                            "nullable": entity_field.nullable,
-                            "nullable_allowed": nullable_allowed,
-                        },
-                    )
-                )
-            required_tags = {str(tag) for tag in requirement.get("required_sensitivity_tags") or []}
-            if required_tags and not required_tags.issubset(set(entity_field.sensitivity_tags)):
-                issues.append(
-                    _field_usage_issue(
-                        code="invalid_metric_input_type",
-                        field=entity_field,
-                        usage_path="compatibility_profile.field_profile_requirements",
-                        message="Field sensitivity_tags do not satisfy compatibility profile",
-                        details={
-                            "required_sensitivity_tags": sorted(required_tags),
-                            "actual_sensitivity_tags": sorted(entity_field.sensitivity_tags),
-                        },
-                    )
-                )
-    return issues
-
-
-def _field_usage_issue(
-    *,
-    code: str,
-    field: Any,
-    usage_path: str,
-    message: str,
-    details: dict[str, Any],
-) -> ValidationIssue:
-    return ValidationIssue(
-        code=code,
-        gate="field_usage_compatibility",
-        category="compatibility",
-        severity="error",
-        message=message,
-        subject_ref=field.field_ref,
-        details={
-            "entity_ref": field.entity_ref,
-            "local_field_ref": field.local_field_ref,
-            "usage_path": usage_path,
-            "nullable": field.nullable,
-            "unit": field.unit,
-            "enum_hint": field.enum_hint,
-            "profile_summary": field.profile_summary,
-            "sensitivity_tags": list(field.sensitivity_tags),
-            **details,
-        },
-    )
-
-
-def _metric_component_aggregation(
-    resolved_inputs: ResolvedCompilerInputs,
-    *,
-    usage_path: str,
-) -> str | None:
-    metric = resolved_inputs.resolved_metric
-    if metric is None:
-        return None
-    parts = usage_path.split(".")
-    if len(parts) < 3:
-        return None
-    component_name = parts[1]
-    payload = dict(metric.semantic_object.get("payload") or {})
-    component = payload.get(component_name)
-    if not isinstance(component, dict):
-        return None
-    return _optional_str(component.get("aggregation"))
-
-
-def _expected_metric_input_types(aggregation: str | None) -> set[str]:
-    if aggregation in {"sum", "mean"}:
-        return {"integer", "number"}
-    if aggregation in {"boolean_any", "boolean_all"}:
-        return {"boolean"}
-    return {"string", "integer", "number", "boolean", "date", "datetime"}
-
-
-def _predicate_operator_for_usage(
-    resolved_inputs: ResolvedCompilerInputs,
-    usage_path: str,
-) -> str | None:
-    for entity_field in resolved_inputs.resolved_entity_fields.values():
-        for details in resolved_inputs.entity_field_usage_details.get(entity_field.field_ref, []):
-            if details.get("usage_path") == usage_path:
-                return _optional_str(details.get("operator"))
-    return None
-
-
-def _expected_predicate_operand_types(operator: str | None) -> set[str]:
-    if operator in {"gt", "gte", "lt", "lte", "between"}:
-        return {"integer", "number", "date", "datetime"}
-    return set()
-
-
-def _gate_cross_entity_composition(
-    resolved_inputs: ResolvedCompilerInputs,
-    derived_state: DerivedCompilerState,
-    semantic_repository: SemanticRuntimeRepository | None,
-) -> list[ValidationIssue]:
-    _ = semantic_repository
-    issues: list[ValidationIssue] = []
-    composition = resolved_inputs.entity_composition
-    if not composition.is_cross_entity:
-        return issues
-    metric_ref = resolved_inputs.resolved_metric.ref if resolved_inputs.resolved_metric else None
-    required_relationship_refs = list(derived_state.metric_requirements.required_relationship_refs)
-    if not required_relationship_refs:
-        issues.append(
-            ValidationIssue(
-                code="missing_entity_relationship",
-                gate="cross_entity_composition",
-                category="compatibility",
-                severity="error",
-                message="Cross-entity metric requires an explicit entity relationship",
-                subject_ref=metric_ref,
-                details={"entity_refs": composition.all_entity_refs},
-            )
-        )
-        return issues
-    for relationship_ref in required_relationship_refs:
-        relationship = _resolve_relationship_for_validator(semantic_repository, relationship_ref)
-        if relationship is None:
-            issues.append(
-                ValidationIssue(
-                    code="missing_entity_relationship",
-                    gate="cross_entity_composition",
-                    category="compatibility",
-                    severity="error",
-                    message="Required entity relationship could not be resolved",
-                    subject_ref=relationship_ref,
-                    details={
-                        "relationship_ref": relationship_ref,
-                        "entity_refs": composition.all_entity_refs,
-                    },
-                )
-            )
-            continue
-        _record_resolved_relationship(resolved_inputs, relationship)
-        relationship_entities = {
-            _optional_str(relationship.semantic_object.get("left_entity_ref")),
-            _optional_str(relationship.semantic_object.get("right_entity_ref")),
-        }
-        relationship_entities.discard(None)
-        if not set(composition.all_entity_refs).issubset(relationship_entities):
-            issues.append(
-                ValidationIssue(
-                    code="missing_entity_relationship",
-                    gate="cross_entity_composition",
-                    category="compatibility",
-                    severity="error",
-                    message="Required entity relationship does not cover all composed entities",
-                    subject_ref=relationship_ref,
-                    details={
-                        "relationship_ref": relationship_ref,
-                        "entity_refs": composition.all_entity_refs,
-                        "relationship_entity_refs": sorted(relationship_entities),
-                    },
-                )
-            )
-            continue
-        issues.extend(
-            _relationship_profile_issues(
-                relationship,
-                derived_state=derived_state,
-                metric_ref=metric_ref,
-            )
-        )
-    return issues
-
-
-def _resolve_relationship_for_validator(
-    semantic_repository: SemanticRuntimeRepository | None,
-    relationship_ref: str,
-) -> Any | None:
-    if semantic_repository is None:
-        return None
-    try:
-        return semantic_repository.resolve_relationship_ref(relationship_ref)
-    except Exception:
-        return None
-
-
-def _record_resolved_relationship(
-    resolved_inputs: ResolvedCompilerInputs,
-    relationship: Any,
-) -> None:
-    semantic_object = dict(relationship.semantic_object)
-    resolved_inputs.resolved_relationships[relationship.ref] = ResolvedRelationship(
-        relationship_ref=relationship.ref,
-        left_entity_ref=str(semantic_object.get("left_entity_ref") or ""),
-        right_entity_ref=str(semantic_object.get("right_entity_ref") or ""),
-        key_alignment=dict(semantic_object.get("key_alignment") or {}),
-        time_alignment=dict(semantic_object.get("time_alignment") or {})
-        if isinstance(semantic_object.get("time_alignment"), dict)
-        else None,
-        cardinality=_optional_str(semantic_object.get("cardinality")),
-        grain_compatibility=dict(semantic_object.get("grain_compatibility") or {})
-        if isinstance(semantic_object.get("grain_compatibility"), dict)
-        else None,
-        snapshot_effective_window_alignment=dict(
-            semantic_object.get("snapshot_effective_window_alignment") or {}
-        )
-        if isinstance(semantic_object.get("snapshot_effective_window_alignment"), dict)
-        else None,
-        revision=getattr(relationship, "revision", None),
-    )
-
-
-def _relationship_profile_issues(
-    relationship: Any,
-    *,
-    derived_state: DerivedCompilerState,
-    metric_ref: str | None,
-) -> list[ValidationIssue]:
-    issues: list[ValidationIssue] = []
-    semantic_object = dict(relationship.semantic_object)
-    grain_compatibility = dict(semantic_object.get("grain_compatibility") or {})
-    profile_grain = derived_state.metric_requirements.grain_compatibility or {}
-    required_grain_refs = {
-        str(ref) for ref in profile_grain.get("required_grain_refs") or [] if str(ref).strip()
-    }
-    if required_grain_refs:
-        relationship_grains = {
-            _optional_str(grain_compatibility.get("left_grain_ref")),
-            _optional_str(grain_compatibility.get("right_grain_ref")),
-        }
-        relationship_grains.discard(None)
-        if not required_grain_refs.issubset(relationship_grains):
-            issues.append(
-                ValidationIssue(
-                    code="incompatible_grain",
-                    gate="cross_entity_composition",
-                    category="compatibility",
-                    severity="error",
-                    message="Relationship grain compatibility does not satisfy metric profile",
-                    subject_ref=relationship.ref,
-                    details={
-                        "metric_ref": metric_ref,
-                        "required_grain_refs": sorted(required_grain_refs),
-                        "relationship_grain_refs": sorted(relationship_grains),
-                        "left_grain_ref": grain_compatibility.get("left_grain_ref"),
-                        "right_grain_ref": grain_compatibility.get("right_grain_ref"),
-                    },
-                )
-            )
-        elif (
-            profile_grain.get("compatibility") == "same_grain"
-            and grain_compatibility.get("compatibility") == "same_grain"
-            and grain_compatibility.get("left_grain_ref")
-            != grain_compatibility.get("right_grain_ref")
-        ):
-            issues.append(
-                ValidationIssue(
-                    code="incompatible_grain",
-                    gate="cross_entity_composition",
-                    category="compatibility",
-                    severity="error",
-                    message="same_grain relationship declares different left/right grain refs",
-                    subject_ref=relationship.ref,
-                    details={
-                        "metric_ref": metric_ref,
-                        "left_grain_ref": grain_compatibility.get("left_grain_ref"),
-                        "right_grain_ref": grain_compatibility.get("right_grain_ref"),
-                    },
-                )
-            )
-    return issues
-
-
 def _gate_predicate_contracts(
     resolved_inputs: ResolvedCompilerInputs,
     semantic_repository: SemanticRuntimeRepository | None,
@@ -845,9 +447,6 @@ def _gate_dimension_compatibility(resolved_inputs: ResolvedCompilerInputs) -> li
         dimension.ref: dimension for dimension in resolved_inputs.resolved_dimensions
     }
     metric_dimension_refs = _metric_consumable_dimension_refs(resolved_inputs)
-    imported_dimension_refs = {
-        bridge.dimension_ref for bridge in resolved_inputs.resolved_imported_dimensions
-    }
     unresolved_dimension_refs = {
         str(warning.get("dimension_ref"))
         for warning in resolved_inputs.warnings
@@ -870,59 +469,7 @@ def _gate_dimension_compatibility(resolved_inputs: ResolvedCompilerInputs) -> li
                 )
             )
             continue
-        if dimension_ref in resolved_inputs.imported_dimension_conflicts:
-            issues.append(
-                ValidationIssue(
-                    code="COMPILER_DIMENSION_IMPORT_AMBIGUOUS",
-                    gate="dimension_compatibility",
-                    category="compatibility",
-                    severity="error",
-                    message="Imported dimension bridge is ambiguous for the requested metric",
-                    subject_ref=dimension_ref,
-                    details={
-                        "metric_ref": resolved_inputs.resolved_metric.ref
-                        if resolved_inputs.resolved_metric is not None
-                        else None,
-                        "metric_entity_anchor_ref": resolved_inputs.metric_entity_anchor_ref,
-                        "candidates": [
-                            {
-                                "dimension_ref": bridge.dimension_ref,
-                                "source_binding_ref": bridge.source_binding_ref,
-                                "source_entity_ref": bridge.source_entity_ref,
-                                "import_key": bridge.import_key,
-                            }
-                            for bridge in resolved_inputs.imported_dimension_conflicts[
-                                dimension_ref
-                            ]
-                        ],
-                    },
-                )
-            )
-            continue
-        if (
-            dimension_ref.startswith("dimension.")
-            and dimension_ref not in metric_dimension_refs
-            and dimension_ref not in imported_dimension_refs
-        ):
-            if resolved_inputs.metric_entity_anchor_ref is not None:
-                issues.append(
-                    ValidationIssue(
-                        code="COMPILER_DIMENSION_IMPORT_MISSING",
-                        gate="dimension_compatibility",
-                        category="compatibility",
-                        severity="error",
-                        message="Requested dimension requires an imported entity dimension bridge",
-                        subject_ref=dimension_ref,
-                        details={
-                            "metric_ref": resolved_inputs.resolved_metric.ref
-                            if resolved_inputs.resolved_metric is not None
-                            else None,
-                            "metric_entity_anchor_ref": resolved_inputs.metric_entity_anchor_ref,
-                            "available_imported_dimension_refs": sorted(imported_dimension_refs),
-                        },
-                    )
-                )
-                continue
+        if dimension_ref.startswith("dimension.") and dimension_ref not in metric_dimension_refs:
             issues.append(
                 ValidationIssue(
                     code="COMPILER_DIMENSION_NOT_EXPORTED",
@@ -1134,7 +681,7 @@ def _gate_lowering_precheck(
         normalized_predicate_input=normalized_input,
         resolved_bindings=[],
         component_fields=component_fields or [],
-        resolved_entity_field_refs=resolved_inputs.resolved_entity_field_refs,
+        resolved_entity_field_refs=[],
     )
 
 

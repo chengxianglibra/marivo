@@ -11,30 +11,12 @@ from marivo.adapters.metadata import MetadataStore
 from marivo.adapters.schema import metadata_ddl_for_backend, metadata_schema_marker_row
 
 _CATALOG_METADATA_SCHEMA_COLUMNS: tuple[tuple[str, str, str], ...] = (
-    ("semantic_entity_contracts", "catalog_metadata_json", "TEXT NOT NULL DEFAULT '{}'"),
     ("semantic_metric_contracts", "catalog_metadata_json", "TEXT NOT NULL DEFAULT '{}'"),
     ("semantic_process_objects", "catalog_metadata_json", "TEXT NOT NULL DEFAULT '{}'"),
     ("semantic_dimension_contracts", "catalog_metadata_json", "TEXT NOT NULL DEFAULT '{}'"),
     ("semantic_time_objects", "catalog_metadata_json", "TEXT NOT NULL DEFAULT '{}'"),
     ("semantic_predicate_contracts", "catalog_metadata_json", "TEXT NOT NULL DEFAULT '{}'"),
     ("compiler_compatibility_profiles", "catalog_metadata_json", "TEXT NOT NULL DEFAULT '{}'"),
-    ("semantic_entity_relationships", "catalog_metadata_json", "TEXT NOT NULL DEFAULT '{}'"),
-)
-
-_ENTITY_GROUNDING_SCHEMA_COLUMNS: tuple[tuple[str, str], ...] = (
-    (
-        "entity_kind",
-        "TEXT NOT NULL DEFAULT 'business_entity' CHECK "
-        "(entity_kind IN ('business_entity', 'event_entity', 'fact_entity', "
-        "'snapshot_entity', 'derived_entity'))",
-    ),
-    ("fields_json", "TEXT NOT NULL DEFAULT '[]'"),
-    ("binding_json", "TEXT"),
-)
-
-_ENTITY_FIELD_REFERENCING_SCHEMA_COLUMNS: tuple[tuple[str, str, str], ...] = (
-    ("semantic_dimension_contracts", "source_field_ref", "TEXT"),
-    ("semantic_time_objects", "source_field_ref", "TEXT"),
 )
 
 
@@ -70,18 +52,6 @@ class SQLiteMetadataStore(MetadataStore):
 
     def _upgrade_legacy_semantic_schema(self, con: sqlite3.Connection) -> None:
         for table_name, column_name, column_definition in _CATALOG_METADATA_SCHEMA_COLUMNS:
-            columns = self._column_names(con, table_name)
-            if column_name not in columns:
-                con.execute(
-                    f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_definition}"
-                )
-        entity_columns = self._column_names(con, "semantic_entity_contracts")
-        for column_name, column_definition in _ENTITY_GROUNDING_SCHEMA_COLUMNS:
-            if column_name not in entity_columns:
-                con.execute(
-                    f"ALTER TABLE semantic_entity_contracts ADD COLUMN {column_name} {column_definition}"
-                )
-        for table_name, column_name, column_definition in _ENTITY_FIELD_REFERENCING_SCHEMA_COLUMNS:
             columns = self._column_names(con, table_name)
             if column_name not in columns:
                 con.execute(

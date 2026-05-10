@@ -623,10 +623,6 @@ def _metadata_template_valid(db_path: Path) -> bool:
             str(row[1])
             for row in con.execute("PRAGMA table_info(semantic_metric_contracts)").fetchall()
         }
-        entity_columns = {
-            str(row[1])
-            for row in con.execute("PRAGMA table_info(semantic_entity_contracts)").fetchall()
-        }
         dimension_columns = {
             str(row[1])
             for row in con.execute("PRAGMA table_info(semantic_dimension_contracts)").fetchall()
@@ -636,7 +632,6 @@ def _metadata_template_valid(db_path: Path) -> bool:
             for row in con.execute("PRAGMA table_info(semantic_time_objects)").fetchall()
         }
         catalog_metadata_tables = (
-            "semantic_entity_contracts",
             "semantic_metric_contracts",
             "semantic_process_objects",
             "semantic_dimension_contracts",
@@ -714,7 +709,6 @@ def _metadata_template_valid(db_path: Path) -> bool:
             "revision_compatibility",
             "is_latest_active",
         }.issubset(metric_columns)
-        and {"entity_kind", "fields_json", "binding_json"}.issubset(entity_columns)
         and {"source_field_ref"}.issubset(dimension_columns)
         and {"source_field_ref"}.issubset(time_columns)
         and tables_with_catalog_metadata == set(catalog_metadata_tables)

@@ -122,21 +122,6 @@ def build_step_semantic_metadata(
             for compiled in compiled_list
         ]
     )
-    entity_field_refs = _merge_unique_str(
-        [
-            field_ref
-            for compiled in compiled_list
-            for field_ref in list(compiled.metadata.get("resolved_entity_field_refs") or [])
-        ]
-    )
-    entity_field_sources = [
-        dict(source)
-        for compiled in compiled_list
-        for source_list in [compiled.metadata.get("resolved_entity_field_sources")]
-        if isinstance(source_list, list)
-        for source in source_list
-        if isinstance(source, dict)
-    ]
     relationship_refs = _merge_unique_str(
         [
             relationship_ref
@@ -187,49 +172,12 @@ def build_step_semantic_metadata(
         for summary in [compiled.metadata.get("resolved_calendar_alignment")]
         if isinstance(summary, dict)
     ]
-    imported_dimension_lineage = [
-        dict(summary)
-        for compiled in compiled_list
-        for summary in [compiled.metadata.get("resolved_imported_dimensions")]
-        if isinstance(summary, list)
-        for summary in summary
-        if isinstance(summary, dict)
-    ]
-    imported_dimension_conflicts = [
-        {
-            "dimension_ref": dimension_ref,
-            "candidates": [
-                dict(candidate) for candidate in candidates if isinstance(candidate, dict)
-            ],
-        }
-        for compiled in compiled_list
-        for conflict_map in [compiled.metadata.get("imported_dimension_conflicts")]
-        if isinstance(conflict_map, dict)
-        for dimension_ref, candidates in conflict_map.items()
-        if isinstance(candidates, list)
-    ]
-    imported_dimension_sources = [
-        dict(source)
-        for compiled in compiled_list
-        for source_list in [compiled.metadata.get("resolved_imported_dimension_sources")]
-        if isinstance(source_list, list)
-        for source in source_list
-        if isinstance(source, dict)
-    ]
     metric_execution_contexts = [
         dict(context)
         for compiled in compiled_list
         for context in [compiled.metadata.get("metric_execution_context")]
         if isinstance(context, dict)
     ]
-    metric_entity_anchor_refs = _merge_unique_str(
-        [
-            str(compiled.metadata.get("metric_entity_anchor_ref"))
-            if compiled.metadata.get("metric_entity_anchor_ref")
-            else None
-            for compiled in compiled_list
-        ]
-    )
     resolved_refs: dict[str, dict[str, Any]] = {}
     for compiled in compiled_list:
         metric_ref = compiled.metadata.get("resolved_metric_ref")
@@ -257,8 +205,6 @@ def build_step_semantic_metadata(
             metric_object_ids,
             process_refs,
             filter_time_refs,
-            entity_field_refs,
-            entity_field_sources,
             relationship_refs,
             relationship_sources,
             dimension_refs,
@@ -266,11 +212,7 @@ def build_step_semantic_metadata(
             request_classes,
             compiler_summaries,
             resolved_calendar_alignments,
-            imported_dimension_lineage,
-            imported_dimension_conflicts,
-            imported_dimension_sources,
             metric_execution_contexts,
-            metric_entity_anchor_refs,
             resolved_refs,
             calendar_policy_binding,
         )
@@ -287,44 +229,19 @@ def build_step_semantic_metadata(
             "process_ref": process_refs[0] if process_refs else None,
             "dimension_refs": dimension_refs,
             "filter_time_ref": filter_time_refs[0] if filter_time_refs else None,
-            "metric_entity_anchor_ref": (
-                metric_entity_anchor_refs[0] if metric_entity_anchor_refs else None
-            ),
             "request_classes": request_classes,
         },
-        "entity_field_refs": entity_field_refs,
         "relationship_refs": relationship_refs,
         "compile_context": {
             "ir_plan_ids": ir_plan_ids,
             "compiler_summaries": compiler_summaries,
-            "entity_field_sources": entity_field_sources,
             "relationship_sources": relationship_sources,
             "resolved_calendar_alignments": resolved_calendar_alignments,
-            "imported_dimension_lineage": imported_dimension_lineage,
-            "imported_dimension_conflicts": imported_dimension_conflicts,
-            "imported_dimension_sources": imported_dimension_sources,
             "metric_execution_contexts": metric_execution_contexts,
             "calendar_policy_binding": calendar_policy_binding,
         },
         "resolved_refs": resolved_refs,
     }
-    for source in entity_field_sources:
-        field_ref = source.get("field_ref")
-        if not field_ref:
-            continue
-        resolved = resolved_refs.setdefault(str(field_ref), {"ref": str(field_ref)})
-        if source.get("entity_revision") is not None:
-            resolved["entity_revision"] = int(source["entity_revision"])
-        if source.get("entity_ref") is not None:
-            resolved["entity_ref"] = str(source["entity_ref"])
-        if source.get("physical_column") is not None:
-            resolved["physical_column"] = str(source["physical_column"])
-        if source.get("physical_expression_locator") is not None:
-            resolved["physical_expression_locator"] = source["physical_expression_locator"]
-        if source.get("source_object_ref") is not None:
-            resolved["source_object_ref"] = str(source["source_object_ref"])
-        if source.get("source_object_fqn") is not None:
-            resolved["source_object_fqn"] = str(source["source_object_fqn"])
     for source in relationship_sources:
         relationship_ref = source.get("relationship_ref")
         if not relationship_ref:

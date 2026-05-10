@@ -18,6 +18,6 @@ def handle(args: argparse.Namespace) -> None:
     config = LocalConfig(workspace_root=Path.cwd())
     runtime = create_local_runtime(config, explicit="local")
     server = FastMCP("marivo")
-    register_tools(server, runtime)
+    register_tools(server, runtime, transport="stdio")
     register_resources(server, runtime)
     server.run()

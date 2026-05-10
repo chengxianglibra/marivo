@@ -166,21 +166,6 @@ class FakeRuntime:
     def get_proposition_context(self, **kw):
         return {}
 
-    def discover_catalog(self, **kw):
-        return {}
-
-    def list_openapi_paths(self, **kw):
-        return {}
-
-    def get_openapi_schema(self, **kw):
-        return {}
-
-    def get_openapi_fragment(self, **kw):
-        return {}
-
-    def get_openapi_path_fragment(self, **kw):
-        return {}
-
 
 def test_marivo_mcp_entry_point_callable():
     """The marivo mcp subcommand handler is callable."""
@@ -190,16 +175,26 @@ def test_marivo_mcp_entry_point_callable():
 
 
 def test_stdio_server_registers_tools():
-    """A stdio-configured FastMCP server registers the full tool set."""
+    """A stdio-configured FastMCP server registers tools without catalog/OpenAPI group."""
     from marivo.transports.mcp.tools import register_tools
 
-    server = FastMCP("marivo")  # Same name as stdio.py uses
-    register_tools(server, FakeRuntime())
+    server = FastMCP("marivo")  # Same name as cmd_mcp.py uses
+    register_tools(server, FakeRuntime(), transport="stdio")
 
     tools = server._tool_manager.list_tools()
     tool_names = [t.name for t in tools]
 
-    # Verify all expected tools are present
+    # Catalog / OpenAPI tools must NOT be present in stdio mode
+    for excluded in (
+        "health_check",
+        "list_openapi_paths",
+        "get_openapi_schema",
+        "get_openapi_fragment",
+        "get_openapi_path_fragment",
+    ):
+        assert excluded not in tool_names, f"Stdio mode should not expose {excluded}"
+
+    # Verify all expected stdio tools are present
     expected_tools = [
         # Intent tools
         "observe",
@@ -220,13 +215,6 @@ def test_stdio_server_registers_tools():
         "get_session_state",
         "query_session_state",
         "get_proposition_context",
-        # Catalog tools
-        "health_check",
-        "get_catalog",
-        "list_openapi_paths",
-        "get_openapi_schema",
-        "get_openapi_fragment",
-        "get_openapi_path_fragment",
         # Semantic tools
         "create_semantic_model",
         "list_semantic_models",

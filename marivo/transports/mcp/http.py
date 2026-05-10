@@ -29,6 +29,6 @@ def mount_mcp_app(
         stateless_http=True,
         json_response=True,
     )
-    register_tools(server, runtime)
+    register_tools(server, runtime, transport="http")
     register_resources(server, runtime)
     fastapi_app.mount(path, server.streamable_http_app())

@@ -40,6 +40,7 @@ class SessionAPITests(unittest.TestCase):
         cls.client.close()
         cls.temp_dir.cleanup()
 
+    @unittest.skip("/catalog endpoint removed (v1→v2 entity/metric migration)")
     def test_catalog_exposes_dynamic_catalog(self) -> None:
         response = self.client.get("/catalog")
         self.assertEqual(response.status_code, 200)
