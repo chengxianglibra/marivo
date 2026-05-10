@@ -31,7 +31,6 @@ from marivo.core.semantic.ir import (
     AnalysisStepIR,
     ArtifactLineageEntry,
     CompileReport,
-    EntityFieldRefSnapshot,
     IntentNode,
     IntentRequestSnapshot,
     IrArtifact,
@@ -282,9 +281,6 @@ _VALIDATION_GATE_ORDER: tuple[
         "request_shape",
         "intent_support",
         "metric_process_compatibility",
-        "entity_field_resolution",
-        "field_usage_compatibility",
-        "cross_entity_composition",
         "binding_grounding",
         "predicate_contract",
         "scope_validation",
@@ -299,9 +295,6 @@ _VALIDATION_GATE_ORDER: tuple[
     "request_shape",
     "intent_support",
     "metric_process_compatibility",
-    "entity_field_resolution",
-    "field_usage_compatibility",
-    "cross_entity_composition",
     "binding_grounding",
     "predicate_contract",
     "scope_validation",
@@ -363,11 +356,7 @@ def _build_request_compatibility_error(
 
 
 def _requests_imported_dimensions(resolved_inputs: ResolvedCompilerInputs) -> bool:
-    requested_dimension_refs = set(resolved_inputs.normalized_request.request_dimensions)
-    imported_dimension_refs = {
-        bridge.dimension_ref for bridge in resolved_inputs.resolved_imported_dimensions
-    }
-    return bool(requested_dimension_refs & imported_dimension_refs)
+    return False
 
 
 def _resolve_imported_dimension_physical_sources(
@@ -375,37 +364,8 @@ def _resolve_imported_dimension_physical_sources(
     *,
     semantic_repository: SemanticRuntimeRepository | None,
 ) -> tuple[list[dict[str, Any]], list[ValidationIssue]]:
-    if not _requests_imported_dimensions(resolved_inputs):
-        return [], []
-    _ = semantic_repository
-    requested_dimension_refs = set(resolved_inputs.normalized_request.request_dimensions)
-    imported_dimension_refs = {
-        bridge.dimension_ref: bridge
-        for bridge in resolved_inputs.resolved_imported_dimensions
-        if bridge.dimension_ref in requested_dimension_refs
-    }
-    return [], [
-        ValidationIssue(
-            code="COMPILER_DIMENSION_IMPORT_PHYSICAL_UNRESOLVED",
-            gate="dimension_compatibility",
-            category="compatibility",
-            severity="error",
-            message=(
-                "Imported dimension physical source resolution through persisted bindings "
-                "has been removed; use dataset-native field grounding instead"
-            ),
-            subject_ref=dimension_ref,
-            details={
-                "metric_ref": resolved_inputs.resolved_metric.ref
-                if resolved_inputs.resolved_metric is not None
-                else None,
-                "source_binding_ref": bridge.source_binding_ref,
-                "source_entity_ref": bridge.source_entity_ref,
-                "import_key": bridge.import_key,
-            },
-        )
-        for dimension_ref, bridge in sorted(imported_dimension_refs.items())
-    ]
+    _ = (resolved_inputs, semantic_repository)
+    return [], []
 
 
 def _build_validation_trace(validation_result: Any) -> list[ValidationRecord]:
@@ -476,13 +436,6 @@ def _build_lowering_requirements(
             {
                 "requirement_kind": "time_window_filter",
                 "source_node_id": intent_node_id,
-            }
-        )
-    if resolved_inputs.resolved_entity_fields and resolved_inputs.resolved_metric is not None:
-        requirements.append(
-            {
-                "requirement_kind": "entity_field_grounding",
-                "source_node_id": f"measurement:{step.index}",
             }
         )
     return requirements
@@ -717,26 +670,6 @@ def _process_snapshot(process: ResolvedSemanticObject) -> ProcessRefSnapshot:
     return snapshot
 
 
-def _entity_field_snapshot(field: Any) -> EntityFieldRefSnapshot:
-    snapshot: EntityFieldRefSnapshot = {
-        "field_ref": field.field_ref,
-        "entity_ref": field.entity_ref,
-        "local_field_ref": field.local_field_ref,
-        "entity_revision": field.entity_revision,
-    }
-    if field.source_object_ref is not None:
-        snapshot["source_object_ref"] = field.source_object_ref
-    if field.source_object_fqn is not None:
-        snapshot["source_object_fqn"] = field.source_object_fqn
-    if field.carrier_kind is not None:
-        snapshot["carrier_kind"] = field.carrier_kind
-    if field.physical_column is not None:
-        snapshot["physical_column"] = field.physical_column
-    if field.physical_expression_locator is not None:
-        snapshot["physical_expression_locator"] = field.physical_expression_locator
-    return snapshot
-
-
 def _relationship_snapshot(relationship: Any) -> RelationshipRefSnapshot:
     return {
         "relationship_ref": relationship.relationship_ref,
@@ -796,11 +729,6 @@ def _build_ir_inputs(
     ]
     if process_refs:
         input_snapshot["process_refs"] = process_refs
-    if resolved_inputs.resolved_entity_fields:
-        input_snapshot["resolved_entity_fields"] = [
-            _entity_field_snapshot(field)
-            for field in resolved_inputs.resolved_entity_fields.values()
-        ]
     if resolved_inputs.resolved_relationships:
         input_snapshot["resolved_relationships"] = [
             _relationship_snapshot(relationship)
@@ -1171,28 +1099,6 @@ def compile_step(
         if resolved_inputs.resolved_filter_time is not None
         else None,
         "resolved_dimension_refs": resolved_inputs.resolved_dimension_refs,
-        "resolved_entity_field_refs": resolved_inputs.resolved_entity_field_refs,
-        "resolved_entity_field_sources": [
-            {
-                "field_ref": field.field_ref,
-                "entity_ref": field.entity_ref,
-                "local_field_ref": field.local_field_ref,
-                "entity_revision": field.entity_revision,
-                "value_type": field.value_type,
-                "nullable": field.nullable,
-                "unit": field.unit,
-                "enum_hint": field.enum_hint,
-                "profile_summary": field.profile_summary,
-                "sensitivity_tags": list(field.sensitivity_tags),
-                "source_object_ref": field.source_object_ref,
-                "source_object_fqn": field.source_object_fqn,
-                "carrier_kind": field.carrier_kind,
-                "physical_column": field.physical_column,
-                "physical_expression_locator": field.physical_expression_locator,
-                "usage_paths": list(field.usage_paths),
-            }
-            for field in resolved_inputs.resolved_entity_fields.values()
-        ],
         "resolved_relationship_refs": sorted(resolved_inputs.resolved_relationships),
         "resolved_relationship_sources": [
             {
@@ -1210,29 +1116,6 @@ def compile_step(
             }
             for relationship in resolved_inputs.resolved_relationships.values()
         ],
-        "metric_entity_anchor_ref": resolved_inputs.metric_entity_anchor_ref,
-        "resolved_imported_dimensions": [
-            {
-                "dimension_ref": bridge.dimension_ref,
-                "source_binding_ref": bridge.source_binding_ref,
-                "source_entity_ref": bridge.source_entity_ref,
-                "import_key": bridge.import_key,
-            }
-            for bridge in resolved_inputs.resolved_imported_dimensions
-        ],
-        "imported_dimension_conflicts": {
-            dimension_ref: [
-                {
-                    "dimension_ref": bridge.dimension_ref,
-                    "source_binding_ref": bridge.source_binding_ref,
-                    "source_entity_ref": bridge.source_entity_ref,
-                    "import_key": bridge.import_key,
-                }
-                for bridge in bridges
-            ]
-            for dimension_ref, bridges in resolved_inputs.imported_dimension_conflicts.items()
-        },
-        "resolved_imported_dimension_sources": imported_dimension_sources,
         "compiler_summary": ir_bundle["compile_report"]["validation_summary"],
         "resolved_calendar_alignment": ir_bundle["compile_report"].get(
             "resolved_calendar_alignment"

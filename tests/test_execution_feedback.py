@@ -248,8 +248,6 @@ class ExecutionFeedbackTests(unittest.TestCase):
                         "subject_ref": "dimension.cluster",
                         "details": {
                             "metric_ref": "metric.watch_time",
-                            "metric_entity_anchor_ref": "entity.user",
-                            "available_imported_dimension_refs": [],
                         },
                     }
                 ],

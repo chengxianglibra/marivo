@@ -56,9 +56,6 @@ class SemanticRuntimeRepository:
             dependency_refs=[],
         )
 
-    def resolve_entity_ref(self, entity_ref: str) -> ResolvedSemanticObject:
-        raise KeyError(f"Entity ref not found: {entity_ref}")
-
     def resolve_metric_ref(self, metric_ref: str) -> ResolvedSemanticObject:
         row = self.metadata.query_one(
             """
@@ -137,9 +134,6 @@ class SemanticRuntimeRepository:
         raise KeyError(f"Predicate ref not found: {predicate_ref}")
 
     def resolve_metric(self, metric_name: str) -> Any:
-        return None
-
-    def resolve_entity(self, entity_name: str) -> Any:
         return None
 
     def resolve_metric_sql(self, metric_name: str) -> str | None:
@@ -241,7 +235,4 @@ class _StubResolver:
         raise KeyError(f"Semantic ref not found: {semantic_ref}")
 
     def resolve_metric(self, metric_name: str) -> Any:
-        return None
-
-    def resolve_entity(self, entity_name: str) -> Any:
         return None

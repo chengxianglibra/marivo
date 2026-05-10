@@ -14,11 +14,6 @@ def register_catalog_tools(server: Any, runtime: Any) -> None:
         return {"data": {"status": "ok"}, "error": None}
 
     @server.tool()  # type: ignore
-    async def get_catalog() -> dict[str, Any]:
-        """Read the API catalog via GET /catalog."""
-        return await call_runtime(runtime.discover_catalog)
-
-    @server.tool()  # type: ignore
     async def list_openapi_paths() -> dict[str, Any]:
         """List canonical OpenAPI paths and schema names via GET /openapi/index for low-cost contract discovery."""
         return await call_runtime(runtime.list_openapi_paths)

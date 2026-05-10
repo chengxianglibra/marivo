@@ -1018,14 +1018,8 @@ def resolve_metric_dimensions(
 
     observed_entity_ref = _optional_str(header.get("observed_entity_ref"))
     if observed_entity_ref is not None:
-        return _resolve_entity_dimensions(runtime, observed_entity_ref)
+        return []
 
-    return []
-
-
-def _resolve_entity_dimensions(runtime: MarivoRuntime, entity_ref: str) -> list[str]:
-    """Get canonical dimensions exposed by published entity bindings."""
-    # Stub — entity binding dimensions removed during OSI v2 migration.
     return []
 
 
@@ -1591,32 +1585,6 @@ def _resolved_scope_filter(
     )
 
 
-def _resolve_entity_for_metric(runtime: MarivoRuntime, metric_ref: str) -> dict[str, Any] | None:
-    """Return the published entity linked to the given metric name, or None."""
-    try:
-        metric_ref = _coerce_metric_ref(metric_ref)
-        repo = runtime.semantic_repository
-        if repo is None:
-            return None
-        resolved_metric = repo.resolve_metric_ref(metric_ref)
-        observed_entity_ref = resolved_metric.semantic_object.get("header", {}).get(
-            "observed_entity_ref"
-        )
-        if not observed_entity_ref:
-            return None
-        resolved_entity = repo.resolve_entity(str(observed_entity_ref).removeprefix("entity."))
-        if resolved_entity is None:
-            return None
-        return {
-            "entity_contract_id": resolved_entity.metadata.get("entity_contract_id"),
-            "name": resolved_entity.name,
-            "status": resolved_entity.metadata.get("status"),
-            "properties": dict(resolved_entity.metadata.get("properties") or {}),
-        }
-    except Exception:
-        return None
-
-
 def resolve_engine(
     runtime: MarivoRuntime,
     table_names: list[str],
@@ -1682,25 +1650,6 @@ def _make_provenance(
     from marivo.core.intent.primitives import make_provenance
 
     return make_provenance(sql, params, engine_type=engine_type, routing=routing)
-
-
-def _resolve_metric_unit_note(runtime: MarivoRuntime, metric_ref: str) -> str | None:
-    """Return a concise unit note for a metric if one is available."""
-    try:
-        entity = _resolve_entity_for_metric(runtime, metric_ref)
-        if entity:
-            fields = entity.get("properties", {}).get("fields", {})
-            field_units = {
-                col: info["unit"]
-                for col, info in fields.items()
-                if isinstance(info, dict) and info.get("unit")
-            }
-            if field_units:
-                parts = ", ".join(f"{col}: {u}" for col, u in field_units.items())
-                return f"Unit (from entity): {parts}"
-    except Exception:
-        pass
-    return None
 
 
 def _insert_step(
@@ -1884,17 +1833,12 @@ def run_metric_query(
         compiled_query.sql, compiled_query.params, engine_type=engine_type, routing=routing_feedback
     )
 
-    # G-5e: resolve unit for the metric from confirmed hints or entity properties
-    unit_note = _resolve_metric_unit_note(runtime, metric_name)
-
     result: dict[str, Any] = {
         "step_type": step_type,
         "metric_name": metric_name,
         "summary": summary,
         "artifact_id": artifact_id,
     }
-    if unit_note:
-        result["unit_note"] = unit_note
     if not rows:
         result["debug"] = _debug
     elif mode == "compare" and window_size_mismatch:

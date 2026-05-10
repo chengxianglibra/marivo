@@ -39,7 +39,6 @@ from datetime import date, datetime
 from typing import Any, Literal, cast
 
 from marivo.core.semantic.ir import (
-    EntityFieldRefSnapshot,
     IntentNode,
     IntentRequestSnapshot,
     IrBundle,
@@ -762,9 +761,6 @@ _VALIDATION_GATE_ORDER: tuple[
         "request_shape",
         "intent_support",
         "metric_process_compatibility",
-        "entity_field_resolution",
-        "field_usage_compatibility",
-        "cross_entity_composition",
         "binding_grounding",
         "predicate_contract",
         "scope_validation",
@@ -779,9 +775,6 @@ _VALIDATION_GATE_ORDER: tuple[
     "request_shape",
     "intent_support",
     "metric_process_compatibility",
-    "entity_field_resolution",
-    "field_usage_compatibility",
-    "cross_entity_composition",
     "binding_grounding",
     "predicate_contract",
     "scope_validation",
@@ -938,26 +931,6 @@ def process_snapshot(process: Any) -> ProcessRefSnapshot:
     return snapshot
 
 
-def entity_field_snapshot(field: Any) -> EntityFieldRefSnapshot:
-    snapshot: EntityFieldRefSnapshot = {
-        "field_ref": field.field_ref,
-        "entity_ref": field.entity_ref,
-        "local_field_ref": field.local_field_ref,
-        "entity_revision": field.entity_revision,
-    }
-    if field.source_object_ref is not None:
-        snapshot["source_object_ref"] = field.source_object_ref
-    if field.source_object_fqn is not None:
-        snapshot["source_object_fqn"] = field.source_object_fqn
-    if field.carrier_kind is not None:
-        snapshot["carrier_kind"] = field.carrier_kind
-    if field.physical_column is not None:
-        snapshot["physical_column"] = field.physical_column
-    if field.physical_expression_locator is not None:
-        snapshot["physical_expression_locator"] = field.physical_expression_locator
-    return snapshot
-
-
 def relationship_snapshot(relationship: Any) -> RelationshipRefSnapshot:
     return {
         "relationship_ref": relationship.relationship_ref,
@@ -1010,7 +983,7 @@ def build_ir_inputs(
 ) -> IrInputSnapshot:
     """Build the IR input snapshot from normalized request and resolved inputs.
 
-    *resolved_inputs* must have ``.resolved_entity_fields``, ``.resolved_relationships``,
+    *resolved_inputs* must have ``.resolved_relationships``,
     ``.resolved_metric``, ``.resolved_process``, ``.resolved_left_process``,
     ``.resolved_right_process``.
     """
@@ -1030,11 +1003,6 @@ def build_ir_inputs(
     ]
     if process_refs:
         input_snapshot["process_refs"] = process_refs
-    if resolved_inputs.resolved_entity_fields:
-        input_snapshot["resolved_entity_fields"] = [
-            entity_field_snapshot(field)
-            for field in resolved_inputs.resolved_entity_fields.values()
-        ]
     if resolved_inputs.resolved_relationships:
         input_snapshot["resolved_relationships"] = [
             relationship_snapshot(relationship)
@@ -1069,7 +1037,7 @@ def build_lowering_requirements(
     """Build lowering requirements for a compiled step.
 
     *normalized_request* must have ``.request_time_scope``.
-    *resolved_inputs* must have ``.resolved_entity_fields``, ``.resolved_metric``.
+    *resolved_inputs* must have ``.resolved_metric``.
     """
     requirements: list[LoweringRequirement] = [
         {
@@ -1082,13 +1050,6 @@ def build_lowering_requirements(
             {
                 "requirement_kind": "time_window_filter",
                 "source_node_id": intent_node_id,
-            }
-        )
-    if resolved_inputs.resolved_entity_fields and resolved_inputs.resolved_metric is not None:
-        requirements.append(
-            {
-                "requirement_kind": "entity_field_grounding",
-                "source_node_id": f"measurement:{step_index}",
             }
         )
     return requirements

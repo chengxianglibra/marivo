@@ -59,7 +59,6 @@ class EntityFieldRefSnapshot(TypedDict):
     local_field_ref: str
     entity_revision: int
     source_object_ref: NotRequired[str | None]
-    source_object_fqn: NotRequired[str | None]
     carrier_kind: NotRequired[str | None]
     physical_column: NotRequired[str | None]
     physical_expression_locator: NotRequired[dict[str, Any] | None]
@@ -221,9 +220,6 @@ class ValidationRecord(TypedDict):
         "request_shape",
         "intent_support",
         "metric_process_compatibility",
-        "entity_field_resolution",
-        "field_usage_compatibility",
-        "cross_entity_composition",
         "binding_grounding",
         "predicate_contract",
         "scope_validation",

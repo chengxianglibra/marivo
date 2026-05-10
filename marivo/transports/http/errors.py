@@ -472,13 +472,6 @@ _LEGACY_PHYSICAL_GROUNDING_FIELDS = frozenset(
     }
 )
 
-_ENTITY_FIELD_AUTHORING_ERROR_MARKERS = frozenset(
-    {
-        "fully qualified entity field",
-        "entity.<entity>.field.<field>",
-    }
-)
-
 
 def _detail_mentions_legacy_physical_grounding(detail: list[dict[str, Any]]) -> bool:
     for item in detail:
@@ -489,14 +482,6 @@ def _detail_mentions_legacy_physical_grounding(detail: list[dict[str, Any]]) -> 
             return True
         message = str(item.get("msg") or "")
         if any(field in message for field in _LEGACY_PHYSICAL_GROUNDING_FIELDS):
-            return True
-    return False
-
-
-def _detail_mentions_entity_field_authoring(detail: list[dict[str, Any]]) -> bool:
-    for item in detail:
-        message = str(item.get("msg") or "")
-        if any(marker in message for marker in _ENTITY_FIELD_AUTHORING_ERROR_MARKERS):
             return True
     return False
 
@@ -516,10 +501,7 @@ def _add_entity_first_authoring_guidance(
     }
     if route_path not in semantic_routes:
         return
-    if detail is not None and not (
-        _detail_mentions_legacy_physical_grounding(detail)
-        or _detail_mentions_entity_field_authoring(detail)
-    ):
+    if detail is not None and not (_detail_mentions_legacy_physical_grounding(detail)):
         return
     guidance["authoring_model"] = "dataset_native"
     guidance["legacy_physical_grounding_fields"] = sorted(_LEGACY_PHYSICAL_GROUNDING_FIELDS)

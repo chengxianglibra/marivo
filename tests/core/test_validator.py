@@ -8,12 +8,9 @@ from typing import Any
 from marivo.core.semantic.validator import (
     ValidationIssue,
     ValidationResult,
-    _expected_metric_input_types,
-    _expected_predicate_operand_types,
     _normalize_metric_dimension_ref,
     _optional_str,
     gate_dimension_additivity_condition,
-    gate_entity_field_resolution,
     gate_intent_specific,
     gate_intent_support,
     gate_profile_integrity,
@@ -168,13 +165,9 @@ class _FakeResolvedInputs:
     resolved_metric: Any = None
     resolved_process: Any = None
     resolved_filter_time: Any = None
-    field_resolution_issues: list[Any] = field(default_factory=list)
-    resolved_entity_fields: dict[str, Any] = field(default_factory=dict)
-    entity_field_usage_details: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     resolved_dimensions: list[Any] = field(default_factory=list)
     resolved_imported_dimensions: list[Any] = field(default_factory=list)
     imported_dimension_conflicts: dict[str, list[Any]] = field(default_factory=dict)
-    metric_entity_anchor_ref: str | None = None
     warnings: list[dict[str, Any]] = field(default_factory=list)
 
 
@@ -237,61 +230,7 @@ def test_gate_intent_support_ok() -> None:
     assert len(issues) == 0
 
 
-# ── gate_entity_field_resolution ───────────────────────────────────────
-
-
-@dataclass
-class _FakeFieldIssue:
-    code: str
-    field_ref: str
-    message: str
-    usage_path: str | None = None
-    details: dict[str, Any] = field(default_factory=dict)
-
-
-def test_gate_entity_field_resolution_empty() -> None:
-    inputs = _FakeResolvedInputs(field_resolution_issues=[])
-    assert gate_entity_field_resolution(inputs) == []
-
-
-def test_gate_entity_field_resolution_binding() -> None:
-    issues = [_FakeFieldIssue(code="missing_entity_binding", field_ref="f", message="m")]
-    inputs = _FakeResolvedInputs(field_resolution_issues=issues)
-    result = gate_entity_field_resolution(inputs)
-    assert len(result) == 1
-    assert result[0].category == "readiness"
-
-
-def test_gate_entity_field_resolution_compatibility() -> None:
-    issues = [_FakeFieldIssue(code="incompatible_field", field_ref="f", message="m")]
-    inputs = _FakeResolvedInputs(field_resolution_issues=issues)
-    result = gate_entity_field_resolution(inputs)
-    assert result[0].category == "compatibility"
-
-
 # ── Pure helpers ───────────────────────────────────────────────────────
-
-
-def test_expected_metric_input_types_sum() -> None:
-    assert _expected_metric_input_types("sum") == {"integer", "number"}
-
-
-def test_expected_metric_input_types_boolean() -> None:
-    assert _expected_metric_input_types("boolean_any") == {"boolean"}
-
-
-def test_expected_metric_input_types_default() -> None:
-    result = _expected_metric_input_types("count")
-    assert "string" in result
-    assert "integer" in result
-
-
-def test_expected_predicate_operand_types_gt() -> None:
-    assert _expected_predicate_operand_types("gt") == {"integer", "number", "date", "datetime"}
-
-
-def test_expected_predicate_operand_types_eq() -> None:
-    assert _expected_predicate_operand_types("eq") == set()
 
 
 def test_normalize_metric_dimension_ref_full() -> None:

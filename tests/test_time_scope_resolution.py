@@ -620,6 +620,7 @@ class _FakeEngine:
 
 
 @unittest.skip("SemanticLayerService internals removed; needs migration to MarivoRuntime")
+@unittest.skip("Requires semantic_entity_contracts table (deleted in v1→v2 migration)")
 class TimeScopeServiceBridgeTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
