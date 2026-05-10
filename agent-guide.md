@@ -83,7 +83,6 @@ When working on a task, read the right docs first:
 | Frontend UI | `docs/ui/frontend-design.zh.md` | `frontend/README.md` |
 | Adding or modifying tests | `.agents/skills/marivo-test-fixtures/SKILL.md` | Spec docs for the domain |
 | Product background / motivation | `docs/marivo-proposal.md` | `docs/marivo-for-builders.zh.md` |
-| Active development plans | `docs/superpowers/README.md` | Dated plan/spec files |
 | Global doc index | `docs/README.md` | — |
 
 ## Documentation Updates
@@ -95,49 +94,6 @@ When working on a task, read the right docs first:
   one-off workaround notes here.
 - Put task-specific procedures in project-local skills, README files, or the
   relevant domain documentation.
-
-## Superpowers + Gstack Workflow
-
-This repo uses two skill suites that complement each other:
-
-- **Superpowers** — development discipline (how to write code: TDD, planning,
-  debugging, review workflow)
-- **Gstack** — operational/product layer (how to verify and deliver: browser
-  QA, deployment, design review, safety gates)
-
-Use `/browse` from gstack for all web browsing. Never use `mcp__claude-in-chrome__*`
-tools.
-
-### Feature Development Flow
-
-| Phase | Superpowers | Gstack |
-|-------|-------------|--------|
-| Ideation | `brainstorming` | `/design-consultation`, `/design-shotgun`, `/browse` for references |
-| Planning | `writing-plans` | `/plan-eng-review`, `/plan-design-review` |
-| Implementation | `using-git-worktrees` → `test-driven-development` → `executing-plans` | `/browse` for API docs, `/careful` for risky changes |
-| Verification | `verification-before-completion` | `/qa` or `/qa-only` for browser-based e2e, `/benchmark` for perf |
-| Review & Ship | `requesting-code-review` → `finishing-a-development-branch` | `/review`, `/ship`, `/land-and-deploy`, `/canary` |
-| Debugging | `systematic-debugging` | `/investigate` |
-
-### Common Pairing Patterns
-
-| Scenario | First | Then |
-|----------|-------|------|
-| New feature | `brainstorming` | `/design-consultation` |
-| Code complete | `verification-before-completion` | `/qa` |
-| Ready to merge | `requesting-code-review` | `/review` + `/ship` |
-| Bug or regression | `systematic-debugging` | `/investigate` |
-| Risky change | `writing-plans` | `/careful` + `/freeze` |
-
-### Available Gstack Skills
-
-`/office-hours`, `/plan-ceo-review`, `/plan-eng-review`, `/plan-design-review`,
-`/design-consultation`, `/design-shotgun`, `/design-html`, `/review`, `/ship`,
-`/land-and-deploy`, `/canary`, `/benchmark`, `/browse`, `/connect-chrome`,
-`/qa`, `/qa-only`, `/design-review`, `/setup-browser-cookies`, `/setup-deploy`,
-`/setup-gbrain`, `/retro`, `/investigate`, `/document-release`, `/codex`,
-`/cso`, `/autoplan`, `/plan-devex-review`, `/devex-review`, `/careful`,
-`/freeze`, `/guard`, `/unfreeze`, `/gstack-upgrade`, `/learn`.
 
 ## Semantic Modeling Guardrail
 
