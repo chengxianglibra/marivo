@@ -12,6 +12,16 @@ forbidden_modules =
     marivo.adapters
     marivo.transports.cli
 
+[importlinter:contract:generated-contracts-isolation]
+name = contracts/generated/ must not import runtime, adapters, or transports
+type = forbidden
+source_modules =
+    marivo.contracts.generated
+forbidden_modules =
+    marivo.runtime
+    marivo.adapters
+    marivo.transports
+
 [importlinter:contract:ports-isolation]
 name = ports/ must not import app internals
 type = forbidden
