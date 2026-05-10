@@ -83,13 +83,13 @@ class MarivoRuntime:
 
     @property
     def semantic_repository(self) -> Any:
-        """SemanticModelV2Service used as semantic repository (server mode)."""
-        return self._services.get("semantic_v2")
+        """SemanticRuntimeRepository for semantic ref resolution (all modes)."""
+        return self._services.get("semantic_repository")
 
     @property
     def semantic_resolver(self) -> Any:
-        """SemanticModelV2Service used as semantic resolver (server mode)."""
-        return self._services.get("semantic_v2")
+        """SemanticRuntimeRepository for semantic resolution (all modes)."""
+        return self._services.get("semantic_repository")
 
     @property
     def metadata(self) -> Any:
