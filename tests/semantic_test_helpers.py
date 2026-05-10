@@ -7,8 +7,6 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from fastapi.testclient import TestClient
-
 from marivo.adapters.metadata import MetadataStore
 from marivo.ports.analytics import AnalyticsEngine
 from marivo.runtime.runtime import MarivoRuntime
@@ -16,7 +14,6 @@ from marivo.runtime.runtime import MarivoRuntime
 # Stub names for deleted model types — these are no longer functional.
 # The helper functions that use them will raise NotImplementedError at runtime.
 # Task 7 will migrate these helpers to use OSI v2 models.
-TypedEntityCreateRequest = None  # type: ignore[assignment,misc]
 TypedMetricCreateRequest = None  # type: ignore[assignment,misc]
 TimeCreateRequest = None  # type: ignore[assignment,misc]
 DimensionCreateRequest = None  # type: ignore[assignment,misc]
@@ -159,13 +156,6 @@ class _RemovedSemanticServiceStub:
 
     def __getattr__(self, name: str) -> Any:
         raise NotImplementedError(f"SemanticService.{name}() removed — see Task 7")
-
-
-def _metadata_store_from_client(client: TestClient) -> MetadataStore:
-    metadata_store = getattr(client.app.state, "metadata_store", None)
-    if metadata_store is None:
-        metadata_store = client.app.state.services.metadata_store
-    return metadata_store
 
 
 def build_runtime(
@@ -540,104 +530,6 @@ def ensure_published_typed_entity(
     return entity_ref
 
 
-def create_typed_entity(
-    client: TestClient,
-    *,
-    name: str,
-    display_name: str,
-    keys: Sequence[str],
-    description: str = "",
-    primary_time_ref: str | None = None,
-    properties: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    metadata_store = _metadata_store_from_client(client)
-    entity_ref = f"entity.{name}"
-    ensure_published_typed_entity(
-        metadata_store,
-        entity_name=name,
-        display_name=display_name,
-        key_refs=keys,
-    )
-    if properties:
-        metadata_store.execute(
-            """
-            UPDATE semantic_entity_contracts
-            SET properties_json = ?
-            WHERE entity_ref = ?
-            """,
-            [json.dumps(properties), entity_ref],
-        )
-    if primary_time_ref is not None:
-        metadata_store.execute(
-            """
-            UPDATE semantic_entity_contracts
-            SET primary_time_ref = ?
-            WHERE entity_ref = ?
-            """,
-            [primary_time_ref, entity_ref],
-        )
-    if description:
-        metadata_store.execute(
-            """
-            UPDATE semantic_entity_contracts
-            SET description = ?
-            WHERE entity_ref = ?
-            """,
-            [description, entity_ref],
-        )
-    row = metadata_store.query_one(
-        "SELECT * FROM semantic_entity_contracts WHERE entity_ref = ?",
-        [entity_ref],
-    )
-    if row is None:
-        raise AssertionError(f"Expected typed entity fixture for {entity_ref}")
-    return dict(row)
-
-
-def publish_typed_entity(client: TestClient, entity_contract_id: str) -> dict[str, Any]:
-    metadata_store = _metadata_store_from_client(client)
-    metadata_store.execute(
-        "UPDATE semantic_entity_contracts SET status = 'published' WHERE entity_contract_id = ?",
-        [entity_contract_id],
-    )
-    row = metadata_store.query_one(
-        "SELECT * FROM semantic_entity_contracts WHERE entity_contract_id = ?",
-        [entity_contract_id],
-    )
-    if row is None:
-        raise AssertionError(f"Expected typed entity fixture for {entity_contract_id}")
-    return dict(row)
-
-
-def patch_typed_entity_properties(
-    client: TestClient,
-    entity_contract_id: str,
-    properties_patch: dict[str, Any],
-) -> dict[str, Any]:
-    metadata_store = _metadata_store_from_client(client)
-    current = metadata_store.query_one(
-        "SELECT properties_json FROM semantic_entity_contracts WHERE entity_contract_id = ?",
-        [entity_contract_id],
-    )
-    existing = json.loads(current["properties_json"] or "{}") if current is not None else {}
-    merged = {**existing, **properties_patch}
-    metadata_store.execute(
-        f"""
-        UPDATE semantic_entity_contracts
-        SET properties_json = ?, revision = revision + 1, updated_at = {metadata_store.dialect.now_sql()}
-        WHERE entity_contract_id = ?
-        """,
-        [json.dumps(merged), entity_contract_id],
-    )
-    row = metadata_store.query_one(
-        "SELECT * FROM semantic_entity_contracts WHERE entity_contract_id = ?",
-        [entity_contract_id],
-    )
-    if row is None:
-        raise AssertionError(f"Expected typed entity fixture for {entity_contract_id}")
-    return dict(row)
-
-
 def ensure_published_typed_time(
     metadata: MetadataStore,
     *,
@@ -839,103 +731,6 @@ def ensure_published_typed_metric(
     return metric_ref
 
 
-def create_typed_metric(
-    client: TestClient,
-    *,
-    name: str,
-    display_name: str,
-    definition_sql: str,
-    dimensions: Sequence[str],
-    description: str = "",
-    entity_ref: str | None = None,
-    grain: str | None = None,
-    measure_type: str | None = None,
-    allowed_dimensions: Sequence[str] | None = None,
-    quality_expectations: dict[str, Any] | None = None,
-    desired_direction: str | None = None,
-) -> dict[str, Any]:
-    metadata_store = _metadata_store_from_client(client)
-    observed_entity_ref = entity_ref or ensure_published_typed_entity(
-        metadata_store,
-        measure_type=measure_type,
-    )
-    primary_time_ref = ensure_published_typed_time(metadata_store)
-    for dimension_name in dimensions:
-        if dimension_name.startswith("dimension."):
-            ensure_published_typed_dimension(
-                metadata_store,
-                dimension_name=dimension_name.removeprefix("dimension."),
-            )
-        elif dimension_name != "event_date":
-            ensure_published_typed_dimension(metadata_store, dimension_name=dimension_name)
-
-    metric_ref = ensure_published_typed_metric(
-        metadata_store,
-        metric_name=name,
-        display_name=display_name,
-        observed_entity_ref=observed_entity_ref,
-        grain=grain,
-        dimensions=dimensions,
-        definition_sql=definition_sql,
-        measure_type=measure_type,
-        allowed_dimensions=allowed_dimensions,
-        quality_expectations=quality_expectations,
-        desired_direction=desired_direction,
-    )
-    row = metadata_store.query_one(
-        "SELECT metric_contract_id, family_payload_json FROM semantic_metric_contracts WHERE metric_ref = ?",
-        [metric_ref],
-    )
-    if row is None:
-        raise AssertionError(f"Expected typed metric fixture for {metric_ref}")
-    family_payload = json.loads(row["family_payload_json"] or "{}") if row is not None else {}
-    family_payload.update(
-        {
-            "definition_sql": definition_sql,
-            "dimensions": list(dimensions),
-            "grain": grain,
-            "measure_type": measure_type,
-            "allowed_dimensions": list(allowed_dimensions or []),
-            "quality_expectations": dict(quality_expectations or {}),
-            "desired_direction": desired_direction,
-        }
-    )
-    metadata_store.execute(
-        """
-        UPDATE semantic_metric_contracts
-        SET description = ?, family_payload_json = ?
-        WHERE metric_contract_id = ?
-        """,
-        [description, json.dumps(family_payload), row["metric_contract_id"]],
-    )
-    updated = metadata_store.query_one(
-        "SELECT * FROM semantic_metric_contracts WHERE metric_contract_id = ?",
-        [row["metric_contract_id"]],
-    )
-    if updated is None:
-        raise AssertionError(f"Expected typed metric fixture for {metric_ref}")
-    return dict(updated)
-
-
-def publish_typed_metric(client: TestClient, metric_contract_id: str) -> dict[str, Any]:
-    metadata_store = _metadata_store_from_client(client)
-    metadata_store.execute(
-        """
-        UPDATE semantic_metric_contracts
-        SET status = 'published', is_latest_active = 1
-        WHERE metric_contract_id = ?
-        """,
-        [metric_contract_id],
-    )
-    row = metadata_store.query_one(
-        "SELECT * FROM semantic_metric_contracts WHERE metric_contract_id = ?",
-        [metric_contract_id],
-    )
-    if row is None:
-        raise AssertionError(f"Expected typed metric fixture for {metric_contract_id}")
-    return dict(row)
-
-
 def ensure_published_typed_metric_binding(
     metadata: MetadataStore,
     *,
@@ -974,22 +769,3 @@ def ensure_published_typed_metric_binding(
     _ = time_surfaces
     _ = time_axis_links
     return binding_ref
-
-
-def create_typed_metric_binding(
-    client: TestClient,
-    *,
-    metric_ref: str,
-    object_id: str,
-    carrier_locator: str | dict[str, Any],
-    binding_role: str = "primary",
-    mapping_type: str | None = None,
-    metric_input_target_keys: Sequence[str] | None = None,
-) -> dict[str, Any]:
-    _ = client
-    _ = object_id
-    _ = carrier_locator
-    _ = binding_role
-    _ = mapping_type
-    _ = metric_input_target_keys
-    raise NotImplementedError("Typed metric binding fixtures were removed")

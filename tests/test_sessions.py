@@ -40,22 +40,6 @@ class SessionAPITests(unittest.TestCase):
         cls.client.close()
         cls.temp_dir.cleanup()
 
-    @unittest.skip("/catalog endpoint removed (v1→v2 entity/metric migration)")
-    def test_catalog_exposes_dynamic_catalog(self) -> None:
-        response = self.client.get("/catalog")
-        self.assertEqual(response.status_code, 200)
-        payload = response.json()
-        # Top-level keys are present
-        self.assertIn("entities", payload)
-        self.assertIn("metrics", payload)
-        self.assertIn("assets", payload)
-        self.assertIn("policies", payload)
-        # Lists are returned (may be empty in a fresh test DB)
-        self.assertIsInstance(payload["entities"], list)
-        self.assertIsInstance(payload["metrics"], list)
-        self.assertIsInstance(payload["assets"], list)
-        self.assertIsInstance(payload["policies"], list)
-
     def test_list_sessions_returns_paged_envelope(self) -> None:
         """GET /sessions should return the paged list contract."""
         resp = self.client.get("/sessions")
