@@ -60,8 +60,11 @@ expression:
     - dialect: string       # Optional. Recommended values use uppercase snake case, e.g. ANSI_SQL.
       expression: string    # Required. Boolean expression in the declared dialect.
 
-# Absolute time range used by requests and result caveats.
+# Absolute time slice used by requests and result caveats.
 time_scope:
+  # Required: OSI dataset field that provides the time values for this slice.
+  field: string
+
   # Required: inclusive/exclusive time range semantics are implementation-defined by the caller contract.
   start: iso8601_datetime   # Required: range start timestamp.
   end: iso8601_datetime     # Required: range end timestamp.

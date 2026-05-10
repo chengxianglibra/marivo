@@ -86,7 +86,7 @@ AOI uses direct string identifiers instead of reference wrapper primitives:
 
 ### 3.2 Expression, Time
 
-AOI v0.1 has no `Scope` wrapper. Filter conditions are expressed directly through an `Expression` (the OSI multi-dialect expression pattern). Time range and bucketing are two separate concerns: `TimeScope` carries only `start` and `end`; `TimeGranularity` is its own primitive that intents reference where bucketing applies.
+AOI v0.1 has no `Scope` wrapper. Filter conditions are expressed directly through an `Expression` (the OSI multi-dialect expression pattern). Time range and bucketing are two separate concerns: `TimeScope` carries `field`, `start`, and `end`; `TimeGranularity` is its own primitive that intents reference where bucketing applies.
 
 ```jsonc
 // Expression — OSI-style multi-dialect boolean expression
@@ -102,8 +102,9 @@ AOI v0.1 has no `Scope` wrapper. Filter conditions are expressed directly throug
   ]
 }
 
-// TimeScope — pure time range, no bucketing concept
+// TimeScope — dataset time field plus pure time range, no bucketing concept
 {
+  "field": "string",
   "start": "ISO8601",
   "end": "ISO8601"
 }
@@ -123,7 +124,8 @@ AOI v0.1 has no `Scope` wrapper. Filter conditions are expressed directly throug
 
 **TimeScope / TimeGranularity notes**:
 
-- `TimeScope` represents only "what time range is the analysis over". It does not carry granularity because bucketing is meaningless for some outputs (e.g. a scalar observation has no buckets) and belongs in request-specific fields where it does apply.
+- `TimeScope` represents the dataset time field plus "what time range is the analysis over". It does not carry granularity because bucketing is meaningless for some outputs (e.g. a scalar observation has no buckets) and belongs in request-specific fields where it does apply.
+- `TimeScope.field` is a required string that references the OSI dataset field used as the time axis for the slice.
 - `TimeGranularity` is referenced from intents that need bucketing — `observe.granularity`, `detect.granularity`, and bucketed producing steps where downstream consumers need to know the bucket size.
 - There is no separate `ResolvedTimeScope` in core; calendar-resolution details (matched-bucket counts, calendar policy summaries, holiday alignment) are execution/audit metadata outside v0.1.
 - Named relative ranges (`"last_7_days"`) are out of scope. Callers resolve to absolute timestamps before invoking AOI; relative-range semantics depend on `now()` and timezone, which the spec does not define.
@@ -356,7 +358,7 @@ result: { "points": [ { "bucket_start": "ISO8601",
                         "ci_high": number | null } ] }
 ```
 
-`value` semantics: for observation bodies, `value` is the metric's aggregated value over the slice (the single scalar produced by applying the metric's aggregation function to the data inside the requested `time_scope` and `filter`). It is always numeric; `null` signifies "no observation existed for this slice/bucket/segment", never "actual zero" and never "computation failed".
+`value` semantics: for observation bodies, `value` is the metric's aggregated value over the slice (the single scalar produced by applying the metric's aggregation function to the data inside the requested `time_scope` and `filter`, using `time_scope.field` as the time axis). It is always numeric; `null` signifies "no observation existed for this slice/bucket/segment", never "actual zero" and never "computation failed".
 
 Numeric result semantics:
 
@@ -373,7 +375,7 @@ Numeric result semantics:
 | `association_result.n_pairs` | Integer `[0, +infinity)`. | Higher usually means a more stable estimate, subject to data quality. |
 | Forecast `ci_low` / `ci_high` | Metric domain or `null`; when both are present, `ci_low <= ci_high`. | Wider intervals mean more forecast uncertainty; bounds represent lower and upper plausible outcomes in metric units. |
 
-Non-blocking caveat fields are narrow and intent-specific. `matched_time_scope` records the overlap actually used when a comparison or association succeeds with only partial temporal overlap; `null` means the full requested/reference scope was used. `assumption_notes` records portable, non-blocking hypothesis-test caveats such as "normality not assessed"; an empty array means no caveat was reported. Implementations must not use these fields for blocking conditions that should be represented as `failure`.
+Non-blocking caveat fields are narrow and intent-specific. `matched_time_scope` records the overlap actually used when a comparison or association succeeds with only partial temporal overlap; when present it uses the same `field` + range shape as `TimeScope`, and `null` means the full requested/reference scope was used. `assumption_notes` records portable, non-blocking hypothesis-test caveats such as "normality not assessed"; an empty array means no caveat was reported. Implementations must not use these fields for blocking conditions that should be represented as `failure`.
 
 #### 4.2.4 List-with-items strict constraint
 
@@ -611,8 +613,8 @@ Concrete evidence of consolidation. This table is also the input list for Marivo
 |----------------|----------|
 | `Scope = {constraints: Record<dim, value>, expression: ExpressionAST}` (two-field wrapper) | **`Scope` removed.** Filters use `filter: Expression \| null` directly on each intent. |
 | Custom `Expression` AST with closed `op` enumeration (`and / or / not / eq / neq / in / gt / ...`) | **`Expression` re-modelled as OSI `Expression`**: `{dialects: [{dialect, expression}]}` — multi-dialect SQL boolean expression, same shape as OSI's metric/field/filter expression. |
-| `TimeScope` union (`range \| named "last_7_days"`) | **`{start, end}` only.** Named relative ranges removed (caller resolves to absolutes). Granularity is no longer part of `TimeScope`. |
-| `TimeGranularity` and time-range bundled in one primitive | **Split.** `TimeScope` carries time range; `TimeGranularity` is a separate primitive that intents reference where bucketing applies (`observe.granularity`, `detect`, bucketed artifact bodies). |
+| `TimeScope` union (`range \| named "last_7_days"`) | **`{field, start, end}` only.** Named relative ranges removed (caller resolves to absolutes). Granularity is no longer part of `TimeScope`. |
+| `TimeGranularity` and time-range bundled in one primitive | **Split.** `TimeScope` carries the dataset time field plus time range; `TimeGranularity` is a separate primitive that intents reference where bucketing applies (`observe.granularity`, `detect`, bucketed artifact bodies). |
 | `ResolvedTimeScope` (output form with `matched_bucket_count`, calendar resolution) | **Removed.** `matched_bucket_count` and calendar-resolution detail are execution/audit metadata outside AOI v0.1; unsupported or unmapped calendar data produces a blocking failure. |
 
 **Why this alignment**: OSI already standardizes multi-dialect SQL expressions for metric / field / filter purposes. AOI is positioned as a sibling standard; reusing OSI's `Expression` shape for AOI's filter avoids parallel reinvention and inherits OSI's portability story (multiple dialects in one expression). The previous AST design would have been the cleaner abstract form, but it cannot express the filter expressiveness real analysis requires (`LOWER()`, `EXTRACT()`, arithmetic, CASE, UDFs) without effectively reinventing a SQL-grade AST.
