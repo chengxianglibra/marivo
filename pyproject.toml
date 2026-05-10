@@ -3,7 +3,21 @@ name = "marivo"
 version = "0.1.0"
 description = "Semantic layer platform with pluggable metadata stores, analytics engines, and catalog adapters."
 readme = "README.md"
+license = "Apache-2.0"
 requires-python = ">=3.12"
+authors = [
+    { name = "li chengxiang", email = "chengxiang.libra@gmail.com" },
+]
+keywords = ["semantic-layer", "analytics", "metadata", "duckdb", "mcp"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Database",
+    "Topic :: Scientific/Engineering",
+]
 dependencies = [
     "duckdb>=1.2.2",
     "fastapi>=0.115.0",
@@ -13,6 +27,11 @@ dependencies = [
     "pyyaml>=6.0",
     "uvicorn>=0.32.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/lumendata/marivo"
+Repository = "https://github.com/lumendata/marivo"
+Issues = "https://github.com/lumendata/marivo/issues"
 
 [project.optional-dependencies]
 mysql = ["PyMySQL>=1.1"]
@@ -32,7 +51,6 @@ test-mysql = ["testcontainers[mysql]"]
 
 [project.scripts]
 marivo = "marivo.transports.cli:main"
-marivo-stdio = "marivo.transports.mcp.stdio:main"
 
 [build-system]
 requires = ["setuptools>=68.0"]
