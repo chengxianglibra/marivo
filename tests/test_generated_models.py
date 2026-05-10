@@ -61,6 +61,23 @@ def test_marivo_metric_extension_matches_spec() -> None:
     assert set(MarivoMetricExtension.model_fields) == {"additive_dimensions"}
 
 
+def test_semantic_metrics_ddl_has_additive_dimensions() -> None:
+    """DDL must have additive_dimensions and must not have legacy metric columns."""
+    from marivo.adapters.schema import METADATA_DDL
+
+    metrics_ddl = [
+        stmt for stmt in METADATA_DDL if "semantic_metrics" in stmt and "CREATE TABLE" in stmt
+    ]
+    assert len(metrics_ddl) == 1
+    ddl = metrics_ddl[0]
+    assert "additive_dimensions" in ddl
+    assert "observed_dataset" not in ddl
+    assert "observation_grain" not in ddl
+    assert "primary_time_field" not in ddl
+    assert "additivity " not in ddl
+    assert "filters " not in ddl
+
+
 def test_malformed_extension_data_rejected() -> None:
     """E9: malformed JSON in MARIVO extension data field."""
     from marivo.core.semantic.extensions import extract_marivo_extension

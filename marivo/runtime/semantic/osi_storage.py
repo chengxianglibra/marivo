@@ -138,21 +138,9 @@ def relationship_to_storage(rel: Relationship, model_id: int) -> dict[str, Any]:
 def metric_to_storage(metric: Metric, model_id: int) -> dict[str, Any]:
     """Extract fields for a ``semantic_metrics`` row."""
     marivo_ext = extract_marivo_extension(metric.custom_extensions, MarivoMetricExtension)
-    observed_dataset = marivo_ext.observed_dataset if marivo_ext else None
-    observation_grain = (
-        json.dumps(marivo_ext.observation_grain)
-        if marivo_ext and marivo_ext.observation_grain is not None
-        else None
-    )
-    primary_time_field = marivo_ext.primary_time_field if marivo_ext else None
-    additivity = (
-        json.dumps(marivo_ext.additivity.model_dump(exclude_none=True))
-        if marivo_ext and marivo_ext.additivity is not None
-        else None
-    )
-    filters = (
-        json.dumps([f.model_dump(exclude_none=True) for f in marivo_ext.filters])
-        if marivo_ext and marivo_ext.filters is not None
+    additive_dimensions = (
+        json.dumps(marivo_ext.additive_dimensions)
+        if marivo_ext and marivo_ext.additive_dimensions is not None
         else None
     )
     expression = json.dumps(metric.expression.model_dump(exclude_none=True))
@@ -163,11 +151,7 @@ def metric_to_storage(metric: Metric, model_id: int) -> dict[str, Any]:
         "expression": expression,
         "description": metric.description,
         "ai_context": ai_context,
-        "observed_dataset": observed_dataset,
-        "observation_grain": observation_grain,
-        "primary_time_field": primary_time_field,
-        "additivity": additivity,
-        "filters": filters,
+        "additive_dimensions": additive_dimensions,
     }
 
 
@@ -244,20 +228,12 @@ def _storage_to_relationship(row: dict[str, Any]) -> dict[str, Any]:
 
 def _storage_to_metric(row: dict[str, Any]) -> dict[str, Any]:
     """Assemble a metric dict from a storage row."""
-    additivity_data = json.loads(row["additivity"]) if row.get("additivity") is not None else None
-    filters_data = json.loads(row["filters"]) if row.get("filters") is not None else None
-    observation_grain_data = (
-        json.loads(row["observation_grain"]) if row.get("observation_grain") is not None else None
+    additive_dimensions = (
+        json.loads(row["additive_dimensions"])
+        if row.get("additive_dimensions") is not None
+        else None
     )
-    marivo_ext = MarivoMetricExtension.model_validate(
-        {
-            "observed_dataset": row.get("observed_dataset"),
-            "observation_grain": observation_grain_data,
-            "primary_time_field": row.get("primary_time_field"),
-            "additivity": additivity_data,
-            "filters": filters_data,
-        }
-    )
+    marivo_ext = MarivoMetricExtension(additive_dimensions=additive_dimensions)
     result: dict[str, Any] = {
         "name": row["name"],
         "expression": json.loads(row["expression"]),

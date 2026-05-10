@@ -423,9 +423,8 @@ class SemanticModelV2Service:
                 """
                 INSERT INTO semantic_metrics
                     (model_id, name, expression, description, ai_context,
-                     observed_dataset, observation_grain, primary_time_field,
-                     additivity, filters)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     additive_dimensions)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 [
                     metric_storage["model_id"],
@@ -433,11 +432,7 @@ class SemanticModelV2Service:
                     metric_storage["expression"],
                     metric_storage["description"],
                     metric_storage["ai_context"],
-                    metric_storage["observed_dataset"],
-                    metric_storage["observation_grain"],
-                    metric_storage["primary_time_field"],
-                    metric_storage["additivity"],
-                    metric_storage["filters"],
+                    metric_storage["additive_dimensions"],
                 ],
             )
 
@@ -907,9 +902,8 @@ class SemanticModelV2Service:
             """
             INSERT INTO semantic_metrics
                 (model_id, name, expression, description, ai_context,
-                 observed_dataset, observation_grain, primary_time_field,
-                 additivity, filters)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 additive_dimensions)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
             [
                 metric_storage["model_id"],
@@ -917,11 +911,7 @@ class SemanticModelV2Service:
                 metric_storage["expression"],
                 metric_storage["description"],
                 metric_storage["ai_context"],
-                metric_storage["observed_dataset"],
-                metric_storage["observation_grain"],
-                metric_storage["primary_time_field"],
-                metric_storage["additivity"],
-                metric_storage["filters"],
+                metric_storage["additive_dimensions"],
             ],
         )
 
@@ -978,11 +968,7 @@ class SemanticModelV2Service:
         allowed_fields = {
             "description",
             "ai_context",
-            "observed_dataset",
-            "observation_grain",
-            "primary_time_field",
-            "additivity",
-            "filters",
+            "additive_dimensions",
             "expression",
         }
         update_parts: list[str] = []
@@ -993,14 +979,7 @@ class SemanticModelV2Service:
                 update_parts.append(f"{field} = ?")
                 value = updates[field]
                 if (
-                    field
-                    in (
-                        "ai_context",
-                        "observation_grain",
-                        "additivity",
-                        "filters",
-                        "expression",
-                    )
+                    field in ("ai_context", "additive_dimensions", "expression")
                     and value is not None
                     and isinstance(value, (dict, list))
                 ):
@@ -1271,9 +1250,8 @@ class SemanticModelV2Service:
                     """
                     INSERT INTO semantic_metrics
                         (model_id, name, expression, description, ai_context,
-                         observed_dataset, observation_grain, primary_time_field,
-                         additivity, filters)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         additive_dimensions)
+                    VALUES (?, ?, ?, ?, ?, ?)
                     """,
                     [
                         metric_storage["model_id"],
@@ -1281,11 +1259,7 @@ class SemanticModelV2Service:
                         metric_storage["expression"],
                         metric_storage["description"],
                         metric_storage["ai_context"],
-                        metric_storage["observed_dataset"],
-                        metric_storage["observation_grain"],
-                        metric_storage["primary_time_field"],
-                        metric_storage["additivity"],
-                        metric_storage["filters"],
+                        metric_storage["additive_dimensions"],
                     ],
                 )
 

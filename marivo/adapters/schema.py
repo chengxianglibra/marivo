@@ -177,11 +177,7 @@ METADATA_DDL: list[str] = [
         expression          TEXT NOT NULL,
         description         TEXT,
         ai_context          TEXT,
-        observed_dataset    TEXT,
-        observation_grain   TEXT,
-        primary_time_field  TEXT,
-        additivity          TEXT,
-        filters             TEXT,
+        additive_dimensions TEXT,
         created_at          TEXT NOT NULL DEFAULT (datetime('now')),
         updated_at          TEXT NOT NULL DEFAULT (datetime('now')),
         UNIQUE(model_id, name)
