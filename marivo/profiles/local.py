@@ -78,6 +78,7 @@ def create_local_runtime(
     runtime = MarivoRuntime(ports, core)
 
     metadata_store = SQLiteMetadataStore(metadata_db_path(config.workspace_root))
+    metadata_store.initialize()
     datasource_service = DatasourceService(metadata_store)
     semantic_v2 = SemanticServiceAdapter(metadata_store, datasource_service=datasource_service)
     runtime.register_service("datasource", datasource_service)

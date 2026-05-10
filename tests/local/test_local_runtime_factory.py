@@ -28,6 +28,15 @@ def test_runtime_creates_session(tmp_path: Path):
     assert state.session_id.startswith("sess_")
 
 
+def test_runtime_datasource_service_is_usable(tmp_path: Path):
+    _init_marivo_dir(tmp_path)
+    config = LocalConfig(workspace_root=tmp_path)
+    runtime = create_local_runtime(config)
+    ds_service = runtime.get_service("datasource")
+    datasources = ds_service.list_datasources()
+    assert isinstance(datasources, list)
+
+
 def test_explicit_local_at_local_entry_succeeds(tmp_path: Path):
     _init_marivo_dir(tmp_path)
     config = LocalConfig(workspace_root=tmp_path)
