@@ -5,7 +5,7 @@ import binascii
 import hashlib
 import json
 from collections.abc import Iterable
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 
@@ -196,8 +196,8 @@ def get_openapi_path_fragment(
     encoded_path: str,
     request: Request,
     response: Response,
-    expand: list[str] | None = Query(default=None),
-    depth: int = Query(default=1, ge=0, le=_MAX_EXPANSION_DEPTH),
+    expand: Annotated[list[str] | None, Query()] = None,
+    depth: Annotated[int, Query(ge=0, le=_MAX_EXPANSION_DEPTH)] = 1,
 ) -> dict[str, Any]:
     schema = _get_openapi_schema(request)
     revision = _set_revision_headers(schema, response)
@@ -257,8 +257,8 @@ def get_openapi_fragment(
     operation: str | None = Query(
         default=None, pattern="^(get|put|post|delete|options|head|patch|trace)$"
     ),
-    expand: list[str] | None = Query(default=None),
-    depth: int = Query(default=1, ge=0, le=_MAX_EXPANSION_DEPTH),
+    expand: Annotated[list[str] | None, Query()] = None,
+    depth: Annotated[int, Query(ge=0, le=_MAX_EXPANSION_DEPTH)] = 1,
 ) -> dict[str, Any]:
     schema = _get_openapi_schema(request)
     revision = _set_revision_headers(schema, response)

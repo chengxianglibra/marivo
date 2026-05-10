@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
@@ -225,15 +225,15 @@ def terminate_session(
 def get_session_state(
     session_id: str,
     request: Request,
-    metric: str | None = Query(default=None),
-    entity: str | None = Query(default=None),
-    proposition_type: list[str] | None = Query(default=None),
-    origin_kind: list[str] | None = Query(default=None),
-    assessment_presence: str | None = Query(default=None),
-    assessment_status: list[str] | None = Query(default=None),
-    has_blocking_gaps: bool | None = Query(default=None),
-    limit: int | None = Query(default=None),
-    page_token: str | None = Query(default=None),
+    metric: Annotated[str | None, Query()] = None,
+    entity: Annotated[str | None, Query()] = None,
+    proposition_type: Annotated[list[str] | None, Query()] = None,
+    origin_kind: Annotated[list[str] | None, Query()] = None,
+    assessment_presence: Annotated[str | None, Query()] = None,
+    assessment_status: Annotated[list[str] | None, Query()] = None,
+    has_blocking_gaps: Annotated[bool | None, Query()] = None,
+    limit: Annotated[int | None, Query()] = None,
+    page_token: Annotated[str | None, Query()] = None,
 ) -> SessionStateView:
     """Return the canonical SessionStateView for a session.
 
