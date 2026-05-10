@@ -1,13 +1,18 @@
 ---
 status: draft
 created: 2026-05-10
+updated: 2026-05-10
 ---
 
 # OSI/AOI Static Model Cutover Design
 
 **Date:** 2026-05-10
-**Status:** Draft (brainstorming approved)
+**Status:** Draft (CEO review complete)
 **Scope:** Generate static Pydantic models from `osi-marivo-spec` and `aoi-spec`, then cut Marivo's semantic and analysis-operation runtime over to those generated contracts.
+
+**Key Updates (2026-05-10):**
+1. AOI `TimeScope` now includes required `field` parameter — time field selection is caller-specified at operation time, not semantic-layer metadata. `primary_time_field` removed from metric extensions and storage.
+2. Generated models are base-layer primitives. Runtime code uses them directly or composes wrapper classes for Marivo-internal fields. No parallel model hierarchies allowed.
 
 ---
 
@@ -102,7 +107,7 @@ DuckDB execution path
   datasource -> compiler -> query execution -> AOI artifact
 ```
 
-The generated model layer is the only canonical schema implementation. Transport DTOs may simplify the caller experience, but they must convert into generated OSI/AOI models before business logic runs.
+The generated model layer is the only canonical schema implementation for spec-defined contracts. Runtime code uses generated models as the base; it may compose them into richer runtime objects but must not redefine spec fields. Transport DTOs may simplify the caller experience, but they must convert into generated OSI/AOI models before business logic runs.
 
 ### 3.1 Contract Ownership
 
@@ -110,8 +115,8 @@ The generated model layer is the only canonical schema implementation. Transport
 |---|---|---|
 | `osi-marivo-spec/`, `aoi-spec/` | JSON Schema truth source | Runtime behavior |
 | `marivo/contracts/generated/` | Static Pydantic model code generated from schema | Hand-written business logic |
-| Runtime semantic layer | OSI validation, storage mapping, semantic resolution | MCP-specific shortcuts |
-| Runtime intent layer | AOI atomic execution and artifact creation | Legacy typed-intent semantics as primary path |
+| Runtime semantic layer | OSI validation, storage mapping, semantic resolution; may wrap generated models with Marivo-internal metadata | Parallel model hierarchies that redefine spec fields |
+| Runtime intent layer | AOI atomic execution and artifact creation; may wrap generated models with step/session metadata | Legacy typed-intent semantics as primary path |
 | MCP tools | Agent-friendly DTOs and conversion into generated models | Independent business contracts |
 | Derived compatibility layer | Old product operation names mapped to atomic AOI pipelines | Reimplemented analytics |
 
@@ -155,12 +160,30 @@ Runtime and tests must read version values from generated modules rather than du
    - required controls whether a key must exist
    - `null` controls whether the value may be null
 7. JSON Schema aliases such as `from` must be represented with Pydantic aliases, not renamed in the wire contract.
+8. Generated models are base-layer primitives. Other Marivo modules import and use them directly, or compose wrapper classes that add Marivo-internal fields. No module may create parallel model classes that redefine fields already in the generated models.
 
 ### 4.3 Public Imports
 
-Generated modules are the canonical import target for runtime code. Existing transport model modules have these target roles:
+Generated modules are the canonical import target for runtime code. Runtime code imports directly from `marivo/contracts/generated/{osi,aoi}.py` and uses those models as-is or wraps them when additional Marivo-specific fields are needed.
 
-- `marivo/transports/http/models/osi.py` re-exports generated OSI models while preserving current FastAPI import paths during the cutover.
+**Wrapping pattern:** When Marivo needs to add fields beyond the spec (e.g., internal IDs, computed state, caching metadata), create wrapper classes in the appropriate runtime module that **compose** the generated model, not duplicate it:
+
+```python
+from marivo.contracts.generated.osi import SemanticModel as OSISemanticModel
+
+class SemanticModelWithMetadata:
+    """Runtime wrapper adding Marivo-internal metadata to OSI SemanticModel."""
+    osi_model: OSISemanticModel
+    internal_id: int
+    created_at: datetime
+    updated_at: datetime
+```
+
+**Do not:** Create parallel model hierarchies that redefine OSI/AOI fields. The generated models are the single source of truth for spec-defined contracts.
+
+Existing transport model modules have these target roles during and after cutover:
+
+- `marivo/transports/http/models/osi.py` re-exports generated OSI models for FastAPI routes (preserves import paths during cutover, becomes pure re-export shim after Phase B).
 - `marivo/transports/http/models/aoi.py` re-exports generated AOI request/artifact models for HTTP routes.
 - `marivo/transports/http/models/legacy_intents.py` holds temporary DTOs for derived compatibility only.
 - `marivo/transports/http/models/intents.py` is deleted after atomic routes move to AOI and derived compatibility DTOs move to `legacy_intents.py`.
@@ -192,8 +215,10 @@ Target state:
 `marivo/runtime/semantic/osi_storage.py` remains the adapter between typed OSI models and storage rows. It becomes the only place that converts:
 
 - OSI `custom_extensions` string payloads into typed MARIVO extension data
-- typed extension data into storage columns such as `datasource_id` and metric additivity fields
+- typed extension data into storage columns such as `datasource_id` and metric `additive_dimensions`
 - storage rows back into generated OSI objects
+
+The old metric storage columns `primary_time_field`, `observation_grain`, `observed_dataset`, `additivity`, and `filters` are removed. These values are either caller-supplied at operation time (`TimeScope.field`) or inferred at readiness/execution time (dataset routing, grain).
 
 All MARIVO extension parsing must happen through generated extension classes or narrow helper functions around them.
 
@@ -244,7 +269,8 @@ Producing-step identity is stored in Marivo step metadata, not embedded into the
 - dataset datasource routing
 - metric expression
 - metric additive dimensions
-- primary time field or time dimension inference if still required by runtime
+
+Time field selection is **not** a semantic-layer concern. AOI `TimeScope` is self-contained: it requires `field`, `start`, and `end`. The caller (agent, MCP tool, or derived operation) specifies which time field to filter on. Runtime does not infer or store a `primary_time_field` on the metric. This eliminates the old `primary_time_field` from the MARIVO metric extension and from readiness validation for time field existence. Semantic validation may still verify that time-typed fields exist in a dataset, but it does not bind a metric to a specific time field.
 
 The first execution gate uses DuckDB. If a semantic model references a non-DuckDB datasource in this phase, runtime should fail clearly rather than silently falling back.
 
@@ -436,3 +462,113 @@ Minimum verification before the cutover is considered complete:
 5. `attribute`, `diagnose`, and `validate` remain callable but execute through AOI atomic pipelines.
 6. A DuckDB end-to-end flow proves semantic creation through analysis execution.
 7. Old v1 semantic/operation contracts are deleted from the canonical path or isolated in explicitly named compatibility modules.
+
+---
+
+## Appendix A: CEO Plan Review — 2026-05-10
+
+### Review Decisions
+
+| ID | Topic | Decision | Rationale |
+|---|---|---|---|
+| D2 | Generator tooling | `datamodel-code-generator` | Best Pydantic v2 + JSON Schema draft 2020-12 support |
+| D3 | Metric extension fields | Runtime infers; spec is authoritative | `MarivoMetricExtension` in spec has only `additive_dimensions`; implementation's 5 extra fields (`observed_dataset`, `observation_grain`, `primary_time_field`, `additivity`, `filters`) must be resolved at readiness/execution time, not stored in extensions. **Update:** AOI `TimeScope` now includes `field` (required), so `primary_time_field` is no longer a semantic-layer concern — callers specify the time field at operation time. |
+| D5 | AOI runtime boundary | `(AOI request, SessionContext)` as separate args | AOI models stay pure; Marivo session state is a separate concern |
+| D6 | Inference timing | Runtime inference at readiness/execution time | NOT infer-then-store; compiler resolves metric metadata when needed, not at write time |
+| D7 | Error handling | Readiness issues + execution-time domain errors | Two-tier: readiness check catches structural problems; execution catches data/logic errors |
+| D8 | Extension decode | Keep `extract_marivo_extension()` helper | Existing pattern works for `contentSchema` JSON-string payloads |
+| D9 | Validation gaps | Document as known limitations | Don't block cutover on draft 2020-12 edge cases (`contentSchema`, `if/then/else`) |
+| D10 | Observability | Add structured logging | Compiler inference and DTO conversion get structured log events |
+| D11 | Import paths | Migrate runtime imports to `contracts/generated/` | Source of truth must be explicit; transport layer becomes pure FastAPI re-export |
+
+### Review Findings
+
+**Must-address (add to plan):**
+
+1. **Storage migration (Phase B):** The 4 inferred metric columns (`observed_dataset`, `observation_grain`, `additivity`, `filters`) are removed from SQLite storage. `primary_time_field` is also removed since AOI `TimeScope.field` makes time field selection caller-specified, not semantic-layer metadata. Table recreation required. Add explicit migration script step to Phase B.
+
+2. **CI freshness check (Phase A):** Add CI step that runs `generate_contract_models.py` and verifies `git diff --exit-code` to catch stale generated code.
+
+3. **Import migration (Phase B):** Runtime code (`osi_storage.py`, `semantic_service.py`, etc.) migrates to `from marivo.contracts.generated.osi import ...`. Transport models become re-export shims only.
+
+4. **100% gate policy:** State explicitly that phase gates require 100% pass — no partial advancement.
+
+**Should-address (notes for implementers):**
+
+5. **Phase B/C parallelism:** Phases B (OSI semantic) and C (AOI atomic) touch different codepaths and could partially overlap. Plan is overly sequential.
+
+6. **Derived operation latency:** `attribute` decomposes into 2x observe + compare + Nx decompose (sequential I/O). Plan should acknowledge higher latency vs current single-query implementation.
+
+7. **Test fixtures beyond examples:** The 4 OSI examples are smoke-level. Phase B should add test-only fixtures for edge cases (multiple datasets, coexisting non-MARIVO extensions, missing optional fields).
+
+8. **`intent_responses.py` early deletion:** All 10 response models are `RootModel[JsonObject]` with zero importers. Can be deleted in Phase C instead of waiting for Phase F.
+
+9. **Directory naming debt:** `marivo/runtime/intents/` uses "intents" vocabulary while AOI uses "operations". Phase F should note this as accepted tech debt or rename.
+
+### Verification Additions
+
+Add to Section 11:
+
+9. CI check: regenerated models match committed code (`generate_contract_models.py` + `git diff --exit-code`)
+10. Storage migration: metric table column changes applied cleanly
+11. Import audit: no runtime code imports OSI/AOI models from `transports/http/models/` (except re-export shims)
+
+---
+
+## Appendix B: Engineering Plan Review — 2026-05-11
+
+### Review Decisions
+
+| ID | Topic | Decision | Rationale |
+|---|---|---|---|
+| D1 | Import-linter contracts | Add 2 contracts for `contracts/generated/` | Automated CI enforcement prevents silent regression to old import paths. Matches existing 10-contract pattern. |
+| D2 | OSI wrapper location | Evolve `contracts/semantic.py` in place | Smallest diff: replace `osi_document: dict` with `osi_model: OSISemanticModel`. 5 importers stay stable. |
+| D3 | Metric column removal | Drop columns in `schema.py` DDL | Schema uses destructive DDL (DROP + CREATE). No migration system. No production data. |
+| D4 | `additive_dimensions` storage | Add `additive_dimensions TEXT` column to `semantic_metrics` | Spec-defined field gets first-class storage. Consistent with existing JSON-array-in-TEXT pattern. |
+| D5 | Rollback strategy | Git revert is the plan | Pre-launch single-developer project. Feature branches isolate each phase. |
+| D6 | Generation script scope | CLI wrapper + validation against spec examples | E1 (generated models reject valid examples) is the #1 error scenario. Catch it at generation time. |
+| D7 | Test scope | Add all 7 critical tests | 7 critical tests cover regression, phase gates, and top error scenarios. 47 edge-case tests deferred. |
+
+### Review Findings
+
+**Architecture:**
+1. `contracts/generated/` needs import-linter protection (D1). Phase A: isolation contract. Phase F: enforcement contract.
+2. `contracts/semantic.py` wrapping location resolved (D2). Evolve in place, replace `osi_document: dict` with typed `osi_model`.
+3. Storage column removal is a DDL change, not a migration (D3). Schema is already destructive.
+4. `additive_dimensions` needs a dedicated storage column (D4). The only spec-defined metric extension field.
+5. `semantic_service.py` is the largest migration target: 9 `primary_time_field` references across 4 methods.
+
+**Code quality:**
+6. Generation script must validate against spec examples (D6). ~80 lines, catches E1 at generation time.
+7. DRY: extract metric extension enrichment helper during Phase B. Copy-pasted at 3 locations in `semantic_service.py`.
+8. `intents.py` and `intent_responses.py` both have zero importers. Can be deleted in Phase C (confirming CEO Finding #8).
+
+**Tests:**
+9. 7 critical tests added: storage roundtrip (REGRESSION), generation validation, E2E flow, TimeScope.field, additive_dimensions, MCP E2E, extension decode failure.
+10. 2 silent failure modes flagged: storage roundtrip data loss and TimeScope.field referencing non-existent field.
+
+**Performance:**
+11. Skipped per user request. CEO Finding #6 (derived operation latency) remains open.
+
+### Parallelization Strategy
+
+Phases B (OSI semantic) and C (AOI atomic) can run in parallel worktrees — they touch different modules (`runtime/semantic/` vs `runtime/intents/`). After both merge, Phases D and E can run in parallel.
+
+```
+Phase A ──┬── Phase B (OSI semantic) ──┬── Phase D (MCP DTO) ──┬── Phase F
+          └── Phase C (AOI atomic)  ───┤                       │
+                                       └── Phase E (derived) ──┘
+```
+
+## GSTACK REVIEW REPORT
+
+| Review | Trigger | Why | Runs | Status | Findings |
+|--------|---------|-----|------|--------|----------|
+| CEO Review | `/plan-ceo-review` | Scope & strategy | 1 | CLEAR | 11 decisions, 9 findings |
+| Codex Review | `/codex review` | Independent 2nd opinion | 0 | — | — |
+| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 1 | CLEAR | 7 decisions, 11 findings |
+| Design Review | `/plan-design-review` | UI/UX gaps | 0 | — | — |
+| DX Review | `/plan-devex-review` | Developer experience gaps | 0 | — | — |
+
+- **UNRESOLVED:** 0
+- **VERDICT:** CEO + ENG CLEARED — ready to implement
