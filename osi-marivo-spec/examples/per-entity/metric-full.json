@@ -1,0 +1,57 @@
+{
+  "version": "0.1.1",
+  "semantic_model": [
+    {
+      "name": "revenue_model",
+      "datasets": [
+        {
+          "name": "transactions",
+          "source": "finance.public.transactions",
+          "fields": [
+            {
+              "name": "txn_id",
+              "expression": { "dialects": [{ "dialect": "ANSI_SQL", "expression": "transaction_id" }] }
+            },
+            {
+              "name": "amount",
+              "expression": { "dialects": [{ "dialect": "ANSI_SQL", "expression": "amount" }] }
+            },
+            {
+              "name": "txn_date",
+              "expression": { "dialects": [{ "dialect": "ANSI_SQL", "expression": "transaction_date" }] },
+              "dimension": { "is_time": true }
+            },
+            {
+              "name": "channel",
+              "expression": { "dialects": [{ "dialect": "ANSI_SQL", "expression": "channel" }] }
+            },
+            {
+              "name": "status",
+              "expression": { "dialects": [{ "dialect": "ANSI_SQL", "expression": "status" }] }
+            }
+          ],
+          "custom_extensions": [
+            { "vendor_name": "MARIVO", "data": "{\"datasource_id\":\"ds_finance_dwh\"}" }
+          ]
+        }
+      ],
+      "metrics": [
+        {
+          "name": "gross_revenue",
+          "expression": {
+            "dialects": [
+              { "dialect": "ANSI_SQL", "expression": "SUM(amount)" }
+            ]
+          },
+          "description": "Total gross revenue from completed transactions",
+          "custom_extensions": [
+            {
+              "vendor_name": "MARIVO",
+              "data": "{\"additive_dimensions\":[\"txn_date\"]}"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
