@@ -200,7 +200,7 @@ def test_marivo_metric_extension_minimal():
     from marivo.transports.http.models.marivo_extensions import MarivoMetricExtension
 
     ext = MarivoMetricExtension()
-    assert ext.observed_dataset is None
+    assert ext.additive_dimensions is None
 
 
 def test_marivo_additivity_full():

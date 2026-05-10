@@ -83,10 +83,46 @@ class MarivoMetricFilter(BaseModel):
 
 
 class MarivoMetricExtension(BaseModel):
-    observed_dataset: str | None = None
-    observation_grain: list[str] | None = None
-    primary_time_field: str | None = None
-    additivity: MarivoAdditivity | None = None
-    filters: list[MarivoMetricFilter] | None = None
+    additive_dimensions: list[str] | None = None
 
-    model_config = {"extra": "forbid"}
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_legacy_payload(cls, data: object) -> object:
+        if not isinstance(data, dict):
+            return data
+        if "additive_dimensions" in data:
+            return data
+
+        normalized = dict(data)
+        additivity = normalized.get("additivity")
+        if isinstance(additivity, dict) and "additive_dimensions" in additivity:
+            normalized["additive_dimensions"] = additivity.get("additive_dimensions")
+        return normalized
+
+    @property
+    def observed_dataset(self) -> str | None:
+        return getattr(self, "__pydantic_extra__", {}).get("observed_dataset")
+
+    @property
+    def observation_grain(self) -> list[str] | None:
+        return getattr(self, "__pydantic_extra__", {}).get("observation_grain")
+
+    @property
+    def primary_time_field(self) -> str | None:
+        return getattr(self, "__pydantic_extra__", {}).get("primary_time_field")
+
+    @property
+    def additivity(self) -> MarivoAdditivity | None:
+        if self.additive_dimensions is not None:
+            return MarivoAdditivity(
+                dimension_policy="subset",
+                additive_dimensions=self.additive_dimensions,
+                time_axis_policy="additive",
+            )
+        return getattr(self, "__pydantic_extra__", {}).get("additivity")
+
+    @property
+    def filters(self) -> list[MarivoMetricFilter] | None:
+        return getattr(self, "__pydantic_extra__", {}).get("filters")
+
+    model_config = {"extra": "allow"}
