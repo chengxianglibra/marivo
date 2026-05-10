@@ -1,6 +1,5 @@
 {
   "artifact_id": "anom_revenue_daily_failed",
-  "step_id": "detect_revenue_daily_q1",
   "failure": {
     "code": "detect.insufficient_data",
     "message": "The requested series has too few buckets for anomaly detection."

@@ -1,6 +1,5 @@
 {
   "artifact_id": "test_aov_treatment_vs_control",
-  "step_id": "test_aov_treatment_vs_control",
   "result": {
     "statistic": 2.41,
     "p_value": 0.016,

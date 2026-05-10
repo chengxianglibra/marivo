@@ -80,10 +80,9 @@ AOI uses direct string identifiers instead of reference wrapper primitives:
 
 ```jsonc
 "artifact_id": "string"
-"step_id": "string"
 ```
 
-**Constraint**: every artifact must be uniquely addressable by its `artifact_id`. `step_id` identifies the producing step and is used to recover request metadata. Neither identifier wraps extra type metadata. Every list-shaped artifact (compare segmented rows, decompose contribution rows, detect candidates) must assign a stable `item_id` to each item.
+**Constraint**: every artifact must be uniquely addressable by its `artifact_id`. The artifact identifier does not wrap extra type metadata. Producing-step identity such as Marivo's `step_id` is implementation logic outside the AOI artifact spec. Every list-shaped artifact (compare segmented rows, decompose contribution rows, detect candidates) must assign a stable `item_id` to each item.
 
 ### 3.2 Expression, Time
 
@@ -142,7 +141,7 @@ AOI v0.1 has no `Scope` wrapper. Filter conditions are expressed directly throug
 
 - It is optional. Omitted means `normal`.
 - Unsupported values or unavailable calendar/event data produce a blocking `failure` with portable `failure.code`.
-- The producing compare step records the selected value so downstream ref-type intents can detect mode mixing by resolving `step_id`.
+- The producing compare step records the selected value so downstream ref-type intents can detect mode mixing through implementation-owned step metadata.
 - AOI core defines only the enum and propagation rule. It does not define holiday calendars, event catalogs, bucket-pairing algorithms, reuse policy, or matched-bucket audit metadata.
 
 ### 3.4 AnalysisFailure
@@ -189,7 +188,7 @@ This collapses four previously named primitives into a single, narrowly-scoped `
 
 ## 4. Atomic Intent Contract Pattern
 
-Every atomic intent has a **request contract** (what callers send) and a **response contract** (what implementations return). v0.1 defines these as two separate schemas. They share no embedded structures: a request never carries result fields, and an artifact never echoes a request payload as `inputs`. Artifact context is recovered through `step_id`, which resolves to the producing step and its request metadata.
+Every atomic intent has a **request contract** (what callers send) and a **response contract** (what implementations return). v0.1 defines these as two separate schemas. They share no embedded structures: a request never carries result fields, and an artifact never echoes a request payload as `inputs`. Producing-step context is implementation-owned metadata outside the AOI artifact body.
 
 ### 4.1 Request Contract
 
@@ -252,7 +251,6 @@ The response contract is also per-intent. Every artifact follows one uniform env
 ```jsonc
 {
   "artifact_id": "string",
-  "step_id": "string",
 
   // Mutually exclusive — exactly one of `result` and `failure`:
   "result": { /* schema-specific body, see 4.2.3 */ },
@@ -264,7 +262,7 @@ The response contract is also per-intent. Every artifact follows one uniform env
 
 The canonical schema defines one `Artifact` envelope. The `result` field is a union over artifact-specific result schemas, such as `ScalarObservationResult` or `TimeSeriesDeltaResult`; there are no separate concrete artifact wrapper schemas.
 
-`step_id` and `artifact_id` are preserved on both success and failure artifacts. Consumers resolve `step_id` to recover the producing step and its request metadata. Failed artifacts are still legitimate analysis events.
+`artifact_id` is preserved on both success and failure artifacts. Producing-step identifiers such as Marivo's `step_id` may be stored in implementation-owned records outside the AOI artifact spec. Failed artifacts are still legitimate analysis events.
 
 #### 4.2.1 Result schema catalog
 
@@ -286,7 +284,7 @@ forecast_series_result
 
 #### 4.2.2 Step identity
 
-Artifacts carry `step_id` instead of an embedded `subject`. The producing step is the canonical place for request metadata such as metric, filter expression, comparison mode, source artifact IDs, or hypothesis settings. This keeps artifact payloads focused on analytical output and avoids duplicating step information.
+Artifacts do not carry `step_id` or an embedded `subject` in AOI v0.1. The producing step remains the implementation-owned place for request metadata such as metric, filter expression, comparison mode, source artifact IDs, or hypothesis settings. This keeps artifact payloads focused on analytical output and avoids duplicating step information.
 
 #### 4.2.3 Result-body specifications
 
@@ -596,7 +594,7 @@ Concrete evidence of consolidation. This table is also the input list for Marivo
 
 | Current | AOI v0.1 |
 |---------|----------|
-| `ObservationRef` (no `artifact_id`) and `ObservationArtifactRef` (with `artifact_id`) coexist | **Direct `artifact_id` string**. Redundant `step_type`, `step_id`, and `artifact_subtype` fields are omitted because `artifact_id` resolves the artifact record. |
+| `ObservationRef` (no `artifact_id`) and `ObservationArtifactRef` (with `artifact_id`) coexist | **Direct `artifact_id` string**. Redundant implementation-specific reference wrappers are omitted because `artifact_id` resolves the artifact record. |
 | `CompareArtifactRef`, `DecomposeArtifactRef`, `DetectArtifactRef`, `TestArtifactRef`, `ObservationArtifactRef` separately defined | All collapse into direct artifact ID string fields such as `left_artifact_id` and `compare_artifact_id`. |
 | `DetectCandidateRef = {artifact_id, item_ref}` | **Removed from AOI v0.1**. List-shaped artifacts expose stable row `item_id` values, but v0.1 has no request or artifact field that references an individual row by contract. |
 | `compare.segmented_delta.rows[].keys` (multi-dim) vs `decompose.rows[].key` (single-value) | Both retained at result-body level (different result schemas, different shapes); but every row carries `item_id`. |
@@ -677,7 +675,7 @@ Section 5 explains why implementation-private metadata stays outside AOI v0.1. T
 | Top-level intent surface | 7 atomic + 3 derived | 7 atomic | -30% |
 | Result schema catalog | 13 (incl. numeric/rate sample summaries) | 11 (sample summaries folded into `test`) | -15% |
 | Observation sub-types | 5 | 3 (scalar / time_series / segmented; sample summaries removed) | -40% |
-| Result-body fields duplicating request | metric / time_scope / filter / unit / direction / presence echoed in every observation and delta artifact | 0 (request and response contracts separated; artifact uses `step_id` to resolve context) | full lift |
+| Result-body fields duplicating request | metric / time_scope / filter / unit / direction / presence echoed in every observation and delta artifact | 0 (request and response contracts separated; implementation resolves producing-step context outside the artifact body) | full lift |
 | Calendar / additivity fields in atomic core | dozens, inline | `compare_type` promoted to core; detailed calendar/additivity metadata removed from v0.1 artifacts | focused lift |
 | Validation envelopes (`Gate`, `Status`, `Truncation`, `Provenance`) | 4 multi-field structures, every artifact | 1 (`AnalysisFailure`, optional, mutually exclusive with `result`) | -75% structural, plus most artifacts no longer carry it |
 

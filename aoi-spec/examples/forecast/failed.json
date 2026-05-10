@@ -1,6 +1,5 @@
 {
   "artifact_id": "forecast_revenue_failed",
-  "step_id": "forecast_revenue_next_7_days",
   "failure": {
     "code": "forecast.insufficient_history",
     "message": "The source time series does not contain enough historical buckets for forecasting."

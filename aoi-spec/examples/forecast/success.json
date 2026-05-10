@@ -1,6 +1,5 @@
 {
   "artifact_id": "forecast_revenue_next_7_days",
-  "step_id": "forecast_revenue_next_7_days",
   "result": {
     "points": [
       {
