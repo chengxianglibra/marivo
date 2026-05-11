@@ -18,6 +18,10 @@ from marivo.core.intent.primitives import new_step_id
 from marivo.core.semantic.additivity import derive_additivity_capabilities
 from marivo.runtime.intents.compare import run_compare_intent
 from marivo.runtime.intents.decompose import run_decompose_intent
+from marivo.runtime.intents.normalization import (
+    normalize_dimensions,
+    normalize_metric_ref,
+)
 from marivo.runtime.intents.observe import run_observe_intent
 
 if TYPE_CHECKING:
@@ -62,9 +66,10 @@ def run_attribute_intent(
     p = params or {}
 
     # ── Input validation ───────────────────────────────────────────────────────
-    metric_ref: str = (p.get("metric") or "").strip()
-    if not metric_ref:
-        raise ValueError("attribute: INVALID_ARGUMENT - metric is required")
+    try:
+        metric_ref = normalize_metric_ref(p.get("metric"))
+    except ValueError:
+        raise ValueError("attribute: INVALID_ARGUMENT - metric is required") from None
     metric_ref = runtime.core.normalize_intent_metric_ref(metric_ref)
     metric_name = runtime.core.metric_name_from_ref(metric_ref)
 
@@ -88,27 +93,10 @@ def run_attribute_intent(
     left_calendar_policy_ref: str | None = left_input.get("calendar_policy_ref")
     right_calendar_policy_ref: str | None = right_input.get("calendar_policy_ref")
 
-    raw_dimensions: list[Any] = p.get("dimensions") or []
-    if not raw_dimensions:
+    raw_dimensions = p.get("dimensions")
+    dimensions = normalize_dimensions(raw_dimensions)
+    if not dimensions:
         raise ValueError("attribute: INVALID_ARGUMENT - dimensions must be a non-empty list")
-    dimensions: list[str] = []
-    for d in raw_dimensions:
-        d_str = str(d).strip()
-        if not d_str:
-            raise ValueError(
-                "attribute: INVALID_ARGUMENT - dimensions must not contain blank strings"
-            )
-        dimensions.append(d_str)
-    # Deduplicate while preserving order (per design doc: dedup then check non-empty)
-    seen: set[str] = set()
-    deduped_dims: list[str] = []
-    for d in dimensions:
-        if d not in seen:
-            seen.add(d)
-            deduped_dims.append(d)
-    if not deduped_dims:
-        raise ValueError("attribute: INVALID_ARGUMENT - dimensions is empty after deduplication")
-    dimensions = deduped_dims
 
     decomposition_method: str = p.get("decomposition_method") or "delta_share"
     if decomposition_method != "delta_share":
