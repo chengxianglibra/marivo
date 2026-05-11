@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from marivo.contracts.envelope import ExecutionEnvelope, StepRef
+
 if TYPE_CHECKING:
     from marivo.runtime.runtime import MarivoRuntime
 
@@ -60,3 +62,33 @@ def commit_step_result(
     )
 
     return result
+
+
+def build_envelope(
+    session_id: str,
+    step_id: str,
+    step_type: str,
+    artifact_id: str,
+    artifact_payload: dict[str, Any],
+    provenance: dict[str, Any] | None = None,
+    product_metadata: dict[str, Any] | None = None,
+) -> ExecutionEnvelope:
+    """Build an ExecutionEnvelope from intent execution results.
+
+    This is the successor to commit_step_result()'s dict construction.
+    Intent handlers should migrate to use this + runtime artifact commit
+    separately.
+    """
+    return ExecutionEnvelope(
+        intent_type=step_type,
+        step_type=step_type,
+        step_ref=StepRef(
+            session_id=session_id,
+            step_id=step_id,
+            step_type=step_type,
+        ),
+        artifact_id=artifact_id,
+        result=artifact_payload,
+        provenance=provenance,
+        product_metadata=product_metadata,
+    )
