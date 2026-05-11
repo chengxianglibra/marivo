@@ -5,11 +5,19 @@ Validators for MCP tool parameter wire compatibility.
 
 from __future__ import annotations
 
+import json
 from typing import Annotated, Any, Literal, TypeAlias
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
 
-from marivo.contracts.generated.osi import AIContext1, Expression
+from marivo.contracts.generated.osi import (
+    AIContext1,
+    Dataset,
+    Expression,
+    Metric,
+    Relationship,
+    SemanticModel,
+)
 
 
 def _reject_time_scope_string(v: Any) -> Any:
@@ -155,3 +163,38 @@ class McpRelationshipUpdatePayload(BaseModel):
 
     cardinality: str | None = Field(None, description="Relationship cardinality (e.g. many_to_one)")
     ai_context: str | AIContext1 | None = Field(None, description="Additional context for AI tools")
+
+
+# ---------------------------------------------------------------------------
+# JSON string coercer for create payload parameters
+# ---------------------------------------------------------------------------
+
+
+def _coerce_json_string_to_dict(v: Any) -> Any:
+    """Coerce JSON-encoded strings to dicts for create payload parameters.
+
+    MCP clients (notably Claude Code) may pass complex nested objects as
+    JSON strings rather than native dicts.  FastMCP's ``pre_parse_json``
+    attempts ``json.loads`` but silently skips on failure, letting the raw
+    string through to Pydantic which then rejects it with a cryptic
+    ``model_type`` error.  This validator provides an explicit coercion
+    path with a clear error message.
+    """
+    if isinstance(v, str):
+        try:
+            parsed = json.loads(v)
+        except json.JSONDecodeError as err:
+            raise ValueError(
+                "payload must be a structured object or a valid JSON string, "
+                f"but received an invalid JSON string: {v[:120]}..."
+            ) from err
+        if not isinstance(parsed, dict):
+            raise ValueError(f"payload must decode to a JSON object, got {type(parsed).__name__}")
+        return parsed
+    return v
+
+
+McpSemanticModelPayload = Annotated[SemanticModel, BeforeValidator(_coerce_json_string_to_dict)]
+McpDatasetPayload = Annotated[Dataset, BeforeValidator(_coerce_json_string_to_dict)]
+McpMetricPayload = Annotated[Metric, BeforeValidator(_coerce_json_string_to_dict)]
+McpRelationshipPayload = Annotated[Relationship, BeforeValidator(_coerce_json_string_to_dict)]

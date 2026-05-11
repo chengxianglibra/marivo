@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from marivo.adapters.local.duckdb_data_source import DuckDBDataSource
+from marivo.adapters.local.duckdb_analytics import DuckDBAnalyticsEngine
 from marivo.adapters.local.file_artifact_store import FileArtifactStore
 from marivo.adapters.local.file_audit_log import FileAuditLog
 from marivo.adapters.local.file_evidence_store import FileEvidenceStore
@@ -17,6 +17,7 @@ from marivo.adapters.local.sqlite_metadata import SQLiteMetadataStore
 from marivo.adapters.local.sqlite_session_store import SqliteSessionStore
 from marivo.adapters.local.sqlite_step_store import SqliteStepStore
 from marivo.adapters.local.toml_runtime_config import TomlRuntimeConfig
+from marivo.adapters.server.data_source import RoutingDataSource
 from marivo.adapters.server.semantic_service_adapter import SemanticServiceAdapter
 from marivo.contracts.errors import ErrorCode, ValidationError
 from marivo.core.engine import CoreEngine
@@ -34,6 +35,7 @@ from marivo.local.state_layout import (
 )
 from marivo.observability import setup_logging
 from marivo.profiles.resolver import resolve_profile
+from marivo.routing import QueryRouter
 from marivo.runtime.ports import RuntimePorts
 from marivo.runtime.runtime import MarivoRuntime
 
@@ -61,13 +63,24 @@ def create_local_runtime(
         workspace_config_path=toml_config_path(config.workspace_root),
     )
 
-    data_source = _create_data_source(config.datasource_type, config.datasource_config)
+    duckdb_engine = _create_analytics_engine(config.datasource_type, config.datasource_config)
+
+    metadata_store = SQLiteMetadataStore(metadata_db_path(config.workspace_root))
+    metadata_store.initialize()
+    datasource_service = DatasourceService(metadata_store)
+    query_router = QueryRouter(metadata_store, datasource_service)
+
+    routing_data_source = RoutingDataSource(
+        default_engine=duckdb_engine,
+        registry=datasource_service,
+        query_router=query_router,
+    )
 
     ports = RuntimePorts(
         model_store=FileModelStore(models_dir(config.workspace_root)),
         session_store=SqliteSessionStore(state_db_path(config.workspace_root)),
         evidence_store=FileEvidenceStore(evidence_dir(config.workspace_root)),
-        data_source=data_source,
+        data_source=routing_data_source,
         cache_store=SqliteCacheStore(state_db_path(config.workspace_root)),
         authz=NoopAuthZ(),
         audit_log=FileAuditLog(audit_log_path(config.workspace_root)),
@@ -81,9 +94,6 @@ def create_local_runtime(
     core = CoreEngine()
     runtime = MarivoRuntime(ports, core)
 
-    metadata_store = SQLiteMetadataStore(metadata_db_path(config.workspace_root))
-    metadata_store.initialize()
-    datasource_service = DatasourceService(metadata_store)
     semantic_v2 = SemanticServiceAdapter(metadata_store, datasource_service=datasource_service)
     from marivo.runtime.evidence.semantic_repository import SemanticRuntimeRepository
 
@@ -91,14 +101,15 @@ def create_local_runtime(
     runtime.register_service("datasource", datasource_service)
     runtime.register_service("semantic_v2", semantic_v2)
     runtime.register_service("semantic_repository", semantic_repo)
+    runtime.register_service("query_router", query_router)
     runtime.wire_metadata(metadata_store)
 
     return runtime
 
 
-def _create_data_source(dtype: str, config: dict[str, Any]) -> DuckDBDataSource:
+def _create_analytics_engine(dtype: str, config: dict[str, Any]) -> DuckDBAnalyticsEngine:
     if dtype == "duckdb":
-        return DuckDBDataSource(path=config.get("path"))
+        return DuckDBAnalyticsEngine(config.get("path", ":memory:"))
     raise ValidationError(
         code=ErrorCode.VALIDATION,
         message=f"Unknown datasource type: {dtype}",

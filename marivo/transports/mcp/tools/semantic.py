@@ -4,12 +4,15 @@ from __future__ import annotations
 
 from typing import Any
 
-from marivo.contracts.generated.osi import Dataset, Metric, Relationship, SemanticModel
 from marivo.identity import resolve_user
 from marivo.transports.mcp.tools._async_bridge import call_runtime
 from marivo.transports.mcp.tools.schemas import (
+    McpDatasetPayload,
+    McpMetricPayload,
     McpMetricUpdatePayload,
+    McpRelationshipPayload,
     McpRelationshipUpdatePayload,
+    McpSemanticModelPayload,
 )
 
 
@@ -27,7 +30,7 @@ def register_semantic_tools(server: Any, runtime: Any) -> None:
     # ------------------------------------------------------------------
 
     @server.tool()  # type: ignore
-    async def create_semantic_model(payload: SemanticModel) -> dict[str, Any]:
+    async def create_semantic_model(payload: McpSemanticModelPayload) -> dict[str, Any]:
         """Create a semantic model via POST /semantic-models from an OSI document fragment."""
         return await call_runtime(
             svc.create_semantic_model, model_data=payload.model_dump(by_alias=True)
@@ -94,7 +97,7 @@ def register_semantic_tools(server: Any, runtime: Any) -> None:
     @server.tool()  # type: ignore
     async def create_dataset(
         model: str,
-        payload: Dataset,
+        payload: McpDatasetPayload,
     ) -> dict[str, Any]:
         """Create a dataset within a model via POST /semantic-models/{model}/datasets."""
         return await call_runtime(
@@ -171,7 +174,7 @@ def register_semantic_tools(server: Any, runtime: Any) -> None:
     @server.tool()  # type: ignore
     async def create_relationship(
         model: str,
-        payload: Relationship,
+        payload: McpRelationshipPayload,
     ) -> dict[str, Any]:
         """Create a relationship within a model via POST /semantic-models/{model}/relationships."""
         return await call_runtime(
@@ -236,7 +239,7 @@ def register_semantic_tools(server: Any, runtime: Any) -> None:
     @server.tool()  # type: ignore
     async def create_metric(
         model: str,
-        payload: Metric,
+        payload: McpMetricPayload,
     ) -> dict[str, Any]:
         """Create a metric within a model via POST /semantic-models/{model}/metrics."""
         return await call_runtime(
