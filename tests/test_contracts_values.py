@@ -75,15 +75,9 @@ def test_observe_scope_with_constraints() -> None:
     assert scope.constraints.region == "us"
 
 
-def test_observe_scope_with_predicate_ref() -> None:
-    scope = ObserveScope(predicate_ref="predicate.active_users")
-    assert scope.predicate_ref == "predicate.active_users"
-
-
 def test_observe_scope_default_none() -> None:
     scope = ObserveScope()
     assert scope.constraints is None
-    assert scope.predicate_ref is None
 
 
 # --- ObservationRef ---

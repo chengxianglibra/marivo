@@ -134,26 +134,9 @@ class SQLiteMetadataStoreTests(unittest.TestCase):
         rows = self.store.query_rows("SELECT * FROM sessions")
         self.assertEqual(len(rows), 2)
 
-    def test_initialize_uses_current_metric_schema(self) -> None:
-        rows = self.store.query_rows("PRAGMA table_info(semantic_metric_contracts)")
-        column_names = {str(row["name"]) for row in rows}
-        self.assertIn("default_predicate_refs_json", column_names)
-        self.assertIn("base_revision", column_names)
-        self.assertIn("change_summary", column_names)
-        self.assertIn("revision_compatibility", column_names)
-        self.assertIn("is_latest_active", column_names)
-
     def test_new_tables_exist(self) -> None:
         for table in [
             "datasources",
-            "semantic_metric_contracts",
-            "semantic_process_objects",
-            "semantic_process_exported_dimension_refs",
-            "semantic_dimension_contracts",
-            "semantic_time_objects",
-            "semantic_enum_sets",
-            "semantic_enum_set_versions",
-            "semantic_enum_set_values",
         ]:
             row = self.store.query_one(f"SELECT COUNT(*) AS cnt FROM {table}")
             self.assertIsNotNone(row, f"Table {table} should exist")

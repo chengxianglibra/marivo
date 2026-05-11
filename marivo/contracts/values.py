@@ -49,7 +49,6 @@ class ScopeConstraints(BaseModel):
 
 class ObserveScope(BaseModel):
     constraints: ScopeConstraints | None = None
-    predicate_ref: str | None = None
 
 
 # --- Observation References ---
