@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import logging
+import os
 import tempfile
 import unittest
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -16,6 +18,7 @@ from marivo.observability import (
     correlation_execution_stage,
     correlation_planner_id,
     correlation_session_id,
+    setup_logging,
 )
 from tests.shared_fixtures import get_seeded_duckdb_path
 
@@ -180,6 +183,89 @@ class ObservabilityAPITests(unittest.TestCase):
         resp = self.client.get("/metrics")
         data = resp.json()
         self.assertTrue(any("/health" in k for k in data["request_count"]))
+
+
+class SetupLoggingFileHandlerTests(unittest.TestCase):
+    """Tests for setup_logging() file handler support."""
+
+    def tearDown(self) -> None:
+        logging.getLogger().handlers.clear()
+
+    def test_file_handler_created_when_log_file_provided(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = Path(tmp) / "logs" / "runtime.jsonl"
+            setup_logging(log_file=log_path)
+            root = logging.getLogger()
+            file_handlers = [h for h in root.handlers if isinstance(h, RotatingFileHandler)]
+            self.assertEqual(len(file_handlers), 1)
+            self.assertTrue(log_path.parent.exists())
+
+    def test_no_file_handler_when_log_file_is_none(self) -> None:
+        os.environ.pop("MARIVO_LOG_DIR", None)
+        setup_logging()
+        root = logging.getLogger()
+        file_handlers = [h for h in root.handlers if isinstance(h, RotatingFileHandler)]
+        self.assertEqual(len(file_handlers), 0)
+
+    def test_marivo_log_dir_env_var_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            os.environ["MARIVO_LOG_DIR"] = tmp
+            try:
+                setup_logging()
+                root = logging.getLogger()
+                file_handlers = [h for h in root.handlers if isinstance(h, RotatingFileHandler)]
+                self.assertEqual(len(file_handlers), 1)
+                expected_path = Path(tmp) / "runtime.jsonl"
+                self.assertEqual(file_handlers[0].baseFilename, str(expected_path))
+            finally:
+                os.environ.pop("MARIVO_LOG_DIR", None)
+
+    def test_explicit_log_file_takes_precedence_over_env(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp1, tempfile.TemporaryDirectory() as tmp2:
+            os.environ["MARIVO_LOG_DIR"] = tmp1
+            explicit_path = Path(tmp2) / "logs" / "runtime.jsonl"
+            try:
+                setup_logging(log_file=explicit_path)
+                root = logging.getLogger()
+                file_handlers = [h for h in root.handlers if isinstance(h, RotatingFileHandler)]
+                self.assertEqual(len(file_handlers), 1)
+                self.assertEqual(file_handlers[0].baseFilename, str(explicit_path))
+            finally:
+                os.environ.pop("MARIVO_LOG_DIR", None)
+
+    def test_graceful_on_unwritable_path(self) -> None:
+        setup_logging(log_file=Path("/nonexistent_root/logs/runtime.jsonl"))
+        root = logging.getLogger()
+        stream_handlers = [h for h in root.handlers if isinstance(h, logging.StreamHandler)]
+        self.assertTrue(len(stream_handlers) >= 1)
+
+    def test_file_handler_uses_json_formatter(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = Path(tmp) / "runtime.jsonl"
+            setup_logging(log_file=log_path)
+            root = logging.getLogger()
+            file_handlers = [h for h in root.handlers if isinstance(h, RotatingFileHandler)]
+            self.assertTrue(len(file_handlers) >= 1)
+            self.assertIsInstance(file_handlers[0].formatter, JSONFormatter)
+
+    def test_file_handler_writes_jsonl(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = Path(tmp) / "runtime.jsonl"
+            old_level = os.environ.get("LOG_LEVEL")
+            os.environ["LOG_LEVEL"] = "DEBUG"
+            try:
+                setup_logging(log_file=log_path)
+                logging.getLogger().info("test log entry")
+                for h in logging.getLogger().handlers:
+                    if isinstance(h, RotatingFileHandler):
+                        h.flush()
+                content = log_path.read_text().strip()
+                self.assertIn('"message": "test log entry"', content)
+            finally:
+                if old_level is not None:
+                    os.environ["LOG_LEVEL"] = old_level
+                else:
+                    os.environ.pop("LOG_LEVEL", None)
 
 
 if __name__ == "__main__":

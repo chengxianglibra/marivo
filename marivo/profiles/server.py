@@ -101,7 +101,15 @@ def _resolve_storage(
 def create_server_runtime(config: ServerConfig) -> ServerComposition:
     from marivo.core.engine import CoreEngine
 
-    setup_logging(level=config.marivo_config.observability.log_level)
+    log_file: Path | None = None
+    log_dir = config.marivo_config.observability.log_dir
+    if log_dir is not None:
+        log_file = Path(log_dir) / "runtime.jsonl"
+
+    setup_logging(
+        level=config.marivo_config.observability.log_level,
+        log_file=log_file,
+    )
     metrics = MetricsCollector() if config.marivo_config.observability.metrics_enabled else None
 
     resolved_path, metadata_store, analytics_engine = _resolve_storage(

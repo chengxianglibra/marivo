@@ -17,6 +17,7 @@ from marivo.contracts.values import LAYOUT_VERSION
 from marivo.local.state_layout import (
     dot_marivo_path,
     evidence_dir,
+    log_dir_path,
     models_dir,
     state_db_path,
     toml_config_path,
@@ -62,6 +63,7 @@ def initialize_workspace(workspace_root: Path, *, force: bool = False) -> dict[s
         # Create subdirectories
         models_dir(workspace_root).mkdir(exist_ok=True)
         evidence_dir(workspace_root).mkdir(exist_ok=True)
+        log_dir_path(workspace_root).mkdir(exist_ok=True)
 
         # Write VERSION file
         if not version_path.is_file():

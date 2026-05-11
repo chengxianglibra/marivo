@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar, Token
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 from typing import Any, ClassVar
 
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -122,14 +125,23 @@ class JSONFormatter(logging.Formatter):
         return json.dumps(entry, default=str)
 
 
-def setup_logging(level: str = "INFO") -> None:
+def setup_logging(
+    level: str = "INFO",
+    *,
+    log_file: Path | None = None,
+    max_bytes: int = 10_485_760,  # 10 MiB
+    backup_count: int = 5,
+) -> None:
     """Configure root logger with JSON formatter.
 
     The LOG_LEVEL environment variable, if set, overrides the *level* argument.
     Set LOG_LEVEL=WARNING to suppress INFO output during test runs.
-    """
-    import os
 
+    When *log_file* is provided (or the ``MARIVO_LOG_DIR`` env var is set),
+    a :class:`RotatingFileHandler` is attached alongside the stream handler,
+    writing structured JSONL to disk.  If the log directory cannot be created,
+    a warning is emitted to stderr and the process continues without file logging.
+    """
     effective_level = os.environ.get("LOG_LEVEL", level).upper()
     root = logging.getLogger()
     # Remove existing handlers to avoid duplicates during tests
@@ -138,6 +150,27 @@ def setup_logging(level: str = "INFO") -> None:
     handler.setFormatter(JSONFormatter())
     root.addHandler(handler)
     root.setLevel(getattr(logging, effective_level, logging.INFO))
+
+    # Resolve file log path: explicit parameter > MARIVO_LOG_DIR env var
+    resolved_log_file = log_file
+    if resolved_log_file is None:
+        marivo_log_dir = os.environ.get("MARIVO_LOG_DIR")
+        if marivo_log_dir:
+            resolved_log_file = Path(marivo_log_dir) / "runtime.jsonl"
+
+    if resolved_log_file is not None:
+        try:
+            resolved_log_file.parent.mkdir(parents=True, exist_ok=True)
+            file_handler = RotatingFileHandler(
+                str(resolved_log_file),
+                maxBytes=max_bytes,
+                backupCount=backup_count,
+                encoding="utf-8",
+            )
+            file_handler.setFormatter(JSONFormatter())
+            root.addHandler(file_handler)
+        except OSError as exc:
+            root.warning("File logging unavailable (%s): %s", resolved_log_file, exc)
 
 
 # ── Metrics collector ───────────────────────────────────────────────
