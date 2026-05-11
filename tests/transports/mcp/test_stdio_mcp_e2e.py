@@ -18,9 +18,6 @@ class _FakeSvc:
     def list_semantic_models(self, **kw):
         return {}
 
-    def import_osi_document(self, **kw):
-        return {}
-
     def get_semantic_model(self, **kw):
         return {}
 
@@ -218,7 +215,6 @@ def test_stdio_server_registers_tools():
         # Semantic tools
         "create_semantic_model",
         "list_semantic_models",
-        "import_osi_document",
         "get_semantic_model",
         "update_semantic_model",
         "delete_semantic_model",
