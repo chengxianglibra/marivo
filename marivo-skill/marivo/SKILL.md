@@ -102,6 +102,7 @@ Read more before going deeper:
 
 - use `references/steps.md` for intent-level guardrails and state/context sequencing
 - use `references/semantic-layer.md` for reusable semantic modeling heuristics
+- use `references/osi-mcp-modeling.md` for step-by-step semantic modeling via MCP tools (create_semantic_model, create_dataset, create_metric, create_relationship)
 - use `references/http-contracts.md` for shared HTTP rules such as structured time windows and session ownership
 
 ## Common Mistakes
@@ -139,6 +140,7 @@ Use the smallest next document that matches the task:
 
 - [`references/steps.md`](references/steps.md): investigation execution, typed intent guardrails, typed ref chaining, and state/context usage
 - [`references/semantic-layer.md`](references/semantic-layer.md): semantic object families, dependency order, activation order, and modeling heuristics
+- [`references/osi-mcp-modeling.md`](references/osi-mcp-modeling.md): step-by-step OSI semantic modeling via MCP tools — discover, model, dataset, fields, relationships, metrics, readiness
 - [`references/semantic-readiness.md`](references/semantic-readiness.md): lifecycle versus readiness and why-not-ready troubleshooting
 - [`references/http-contracts.md`](references/http-contracts.md): cross-surface HTTP, session invariants, and execution auth
 - [`references/planning.md`](references/planning.md): client-side orchestration patterns when a task spans multiple dependent intents
