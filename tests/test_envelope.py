@@ -60,3 +60,47 @@ class TestExecutionEnvelope(unittest.TestCase):
         # result fields are flat-merged at top level for backward compat
         self.assertEqual(legacy["value"], 42.0)
         self.assertEqual(legacy["observation_type"], "scalar")
+
+
+class TestCommitStepResultEnvelope(unittest.TestCase):
+    def test_build_envelope_returns_envelope(self) -> None:
+        """build_envelope should return ExecutionEnvelope."""
+        from marivo.contracts.envelope import ExecutionEnvelope
+        from marivo.runtime.intents._helpers import build_envelope
+
+        env = build_envelope(
+            session_id="s1",
+            step_id="step_obs_1",
+            step_type="observe",
+            artifact_id="art_1",
+            artifact_payload={"value": 42.0, "observation_type": "scalar"},
+            provenance={"query_hash": "abc"},
+        )
+        self.assertIsInstance(env, ExecutionEnvelope)
+        self.assertEqual(env.artifact_id, "art_1")
+        self.assertEqual(env.result["value"], 42.0)
+
+    def test_envelope_legacy_dict_matches_old_shape(self) -> None:
+        """to_legacy_dict() must produce the same flat dict as the old code."""
+        from marivo.runtime.intents._helpers import build_envelope
+
+        env = build_envelope(
+            session_id="s1",
+            step_id="step_obs_1",
+            step_type="observe",
+            artifact_id="art_1",
+            artifact_payload={"value": 42.0},
+        )
+        legacy = env.to_legacy_dict()
+        self.assertEqual(legacy["intent_type"], "observe")
+        self.assertEqual(legacy["step_type"], "observe")
+        self.assertEqual(
+            legacy["step_ref"],
+            {
+                "session_id": "s1",
+                "step_id": "step_obs_1",
+                "step_type": "observe",
+            },
+        )
+        self.assertEqual(legacy["artifact_id"], "art_1")
+        self.assertEqual(legacy["value"], 42.0)
