@@ -220,6 +220,7 @@ Completion rule:
 
 ## Read Next
 
+- Read `osi-mcp-modeling.md` when building semantic models via MCP tools (create_semantic_model, create_dataset, create_metric, create_relationship) rather than the HTTP entity contract surface.
 - Read `semantic-readiness.md` when an active semantic object is still unavailable at runtime.
 - Read `payload-cheatsheet.md` when you know what object to create and only need the minimum useful request body.
 - Read `infrastructure.md` when the issue is datasource browse, routing, or grounding operations rather than semantic design.
