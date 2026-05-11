@@ -4,8 +4,13 @@ from __future__ import annotations
 
 from typing import Any
 
+from marivo.contracts.generated.osi import Dataset, Metric, Relationship, SemanticModel
 from marivo.identity import resolve_user
 from marivo.transports.mcp.tools._async_bridge import call_runtime
+from marivo.transports.mcp.tools.schemas import (
+    McpMetricUpdatePayload,
+    McpRelationshipUpdatePayload,
+)
 
 
 def _resolve_requesting_user(requesting_user: str | None) -> str | None:
@@ -22,9 +27,11 @@ def register_semantic_tools(server: Any, runtime: Any) -> None:
     # ------------------------------------------------------------------
 
     @server.tool()  # type: ignore
-    async def create_semantic_model(payload: dict[str, Any]) -> dict[str, Any]:
+    async def create_semantic_model(payload: SemanticModel) -> dict[str, Any]:
         """Create a semantic model via POST /semantic-models from an OSI document fragment."""
-        return await call_runtime(svc.create_semantic_model, model_data=payload)
+        return await call_runtime(
+            svc.create_semantic_model, model_data=payload.model_dump(by_alias=True)
+        )
 
     @server.tool()  # type: ignore
     async def list_semantic_models(
@@ -87,11 +94,14 @@ def register_semantic_tools(server: Any, runtime: Any) -> None:
     @server.tool()  # type: ignore
     async def create_dataset(
         model: str,
-        payload: dict[str, Any],
+        payload: Dataset,
     ) -> dict[str, Any]:
         """Create a dataset within a model via POST /semantic-models/{model}/datasets."""
         return await call_runtime(
-            svc.create_dataset, model_name=model, ds_data=payload, owner_user=resolve_user()
+            svc.create_dataset,
+            model_name=model,
+            ds_data=payload.model_dump(by_alias=True),
+            owner_user=resolve_user(),
         )
 
     @server.tool()  # type: ignore
@@ -125,11 +135,20 @@ def register_semantic_tools(server: Any, runtime: Any) -> None:
         model: str,
         name: str,
         description: str | None = None,
+        source: str | None = None,
+        primary_key: list[str] | None = None,
+        unique_keys: list[list[str]] | None = None,
     ) -> dict[str, Any]:
         """Update a dataset's top-level fields via PUT /semantic-models/{model}/datasets/{name}."""
         updates: dict[str, Any] = {}
         if description is not None:
             updates["description"] = description
+        if source is not None:
+            updates["source"] = source
+        if primary_key is not None:
+            updates["primary_key"] = primary_key
+        if unique_keys is not None:
+            updates["unique_keys"] = unique_keys
         return await call_runtime(
             svc.update_dataset,
             model_name=model,
@@ -152,13 +171,13 @@ def register_semantic_tools(server: Any, runtime: Any) -> None:
     @server.tool()  # type: ignore
     async def create_relationship(
         model: str,
-        payload: dict[str, Any],
+        payload: Relationship,
     ) -> dict[str, Any]:
         """Create a relationship within a model via POST /semantic-models/{model}/relationships."""
         return await call_runtime(
             svc.create_relationship,
             model_name=model,
-            rel_data=payload,
+            rel_data=payload.model_dump(by_alias=True),
             owner_user=resolve_user(),
         )
 
@@ -192,14 +211,14 @@ def register_semantic_tools(server: Any, runtime: Any) -> None:
     async def update_relationship(
         model: str,
         name: str,
-        payload: dict[str, Any],
+        payload: McpRelationshipUpdatePayload,
     ) -> dict[str, Any]:
         """Update a relationship's fields via PUT /semantic-models/{model}/relationships/{name}."""
         return await call_runtime(
             svc.update_relationship,
             model_name=model,
             rel_name=name,
-            updates=payload,
+            updates=payload.model_dump(exclude_none=True),
             owner_user=resolve_user(),
         )
 
@@ -217,13 +236,13 @@ def register_semantic_tools(server: Any, runtime: Any) -> None:
     @server.tool()  # type: ignore
     async def create_metric(
         model: str,
-        payload: dict[str, Any],
+        payload: Metric,
     ) -> dict[str, Any]:
         """Create a metric within a model via POST /semantic-models/{model}/metrics."""
         return await call_runtime(
             svc.create_metric,
             model_name=model,
-            metric_data=payload,
+            metric_data=payload.model_dump(by_alias=True),
             owner_user=resolve_user(),
         )
 
@@ -257,14 +276,14 @@ def register_semantic_tools(server: Any, runtime: Any) -> None:
     async def update_metric(
         model: str,
         name: str,
-        payload: dict[str, Any],
+        payload: McpMetricUpdatePayload,
     ) -> dict[str, Any]:
         """Update a metric's fields via PUT /semantic-models/{model}/metrics/{name}."""
         return await call_runtime(
             svc.update_metric,
             model_name=model,
             metric_name=name,
-            updates=payload,
+            updates=payload.model_dump(exclude_none=True),
             owner_user=resolve_user(),
         )
 
