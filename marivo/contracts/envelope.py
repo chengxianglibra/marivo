@@ -50,6 +50,11 @@ class ExecutionEnvelope(BaseModel):
         Merges ``result`` keys at top level alongside step_ref and artifact_id.
         This matches the current HTTP/MCP response contract until consumers
         migrate to the structured envelope.
+
+        Note: ``result`` and ``product_metadata`` keys that collide with envelope
+        fields (intent_type, step_type, step_ref, artifact_id) will silently
+        overwrite the envelope values. AOI artifacts don't contain these keys,
+        so this is safe in practice.
         """
         out: dict[str, Any] = {
             "intent_type": self.intent_type,
