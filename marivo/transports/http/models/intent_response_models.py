@@ -1,4 +1,10 @@
-"""Typed response models for intent execution APIs."""
+"""Typed response models for intent execution APIs.
+
+Currently all responses are RootModel[JsonObject] wrappers.
+Migration path: once all intent handlers return ExecutionEnvelope,
+these will become typed models with explicit step_ref, artifact_id,
+and result fields. The wire format stays the same via to_legacy_dict().
+"""
 
 from __future__ import annotations
 
