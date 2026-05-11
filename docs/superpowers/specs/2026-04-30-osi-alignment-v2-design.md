@@ -39,7 +39,7 @@ Top-level structure follows OSI exactly:
 
 Defines the structure of `custom_extensions[].data` when `vendor_name: "MARIVO"`. These are the fields that Marivo needs beyond OSI core for safe analysis. The extension schema is versioned alongside the OSI spec version.
 
-Machine-readable schema: [`osi-marivo-schema.json`](../../api/osi-marivo-schema.json).
+Machine-readable schema: [`osi-marivo.schema.json`](../../../osi-marivo-spec/schema/osi-marivo.schema.json).
 
 Extension fields are only added when they serve a harness purpose: preventing silent wrong numbers, enabling validation, or providing explicit references that cannot be safely inferred from SQL expressions.
 
@@ -303,7 +303,7 @@ List and read endpoints apply model visibility before returning results:
 
 Imports an OSI document as the latest public Marivo semantic layer. The input may be either:
 - A standard OSI v0.1.1 document with no MARIVO extensions
-- A Marivo-extended OSI document that passes [`osi-marivo-schema.json`](../../api/osi-marivo-schema.json)
+- A Marivo-extended OSI document that passes [`osi-marivo.schema.json`](../../../osi-marivo-spec/schema/osi-marivo.schema.json)
 
 Import semantics:
 1. Validate the input as OSI JSON. If MARIVO extensions exist, validate their decoded `data` payloads against the Marivo extension schema.
@@ -757,7 +757,7 @@ Every MARIVO extension field exists because it cannot be safely inferred from SQ
 | Harness preserved | Write-time validation, readiness, semantic layer versioning, dependency graph |
 
 **Remaining risk:**
-- MARIVO vendor namespace not yet registered in OSI (use COMMON with `_vendor: "marivo"` as fallback until registered)
+- MARIVO vendor namespace is the only supported vendor namespace in this schema
 - `custom_extensions[].data` is a JSON string, not a native object — parsing/serialization overhead on every request
 - Downstream consumers (MCP, skill, compiler) need rewrite
 - Source mapping to datasource_id needs implementation (currently `source` is just a string)

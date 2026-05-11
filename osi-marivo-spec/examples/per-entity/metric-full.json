@@ -31,7 +31,7 @@
             }
           ],
           "custom_extensions": [
-            { "vendor_name": "MARIVO", "data": "{\"datasource_id\":\"ds_finance_dwh\"}" }
+            { "vendor_name": "MARIVO", "data": { "datasource_id": "ds_finance_dwh" } }
           ]
         }
       ],
@@ -47,7 +47,7 @@
           "custom_extensions": [
             {
               "vendor_name": "MARIVO",
-              "data": "{\"additive_dimensions\":[\"txn_date\"]}"
+              "data": { "additive_dimensions": ["txn_date"] }
             }
           ]
         }

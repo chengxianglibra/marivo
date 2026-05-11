@@ -8,7 +8,7 @@
 
 ## 1. Introduction
 
-This specification defines the MARIVO vendor extensions for the Open Semantic Interchange (OSI) Core Metadata Spec. These extensions carry Marivo-specific semantic metadata within standard OSI documents, enabling third-party tools to produce and consume Marivo-compatible semantic models.
+This specification defines the MARIVO vendor extensions for the Open Semantic Interchange (OSI) Core Metadata Spec. The canonical schema only recognizes the MARIVO vendor namespace. These extensions carry Marivo-specific semantic metadata within standard OSI documents, enabling third-party tools to produce and consume Marivo-compatible semantic models.
 
 A valid OSI-Marivo document is a valid OSI document. Tools that do not understand MARIVO extensions can safely ignore them via the standard `custom_extensions` mechanism.
 
@@ -17,7 +17,7 @@ A valid OSI-Marivo document is a valid OSI document. Tools that do not understan
 An OSI document is **OSI-Marivo conformant** when:
 
 1. It is a valid OSI Core Metadata v0.1.1 document.
-2. Every `custom_extensions` entry with `vendor_name: "MARIVO"` has a `data` field whose decoded JSON conforms to the corresponding MARIVO extension payload schema defined in this specification.
+2. Every `custom_extensions` entry with `vendor_name: "MARIVO"` has a `data` field that conforms to the corresponding MARIVO extension payload schema defined in this specification.
 3. All conditional constraints (Section 3) are satisfied.
 
 ### 1.2 Notation
@@ -35,11 +35,11 @@ OSI Core defines a `custom_extensions` array on Dataset, Field, and Metric objec
 ```json
 {
   "vendor_name": "MARIVO",
-  "data": "<JSON-encoded string>"
+  "data": { }
 }
 ```
 
-The `data` field is a JSON string. When decoded, its structure MUST conform to the MARIVO extension payload schema for the parent entity type. The canonical schema uses `contentMediaType: "application/json"` and `contentSchema` to declare this relationship.
+The `data` field is a JSON object. Its structure MUST conform to the MARIVO extension payload schema for the parent entity type.
 
 **At most one** MARIVO extension entry is permitted per `custom_extensions` array. Validators SHOULD reject documents with duplicate MARIVO entries on the same entity.
 
@@ -107,12 +107,7 @@ npx --yes ajv-cli@5.0.0 validate --spec=draft2020 \
 
 ### 5.2 Extension Payload Validation
 
-The `data` field in each MARIVO custom extension is a JSON string. The schema declares `contentMediaType: "application/json"` and `contentSchema` pointing to the payload schema. Validators that support content schema validation (JSON Schema draft 2020-12) will validate the decoded payload automatically.
-
-For validators that do not support content schema validation, a two-pass approach is recommended:
-
-1. Validate the document structure against the canonical schema.
-2. For each `custom_extensions` entry with `vendor_name: "MARIVO"`, decode the `data` string and validate against the corresponding `Marivo*Extension` schema.
+The `data` field in each MARIVO custom extension is a JSON object. Validators can validate it directly against the corresponding `Marivo*Extension` schema.
 
 ---
 

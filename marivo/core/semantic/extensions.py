@@ -1,7 +1,7 @@
 """Parsing and serialization of MARIVO custom_extensions.
 
 Handles the bidirectional mapping between:
-  - OSI wire format: custom_extensions[].data (JSON string)
+  - OSI wire format: custom_extensions[].data (JSON object)
   - Python: typed MARIVO extension Pydantic models
 """
 
@@ -22,7 +22,7 @@ class OsiCustomExtensionLike(Protocol):
     def vendor_name(self) -> str: ...
 
     @property
-    def data(self) -> str: ...
+    def data(self) -> Any: ...
 
 
 def extract_marivo_extension(  # noqa: UP047 — PEP 695 not yet supported by mypy
@@ -35,5 +35,10 @@ def extract_marivo_extension(  # noqa: UP047 — PEP 695 not yet supported by my
     for ext in custom_extensions:
         candidate = getattr(ext, "root", ext)
         if candidate.vendor_name == MARIVO_VENDOR:
-            return extension_type.model_validate_json(candidate.data)
+            data = candidate.data
+            if isinstance(data, str):
+                return extension_type.model_validate_json(data)
+            if hasattr(data, "model_dump"):
+                data = data.model_dump(exclude_none=True)
+            return extension_type.model_validate(data)
     return None

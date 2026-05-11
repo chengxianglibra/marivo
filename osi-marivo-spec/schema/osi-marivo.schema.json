@@ -19,7 +19,7 @@
     },
     "vendors": {
       "type": "array",
-      "description": "Supported vendors for custom extensions (enumeration definition)",
+      "description": "Supported vendors for custom extensions (MARIVO only)",
       "items": {
         "$ref": "#/$defs/Vendor"
       }
@@ -52,14 +52,9 @@
     "Vendor": {
       "type": "string",
       "enum": [
-        "COMMON",
-        "SNOWFLAKE",
-        "SALESFORCE",
-        "DBT",
-        "DATABRICKS",
         "MARIVO"
       ],
-      "description": "Supported vendors for custom extensions, extended with MARIVO for Marivo semantic-layer metadata."
+      "description": "Supported vendor for custom extensions."
     },
     "AIContext": {
       "description": "Additional context for AI tools",
@@ -101,8 +96,8 @@
           "$ref": "#/$defs/Vendor"
         },
         "data": {
-          "type": "string",
-          "description": "JSON string containing vendor-specific data"
+          "type": "object",
+          "description": "Vendor-specific data payload"
         }
       },
       "required": [
@@ -184,9 +179,8 @@
         },
         "custom_extensions": {
           "type": "array",
-          "items": {
-            "$ref": "#/$defs/NonMarivoCustomExtension"
-          }
+          "maxItems": 0,
+          "description": "No MARIVO custom extensions are defined for fields."
         }
       },
       "required": [
@@ -240,7 +234,7 @@
         "custom_extensions": {
           "type": "array",
           "items": {
-            "$ref": "#/$defs/DatasetCustomExtension"
+            "$ref": "#/$defs/MarivoDatasetCustomExtension"
           }
         }
       },
@@ -287,9 +281,8 @@
         },
         "custom_extensions": {
           "type": "array",
-          "items": {
-            "$ref": "#/$defs/NonMarivoCustomExtension"
-          }
+          "maxItems": 0,
+          "description": "No MARIVO custom extensions are defined for relationships."
         }
       },
       "required": [
@@ -322,7 +315,7 @@
         "custom_extensions": {
           "type": "array",
           "items": {
-            "$ref": "#/$defs/MetricCustomExtension"
+            "$ref": "#/$defs/MarivoMetricCustomExtension"
           }
         }
       },
@@ -371,9 +364,8 @@
         },
         "custom_extensions": {
           "type": "array",
-          "items": {
-            "$ref": "#/$defs/SemanticModelCustomExtension"
-          }
+          "maxItems": 0,
+          "description": "No MARIVO custom extensions are defined for semantic models."
         }
       },
       "required": [
@@ -392,6 +384,9 @@
           "description": "Marivo datasource reference used for routing, readiness, and schema resolution."
         }
       },
+      "required": [
+        "datasource_id"
+      ],
       "additionalProperties": false
     },
     "MarivoMetricExtension": {
@@ -410,59 +405,15 @@
       },
       "additionalProperties": false
     },
-    "NonMarivoCustomExtension": {
-      "allOf": [
-        {
-          "$ref": "#/$defs/CustomExtension"
-        },
-        {
-          "not": {
-            "properties": {
-              "vendor_name": {
-                "const": "MARIVO"
-              }
-            },
-            "required": [
-              "vendor_name"
-            ]
-          }
-        }
-      ]
-    },
-    "DatasetCustomExtension": {
-      "oneOf": [
-        {
-          "$ref": "#/$defs/MarivoDatasetCustomExtension"
-        },
-        {
-          "$ref": "#/$defs/NonMarivoCustomExtension"
-        }
-      ]
-    },
-    "MetricCustomExtension": {
-      "oneOf": [
-        {
-          "$ref": "#/$defs/MarivoMetricCustomExtension"
-        },
-        {
-          "$ref": "#/$defs/NonMarivoCustomExtension"
-        }
-      ]
-    },
     "MarivoDatasetCustomExtension": {
       "type": "object",
-      "description": "MARIVO custom extension for Dataset. The data field remains an OSI JSON string; its decoded JSON payload must match #/$defs/MarivoDatasetExtension.",
+      "description": "MARIVO custom extension for Dataset.",
       "properties": {
         "vendor_name": {
           "const": "MARIVO"
         },
         "data": {
-          "type": "string",
-          "description": "JSON string containing MARIVO Dataset extension data.",
-          "contentMediaType": "application/json",
-          "contentSchema": {
-            "$ref": "#/$defs/MarivoDatasetExtension"
-          }
+          "$ref": "#/$defs/MarivoDatasetExtension"
         }
       },
       "required": [
@@ -473,18 +424,13 @@
     },
     "MarivoMetricCustomExtension": {
       "type": "object",
-      "description": "MARIVO custom extension for Metric. The data field remains an OSI JSON string; its decoded JSON payload must match #/$defs/MarivoMetricExtension.",
+      "description": "MARIVO custom extension for Metric.",
       "properties": {
         "vendor_name": {
           "const": "MARIVO"
         },
         "data": {
-          "type": "string",
-          "description": "JSON string containing MARIVO Metric extension data.",
-          "contentMediaType": "application/json",
-          "contentSchema": {
-            "$ref": "#/$defs/MarivoMetricExtension"
-          }
+          "$ref": "#/$defs/MarivoMetricExtension"
         }
       },
       "required": [
@@ -492,10 +438,7 @@
         "data"
       ],
       "additionalProperties": false
-    },
-    "SemanticModelCustomExtension": {
-      "$ref": "#/$defs/NonMarivoCustomExtension"
     }
   },
-  "$comment": "Generated from https://github.com/open-semantic-interchange/OSI/blob/main/core-spec/osi-schema.json. MARIVO-specific payload schemas describe the JSON string stored in custom_extensions[].data."
+  "$comment": "Generated from https://github.com/open-semantic-interchange/OSI/blob/main/core-spec/osi-schema.json. MARIVO-specific payload schemas describe the object stored in custom_extensions[].data."
 }

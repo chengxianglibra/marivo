@@ -29,7 +29,7 @@
           "custom_extensions": [
             {
               "vendor_name": "MARIVO",
-              "data": "{\"datasource_id\":\"ds_warehouse_prod\"}"
+              "data": { "datasource_id": "ds_warehouse_prod" }
             }
           ]
         }

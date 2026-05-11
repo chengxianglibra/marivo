@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-import json
+import contextlib
 
 import pytest
 
+from marivo.identity import reset_current_user, set_current_user
 from marivo.runtime.semantic.semantic_service import SemanticModelV2Service
 from tests.shared_fixtures import ManagedSQLiteMetadataStore, make_temp_metadata_store
 
@@ -20,6 +21,15 @@ def _close_service_store(service: SemanticModelV2Service) -> None:
     store = service.store
     if isinstance(store, ManagedSQLiteMetadataStore):
         store.close()
+
+
+@contextlib.contextmanager
+def _as_user(user: str):
+    tokens = set_current_user(user)
+    try:
+        yield
+    finally:
+        reset_current_user(tokens)
 
 
 def _make_model_payload() -> dict:
@@ -52,7 +62,7 @@ def _make_model_payload() -> dict:
                     },
                 ],
                 "custom_extensions": [
-                    {"vendor_name": "MARIVO", "data": json.dumps({"datasource_id": "ds_test"})}
+                    {"vendor_name": "MARIVO", "data": {"datasource_id": "ds_test"}}
                 ],
             }
         ],
@@ -63,15 +73,9 @@ def _make_model_payload() -> dict:
                 "custom_extensions": [
                     {
                         "vendor_name": "MARIVO",
-                        "data": json.dumps({"additive_dimensions": ["region"]}),
+                        "data": {"additive_dimensions": ["region"]},
                     }
                 ],
-            }
-        ],
-        "custom_extensions": [
-            {
-                "vendor_name": "MARIVO",
-                "data": json.dumps({"visibility": "private", "owner_user": "test_user"}),
             }
         ],
     }
@@ -79,7 +83,8 @@ def _make_model_payload() -> dict:
 
 def test_create_semantic_model_with_generated_osi(service: SemanticModelV2Service) -> None:
     try:
-        result = service.create_semantic_model(_make_model_payload())
+        with _as_user("test_user"):
+            result = service.create_semantic_model(_make_model_payload())
         assert result["name"] == "test_model"
         assert len(result["datasets"]) == 1
         assert len(result.get("metrics", [])) == 1
@@ -88,8 +93,7 @@ def test_create_semantic_model_with_generated_osi(service: SemanticModelV2Servic
         marivo_ext = None
         for ext in metric.get("custom_extensions", []):
             if ext.get("vendor_name") == "MARIVO":
-                data = ext["data"]
-                marivo_ext = json.loads(data) if isinstance(data, str) else data
+                marivo_ext = ext["data"]
                 break
         assert marivo_ext is not None
         assert marivo_ext.get("additive_dimensions") == ["region"]
@@ -99,7 +103,8 @@ def test_create_semantic_model_with_generated_osi(service: SemanticModelV2Servic
 
 def test_get_semantic_model_roundtrip(service: SemanticModelV2Service) -> None:
     try:
-        service.create_semantic_model(_make_model_payload())
+        with _as_user("test_user"):
+            service.create_semantic_model(_make_model_payload())
         fetched = service.get_semantic_model("test_model", requesting_user="test_user")
         assert fetched["name"] == "test_model"
         assert len(fetched["datasets"]) == 1

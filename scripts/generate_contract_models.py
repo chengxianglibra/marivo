@@ -51,6 +51,8 @@ def _run_codegen(schema: Path, output: Path, module_name: str) -> None:
         "--enum-field-as-literal",
         "all",
         "--strict-nullable",
+        "--extra-fields",
+        "forbid",
         "--disable-timestamp",
     ]
     result = subprocess.run(cmd, capture_output=True, text=True, cwd=ROOT)
@@ -114,32 +116,9 @@ def _write_generated_package(output_dir: Path) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     osi_output = output_dir / "osi.py"
     _run_codegen(OSI_SCHEMA, osi_output, "OSI")
-    _patch_osi_output(osi_output)
     _run_codegen(AOI_SCHEMA, output_dir / "aoi.py", "AOI")
     _write_init(output_dir)
     _format_generated_package(output_dir)
-
-
-def _patch_osi_output(output: Path) -> None:
-    """Apply deterministic compatibility patches to generated OSI models."""
-    text = output.read_text(encoding="utf-8")
-    text = text.replace(
-        "class AIContext1(BaseModel):\n"
-        '    """\n'
-        "    Additional context for AI tools\n"
-        '    """\n\n'
-        "    model_config = ConfigDict(\n"
-        '        extra="allow",\n'
-        "    )",
-        "class AIContext1(BaseModel):\n"
-        '    """\n'
-        "    Additional context for AI tools\n"
-        '    """\n\n'
-        "    model_config = ConfigDict(\n"
-        '        extra="forbid",\n'
-        "    )",
-    )
-    output.write_text(text, encoding="utf-8")
 
 
 def _format_generated_package(output_dir: Path) -> None:

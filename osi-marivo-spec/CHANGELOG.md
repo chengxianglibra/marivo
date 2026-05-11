@@ -7,9 +7,10 @@ Initial publication.
 ### Added
 
 - Narrative specification for all MARIVO vendor extensions (spec.md).
-- Canonical JSON Schema migrated from docs/api/osi-marivo-schema.json.
+- Canonical JSON Schema lives in osi-marivo-spec/schema/osi-marivo.schema.json.
 - Human-readable YAML schema view.
 - Examples: minimal, complete, and per-entity.
+- Vendor enumeration narrowed to the MARIVO namespace.
 
 ### References
 

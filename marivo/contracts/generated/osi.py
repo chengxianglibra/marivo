@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel
 
@@ -31,13 +31,10 @@ class CustomExtension(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    vendor_name: Literal["COMMON", "SNOWFLAKE", "SALESFORCE", "DBT", "DATABRICKS", "MARIVO"] = (
-        Field(
-            ...,
-            description="Supported vendors for custom extensions, extended with MARIVO for Marivo semantic-layer metadata.",
-        )
+    vendor_name: Literal["MARIVO"] = Field(
+        ..., description="Supported vendor for custom extensions."
     )
-    data: str = Field(..., description="JSON string containing vendor-specific data")
+    data: dict[str, Any] = Field(..., description="Vendor-specific data payload")
 
 
 class DialectExpression(BaseModel):
@@ -79,6 +76,54 @@ class Dimension(BaseModel):
     )
 
 
+class FieldModel(BaseModel):
+    """
+    Row-level attribute for grouping, filtering, and metric expressions
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    name: str = Field(..., description="Unique identifier for the field within the dataset")
+    expression: Expression
+    dimension: Dimension | None = None
+    label: str | None = Field(None, description="Label for categorization")
+    description: str | None = Field(None, description="Human-readable description")
+    ai_context: str | AIContext1 | None = Field(None, description="Additional context for AI tools")
+    custom_extensions: list[Any] | None = Field(
+        None,
+        description="No MARIVO custom extensions are defined for fields.",
+        max_length=0,
+    )
+
+
+class Relationship(BaseModel):
+    """
+    Foreign key relationship between datasets
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    name: str = Field(..., description="Unique identifier for the relationship")
+    from_: str = Field(
+        ..., alias="from", description="Dataset on the many side of the relationship"
+    )
+    to: str = Field(..., description="Dataset on the one side of the relationship")
+    from_columns: list[str] = Field(
+        ..., description="Foreign key columns in the 'from' dataset", min_length=1
+    )
+    to_columns: list[str] = Field(
+        ..., description="Primary/unique key columns in the 'to' dataset", min_length=1
+    )
+    ai_context: str | AIContext1 | None = Field(None, description="Additional context for AI tools")
+    custom_extensions: list[Any] | None = Field(
+        None,
+        description="No MARIVO custom extensions are defined for relationships.",
+        max_length=0,
+    )
+
+
 class MarivoDatasetExtension(BaseModel):
     """
     MARIVO extension payload for Dataset.
@@ -87,8 +132,8 @@ class MarivoDatasetExtension(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    datasource_id: str | None = Field(
-        None,
+    datasource_id: str = Field(
+        ...,
         description="Marivo datasource reference used for routing, readiness, and schema resolution.",
         min_length=1,
     )
@@ -113,76 +158,28 @@ class MarivoMetricExtension(BaseModel):
     )
 
 
-class NonMarivoCustomExtension(CustomExtension):
-    pass
-
-
 class MarivoDatasetCustomExtension(BaseModel):
     """
-    MARIVO custom extension for Dataset. The data field remains an OSI JSON string; its decoded JSON payload must match #/$defs/MarivoDatasetExtension.
+    MARIVO custom extension for Dataset.
     """
 
     model_config = ConfigDict(
         extra="forbid",
     )
     vendor_name: Literal["MARIVO"]
-    data: str = Field(..., description="JSON string containing MARIVO Dataset extension data.")
+    data: MarivoDatasetExtension
 
 
 class MarivoMetricCustomExtension(BaseModel):
     """
-    MARIVO custom extension for Metric. The data field remains an OSI JSON string; its decoded JSON payload must match #/$defs/MarivoMetricExtension.
+    MARIVO custom extension for Metric.
     """
 
     model_config = ConfigDict(
         extra="forbid",
     )
     vendor_name: Literal["MARIVO"]
-    data: str = Field(..., description="JSON string containing MARIVO Metric extension data.")
-
-
-class SemanticModelCustomExtension(RootModel[NonMarivoCustomExtension]):
-    root: NonMarivoCustomExtension
-
-
-class FieldModel(BaseModel):
-    """
-    Row-level attribute for grouping, filtering, and metric expressions
-    """
-
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    name: str = Field(..., description="Unique identifier for the field within the dataset")
-    expression: Expression
-    dimension: Dimension | None = None
-    label: str | None = Field(None, description="Label for categorization")
-    description: str | None = Field(None, description="Human-readable description")
-    ai_context: str | AIContext1 | None = Field(None, description="Additional context for AI tools")
-    custom_extensions: list[NonMarivoCustomExtension] | None = None
-
-
-class Relationship(BaseModel):
-    """
-    Foreign key relationship between datasets
-    """
-
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    name: str = Field(..., description="Unique identifier for the relationship")
-    from_: str = Field(
-        ..., alias="from", description="Dataset on the many side of the relationship"
-    )
-    to: str = Field(..., description="Dataset on the one side of the relationship")
-    from_columns: list[str] = Field(
-        ..., description="Foreign key columns in the 'from' dataset", min_length=1
-    )
-    to_columns: list[str] = Field(
-        ..., description="Primary/unique key columns in the 'to' dataset", min_length=1
-    )
-    ai_context: str | AIContext1 | None = Field(None, description="Additional context for AI tools")
-    custom_extensions: list[NonMarivoCustomExtension] | None = None
+    data: MarivoMetricExtension
 
 
 class Dataset(BaseModel):
@@ -208,7 +205,7 @@ class Dataset(BaseModel):
     description: str | None = Field(None, description="Human-readable description")
     ai_context: str | AIContext1 | None = Field(None, description="Additional context for AI tools")
     fields: list[FieldModel] | None = None
-    custom_extensions: list[MarivoDatasetCustomExtension | NonMarivoCustomExtension] | None = None
+    custom_extensions: list[MarivoDatasetCustomExtension] | None = None
 
 
 class Metric(BaseModel):
@@ -225,7 +222,7 @@ class Metric(BaseModel):
         None, description="Human-readable description of what the metric measures"
     )
     ai_context: str | AIContext1 | None = Field(None, description="Additional context for AI tools")
-    custom_extensions: list[MarivoMetricCustomExtension | NonMarivoCustomExtension] | None = None
+    custom_extensions: list[MarivoMetricCustomExtension] | None = None
 
 
 class SemanticModel(BaseModel):
@@ -246,7 +243,11 @@ class SemanticModel(BaseModel):
     metrics: list[Metric] | None = Field(
         None, description="Quantifiable measures spanning datasets"
     )
-    custom_extensions: list[SemanticModelCustomExtension] | None = None
+    custom_extensions: list[Any] | None = Field(
+        None,
+        description="No MARIVO custom extensions are defined for semantic models.",
+        max_length=0,
+    )
 
 
 class OsiCoreMetadataSpecificationWithMarivoVendorExtensions(BaseModel):
@@ -262,11 +263,8 @@ class OsiCoreMetadataSpecificationWithMarivoVendorExtensions(BaseModel):
         None,
         description="Supported expression language dialects (enumeration definition)",
     )
-    vendors: (
-        list[Literal["COMMON", "SNOWFLAKE", "SALESFORCE", "DBT", "DATABRICKS", "MARIVO"]] | None
-    ) = Field(
-        None,
-        description="Supported vendors for custom extensions (enumeration definition)",
+    vendors: list[Literal["MARIVO"]] | None = Field(
+        None, description="Supported vendors for custom extensions (MARIVO only)"
     )
     semantic_model: list[SemanticModel] = Field(
         ..., description="Collection of semantic model definitions"

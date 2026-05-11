@@ -175,7 +175,9 @@ def _walk_schema(node: Any, pointer: str, violations: list[str]) -> None:
 
     if node.get("type") == "array":
         items = node.get("items")
-        if not isinstance(items, dict) or not items or not _is_typed_schema(items):
+        if node.get("maxItems") != 0 and (
+            not isinstance(items, dict) or not items or not _is_typed_schema(items)
+        ):
             violations.append(f"{pointer}/items: array schema must declare non-empty typed items")
 
     child_schema_keys = {
@@ -207,7 +209,9 @@ def _walk_schema(node: Any, pointer: str, violations: list[str]) -> None:
             )
 
     items = node.get("items")
-    if isinstance(items, (dict, list)):
+    if isinstance(items, (dict, list)) and not (
+        node.get("type") == "array" and node.get("maxItems") == 0 and items == {}
+    ):
         _walk_schema(items, f"{pointer}/items", violations)
 
     additional_properties = node.get("additionalProperties")

@@ -61,7 +61,7 @@ created: 2026-05-01
   - Avoids `Any`, `object`, and unbounded dictionaries on scoped APIs.
 
 - Modify `app/api/models/osi.py`
-  - Align semantic model Pydantic schemas with `docs/api/osi-marivo-schema.json`.
+  - Align semantic model Pydantic schemas with `osi-marivo-spec/schema/osi-marivo.schema.json`.
   - Replace `AIContext` free-form object with a named typed object.
   - Add optional top-level `dialects` and `vendors`.
   - Use MARIVO-specific custom-extension models so OpenAPI exposes the fixed vendor schemas.

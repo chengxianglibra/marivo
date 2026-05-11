@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import unittest
 
 from fastapi import FastAPI
@@ -43,12 +42,17 @@ class _ManagedTestClient(TestClient):
 
 
 def _get_revision(model_dict: dict) -> int | None:
-    """Extract revision from a semantic model dict's MARIVO custom_extension."""
-    for ext in model_dict.get("custom_extensions", []):
-        if ext.get("vendor_name") == "MARIVO":
-            data = json.loads(ext["data"])
-            return data.get("revision")
+    """Extract revision from the stored semantic model row."""
+    if _ACTIVE_STORE is not None:
+        row = _ACTIVE_STORE.query_one(
+            "SELECT revision FROM semantic_models WHERE name = ?", [model_dict["name"]]
+        )
+        if row is not None:
+            return row["revision"]
     return None
+
+
+_ACTIVE_STORE: ManagedSQLiteMetadataStore | None = None
 
 
 def _make_app() -> TestClient:
@@ -58,6 +62,8 @@ def _make_app() -> TestClient:
     from marivo.transports.http.middleware import UserIdentityMiddleware
 
     store = make_temp_metadata_store(prefix=f"marivo_v2_api_{uuid.uuid4().hex[:8]}_")
+    global _ACTIVE_STORE
+    _ACTIVE_STORE = store
     datasource_service = DatasourceService(store)
     service = SemanticModelV2Service(store, datasource_service=datasource_service)
 
@@ -82,7 +88,7 @@ def _make_model_dict(name: str = "test_model") -> dict:
                 "custom_extensions": [
                     {
                         "vendor_name": "MARIVO",
-                        "data": json.dumps({"datasource_id": "ds_001"}),
+                        "data": {"datasource_id": "ds_001"},
                     }
                 ],
                 "fields": [
@@ -98,24 +104,12 @@ def _make_model_dict(name: str = "test_model") -> dict:
                             "dialects": [{"dialect": "ANSI_SQL", "expression": "order_date"}]
                         },
                         "dimension": {"is_time": True},
-                        "custom_extensions": [
-                            {
-                                "vendor_name": "MARIVO",
-                                "data": json.dumps({"data_type": "datetime"}),
-                            }
-                        ],
                     },
                     {
                         "name": "amount",
                         "expression": {
                             "dialects": [{"dialect": "ANSI_SQL", "expression": "amount"}]
                         },
-                        "custom_extensions": [
-                            {
-                                "vendor_name": "MARIVO",
-                                "data": json.dumps({"data_type": "number"}),
-                            }
-                        ],
                     },
                 ],
             }
@@ -134,7 +128,7 @@ def _make_dataset_dict(
         "custom_extensions": [
             {
                 "vendor_name": "MARIVO",
-                "data": json.dumps({"datasource_id": "ds_001"}),
+                "data": {"datasource_id": "ds_001"},
             }
         ],
         "fields": [
@@ -277,7 +271,7 @@ class TestListSemanticModelsAPI(unittest.TestCase):
                             "custom_extensions": [
                                 {
                                     "vendor_name": "MARIVO",
-                                    "data": json.dumps({"datasource_id": "ds_001"}),
+                                    "data": {"datasource_id": "ds_001"},
                                 }
                             ],
                             "fields": [
@@ -478,7 +472,7 @@ class TestImportOSIDocumentAPI(unittest.TestCase):
                             "custom_extensions": [
                                 {
                                     "vendor_name": "MARIVO",
-                                    "data": json.dumps({"datasource_id": "ds_001"}),
+                                    "data": {"datasource_id": "ds_001"},
                                 }
                             ],
                             "fields": [
@@ -517,7 +511,7 @@ class TestImportOSIDocumentAPI(unittest.TestCase):
                             "custom_extensions": [
                                 {
                                     "vendor_name": "MARIVO",
-                                    "data": json.dumps({"datasource_id": "ds_001"}),
+                                    "data": {"datasource_id": "ds_001"},
                                 }
                             ],
                             "fields": [
@@ -535,7 +529,7 @@ class TestImportOSIDocumentAPI(unittest.TestCase):
                     "custom_extensions": [
                         {
                             "vendor_name": "MARIVO",
-                            "data": json.dumps({"visibility": "private", "owner_user": "alice"}),
+                            "data": {"visibility": "private", "owner_user": "alice"},
                         }
                     ],
                 }
@@ -562,7 +556,7 @@ class TestPerModelImport(unittest.TestCase):
                             "custom_extensions": [
                                 {
                                     "vendor_name": "MARIVO",
-                                    "data": json.dumps({"datasource_id": "ds_001"}),
+                                    "data": {"datasource_id": "ds_001"},
                                 }
                             ],
                             "fields": [
@@ -588,7 +582,7 @@ class TestPerModelImport(unittest.TestCase):
                             "custom_extensions": [
                                 {
                                     "vendor_name": "MARIVO",
-                                    "data": json.dumps({"datasource_id": "ds_001"}),
+                                    "data": {"datasource_id": "ds_001"},
                                 }
                             ],
                             "fields": [
@@ -621,7 +615,7 @@ class TestPerModelImport(unittest.TestCase):
                             "custom_extensions": [
                                 {
                                     "vendor_name": "MARIVO",
-                                    "data": json.dumps({"datasource_id": "ds_001"}),
+                                    "data": {"datasource_id": "ds_001"},
                                 }
                             ],
                             "fields": [
@@ -640,12 +634,6 @@ class TestPerModelImport(unittest.TestCase):
                                             {"dialect": "ANSI_SQL", "expression": "amount"}
                                         ]
                                     },
-                                    "custom_extensions": [
-                                        {
-                                            "vendor_name": "MARIVO",
-                                            "data": json.dumps({"data_type": "number"}),
-                                        }
-                                    ],
                                 },
                             ],
                         }
@@ -678,7 +666,7 @@ class TestPerModelImport(unittest.TestCase):
                             "custom_extensions": [
                                 {
                                     "vendor_name": "MARIVO",
-                                    "data": json.dumps({"datasource_id": "ds_001"}),
+                                    "data": {"datasource_id": "ds_001"},
                                 }
                             ],
                             "fields": [
@@ -728,7 +716,7 @@ class TestPerModelImport(unittest.TestCase):
                             "custom_extensions": [
                                 {
                                     "vendor_name": "MARIVO",
-                                    "data": json.dumps({"datasource_id": "ds_001"}),
+                                    "data": {"datasource_id": "ds_001"},
                                 }
                             ],
                             "fields": [
@@ -770,7 +758,7 @@ class TestPerModelImport(unittest.TestCase):
                             "custom_extensions": [
                                 {
                                     "vendor_name": "MARIVO",
-                                    "data": json.dumps({"datasource_id": "ds_001"}),
+                                    "data": {"datasource_id": "ds_001"},
                                 }
                             ],
                             "fields": [
@@ -829,7 +817,7 @@ class TestVisibilityGuardOnModelWrites(unittest.TestCase):
                             "custom_extensions": [
                                 {
                                     "vendor_name": "MARIVO",
-                                    "data": json.dumps({"datasource_id": "ds_001"}),
+                                    "data": {"datasource_id": "ds_001"},
                                 }
                             ],
                             "fields": [
@@ -878,7 +866,7 @@ class TestVisibilityGuardOnModelWrites(unittest.TestCase):
                             "custom_extensions": [
                                 {
                                     "vendor_name": "MARIVO",
-                                    "data": json.dumps({"datasource_id": "ds_001"}),
+                                    "data": {"datasource_id": "ds_001"},
                                 }
                             ],
                             "fields": [
@@ -931,7 +919,7 @@ class TestVisibilityGuardOnSubEntityWrites(unittest.TestCase):
                             "custom_extensions": [
                                 {
                                     "vendor_name": "MARIVO",
-                                    "data": json.dumps({"datasource_id": "ds_001"}),
+                                    "data": {"datasource_id": "ds_001"},
                                 }
                             ],
                             "fields": [
@@ -1047,7 +1035,7 @@ class TestSameNameValidation(unittest.TestCase):
                             "custom_extensions": [
                                 {
                                     "vendor_name": "MARIVO",
-                                    "data": json.dumps({"datasource_id": "ds_001"}),
+                                    "data": {"datasource_id": "ds_001"},
                                 }
                             ],
                             "fields": [
@@ -1196,7 +1184,7 @@ class TestSubEntityReadVisibility(unittest.TestCase):
                             "custom_extensions": [
                                 {
                                     "vendor_name": "MARIVO",
-                                    "data": json.dumps({"datasource_id": "ds_001"}),
+                                    "data": {"datasource_id": "ds_001"},
                                 }
                             ],
                             "fields": [
@@ -1239,6 +1227,7 @@ class TestSameNameShadowingAPI(unittest.TestCase):
             "semantic_model": [
                 {
                     "name": name,
+                    "description": "public model",
                     "datasets": [
                         {
                             "name": "orders",
@@ -1246,7 +1235,7 @@ class TestSameNameShadowingAPI(unittest.TestCase):
                             "custom_extensions": [
                                 {
                                     "vendor_name": "MARIVO",
-                                    "data": json.dumps({"datasource_id": "ds_001"}),
+                                    "data": {"datasource_id": "ds_001"},
                                 }
                             ],
                             "fields": [
@@ -1270,34 +1259,34 @@ class TestSameNameShadowingAPI(unittest.TestCase):
     def test_get_model_prefers_private_over_public_for_owner(self) -> None:
         client = _make_app()
         self._import_public_model(client, "commerce")
+        private = _make_model_dict(name="commerce")
+        private["description"] = "private model"
         client.post(
             "/semantic-models",
-            json=_make_model_dict(name="commerce"),
+            json=private,
             headers={"X-Marivo-User": "alice"},
         )
         # alice sees her private model
         resp = client.get("/semantic-models/commerce", params={"requesting_user": "alice"})
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
-        for ext in data.get("semantic_model", [{}])[0].get("custom_extensions", []):
-            if ext.get("vendor_name") == "MARIVO":
-                self.assertEqual(json.loads(ext["data"])["visibility"], "private")
+        self.assertEqual(data["semantic_model"][0]["description"], "private model")
 
     def test_get_model_returns_public_for_non_owner(self) -> None:
         client = _make_app()
         self._import_public_model(client, "commerce")
+        private = _make_model_dict(name="commerce")
+        private["description"] = "private model"
         client.post(
             "/semantic-models",
-            json=_make_model_dict(name="commerce"),
+            json=private,
             headers={"X-Marivo-User": "alice"},
         )
         # bob sees the public model
         resp = client.get("/semantic-models/commerce", params={"requesting_user": "bob"})
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
-        for ext in data.get("semantic_model", [{}])[0].get("custom_extensions", []):
-            if ext.get("vendor_name") == "MARIVO":
-                self.assertEqual(json.loads(ext["data"])["visibility"], "public")
+        self.assertEqual(data["semantic_model"][0]["description"], "public model")
 
     def test_update_private_model_finds_correct_row(self) -> None:
         client = _make_app()
@@ -1347,25 +1336,25 @@ class TestSameNameShadowingAPI(unittest.TestCase):
 
     def test_two_private_models_same_name_different_owners(self) -> None:
         client = _make_app()
+        alice = _make_model_dict(name="commerce")
+        alice["description"] = "alice model"
         client.post(
             "/semantic-models",
-            json=_make_model_dict(name="commerce"),
+            json=alice,
             headers={"X-Marivo-User": "alice"},
         )
+        bob = _make_model_dict(name="commerce")
+        bob["description"] = "bob model"
         client.post(
             "/semantic-models",
-            json=_make_model_dict(name="commerce"),
+            json=bob,
             headers={"X-Marivo-User": "bob"},
         )
         # alice sees alice's model
         resp = client.get("/semantic-models/commerce", params={"requesting_user": "alice"})
         self.assertEqual(resp.status_code, 200)
-        for ext in resp.json().get("semantic_model", [{}])[0].get("custom_extensions", []):
-            if ext.get("vendor_name") == "MARIVO":
-                self.assertEqual(json.loads(ext["data"])["owner_user"], "alice")
+        self.assertEqual(resp.json()["semantic_model"][0]["description"], "alice model")
         # bob sees bob's model
         resp = client.get("/semantic-models/commerce", params={"requesting_user": "bob"})
         self.assertEqual(resp.status_code, 200)
-        for ext in resp.json().get("semantic_model", [{}])[0].get("custom_extensions", []):
-            if ext.get("vendor_name") == "MARIVO":
-                self.assertEqual(json.loads(ext["data"])["owner_user"], "bob")
+        self.assertEqual(resp.json()["semantic_model"][0]["description"], "bob model")
