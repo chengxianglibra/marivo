@@ -30,11 +30,6 @@ def register_semantic_tools(server: Any, runtime: Any) -> None:
         return await call_runtime(svc.list_semantic_models, **kwargs)
 
     @server.tool()  # type: ignore
-    async def import_osi_document(payload: dict[str, Any]) -> dict[str, Any]:
-        """Import an OSI document as the latest public layer via POST /semantic-models/import."""
-        return await call_runtime(svc.import_osi_document, doc_data=payload)
-
-    @server.tool()  # type: ignore
     async def get_semantic_model(
         model: str,
         requesting_user: str | None = None,
@@ -62,9 +57,15 @@ def register_semantic_tools(server: Any, runtime: Any) -> None:
         return await call_runtime(svc.delete_semantic_model, name=model)
 
     @server.tool()  # type: ignore
-    async def get_semantic_model_readiness(model: str) -> dict[str, Any]:
+    async def get_semantic_model_readiness(
+        model: str,
+        requesting_user: str | None = None,
+    ) -> dict[str, Any]:
         """Get readiness status for a semantic model via GET /semantic-models/{model}/readiness."""
-        return await call_runtime(svc.get_readiness, model_name=model)
+        kwargs: dict[str, Any] = {}
+        if requesting_user is not None:
+            kwargs["requesting_user"] = requesting_user
+        return await call_runtime(svc.get_readiness, model_name=model, **kwargs)
 
     # ------------------------------------------------------------------
     # Dataset CRUD
