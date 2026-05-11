@@ -30,6 +30,15 @@ this file focused on stable rules that should be loaded for every coding task.
 - When changing schemas, API models, or service contracts, update type
   annotations end-to-end in the same change.
 
+## Generated Code
+
+- `generate_contract_models.py` must strictly follow the spec schema
+  specification when generating Python model code; do not relax validation or
+  add permissive workarounds in the generator.
+- Code under the `generated/` directory cannot be directly modified; all
+  changes must be made by updating the spec schema and regenerating through
+  `generate_contract_models.py`.
+
 ## Repository Entrypoints
 
 Prefer these repository entrypoints:
