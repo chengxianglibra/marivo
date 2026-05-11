@@ -10,7 +10,6 @@ from __future__ import annotations
 from typing import Literal
 
 from pydantic import BaseModel, RootModel
-from pydantic import Field as PydanticField
 
 from marivo.contracts.generated import (
     CustomExtension,
@@ -24,9 +23,13 @@ from marivo.contracts.generated import (
     Relationship,
     SemanticModel,
 )
+from marivo.contracts.generated.osi import (
+    MarivoDatasetCustomExtension,
+    MarivoMetricCustomExtension,
+)
 
 Dialect = Literal["ANSI_SQL", "SNOWFLAKE", "MDX", "TABLEAU", "DATABRICKS"]
-Vendor = Literal["COMMON", "SNOWFLAKE", "SALESFORCE", "DBT", "DATABRICKS", "MARIVO"]
+Vendor = Literal["MARIVO"]
 OSI_SPEC_VERSION = "0.1.1"
 
 
@@ -46,91 +49,6 @@ class AIContext(RootModel[str | AIContextObject]):
     root: str | AIContextObject
 
 
-class MarivoSemanticModelCustomExtension(BaseModel):
-    """MARIVO custom extension container for SemanticModel."""
-
-    vendor_name: Literal["MARIVO"]
-    data: str = PydanticField(
-        ...,
-        json_schema_extra={
-            "contentMediaType": "application/json",
-            "contentSchema": {
-                "$ref": "https://marivo.dev/schemas/osi-marivo-schema.json#/$defs/MarivoSemanticModelExtension"
-            },
-        },
-    )
-
-    model_config = {"extra": "forbid"}
-
-
-class MarivoDatasetCustomExtension(BaseModel):
-    """MARIVO custom extension container for Dataset."""
-
-    vendor_name: Literal["MARIVO"]
-    data: str = PydanticField(
-        ...,
-        json_schema_extra={
-            "contentMediaType": "application/json",
-            "contentSchema": {
-                "$ref": "https://marivo.dev/schemas/osi-marivo-schema.json#/$defs/MarivoDatasetExtension"
-            },
-        },
-    )
-
-    model_config = {"extra": "forbid"}
-
-
-class MarivoFieldCustomExtension(BaseModel):
-    """MARIVO custom extension container for Field."""
-
-    vendor_name: Literal["MARIVO"]
-    data: str = PydanticField(
-        ...,
-        json_schema_extra={
-            "contentMediaType": "application/json",
-            "contentSchema": {
-                "$ref": "https://marivo.dev/schemas/osi-marivo-schema.json#/$defs/MarivoFieldExtension"
-            },
-        },
-    )
-
-    model_config = {"extra": "forbid"}
-
-
-class MarivoRelationshipCustomExtension(BaseModel):
-    """MARIVO custom extension container for Relationship."""
-
-    vendor_name: Literal["MARIVO"]
-    data: str = PydanticField(
-        ...,
-        json_schema_extra={
-            "contentMediaType": "application/json",
-            "contentSchema": {
-                "$ref": "https://marivo.dev/schemas/osi-marivo-schema.json#/$defs/MarivoRelationshipExtension"
-            },
-        },
-    )
-
-    model_config = {"extra": "forbid"}
-
-
-class MarivoMetricCustomExtension(BaseModel):
-    """MARIVO custom extension container for Metric."""
-
-    vendor_name: Literal["MARIVO"]
-    data: str = PydanticField(
-        ...,
-        json_schema_extra={
-            "contentMediaType": "application/json",
-            "contentSchema": {
-                "$ref": "https://marivo.dev/schemas/osi-marivo-schema.json#/$defs/MarivoMetricExtension"
-            },
-        },
-    )
-
-    model_config = {"extra": "forbid"}
-
-
 __all__ = [
     "OSI_SPEC_VERSION",
     "AIContext",
@@ -143,10 +61,7 @@ __all__ = [
     "Expression",
     "Field",
     "MarivoDatasetCustomExtension",
-    "MarivoFieldCustomExtension",
     "MarivoMetricCustomExtension",
-    "MarivoRelationshipCustomExtension",
-    "MarivoSemanticModelCustomExtension",
     "Metric",
     "OSIDocument",
     "Relationship",

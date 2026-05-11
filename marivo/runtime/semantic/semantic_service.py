@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from pydantic import ValidationError as PydanticValidationError
+
 from marivo.adapters.metadata import MetadataStore
 from marivo.contracts.errors import (
     ConflictError,
@@ -25,10 +27,6 @@ from marivo.contracts.generated import (
     Relationship,
     SemanticModel,
 )
-from marivo.contracts.semantic_extensions import (
-    MarivoSemanticModelExtension,
-)
-from marivo.core.semantic.extensions import extract_marivo_extension
 from marivo.core.semantic.semantic_validation import (
     SemanticValidationError,
     validate_semantic_model,
@@ -1032,52 +1030,19 @@ class SemanticModelV2Service:
         - If no model with that name exists, INSERT with revision=1.
         - Models NOT in the document are left untouched.
         """
-        doc = OSIDocument.model_validate(doc_data)
-
-        # Reject private models in imported documents
-        for sm in doc.semantic_model:
-            marivo_ext = extract_marivo_extension(
-                sm.custom_extensions, MarivoSemanticModelExtension
-            )
-            if marivo_ext and marivo_ext.visibility == "private":
-                raise DomainValidationError(
-                    ErrorCode.VALIDATION,
-                    f"Private model '{sm.name}' cannot be imported via OSI document. "
-                    "The import endpoint creates public (official) models only. "
-                    "To create a private model, use POST /semantic-models with visibility='private' "
-                    "and an owner_user in the MARIVO extension.",
-                )
+        try:
+            doc = OSIDocument.model_validate(doc_data)
+        except PydanticValidationError as exc:
+            raise DomainValidationError(
+                code=ErrorCode.VALIDATION,
+                message=str(exc),
+                detail={"errors": exc.errors()},
+            ) from exc
 
         results: list[dict[str, Any]] = []
         for sm in doc.semantic_model:
             # Convert to dict and force public visibility
             model_dict = sm.model_dump(by_alias=True, exclude_none=True)
-
-            # Ensure MARIVO extension has visibility=public
-            custom_exts = model_dict.get("custom_extensions") or []
-            has_marivo_ext = False
-            for ext in custom_exts:
-                if ext.get("vendor_name") == "MARIVO":
-                    import json
-
-                    data = ext.get("data")
-                    parsed = json.loads(data) if isinstance(data, str) else data
-                    parsed["visibility"] = "public"
-                    parsed.pop("owner_user", None)
-                    ext["data"] = json.dumps(parsed)
-                    has_marivo_ext = True
-                    break
-
-            if not has_marivo_ext:
-                import json
-
-                custom_exts.append(
-                    {
-                        "vendor_name": "MARIVO",
-                        "data": json.dumps({"visibility": "public"}),
-                    }
-                )
-                model_dict["custom_extensions"] = custom_exts
 
             # Enrich and validate
             enriched = self._enrich_model_dict_with_marivo(model_dict)

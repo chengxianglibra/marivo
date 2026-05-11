@@ -34,8 +34,7 @@ def test_metric_roundtrip_with_additive_dimensions() -> None:
     marivo_ext = None
     for ext_data in reconstructed.get("custom_extensions", []):
         if ext_data.get("vendor_name") == "MARIVO":
-            data = ext_data["data"]
-            marivo_ext = json.loads(data) if isinstance(data, str) else data
+            marivo_ext = ext_data["data"]
             break
 
     assert marivo_ext is not None

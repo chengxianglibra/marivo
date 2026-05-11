@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-
 import pytest
 from pydantic import ValidationError
 
@@ -134,9 +132,12 @@ def test_osi_document_version_must_be_011():
 def test_custom_extension_structure():
     from marivo.transports.http.models.osi import CustomExtension
 
-    ext = CustomExtension(vendor_name="MARIVO", data='{"visibility": "public"}')
+    ext = CustomExtension(vendor_name="MARIVO", data={"datasource_id": "ds_001"})
     assert ext.vendor_name == "MARIVO"
-    assert ext.data == '{"visibility": "public"}'
+    assert ext.data == {"datasource_id": "ds_001"}
+
+    with pytest.raises(ValidationError):
+        CustomExtension(vendor_name="COMMON", data={})
 
 
 def test_field_forbids_extra_properties():
@@ -147,6 +148,46 @@ def test_field_forbids_extra_properties():
             name="x",
             expression=Expression(dialects=[DialectExpression(dialect="ANSI_SQL", expression="x")]),
             unknown_prop="bad",
+        )
+
+
+def test_unextended_objects_reject_custom_extensions():
+    from marivo.transports.http.models.osi import (
+        CustomExtension,
+        DialectExpression,
+        Expression,
+        Field,
+        Relationship,
+        SemanticModel,
+    )
+
+    extension = CustomExtension(vendor_name="MARIVO", data={"datasource_id": "ds_001"})
+    expression = Expression(dialects=[DialectExpression(dialect="ANSI_SQL", expression="order_id")])
+
+    with pytest.raises(ValidationError):
+        Field(name="order_id", expression=expression, custom_extensions=[extension])
+
+    with pytest.raises(ValidationError):
+        Relationship(
+            name="orders_to_customers",
+            from_="orders",
+            to="customers",
+            from_columns=["customer_id"],
+            to_columns=["customer_id"],
+            custom_extensions=[extension],
+        )
+
+    with pytest.raises(ValidationError):
+        SemanticModel(
+            name="commerce",
+            datasets=[
+                {
+                    "name": "orders",
+                    "source": "analytics.orders",
+                    "fields": [{"name": "order_id", "expression": expression}],
+                }
+            ],
+            custom_extensions=[extension],
         )
 
 
@@ -243,22 +284,20 @@ def test_marivo_metric_filter():
 
 def test_extract_marivo_extension_from_custom_extensions():
     from marivo.core.semantic.extensions import extract_marivo_extension
-    from marivo.transports.http.models.marivo_extensions import MarivoSemanticModelExtension
+    from marivo.transports.http.models.marivo_extensions import MarivoDatasetExtension
     from marivo.transports.http.models.osi import CustomExtension
 
-    exts = [CustomExtension(vendor_name="MARIVO", data='{"visibility": "public"}')]
-    result = extract_marivo_extension(exts, MarivoSemanticModelExtension)
+    exts = [CustomExtension(vendor_name="MARIVO", data={"datasource_id": "tpcds"})]
+    result = extract_marivo_extension(exts, MarivoDatasetExtension)
     assert result is not None
-    assert result.visibility == "public"
+    assert result.datasource_id == "tpcds"
 
 
 def test_extract_marivo_extension_returns_none_when_absent():
     from marivo.core.semantic.extensions import extract_marivo_extension
     from marivo.transports.http.models.marivo_extensions import MarivoSemanticModelExtension
-    from marivo.transports.http.models.osi import CustomExtension
 
-    exts = [CustomExtension(vendor_name="COMMON", data="{}")]
-    result = extract_marivo_extension(exts, MarivoSemanticModelExtension)
+    result = extract_marivo_extension([], MarivoSemanticModelExtension)
     assert result is None
 
 
@@ -272,20 +311,18 @@ def test_extract_marivo_extension_returns_none_for_empty():
 
 def test_build_custom_extensions_with_marivo():
     from marivo.runtime.semantic.osi_storage import build_custom_extensions
-    from marivo.transports.http.models.marivo_extensions import MarivoSemanticModelExtension
+    from marivo.transports.http.models.marivo_extensions import MarivoDatasetExtension
 
-    exts = build_custom_extensions(MarivoSemanticModelExtension(visibility="public"))
+    exts = build_custom_extensions(MarivoDatasetExtension(datasource_id="tpcds"))
     assert len(exts) == 1
     assert exts[0].vendor_name == "MARIVO"
-    parsed = json.loads(exts[0].data)
-    assert parsed["visibility"] == "public"
+    assert exts[0].data.model_dump() == {"datasource_id": "tpcds"}
 
 
-def test_build_custom_extensions_with_marivo_and_others():
+def test_build_custom_extensions_with_marivo_only():
     from marivo.runtime.semantic.osi_storage import build_custom_extensions
-    from marivo.transports.http.models.marivo_extensions import MarivoSemanticModelExtension
-    from marivo.transports.http.models.osi import CustomExtension
+    from marivo.transports.http.models.marivo_extensions import MarivoDatasetExtension
 
-    other = CustomExtension(vendor_name="COMMON", data='{"note": "test"}')
-    exts = build_custom_extensions(MarivoSemanticModelExtension(visibility="public"), other)
-    assert len(exts) == 2
+    exts = build_custom_extensions(MarivoDatasetExtension(datasource_id="tpcds"))
+    assert len(exts) == 1
+    assert exts[0].vendor_name == "MARIVO"

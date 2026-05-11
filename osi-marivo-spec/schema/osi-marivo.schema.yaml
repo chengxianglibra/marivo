@@ -1,4 +1,4 @@
-version: 0.1.0
+version: 0.1.1
 
 # OSI-Marivo Vendor Extensions v0.1 readable schema
 #
@@ -17,3 +17,9 @@ dataset_extension:
 metric_extension:
   additive_dimensions:         # Dimension and time fields across which the metric is additive.
     - string
+
+# OSI custom extension envelope for MARIVO dataset/metric payloads.
+custom_extension:
+  vendor_name: MARIVO
+  data:
+    object: dataset_extension | metric_extension

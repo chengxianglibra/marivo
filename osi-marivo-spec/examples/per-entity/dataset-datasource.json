@@ -21,7 +21,7 @@
           "custom_extensions": [
             {
               "vendor_name": "MARIVO",
-              "data": "{\"datasource_id\":\"ds_clickhouse_prod\"}"
+              "data": { "datasource_id": "ds_clickhouse_prod" }
             }
           ]
         }

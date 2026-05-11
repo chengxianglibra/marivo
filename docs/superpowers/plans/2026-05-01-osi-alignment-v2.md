@@ -257,7 +257,7 @@ class AIContext(RootModel):
 class CustomExtension(BaseModel):
     """Vendor-specific extension container."""
 
-    vendor_name: Literal["COMMON", "SNOWFLAKE", "SALESFORCE", "DBT", "DATABRICKS", "MARIVO"]
+    vendor_name: Literal["MARIVO"]
     data: str  # JSON string containing vendor-specific data
 
     model_config = {"extra": "forbid"}
@@ -483,10 +483,7 @@ def test_extract_marivo_extension_from_custom_extensions():
 def test_extract_marivo_extension_returns_none_when_absent():
     from app.semantic_service_v2.extensions import extract_marivo_extension
     from app.api.models.marivo_extensions import MarivoSemanticModelExtension
-    from app.api.models.osi import CustomExtension
-
-    exts = [CustomExtension(vendor_name="COMMON", data='{}')]
-    result = extract_marivo_extension(exts, MarivoSemanticModelExtension)
+    result = extract_marivo_extension([], MarivoSemanticModelExtension)
     assert result is None
 
 
@@ -509,14 +506,13 @@ def test_build_custom_extensions_with_marivo():
     assert parsed["visibility"] == "public"
 
 
-def test_build_custom_extensions_with_marivo_and_others():
+def test_build_custom_extensions_with_marivo_only():
     from app.semantic_service_v2.extensions import build_custom_extensions
     from app.api.models.marivo_extensions import MarivoSemanticModelExtension
-    from app.api.models.osi import CustomExtension
 
-    other = CustomExtension(vendor_name="COMMON", data='{"note": "test"}')
-    exts = build_custom_extensions(MarivoSemanticModelExtension(visibility="public"), other)
-    assert len(exts) == 2
+    exts = build_custom_extensions(MarivoSemanticModelExtension(visibility="public"))
+    assert len(exts) == 1
+    assert exts[0].vendor_name == "MARIVO"
 ```
 
 - [ ] **Step 2: Run test to verify it fails**

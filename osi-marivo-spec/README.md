@@ -1,6 +1,6 @@
 # OSI-Marivo Vendor Extensions
 
-MARIVO vendor extensions for the OSI (Open Semantic Interchange) Core Metadata Spec v0.1.1. This specification defines how Marivo-specific semantic metadata is carried within standard OSI documents using the `custom_extensions` mechanism.
+MARIVO vendor extensions for the OSI (Open Semantic Interchange) Core Metadata Spec v0.1.1. This specification defines how Marivo-specific semantic metadata is carried within standard OSI documents using the `custom_extensions` mechanism. The canonical schema only accepts the MARIVO vendor namespace, and MARIVO extension payloads are represented as JSON objects.
 
 ## Status
 
@@ -41,7 +41,7 @@ npx --yes ajv-cli@5.0.0 validate --spec=draft2020 \
 
 Included:
 
-- MARIVO vendor extension payloads for: Dataset, Metric
+- MARIVO vendor extension payloads
 - Extension mechanism documentation (the `custom_extensions` envelope pattern)
 
 Excluded:

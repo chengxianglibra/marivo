@@ -18,12 +18,15 @@ from marivo.contracts.generated import (
     Relationship,
     SemanticModel,
 )
+from marivo.contracts.generated.osi import (
+    MarivoDatasetExtension as OsiMarivoDatasetExtension,
+)
+from marivo.contracts.generated.osi import (
+    MarivoMetricExtension as OsiMarivoMetricExtension,
+)
 from marivo.contracts.semantic_extensions import (
     MarivoDatasetExtension,
-    MarivoFieldExtension,
     MarivoMetricExtension,
-    MarivoRelationshipExtension,
-    MarivoSemanticModelExtension,
 )
 from marivo.core.semantic.extensions import (
     OsiCustomExtensionLike,
@@ -51,29 +54,34 @@ def _ai_context_from_json(raw: Any) -> Any:
 
 def build_custom_extensions(
     marivo_ext: BaseModel | None = None,
-    *others: OsiCustomExtensionLike,
 ) -> list[OsiCustomExtensionLike]:
-    """Build a custom_extensions list from a MARIVO extension model and optional other extensions."""
-    from marivo.contracts.generated import CustomExtension
-    from marivo.contracts.generated.osi import MarivoMetricCustomExtension
+    """Build a custom_extensions list for schema-defined MARIVO extension payloads."""
+    from marivo.contracts.generated.osi import (
+        MarivoDatasetCustomExtension,
+        MarivoMetricCustomExtension,
+    )
 
     result: list[OsiCustomExtensionLike] = []
-    if marivo_ext is not None:
-        if isinstance(marivo_ext, MarivoMetricExtension):
-            result.append(
-                MarivoMetricCustomExtension(
-                    vendor_name="MARIVO",
-                    data=marivo_ext.model_dump_json(exclude_none=True),
-                )
+    if marivo_ext is None:
+        return result
+    if isinstance(marivo_ext, MarivoDatasetExtension):
+        result.append(
+            MarivoDatasetCustomExtension(
+                vendor_name="MARIVO",
+                data=OsiMarivoDatasetExtension.model_validate(
+                    marivo_ext.model_dump(exclude_none=True)
+                ),
             )
-        else:
-            result.append(
-                CustomExtension(
-                    vendor_name="MARIVO",
-                    data=marivo_ext.model_dump_json(exclude_none=True),
-                )
+        )
+    elif isinstance(marivo_ext, MarivoMetricExtension):
+        result.append(
+            MarivoMetricCustomExtension(
+                vendor_name="MARIVO",
+                data=OsiMarivoMetricExtension.model_validate(
+                    marivo_ext.model_dump(exclude_none=True)
+                ),
             )
-    result.extend(others)
+        )
     return result
 
 
@@ -125,8 +133,6 @@ def dataset_to_storage(ds: Dataset, model_id: int) -> dict[str, Any]:
 
 def field_to_storage(field: Field, dataset_id: int, position: int) -> dict[str, Any]:
     """Extract fields for a ``semantic_fields`` row."""
-    marivo_ext = extract_marivo_extension(field.custom_extensions, MarivoFieldExtension)
-    data_type = marivo_ext.data_type if marivo_ext else None
     is_dimension = field.dimension is not None
     is_time = field.dimension.is_time if field.dimension else False
     expression = json.dumps(field.expression.model_dump(exclude_none=True))
@@ -140,15 +146,13 @@ def field_to_storage(field: Field, dataset_id: int, position: int) -> dict[str, 
         "label": field.label,
         "description": field.description,
         "ai_context": ai_context,
-        "data_type": data_type,
+        "data_type": None,
         "position": position,
     }
 
 
 def relationship_to_storage(rel: Relationship, model_id: int) -> dict[str, Any]:
     """Extract fields for a ``semantic_relationships`` row."""
-    marivo_ext = extract_marivo_extension(rel.custom_extensions, MarivoRelationshipExtension)
-    cardinality = marivo_ext.cardinality if marivo_ext else None
     from_columns = json.dumps(rel.from_columns)
     to_columns = json.dumps(rel.to_columns)
     ai_context = _ai_context_to_json(rel.ai_context)
@@ -160,7 +164,7 @@ def relationship_to_storage(rel: Relationship, model_id: int) -> dict[str, Any]:
         "from_columns": from_columns,
         "to_columns": to_columns,
         "ai_context": ai_context,
-        "cardinality": cardinality,
+        "cardinality": None,
     }
 
 
@@ -218,11 +222,10 @@ def _storage_to_dataset(row: dict[str, Any]) -> dict[str, Any]:
 
 def _storage_to_field(row: dict[str, Any]) -> dict[str, Any]:
     """Assemble a field dict from a storage row."""
-    marivo_ext = MarivoFieldExtension(data_type=row.get("data_type"))
     result: dict[str, Any] = {
         "name": row["name"],
         "expression": json.loads(row["expression"]),
-        "custom_extensions": _ext_to_dicts(build_custom_extensions(marivo_ext)),
+        "custom_extensions": [],
     }
     is_time = bool(row.get("is_time", 0))
     is_dimension = bool(row.get("is_dimension", 0))
@@ -241,14 +244,13 @@ def _storage_to_field(row: dict[str, Any]) -> dict[str, Any]:
 
 def _storage_to_relationship(row: dict[str, Any]) -> dict[str, Any]:
     """Assemble a relationship dict from a storage row."""
-    marivo_ext = MarivoRelationshipExtension(cardinality=row.get("cardinality"))
     result: dict[str, Any] = {
         "name": row["name"],
         "from": row["from_dataset"],
         "to": row["to_dataset"],
         "from_columns": json.loads(row["from_columns"]),
         "to_columns": json.loads(row["to_columns"]),
-        "custom_extensions": _ext_to_dicts(build_custom_extensions(marivo_ext)),
+        "custom_extensions": [],
     }
     if row.get("ai_context") is not None:
         result["ai_context"] = _ai_context_from_json(row["ai_context"])
@@ -284,17 +286,12 @@ def storage_to_model(
 ) -> dict[str, Any]:
     """Assemble a full OSI-conformant SemanticModel dict from storage rows.
 
-    Re-creates custom_extensions with MARIVO vendor data.
+    Re-creates schema-defined custom_extensions only.
     """
-    marivo_ext = MarivoSemanticModelExtension(
-        visibility=row.get("visibility", "public"),
-        owner_user=row.get("owner_user"),
-        revision=revision,
-    )
     result: dict[str, Any] = {
         "name": row["name"],
         "datasets": datasets,
-        "custom_extensions": _ext_to_dicts(build_custom_extensions(marivo_ext)),
+        "custom_extensions": [],
     }
     if row.get("description") is not None:
         result["description"] = row["description"]

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import unittest
 from pathlib import Path
 
@@ -41,11 +40,17 @@ def _make_store() -> ManagedSQLiteMetadataStore:
     """Create a fresh metadata store with the current OSI v2 schema."""
     import uuid
 
-    return make_temp_metadata_store(prefix=f"marivo_v2_{uuid.uuid4().hex[:8]}_")
+    store = make_temp_metadata_store(prefix=f"marivo_v2_{uuid.uuid4().hex[:8]}_")
+    global _ACTIVE_STORE
+    _ACTIVE_STORE = store
+    return store
 
 
 def _make_svc() -> SemanticModelV2Service:
     return SemanticModelV2Service(_make_store())
+
+
+_ACTIVE_STORE: ManagedSQLiteMetadataStore | None = None
 
 
 def test_enrich_metric_extracts_additive_dimensions() -> None:
@@ -56,7 +61,7 @@ def test_enrich_metric_extracts_additive_dimensions() -> None:
         "custom_extensions": [
             {
                 "vendor_name": "MARIVO",
-                "data": json.dumps({"additive_dimensions": ["region", "channel"]}),
+                "data": {"additive_dimensions": ["region", "channel"]},
             }
         ],
     }
@@ -78,7 +83,7 @@ def _make_model_dict(name: str = "test_model") -> dict:
                 "custom_extensions": [
                     {
                         "vendor_name": "MARIVO",
-                        "data": json.dumps({"datasource_id": "ds_001"}),
+                        "data": {"datasource_id": "ds_001"},
                     }
                 ],
                 "fields": [
@@ -94,24 +99,12 @@ def _make_model_dict(name: str = "test_model") -> dict:
                             "dialects": [{"dialect": "ANSI_SQL", "expression": "order_date"}]
                         },
                         "dimension": {"is_time": True},
-                        "custom_extensions": [
-                            {
-                                "vendor_name": "MARIVO",
-                                "data": json.dumps({"data_type": "datetime"}),
-                            }
-                        ],
                     },
                     {
                         "name": "amount",
                         "expression": {
                             "dialects": [{"dialect": "ANSI_SQL", "expression": "amount"}]
                         },
-                        "custom_extensions": [
-                            {
-                                "vendor_name": "MARIVO",
-                                "data": json.dumps({"data_type": "number"}),
-                            }
-                        ],
                     },
                 ],
             }
@@ -141,11 +134,13 @@ def _as_user(user: str | None):
 
 
 def _get_revision(model_dict: dict) -> int | None:
-    """Extract revision from a semantic model dict's MARIVO custom_extension."""
-    for ext in model_dict.get("custom_extensions", []):
-        if ext.get("vendor_name") == "MARIVO":
-            data = json.loads(ext["data"])
-            return data.get("revision")
+    """Extract revision from the stored semantic model row."""
+    if _ACTIVE_STORE is not None:
+        row = _ACTIVE_STORE.query_one(
+            "SELECT revision FROM semantic_models WHERE name = ?", [model_dict["name"]]
+        )
+        if row is not None:
+            return row["revision"]
     return None
 
 
@@ -165,12 +160,9 @@ def _make_relationship_dict(
 
 def _make_metric_dict(
     name: str = "total_revenue",
-    observed_dataset: str | None = "orders",
     additive_dimensions: list[str] | None = None,
 ) -> dict:
     marivo_data: dict = {}
-    if observed_dataset:
-        marivo_data["observed_dataset"] = observed_dataset
     if additive_dimensions is not None:
         marivo_data["additive_dimensions"] = additive_dimensions
     return {
@@ -179,7 +171,7 @@ def _make_metric_dict(
         "custom_extensions": [
             {
                 "vendor_name": "MARIVO",
-                "data": json.dumps(marivo_data),
+                "data": marivo_data,
             }
         ],
     }
@@ -196,7 +188,7 @@ def _make_dataset_dict(
         "custom_extensions": [
             {
                 "vendor_name": "MARIVO",
-                "data": json.dumps({"datasource_id": "ds_001"}),
+                "data": {"datasource_id": "ds_001"},
             }
         ],
         "fields": [
@@ -232,12 +224,13 @@ class TestCreateSemanticModel(unittest.TestCase):
         with _as_user("alice"):
             result = svc.create_semantic_model(_make_model_dict(name="private_model"))
         self.assertEqual(result["name"], "private_model")
-        marivo_ext = None
-        for ext in result["custom_extensions"]:
-            if ext["vendor_name"] == "MARIVO":
-                marivo_ext = json.loads(ext["data"])
-        self.assertEqual(marivo_ext["visibility"], "private")
-        self.assertEqual(marivo_ext["owner_user"], "alice")
+        self.assertEqual(result["custom_extensions"], [])
+        row = svc.store.query_one(
+            "SELECT visibility, owner_user FROM semantic_models WHERE name = ?",
+            ["private_model"],
+        )
+        self.assertEqual(row["visibility"], "private")
+        self.assertEqual(row["owner_user"], "alice")
 
     def test_create_private_without_owner_fails(self) -> None:
         svc = _make_svc()
@@ -342,7 +335,7 @@ class TestListSemanticModels(unittest.TestCase):
                             "custom_extensions": [
                                 {
                                     "vendor_name": "MARIVO",
-                                    "data": json.dumps({"datasource_id": "ds_001"}),
+                                    "data": {"datasource_id": "ds_001"},
                                 }
                             ],
                             "fields": [
@@ -368,7 +361,7 @@ class TestListSemanticModels(unittest.TestCase):
                             "custom_extensions": [
                                 {
                                     "vendor_name": "MARIVO",
-                                    "data": json.dumps({"datasource_id": "ds_001"}),
+                                    "data": {"datasource_id": "ds_001"},
                                 }
                             ],
                             "fields": [
@@ -408,7 +401,7 @@ class TestListSemanticModels(unittest.TestCase):
                             "custom_extensions": [
                                 {
                                     "vendor_name": "MARIVO",
-                                    "data": json.dumps({"datasource_id": "ds_001"}),
+                                    "data": {"datasource_id": "ds_001"},
                                 }
                             ],
                             "fields": [
@@ -484,7 +477,7 @@ class TestUpdateSemanticModel(unittest.TestCase):
                             "custom_extensions": [
                                 {
                                     "vendor_name": "MARIVO",
-                                    "data": json.dumps({"datasource_id": "ds_001"}),
+                                    "data": {"datasource_id": "ds_001"},
                                 }
                             ],
                             "fields": [
@@ -540,7 +533,7 @@ class TestDeleteSemanticModel(unittest.TestCase):
                             "custom_extensions": [
                                 {
                                     "vendor_name": "MARIVO",
-                                    "data": json.dumps({"datasource_id": "ds_001"}),
+                                    "data": {"datasource_id": "ds_001"},
                                 }
                             ],
                             "fields": [
@@ -630,18 +623,13 @@ class TestDatasetCRUD(unittest.TestCase):
         with self.assertRaises(NotFoundError):
             svc.get_dataset("test_model", "orders", requesting_user="alice")
 
-    def test_dataset_field_data_type_preserved(self) -> None:
+    def test_dataset_field_custom_extensions_empty(self) -> None:
         svc = _make_svc()
         with _as_user("alice"):
             svc.create_semantic_model(_make_model_dict())
         ds = svc.get_dataset("test_model", "orders", requesting_user="alice")
         order_date = next(f for f in ds["fields"] if f["name"] == "order_date")
-        marivo_ext = None
-        for ext in order_date.get("custom_extensions", []):
-            if ext["vendor_name"] == "MARIVO":
-                marivo_ext = json.loads(ext["data"])
-        self.assertIsNotNone(marivo_ext)
-        self.assertEqual(marivo_ext["data_type"], "datetime")
+        self.assertEqual(order_date.get("custom_extensions"), [])
 
     def test_create_duplicate_dataset_returns_409(self) -> None:
 
@@ -732,12 +720,12 @@ class TestRelationshipCRUD(unittest.TestCase):
         result = svc.update_relationship(
             "test_model", "orders_to_customers", {"cardinality": "many_to_one"}, owner_user="alice"
         )
-        marivo_ext = None
-        for ext in result.get("custom_extensions", []):
-            if ext["vendor_name"] == "MARIVO":
-                marivo_ext = json.loads(ext["data"])
-        self.assertIsNotNone(marivo_ext)
-        self.assertEqual(marivo_ext["cardinality"], "many_to_one")
+        self.assertEqual(result.get("custom_extensions"), [])
+        row = svc.store.query_one(
+            "SELECT cardinality FROM semantic_relationships WHERE name = ?",
+            ["orders_to_customers"],
+        )
+        self.assertEqual(row["cardinality"], "many_to_one")
 
     def test_delete_relationship(self) -> None:
 
@@ -766,14 +754,6 @@ class TestMetricCRUD(unittest.TestCase):
         result = svc.create_metric("test_model", metric_data, owner_user="alice")
         self.assertEqual(result["name"], "total_revenue")
 
-    def test_create_metric_invalid_observed_dataset(self) -> None:
-        svc = _make_svc()
-        with _as_user("alice"):
-            svc.create_semantic_model(_make_model_dict())
-        metric_data = _make_metric_dict(observed_dataset="nonexistent")
-        with self.assertRaises(ValidationError):
-            svc.create_metric("test_model", metric_data, owner_user="alice")
-
     def test_get_metric(self) -> None:
         svc = _make_svc()
         with _as_user("alice"):
@@ -787,11 +767,7 @@ class TestMetricCRUD(unittest.TestCase):
         with _as_user("alice"):
             svc.create_semantic_model(_make_model_dict())
         svc.create_metric("test_model", _make_metric_dict(), owner_user="alice")
-        svc.create_metric(
-            "test_model",
-            _make_metric_dict(name="order_count", observed_dataset="orders"),
-            owner_user="alice",
-        )
+        svc.create_metric("test_model", _make_metric_dict(name="order_count"), owner_user="alice")
         results = svc.list_metrics("test_model", requesting_user="alice")
         self.assertEqual(len(results), 2)
 
@@ -845,34 +821,10 @@ class TestValidation(unittest.TestCase):
             svc.create_semantic_model(model_data)
         self.assertIn("nonexistent", ctx.exception.message)
 
-    def test_metric_references_unknown_dataset(self) -> None:
-        svc = _make_svc()
-        model_data = _make_model_dict()
-        model_data["metrics"] = [_make_metric_dict(observed_dataset="nonexistent")]
-        with self.assertRaises(ValidationError) as ctx, _as_user("alice"):
-            svc.create_semantic_model(model_data)
-        self.assertIn("nonexistent", ctx.exception.message)
-
-    def test_metric_observation_grain_unknown_field(self) -> None:
-        svc = _make_svc()
-        model_data = _make_model_dict()
-        metric = _make_metric_dict()
-        for ext in metric["custom_extensions"]:
-            if ext["vendor_name"] == "MARIVO":
-                data = json.loads(ext["data"])
-                data["observation_grain"] = ["nonexistent_field"]
-                ext["data"] = json.dumps(data)
-        model_data["metrics"] = [metric]
-        with self.assertRaises(ValidationError) as ctx, _as_user("alice"):
-            svc.create_semantic_model(model_data)
-        self.assertIn("nonexistent_field", ctx.exception.message)
-
     def test_metric_additive_dimensions_unknown_field(self) -> None:
         svc = _make_svc()
         model_data = _make_model_dict()
-        model_data["metrics"] = [
-            _make_metric_dict(observed_dataset=None, additive_dimensions=["nonexistent_dim"])
-        ]
+        model_data["metrics"] = [_make_metric_dict(additive_dimensions=["nonexistent_dim"])]
         with self.assertRaises(ValidationError) as ctx, _as_user("alice"):
             svc.create_semantic_model(model_data)
         self.assertIn("nonexistent_dim", ctx.exception.message)
@@ -880,29 +832,9 @@ class TestValidation(unittest.TestCase):
     def test_metric_additive_dimensions_valid(self) -> None:
         svc = _make_svc()
         model_data = _make_model_dict()
-        model_data["metrics"] = [
-            _make_metric_dict(observed_dataset=None, additive_dimensions=["amount"])
-        ]
+        model_data["metrics"] = [_make_metric_dict(additive_dimensions=["amount"])]
         result = svc.create_semantic_model(model_data)
         self.assertEqual(result["name"], "test_model")
-
-    def test_metric_additivity_subset_invalid_dimension(self) -> None:
-        svc = _make_svc()
-        model_data = _make_model_dict()
-        metric = _make_metric_dict()
-        for ext in metric["custom_extensions"]:
-            if ext["vendor_name"] == "MARIVO":
-                data = json.loads(ext["data"])
-                data["additivity"] = {
-                    "dimension_policy": "subset",
-                    "additive_dimensions": ["nonexistent_dim"],
-                    "time_axis_policy": "additive",
-                }
-                ext["data"] = json.dumps(data)
-        model_data["metrics"] = [metric]
-        with self.assertRaises(ValidationError) as ctx, _as_user("alice"):
-            svc.create_semantic_model(model_data)
-        self.assertIn("nonexistent_dim", ctx.exception.message)
 
 
 # ---------------------------------------------------------------------------
@@ -950,7 +882,7 @@ class TestVisibilityFiltering(unittest.TestCase):
                             "custom_extensions": [
                                 {
                                     "vendor_name": "MARIVO",
-                                    "data": json.dumps({"datasource_id": "ds_001"}),
+                                    "data": {"datasource_id": "ds_001"},
                                 }
                             ],
                             "fields": [
@@ -1024,7 +956,7 @@ class TestImportOSIDocument(unittest.TestCase):
                             "custom_extensions": [
                                 {
                                     "vendor_name": "MARIVO",
-                                    "data": json.dumps({"datasource_id": "ds_001"}),
+                                    "data": {"datasource_id": "ds_001"},
                                 }
                             ],
                             "fields": [
@@ -1040,12 +972,6 @@ class TestImportOSIDocument(unittest.TestCase):
                                     },
                                 }
                             ],
-                        }
-                    ],
-                    "custom_extensions": [
-                        {
-                            "vendor_name": "MARIVO",
-                            "data": json.dumps({"visibility": "public"}),
                         }
                     ],
                 }
@@ -1070,7 +996,7 @@ class TestImportOSIDocument(unittest.TestCase):
                             "custom_extensions": [
                                 {
                                     "vendor_name": "MARIVO",
-                                    "data": json.dumps({"datasource_id": "ds_001"}),
+                                    "data": {"datasource_id": "ds_001"},
                                 }
                             ],
                             "fields": [
@@ -1091,7 +1017,7 @@ class TestImportOSIDocument(unittest.TestCase):
                     "custom_extensions": [
                         {
                             "vendor_name": "MARIVO",
-                            "data": json.dumps({"visibility": "private", "owner_user": "alice"}),
+                            "data": {"visibility": "private", "owner_user": "alice"},
                         }
                     ],
                 }
@@ -1116,7 +1042,7 @@ class TestImportOSIDocument(unittest.TestCase):
                             "custom_extensions": [
                                 {
                                     "vendor_name": "MARIVO",
-                                    "data": json.dumps({"datasource_id": "ds_001"}),
+                                    "data": {"datasource_id": "ds_001"},
                                 }
                             ],
                             "fields": [
@@ -1156,7 +1082,7 @@ class TestImportOSIDocument(unittest.TestCase):
                             "custom_extensions": [
                                 {
                                     "vendor_name": "MARIVO",
-                                    "data": json.dumps({"datasource_id": "ds_001"}),
+                                    "data": {"datasource_id": "ds_001"},
                                 }
                             ],
                             "fields": [
@@ -1211,7 +1137,7 @@ class TestImportOSIDocument(unittest.TestCase):
                             "custom_extensions": [
                                 {
                                     "vendor_name": "MARIVO",
-                                    "data": json.dumps({"datasource_id": "ds_001"}),
+                                    "data": {"datasource_id": "ds_001"},
                                 }
                             ],
                             "fields": [
@@ -1260,7 +1186,7 @@ class TestImportOSIDocument(unittest.TestCase):
                             "custom_extensions": [
                                 {
                                     "vendor_name": "MARIVO",
-                                    "data": json.dumps({"datasource_id": "ds_001"}),
+                                    "data": {"datasource_id": "ds_001"},
                                 }
                             ],
                             "fields": [
@@ -1303,6 +1229,7 @@ class TestSameNameShadowing(unittest.TestCase):
             "semantic_model": [
                 {
                     "name": name,
+                    "description": "public model",
                     "datasets": [
                         {
                             "name": "orders",
@@ -1310,7 +1237,7 @@ class TestSameNameShadowing(unittest.TestCase):
                             "custom_extensions": [
                                 {
                                     "vendor_name": "MARIVO",
-                                    "data": json.dumps({"datasource_id": "ds_001"}),
+                                    "data": {"datasource_id": "ds_001"},
                                 }
                             ],
                             "fields": [
@@ -1325,9 +1252,6 @@ class TestSameNameShadowing(unittest.TestCase):
                             ],
                         }
                     ],
-                    "custom_extensions": [
-                        {"vendor_name": "MARIVO", "data": json.dumps({"visibility": "public"})}
-                    ],
                 }
             ],
         }
@@ -1337,37 +1261,34 @@ class TestSameNameShadowing(unittest.TestCase):
         svc = _make_svc()
         self._make_public_model(svc, "commerce")
         with _as_user("alice"):
-            svc.create_semantic_model(_make_model_dict(name="commerce"))
+            model = _make_model_dict(name="commerce")
+            model["description"] = "private model"
+            svc.create_semantic_model(model)
         # alice should see her private model
         result = svc.get_semantic_model("commerce", requesting_user="alice")
-        for ext in result.get("custom_extensions", []):
-            if ext.get("vendor_name") == "MARIVO":
-                data = json.loads(ext["data"])
-                self.assertEqual(data["visibility"], "private")
+        self.assertEqual(result["description"], "private model")
 
     def test_get_model_returns_public_for_non_owner(self) -> None:
         svc = _make_svc()
         self._make_public_model(svc, "commerce")
         with _as_user("alice"):
-            svc.create_semantic_model(_make_model_dict(name="commerce"))
+            model = _make_model_dict(name="commerce")
+            model["description"] = "private model"
+            svc.create_semantic_model(model)
         # bob should see the public model
         result = svc.get_semantic_model("commerce", requesting_user="bob")
-        for ext in result.get("custom_extensions", []):
-            if ext.get("vendor_name") == "MARIVO":
-                data = json.loads(ext["data"])
-                self.assertEqual(data["visibility"], "public")
+        self.assertEqual(result["description"], "public model")
 
     def test_get_model_returns_public_when_no_user(self) -> None:
         svc = _make_svc()
         self._make_public_model(svc, "commerce")
         with _as_user("alice"):
-            svc.create_semantic_model(_make_model_dict(name="commerce"))
+            model = _make_model_dict(name="commerce")
+            model["description"] = "private model"
+            svc.create_semantic_model(model)
         # No requesting_user → public model
         result = svc.get_semantic_model("commerce")
-        for ext in result.get("custom_extensions", []):
-            if ext.get("vendor_name") == "MARIVO":
-                data = json.loads(ext["data"])
-                self.assertEqual(data["visibility"], "public")
+        self.assertEqual(result["description"], "public model")
 
     def test_update_private_model_finds_correct_row(self) -> None:
         svc = _make_svc()
@@ -1395,20 +1316,16 @@ class TestSameNameShadowing(unittest.TestCase):
     def test_import_finds_public_model_when_private_exists(self) -> None:
         svc = _make_svc()
         with _as_user("alice"):
-            svc.create_semantic_model(_make_model_dict(name="shared"))
+            model = _make_model_dict(name="shared")
+            model["description"] = "private model"
+            svc.create_semantic_model(model)
         # Import a public model with the same name
         self._make_public_model(svc, "shared")
         # Both models should exist
         result = svc.get_semantic_model("shared", requesting_user="alice")
-        for ext in result.get("custom_extensions", []):
-            if ext.get("vendor_name") == "MARIVO":
-                data = json.loads(ext["data"])
-                self.assertEqual(data["visibility"], "private")
+        self.assertEqual(result["description"], "private model")
         result = svc.get_semantic_model("shared", requesting_user="bob")
-        for ext in result.get("custom_extensions", []):
-            if ext.get("vendor_name") == "MARIVO":
-                data = json.loads(ext["data"])
-                self.assertEqual(data["visibility"], "public")
+        self.assertEqual(result["description"], "public model")
 
     def test_readiness_respects_visibility(self) -> None:
 
@@ -1425,21 +1342,19 @@ class TestSameNameShadowing(unittest.TestCase):
     def test_two_private_models_same_name_different_owners(self) -> None:
         svc = _make_svc()
         with _as_user("alice"):
-            svc.create_semantic_model(_make_model_dict(name="commerce"))
+            model = _make_model_dict(name="commerce")
+            model["description"] = "alice model"
+            svc.create_semantic_model(model)
         with _as_user("bob"):
-            svc.create_semantic_model(_make_model_dict(name="commerce"))
+            model = _make_model_dict(name="commerce")
+            model["description"] = "bob model"
+            svc.create_semantic_model(model)
         # alice sees alice's model
         result = svc.get_semantic_model("commerce", requesting_user="alice")
-        for ext in result.get("custom_extensions", []):
-            if ext.get("vendor_name") == "MARIVO":
-                data = json.loads(ext["data"])
-                self.assertEqual(data["owner_user"], "alice")
+        self.assertEqual(result["description"], "alice model")
         # bob sees bob's model
         result = svc.get_semantic_model("commerce", requesting_user="bob")
-        for ext in result.get("custom_extensions", []):
-            if ext.get("vendor_name") == "MARIVO":
-                data = json.loads(ext["data"])
-                self.assertEqual(data["owner_user"], "bob")
+        self.assertEqual(result["description"], "bob model")
 
     def test_update_private_model_without_owner_returns_403(self) -> None:
 
