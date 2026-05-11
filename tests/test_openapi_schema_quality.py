@@ -274,3 +274,34 @@ def test_scoped_openapi_schemas_are_agent_friendly() -> None:
         collect_refs(schema)
 
     assert not violations, "\n".join(sorted(violations))
+
+
+def test_contract_tables_removed_from_schema():
+    """Verify that legacy contract tables are not in the schema DDL."""
+    from marivo.adapters.schema import METADATA_DDL
+
+    # Join all DDL statements into one string for searching
+    full_ddl = "\n".join(METADATA_DDL)
+
+    # Contract tables that should NOT exist
+    forbidden_tables = [
+        "semantic_metric_contracts",
+        "semantic_dimension_contracts",
+        "semantic_process_objects",
+        "semantic_process_exported_dimension_refs",
+        "semantic_time_objects",
+        "semantic_predicate_contracts",
+        "compiler_compatibility_profiles",
+        "semantic_enum_sets",
+        "semantic_enum_set_versions",
+        "semantic_enum_set_values",
+        "semantic_domain_catalog",
+    ]
+
+    for table_name in forbidden_tables:
+        assert f"CREATE TABLE IF NOT EXISTS {table_name}" not in full_ddl, (
+            f"Contract table '{table_name}' should be removed from schema"
+        )
+        assert f"CREATE TABLE {table_name}" not in full_ddl, (
+            f"Contract table '{table_name}' should be removed from schema"
+        )

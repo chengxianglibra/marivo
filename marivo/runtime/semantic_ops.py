@@ -1211,97 +1211,6 @@ def _constraints_dict_to_filter(
     return " AND ".join(parts) if parts else None
 
 
-def _resolve_predicate_ref_to_filter(
-    runtime: MarivoRuntime,
-    predicate_ref: str,
-    *,
-    metric_ref: str | None = None,
-    table_name: str | None = None,
-) -> str | None:
-    """Resolve a predicate_ref to a SQL filter expression."""
-    metadata = runtime.metadata
-    if metadata is None:
-        raise ValueError("metadata port not available in local mode")
-    row = metadata.query_one(
-        "SELECT payload_json FROM semantic_predicate_contracts "
-        "WHERE predicate_ref = ? AND status = 'published'",
-        [predicate_ref],
-    )
-    if row is None:
-        raise ValueError(
-            f"predicate_ref '{predicate_ref}' does not reference a published predicate"
-        )
-    payload = json.loads(row["payload_json"] or "{}")
-    expression = payload.get("expression")
-    if expression is None:
-        return None
-    return _predicate_expression_to_sql(
-        runtime, expression, metric_ref=metric_ref, table_name=table_name
-    )
-
-
-def _resolve_predicate_target_column(
-    runtime: MarivoRuntime,
-    target_ref: str,
-    *,
-    metric_ref: str | None = None,
-    table_name: str | None = None,
-) -> str:
-    """Resolve a predicate target_ref to a physical column name."""
-    if "." not in target_ref:
-        return target_ref
-    if target_ref.startswith("dimension."):
-        return _resolve_scope_constraint_column(
-            runtime,
-            target_ref,
-            metric_ref=metric_ref,
-            table_name=table_name,
-        )
-    _ = (metric_ref, table_name)
-    # Fall back: strip prefix and use as column hint (entity.user -> user).
-    return target_ref.split(".", 1)[-1].replace(".", "_")
-
-
-def _predicate_expression_to_sql(
-    runtime: MarivoRuntime,
-    expr: dict[str, Any],
-    *,
-    metric_ref: str | None = None,
-    table_name: str | None = None,
-) -> str:
-    """Convert a predicate expression dict to a SQL WHERE clause."""
-    op = expr.get("op")
-    if op == "and":
-        items = expr.get("items") or []
-        parts = [
-            _predicate_expression_to_sql(
-                runtime, item, metric_ref=metric_ref, table_name=table_name
-            )
-            for item in items
-        ]
-        return " AND ".join(parts)
-    target_ref = expr.get("target_ref", "")
-    column = _resolve_predicate_target_column(
-        runtime,
-        target_ref,
-        metric_ref=metric_ref,
-        table_name=table_name,
-    )
-    value: Any = expr.get("value")
-    if op in ("is_null", "is_not_null"):
-        return f"{column} IS NULL" if op == "is_null" else f"{column} IS NOT NULL"
-    if op == "between":
-        lo, hi = value[0], value[1]
-        return f"{column} BETWEEN '{lo}' AND '{hi}'"
-    if op in ("in", "not_in"):
-        vals = ", ".join(f"'{v}'" for v in value)
-        sql_in = f"{column} IN ({vals})"
-        return sql_in if op == "in" else f"NOT {sql_in}"
-    if value is not None:
-        return f"{column} {op} '{value}'"
-    return f"{column} {op}"
-
-
 def build_scoped_query(
     runtime: MarivoRuntime,
     session_id: str,
@@ -1344,16 +1253,7 @@ def build_scoped_query(
             metric_ref=metric_ref,
             table_name=request.table,
         ),
-        "scope_predicate_filter": (
-            _resolve_predicate_ref_to_filter(
-                runtime,
-                request.scope.predicate_ref,
-                metric_ref=metric_ref,
-                table_name=request.table,
-            )
-            if request.scope.predicate_ref is not None
-            else request.scope.predicate
-        ),
+        "scope_predicate_filter": request.scope.predicate,
     }
 
 
@@ -1569,16 +1469,7 @@ def _resolved_scope_filter(
         metric_ref=metric_ref,
         table_name=request.table,
     )
-    scope_predicate = (
-        _resolve_predicate_ref_to_filter(
-            runtime,
-            request.scope.predicate_ref,
-            metric_ref=metric_ref,
-            table_name=request.table,
-        )
-        if request.scope.predicate_ref is not None
-        else request.scope.predicate
-    )
+    scope_predicate = request.scope.predicate
     return merge_filters(
         scope_constraints,
         scope_predicate,

@@ -47,21 +47,6 @@ class MySQLMetadataDDLTests(unittest.TestCase):
             ddl,
         )
 
-    def test_mysql_latest_active_metric_unique_contract_uses_generated_column(self) -> None:
-        ddl = "\n".join(MYSQL_METADATA_DDL)
-
-        self.assertIn("metric_latest_active_ref", ddl)
-        self.assertIn(
-            "GENERATED ALWAYS AS (CASE WHEN status = 'published' AND is_latest_active = 1 "
-            "THEN metric_ref ELSE NULL END) STORED",
-            ddl,
-        )
-        self.assertIn(
-            "CREATE UNIQUE INDEX idx_semantic_metric_contracts_latest_active "
-            "ON semantic_metric_contracts(metric_latest_active_ref)",
-            ddl,
-        )
-
     def test_mysql_foreign_keys_are_explicit_table_constraints(self) -> None:
         ddl = "\n".join(MYSQL_METADATA_DDL)
 

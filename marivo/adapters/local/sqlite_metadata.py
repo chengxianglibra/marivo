@@ -10,14 +10,7 @@ from marivo.adapters.dialect import SQLITE_METADATA_DIALECT, MetadataDialect
 from marivo.adapters.metadata import MetadataStore
 from marivo.adapters.schema import metadata_ddl_for_backend, metadata_schema_marker_row
 
-_CATALOG_METADATA_SCHEMA_COLUMNS: tuple[tuple[str, str, str], ...] = (
-    ("semantic_metric_contracts", "catalog_metadata_json", "TEXT NOT NULL DEFAULT '{}'"),
-    ("semantic_process_objects", "catalog_metadata_json", "TEXT NOT NULL DEFAULT '{}'"),
-    ("semantic_dimension_contracts", "catalog_metadata_json", "TEXT NOT NULL DEFAULT '{}'"),
-    ("semantic_time_objects", "catalog_metadata_json", "TEXT NOT NULL DEFAULT '{}'"),
-    ("semantic_predicate_contracts", "catalog_metadata_json", "TEXT NOT NULL DEFAULT '{}'"),
-    ("compiler_compatibility_profiles", "catalog_metadata_json", "TEXT NOT NULL DEFAULT '{}'"),
-)
+_CATALOG_METADATA_SCHEMA_COLUMNS: tuple[tuple[str, str, str], ...] = ()
 
 
 class SQLiteMetadataStore(MetadataStore):

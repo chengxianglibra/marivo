@@ -594,7 +594,7 @@ def _metadata_template_valid(db_path: Path) -> bool:
         tables = {
             str(row[0])
             for row in con.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('sessions', 'steps', 'artifacts', 'datasources', 'semantic_domain_catalog', 'metadata_schema_marker')"
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('sessions', 'steps', 'artifacts', 'datasources', 'metadata_schema_marker')"
             ).fetchall()
         }
         legacy_tables = {
@@ -618,32 +618,6 @@ def _metadata_template_valid(db_path: Path) -> bool:
         }
         session_columns = {
             str(row[1]) for row in con.execute("PRAGMA table_info(sessions)").fetchall()
-        }
-        metric_columns = {
-            str(row[1])
-            for row in con.execute("PRAGMA table_info(semantic_metric_contracts)").fetchall()
-        }
-        dimension_columns = {
-            str(row[1])
-            for row in con.execute("PRAGMA table_info(semantic_dimension_contracts)").fetchall()
-        }
-        time_columns = {
-            str(row[1])
-            for row in con.execute("PRAGMA table_info(semantic_time_objects)").fetchall()
-        }
-        catalog_metadata_tables = (
-            "semantic_metric_contracts",
-            "semantic_process_objects",
-            "semantic_dimension_contracts",
-            "semantic_time_objects",
-            "semantic_predicate_contracts",
-            "compiler_compatibility_profiles",
-        )
-        tables_with_catalog_metadata = {
-            table_name
-            for table_name in catalog_metadata_tables
-            if "catalog_metadata_json"
-            in {str(row[1]) for row in con.execute(f"PRAGMA table_info({table_name})").fetchall()}
         }
         # OSI v2 model columns
         osi_model_columns = {
@@ -681,7 +655,6 @@ def _metadata_template_valid(db_path: Path) -> bool:
             "steps",
             "artifacts",
             "datasources",
-            "semantic_domain_catalog",
             "metadata_schema_marker",
         }
         and not legacy_tables
@@ -702,16 +675,6 @@ def _metadata_template_valid(db_path: Path) -> bool:
         and {
             "owner_user",
         }.issubset(session_columns)
-        and {
-            "default_predicate_refs_json",
-            "base_revision",
-            "change_summary",
-            "revision_compatibility",
-            "is_latest_active",
-        }.issubset(metric_columns)
-        and {"source_field_ref"}.issubset(dimension_columns)
-        and {"source_field_ref"}.issubset(time_columns)
-        and tables_with_catalog_metadata == set(catalog_metadata_tables)
         and {"visibility", "owner_user", "revision"}.issubset(osi_model_columns)
         and marker_rows == {"sqlite"}
         and actual_marker == expected_marker
