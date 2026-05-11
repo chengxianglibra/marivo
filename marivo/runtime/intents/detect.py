@@ -9,6 +9,10 @@ from marivo.core.intent.primitives import make_provenance, new_step_id
 from marivo.core.semantic.ir import AnalysisStepIR
 from marivo.core.semantic.step_metadata import build_step_semantic_metadata
 from marivo.runtime.evidence.ref_boundary import assert_no_canonical_refs_in_semantic_payload
+from marivo.runtime.intents.normalization import (
+    normalize_metric_ref,
+    validate_granularity,
+)
 from marivo.runtime.semantic.executor import execute_compiled
 from marivo.time_contracts import (
     TimeGrain,
@@ -310,9 +314,7 @@ def run_detect_intent(
     """
     p = params or {}
 
-    metric_ref: str = p.get("metric") or ""
-    if not metric_ref:
-        raise ValueError("detect intent requires 'metric'")
+    metric_ref = normalize_metric_ref(p.get("metric"))
     metric_ref = runtime.core.normalize_intent_metric_ref(metric_ref)
     metric_name = runtime.core.metric_name_from_ref(metric_ref)
 
@@ -327,12 +329,13 @@ def run_detect_intent(
             f"detect: INVALID_ARGUMENT - time_scope.kind must be 'range', got '{kind}'"
         )
 
-    granularity: str = str(p.get("granularity") or "").lower()
-    if granularity not in {"hour", "day", "week", "month"}:
-        raise ValueError(
-            f"detect: INVALID_ARGUMENT - granularity must be one of "
-            f"'hour', 'day', 'week', 'month', got '{granularity}'"
-        )
+    granularity_input = p.get("granularity")
+    if granularity_input is not None:
+        granularity_input = str(granularity_input).lower()
+    granularity_raw = validate_granularity(granularity_input)
+    if granularity_raw is None:
+        raise ValueError("detect intent requires 'granularity'")
+    granularity: str = granularity_raw
     granularity_typed = cast("TimeGrain", granularity)
 
     start_str: str = str(time_scope_raw.get("start") or "").strip()
