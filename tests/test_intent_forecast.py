@@ -507,7 +507,8 @@ class ForecastIntentEndpointTests(unittest.TestCase):
         metadata.initialize()
 
         cls.client = TestClient(
-            create_app(db_path=db_path, metadata_store=metadata, analytics_engine=analytics)
+            create_app(db_path=db_path, metadata_store=metadata, analytics_engine=analytics),
+            headers={"X-Marivo-User": "test_user"},
         )
 
         # Create session and run observe intent to get a real time_series artifact

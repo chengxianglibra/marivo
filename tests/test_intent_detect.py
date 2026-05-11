@@ -561,7 +561,10 @@ class DetectIntentEndpointTests(unittest.TestCase):
         meta_path = db_path.with_suffix(".meta.sqlite")
         metadata = SQLiteMetadataStore(str(meta_path))
         metadata.initialize()
-        cls.client = TestClient(create_app(db_path=db_path, metadata_store=metadata))
+        cls.client = TestClient(
+            create_app(db_path=db_path, metadata_store=metadata),
+            headers={"X-Marivo-User": "test_user"},
+        )
 
         # Register metric pointing to analytics.uniform_events.
         _seed_metadata(
