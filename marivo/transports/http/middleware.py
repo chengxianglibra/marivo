@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from marivo.identity import current_user
+from marivo.identity import reset_current_user, set_current_user
 
 
 class UserIdentityMiddleware:
@@ -28,8 +28,8 @@ class UserIdentityMiddleware:
             if decoded:
                 user = decoded
 
-        token = current_user.set(user)
+        tokens = set_current_user(user)
         try:
             await self.app(scope, receive, send)
         finally:
-            current_user.reset(token)
+            reset_current_user(tokens)

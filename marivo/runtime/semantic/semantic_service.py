@@ -219,10 +219,6 @@ class SemanticModelV2Service:
         This does NOT modify the original model_data; it returns a new dict.
         """
         enriched = dict(model_data)
-        marivo = self._extract_marivo_from_exts(model_data.get("custom_extensions"))
-        if marivo:
-            enriched["visibility"] = marivo.get("visibility", "public")
-            enriched["owner_user"] = marivo.get("owner_user")
 
         # Enrich nested datasets
         datasets = enriched.get("datasets") or []
@@ -284,13 +280,11 @@ class SemanticModelV2Service:
     def create_semantic_model(self, model_data: dict[str, Any]) -> dict[str, Any]:
         """Create a semantic model from an OSI-conformant dict.
 
-        visibility/owner_user are resolved in priority order:
-        1. MARIVO custom_extension in the payload (HTTP callers, tests)
-        2. resolve_user() — ContextVar → MARIVO_DEFAULT_USER → system username (stdio)
+        owner_user and visibility are resolved from the call context only:
+        resolve_user() → ContextVar (set by HTTP middleware or cmd_mcp) → MARIVO_DEFAULT_USER env var.
         """
-        enriched_pre = self._enrich_model_dict_with_marivo(model_data)
-        owner_user = enriched_pre.get("owner_user") or resolve_user()
-        visibility = enriched_pre.get("visibility") or ("private" if owner_user else "public")
+        owner_user = resolve_user()
+        visibility = "private" if owner_user else "public"
 
         if visibility != "private":
             raise ForbiddenError(
