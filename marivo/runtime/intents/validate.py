@@ -19,6 +19,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from marivo.core.intent.primitives import new_step_id
+from marivo.runtime.intents.normalization import normalize_metric_ref
 from marivo.runtime.intents.observe import run_observe_intent
 from marivo.runtime.intents.test import run_test_intent
 
@@ -62,9 +63,10 @@ def run_validate_intent(
     p = params or {}
 
     # ── Input validation ───────────────────────────────────────────────────────
-    metric_ref: str = (p.get("metric") or "").strip()
-    if not metric_ref:
-        raise ValueError("validate: INVALID_ARGUMENT - metric is required")
+    try:
+        metric_ref = normalize_metric_ref(p.get("metric"))
+    except ValueError:
+        raise ValueError("validate: INVALID_ARGUMENT - metric is required") from None
     metric_ref = runtime.core.normalize_intent_metric_ref(metric_ref)
     metric_name = runtime.core.metric_name_from_ref(metric_ref)
 
