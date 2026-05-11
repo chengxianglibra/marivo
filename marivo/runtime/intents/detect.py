@@ -322,12 +322,8 @@ def run_detect_intent(
     if not isinstance(time_scope_raw, dict):
         raise ValueError("detect intent requires 'time_scope'")
 
-    # ── Validate and parse time_scope (range schema) ─────────────────────────
-    kind = time_scope_raw.get("kind")
-    if kind != "range":
-        raise ValueError(
-            f"detect: INVALID_ARGUMENT - time_scope.kind must be 'range', got '{kind}'"
-        )
+    # ── Validate and parse time_scope ────────────────────────────────────────
+    time_scope_field: str | None = time_scope_raw.get("field")
 
     granularity_input = p.get("granularity")
     if granularity_input is not None:
@@ -463,6 +459,8 @@ def run_detect_intent(
     }
     if scope_raw:
         mq_params["scope"] = scope_raw
+    if time_scope_field:
+        mq_params["time_scope_field"] = time_scope_field
 
     resolved = normalize_metric_query_request(mq_params)
     runtime.resolve_windowed_query_time_axis(

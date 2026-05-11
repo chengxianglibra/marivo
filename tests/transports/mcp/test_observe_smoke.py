@@ -4,9 +4,12 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
 from mcp.server.fastmcp import FastMCP
+from pydantic import ValidationError
 
 from marivo.transports.mcp.tools import register_tools
+from marivo.transports.mcp.tools.schemas import McpTimeScope, McpTimeScopeValidated
 
 
 class _FakeRuntime:
@@ -35,3 +38,40 @@ def test_marivo_mcp_entry_point_importable():
     from marivo.transports.cli.cmd_mcp import handle
 
     assert callable(handle)
+
+
+# --- McpTimeScope validation ---
+
+
+def test_mcp_time_scope_accepts_valid_input():
+    ts = McpTimeScope(field="log_time", start="2024-01-01", end="2024-01-08")
+    assert ts.field == "log_time"
+    assert ts.start == "2024-01-01"
+    assert ts.end == "2024-01-08"
+
+
+def test_mcp_time_scope_rejects_missing_field():
+    with pytest.raises(ValidationError, match="field"):
+        McpTimeScope(start="2024-01-01", end="2024-01-08")
+
+
+def test_mcp_time_scope_rejects_empty_field():
+    with pytest.raises(ValidationError, match="field"):
+        McpTimeScope(field="", start="2024-01-01", end="2024-01-08")
+
+
+def test_mcp_time_scope_rejects_start_ge_end():
+    with pytest.raises(ValidationError, match="start must be strictly before"):
+        McpTimeScope(field="log_time", start="2024-01-08", end="2024-01-01")
+
+
+def test_mcp_time_scope_rejects_extra_fields():
+    with pytest.raises(ValidationError, match="kind"):
+        McpTimeScope(field="log_time", start="2024-01-01", end="2024-01-08", kind="range")
+
+
+def test_mcp_time_scope_validated_rejects_string():
+    from pydantic import TypeAdapter
+
+    with pytest.raises(ValidationError, match="time_scope_canonical_required"):
+        TypeAdapter(McpTimeScopeValidated).validate_python("2024-01-01~2024-01-08")

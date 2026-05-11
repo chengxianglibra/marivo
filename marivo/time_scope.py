@@ -137,6 +137,9 @@ def normalize_metric_query_request(params: Mapping[str, Any]) -> ResolvedWindowe
     time_scope = _normalize_time_scope(params.get("time_scope"), "metric_query")
     scope = _normalize_scope(params.get("scope"))
     time_axis = _normalize_time_axis(params.get("time_axis"), time_scope.grain)
+    time_scope_field = _optional_str(params.get("time_scope_field"))
+    if time_scope_field is not None:
+        time_axis.override_analysis_time_column = time_scope_field
     return ResolvedWindowedQueryRequest(
         table=table,
         compare_kind="semantic_metric",

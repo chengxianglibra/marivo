@@ -74,15 +74,23 @@ def run_validate_intent(
     right_input: dict[str, Any] = p.get("right") or {}
 
     left_time_scope: dict[str, Any] | None = left_input.get("time_scope")
-    if not isinstance(left_time_scope, dict) or not left_time_scope.get("kind"):
+    if (
+        not isinstance(left_time_scope, dict)
+        or not left_time_scope.get("start")
+        or not left_time_scope.get("end")
+    ):
         raise ValueError(
-            "validate: INVALID_ARGUMENT - left.time_scope is required with a valid 'kind'"
+            "validate: INVALID_ARGUMENT - left.time_scope is required with 'start' and 'end'"
         )
 
     right_time_scope: dict[str, Any] | None = right_input.get("time_scope")
-    if not isinstance(right_time_scope, dict) or not right_time_scope.get("kind"):
+    if (
+        not isinstance(right_time_scope, dict)
+        or not right_time_scope.get("start")
+        or not right_time_scope.get("end")
+    ):
         raise ValueError(
-            "validate: INVALID_ARGUMENT - right.time_scope is required with a valid 'kind'"
+            "validate: INVALID_ARGUMENT - right.time_scope is required with 'start' and 'end'"
         )
 
     left_scope: dict[str, Any] | None = left_input.get("scope") or None
