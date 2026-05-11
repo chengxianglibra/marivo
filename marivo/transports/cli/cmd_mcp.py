@@ -9,13 +9,16 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
 
 
 def handle(args: argparse.Namespace) -> None:
+    import os
+
     from mcp.server.fastmcp import FastMCP
 
     from marivo.profiles.local import LocalConfig, create_local_runtime
     from marivo.transports.mcp.resources import register_resources
     from marivo.transports.mcp.tools import register_tools
 
-    config = LocalConfig(workspace_root=Path.cwd())
+    workspace_root = Path(os.environ.get("MARIVO_WORKSPACE_ROOT", Path.cwd()))
+    config = LocalConfig(workspace_root=workspace_root)
     runtime = create_local_runtime(config, explicit="local")
     server = FastMCP("marivo")
     register_tools(server, runtime, transport="stdio")
