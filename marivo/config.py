@@ -19,6 +19,7 @@ class ObservabilityConfig(BaseModel):
 
     log_level: str = "INFO"
     metrics_enabled: bool = True
+    log_dir: str | None = None
 
 
 class MetadataConfig(BaseModel):

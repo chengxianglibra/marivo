@@ -44,6 +44,11 @@ def log_dir_path(workspace_root: Path) -> Path:
     return workspace_root / ".marivo" / "logs"
 
 
+def runtime_log_path(workspace_root: Path) -> Path:
+    """Return the runtime log file path (JSONL)."""
+    return log_dir_path(workspace_root) / "runtime.jsonl"
+
+
 def models_dir(workspace_root: Path) -> Path:
     """Return the models directory path."""
     return workspace_root / ".marivo" / "models"

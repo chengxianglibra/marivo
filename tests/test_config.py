@@ -183,6 +183,20 @@ class LoadConfigTests(unittest.TestCase):
         ):
             load_config(path)
 
+    def test_load_observability_log_dir(self) -> None:
+        with temporary_config_path(
+            "observability:\n  log_level: INFO\n  log_dir: /var/log/marivo\n"
+        ) as path:
+            cfg = load_config(path)
+        self.assertEqual(cfg.observability.log_dir, "/var/log/marivo")
+
+    def test_load_observability_defaults_log_dir_to_none(self) -> None:
+        with temporary_config_path(
+            "observability:\n  log_level: DEBUG\n  metrics_enabled: false\n"
+        ) as path:
+            cfg = load_config(path)
+        self.assertIsNone(cfg.observability.log_dir)
+
 
 class EnsureDatasourceTests(unittest.TestCase):
     def setUp(self) -> None:

@@ -27,10 +27,12 @@ from marivo.local.state_layout import (
     evidence_dir,
     metadata_db_path,
     models_dir,
+    runtime_log_path,
     state_db_path,
     telemetry_log_path,
     toml_config_path,
 )
+from marivo.observability import setup_logging
 from marivo.profiles.resolver import resolve_profile
 from marivo.runtime.ports import RuntimePorts
 from marivo.runtime.runtime import MarivoRuntime
@@ -51,6 +53,8 @@ def create_local_runtime(
     explicit: str | None = None,
 ) -> MarivoRuntime:
     """Create a local embedded MarivoRuntime."""
+    setup_logging(log_file=runtime_log_path(config.workspace_root))
+
     resolve_profile(
         entry_point="local_stdio",
         explicit=explicit,
