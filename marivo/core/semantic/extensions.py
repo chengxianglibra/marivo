@@ -8,7 +8,7 @@ Handles the bidirectional mapping between:
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Protocol, TypeVar
+from typing import Any, Protocol, TypeVar
 
 from pydantic import BaseModel
 
@@ -26,13 +26,14 @@ class OsiCustomExtensionLike(Protocol):
 
 
 def extract_marivo_extension(  # noqa: UP047 — PEP 695 not yet supported by mypy
-    custom_extensions: Sequence[OsiCustomExtensionLike] | None,
+    custom_extensions: Sequence[Any] | None,
     extension_type: type[T],
 ) -> T | None:
     """Extract and parse the MARIVO vendor extension from a custom_extensions list."""
     if custom_extensions is None:
         return None
     for ext in custom_extensions:
-        if ext.vendor_name == MARIVO_VENDOR:
-            return extension_type.model_validate_json(ext.data)
+        candidate = getattr(ext, "root", ext)
+        if candidate.vendor_name == MARIVO_VENDOR:
+            return extension_type.model_validate_json(candidate.data)
     return None

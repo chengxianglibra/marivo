@@ -16,7 +16,10 @@ def _run_missing_selector(adapter, _: Path) -> None:
 def _expect_roundtrip(adapter, _: Path) -> None:
     model = SemanticModel(
         name="roundtrip",
-        osi_document={"datasets": {"orders": {"table": "analytics.orders"}}},
+        osi_model={
+            "name": "roundtrip",
+            "datasets": [{"name": "orders", "source": "analytics.orders"}],
+        },
     )
     model_id = adapter.save(model, actor=UserId("owner1"), expected_revision=None)
     assert model_id is not None

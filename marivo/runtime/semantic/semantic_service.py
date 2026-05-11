@@ -18,6 +18,16 @@ from marivo.contracts.errors import (
 from marivo.contracts.errors import (
     ValidationError as DomainValidationError,
 )
+from marivo.contracts.generated import (
+    Dataset,
+    Metric,
+    OSIDocument,
+    Relationship,
+    SemanticModel,
+)
+from marivo.contracts.semantic_extensions import (
+    MarivoSemanticModelExtension,
+)
 from marivo.core.semantic.extensions import extract_marivo_extension
 from marivo.core.semantic.semantic_validation import (
     SemanticValidationError,
@@ -33,16 +43,6 @@ from marivo.runtime.semantic.osi_storage import (
     model_to_storage,
     relationship_to_storage,
     storage_to_model,
-)
-from marivo.transports.http.models.marivo_extensions import (
-    MarivoSemanticModelExtension,
-)
-from marivo.transports.http.models.osi import (
-    Dataset,
-    Metric,
-    OSIDocument,
-    Relationship,
-    SemanticModel,
 )
 
 
@@ -196,6 +196,21 @@ class SemanticModelV2Service:
                     return parsed
         return None
 
+    @staticmethod
+    def _enrich_metric_with_marivo(metric_data: dict[str, Any]) -> dict[str, Any]:
+        """Extract MARIVO metric extension fields into top-level dict keys."""
+        enriched = dict(metric_data)
+        marivo = SemanticModelV2Service._extract_marivo_from_exts(
+            metric_data.get("custom_extensions")
+        )
+        if marivo:
+            enriched["observed_dataset"] = marivo.get("observed_dataset")
+            enriched["observation_grain"] = marivo.get("observation_grain")
+            enriched["additive_dimensions"] = marivo.get("additive_dimensions")
+            enriched["additivity"] = marivo.get("additivity")
+            enriched["filters"] = marivo.get("filters")
+        return enriched
+
     def _enrich_model_dict_with_marivo(self, model_data: dict[str, Any]) -> dict[str, Any]:
         """Extract MARIVO extension data from custom_extensions and add as top-level
         dict fields for validation.
@@ -244,15 +259,7 @@ class SemanticModelV2Service:
         metrics = enriched.get("metrics") or []
         enriched_metrics = []
         for metric in metrics:
-            m_enriched = dict(metric)
-            m_marivo = self._extract_marivo_from_exts(metric.get("custom_extensions"))
-            if m_marivo:
-                m_enriched["observed_dataset"] = m_marivo.get("observed_dataset")
-                m_enriched["observation_grain"] = m_marivo.get("observation_grain")
-                m_enriched["primary_time_field"] = m_marivo.get("primary_time_field")
-                m_enriched["additivity"] = m_marivo.get("additivity")
-                m_enriched["filters"] = m_marivo.get("filters")
-            enriched_metrics.append(m_enriched)
+            enriched_metrics.append(self._enrich_metric_with_marivo(metric))
         enriched["metrics"] = enriched_metrics
 
         return enriched
@@ -871,17 +878,14 @@ class SemanticModelV2Service:
         model_id = model_row["model_id"]
 
         # Enrich metric data with MARIVO extension fields for validation
-        enriched_metric = dict(metric_data)
-        marivo = self._extract_marivo_from_exts(metric_data.get("custom_extensions"))
-        if marivo:
-            enriched_metric["observed_dataset"] = marivo.get("observed_dataset")
-            enriched_metric["observation_grain"] = marivo.get("observation_grain")
-            enriched_metric["primary_time_field"] = marivo.get("primary_time_field")
-            enriched_metric["additivity"] = marivo.get("additivity")
-            enriched_metric["filters"] = marivo.get("filters")
+        enriched_metric = self._enrich_metric_with_marivo(metric_data)
 
         # Validate metric fields against existing datasets
-        if enriched_metric.get("observed_dataset"):
+        if (
+            enriched_metric.get("observed_dataset")
+            or enriched_metric.get("additive_dimensions")
+            or enriched_metric.get("additivity")
+        ):
             from marivo.core.semantic.semantic_validation import validate_metric
 
             datasets = self.list_datasets(model_name, requesting_user=model_row["owner_user"])

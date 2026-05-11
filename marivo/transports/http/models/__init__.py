@@ -6,7 +6,8 @@ Modules:
 - base: Shared types, validators, and base classes
 - osi: OSI core models (Dimension, Field, Dataset, Relationship, Metric, SemanticModel, OSIDocument)
 - marivo_extensions: MARIVO extension models
-- intents: Typed intent request models (observe, compare, detect, etc.)
+- intent_request_models: Typed intent request models (observe, compare, detect, etc.)
+- intent_response_models: Typed intent response models
 - session: Session management request models
 - calendar: Calendar data models
 - _infrastructure: Infrastructure configuration models (datasource, routing, etc.)
@@ -127,22 +128,9 @@ from .calendar import (
     CalendarDataRow,
     CalendarVersionItem,
 )
-from .intent_responses import (
-    AttributeResponse,
-    CompareResponse,
-    CorrelateResponse,
-    DecomposeResponse,
-    DetectResponse,
-    DiagnoseResponse,
-    ForecastResponse,
-    IntentPayload,
-    IntentTestResponse,
-    ObserveResponse,
-    ValidateResponse,
-)
 
 # Intent API models
-from .intents import (
+from .intent_request_models import (
     ArtifactRef,
     AttributeObservationInput,
     AttributeRequest,
@@ -168,6 +156,19 @@ from .intents import (
     ValidateHypothesis,
     ValidateObservationInput,
     ValidateRequest,
+)
+from .intent_response_models import (
+    AttributeResponse,
+    CompareResponse,
+    CorrelateResponse,
+    DecomposeResponse,
+    DetectResponse,
+    DiagnoseResponse,
+    ForecastResponse,
+    IntentPayload,
+    IntentTestResponse,
+    ObserveResponse,
+    ValidateResponse,
 )
 from .json_contract import (
     EmptyObject,

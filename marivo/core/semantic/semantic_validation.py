@@ -30,8 +30,7 @@ def validate_semantic_model(model_data: dict[str, Any]) -> None:
     - Relationship from/to must reference existing datasets
     - Metric observed_dataset must reference existing dataset
     - observation_grain fields must exist in observed_dataset
-    - primary_time_field must exist and be a time field
-    - additivity.dimension_policy="subset" requires additive_dimensions that exist
+    - additive_dimensions must reference existing fields when present
     """
     errors: list[dict[str, str]] = []
 
@@ -171,9 +170,6 @@ def _validate_metric_refs(
         )
         return errors  # no point checking field refs if dataset is invalid
 
-    if not observed_dataset:
-        return errors
-
     # observation_grain fields must exist in observed_dataset
     observation_grain = metric.get("observation_grain")
     if observation_grain is not None and not isinstance(observation_grain, list):
@@ -185,6 +181,8 @@ def _validate_metric_refs(
         )
         observation_grain = None
     if observation_grain:
+        if not observed_dataset:
+            return errors
         ds_fields = fields_by_dataset.get(observed_dataset, {})
         for grain_field in observation_grain:
             if grain_field not in ds_fields:
@@ -195,53 +193,43 @@ def _validate_metric_refs(
                     }
                 )
 
-    # primary_time_field must exist and be a time field
-    primary_time_field = metric.get("primary_time_field")
-    if primary_time_field:
-        ds_fields = fields_by_dataset.get(observed_dataset, {})
-        if primary_time_field not in ds_fields:
-            errors.append(
-                {
-                    "message": f"metric '{metric_name}' primary_time_field '{primary_time_field}' does not exist in dataset '{observed_dataset}'",
-                    "path": f"metrics[{metric_name}].primary_time_field",
-                }
-            )
-        else:
-            field = ds_fields[primary_time_field]
-            # Check is_time — could be in dimension or as a top-level attribute
-            is_time = False
-            dimension = field.get("dimension")
-            if isinstance(dimension, dict):
-                is_time = dimension.get("is_time", False)
-            if not is_time:
-                errors.append(
-                    {
-                        "message": f"metric '{metric_name}' primary_time_field '{primary_time_field}' is not a time field",
-                        "path": f"metrics[{metric_name}].primary_time_field",
-                    }
-                )
-
-    # additivity.dimension_policy="subset" requires additive_dimensions that exist
+    # additive_dimensions must reference existing fields when present.
+    # Support both the legacy nested additivity payload and the cutover top-level field.
+    additive_dimensions = metric.get("additive_dimensions")
     additivity = metric.get("additivity")
-    if isinstance(additivity, dict):
-        dimension_policy = additivity.get("dimension_policy")
+    if additive_dimensions is None and isinstance(additivity, dict):
         additive_dimensions = additivity.get("additive_dimensions")
-        if additive_dimensions is not None and not isinstance(additive_dimensions, list):
-            errors.append(
-                {
-                    "message": f"metric '{metric_name}' additive_dimensions must be a list of field names, got {type(additive_dimensions).__name__}",
-                    "path": f"metrics[{metric_name}].additivity.additive_dimensions",
-                }
-            )
-            additive_dimensions = None
-        if dimension_policy == "subset" and additive_dimensions:
+    if additive_dimensions is not None and not isinstance(additive_dimensions, list):
+        errors.append(
+            {
+                "message": f"metric '{metric_name}' additive_dimensions must be a list of field names, got {type(additive_dimensions).__name__}",
+                "path": f"metrics[{metric_name}].additive_dimensions",
+            }
+        )
+        additive_dimensions = None
+    if additive_dimensions:
+        if observed_dataset:
             ds_fields = fields_by_dataset.get(observed_dataset, {})
             for dim in additive_dimensions:
                 if dim not in ds_fields:
                     errors.append(
                         {
                             "message": f"metric '{metric_name}' additive_dimension '{dim}' does not exist in dataset '{observed_dataset}'",
-                            "path": f"metrics[{metric_name}].additivity.additive_dimensions",
+                            "path": f"metrics[{metric_name}].additive_dimensions",
+                        }
+                    )
+        else:
+            all_fields = {
+                field_name
+                for dataset_fields in fields_by_dataset.values()
+                for field_name in dataset_fields
+            }
+            for dim in additive_dimensions:
+                if dim not in all_fields:
+                    errors.append(
+                        {
+                            "message": f"metric '{metric_name}' additive_dimension '{dim}' does not exist in the semantic model",
+                            "path": f"metrics[{metric_name}].additive_dimensions",
                         }
                     )
 
