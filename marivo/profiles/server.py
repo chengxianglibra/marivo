@@ -149,6 +149,10 @@ def create_server_runtime(config: ServerConfig) -> ServerComposition:
     runtime.wire_metadata(metadata_store)
     runtime.wire_analytics(analytics_engine)
 
+    from marivo.time_axis_metadata import TimeAxisMetadataProvider
+
+    runtime.wire_time_axis_metadata_provider(TimeAxisMetadataProvider(metadata_store))
+
     return ServerComposition(
         runtime=runtime,
         metadata_store=metadata_store,
