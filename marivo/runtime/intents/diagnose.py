@@ -23,6 +23,10 @@ from marivo.core.intent.primitives import new_step_id
 from marivo.runtime.intents.compare import run_compare_intent
 from marivo.runtime.intents.decompose import run_decompose_intent
 from marivo.runtime.intents.detect import run_detect_intent
+from marivo.runtime.intents.normalization import (
+    normalize_dimensions,
+    normalize_metric_ref,
+)
 from marivo.runtime.intents.observe import run_observe_intent
 from marivo.time_contracts import TimeGrain, normalize_hour_boundary, previous_adjacent_window
 
@@ -108,9 +112,10 @@ def run_diagnose_intent(
     """
     p = params or {}
 
-    metric_ref: str = (p.get("metric") or "").strip()
-    if not metric_ref:
-        raise ValueError("diagnose: INVALID_ARGUMENT - metric is required")
+    try:
+        metric_ref = normalize_metric_ref(p.get("metric"))
+    except ValueError:
+        raise ValueError("diagnose: INVALID_ARGUMENT - metric is required") from None
     metric_ref = runtime.core.normalize_intent_metric_ref(metric_ref)
     metric_name = runtime.core.metric_name_from_ref(metric_ref)
 
@@ -130,30 +135,12 @@ def run_diagnose_intent(
             "diagnose: INVALID_ARGUMENT - baseline_policy must be 'previous_adjacent_equal_length'"
         )
 
-    raw_dims: list[Any] = p.get("candidate_dimensions") or []
-    if not raw_dims:
+    raw_dims = p.get("candidate_dimensions")
+    dimensions = normalize_dimensions(raw_dims)
+    if not dimensions:
         raise ValueError(
             "diagnose: INVALID_ARGUMENT - candidate_dimensions must be a non-empty list"
         )
-    dimensions: list[str] = []
-    for d in raw_dims:
-        d_str = str(d).strip()
-        if not d_str:
-            raise ValueError(
-                "diagnose: INVALID_ARGUMENT - candidate_dimensions must not contain blank strings"
-            )
-        dimensions.append(d_str)
-    seen: set[str] = set()
-    deduped_dims: list[str] = []
-    for d in dimensions:
-        if d not in seen:
-            seen.add(d)
-            deduped_dims.append(d)
-    if not deduped_dims:
-        raise ValueError(
-            "diagnose: INVALID_ARGUMENT - candidate_dimensions is empty after deduplication"
-        )
-    dimensions = deduped_dims
 
     raw_followup = p.get("followup_limit")
     if raw_followup is None:
