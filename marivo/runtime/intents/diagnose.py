@@ -50,10 +50,6 @@ def _normalize_range_time_scope(
 ) -> dict[str, str]:
     if not isinstance(raw, dict):
         raise ValueError(f"diagnose: INVALID_ARGUMENT - {label} is required")
-    if raw.get("kind") != "range":
-        raise ValueError(
-            f"diagnose: INVALID_ARGUMENT - {label}.kind must be 'range', got '{raw.get('kind')}'"
-        )
     start = str(raw.get("start") or "").strip()
     end = str(raw.get("end") or "").strip()
     if not start or not end:
@@ -70,7 +66,11 @@ def _normalize_range_time_scope(
         raise ValueError(
             f"diagnose: INVALID_ARGUMENT - {label}.start ('{start}') must be before end ('{end}')"
         )
-    return {"kind": "range", "start": start, "end": end}
+    result: dict[str, str] = {"start": start, "end": end}
+    field_val = raw.get("field")
+    if field_val:
+        result["field"] = str(field_val)
+    return result
 
 
 def _normalize_granularity(raw: Any) -> TimeGrain:

@@ -475,41 +475,13 @@ def run_observe_intent(
             "Inferential summary modes do not support dimensions."
         )
 
-    # --- Resolve time scope kind → (start_str, end_str, resolved response shape) ---
-    kind = time_scope_raw.get("kind")
-    resolved_time_scope: dict[str, Any]
-    if kind == "range":
-        start_str: str = time_scope_raw["start"]
-        end_str: str = time_scope_raw["end"]
-        resolved_time_scope = {"kind": "range", "start": start_str, "end": end_str}
-    elif kind == "snapshot_now":
-        today = datetime.now(UTC).date()
-        start_str = today.isoformat()
-        end_str = (today + timedelta(days=1)).isoformat()
-        resolved_time_scope = {"kind": "snapshot_now", "observed_at": start_str}
-    elif kind == "latest_available":
-        today = datetime.now(UTC).date()
-        start_str = today.isoformat()
-        end_str = (today + timedelta(days=1)).isoformat()
-        resolved_time_scope = {"kind": "latest_available", "data_as_of": start_str}
-    elif kind == "as_of":
-        at_raw: str = time_scope_raw.get("at") or ""
-        try:
-            at_date = datetime.fromisoformat(at_raw).date()
-        except ValueError:
-            at_date = date.fromisoformat(at_raw[:10])
-        start_str = at_date.isoformat()
-        end_str = (at_date + timedelta(days=1)).isoformat()
-        resolved_time_scope = {"kind": "as_of", "at": start_str}
-    else:
-        raise NotImplementedError(f"observe time_scope.kind='{kind}' is not yet implemented.")
+    # --- Resolve time scope → (start_str, end_str, resolved response shape) ---
+    start_str: str = time_scope_raw["start"]
+    end_str: str = time_scope_raw["end"]
+    time_scope_field: str | None = time_scope_raw.get("field")
+    resolved_time_scope: dict[str, Any] = {"kind": "range", "start": start_str, "end": end_str}
 
-    if granularity is not None and kind != "range":
-        raise ValueError(
-            f"observe: granularity is not allowed with time_scope.kind='{kind}'. "
-            "granularity is only valid with kind='range'."
-        )
-    if kind == "range" and granularity == "hour":
+    if granularity == "hour":
         validate_hour_boundaries(
             granularity,
             str(time_scope_raw.get("start") or ""),
@@ -542,6 +514,8 @@ def run_observe_intent(
     }
     if scope_raw:
         mq_params["scope"] = scope_raw
+    if time_scope_field:
+        mq_params["time_scope_field"] = time_scope_field
     if dimensions:
         mq_params["dimensions"] = dimensions
     if normalized_calendar_policy_ref is not None:

@@ -77,15 +77,23 @@ def run_attribute_intent(
     right_input: dict[str, Any] = p.get("right") or {}
 
     current_time_scope: dict[str, Any] | None = left_input.get("time_scope")
-    if not isinstance(current_time_scope, dict) or not current_time_scope.get("kind"):
+    if (
+        not isinstance(current_time_scope, dict)
+        or not current_time_scope.get("start")
+        or not current_time_scope.get("end")
+    ):
         raise ValueError(
-            "attribute: INVALID_ARGUMENT - left.time_scope is required with a valid 'kind'"
+            "attribute: INVALID_ARGUMENT - left.time_scope is required with 'start' and 'end'"
         )
 
     baseline_time_scope: dict[str, Any] | None = right_input.get("time_scope")
-    if not isinstance(baseline_time_scope, dict) or not baseline_time_scope.get("kind"):
+    if (
+        not isinstance(baseline_time_scope, dict)
+        or not baseline_time_scope.get("start")
+        or not baseline_time_scope.get("end")
+    ):
         raise ValueError(
-            "attribute: INVALID_ARGUMENT - right.time_scope is required with a valid 'kind'"
+            "attribute: INVALID_ARGUMENT - right.time_scope is required with 'start' and 'end'"
         )
 
     left_scope: dict[str, Any] | None = left_input.get("scope")

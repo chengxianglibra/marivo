@@ -7,10 +7,11 @@ from typing import Any, Literal
 from marivo.transports.mcp.tools._async_bridge import call_runtime
 from marivo.transports.mcp.tools.schemas import (
     McpCompareArtifactRef,
-    McpDetectTimeScope,
     McpObservationRef,
-    McpObserveTimeScope,
+    McpSliceRef,
     McpStructuredObject,
+    McpTimeScope,
+    McpTimeScopeValidated,
     ObserveScope,
 )
 
@@ -20,7 +21,7 @@ def register_observe(server: Any, runtime: Any) -> None:
     async def observe(
         session_id: str,
         metric: str,
-        time_scope: McpObserveTimeScope,
+        time_scope: McpTimeScopeValidated,
         granularity: str | None = None,
         dimensions: list[str] | None = None,
         scope: ObserveScope | None = None,
@@ -78,7 +79,7 @@ def register_detect(server: Any, runtime: Any) -> None:
     async def detect(
         session_id: str,
         metric: str,
-        time_scope: McpDetectTimeScope,
+        time_scope: McpTimeScope,
         granularity: Literal["hour", "day", "week", "month"],
         scope: ObserveScope | None = None,
         split_by: str | None = None,
@@ -168,16 +169,16 @@ def register_attribute(server: Any, runtime: Any) -> None:
     async def attribute(
         session_id: str,
         metric: str,
-        left: McpStructuredObject,
-        right: McpStructuredObject,
+        left: McpSliceRef,
+        right: McpSliceRef,
         dimensions: list[str],
         decomposition_method: str = "delta_share",
         decomposition_limit: int = 5,
     ) -> dict[str, Any]:
         params: dict[str, Any] = {
             "metric": metric,
-            "left": left,
-            "right": right,
+            "left": left.model_dump(),
+            "right": right.model_dump(),
             "dimensions": dimensions,
             "decomposition_method": decomposition_method,
             "decomposition_limit": decomposition_limit,
@@ -192,10 +193,10 @@ def register_diagnose(server: Any, runtime: Any) -> None:
         metric: str,
         candidate_dimensions: list[str],
         mode: Literal["auto_detect", "explicit_compare"] = "auto_detect",
-        time_scope: McpStructuredObject | None = None,
+        time_scope: McpTimeScope | None = None,
         granularity: Literal["hour", "day", "week", "month"] | None = None,
-        current: McpStructuredObject | None = None,
-        baseline: McpStructuredObject | None = None,
+        current: McpSliceRef | None = None,
+        baseline: McpSliceRef | None = None,
         scope: ObserveScope | None = None,
         detect_split_by: str | None = None,
         profile: Literal["auto", "spike_dip", "level_shift", "seasonal_residual"] = "auto",
@@ -217,13 +218,13 @@ def register_diagnose(server: Any, runtime: Any) -> None:
             "baseline_policy": baseline_policy,
         }
         if time_scope is not None:
-            params["time_scope"] = time_scope
+            params["time_scope"] = time_scope.model_dump()
         if granularity is not None:
             params["granularity"] = granularity
         if current is not None:
-            params["current"] = current
+            params["current"] = current.model_dump()
         if baseline is not None:
-            params["baseline"] = baseline
+            params["baseline"] = baseline.model_dump()
         if scope is not None:
             params["scope"] = scope.model_dump()
         if detect_split_by is not None:
@@ -244,16 +245,16 @@ def register_validate(server: Any, runtime: Any) -> None:
     async def validate(
         session_id: str,
         metric: str,
-        left: McpStructuredObject,
-        right: McpStructuredObject,
+        left: McpSliceRef,
+        right: McpSliceRef,
         sample_kind: Literal["auto", "numeric", "rate"] | None = None,
         hypothesis: McpStructuredObject | None = None,
         method: Literal["auto", "welch_t", "two_proportion_z"] | None = None,
     ) -> dict[str, Any]:
         params: dict[str, Any] = {
             "metric": metric,
-            "left": left,
-            "right": right,
+            "left": left.model_dump(),
+            "right": right.model_dump(),
         }
         if sample_kind is not None:
             params["sample_kind"] = sample_kind
