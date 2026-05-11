@@ -9,7 +9,6 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
 
 
 def handle(args: argparse.Namespace) -> None:
-    import getpass
     import os
 
     from mcp.server.fastmcp import FastMCP
@@ -21,6 +20,8 @@ def handle(args: argparse.Namespace) -> None:
 
     workspace_root = Path(os.environ.get("MARIVO_WORKSPACE_ROOT", Path.cwd()))
     config = LocalConfig(workspace_root=workspace_root)
+
+    import getpass
 
     user = resolve_user() or getpass.getuser()
     current_user.set(user)

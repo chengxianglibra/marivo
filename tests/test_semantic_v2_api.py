@@ -55,11 +55,14 @@ def _make_app() -> TestClient:
     """Create a FastAPI app with semantic_v2 router and an in-memory service."""
     import uuid
 
+    from marivo.transports.http.middleware import UserIdentityMiddleware
+
     store = make_temp_metadata_store(prefix=f"marivo_v2_api_{uuid.uuid4().hex[:8]}_")
     datasource_service = DatasourceService(store)
     service = SemanticModelV2Service(store, datasource_service=datasource_service)
 
     app = FastAPI()
+    app.add_middleware(UserIdentityMiddleware)
     app.include_router(semantic_v2_router)
     app.state.semantic_v2_service = service
     app.state.datasource_service = datasource_service
@@ -67,15 +70,8 @@ def _make_app() -> TestClient:
     return _ManagedTestClient(app, store)
 
 
-def _make_model_dict(
-    name: str = "test_model",
-    visibility: str = "public",
-    owner_user: str | None = None,
-) -> dict:
+def _make_model_dict(name: str = "test_model") -> dict:
     """Build a minimal OSI-conformant model dict for testing."""
-    marivo_data: dict = {"visibility": visibility}
-    if owner_user:
-        marivo_data["owner_user"] = owner_user
     return {
         "name": name,
         "datasets": [
@@ -124,12 +120,6 @@ def _make_model_dict(
                 ],
             }
         ],
-        "custom_extensions": [
-            {
-                "vendor_name": "MARIVO",
-                "data": json.dumps(marivo_data),
-            }
-        ],
     }
 
 
@@ -172,7 +162,8 @@ class TestCreateSemanticModelAPI(unittest.TestCase):
         client = _make_app()
         resp = client.post(
             "/semantic-models",
-            json=_make_model_dict(visibility="private", owner_user="alice"),
+            json=_make_model_dict(),
+            headers={"X-Marivo-User": "alice"},
         )
         self.assertEqual(resp.status_code, 200)
         body = resp.json()
@@ -185,7 +176,8 @@ class TestCreateSemanticModelAPI(unittest.TestCase):
         client = _make_app()
         resp = client.post(
             "/semantic-models",
-            json=_make_model_dict(visibility="private", owner_user="alice"),
+            json=_make_model_dict(),
+            headers={"X-Marivo-User": "alice"},
         )
         body = resp.json()
         model = body["semantic_model"][0]
@@ -194,36 +186,44 @@ class TestCreateSemanticModelAPI(unittest.TestCase):
 
     def test_create_private_model(self) -> None:
         client = _make_app()
-        model_data = _make_model_dict(
-            name="private_model", visibility="private", owner_user="alice"
+        resp = client.post(
+            "/semantic-models",
+            json=_make_model_dict(name="private_model"),
+            headers={"X-Marivo-User": "alice"},
         )
-        resp = client.post("/semantic-models", json=model_data)
         self.assertEqual(resp.status_code, 200)
         body = resp.json()
         self.assertEqual(body["semantic_model"][0]["name"], "private_model")
 
-    def test_create_private_without_owner_returns_422(self) -> None:
+    def test_create_private_without_owner_returns_403(self) -> None:
         client = _make_app()
-        model_data = _make_model_dict(visibility="private")
-        resp = client.post("/semantic-models", json=model_data)
-        self.assertIn(resp.status_code, (400, 422))
+        resp = client.post("/semantic-models", json=_make_model_dict())
+        self.assertEqual(resp.status_code, 403)
 
     def test_create_dataset_requires_marivo_datasource_id(self) -> None:
         client = _make_app()
-        model_data = _make_model_dict(visibility="private", owner_user="alice")
+        model_data = _make_model_dict()
         model_data["datasets"][0]["custom_extensions"] = []
 
-        resp = client.post("/semantic-models", json=model_data)
+        resp = client.post(
+            "/semantic-models",
+            json=model_data,
+            headers={"X-Marivo-User": "alice"},
+        )
 
         self.assertEqual(resp.status_code, 422)
         self.assertIn("datasource_id", resp.json()["detail"])
 
     def test_create_dataset_requires_non_empty_source_fqn(self) -> None:
         client = _make_app()
-        model_data = _make_model_dict(visibility="private", owner_user="alice")
+        model_data = _make_model_dict()
         model_data["datasets"][0]["source"] = ""
 
-        resp = client.post("/semantic-models", json=model_data)
+        resp = client.post(
+            "/semantic-models",
+            json=model_data,
+            headers={"X-Marivo-User": "alice"},
+        )
 
         self.assertEqual(resp.status_code, 422)
         self.assertIn("source", resp.json()["detail"])
@@ -247,11 +247,13 @@ class TestListSemanticModelsAPI(unittest.TestCase):
         client = _make_app()
         client.post(
             "/semantic-models",
-            json=_make_model_dict(name="model_a", visibility="private", owner_user="alice"),
+            json=_make_model_dict(name="model_a"),
+            headers={"X-Marivo-User": "alice"},
         )
         client.post(
             "/semantic-models",
-            json=_make_model_dict(name="model_b", visibility="private", owner_user="alice"),
+            json=_make_model_dict(name="model_b"),
+            headers={"X-Marivo-User": "alice"},
         )
         resp = client.get("/semantic-models", params={"requesting_user": "alice"})
         body = resp.json()
@@ -296,7 +298,8 @@ class TestListSemanticModelsAPI(unittest.TestCase):
         client.post("/semantic-models/import", json=doc)
         client.post(
             "/semantic-models",
-            json=_make_model_dict(name="private_model", visibility="private", owner_user="alice"),
+            json=_make_model_dict(name="private_model"),
+            headers={"X-Marivo-User": "alice"},
         )
         # Without requesting_user, only public models are visible
         resp = client.get("/semantic-models")
@@ -325,7 +328,8 @@ class TestGetSemanticModelAPI(unittest.TestCase):
         client = _make_app()
         client.post(
             "/semantic-models",
-            json=_make_model_dict(visibility="private", owner_user="alice"),
+            json=_make_model_dict(),
+            headers={"X-Marivo-User": "alice"},
         )
         resp = client.get("/semantic-models/test_model", params={"requesting_user": "alice"})
         self.assertEqual(resp.status_code, 200)
@@ -342,7 +346,8 @@ class TestGetSemanticModelAPI(unittest.TestCase):
         client = _make_app()
         client.post(
             "/semantic-models",
-            json=_make_model_dict(name="private_model", visibility="private", owner_user="alice"),
+            json=_make_model_dict(name="private_model"),
+            headers={"X-Marivo-User": "alice"},
         )
         # Owner can see the model
         resp = client.get("/semantic-models/private_model", params={"requesting_user": "alice"})
@@ -366,7 +371,8 @@ class TestDeleteSemanticModelAPI(unittest.TestCase):
         client = _make_app()
         client.post(
             "/semantic-models",
-            json=_make_model_dict(visibility="private", owner_user="alice"),
+            json=_make_model_dict(),
+            headers={"X-Marivo-User": "alice"},
         )
         resp = client.delete("/semantic-models/test_model?requesting_user=alice")
         self.assertEqual(resp.status_code, 204)
@@ -389,7 +395,8 @@ class TestCreateDatasetAPI(unittest.TestCase):
         client = _make_app()
         client.post(
             "/semantic-models",
-            json=_make_model_dict(visibility="private", owner_user="alice"),
+            json=_make_model_dict(),
+            headers={"X-Marivo-User": "alice"},
         )
         resp = client.post(
             "/semantic-models/test_model/datasets?requesting_user=alice", json=_make_dataset_dict()
@@ -415,7 +422,8 @@ class TestReadinessAPI(unittest.TestCase):
         client = _make_app()
         client.post(
             "/semantic-models",
-            json=_make_model_dict(visibility="private", owner_user="alice"),
+            json=_make_model_dict(),
+            headers={"X-Marivo-User": "alice"},
         )
         resp = client.get(
             "/semantic-models/test_model/readiness", params={"requesting_user": "alice"}
@@ -431,7 +439,8 @@ class TestReadinessAPI(unittest.TestCase):
         client = _make_app()
         client.post(
             "/semantic-models",
-            json=_make_model_dict(visibility="private", owner_user="alice"),
+            json=_make_model_dict(),
+            headers={"X-Marivo-User": "alice"},
         )
 
         resp = client.get(
@@ -702,7 +711,8 @@ class TestPerModelImport(unittest.TestCase):
         # Create private model first
         client.post(
             "/semantic-models",
-            json=_make_model_dict(name="commerce", visibility="private", owner_user="alice"),
+            json=_make_model_dict(name="commerce"),
+            headers={"X-Marivo-User": "alice"},
         )
         # Import official model with same name
         doc = {
@@ -799,7 +809,8 @@ class TestVisibilityGuardOnModelWrites(unittest.TestCase):
         client = _make_app()
         resp = client.post(
             "/semantic-models",
-            json=_make_model_dict(name="new_private", visibility="private", owner_user="alice"),
+            json=_make_model_dict(name="new_private"),
+            headers={"X-Marivo-User": "alice"},
         )
         self.assertEqual(resp.status_code, 200)
 
@@ -844,7 +855,8 @@ class TestVisibilityGuardOnModelWrites(unittest.TestCase):
         client = _make_app()
         client.post(
             "/semantic-models",
-            json=_make_model_dict(name="priv_model", visibility="private", owner_user="alice"),
+            json=_make_model_dict(name="priv_model"),
+            headers={"X-Marivo-User": "alice"},
         )
         resp = client.put(
             "/semantic-models/priv_model?requesting_user=alice", json={"description": "new"}
@@ -892,7 +904,8 @@ class TestVisibilityGuardOnModelWrites(unittest.TestCase):
         client = _make_app()
         client.post(
             "/semantic-models",
-            json=_make_model_dict(name="priv_model", visibility="private", owner_user="alice"),
+            json=_make_model_dict(name="priv_model"),
+            headers={"X-Marivo-User": "alice"},
         )
         resp = client.delete("/semantic-models/priv_model?requesting_user=alice")
         self.assertEqual(resp.status_code, 204)
@@ -993,11 +1006,13 @@ class TestSameNameValidation(unittest.TestCase):
         client = _make_app()
         client.post(
             "/semantic-models",
-            json=_make_model_dict(name="explore", visibility="private", owner_user="alice"),
+            json=_make_model_dict(name="explore"),
+            headers={"X-Marivo-User": "alice"},
         )
         resp = client.post(
             "/semantic-models",
-            json=_make_model_dict(name="explore", visibility="private", owner_user="alice"),
+            json=_make_model_dict(name="explore"),
+            headers={"X-Marivo-User": "alice"},
         )
         self.assertEqual(resp.status_code, 409)
 
@@ -1006,11 +1021,13 @@ class TestSameNameValidation(unittest.TestCase):
         client = _make_app()
         client.post(
             "/semantic-models",
-            json=_make_model_dict(name="explore", visibility="private", owner_user="alice"),
+            json=_make_model_dict(name="explore"),
+            headers={"X-Marivo-User": "alice"},
         )
         resp = client.post(
             "/semantic-models",
-            json=_make_model_dict(name="explore", visibility="private", owner_user="bob"),
+            json=_make_model_dict(name="explore"),
+            headers={"X-Marivo-User": "bob"},
         )
         self.assertEqual(resp.status_code, 200)
 
@@ -1051,7 +1068,8 @@ class TestSameNameValidation(unittest.TestCase):
         client.post("/semantic-models/import", json=doc)
         resp = client.post(
             "/semantic-models",
-            json=_make_model_dict(name="commerce", visibility="private", owner_user="alice"),
+            json=_make_model_dict(name="commerce"),
+            headers={"X-Marivo-User": "alice"},
         )
         self.assertEqual(resp.status_code, 200)
 
@@ -1066,7 +1084,8 @@ class TestSubEntityReadVisibility(unittest.TestCase):
         client = _make_app()
         client.post(
             "/semantic-models",
-            json=_make_model_dict(name="priv_model", visibility="private", owner_user="alice"),
+            json=_make_model_dict(name="priv_model"),
+            headers={"X-Marivo-User": "alice"},
         )
         resp = client.get(
             "/semantic-models/priv_model/datasets/orders", params={"requesting_user": "alice"}
@@ -1081,7 +1100,8 @@ class TestSubEntityReadVisibility(unittest.TestCase):
         client = _make_app()
         client.post(
             "/semantic-models",
-            json=_make_model_dict(name="priv_model", visibility="private", owner_user="alice"),
+            json=_make_model_dict(name="priv_model"),
+            headers={"X-Marivo-User": "alice"},
         )
         resp = client.get(
             "/semantic-models/priv_model/datasets", params={"requesting_user": "alice"}
@@ -1094,7 +1114,8 @@ class TestSubEntityReadVisibility(unittest.TestCase):
         client = _make_app()
         client.post(
             "/semantic-models",
-            json=_make_model_dict(name="priv_model", visibility="private", owner_user="alice"),
+            json=_make_model_dict(name="priv_model"),
+            headers={"X-Marivo-User": "alice"},
         )
         # Add a relationship first
         rel = {
@@ -1119,7 +1140,8 @@ class TestSubEntityReadVisibility(unittest.TestCase):
         client = _make_app()
         client.post(
             "/semantic-models",
-            json=_make_model_dict(name="priv_model", visibility="private", owner_user="alice"),
+            json=_make_model_dict(name="priv_model"),
+            headers={"X-Marivo-User": "alice"},
         )
         resp = client.get(
             "/semantic-models/priv_model/relationships", params={"requesting_user": "bob"}
@@ -1130,7 +1152,8 @@ class TestSubEntityReadVisibility(unittest.TestCase):
         client = _make_app()
         client.post(
             "/semantic-models",
-            json=_make_model_dict(name="priv_model", visibility="private", owner_user="alice"),
+            json=_make_model_dict(name="priv_model"),
+            headers={"X-Marivo-User": "alice"},
         )
         # Add a metric first
         metric = {
@@ -1151,7 +1174,8 @@ class TestSubEntityReadVisibility(unittest.TestCase):
         client = _make_app()
         client.post(
             "/semantic-models",
-            json=_make_model_dict(name="priv_model", visibility="private", owner_user="alice"),
+            json=_make_model_dict(name="priv_model"),
+            headers={"X-Marivo-User": "alice"},
         )
         resp = client.get("/semantic-models/priv_model/metrics", params={"requesting_user": "bob"})
         self.assertEqual(resp.status_code, 404)
@@ -1248,7 +1272,8 @@ class TestSameNameShadowingAPI(unittest.TestCase):
         self._import_public_model(client, "commerce")
         client.post(
             "/semantic-models",
-            json=_make_model_dict(name="commerce", visibility="private", owner_user="alice"),
+            json=_make_model_dict(name="commerce"),
+            headers={"X-Marivo-User": "alice"},
         )
         # alice sees her private model
         resp = client.get("/semantic-models/commerce", params={"requesting_user": "alice"})
@@ -1263,7 +1288,8 @@ class TestSameNameShadowingAPI(unittest.TestCase):
         self._import_public_model(client, "commerce")
         client.post(
             "/semantic-models",
-            json=_make_model_dict(name="commerce", visibility="private", owner_user="alice"),
+            json=_make_model_dict(name="commerce"),
+            headers={"X-Marivo-User": "alice"},
         )
         # bob sees the public model
         resp = client.get("/semantic-models/commerce", params={"requesting_user": "bob"})
@@ -1278,7 +1304,8 @@ class TestSameNameShadowingAPI(unittest.TestCase):
         self._import_public_model(client, "commerce")
         client.post(
             "/semantic-models",
-            json=_make_model_dict(name="commerce", visibility="private", owner_user="alice"),
+            json=_make_model_dict(name="commerce"),
+            headers={"X-Marivo-User": "alice"},
         )
         resp = client.put(
             "/semantic-models/commerce?requesting_user=alice",
@@ -1291,7 +1318,8 @@ class TestSameNameShadowingAPI(unittest.TestCase):
         self._import_public_model(client, "commerce")
         client.post(
             "/semantic-models",
-            json=_make_model_dict(name="commerce", visibility="private", owner_user="alice"),
+            json=_make_model_dict(name="commerce"),
+            headers={"X-Marivo-User": "alice"},
         )
         resp = client.delete("/semantic-models/commerce?requesting_user=alice")
         self.assertEqual(resp.status_code, 204)
@@ -1303,7 +1331,8 @@ class TestSameNameShadowingAPI(unittest.TestCase):
         client = _make_app()
         client.post(
             "/semantic-models",
-            json=_make_model_dict(visibility="private", owner_user="alice"),
+            json=_make_model_dict(),
+            headers={"X-Marivo-User": "alice"},
         )
         # Non-owner should get 404
         resp = client.get(
@@ -1320,11 +1349,13 @@ class TestSameNameShadowingAPI(unittest.TestCase):
         client = _make_app()
         client.post(
             "/semantic-models",
-            json=_make_model_dict(name="commerce", visibility="private", owner_user="alice"),
+            json=_make_model_dict(name="commerce"),
+            headers={"X-Marivo-User": "alice"},
         )
         client.post(
             "/semantic-models",
-            json=_make_model_dict(name="commerce", visibility="private", owner_user="bob"),
+            json=_make_model_dict(name="commerce"),
+            headers={"X-Marivo-User": "bob"},
         )
         # alice sees alice's model
         resp = client.get("/semantic-models/commerce", params={"requesting_user": "alice"})
