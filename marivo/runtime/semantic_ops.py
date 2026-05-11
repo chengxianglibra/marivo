@@ -1094,7 +1094,7 @@ def resolve_windowed_query_time_axis(
     )
     time_provider = runtime.time_axis_metadata_provider
     if time_provider is None:
-        raise ValueError("time_axis_metadata_provider not available in local mode")
+        raise ValueError("time_axis_metadata_provider not wired into runtime")
     try:
         metadata_context = time_provider.load_for_windowed_query(
             table_name=request.table,

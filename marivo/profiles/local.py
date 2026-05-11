@@ -104,6 +104,10 @@ def create_local_runtime(
     runtime.register_service("query_router", query_router)
     runtime.wire_metadata(metadata_store)
 
+    from marivo.time_axis_metadata import TimeAxisMetadataProvider
+
+    runtime.wire_time_axis_metadata_provider(TimeAxisMetadataProvider(metadata_store))
+
     return runtime
 
 

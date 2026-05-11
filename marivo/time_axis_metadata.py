@@ -70,8 +70,13 @@ class TimeAxisMetadataProvider:
         self.metadata = metadata
 
     def load_available_columns(self, table_name: str) -> list[str]:
-        _ = table_name
-        return []
+        rows = self.metadata.query_rows(
+            "SELECT f.name FROM semantic_fields f "
+            "JOIN semantic_datasets d ON f.dataset_id = d.dataset_id "
+            "WHERE d.source = ? ORDER BY f.position",
+            [table_name],
+        )
+        return [row["name"] for row in rows]
 
     def load_for_windowed_query(
         self,
@@ -79,8 +84,60 @@ class TimeAxisMetadataProvider:
         table_name: str,
         metric_name: str | None = None,
     ) -> TimeAxisMetadataContext:
-        _ = (table_name, metric_name)
-        return TimeAxisMetadataContext(available_columns=[])
+        available_columns = self.load_available_columns(table_name)
+        if not available_columns:
+            return TimeAxisMetadataContext(available_columns=[])
+
+        time_rows = self.metadata.query_rows(
+            "SELECT f.name FROM semantic_fields f "
+            "JOIN semantic_datasets d ON f.dataset_id = d.dataset_id "
+            "WHERE d.source = ? AND f.is_time = 1 ORDER BY f.position",
+            [table_name],
+        )
+        time_field_names = [row["name"] for row in time_rows]
+
+        entity_time_capabilities = _infer_time_capabilities(time_field_names)
+
+        return TimeAxisMetadataContext(
+            entity_time_capabilities=entity_time_capabilities,
+            source_time_capabilities=None,
+            available_columns=available_columns,
+            has_time_binding=bool(time_field_names),
+        )
+
+
+def _infer_time_capabilities(time_fields: list[str]) -> dict[str, Any] | None:
+    if not time_fields:
+        return None
+
+    analysis_time: dict[str, str] = {}
+    partition_time: dict[str, str] = {}
+
+    for name in time_fields:
+        lowered = name.lower()
+        if lowered in ("ctime", "event_time", "timestamp", "created_at", "updated_at", "time"):
+            analysis_time.setdefault("timestamp_column", name)
+        elif lowered in ("log_date", "event_date", "dt", "date", "day"):
+            if "fallback_date_column" not in analysis_time:
+                analysis_time["fallback_date_column"] = name
+            partition_time["date_column"] = name
+            if lowered in ("log_date", "dt"):
+                partition_time["date_format"] = "yyyymmdd"
+        elif lowered in ("log_hour", "hour", "event_hour"):
+            analysis_time["fallback_hour_column"] = name
+            partition_time["hour_column"] = name
+            partition_time["hour_format"] = "int"
+
+    if not analysis_time and not partition_time:
+        first = time_fields[0]
+        analysis_time["timestamp_column"] = first
+
+    result: dict[str, Any] = {}
+    if analysis_time:
+        result["analysis_time"] = analysis_time
+    if partition_time:
+        result["partition_time"] = partition_time
+    return result or None
 
 
 def _normalize_analysis_time_section(
