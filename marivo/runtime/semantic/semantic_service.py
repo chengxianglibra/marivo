@@ -33,6 +33,7 @@ from marivo.core.semantic.semantic_validation import (
     SemanticValidationError,
     validate_semantic_model,
 )
+from marivo.identity import resolve_user
 from marivo.runtime.semantic.osi_storage import (
     _storage_to_dataset,
     _storage_to_metric,
@@ -283,32 +284,34 @@ class SemanticModelV2Service:
     def create_semantic_model(self, model_data: dict[str, Any]) -> dict[str, Any]:
         """Create a semantic model from an OSI-conformant dict.
 
-        Validates, parses with Pydantic, extracts MARIVO extensions,
-        inserts into storage, and returns the assembled model.
+        visibility/owner_user are resolved in priority order:
+        1. MARIVO custom_extension in the payload (HTTP callers, tests)
+        2. resolve_user() — ContextVar → MARIVO_DEFAULT_USER → system username (stdio)
         """
-        # Reject creation of official models via CRUD
         enriched_pre = self._enrich_model_dict_with_marivo(model_data)
-        if enriched_pre.get("visibility", "public") != "private":
+        owner_user = enriched_pre.get("owner_user") or resolve_user()
+        visibility = enriched_pre.get("visibility") or ("private" if owner_user else "public")
+
+        if visibility != "private":
             raise ForbiddenError(
                 ErrorCode.FORBIDDEN,
                 "Public (official) models must be created via POST /semantic-models/import. "
-                "Private models can be created via POST /semantic-models with visibility='private' "
-                "and an owner_user in the MARIVO extension.",
+                "Private models can be created via POST /semantic-models.",
             )
 
         # Reject private model name that conflicts with another private model for same owner
-        if enriched_pre.get("visibility") == "private" and enriched_pre.get("owner_user"):
+        if owner_user:
             private_conflict = self.store.query_one(
                 "SELECT 1 FROM semantic_models WHERE name = ? AND visibility = 'private' AND owner_user = ? LIMIT 1",
-                [model_data.get("name"), enriched_pre.get("owner_user")],
+                [model_data.get("name"), owner_user],
             )
             if private_conflict:
                 raise ConflictError(
                     ErrorCode.CONFLICT,
-                    f"Private model '{model_data.get('name')}' already exists for user '{enriched_pre.get('owner_user')}'",
+                    f"Private model '{model_data.get('name')}' already exists for user '{owner_user}'",
                 )
 
-        # Enrich for validation (adds MARIVO fields as top-level dict keys)
+        # Enrich for validation (adds MARIVO fields as top-level dict keys for datasets/metrics/etc.)
         enriched = self._enrich_model_dict_with_marivo(model_data)
 
         # Validate
@@ -324,8 +327,8 @@ class SemanticModelV2Service:
         # Parse with Pydantic
         model = SemanticModel.model_validate(model_data)
 
-        # Insert model row
-        storage_data = model_to_storage(model)
+        # Insert model row — visibility/owner_user come from resolved context, not OSI model
+        storage_data = model_to_storage(model, owner_user=owner_user, visibility=visibility)
         self.store.execute(
             """
             INSERT INTO semantic_models
@@ -1095,7 +1098,7 @@ class SemanticModelV2Service:
 
             # Parse with Pydantic
             model = SemanticModel.model_validate(model_dict)
-            storage_data = model_to_storage(model)
+            storage_data = model_to_storage(model, owner_user=None, visibility="public")
 
             # Check if a public model with same name already exists (import always targets public)
             existing_row = self.store.query_one(

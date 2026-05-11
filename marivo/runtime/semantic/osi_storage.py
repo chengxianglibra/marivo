@@ -87,11 +87,13 @@ def _ext_to_dicts(extensions: list[Any]) -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 
-def model_to_storage(model: SemanticModel) -> dict[str, Any]:
+def model_to_storage(
+    model: SemanticModel,
+    *,
+    owner_user: str | None,
+    visibility: str,
+) -> dict[str, Any]:
     """Extract fields for a ``semantic_models`` row from an OSI SemanticModel."""
-    marivo_ext = extract_marivo_extension(model.custom_extensions, MarivoSemanticModelExtension)
-    visibility = marivo_ext.visibility if marivo_ext else "public"
-    owner_user = marivo_ext.owner_user if marivo_ext else None
     ai_context = _ai_context_to_json(model.ai_context)
     return {
         "name": model.name,
