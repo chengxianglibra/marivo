@@ -33,7 +33,7 @@ class SessionAPITests(unittest.TestCase):
         cls.temp_dir = tempfile.TemporaryDirectory()
         db_path = Path(cls.temp_dir.name) / "test.duckdb"
         get_seeded_duckdb_path(db_path)
-        cls.client = TestClient(create_app(db_path))
+        cls.client = TestClient(create_app(db_path), headers={"X-Marivo-User": "test_user"})
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -220,7 +220,7 @@ class SessionCloseTests(unittest.TestCase):
         cls.temp_dir = tempfile.TemporaryDirectory()
         db_path = Path(cls.temp_dir.name) / "close_test.duckdb"
         get_seeded_duckdb_path(db_path)
-        cls.client = TestClient(create_app(db_path))
+        cls.client = TestClient(create_app(db_path), headers={"X-Marivo-User": "test_user"})
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -228,7 +228,9 @@ class SessionCloseTests(unittest.TestCase):
         cls.temp_dir.cleanup()
 
     def _create_session(self, goal: str = "close test session") -> str:
-        r = self.client.post("/sessions", json={"goal": goal})
+        r = self.client.post(
+            "/sessions", json={"goal": goal}, headers={"X-Marivo-User": "test_user"}
+        )
         self.assertEqual(r.status_code, 200)
         return r.json()["session_id"]
 
@@ -236,7 +238,9 @@ class SessionCloseTests(unittest.TestCase):
         """POST /sessions/{id}/close transitions status to 'closed'."""
         session_id = self._create_session()
         r = self.client.post(
-            f"/sessions/{session_id}/terminate", json={"terminal_reason": "test_done"}
+            f"/sessions/{session_id}/terminate",
+            json={"terminal_reason": "test_done"},
+            headers={"X-Marivo-User": "test_user"},
         )
         self.assertEqual(r.status_code, 200)
         data = r.json()
@@ -248,36 +252,58 @@ class SessionCloseTests(unittest.TestCase):
     def test_close_session_default_reason(self) -> None:
         """close without explicit reason uses default 'user_closed'."""
         session_id = self._create_session()
-        r = self.client.post(f"/sessions/{session_id}/terminate", json={})
+        r = self.client.post(
+            f"/sessions/{session_id}/terminate",
+            json={},
+            headers={"X-Marivo-User": "test_user"},
+        )
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.json()["lifecycle"]["terminal_reason"], "user_closed")
 
     def test_close_session_unknown_returns_404(self) -> None:
         r = self.client.post(
-            "/sessions/sess_nonexistent/terminate", json={"terminal_reason": "gone"}
+            "/sessions/sess_nonexistent/terminate",
+            json={"terminal_reason": "gone"},
+            headers={"X-Marivo-User": "test_user"},
         )
         self.assertEqual(r.status_code, 404)
 
     def test_close_session_already_closed_returns_409(self) -> None:
         """Closing an already-closed session returns 409 Conflict."""
         session_id = self._create_session()
-        self.client.post(f"/sessions/{session_id}/terminate", json={})
-        r = self.client.post(f"/sessions/{session_id}/terminate", json={})
+        self.client.post(
+            f"/sessions/{session_id}/terminate",
+            json={},
+            headers={"X-Marivo-User": "test_user"},
+        )
+        r = self.client.post(
+            f"/sessions/{session_id}/terminate",
+            json={},
+            headers={"X-Marivo-User": "test_user"},
+        )
         self.assertEqual(r.status_code, 409)
 
     def test_get_session_reflects_closed_status(self) -> None:
         """GET /sessions/{id} returns closed lifecycle after close."""
         session_id = self._create_session()
-        self.client.post(f"/sessions/{session_id}/terminate", json={"terminal_reason": "verified"})
-        r = self.client.get(f"/sessions/{session_id}")
+        self.client.post(
+            f"/sessions/{session_id}/terminate",
+            json={"terminal_reason": "verified"},
+            headers={"X-Marivo-User": "test_user"},
+        )
+        r = self.client.get(f"/sessions/{session_id}", headers={"X-Marivo-User": "test_user"})
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.json()["lifecycle"]["status"], "closed")
 
     def test_list_sessions_filter_by_closed(self) -> None:
         """GET /sessions?status=closed returns only closed sessions."""
         session_id = self._create_session("to be closed")
-        self.client.post(f"/sessions/{session_id}/terminate", json={})
-        r = self.client.get("/sessions?status=closed")
+        self.client.post(
+            f"/sessions/{session_id}/terminate",
+            json={},
+            headers={"X-Marivo-User": "test_user"},
+        )
+        r = self.client.get("/sessions?status=closed", headers={"X-Marivo-User": "test_user"})
         self.assertEqual(r.status_code, 200)
         ids = [s["session_id"] for s in r.json()["items"]]
         self.assertIn(session_id, ids)

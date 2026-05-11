@@ -29,6 +29,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 
 from marivo.adapters.local.sqlite_metadata import SQLiteMetadataStore
 from marivo.transports.http.app_factory import create_app
+from marivo.transports.http.middleware import UserIdentityMiddleware
 from marivo.transports.mcp.tools import register_tools
 
 # ---------------------------------------------------------------------------
@@ -60,14 +61,18 @@ async def _mcp_client(
     handshake so individual tests stay concise.
     """
     mcp_app = server.streamable_http_app()
+    # Wrap with the production UserIdentityMiddleware so that the
+    # X-Marivo-User header from httpx is read and current_user is set.
+    wrapped_app = UserIdentityMiddleware(mcp_app)
     session_manager = server.session_manager
 
     async with session_manager.run():
-        http_transport = httpx.ASGITransport(app=mcp_app)
+        http_transport = httpx.ASGITransport(app=wrapped_app)
         async with (
             httpx.AsyncClient(
                 transport=http_transport,
                 base_url="http://testserver",
+                headers={"X-Marivo-User": "test_user"},
             ) as http_client,
             streamable_http_client(
                 "http://testserver/mcp",
@@ -106,7 +111,6 @@ async def test_mcp_initialize_and_list_tools(runtime):
     async with _mcp_client(server) as session:
         tools_result = await session.list_tools()
         tool_names = {t.name for t in tools_result.tools}
-
         # Spot-check a representative subset of expected tools
         for expected in (
             "observe",

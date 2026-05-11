@@ -113,22 +113,18 @@ def _make_model_dict(name: str = "test_model") -> dict:
 
 
 def _as_user(user: str | None):
-    """Context manager that sets current_user and clears MARIVO_DEFAULT_USER."""
+    """Context manager that sets current_user for the duration of the block."""
     import contextlib
-    import os
 
     from marivo.identity import reset_current_user, set_current_user
 
     @contextlib.contextmanager
     def _ctx():
-        tokens = set_current_user(user)
-        old_env = os.environ.pop("MARIVO_DEFAULT_USER", None)
+        token = set_current_user(user)
         try:
             yield
         finally:
-            reset_current_user(tokens)
-            if old_env is not None:
-                os.environ["MARIVO_DEFAULT_USER"] = old_env
+            reset_current_user(token)
 
     return _ctx()
 

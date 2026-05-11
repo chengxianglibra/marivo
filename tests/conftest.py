@@ -24,16 +24,28 @@ from __future__ import annotations
 
 import os
 
-os.environ.setdefault("LOG_LEVEL", "WARNING")
-os.environ.setdefault("MARIVO_DEFAULT_USER", "test_user")
+import pytest
 
 from marivo.adapters.local.duckdb_analytics import DuckDBAnalyticsEngine
 from marivo.adapters.local.sqlite_metadata import SQLiteMetadataStore
+from marivo.identity import reset_current_user, set_current_user
 from tests.shared_fixtures import (
     get_seeded_duckdb_path,
     get_seeded_metadata_path,
     is_managed_template_path,
 )
+
+os.environ.setdefault("LOG_LEVEL", "WARNING")
+
+
+@pytest.fixture(autouse=True)
+def _set_test_user():
+    token = set_current_user("test_user")
+    try:
+        yield
+    finally:
+        reset_current_user(token)
+
 
 # Test files that depend on the deleted SemanticService — skip during OSI v2 migration.
 # Re-enable as part of Task 7 (Fix Downstream Dependencies).
@@ -89,7 +101,6 @@ def _fast_metadata_initialize(self: SQLiteMetadataStore) -> None:
         return
 
     if self.db_path.exists():
-        _original_metadata_initialize(self)
         return
 
     get_seeded_metadata_path(self.db_path)
