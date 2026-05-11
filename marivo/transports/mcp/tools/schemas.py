@@ -9,6 +9,8 @@ from typing import Annotated, Any, Literal, TypeAlias
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
 
+from marivo.contracts.generated.osi import AIContext1, Expression
+
 
 def _reject_observe_time_scope_string(v: Any) -> Any:
     """Reject shorthand string time_scope; require canonical object form."""
@@ -124,3 +126,29 @@ class ObserveInput(BaseModel):
     scope: ObserveScope | None = None
     result_mode: str | None = None
     calendar_policy_ref: str | None = None
+
+
+class McpMetricUpdatePayload(BaseModel):
+    """Payload for update_metric MCP tool — only the fields the service allows."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    description: str | None = Field(
+        None, description="Human-readable description of what the metric measures"
+    )
+    ai_context: str | AIContext1 | None = Field(None, description="Additional context for AI tools")
+    additive_dimensions: list[str] | None = Field(
+        None,
+        description="Field names across which the metric is additive",
+        min_length=1,
+    )
+    expression: Expression | None = Field(None, description="Multi-dialect expression definition")
+
+
+class McpRelationshipUpdatePayload(BaseModel):
+    """Payload for update_relationship MCP tool — only the fields the service allows."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    cardinality: str | None = Field(None, description="Relationship cardinality (e.g. many_to_one)")
+    ai_context: str | AIContext1 | None = Field(None, description="Additional context for AI tools")
