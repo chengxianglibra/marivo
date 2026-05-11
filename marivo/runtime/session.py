@@ -15,7 +15,7 @@ from marivo.contracts.ids import SessionId, UserId
 from marivo.contracts.session import SessionEvent, SessionState
 from marivo.core.evidence.family_contract import ALLOWS_EMPTY_ARTIFACT_TYPES
 from marivo.core.session.rebuild import rebuild_session_state
-from marivo.identity import resolve_user
+from marivo.identity import require_user
 
 if TYPE_CHECKING:
     from marivo.runtime.runtime import MarivoRuntime
@@ -86,8 +86,7 @@ def create_session(
     """
     sid = SessionId(f"sess_{uuid4().hex[:12]}")
     if actor is None:
-        resolved = resolve_user()
-        actor = UserId(resolved) if resolved is not None else UserId("local")
+        actor = UserId(require_user())
     runtime.ports.session_store.append_event(
         sid,
         SessionEvent(

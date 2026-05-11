@@ -25,11 +25,11 @@ def _close_service_store(service: SemanticModelV2Service) -> None:
 
 @contextlib.contextmanager
 def _as_user(user: str):
-    tokens = set_current_user(user)
+    token = set_current_user(user)
     try:
         yield
     finally:
-        reset_current_user(tokens)
+        reset_current_user(token)
 
 
 def _make_model_payload() -> dict:

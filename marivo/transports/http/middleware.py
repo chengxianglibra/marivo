@@ -28,8 +28,8 @@ class UserIdentityMiddleware:
             if decoded:
                 user = decoded
 
-        tokens = set_current_user(user)
+        token = set_current_user(user)
         try:
             await self.app(scope, receive, send)
         finally:
-            reset_current_user(tokens)
+            reset_current_user(token)

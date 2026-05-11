@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import os
-from unittest.mock import patch
+import pytest
 
-from marivo.identity import current_user, resolve_user
+from marivo.identity import current_user, require_user, resolve_user
 
 
 def test_returns_contextvar_value_when_set():
@@ -14,20 +13,10 @@ def test_returns_contextvar_value_when_set():
         current_user.reset(token)
 
 
-def test_falls_back_to_env_var():
+def test_returns_none_when_not_set():
     token = current_user.set(None)
     try:
-        with patch.dict(os.environ, {"MARIVO_DEFAULT_USER": "env_user"}):
-            assert resolve_user() == "env_user"
-    finally:
-        current_user.reset(token)
-
-
-def test_returns_none_when_both_absent():
-    token = current_user.set(None)
-    try:
-        with patch.dict(os.environ, {}, clear=True):
-            assert resolve_user() is None
+        assert resolve_user() is None
     finally:
         current_user.reset(token)
 
@@ -35,8 +24,7 @@ def test_returns_none_when_both_absent():
 def test_normalizes_whitespace_only_to_none():
     token = current_user.set("   ")
     try:
-        with patch.dict(os.environ, {}, clear=True):
-            assert resolve_user() is None
+        assert resolve_user() is None
     finally:
         current_user.reset(token)
 
@@ -49,28 +37,18 @@ def test_strips_whitespace_from_contextvar():
         current_user.reset(token)
 
 
-def test_strips_whitespace_from_env_var():
-    token = current_user.set(None)
+def test_require_user_returns_user_when_set():
+    token = current_user.set("alice")
     try:
-        with patch.dict(os.environ, {"MARIVO_DEFAULT_USER": "  env_user  "}):
-            assert resolve_user() == "env_user"
+        assert require_user() == "alice"
     finally:
         current_user.reset(token)
 
 
-def test_empty_env_var_falls_through_to_none():
+def test_require_user_raises_when_not_set():
     token = current_user.set(None)
     try:
-        with patch.dict(os.environ, {"MARIVO_DEFAULT_USER": ""}):
-            assert resolve_user() is None
-    finally:
-        current_user.reset(token)
-
-
-def test_contextvar_takes_priority_over_env():
-    token = current_user.set("context_user")
-    try:
-        with patch.dict(os.environ, {"MARIVO_DEFAULT_USER": "env_user"}):
-            assert resolve_user() == "context_user"
+        with pytest.raises(RuntimeError, match="User identity not set"):
+            require_user()
     finally:
         current_user.reset(token)

@@ -190,10 +190,9 @@ def terminate_session(
 ) -> SessionTerminateResponse:
     """Terminate a session, preventing further intent write operations."""
     try:
-        from marivo.identity import resolve_user
+        from marivo.identity import require_user
 
-        current_user = resolve_user()
-        actor = UserId(current_user) if current_user else UserId("local")
+        actor = UserId(require_user())
         get_services(request).runtime.terminate_session(
             SessionId(session_id),
             actor=actor,

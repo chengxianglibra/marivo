@@ -25,7 +25,7 @@ class StepRegistryWiringTests(unittest.TestCase):
         cls.temp_dir = tempfile.TemporaryDirectory()
         db_path = Path(cls.temp_dir.name) / "step_registry.duckdb"
         get_seeded_duckdb_path(db_path)
-        cls.client = TestClient(create_app(db_path))
+        cls.client = TestClient(create_app(db_path), headers={"X-Marivo-User": "test_user"})
 
     @classmethod
     def tearDownClass(cls) -> None:

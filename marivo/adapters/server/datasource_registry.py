@@ -15,7 +15,7 @@ from marivo.adapters.server.registry_factories import (
     validate_datasource_type,
 )
 from marivo.contracts.ids import UserId
-from marivo.identity import resolve_user
+from marivo.identity import require_user, resolve_user
 from marivo.ports.analytics import AnalyticsEngine
 
 logger = logging.getLogger("marivo.datasource_auth")
@@ -103,7 +103,7 @@ class DatasourceRegistry:
     ) -> dict[str, Any]:
         validate_datasource_type(datasource_type)
 
-        owner_user = UserId(resolve_user() or "local")
+        owner_user = UserId(require_user())
 
         datasource_id = f"ds_{uuid4().hex[:12]}"
         now = now_iso()

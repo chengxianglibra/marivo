@@ -264,7 +264,7 @@ class TestSessionStateAPI(unittest.TestCase):
         get_seeded_duckdb_path(db_path)
         from marivo.main import create_app
 
-        cls.client = TestClient(create_app(db_path))
+        cls.client = TestClient(create_app(db_path), headers={"X-Marivo-User": "test_user"})
 
     @classmethod
     def tearDownClass(cls) -> None:

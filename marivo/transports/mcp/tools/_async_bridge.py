@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
+from contextvars import copy_context
 from typing import Any
 
 from marivo.contracts.errors import (
@@ -19,11 +20,14 @@ async def call_runtime(method: Callable[..., Any], /, **kwargs: Any) -> dict[str
     """Call a sync runtime method from an async MCP handler.
 
     Runs the method in a thread executor to avoid blocking the event loop.
+    Copies the current contextvars.Context so that identity (current_user)
+    and other context-scoped state propagate into the executor thread.
     Catches DomainError subclasses and wraps them into structured envelopes.
     """
     loop = asyncio.get_running_loop()
+    ctx = copy_context()
     try:
-        result = await loop.run_in_executor(None, lambda: method(**kwargs))
+        result = await loop.run_in_executor(None, ctx.run, lambda: method(**kwargs))
         return _wrap_success(result)
     except NotFoundError as e:
         return _wrap_error("NOT_FOUND", str(e))
