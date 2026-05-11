@@ -240,7 +240,7 @@ class _SessionBackedIntentEndpointMixin:
     def setUpClass(cls) -> None:
         cls.temp_dir = tempfile.TemporaryDirectory()
         cls.db_path = Path(cls.temp_dir.name) / f"{cls.__name__.lower()}.duckdb"
-        cls.client = TestClient(create_app(cls.db_path))
+        cls.client = TestClient(create_app(cls.db_path), headers={"X-Marivo-User": "test_user"})
         response = cls.client.post("/sessions", json={"goal": f"{cls.__name__} session"})
         cls.session_id = response.json()["session_id"]
 
@@ -519,7 +519,7 @@ class AttributeUnknownMetricEndpointTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.temp_dir = tempfile.TemporaryDirectory()
         cls.db_path = Path(cls.temp_dir.name) / "attribute_unknown_metric.duckdb"
-        cls.client = TestClient(create_app(cls.db_path))
+        cls.client = TestClient(create_app(cls.db_path), headers={"X-Marivo-User": "test_user"})
         response = cls.client.post("/sessions", json={"goal": "attribute unknown metric test"})
         cls.session_id = response.json()["session_id"]
 
@@ -790,7 +790,7 @@ class ClosedSessionWriteGuardTests(unittest.TestCase):
         db_path = Path(cls.temp_dir.name) / "closed_session.duckdb"
         get_seeded_duckdb_path(db_path)
         _seed_default_calendar_source_metadata(db_path)
-        cls.client = TestClient(create_app(db_path))
+        cls.client = TestClient(create_app(db_path), headers={"X-Marivo-User": "test_user"})
         r = cls.client.post("/sessions", json={"goal": "to be closed"})
         cls.session_id = r.json()["session_id"]
         cls.client.post(f"/sessions/{cls.session_id}/terminate", json={"terminal_reason": "test"})

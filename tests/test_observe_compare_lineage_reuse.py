@@ -141,11 +141,11 @@ class _CompareReuseTestBase(unittest.TestCase):
         cls.db_path = Path(cls.temp_dir.name) / f"{cls.__name__.lower()}.duckdb"
         get_seeded_duckdb_path(cls.db_path)
         cls.app = create_app(cls.db_path)
-        cls.client = TestClient(cls.app)
+        cls.client = TestClient(cls.app, headers={"X-Marivo-User": "test_user"})
 
         resp = cls.client.post(
             "/sessions",
-            json={"goal": f"{cls.__name__} session", "budget": {}, "policy": {}},
+            json={"goal": f"{cls.__name__} session", "budget": {}},
         )
         cls.session_id = resp.json()["session_id"]
 

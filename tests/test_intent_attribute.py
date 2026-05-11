@@ -1238,7 +1238,9 @@ class AttributeEndpointTests(unittest.TestCase):
         _seed_metadata(metadata, db_path)
 
         app = create_app(metadata_store=metadata, analytics_engine=analytics)
-        cls.client = TestClient(app, raise_server_exceptions=True)
+        cls.client = TestClient(
+            app, raise_server_exceptions=True, headers={"X-Marivo-User": "test_user"}
+        )
 
         # Create a persistent session for HTTP tests
         resp = cls.client.post(

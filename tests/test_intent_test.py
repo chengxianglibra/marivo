@@ -1180,7 +1180,8 @@ class TestIntentEndpointTests(unittest.TestCase):
         )
 
         cls.client = TestClient(
-            create_app(db_path=db_path, metadata_store=metadata, analytics_engine=analytics)
+            create_app(db_path=db_path, metadata_store=metadata, analytics_engine=analytics),
+            headers={"X-Marivo-User": "test_user"},
         )
 
         # Create session + run two observe intents to get valid step refs

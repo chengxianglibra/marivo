@@ -457,7 +457,7 @@ class DiagnoseHTTPTests(unittest.TestCase):
         _seed_metadata(metadata, db_path)
 
         app = create_app(metadata_store=metadata, analytics_engine=analytics)
-        cls.client = TestClient(app)
+        cls.client = TestClient(app, headers={"X-Marivo-User": "test_user"})
 
         # Create a session to reuse
         resp = cls.client.post("/sessions", json={"goal": "diag http test"})

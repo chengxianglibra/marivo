@@ -63,6 +63,43 @@ def _extract_predicate_filter_lineage(compiled_query: Any) -> dict[str, Any] | N
     return None
 
 
+def _resolve_observe_time_scope(time_scope_raw: dict[str, Any]) -> tuple[str, str, str | None]:
+    kind = time_scope_raw.get("kind")
+    # AOI-aligned McpTimeScope uses {field, start, end} without kind.
+    # Treat missing kind as "range" when start and end are present.
+    if kind is None and "start" in time_scope_raw and "end" in time_scope_raw:
+        kind = "range"
+    if kind == "range":
+        try:
+            return (
+                str(time_scope_raw["start"]),
+                str(time_scope_raw["end"]),
+                time_scope_raw.get("field"),
+            )
+        except KeyError as exc:
+            raise ValueError(
+                "observe: INVALID_ARGUMENT - range time_scope requires start and end"
+            ) from exc
+
+    if kind in {"snapshot_now", "latest_available"}:
+        start = datetime.now(UTC).date()
+        end = start + timedelta(days=1)
+        return start.isoformat(), end.isoformat(), time_scope_raw.get("field")
+
+    if kind == "as_of":
+        raw_at = time_scope_raw.get("at")
+        if not isinstance(raw_at, str) or not raw_at.strip():
+            raise ValueError("observe: INVALID_ARGUMENT - as_of time_scope requires at")
+        observed_date = datetime.fromisoformat(raw_at.replace("Z", "+00:00")).date()
+        return (
+            observed_date.isoformat(),
+            (observed_date + timedelta(days=1)).isoformat(),
+            time_scope_raw.get("field"),
+        )
+
+    raise ValueError(f"observe: INVALID_ARGUMENT - unsupported time_scope.kind={kind!r}")
+
+
 def _series_from_rows(
     rows: list[dict[str, Any]], *, granularity: TimeGrain
 ) -> list[dict[str, Any]]:
@@ -476,9 +513,7 @@ def run_observe_intent(
         )
 
     # --- Resolve time scope → (start_str, end_str, resolved response shape) ---
-    start_str: str = time_scope_raw["start"]
-    end_str: str = time_scope_raw["end"]
-    time_scope_field: str | None = time_scope_raw.get("field")
+    start_str, end_str, time_scope_field = _resolve_observe_time_scope(time_scope_raw)
     resolved_time_scope: dict[str, Any] = {"kind": "range", "start": start_str, "end": end_str}
 
     if granularity == "hour":

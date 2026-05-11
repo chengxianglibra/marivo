@@ -595,7 +595,7 @@ class ValidateHTTPTests(unittest.TestCase):
         _seed_metadata(metadata, db_path)
 
         app = create_app(metadata_store=metadata, analytics_engine=analytics)
-        cls.client = TestClient(app)
+        cls.client = TestClient(app, headers={"X-Marivo-User": "test_user"})
 
         resp = cls.client.post("/sessions", json={"goal": "validate http test"})
         cls.session_id = resp.json()["session_id"]
