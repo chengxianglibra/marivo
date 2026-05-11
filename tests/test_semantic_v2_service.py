@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import tempfile
 import unittest
 from pathlib import Path
 
@@ -28,22 +27,9 @@ from tests.shared_fixtures import (
 
 class TestSemanticV2ServiceTestFixtures(unittest.TestCase):
     def test_make_store_cleans_temp_metadata_dir_when_closed(self) -> None:
-        temp_root = Path(tempfile.gettempdir())
-        before = {
-            path
-            for path in temp_root.glob("marivo_v2_*")
-            if not path.name.startswith("marivo_v2_api_")
-        }
-
         store = _make_store()
-        created = {
-            path
-            for path in temp_root.glob("marivo_v2_*")
-            if not path.name.startswith("marivo_v2_api_")
-        } - before
-
-        self.assertEqual(len(created), 1)
-        temp_dir = created.pop()
+        assert store._temp_dir is not None
+        temp_dir = Path(store._temp_dir.name)
         self.assertTrue((temp_dir / "meta.sqlite").exists())
 
         store.close()
@@ -60,6 +46,24 @@ def _make_store() -> ManagedSQLiteMetadataStore:
 
 def _make_svc() -> SemanticModelV2Service:
     return SemanticModelV2Service(_make_store())
+
+
+def test_enrich_metric_extracts_additive_dimensions() -> None:
+    """Shared enrichment helper extracts additive_dimensions from MARIVO extension."""
+    metric_data = {
+        "name": "revenue",
+        "expression": {"dialects": [{"dialect": "ANSI_SQL", "expression": "SUM(amount)"}]},
+        "custom_extensions": [
+            {
+                "vendor_name": "MARIVO",
+                "data": json.dumps({"additive_dimensions": ["region", "channel"]}),
+            }
+        ],
+    }
+
+    enriched = SemanticModelV2Service._enrich_metric_with_marivo(metric_data)
+
+    assert enriched["additive_dimensions"] == ["region", "channel"]
 
 
 def _make_model_dict(
@@ -154,10 +158,13 @@ def _make_relationship_dict(
 def _make_metric_dict(
     name: str = "total_revenue",
     observed_dataset: str | None = "orders",
+    additive_dimensions: list[str] | None = None,
 ) -> dict:
     marivo_data: dict = {}
     if observed_dataset:
         marivo_data["observed_dataset"] = observed_dataset
+    if additive_dimensions is not None:
+        marivo_data["additive_dimensions"] = additive_dimensions
     return {
         "name": name,
         "expression": {"dialects": [{"dialect": "ANSI_SQL", "expression": "SUM(amount)"}]},
@@ -845,30 +852,22 @@ class TestValidation(unittest.TestCase):
             svc.create_semantic_model(model_data)
         self.assertIn("nonexistent_field", ctx.exception.message)
 
-    def test_metric_primary_time_field_not_time(self) -> None:
+    def test_metric_additive_dimensions_unknown_field(self) -> None:
         svc = _make_svc()
         model_data = _make_model_dict(visibility="private", owner_user="alice")
-        metric = _make_metric_dict()
-        for ext in metric["custom_extensions"]:
-            if ext["vendor_name"] == "MARIVO":
-                data = json.loads(ext["data"])
-                data["primary_time_field"] = "amount"  # not a time field
-                ext["data"] = json.dumps(data)
-        model_data["metrics"] = [metric]
+        model_data["metrics"] = [
+            _make_metric_dict(observed_dataset=None, additive_dimensions=["nonexistent_dim"])
+        ]
         with self.assertRaises(ValidationError) as ctx:
             svc.create_semantic_model(model_data)
-        self.assertIn("not a time field", ctx.exception.message)
+        self.assertIn("nonexistent_dim", ctx.exception.message)
 
-    def test_metric_primary_time_field_valid(self) -> None:
+    def test_metric_additive_dimensions_valid(self) -> None:
         svc = _make_svc()
         model_data = _make_model_dict(visibility="private", owner_user="alice")
-        metric = _make_metric_dict()
-        for ext in metric["custom_extensions"]:
-            if ext["vendor_name"] == "MARIVO":
-                data = json.loads(ext["data"])
-                data["primary_time_field"] = "order_date"  # is a time field
-                ext["data"] = json.dumps(data)
-        model_data["metrics"] = [metric]
+        model_data["metrics"] = [
+            _make_metric_dict(observed_dataset=None, additive_dimensions=["amount"])
+        ]
         result = svc.create_semantic_model(model_data)
         self.assertEqual(result["name"], "test_model")
 

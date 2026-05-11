@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from pydantic import ValidationError
 
 ROOT = Path(__file__).resolve().parent.parent
 OSI_EXAMPLES = ROOT / "osi-marivo-spec" / "examples"
@@ -89,3 +90,42 @@ def test_malformed_extension_data_rejected() -> None:
 
     with pytest.raises(Exception):
         extract_marivo_extension([FakeExt()], MarivoDatasetExtension)
+
+
+def test_aoi_timescope_requires_field() -> None:
+    """AOI TimeScope must require a non-empty field."""
+    from marivo.contracts.generated.aoi import TimeScope
+
+    ts = TimeScope(
+        field="order_date",
+        start="2024-01-01T00:00:00Z",
+        end="2024-02-01T00:00:00Z",
+    )
+    assert ts.field == "order_date"
+
+    with pytest.raises(ValidationError):
+        TimeScope(start="2024-01-01T00:00:00Z", end="2024-02-01T00:00:00Z")
+
+    with pytest.raises(ValidationError):
+        TimeScope(
+            field="",
+            start="2024-01-01T00:00:00Z",
+            end="2024-02-01T00:00:00Z",
+        )
+
+
+def test_additive_dimensions_validation() -> None:
+    """additive_dimensions must be a non-empty list when present."""
+    from marivo.transports.http.models.marivo_extensions import MarivoMetricExtension
+
+    ext = MarivoMetricExtension(additive_dimensions=["region", "channel"])
+    assert ext.additive_dimensions == ["region", "channel"]
+
+    ext = MarivoMetricExtension()
+    assert ext.additive_dimensions is None
+
+    ext = MarivoMetricExtension(additive_dimensions=None)
+    assert ext.additive_dimensions is None
+
+    with pytest.raises(ValidationError):
+        MarivoMetricExtension(additive_dimensions=[])

@@ -92,3 +92,12 @@ source_modules =
     marivo
 forbidden_modules =
     app
+
+[importlinter:contract:runtime-uses-generated-contracts]
+name = runtime/ must not import OSI/AOI contract models from transports/http/models
+type = forbidden
+source_modules =
+    marivo.runtime
+forbidden_modules =
+    marivo.transports.http.models.osi
+    marivo.transports.http.models.marivo_extensions

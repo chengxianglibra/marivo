@@ -5,6 +5,7 @@ from typing import Any
 
 from marivo.adapters.metadata import MetadataStore
 from marivo.contracts.errors import DomainError, ErrorCode
+from marivo.contracts.generated import SemanticModel as OSISemanticModel
 from marivo.contracts.ids import ModelId, RevisionId, UserId
 from marivo.contracts.semantic import ModelSummary, SemanticModel
 
@@ -161,7 +162,6 @@ class SqlModelStoreAdapter:
             name=row.get("name", ""),
             revision=RevisionId(str(row["revision"])) if row.get("revision") is not None else None,
             description=row.get("description"),
-            osi_document={},
             visibility=row.get("visibility", "private"),
             owner=UserId(row["owner_user"]) if row.get("owner_user") else None,
         )
@@ -202,7 +202,7 @@ class SqlModelStoreAdapter:
             name=model_dict.get("name", ""),
             revision=RevisionId(revision) if revision else None,
             description=model_dict.get("description"),
-            osi_document=model_dict,
+            osi_model=OSISemanticModel.model_validate(model_dict),
             visibility=visibility,
             owner=UserId(owner) if owner else None,
         )

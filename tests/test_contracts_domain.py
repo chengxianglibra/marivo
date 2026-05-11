@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import typing
+
 from marivo.contracts.evidence import Assessment, Evidence, Finding, Proposition
+from marivo.contracts.generated import SemanticModel as OSISemanticModel
 from marivo.contracts.ids import (
     ArtifactId,
     AssessmentId,
@@ -116,6 +119,13 @@ def test_semantic_model() -> None:
     assert m.name == "my_model"
     assert m.model_id is None
     assert m.visibility == "private"
+
+
+def test_semantic_model_contract_has_typed_osi() -> None:
+    hints = typing.get_type_hints(SemanticModel)
+
+    assert "osi_document" not in hints
+    assert hints["osi_model"] == OSISemanticModel | None
 
 
 def test_semantic_model_full() -> None:

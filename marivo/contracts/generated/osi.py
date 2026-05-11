@@ -14,7 +14,7 @@ class AIContext1(BaseModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="forbid",
     )
     instructions: str | None = Field(
         None, description="Instructions for AI on how to use this entity"

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from typing import Any
-
 from pydantic import BaseModel
+
+from marivo.contracts.generated import SemanticModel as OSISemanticModel
 
 from .ids import ModelId, RevisionId, UserId
 
@@ -14,9 +14,15 @@ class SemanticModel(BaseModel):
     name: str
     revision: RevisionId | None = None
     description: str | None = None
-    osi_document: dict[str, Any] = {}
+    osi_model: OSISemanticModel | None = None
     visibility: str = "private"
     owner: UserId | None = None
+
+    @property
+    def osi_document(self) -> dict[str, object]:
+        if self.osi_model is None:
+            return {}
+        return self.osi_model.model_dump(by_alias=True, exclude_none=True)
 
 
 class ModelSummary(BaseModel):

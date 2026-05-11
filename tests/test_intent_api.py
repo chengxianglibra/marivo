@@ -17,7 +17,6 @@ import tempfile
 import unittest
 from pathlib import Path
 from typing import Any
-from uuid import uuid4
 
 import duckdb
 from fastapi.testclient import TestClient
@@ -895,14 +894,8 @@ class ArtifactLifecycleTests(unittest.TestCase):
         cls.temp_dir.cleanup()
 
     def _make_session(self) -> str:
-
-        session_id = f"sess_{uuid4().hex[:12]}"
-        self.service.metadata.execute(
-            "INSERT INTO session_events (session_id, goal, constraints_json, budget_json, status) "
-            "VALUES (?, ?, '{}', '{}', 'open')",
-            [session_id, "lifecycle test"],
-        )
-        return session_id
+        state = self.service.create_session("lifecycle test")
+        return str(state.session_id)
 
     def test_insert_artifact_staged_lifecycle(self) -> None:
         session_id = self._make_session()

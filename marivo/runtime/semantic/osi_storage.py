@@ -11,24 +11,42 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from marivo.core.semantic.extensions import (
-    OsiCustomExtensionLike,
-    extract_marivo_extension,
-)
-from marivo.transports.http.models.marivo_extensions import (
-    MarivoDatasetExtension,
-    MarivoFieldExtension,
-    MarivoMetricExtension,
-    MarivoRelationshipExtension,
-    MarivoSemanticModelExtension,
-)
-from marivo.transports.http.models.osi import (
+from marivo.contracts.generated import (
     Dataset,
     Field,
     Metric,
     Relationship,
     SemanticModel,
 )
+from marivo.contracts.semantic_extensions import (
+    MarivoDatasetExtension,
+    MarivoFieldExtension,
+    MarivoMetricExtension,
+    MarivoRelationshipExtension,
+    MarivoSemanticModelExtension,
+)
+from marivo.core.semantic.extensions import (
+    OsiCustomExtensionLike,
+    extract_marivo_extension,
+)
+
+
+def _ai_context_to_json(value: Any) -> str | None:
+    """Serialize AI context values from generated or legacy models."""
+    if value is None:
+        return None
+    if hasattr(value, "root"):
+        value = value.root
+    if hasattr(value, "model_dump"):
+        value = value.model_dump(exclude_none=True)
+    return json.dumps(value)
+
+
+def _ai_context_from_json(raw: Any) -> Any:
+    """Deserialize AI context JSON into a shape accepted by generated models."""
+    if raw is None:
+        return None
+    return json.loads(raw)
 
 
 def build_custom_extensions(
@@ -36,16 +54,25 @@ def build_custom_extensions(
     *others: OsiCustomExtensionLike,
 ) -> list[OsiCustomExtensionLike]:
     """Build a custom_extensions list from a MARIVO extension model and optional other extensions."""
-    from marivo.transports.http.models.osi import CustomExtension
+    from marivo.contracts.generated import CustomExtension
+    from marivo.contracts.generated.osi import MarivoMetricCustomExtension
 
     result: list[OsiCustomExtensionLike] = []
     if marivo_ext is not None:
-        result.append(
-            CustomExtension(
-                vendor_name="MARIVO",
-                data=marivo_ext.model_dump_json(exclude_none=True),
+        if isinstance(marivo_ext, MarivoMetricExtension):
+            result.append(
+                MarivoMetricCustomExtension(
+                    vendor_name="MARIVO",
+                    data=marivo_ext.model_dump_json(exclude_none=True),
+                )
             )
-        )
+        else:
+            result.append(
+                CustomExtension(
+                    vendor_name="MARIVO",
+                    data=marivo_ext.model_dump_json(exclude_none=True),
+                )
+            )
     result.extend(others)
     return result
 
@@ -65,7 +92,7 @@ def model_to_storage(model: SemanticModel) -> dict[str, Any]:
     marivo_ext = extract_marivo_extension(model.custom_extensions, MarivoSemanticModelExtension)
     visibility = marivo_ext.visibility if marivo_ext else "public"
     owner_user = marivo_ext.owner_user if marivo_ext else None
-    ai_context = json.dumps(model.ai_context.root) if model.ai_context is not None else None
+    ai_context = _ai_context_to_json(model.ai_context)
     return {
         "name": model.name,
         "description": model.description,
@@ -81,7 +108,7 @@ def dataset_to_storage(ds: Dataset, model_id: int) -> dict[str, Any]:
     datasource_id = marivo_ext.datasource_id if marivo_ext else None
     primary_key = json.dumps(ds.primary_key) if ds.primary_key is not None else None
     unique_keys = json.dumps(ds.unique_keys) if ds.unique_keys is not None else None
-    ai_context = json.dumps(ds.ai_context.root) if ds.ai_context is not None else None
+    ai_context = _ai_context_to_json(ds.ai_context)
     return {
         "model_id": model_id,
         "name": ds.name,
@@ -101,7 +128,7 @@ def field_to_storage(field: Field, dataset_id: int, position: int) -> dict[str, 
     is_dimension = field.dimension is not None
     is_time = field.dimension.is_time if field.dimension else False
     expression = json.dumps(field.expression.model_dump(exclude_none=True))
-    ai_context = json.dumps(field.ai_context.root) if field.ai_context is not None else None
+    ai_context = _ai_context_to_json(field.ai_context)
     return {
         "dataset_id": dataset_id,
         "name": field.name,
@@ -122,7 +149,7 @@ def relationship_to_storage(rel: Relationship, model_id: int) -> dict[str, Any]:
     cardinality = marivo_ext.cardinality if marivo_ext else None
     from_columns = json.dumps(rel.from_columns)
     to_columns = json.dumps(rel.to_columns)
-    ai_context = json.dumps(rel.ai_context.root) if rel.ai_context is not None else None
+    ai_context = _ai_context_to_json(rel.ai_context)
     return {
         "model_id": model_id,
         "name": rel.name,
@@ -144,7 +171,7 @@ def metric_to_storage(metric: Metric, model_id: int) -> dict[str, Any]:
         else None
     )
     expression = json.dumps(metric.expression.model_dump(exclude_none=True))
-    ai_context = json.dumps(metric.ai_context.root) if metric.ai_context is not None else None
+    ai_context = _ai_context_to_json(metric.ai_context)
     return {
         "model_id": model_id,
         "name": metric.name,
@@ -177,7 +204,7 @@ def _storage_to_dataset(row: dict[str, Any]) -> dict[str, Any]:
     if row.get("description") is not None:
         result["description"] = row["description"]
     if row.get("ai_context") is not None:
-        result["ai_context"] = json.loads(row["ai_context"])
+        result["ai_context"] = _ai_context_from_json(row["ai_context"])
 
     # Fields sub-collection
     fields_raw = row.get("_fields")
@@ -206,7 +233,7 @@ def _storage_to_field(row: dict[str, Any]) -> dict[str, Any]:
     if row.get("description") is not None:
         result["description"] = row["description"]
     if row.get("ai_context") is not None:
-        result["ai_context"] = json.loads(row["ai_context"])
+        result["ai_context"] = _ai_context_from_json(row["ai_context"])
     return result
 
 
@@ -222,7 +249,7 @@ def _storage_to_relationship(row: dict[str, Any]) -> dict[str, Any]:
         "custom_extensions": _ext_to_dicts(build_custom_extensions(marivo_ext)),
     }
     if row.get("ai_context") is not None:
-        result["ai_context"] = json.loads(row["ai_context"])
+        result["ai_context"] = _ai_context_from_json(row["ai_context"])
     return result
 
 
@@ -242,7 +269,7 @@ def _storage_to_metric(row: dict[str, Any]) -> dict[str, Any]:
     if row.get("description") is not None:
         result["description"] = row["description"]
     if row.get("ai_context") is not None:
-        result["ai_context"] = json.loads(row["ai_context"])
+        result["ai_context"] = _ai_context_from_json(row["ai_context"])
     return result
 
 
@@ -270,7 +297,7 @@ def storage_to_model(
     if row.get("description") is not None:
         result["description"] = row["description"]
     if row.get("ai_context") is not None:
-        result["ai_context"] = json.loads(row["ai_context"])
+        result["ai_context"] = _ai_context_from_json(row["ai_context"])
     if relationships:
         result["relationships"] = relationships
     if metrics:

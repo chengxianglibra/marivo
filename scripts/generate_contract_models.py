@@ -79,8 +79,24 @@ def _write_init(output_dir: Path) -> None:
         '"""Generated contract models - do not edit manually.\n\n'
         "Regenerate with: python scripts/generate_contract_models.py\n"
         '"""\n\n'
+        "from pydantic import RootModel\n\n"
         "from . import aoi as aoi\n"
-        "from . import osi as osi\n\n"
+        "from . import osi as osi\n"
+        "from .aoi import TimeScope as TimeScope\n\n\n"
+        "class AIContext(RootModel[str | osi.AIContext1]):\n"
+        '    """Compatibility wrapper preserving the legacy .root access pattern."""\n\n'
+        "    root: str | osi.AIContext1\n\n\n"
+        "AIContextObject = osi.AIContext1\n"
+        "Field = osi.FieldModel\n"
+        "CustomExtension = osi.CustomExtension\n"
+        "Dataset = osi.Dataset\n"
+        "DialectExpression = osi.DialectExpression\n"
+        "Dimension = osi.Dimension\n"
+        "Expression = osi.Expression\n"
+        "Metric = osi.Metric\n"
+        "OSIDocument = osi.OsiCoreMetadataSpecificationWithMarivoVendorExtensions\n"
+        "Relationship = osi.Relationship\n"
+        "SemanticModel = osi.SemanticModel\n\n"
         f'OSI_MARIVO_SPEC_VERSION = "{_schema_version(OSI_SCHEMA)}"\n'
         f'AOI_SPEC_VERSION = "{_schema_version(AOI_SCHEMA)}"\n'
     )
@@ -96,10 +112,34 @@ def _display_path(path: Path) -> str:
 
 def _write_generated_package(output_dir: Path) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
-    _run_codegen(OSI_SCHEMA, output_dir / "osi.py", "OSI")
+    osi_output = output_dir / "osi.py"
+    _run_codegen(OSI_SCHEMA, osi_output, "OSI")
+    _patch_osi_output(osi_output)
     _run_codegen(AOI_SCHEMA, output_dir / "aoi.py", "AOI")
     _write_init(output_dir)
     _format_generated_package(output_dir)
+
+
+def _patch_osi_output(output: Path) -> None:
+    """Apply deterministic compatibility patches to generated OSI models."""
+    text = output.read_text(encoding="utf-8")
+    text = text.replace(
+        "class AIContext1(BaseModel):\n"
+        '    """\n'
+        "    Additional context for AI tools\n"
+        '    """\n\n'
+        "    model_config = ConfigDict(\n"
+        '        extra="allow",\n'
+        "    )",
+        "class AIContext1(BaseModel):\n"
+        '    """\n'
+        "    Additional context for AI tools\n"
+        '    """\n\n'
+        "    model_config = ConfigDict(\n"
+        '        extra="forbid",\n'
+        "    )",
+    )
+    output.write_text(text, encoding="utf-8")
 
 
 def _format_generated_package(output_dir: Path) -> None:
