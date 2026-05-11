@@ -99,13 +99,9 @@ METADATA_DDL: list[str] = [
     # -------------------------------------------------------------------------
     # OSI-aligned semantic layer tables (v2)
     # Per-model revision replaces global semantic_versions.
-    # Destructive DDL: DROP before CREATE for changed schemas.
     # -------------------------------------------------------------------------
-    "DROP TABLE IF EXISTS semantic_versions",
-    "DROP TABLE IF EXISTS semantic_readiness_status",
-    "DROP TABLE IF EXISTS semantic_models",
     """
-    CREATE TABLE semantic_models (
+    CREATE TABLE IF NOT EXISTS semantic_models (
         model_id    INTEGER PRIMARY KEY AUTOINCREMENT,
         name        TEXT NOT NULL,
         description TEXT,
