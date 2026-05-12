@@ -166,9 +166,7 @@ class SemanticModelV2Service:
         )
         metrics = [_storage_to_metric(dict(r)) for r in metric_rows]
 
-        return storage_to_model(
-            dict(model_row), datasets, relationships, metrics, revision=model_row["revision"]
-        )
+        return storage_to_model(dict(model_row), datasets, relationships, metrics)
 
     @staticmethod
     def _parse_marivo_data(ext: dict[str, Any]) -> dict[str, Any] | None:
@@ -1026,8 +1024,8 @@ class SemanticModelV2Service:
 
         Each model in the document is independently imported:
         - If an official model with the same name exists, UPDATE in place
-          (increment revision, replace all child entities).
-        - If no model with that name exists, INSERT with revision=1.
+          (replace all child entities).
+        - If no model with that name exists, INSERT it.
         - Models NOT in the document are left untouched.
         """
         try:
@@ -1066,9 +1064,8 @@ class SemanticModelV2Service:
             )
 
             if existing_row is not None and existing_row["visibility"] == "public":
-                # Update existing official model — increment revision, replace children
+                # Update existing official model — replace children
                 model_id = existing_row["model_id"]
-                new_revision = existing_row["revision"] + 1
 
                 # Delete children (will re-insert below)
                 self.store.execute("DELETE FROM semantic_metrics WHERE model_id = ?", [model_id])
@@ -1085,13 +1082,12 @@ class SemanticModelV2Service:
                 self.store.execute(
                     """
                     UPDATE semantic_models
-                    SET description = ?, ai_context = ?, revision = ?, updated_at = datetime('now')
+                    SET description = ?, ai_context = ?, updated_at = datetime('now')
                     WHERE model_id = ?
                     """,
                     [
                         storage_data["description"],
                         storage_data["ai_context"],
-                        new_revision,
                         model_id,
                     ],
                 )
@@ -1100,8 +1096,8 @@ class SemanticModelV2Service:
                 self.store.execute(
                     """
                     INSERT INTO semantic_models
-                        (name, description, ai_context, visibility, owner_user, revision)
-                    VALUES (?, ?, ?, ?, ?, 1)
+                        (name, description, ai_context, visibility, owner_user)
+                    VALUES (?, ?, ?, ?, ?)
                     """,
                     [
                         storage_data["name"],
@@ -1118,12 +1114,12 @@ class SemanticModelV2Service:
                 assert official_row is not None
                 model_id = official_row["model_id"]
             else:
-                # New model — insert with revision=1
+                # New model
                 self.store.execute(
                     """
                     INSERT INTO semantic_models
-                        (name, description, ai_context, visibility, owner_user, revision)
-                    VALUES (?, ?, ?, ?, ?, 1)
+                        (name, description, ai_context, visibility, owner_user)
+                    VALUES (?, ?, ?, ?, ?)
                     """,
                     [
                         storage_data["name"],

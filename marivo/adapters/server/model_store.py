@@ -6,7 +6,7 @@ from typing import Any
 from marivo.adapters.metadata import MetadataStore
 from marivo.contracts.errors import DomainError, ErrorCode
 from marivo.contracts.generated import SemanticModel as OSISemanticModel
-from marivo.contracts.ids import ModelId, RevisionId, UserId
+from marivo.contracts.ids import ModelId, UserId
 from marivo.contracts.semantic import ModelSummary, SemanticModel
 
 logger = logging.getLogger(__name__)
@@ -70,7 +70,6 @@ class SqlModelStoreAdapter:
         model: SemanticModel,
         *,
         actor: UserId,
-        expected_revision: RevisionId | None,
     ) -> ModelId:
         """Persist a semantic model directly via the metadata store."""
         visibility = model.visibility or "private"
@@ -80,24 +79,22 @@ class SqlModelStoreAdapter:
         # Check for existing model with same name and visibility
         if visibility == "private":
             existing = self._metadata.query_one(
-                "SELECT model_id, revision FROM semantic_models "
+                "SELECT model_id FROM semantic_models "
                 "WHERE name = ? AND visibility = 'private' AND owner_user = ?",
                 [model.name, owner_user],
             )
         else:
             existing = self._metadata.query_one(
-                "SELECT model_id, revision FROM semantic_models "
-                "WHERE name = ? AND visibility = 'public'",
+                "SELECT model_id FROM semantic_models WHERE name = ? AND visibility = 'public'",
                 [model.name],
             )
 
         if existing is not None:
             model_id = ModelId(existing["model_id"])
-            new_revision = (existing["revision"] or 0) + 1
             self._metadata.execute(
-                "UPDATE semantic_models SET description = ?, revision = ?, updated_at = datetime('now') "
+                "UPDATE semantic_models SET description = ?, updated_at = datetime('now') "
                 "WHERE model_id = ?",
-                [description, new_revision, int(model_id)],
+                [description, int(model_id)],
             )
             return model_id
 
@@ -160,7 +157,6 @@ class SqlModelStoreAdapter:
         return SemanticModel(
             model_id=ModelId(row["model_id"]) if row.get("model_id") is not None else None,
             name=row.get("name", ""),
-            revision=RevisionId(str(row["revision"])) if row.get("revision") is not None else None,
             description=row.get("description"),
             visibility=row.get("visibility", "private"),
             owner=UserId(row["owner_user"]) if row.get("owner_user") else None,
@@ -172,7 +168,6 @@ class SqlModelStoreAdapter:
         return ModelSummary(
             model_id=ModelId(row["model_id"]) if row.get("model_id") is not None else ModelId(0),
             name=row.get("name", ""),
-            revision=RevisionId(str(row["revision"])) if row.get("revision") is not None else None,
             description=row.get("description"),
             visibility=row.get("visibility", "private"),
             owner=UserId(row["owner_user"]) if row.get("owner_user") else None,
@@ -185,7 +180,6 @@ class SqlModelStoreAdapter:
         marivo_exts = model_dict.get("custom_extensions") or []
         visibility = "private"
         owner: str | None = None
-        revision: str | None = None
         for ext in marivo_exts:
             if ext.get("vendor_name") == "MARIVO":
                 import json
@@ -195,12 +189,10 @@ class SqlModelStoreAdapter:
                 if parsed:
                     visibility = parsed.get("visibility", "private")
                     owner = parsed.get("owner_user")
-                    revision = str(parsed.get("revision", "")) if parsed.get("revision") else None
 
         return SemanticModel(
             model_id=None,
             name=model_dict.get("name", ""),
-            revision=RevisionId(revision) if revision else None,
             description=model_dict.get("description"),
             osi_model=OSISemanticModel.model_validate(model_dict),
             visibility=visibility,
@@ -213,7 +205,6 @@ class SqlModelStoreAdapter:
         marivo_exts = model_dict.get("custom_extensions") or []
         visibility = "private"
         owner: str | None = None
-        revision: str | None = None
         for ext in marivo_exts:
             if ext.get("vendor_name") == "MARIVO":
                 import json
@@ -223,7 +214,6 @@ class SqlModelStoreAdapter:
                 if parsed:
                     visibility = parsed.get("visibility", "private")
                     owner = parsed.get("owner_user")
-                    revision = str(parsed.get("revision", "")) if parsed.get("revision") else None
 
         # model_id from storage dict - extract from the dict if available
         model_id = ModelId(model_dict.get("model_id", 0))
@@ -231,7 +221,6 @@ class SqlModelStoreAdapter:
         return ModelSummary(
             model_id=model_id,
             name=model_dict.get("name", ""),
-            revision=RevisionId(revision) if revision else None,
             description=model_dict.get("description"),
             visibility=visibility,
             owner=UserId(owner) if owner else None,

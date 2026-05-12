@@ -4,7 +4,7 @@ from pydantic import BaseModel
 
 from marivo.contracts.generated import SemanticModel as OSISemanticModel
 
-from .ids import ModelId, RevisionId, UserId
+from .ids import ModelId, UserId
 
 
 class SemanticModel(BaseModel):
@@ -12,7 +12,6 @@ class SemanticModel(BaseModel):
 
     model_id: ModelId | None = None
     name: str
-    revision: RevisionId | None = None
     description: str | None = None
     osi_model: OSISemanticModel | None = None
     visibility: str = "private"
@@ -28,7 +27,6 @@ class SemanticModel(BaseModel):
 class ModelSummary(BaseModel):
     model_id: ModelId
     name: str
-    revision: RevisionId | None = None
     description: str | None = None
     visibility: str = "private"
     owner: UserId | None = None

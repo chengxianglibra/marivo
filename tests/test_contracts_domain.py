@@ -11,7 +11,6 @@ from marivo.contracts.ids import (
     FindingId,
     ModelId,
     PropositionId,
-    RevisionId,
     SessionId,
     UserId,
 )
@@ -132,13 +131,12 @@ def test_semantic_model_full() -> None:
     m = SemanticModel(
         model_id=ModelId(1),
         name="my_model",
-        revision=RevisionId("v1"),
         description="test model",
         visibility="public",
         owner=UserId("user-1"),
     )
     assert m.model_id == 1
-    assert m.revision == "v1"
+    assert m.description == "test model"
 
 
 def test_model_summary() -> None:

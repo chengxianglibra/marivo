@@ -10,7 +10,7 @@ from typing import Any
 import yaml
 
 from marivo.contracts.errors import ErrorCode, ValidationError
-from marivo.contracts.ids import ModelId, RevisionId, UserId
+from marivo.contracts.ids import ModelId, UserId
 from marivo.contracts.semantic import ModelSummary, SemanticModel
 from marivo.ports.model_store import ModelListQuery, ModelSelector
 
@@ -23,11 +23,9 @@ class _Selector:
         *,
         model_id: ModelId | None = None,
         name: str | None = None,
-        revision: str | None = None,
     ) -> None:
         self.model_id = model_id
         self.name = name
-        self.revision = revision
 
 
 class _ListQuery:
@@ -101,7 +99,6 @@ class FileModelStore:
         model: SemanticModel,
         *,
         actor: UserId,
-        expected_revision: RevisionId | None = None,
     ) -> ModelId:
         name = model.name
         existing = self._find_file(name)
@@ -141,7 +138,6 @@ class FileModelStore:
                     ModelSummary(
                         model_id=model_id,
                         name=model.name,
-                        revision=model.revision,
                         description=model.description,
                         visibility=model.visibility,
                         owner=model.owner,

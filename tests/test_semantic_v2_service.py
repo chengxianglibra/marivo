@@ -129,17 +129,6 @@ def _as_user(user: str | None):
     return _ctx()
 
 
-def _get_revision(model_dict: dict) -> int | None:
-    """Extract revision from the stored semantic model row."""
-    if _ACTIVE_STORE is not None:
-        row = _ACTIVE_STORE.query_one(
-            "SELECT revision FROM semantic_models WHERE name = ?", [model_dict["name"]]
-        )
-        if row is not None:
-            return row["revision"]
-    return None
-
-
 def _make_relationship_dict(
     name: str = "orders_to_customers",
     from_ds: str = "orders",
@@ -264,16 +253,10 @@ class TestCreateSemanticModel(unittest.TestCase):
         self.assertEqual(len(result["metrics"]), 1)
         self.assertEqual(result["metrics"][0]["name"], "total_revenue")
 
-    def test_create_model_revision_starts_at_1(self) -> None:
+    def test_semantic_models_schema_has_no_revision_column(self) -> None:
         store = _make_store()
-        svc = SemanticModelV2Service(store)
-        model_data = _make_model_dict()
-        result = svc.create_semantic_model(model_data)
-        self.assertEqual(_get_revision(result), 1)
-        model_row = store.query_one(
-            "SELECT revision FROM semantic_models WHERE name = 'test_model'"
-        )
-        self.assertEqual(model_row["revision"], 1)
+        columns = {row["name"] for row in store.query_rows("PRAGMA table_info(semantic_models)")}
+        self.assertNotIn("revision", columns)
 
 
 class TestGetSemanticModel(unittest.TestCase):
@@ -909,30 +892,6 @@ class TestVisibilityFiltering(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Per-model revision
-# ---------------------------------------------------------------------------
-
-
-class TestPerModelRevision(unittest.TestCase):
-    def test_new_model_revision_is_1(self) -> None:
-        store = _make_store()
-        svc = SemanticModelV2Service(store)
-        result = svc.create_semantic_model(_make_model_dict(name="model_a"))
-        self.assertEqual(_get_revision(result), 1)
-        model_row = store.query_one("SELECT revision FROM semantic_models WHERE name = 'model_a'")
-        self.assertEqual(model_row["revision"], 1)
-
-    def test_each_model_has_independent_revision(self) -> None:
-        store = _make_store()
-        svc = SemanticModelV2Service(store)
-        result_a = svc.create_semantic_model(_make_model_dict(name="model_a"))
-        result_b = svc.create_semantic_model(_make_model_dict(name="model_b"))
-        self.assertEqual(_get_revision(result_a), 1)
-        self.assertEqual(_get_revision(result_b), 1)
-        # Revisions are independent — no shared version row
-
-
-# ---------------------------------------------------------------------------
 # Import OSI document
 # ---------------------------------------------------------------------------
 
@@ -1022,7 +981,7 @@ class TestImportOSIDocument(unittest.TestCase):
         with self.assertRaises(DomainError):
             svc.import_osi_document(doc)
 
-    def test_import_increments_revision_on_reimport(self) -> None:
+    def test_reimport_updates_current_model_state(self) -> None:
         store = _make_store()
         svc = SemanticModelV2Service(store)
         # Create an initial official model via import
@@ -1060,10 +1019,8 @@ class TestImportOSIDocument(unittest.TestCase):
             ],
         }
         svc.import_osi_document(doc_initial)
-        model_row_before = store.query_one(
-            "SELECT revision FROM semantic_models WHERE name = 'existing'"
-        )
-        self.assertEqual(model_row_before["revision"], 1)
+        initial = svc.get_semantic_model("existing")
+        self.assertEqual(initial["datasets"][0]["source"], "analytics.sales")
 
         # Import a document that updates the same model
         doc = {
@@ -1074,7 +1031,7 @@ class TestImportOSIDocument(unittest.TestCase):
                     "datasets": [
                         {
                             "name": "sales",
-                            "source": "analytics.sales",
+                            "source": "analytics.sales_v2",
                             "custom_extensions": [
                                 {
                                     "vendor_name": "MARIVO",
@@ -1101,12 +1058,7 @@ class TestImportOSIDocument(unittest.TestCase):
         }
         results = svc.import_osi_document(doc)
         self.assertEqual(len(results), 1)
-        self.assertEqual(_get_revision(results[0]), 2)
-
-        model_row_after = store.query_one(
-            "SELECT revision FROM semantic_models WHERE name = 'existing'"
-        )
-        self.assertEqual(model_row_after["revision"], 2)
+        self.assertEqual(results[0]["datasets"][0]["source"], "analytics.sales_v2")
 
     def test_import_official_coexists_with_same_name_private(self) -> None:
         store = _make_store()
@@ -1115,7 +1067,7 @@ class TestImportOSIDocument(unittest.TestCase):
         with _as_user("alice"):
             svc.create_semantic_model(_make_model_dict(name="shared_name"))
         rows_before = store.query_rows(
-            "SELECT visibility, revision FROM semantic_models WHERE name = 'shared_name'"
+            "SELECT visibility FROM semantic_models WHERE name = 'shared_name'"
         )
         self.assertEqual(len(rows_before), 1)
         self.assertEqual(rows_before[0]["visibility"], "private")
@@ -1156,18 +1108,18 @@ class TestImportOSIDocument(unittest.TestCase):
         }
         results = svc.import_osi_document(doc)
         self.assertEqual(len(results), 1)
-        self.assertEqual(_get_revision(results[0]), 1)
+        self.assertEqual(results[0]["name"], "shared_name")
 
         # Both models should now exist
         rows_after = store.query_rows(
-            "SELECT visibility, revision FROM semantic_models WHERE name = 'shared_name' ORDER BY visibility"
+            "SELECT visibility FROM semantic_models WHERE name = 'shared_name' ORDER BY visibility"
         )
         self.assertEqual(len(rows_after), 2)
         visibilities = [r["visibility"] for r in rows_after]
         self.assertIn("private", visibilities)
         self.assertIn("public", visibilities)
 
-    def test_import_new_model_revision_starts_at_1(self) -> None:
+    def test_import_new_model_stores_current_state(self) -> None:
         store = _make_store()
         svc = SemanticModelV2Service(store)
         doc = {
@@ -1205,9 +1157,9 @@ class TestImportOSIDocument(unittest.TestCase):
         }
         results = svc.import_osi_document(doc)
         self.assertEqual(len(results), 1)
-        self.assertEqual(_get_revision(results[0]), 1)
-        model_row = store.query_one("SELECT revision FROM semantic_models WHERE name = 'brand_new'")
-        self.assertEqual(model_row["revision"], 1)
+        self.assertEqual(results[0]["name"], "brand_new")
+        model_row = store.query_one("SELECT name FROM semantic_models WHERE name = 'brand_new'")
+        self.assertEqual(model_row["name"], "brand_new")
 
 
 # ---------------------------------------------------------------------------

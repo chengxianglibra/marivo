@@ -44,7 +44,7 @@ def test_save_and_get_roundtrip_yaml(store: FileModelStore) -> None:
             "datasets": [{"name": "orders", "source": "analytics.orders"}],
         },
     )
-    model_id = store.save(model, actor=UserId("test_user"), expected_revision=None)
+    model_id = store.save(model, actor=UserId("test_user"))
     assert isinstance(model_id, int)
 
     result = store.get(_Selector(name="test_model"))
@@ -63,7 +63,7 @@ def test_list_returns_all_models(store: FileModelStore) -> None:
                 "datasets": [{"name": "orders", "source": f"schema.t{i}"}],
             },
         )
-        store.save(model, actor=UserId("test_user"), expected_revision=None)
+        store.save(model, actor=UserId("test_user"))
 
     results = store.list(_ListQuery())
     assert len(results) == 3
@@ -76,7 +76,7 @@ def test_mtime_cache_invalidated_on_change(store: FileModelStore) -> None:
         name="cached",
         osi_model={"name": "cached", "datasets": [{"name": "t", "source": "s.t1"}]},
     )
-    store.save(model_v1, actor=UserId("test_user"), expected_revision=None)
+    store.save(model_v1, actor=UserId("test_user"))
     result1 = store.get(_Selector(name="cached"))
     assert result1 is not None
 
@@ -84,7 +84,7 @@ def test_mtime_cache_invalidated_on_change(store: FileModelStore) -> None:
         name="cached",
         osi_model={"name": "cached", "datasets": [{"name": "t", "source": "s.t2"}]},
     )
-    store.save(model_v2, actor=UserId("test_user"), expected_revision=None)
+    store.save(model_v2, actor=UserId("test_user"))
 
     result2 = store.get(_Selector(name="cached"))
     assert result2 is not None
@@ -96,22 +96,22 @@ def test_save_atomic_no_partial_reads(store: FileModelStore, tmp_path: Path) -> 
         name="atomic_test",
         osi_model={"name": "atomic_test", "datasets": [{"name": "t", "source": "s.t"}]},
     )
-    store.save(model, actor=UserId("test_user"), expected_revision=None)
+    store.save(model, actor=UserId("test_user"))
     tmp_files = list((tmp_path / "models").glob("tmp-*"))
     assert len(tmp_files) == 0
 
 
 def test_save_returns_consistent_model_id(store: FileModelStore) -> None:
     model = SemanticModel(name="id_test")
-    model_id = store.save(model, actor=UserId("test_user"), expected_revision=None)
+    model_id = store.save(model, actor=UserId("test_user"))
     model_v2 = SemanticModel(name="id_test", description="updated")
-    model_id_2 = store.save(model_v2, actor=UserId("test_user"), expected_revision=None)
+    model_id_2 = store.save(model_v2, actor=UserId("test_user"))
     assert model_id == model_id_2
 
 
 def test_different_names_get_different_ids(store: FileModelStore) -> None:
-    id_a = store.save(SemanticModel(name="a"), actor=UserId("u"), expected_revision=None)
-    id_b = store.save(SemanticModel(name="b"), actor=UserId("u"), expected_revision=None)
+    id_a = store.save(SemanticModel(name="a"), actor=UserId("u"))
+    id_b = store.save(SemanticModel(name="b"), actor=UserId("u"))
     assert id_a != id_b
 
 
@@ -122,7 +122,7 @@ def test_list_summary_fields(store: FileModelStore) -> None:
         visibility="public",
         owner=UserId("owner1"),
     )
-    store.save(model, actor=UserId("test_user"), expected_revision=None)
+    store.save(model, actor=UserId("test_user"))
 
     results = store.list(_ListQuery())
     assert len(results) == 1

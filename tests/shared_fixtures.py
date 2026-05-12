@@ -675,7 +675,8 @@ def _metadata_template_valid(db_path: Path) -> bool:
         and {
             "owner_user",
         }.issubset(session_columns)
-        and {"visibility", "owner_user", "revision"}.issubset(osi_model_columns)
+        and {"visibility", "owner_user"}.issubset(osi_model_columns)
+        and "revision" not in osi_model_columns
         and marker_rows == {"sqlite"}
         and actual_marker == expected_marker
     )
