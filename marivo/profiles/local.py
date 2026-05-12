@@ -5,7 +5,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from marivo.adapters.local.duckdb_analytics import DuckDBAnalyticsEngine
 from marivo.adapters.local.file_artifact_store import FileArtifactStore
 from marivo.adapters.local.file_audit_log import FileAuditLog
 from marivo.adapters.local.file_evidence_store import FileEvidenceStore
@@ -34,6 +33,7 @@ from marivo.local.state_layout import (
     toml_config_path,
 )
 from marivo.observability import setup_logging
+from marivo.ports.analytics import AnalyticsEngine
 from marivo.profiles.resolver import resolve_profile
 from marivo.routing import QueryRouter
 from marivo.runtime.ports import RuntimePorts
@@ -111,8 +111,15 @@ def create_local_runtime(
     return runtime
 
 
-def _create_analytics_engine(dtype: str, config: dict[str, Any]) -> DuckDBAnalyticsEngine:
+def _create_analytics_engine(dtype: str, config: dict[str, Any]) -> AnalyticsEngine:
     if dtype == "duckdb":
+        try:
+            from marivo.adapters.local.duckdb_analytics import DuckDBAnalyticsEngine
+        except ImportError as exc:
+            raise RuntimeError(
+                "DuckDB is not installed. Local mode requires duckdb. "
+                "Install with: pip install duckdb"
+            ) from exc
         return DuckDBAnalyticsEngine(config.get("path", ":memory:"))
     raise ValidationError(
         code=ErrorCode.VALIDATION,

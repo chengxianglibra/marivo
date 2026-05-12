@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from marivo.adapters.local.duckdb_analytics import DuckDBAnalyticsEngine
 from marivo.adapters.local.sqlite_metadata import SQLiteMetadataStore
 from marivo.adapters.metadata import MetadataStore
 from marivo.adapters.server.mysql_metadata import MySQLMetadataStore
@@ -90,6 +89,15 @@ def _resolve_storage(
             )
 
     if analytics_engine is None:
+        try:
+            from marivo.adapters.local.duckdb_analytics import DuckDBAnalyticsEngine
+        except ImportError as exc:
+            raise RuntimeError(
+                "DuckDB is not installed. Either install duckdb (pip install duckdb) "
+                "or provide an analytics_engine explicitly via server config. "
+                "For server mode with external datasources, configure a Trino "
+                "analytics engine in marivo.yaml."
+            ) from exc
         analytics_engine = DuckDBAnalyticsEngine(resolved_path)
 
     metadata_store.initialize()
