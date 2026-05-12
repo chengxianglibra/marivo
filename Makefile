@@ -38,6 +38,27 @@ binary: ## Build onedir Marivo binary (excludes duckdb)
 	@.venv/bin/pyinstaller marivo.spec --noconfirm
 	@echo "Binary built: dist/marivo/marivo"
 	@./dist/marivo/marivo --help || echo "Warning: binary smoke test failed"
+	@$(MAKE) package
+
+package: ## Package dist/marivo/ into marivo_{version}_{target}.{tar.gz|zip}
+	@VERSION=$$(.venv/bin/python -c "import importlib.metadata; print(importlib.metadata.version('marivo'))") \
+	&& TARGET=$$(.venv/bin/python -c "\
+import platform; \
+m = platform.machine().lower(); \
+m = 'x86_64' if m == 'amd64' else m; \
+s = platform.system().lower(); \
+s = 'macos' if s == 'darwin' else s; \
+print(f'{s}-{m}')") \
+	&& cd dist \
+	&& if [ "$$OSTYPE" = "msys" ] || [ "$$OSTYPE" = "win32" ]; then \
+		python -c "import zipfile, pathlib; \
+z = zipfile.ZipFile('marivo_$${VERSION}_$${TARGET}.zip', 'w', zipfile.ZIP_DEFLATED); \
+[z.write(str(p), str(p.relative_to('dist'))) for p in pathlib.Path('marivo').rglob('*') if p.is_file()]; \
+z.close()"; \
+	else \
+		tar czf marivo_$${VERSION}_$${TARGET}.tar.gz marivo/; \
+	fi \
+	&& echo "Packaged: dist/marivo_$${VERSION}_$${TARGET}.*"
 
 binary-clean: ## Remove PyInstaller build artifacts
 	rm -rf build/ dist/
