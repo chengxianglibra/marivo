@@ -97,9 +97,9 @@ class RoutingDataSource:
 
     def __init__(
         self,
-        default_engine: AnalyticsEngine,
         registry: DatasourceRegistry,
         query_router: QueryRouter,
+        default_engine: AnalyticsEngine | None = None,
     ) -> None:
         self._default_engine = default_engine
         self._registry = registry
@@ -184,6 +184,11 @@ class RoutingDataSource:
             raise DomainError(ErrorCode.DATASOURCE_UNAVAILABLE, str(exc)) from exc
 
         # Fallback: query the default engine's information_schema
+        if self._default_engine is None:
+            raise NotFoundError(
+                code=ErrorCode.NOT_FOUND,
+                message=f"Table '{source_ref.schema_name}.{source_ref.table_name}' not found: no default engine",
+            )
         try:
             rows = self._default_engine.query_rows(
                 "SELECT column_name, data_type, is_nullable "
@@ -224,6 +229,12 @@ class RoutingDataSource:
     def _resolve_engine(self, datasource_id: DatasourceId | None) -> AnalyticsEngine:
         """Return the analytics engine for the given datasource, with caching."""
         if datasource_id is None:
+            if self._default_engine is None:
+                raise DomainError(
+                    ErrorCode.DATASOURCE_UNAVAILABLE,
+                    "No default analytics engine available. Install a datasource backend "
+                    "(e.g., pip install marivo[duckdb]) or register a datasource.",
+                )
             return self._default_engine
         if datasource_id in self._engine_cache:
             return self._engine_cache[datasource_id]

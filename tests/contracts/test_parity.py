@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 
 from marivo.adapters.local.duckdb_analytics import DuckDBAnalyticsEngine
-from marivo.adapters.local.duckdb_data_source import DuckDBDataSource
 from marivo.adapters.local.file_model_store import FileModelStore
 from marivo.adapters.local.sqlite_metadata import SQLiteMetadataStore
 from marivo.adapters.local.sqlite_session_store import SqliteSessionStore
@@ -17,7 +16,19 @@ from tests.contracts.session_store_cases import SESSION_STORE_CASES
 
 
 def test_datasource_local_server_parity(tmp_path: Path) -> None:
-    local_factory = lambda _path: DuckDBDataSource(path=None)
+    # Use RoutingDataSource with DuckDBAnalyticsEngine as the local data source,
+    # replacing the deleted DuckDBDataSource.
+    def local_factory(path: Path):
+        from marivo.adapters.server.data_source import RoutingDataSource
+        from marivo.datasources import DatasourceService
+        from marivo.routing import QueryRouter
+
+        engine = DuckDBAnalyticsEngine(str(path / "local-analytics.duckdb"))
+        metadata = SQLiteMetadataStore(path / "local-meta.sqlite")
+        metadata.initialize()
+        ds_service = DatasourceService(metadata)
+        router = QueryRouter(metadata, ds_service)
+        return RoutingDataSource(registry=ds_service, query_router=router, default_engine=engine)
 
     def remote_factory(path: Path):
         # Use a file-based DuckDB so tables persist across connections
@@ -31,7 +42,7 @@ def test_datasource_local_server_parity(tmp_path: Path) -> None:
         ).runtime.ports.data_source
 
     results = compare_contract_matrix(
-        local_name="DuckDBDataSource",
+        local_name="RoutingDataSource",
         local_factory=local_factory,
         remote_name="ServerDataSource",
         remote_factory=remote_factory,

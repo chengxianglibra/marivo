@@ -14,6 +14,8 @@
 
 In scope:
 
+- Enforce explicit transport-provided identity: stdio MCP requires `MARIVO_USER`; HTTP API and HTTP MCP require `X-Marivo-User`.
+- Remove fallback/default-user behavior from HTTP/runtime-backed semantic paths. Missing or blank identity must fail closed before user-scoped service work.
 - Replace current public-layer `/semantic-models/import` behavior with private working-copy `import_osi_document`.
 - Make HTTP and MCP import return `ImportOsiDocumentReport`.
 - Add private-only `export_osi_document`.
@@ -27,6 +29,7 @@ Out of scope:
 
 - Official/public publish/admin workflow.
 - Data migration or compatibility for old public import data.
+- Authentication or authorization of `MARIVO_USER` / `X-Marivo-User`; these are trusted propagation values supplied by the agent or calling environment.
 - Expression safety validation beyond existing OSI/schema/runtime readiness behavior.
 - UI work.
 - Runtime changes unrelated to semantic management.
@@ -36,6 +39,9 @@ Out of scope:
 - Current `SemanticModelV2Service.import_osi_document()` starts at `marivo/runtime/semantic/semantic_service.py:1022` and imports into public models by replacing children. This behavior must be replaced, not preserved.
 - HTTP route `POST /semantic-models/import` currently returns `OSIDocument` from `marivo/transports/http/semantic_v2.py:110`. It must return an import report.
 - MCP semantic tools live in `marivo/transports/mcp/tools/semantic.py` and currently expose `requesting_user` on read tools. Remove those MCP parameters.
+- Stdio MCP entrypoint `marivo/transports/cli/cmd_mcp.py` currently sets `current_user` from `getpass.getuser()`. Replace that with required `MARIVO_USER`; do not add any local-user or workspace fallback.
+- HTTP identity context comes from `X-Marivo-User` via `marivo/transports/http/middleware.py`. Missing or blank headers must fail closed for user-scoped API/MCP requests; do not synthesize a default user in middleware, runtime, or service code.
+- Service/runtime code that needs a user-owned private working copy must use `require_user()` or an equivalent fail-closed helper. Do not use `resolve_user()` for owner assignment or write paths.
 - Generated OSI models live in `marivo/contracts/generated/`.
 - OSI/storage mapping lives in `marivo/runtime/semantic/osi_storage.py`. Reuse it.
 - Existing datasource service is `marivo.datasources.DatasourceService`; do not create a second registry.
@@ -52,6 +58,12 @@ Create:
   Focused service/helper tests for import report shape, duplicate validation, empty document validation, merge semantics, datasource binding, export, and atomic rollback.
 
 Modify:
+
+- `marivo/transports/cli/cmd_mcp.py`
+  Read `MARIVO_USER`, trim it, reject missing/blank values, and set `current_user` only from that explicit agent-provided value.
+
+- `marivo/transports/http/middleware.py`
+  Keep `X-Marivo-User` as the trusted propagation header. Do not add env/default fallback. For API/MCP paths that require user scope, missing/blank values must be converted into the existing structured auth/domain error path instead of reaching runtime as an implicit user.
 
 - `marivo/contracts/errors.py`
   Add semantic-specific error codes needed by the surface: `NOT_FOUND_SEMANTIC_MODEL`, `NOT_FOUND_DATASET`, `NOT_FOUND_FIELD`, `NOT_FOUND_METRIC`, `NOT_FOUND_RELATIONSHIP`, `DATASOURCE_BINDING_FAILED`, `DATASET_ACCESS_DENIED`.
@@ -81,7 +93,13 @@ Modify:
   Update fake service and assertions for import/export/field tools and absence of `requesting_user`.
 
 - `tests/transports/mcp/test_stdio_mcp_e2e.py`
-  Update expected tool inventory and add at least one stdio-level semantic schema assertion if the current test structure supports it.
+  Update expected tool inventory and add stdio identity tests: missing `MARIVO_USER` fails closed; explicit `MARIVO_USER=alice` is propagated to runtime.
+
+- `tests/transports/mcp/test_http_mcp_e2e.py`
+  Add HTTP MCP identity tests: missing or blank `X-Marivo-User` fails closed; explicit header is propagated.
+
+- `tests/test_middleware.py`
+  Update middleware expectations so absence/blankness remains visible as missing identity and no default user is produced.
 
 Verification commands:
 
@@ -90,6 +108,121 @@ Verification commands:
 - `make lint`
 
 Use only repository entrypoints or explicit `.venv/bin/...`; never use bare `python`, `pytest`, `mypy`, or `ruff`.
+
+---
+
+### Task 0: Enforce Explicit Transport Identity
+
+**Files:**
+- Modify: `marivo/transports/cli/cmd_mcp.py`
+- Modify: `marivo/transports/http/middleware.py`
+- Test: `tests/test_middleware.py`
+- Test: `tests/transports/mcp/test_stdio_mcp_e2e.py`
+- Test: `tests/transports/mcp/test_http_mcp_e2e.py`
+
+- [ ] **Step 1: Add stdio identity tests**
+
+In `tests/transports/mcp/test_stdio_mcp_e2e.py`, add tests around the stdio startup helper or command handler. If the current test file shells out to the console script, use that harness; otherwise test the smallest extracted helper from Step 3:
+
+```python
+import os
+
+import pytest
+
+from marivo.transports.cli.cmd_mcp import _require_stdio_user
+
+
+def test_stdio_mcp_requires_marivo_user(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("MARIVO_USER", raising=False)
+
+    with pytest.raises(RuntimeError, match="MARIVO_USER"):
+        _require_stdio_user()
+
+
+def test_stdio_mcp_rejects_blank_marivo_user(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MARIVO_USER", "   ")
+
+    with pytest.raises(RuntimeError, match="MARIVO_USER"):
+        _require_stdio_user()
+
+
+def test_stdio_mcp_uses_explicit_marivo_user(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MARIVO_USER", "  alice  ")
+
+    assert _require_stdio_user() == "alice"
+```
+
+- [ ] **Step 2: Add HTTP/MCP missing identity tests**
+
+In `tests/transports/mcp/test_http_mcp_e2e.py`, add one request without `X-Marivo-User` and one request with a blank header against any existing user-scoped MCP tool. Assert both fail closed with a non-2xx response or structured error body, and add one positive case with `headers={"X-Marivo-User": "alice"}` that reaches the runtime:
+
+```python
+async def test_http_mcp_requires_x_marivo_user(http_mcp_client) -> None:
+    response = await http_mcp_client.post_tool(
+        "list_semantic_models",
+        {},
+        headers={},
+    )
+
+    assert response.status_code in {401, 403, 500}
+    assert "user" in response.text.lower()
+
+
+async def test_http_mcp_rejects_blank_x_marivo_user(http_mcp_client) -> None:
+    response = await http_mcp_client.post_tool(
+        "list_semantic_models",
+        {},
+        headers={"X-Marivo-User": "   "},
+    )
+
+    assert response.status_code in {401, 403, 500}
+    assert "user" in response.text.lower()
+```
+
+If the existing HTTP MCP harness exposes FastMCP JSON-RPC errors rather than raw status codes, assert the JSON-RPC error contains the same user-required message. Do not change the product behavior to pass the exact status above; use the repository's existing structured error mapping.
+
+- [ ] **Step 3: Replace stdio default-user fallback**
+
+In `marivo/transports/cli/cmd_mcp.py`, remove `getpass.getuser()` usage and add:
+
+```python
+def _require_stdio_user() -> str:
+    user = os.environ.get("MARIVO_USER", "").strip()
+    if not user:
+        raise RuntimeError("MARIVO_USER is required for marivo stdio MCP")
+    return user
+```
+
+Then in `handle()`:
+
+```python
+    set_current_user(_require_stdio_user())
+```
+
+There must be no fallback to local username, workspace identity, anonymous identity, or `MARIVO_DEFAULT_USER`.
+
+- [ ] **Step 4: Keep HTTP identity header-only and fail closed**
+
+In `marivo/transports/http/middleware.py`, keep `X-Marivo-User` as the only HTTP identity source. Do not read env vars. Ensure blank headers are normalized to missing identity and that downstream user-scoped routes hit `require_user()` before owner-scoped service work.
+
+If current HTTP error handling turns missing `require_user()` into a 500, keep that behavior only if it is already the repository's accepted structured error path. Otherwise map the identity failure to `FORBIDDEN` consistently in `marivo/transports/http/errors.py`.
+
+- [ ] **Step 5: Run identity tests**
+
+Run:
+
+```bash
+.venv/bin/pytest tests/test_middleware.py tests/transports/mcp/test_stdio_mcp_e2e.py tests/transports/mcp/test_http_mcp_e2e.py -q
+```
+
+Expected: tests pass, and no code path sets `current_user` from a default local user.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add marivo/transports/cli/cmd_mcp.py marivo/transports/http/middleware.py tests/test_middleware.py tests/transports/mcp/test_stdio_mcp_e2e.py tests/transports/mcp/test_http_mcp_e2e.py
+git commit -m "fix: require explicit user identity for mcp transports"
+```
 
 ---
 
@@ -645,13 +778,13 @@ class SemanticImportExportServiceTests(unittest.TestCase):
         self.store.close()
 
     def test_import_creates_private_working_copy_for_current_user(self) -> None:
-        from marivo.identity import current_user
+        from marivo.identity import reset_current_user, set_current_user
 
-        token = current_user.set("alice")
+        token = set_current_user("alice")  # Simulates transport/context provider injection.
         try:
             report = self.service.import_osi_document(_osi_doc())
         finally:
-            current_user.reset(token)
+            reset_current_user(token)
 
         self.assertEqual(report["models"][0]["name"], "sales_model")
         self.assertEqual(report["models"][0]["created"], True)
@@ -663,29 +796,41 @@ class SemanticImportExportServiceTests(unittest.TestCase):
         self.assertEqual(row["owner_user"], "alice")
 
     def test_export_without_name_returns_only_current_user_private_models(self) -> None:
-        from marivo.identity import current_user
+        from marivo.identity import reset_current_user, set_current_user
 
-        token = current_user.set("alice")
+        token = set_current_user("alice")  # Simulates transport/context provider injection.
         try:
             self.service.import_osi_document(_osi_doc("alice_model"))
             exported = self.service.export_osi_document()
         finally:
-            current_user.reset(token)
+            reset_current_user(token)
 
         self.assertEqual(exported["version"], "0.1.1")
         self.assertEqual([m["name"] for m in exported["semantic_model"]], ["alice_model"])
 
     def test_export_named_missing_private_returns_not_found(self) -> None:
-        from marivo.identity import current_user
+        from marivo.identity import reset_current_user, set_current_user
 
-        token = current_user.set("alice")
+        token = set_current_user("alice")  # Simulates transport/context provider injection.
         try:
             with self.assertRaises(Exception) as raised:
                 self.service.export_osi_document("missing")
         finally:
-            current_user.reset(token)
+            reset_current_user(token)
 
         self.assertIn("missing", str(raised.exception))
+
+    def test_import_requires_transport_injected_user(self) -> None:
+        with self.assertRaises(RuntimeError) as raised:
+            self.service.import_osi_document(_osi_doc("missing_identity"))
+
+        self.assertIn("User identity not set", str(raised.exception))
+
+    def test_export_requires_transport_injected_user(self) -> None:
+        with self.assertRaises(RuntimeError) as raised:
+            self.service.export_osi_document()
+
+        self.assertIn("User identity not set", str(raised.exception))
 ```
 
 - [ ] **Step 2: Run service tests and verify failure**
@@ -991,12 +1136,7 @@ from marivo.runtime.semantic.import_export import (
 ```python
     def import_osi_document(self, doc_data: dict[str, Any]) -> dict[str, Any]:
         """Import an OSI document into the current user's private working copy."""
-        owner_user = resolve_user()
-        if not owner_user:
-            raise ForbiddenError(
-                ErrorCode.FORBIDDEN,
-                "import_osi_document requires an authenticated current user",
-            )
+        owner_user = require_user()
         try:
             doc = OSIDocument.model_validate(doc_data)
         except PydanticValidationError as exc:
@@ -1023,12 +1163,7 @@ from marivo.runtime.semantic.import_export import (
 ```python
     def export_osi_document(self, semantic_model_name: str | None = None) -> dict[str, Any]:
         """Export current user's private working copy as an OSI document."""
-        owner_user = resolve_user()
-        if not owner_user:
-            raise ForbiddenError(
-                ErrorCode.FORBIDDEN,
-                "export_osi_document requires an authenticated current user",
-            )
+        owner_user = require_user()
         return OsiDocumentExporter(self.store, self._assemble_model).export(
             owner_user=owner_user,
             semantic_model_name=semantic_model_name,
@@ -1679,6 +1814,12 @@ In `marivo/transports/mcp/tools/semantic.py`:
 
 1. Remove `_resolve_requesting_user()` and all `requesting_user` parameters from MCP tools.
 2. Import `McpFieldPayload` and `McpFieldUpdatePayload`.
+3. Import identity helpers:
+
+```python
+from marivo.identity import require_user, resolve_user
+```
+
 3. Add tools:
 
 ```python
@@ -1696,7 +1837,7 @@ In `marivo/transports/mcp/tools/semantic.py`:
         )
 ```
 
-4. Change read calls to use `resolve_user()` internally:
+4. Change read calls to use optional `resolve_user()` internally. These reads may still use public visibility fallback when no private working copy exists, but must not fabricate an owner:
 
 ```python
         return await call_runtime(
@@ -1705,7 +1846,7 @@ In `marivo/transports/mcp/tools/semantic.py`:
         )
 ```
 
-5. Add field CRUD:
+5. Add field CRUD. Write calls must call `require_user()` before passing `owner_user`; do not pass `resolve_user()` as an owner:
 
 ```python
     @server.tool()  # type: ignore
@@ -1716,7 +1857,7 @@ In `marivo/transports/mcp/tools/semantic.py`:
             model_name=model,
             dataset_name=dataset,
             field_data=payload.model_dump(by_alias=True),
-            owner_user=resolve_user(),
+            owner_user=require_user(),
         )
 
     @server.tool()  # type: ignore
@@ -1758,7 +1899,7 @@ In `marivo/transports/mcp/tools/semantic.py`:
             dataset_name=dataset,
             field_name=name,
             updates=updates,
-            owner_user=resolve_user(),
+            owner_user=require_user(),
         )
 
     @server.tool()  # type: ignore
@@ -1769,7 +1910,7 @@ In `marivo/transports/mcp/tools/semantic.py`:
             model_name=model,
             dataset_name=dataset,
             field_name=name,
-            owner_user=resolve_user(),
+            owner_user=require_user(),
         )
 ```
 
@@ -1821,7 +1962,7 @@ class _FailAfterDatasetStore:
 
 class SemanticImportAtomicityTests(unittest.TestCase):
     def test_mid_merge_failure_preserves_existing_private_model(self) -> None:
-        from marivo.identity import current_user
+        from marivo.identity import reset_current_user, set_current_user
 
         store = make_temp_metadata_store(prefix="semantic_atomicity_")
         datasource_service = DatasourceService(store)
@@ -1831,7 +1972,7 @@ class SemanticImportAtomicityTests(unittest.TestCase):
             connection={"database": ":memory:"},
         )
         service = SemanticServiceAdapter(store, datasource_service=datasource_service)
-        token = current_user.set("alice")
+        token = set_current_user("alice")  # Simulates transport/context provider injection.
         try:
             service.import_osi_document(_osi_doc("atomic_model"))
             before = service.export_osi_document("atomic_model")
@@ -1841,7 +1982,7 @@ class SemanticImportAtomicityTests(unittest.TestCase):
             service._service.store = store
             after = service.export_osi_document("atomic_model")
         finally:
-            current_user.reset(token)
+            reset_current_user(token)
             store.close()
 
         self.assertEqual(after, before)

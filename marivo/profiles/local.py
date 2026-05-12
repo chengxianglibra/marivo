@@ -63,7 +63,7 @@ def create_local_runtime(
         workspace_config_path=toml_config_path(config.workspace_root),
     )
 
-    duckdb_engine = _create_analytics_engine(config.datasource_type, config.datasource_config)
+    default_engine = _create_analytics_engine(config.datasource_type, config.datasource_config)
 
     metadata_store = SQLiteMetadataStore(metadata_db_path(config.workspace_root))
     metadata_store.initialize()
@@ -71,9 +71,9 @@ def create_local_runtime(
     query_router = QueryRouter(metadata_store, datasource_service)
 
     routing_data_source = RoutingDataSource(
-        default_engine=duckdb_engine,
         registry=datasource_service,
         query_router=query_router,
+        default_engine=default_engine,
     )
 
     ports = RuntimePorts(
@@ -111,15 +111,19 @@ def create_local_runtime(
     return runtime
 
 
-def _create_analytics_engine(dtype: str, config: dict[str, Any]) -> AnalyticsEngine:
+def _create_analytics_engine(dtype: str | None, config: dict[str, Any]) -> AnalyticsEngine | None:
+    if dtype is None:
+        return None
     if dtype == "duckdb":
         try:
             from marivo.adapters.local.duckdb_analytics import DuckDBAnalyticsEngine
-        except ImportError as exc:
-            raise RuntimeError(
-                "DuckDB is not installed. Local mode requires duckdb. "
-                "Install with: pip install duckdb"
-            ) from exc
+        except ImportError:
+            logger.warning(
+                "DuckDB is not installed. Local mode will start without a default "
+                "analytics engine. Queries that require a default engine will fail. "
+                "Install with: pip install marivo[duckdb]"
+            )
+            return None
         return DuckDBAnalyticsEngine(config.get("path", ":memory:"))
     raise ValidationError(
         code=ErrorCode.VALIDATION,

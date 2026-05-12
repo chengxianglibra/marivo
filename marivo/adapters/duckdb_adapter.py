@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+from importlib import import_module
 from pathlib import Path
-
-import duckdb
+from typing import Any
 
 from marivo.adapters.base import (
     MAX_PREVIEW_ROWS,
@@ -36,11 +36,15 @@ class DuckDBCatalogAdapter(CatalogAdapter):
 
     def test_connection(self) -> bool:
         try:
-            con = duckdb.connect(str(self._path), read_only=True)
+            con = self._connect()
             con.close()
             return True
         except Exception:
             return False
+
+    def _connect(self) -> Any:
+        """Open a read-only DuckDB connection. Defers duckdb import to method level."""
+        return import_module("duckdb").connect(str(self._path), read_only=True)
 
     def _quote_identifier(self, identifier: str) -> str:
         """Quote and escape a DuckDB identifier.
@@ -50,7 +54,7 @@ class DuckDBCatalogAdapter(CatalogAdapter):
         return '"' + identifier.replace('"', '""') + '"'
 
     def list_schemas(self, catalog_name: str | None = None) -> list[PhysicalObject]:
-        con = duckdb.connect(str(self._path), read_only=True)
+        con = self._connect()
         try:
             rows = con.execute(
                 "SELECT DISTINCT schema_name FROM information_schema.schemata "
@@ -70,7 +74,7 @@ class DuckDBCatalogAdapter(CatalogAdapter):
             con.close()
 
     def list_tables(self, schema_name: str) -> list[PhysicalObject]:
-        con = duckdb.connect(str(self._path), read_only=True)
+        con = self._connect()
         try:
             rows = con.execute(
                 "SELECT table_name FROM information_schema.tables "
@@ -99,7 +103,7 @@ class DuckDBCatalogAdapter(CatalogAdapter):
             con.close()
 
     def get_table_detail(self, schema_name: str, table_name: str) -> PhysicalObject:
-        con = duckdb.connect(str(self._path), read_only=True)
+        con = self._connect()
         try:
             _er = con.execute(
                 "SELECT COUNT(*) FROM information_schema.tables "
@@ -129,7 +133,7 @@ class DuckDBCatalogAdapter(CatalogAdapter):
             con.close()
 
     def list_columns(self, schema_name: str, table_name: str) -> list[PhysicalObject]:
-        con = duckdb.connect(str(self._path), read_only=True)
+        con = self._connect()
         try:
             rows = con.execute(
                 "SELECT column_name, data_type FROM information_schema.columns "
@@ -160,7 +164,7 @@ class DuckDBCatalogAdapter(CatalogAdapter):
         """Preview sample rows from a DuckDB table."""
         effective_limit = min(max(1, limit), MAX_PREVIEW_ROWS)
 
-        con = duckdb.connect(str(self._path), read_only=True)
+        con = self._connect()
         try:
             # 1. Verify table exists
             exists_row = con.execute(

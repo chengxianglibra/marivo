@@ -60,7 +60,9 @@ def build_catalog_adapter(datasource_type: str, connection: dict[str, Any]) -> C
         try:
             from marivo.adapters.duckdb_adapter import DuckDBCatalogAdapter
         except ImportError as exc:
-            raise RuntimeError("DuckDB is not installed. Install with: pip install duckdb") from exc
+            raise RuntimeError(
+                "DuckDB is not installed. Install with: pip install marivo[duckdb]"
+            ) from exc
         return DuckDBCatalogAdapter(_duckdb_path(connection))
     if datasource_type == "trino":
         from marivo.adapters.trino_adapter import TrinoCatalogAdapter
@@ -75,7 +77,9 @@ def build_analytics_engine(datasource_type: str, connection: dict[str, Any]) -> 
         try:
             from marivo.adapters.local.duckdb_analytics import DuckDBAnalyticsEngine
         except ImportError as exc:
-            raise RuntimeError("DuckDB is not installed. Install with: pip install duckdb") from exc
+            raise RuntimeError(
+                "DuckDB is not installed. Install with: pip install marivo[duckdb]"
+            ) from exc
         return DuckDBAnalyticsEngine(_duckdb_path(connection))
     if datasource_type == "trino":
         from marivo.adapters.server.trino_analytics import TrinoAnalyticsEngine
