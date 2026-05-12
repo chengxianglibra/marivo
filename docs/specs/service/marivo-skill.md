@@ -226,34 +226,40 @@ Skill 应提供最小的“下一步读什么”索引，例如：
 ## 推荐目录结构
 
 ```text
-skills/marivo/
-  SKILL.md
-  references/
-    steps.md
-    semantic-layer.md
-    semantic-readiness.md
-    http-contracts.md
-    planning.md
-    infrastructure.md
-    payload-cheatsheet.md
+skills/
+  marivo-datasource/
+    SKILL.md
+    references/
+      workflow.md
+  marivo-semantic-layer/
+    SKILL.md
+    references/
+      modeling.md
+      readiness.md
+  marivo-analysis/
+    SKILL.md
+    references/
+      workflow.md
 ```
 
 推荐职责：
 
-- `SKILL.md`：最小决策入口，优先回答“该走哪条路径”
-- `references/*.md`：只在需要时按主题展开
+- `marivo-datasource/SKILL.md`：datasource 注册、browse、preview 的最小决策入口
+- `marivo-semantic-layer/SKILL.md`：semantic model / dataset / metric / relationship / readiness 的最小决策入口
+- `marivo-analysis/SKILL.md`：session、analysis intent、state/context、close-out 的最小决策入口
+- `references/*.md`：每个 skill 只展开自己拥有的主题
 
 ## 当前落地映射
 
 当前建议把设计说明与实际 skill 文档保持如下映射关系：
 
-- `marivo-skill/marivo/SKILL.md`：agent 的最小决策入口，只回答“是否启用 Marivo、先走哪个 surface、默认 loop 是什么”
-- `marivo-skill/marivo/references/steps.md`：typed intent、state/context、session close-out
-- `marivo-skill/marivo/references/semantic-layer.md`：语义建模、依赖顺序与 activation heuristics
-- `marivo-skill/marivo/references/semantic-readiness.md`：`lifecycle_status` / `readiness_status` 与 blocker 排查
-- `marivo-skill/marivo/references/infrastructure.md`：datasource、sync、mapping、engine、auth、observability
-- `marivo-skill/marivo/references/payload-cheatsheet.md`：最小可用请求形状
-- `marivo-skill/marivo/references/osi-mcp-modeling.md`：通过 MCP 工具做 OSI 语义建模时的顺序与约束
+- `marivo-skill/marivo-datasource/SKILL.md`：何时停留在 datasource surface，何时移交 semantic layer
+- `marivo-skill/marivo-datasource/references/workflow.md`：`create/list/get/update/delete datasource`、browse、preview 的顺序与示例
+- `marivo-skill/marivo-semantic-layer/SKILL.md`：何时建立 reusable semantic graph，何时检查 readiness，何时移交 analysis
+- `marivo-skill/marivo-semantic-layer/references/modeling.md`：semantic model、dataset、field、metric、relationship 的创建顺序与最小示例
+- `marivo-skill/marivo-semantic-layer/references/readiness.md`：readiness 读取、blocker 定位与修复顺序
+- `marivo-skill/marivo-analysis/SKILL.md`：何时创建/复用 session，如何选第一个 bounded intent，何时 close-out
+- `marivo-skill/marivo-analysis/references/workflow.md`：`create_session`、analysis intents、state/context、terminate 的步骤与 ref chaining
 
 稳态要求：
 

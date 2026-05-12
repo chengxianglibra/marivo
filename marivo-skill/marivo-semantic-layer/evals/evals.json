@@ -1,0 +1,23 @@
+{
+  "skill_name": "marivo-semantic-layer",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I have one table and want to publish a reusable semantic model with a dataset, fields, a metric, and a readiness check.",
+      "expected_output": "Uses the semantic-layer route, grounds the dataset with source plus the MARIVO datasource extension, defines fields before metrics, and checks readiness before recommending analysis.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "My Marivo metric exists but it still is not usable. How should I troubleshoot readiness without guessing?",
+      "expected_output": "Starts with marivo-get_semantic_model_readiness, inspects the owning dataset, metric, or relationship, and repairs the earliest blocker rather than jumping into session analysis.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "I want to compare watch time by country across two tables. Should I just write one big metric expression?",
+      "expected_output": "Keeps the answer in semantic-layer mode, recommends a relationship when the metric crosses datasets, and avoids ad hoc join SQL or an analysis-first workaround.",
+      "files": []
+    }
+  ]
+}
