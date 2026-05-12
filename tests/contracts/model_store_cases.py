@@ -9,7 +9,7 @@ from tests.contracts.contract_cases import ContractCase
 
 
 def _run_missing_selector(adapter, _: Path) -> None:
-    selector = SimpleNamespace(model_id=None, name="absent", revision=None)
+    selector = SimpleNamespace(model_id=None, name="absent")
     assert adapter.get(selector) is None
 
 
@@ -21,9 +21,9 @@ def _expect_roundtrip(adapter, _: Path) -> None:
             "datasets": [{"name": "orders", "source": "analytics.orders"}],
         },
     )
-    model_id = adapter.save(model, actor=UserId("owner1"), expected_revision=None)
+    model_id = adapter.save(model, actor=UserId("owner1"))
     assert model_id is not None
-    selector = SimpleNamespace(model_id=None, name="roundtrip", revision=None)
+    selector = SimpleNamespace(model_id=None, name="roundtrip")
     result = adapter.get(selector)
     assert result is not None
     assert result.name == "roundtrip"
@@ -36,7 +36,7 @@ def _expect_summary_fields(adapter, _: Path) -> None:
         visibility="public",
         owner=UserId("owner1"),
     )
-    adapter.save(model, actor=UserId("owner1"), expected_revision=None)
+    adapter.save(model, actor=UserId("owner1"))
     results = adapter.list(
         SimpleNamespace(
             owner=UserId("owner1"),

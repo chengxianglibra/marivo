@@ -98,7 +98,6 @@ METADATA_DDL: list[str] = [
     "CREATE INDEX IF NOT EXISTS idx_datasources_owner ON datasources(owner_user)",
     # -------------------------------------------------------------------------
     # OSI-aligned semantic layer tables (v2)
-    # Per-model revision replaces global semantic_versions.
     # -------------------------------------------------------------------------
     """
     CREATE TABLE IF NOT EXISTS semantic_models (
@@ -108,7 +107,6 @@ METADATA_DDL: list[str] = [
         ai_context  TEXT,
         visibility  TEXT NOT NULL DEFAULT 'public' CHECK (visibility IN ('public', 'private')),
         owner_user  TEXT,
-        revision    INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
         created_at  TEXT NOT NULL DEFAULT (datetime('now')),
         updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
     )

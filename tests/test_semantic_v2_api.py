@@ -41,17 +41,6 @@ class _ManagedTestClient(TestClient):
 # ---------------------------------------------------------------------------
 
 
-def _get_revision(model_dict: dict) -> int | None:
-    """Extract revision from the stored semantic model row."""
-    if _ACTIVE_STORE is not None:
-        row = _ACTIVE_STORE.query_one(
-            "SELECT revision FROM semantic_models WHERE name = ?", [model_dict["name"]]
-        )
-        if row is not None:
-            return row["revision"]
-    return None
-
-
 _ACTIVE_STORE: ManagedSQLiteMetadataStore | None = None
 
 
@@ -651,7 +640,7 @@ class TestPerModelImport(unittest.TestCase):
         growth = client.get("/semantic-models/growth").json()["semantic_model"][0]
         self.assertEqual(growth["datasets"][0]["source"], "analytics.events")
 
-    def test_import_increments_revision(self) -> None:
+    def test_reimport_updates_current_model_state(self) -> None:
         client = _make_app()
         doc = {
             "version": OSI_SPEC_VERSION,
@@ -685,13 +674,23 @@ class TestPerModelImport(unittest.TestCase):
             ],
         }
         client.post("/semantic-models/import", json=doc)
-        self.assertEqual(
-            _get_revision(client.get("/semantic-models/commerce").json()["semantic_model"][0]), 1
-        )
-        client.post("/semantic-models/import", json=doc)
-        self.assertEqual(
-            _get_revision(client.get("/semantic-models/commerce").json()["semantic_model"][0]), 2
-        )
+        updated_doc = {
+            **doc,
+            "semantic_model": [
+                {
+                    **doc["semantic_model"][0],
+                    "datasets": [
+                        {
+                            **doc["semantic_model"][0]["datasets"][0],
+                            "source": "analytics.orders_v2",
+                        }
+                    ],
+                }
+            ],
+        }
+        client.post("/semantic-models/import", json=updated_doc)
+        model = client.get("/semantic-models/commerce").json()["semantic_model"][0]
+        self.assertEqual(model["datasets"][0]["source"], "analytics.orders_v2")
 
     def test_import_official_model_with_same_name_as_private_succeeds(self) -> None:
         """Importing official model when private model with same name exists should succeed."""
@@ -743,7 +742,7 @@ class TestPerModelImport(unittest.TestCase):
         commerce_models = [m for m in models if m["name"] == "commerce"]
         self.assertEqual(len(commerce_models), 2)  # one official, one private
 
-    def test_import_new_model_revision_is_1(self) -> None:
+    def test_import_new_model_stores_current_state(self) -> None:
         client = _make_app()
         doc = {
             "version": OSI_SPEC_VERSION,
@@ -777,9 +776,9 @@ class TestPerModelImport(unittest.TestCase):
             ],
         }
         client.post("/semantic-models/import", json=doc)
-        self.assertEqual(
-            _get_revision(client.get("/semantic-models/commerce").json()["semantic_model"][0]), 1
-        )
+        model = client.get("/semantic-models/commerce").json()["semantic_model"][0]
+        self.assertEqual(model["name"], "commerce")
+        self.assertEqual(model["datasets"][0]["source"], "analytics.orders")
 
 
 # ---------------------------------------------------------------------------

@@ -402,7 +402,7 @@ class MarivoRuntime:
         return self._ports.model_store.get(selector)
 
     def save_semantic_model(self, model: SemanticModel, *, actor: UserId) -> ModelId:
-        return self._ports.model_store.save(model, actor=actor, expected_revision=None)
+        return self._ports.model_store.save(model, actor=actor)
 
     def list_semantic_models(self, query: Any) -> list[ModelSummary]:
         return self._ports.model_store.list(query)

@@ -10,7 +10,6 @@ from marivo.contracts.ids import (
     EvidenceRef,
     ModelId,
     ResourceId,
-    RevisionId,
     SessionId,
     UserId,
 )
@@ -34,7 +33,6 @@ from marivo.core.session.rebuild import rebuild_session_state
 class InMemoryModelSelector(BaseModel):
     model_id: ModelId | None = None
     name: str | None = None
-    revision: RevisionId | None = None
 
 
 class InMemoryModelListQuery(BaseModel):
@@ -58,7 +56,6 @@ class InMemoryModelStore:
         model: SemanticModel,
         *,
         actor: UserId,
-        expected_revision: RevisionId | None,
     ) -> ModelId:
         mid = ModelId(len(self._models) + 1)
         self._models[mid] = model
@@ -163,7 +160,7 @@ def test_model_store_get() -> None:
 
 def test_model_store_save() -> None:
     store = InMemoryModelStore()
-    mid = store.save(SemanticModel(name="test"), actor=UserId("u1"), expected_revision=None)
+    mid = store.save(SemanticModel(name="test"), actor=UserId("u1"))
     assert isinstance(mid, int)
 
 

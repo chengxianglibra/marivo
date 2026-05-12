@@ -12,7 +12,6 @@ from marivo.contracts.ids import (
     EvidenceRef,
     ModelId,
     ResourceId,
-    RevisionId,
     SessionId,
     UserId,
 )
@@ -53,7 +52,6 @@ class StubModelStore:
         model: SemanticModel,
         *,
         actor: UserId,
-        expected_revision: RevisionId | None,
     ) -> ModelId:
         return ModelId(1)
 

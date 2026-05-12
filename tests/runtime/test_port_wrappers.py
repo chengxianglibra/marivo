@@ -236,7 +236,7 @@ def test_sql_model_store_save_returns_model_id() -> None:
         {"model_id": 1},  # newly inserted row
     ]
     model = SemanticModel(name="test")
-    model_id = adapter.save(model, actor=UserId("u1"), expected_revision=None)
+    model_id = adapter.save(model, actor=UserId("u1"))
     assert model_id is not None
 
 

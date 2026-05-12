@@ -2,14 +2,13 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from marivo.contracts.ids import ModelId, RevisionId, UserId
+from marivo.contracts.ids import ModelId, UserId
 from marivo.contracts.semantic import ModelSummary, SemanticModel
 
 
 class ModelSelector(Protocol):
     model_id: ModelId | None
     name: str | None
-    revision: RevisionId | None
 
 
 class ModelListQuery(Protocol):
@@ -26,6 +25,5 @@ class ModelStore(Protocol):
         model: SemanticModel,
         *,
         actor: UserId,
-        expected_revision: RevisionId | None,
     ) -> ModelId: ...
     def list(self, query: ModelListQuery) -> list[ModelSummary]: ...
