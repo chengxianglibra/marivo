@@ -14,7 +14,7 @@ Skip this file if the real task is still datasource setup or semantic modeling.
 | Quick intent sanity check | `marivo-test_intent` |
 | Measure one metric | `marivo-observe` |
 | Scan for anomalies | `marivo-detect` |
-| Run a bounded diagnosis | `marivo-diagnose` |
+| Run a diagnosis on the current hypothesis | `marivo-diagnose` |
 | Compare two observe results | `marivo-compare` |
 | Break down a compare result | `marivo-decompose` |
 | Attribute or validate between slices | `marivo-attribute`, `marivo-validate` |
@@ -32,6 +32,17 @@ marivo-create_session(
 ```
 
 Use the returned `session_id` for every follow-up write or read in the same investigation.
+
+## Semantic Preflight
+
+Before formal analysis starts, confirm all of the following:
+
+- the metric or slice you want to study is backed by an approved semantic contract
+- the time field and window semantics are already agreed
+- the semantic model is ready for reuse
+
+If any of these checks fail, stop the investigation and return to `marivo-semantic-layer` instead
+of compensating with ad hoc filters, joins, or one-off explanations.
 
 ## Minimal `observe` Example
 
@@ -135,6 +146,21 @@ marivo-decompose(
 
 Use the actual returned step ids from the previous tool result. Do not invent them.
 
+## Planner-Led Investigation Loop
+
+Once semantic preflight passes, the agent may plan and execute a multi-step investigation inside the
+same session. A typical flow can chain:
+
+1. `marivo-observe` or `marivo-detect` to establish the current shape of the problem
+2. `marivo-diagnose`, `marivo-compare`, or `marivo-decompose` to test the leading hypothesis
+3. `marivo-attribute`, `marivo-validate`, `marivo-correlate`, or `marivo-forecast` when the current
+   evidence needs a narrower check
+
+Read `marivo-get_session_state` after meaningful branch points. Read
+`marivo-get_proposition_context` only for the proposition that now matters. If the evidence points
+to a reusable semantic gap instead of an analytical branch, pause the session work and repair the
+semantic layer first.
+
 ## State, Context, And Close-Out
 
 Read the session-level picture first:
@@ -164,6 +190,8 @@ marivo-terminate_session(
 ## Common Mistakes
 
 - continuing to write after the session should already be closed
+- using the analysis session to settle reusable metric definitions that should have been approved in
+  the semantic layer
 - trying to use datasource browse output as evidence for an investigation conclusion
 - skipping `marivo-get_session_state` and jumping straight to proposition context without knowing
   which proposition matters

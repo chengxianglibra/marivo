@@ -19,13 +19,51 @@ Skip this file if the real problem is still datasource discovery or a session-sc
 | Add a relationship | `marivo-create_relationship` |
 | Read or list relationships | `marivo-get_relationship`, `marivo-list_relationships` |
 
+## Start With Business Knowledge
+
+Before you write or repair reusable semantic objects, ask for the user's business material first.
+Prefer existing metric docs, KPI definitions, dashboard notes, field glossaries, reporting SQL, or
+other written references over freeform guessing.
+
+Extract and confirm at least:
+
+- business entity or grain
+- population and exclusions
+- measure definition and aggregation rule
+- time semantics, including which field owns the analysis window
+- deduplication rule if counts can repeat
+- required dimensions or relationship path
+- one or two concrete positive or negative examples
+
+If the user material is incomplete, pause and ask for the missing rule instead of inferring it from
+column names alone.
+
 ## Preferred Build Order
 
 1. confirm datasource, schema, table, and source columns with `marivo-datasource`
-2. create the semantic model and first dataset
-3. define fields on the dataset
-4. add metrics and relationships that consume those fields
-5. check readiness
+2. collect business knowledge material and draft the semantic contract
+3. get user approval on the grain, population, measure, time semantics, and exclusions
+4. create the semantic model and first dataset
+5. define fields on the dataset
+6. add metrics and relationships that consume those fields
+7. check readiness
+
+## Contract Drafting Checklist
+
+Use this checklist before creating or updating a reusable metric:
+
+1. What business object does one row or one observation represent?
+2. Who is included and excluded from the metric population?
+3. What event, state, or amount is being measured?
+4. What aggregation rule should the metric use?
+5. Which time field controls the analysis window?
+6. Does the metric need deduplication or a distinct rule?
+7. Which dimensions are valid cuts of the metric?
+8. Does the metric rely on a cross-dataset relationship? If so, what join path and cardinality are
+   approved?
+
+If any answer is still provisional, keep the contract in draft form and do not treat the object as
+ready for formal analysis.
 
 ## Minimal Model Example
 
@@ -116,6 +154,8 @@ or engine-specific hints into the relationship contract.
 
 ## Repair Rules
 
+- business definition changed or was clarified: update the contract first, then repair the affected
+  semantic objects
 - datasource or relation changed: update the dataset first
 - field name or expression changed: update the dataset fields before touching dependent metrics
 - metric expression changed: update the metric, not the datasource metadata
@@ -124,5 +164,7 @@ or engine-specific hints into the relationship contract.
 ## Common Mistakes
 
 - creating large speculative graphs before confirming the live relation
+- skipping business knowledge intake and modeling directly from source column names
 - adding downstream objects that reference fields not yet defined on the dataset
 - hiding physical drift inside ad hoc metric SQL instead of fixing the dataset or relationship
+- treating an unapproved metric draft as ready for formal investigation
