@@ -222,9 +222,9 @@ def _build_server_ports(
             action_proposal_repo=proposal_repo,
         ),
         data_source=RoutingDataSource(
-            default_engine=analytics_engine,
             registry=datasource_service,
             query_router=query_router,
+            default_engine=analytics_engine,
         ),
         cache_store=InMemoryCacheStore(),
         authz=NoopAuthZAdapter(),

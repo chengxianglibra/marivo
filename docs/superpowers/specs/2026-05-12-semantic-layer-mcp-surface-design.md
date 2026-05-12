@@ -40,7 +40,7 @@ stdio MCP 和 HTTP MCP 的工具 surface 必须一致。HTTP API 可以保留 RE
 
 | 组件 | 职责 | 不负责 |
 |---|---|---|
-| `SemanticModelV2Service` 或等价 application facade | 对 HTTP/MCP 暴露稳定方法；解析 current user；编排 import/export/CRUD/readiness | 内联复杂 merge、binding、report 细节 |
+| `SemanticModelV2Service` 或等价 application facade | 对 HTTP/MCP 暴露稳定方法；消费 context provider 已注入的 current user；编排 import/export/CRUD/readiness | 读取 env/header、构造默认用户、内联复杂 merge、binding、report 细节 |
 | `DatasourceBinder` | 基于当前 context 可访问 datasource，为 import 中的 dataset 选择稳定的可用 datasource | 保存 datasource、读取凭证、绕过权限过滤 |
 | `SemanticMergePlanner` | 对 OSI document 做 preflight，产出分层 merge plan；验证空 document、重复名称、引用关系 | 执行 SQL 写入 |
 | `SemanticMergeExecutor` | 在一个事务中应用 merge plan，写入 model/dataset/field/metric/relationship，并生成 merge report | 重新解析 transport DTO |
@@ -56,6 +56,7 @@ stdio MCP 和 HTTP MCP 的工具 surface 必须一致。HTTP API 可以保留 RE
 - 不由 Marivo 管理外部版本。版本由 git、文件名、知识库元信息或上游发布流程管理。
 - 不为旧 public import 语义保留兼容 surface。
 - 不允许 agent 或 payload 指定 owner、visibility、mode、datasource_mapping。
+- 不允许 runtime、HTTP 后端或 application service 在缺少用户身份时回退到默认用户、本机用户、workspace identity 或其他隐式身份。
 - 不在 MCP 层直接暴露生成的 OSI Pydantic 模型作为原始透传参数。MCP 仍保留 agent-friendly DTO，再转换为 canonical OSI/application contract。
 - 不在本设计中定义 public/official 发布流程。发布应走独立 admin/publish surface。
 
@@ -115,6 +116,26 @@ get_semantic_model_readiness
 - `semantic_model_name` on import
 
 `requesting_user` 不应出现在 MCP tool schema 中。读写 identity 均来自 context provider。
+
+### 4.1.1 Identity Context Contract
+
+用户身份是 transport/context provider 的强制输入，不是业务 payload 的一部分：
+
+| transport | 身份来源 | 缺失或空值行为 |
+|---|---|---|
+| local stdio MCP | agent 启动 stdio server 时通过 `MARIVO_USER` 环境变量传递 | fail closed；server 启动或首次 tool call 返回结构化身份错误 |
+| server HTTP MCP | agent 调用 HTTP MCP 时通过 `X-Marivo-User` header 传递 | fail closed；不进入 runtime 业务逻辑 |
+| HTTP API | 调用方通过 `X-Marivo-User` header 传递 | fail closed；不进入 runtime 业务逻辑 |
+
+`MARIVO_USER` / `X-Marivo-User` 是当前阶段的可信传播字段。Marivo 只负责传播和要求其存在，不在本设计中做认证或授权校验。
+
+强制边界：
+
+- agent / payload / MCP tool schema 不允许传 `owner`、`owner_user`、`requesting_user`。
+- context provider 负责读取 env/header、trim 空白、拒绝空值，并写入 `current_user` context。
+- runtime、HTTP 后端、application service 和 repository 只消费已注入的 `current_user`；用户作用域写入、private export、session/datasource 等需要用户作用域的操作必须通过 `require_user()` 或等价机制 fail closed。
+- `resolve_user()` 只能用于可选可见性解析场景；不能用于写操作、private working copy import/export 或任何需要确定 owner 的路径。
+- 不允许使用 `getpass.getuser()`、`MARIVO_DEFAULT_USER`、workspace name、本地路径、匿名用户等作为 fallback。
 
 ### 4.2 HTTP API
 
@@ -351,6 +372,7 @@ delete_field(model, dataset, name)
 | `DATASOURCE_BINDING_FAILED` | dataset grounding 无法绑定到任何可用 datasource |
 | `DATASET_ACCESS_DENIED` | dataset grounding 指向不可访问 datasource |
 | `CONFLICT` | 当前用户 private working copy 内命名冲突 |
+| `FORBIDDEN` | 缺少 transport 注入的 current user，或尝试通过普通 CRUD/import 修改 public/official/shared model |
 
 MCP 和 HTTP 都通过同一 application error 映射表输出结构化错误。transport 可以不同，错误语义不能不同。
 
@@ -383,8 +405,10 @@ MCP transport
 
 | 模式 | current_user | datasource inventory |
 |---|---|---|
-| local stdio | 本地默认用户或 workspace identity | 本地 metadata |
-| server HTTP MCP | 认证身份 | 服务端权限过滤后的 datasource |
+| local stdio | agent 必须通过 `MARIVO_USER` 环境变量显式传递 | 本地 metadata |
+| server HTTP MCP | agent 必须通过 `X-Marivo-User` header 显式传递 | 服务端权限过滤后的 datasource |
+
+HTTP API 使用同一条 HTTP identity 规则：调用方必须传递 `X-Marivo-User` header。HTTP API、HTTP MCP 和 stdio MCP 进入 semantic application service 前都必须已经设置 `current_user`；缺失身份时不能继续调用 runtime，也不能生成默认用户。
 
 统一部分：
 
@@ -476,6 +500,7 @@ MCP transport
 - 旧 public/latest import 行为不再可达。
 - HTTP export 返回纯 OSI document，不含 owner / visibility / credential。
 - HTTP CRUD 写操作不能修改 public/official/shared model。
+- HTTP API / HTTP MCP 缺少或传空 `X-Marivo-User` 时 fail closed，不允许 runtime fallback 到默认用户。
 
 ### 14.3 MCP Tests
 
@@ -485,6 +510,7 @@ MCP transport
 - tool schema 不包含 owner / visibility / mode / datasource_mapping。
 - stdio MCP 与 HTTP MCP tool schema parity。
 - MCP import/export 与 HTTP API 调用同一 application service 语义。
+- stdio MCP 缺少或传空 `MARIVO_USER` 时 fail closed，不允许使用本机用户、workspace identity 或匿名用户。
 
 ### 14.4 Readiness Tests
 
@@ -506,4 +532,6 @@ MCP transport
 6. import merge 对非叶子节点 patch，对叶子节点整体替换，不删除缺失对象。
 7. datasource 自动绑定在多个候选时按稳定顺序选择第一个可访问 datasource，并在 merge report 中记录选择。
 8. 普通 CRUD/import 无法修改 public/official/shared model。
-9. `make test`、`make typecheck`、`make lint` 通过。
+9. stdio MCP 必须由 agent 通过 `MARIVO_USER` 显式传递用户；HTTP API / HTTP MCP 必须由 agent 或调用方通过 `X-Marivo-User` 显式传递用户。
+10. runtime、HTTP 后端、application service 不存在 fallback/default-user 逻辑；缺失身份必须 fail closed。
+11. `make test`、`make typecheck`、`make lint` 通过。

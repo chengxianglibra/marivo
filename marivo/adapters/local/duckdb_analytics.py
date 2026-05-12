@@ -4,10 +4,9 @@ import random
 from collections.abc import Iterator
 from contextlib import contextmanager, suppress
 from datetime import date, timedelta
+from importlib import import_module
 from pathlib import Path
 from typing import Any
-
-import duckdb
 
 from marivo.ports.analytics import AnalyticsEngine
 
@@ -72,10 +71,10 @@ class DuckDBAnalyticsEngine(AnalyticsEngine):
             self.db_path = Path(db_path)
 
     @contextmanager
-    def _connect(self) -> Iterator[duckdb.DuckDBPyConnection]:
+    def _connect(self) -> Iterator[Any]:
         if not self._is_memory:
             Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
-        con = duckdb.connect(str(self.db_path))
+        con = import_module("duckdb").connect(str(self.db_path))
         try:
             yield con
             con.commit()
@@ -121,7 +120,7 @@ class DuckDBAnalyticsEngine(AnalyticsEngine):
             return int(_row[0]) if _row else 0
 
 
-def _seed_demo_data(con: duckdb.DuckDBPyConnection) -> None:
+def _seed_demo_data(con: Any) -> None:
     """Seed the demo analytical data — moved verbatim from old database.py."""
     rng = random.Random(7)
     baseline_start = date(2026, 2, 7)

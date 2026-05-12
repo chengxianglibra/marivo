@@ -24,7 +24,7 @@ class RoutingRuntime:
     def __init__(
         self,
         query_router: QueryRouter | None,
-        default_engine: AnalyticsEngine,
+        default_engine: AnalyticsEngine | None = None,
         default_datasource_type: str = "duckdb",
     ) -> None:
         self.query_router = query_router
@@ -38,6 +38,14 @@ class RoutingRuntime:
         session_id: str | None = None,
     ) -> RoutingResolutionResult:
         if self.query_router is None:
+            if self.default_engine is None:
+                from marivo.contracts.errors import DomainError, ErrorCode
+
+                raise DomainError(
+                    ErrorCode.DATASOURCE_UNAVAILABLE,
+                    "No default analytics engine available. Install a datasource backend "
+                    "(e.g., pip install marivo[duckdb]) or register a datasource.",
+                )
             return RoutingResolutionResult(
                 engine=self.default_engine,
                 datasource_type=self.default_datasource_type,
@@ -55,6 +63,8 @@ class RoutingRuntime:
                 route=route,
             )
         except (KeyError, ValueError) as error:
+            if self.default_engine is None:
+                raise
             feedback = routing_feedback_from_error(error, table_names=table_names)
             return RoutingResolutionResult(
                 engine=self.default_engine,

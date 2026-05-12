@@ -24,6 +24,18 @@ for py in sorted(marivo_root.rglob("*.py")):
     mod = str(py.with_suffix("")).replace("/", ".")
     marivo_hiddenimports.append(mod)
 
+# DuckDB adapter modules require duckdb at runtime (deferred import).
+# Exclude them from hiddenimports since duckdb itself is excluded below.
+_DUCKDB_ADAPTER_MODULES = {
+    "marivo.adapters.duckdb_adapter",
+    "marivo.adapters.local.duckdb_analytics",
+    "marivo.adapters.local.duckdb_data_source",
+}
+marivo_hiddenimports = [
+    mod for mod in marivo_hiddenimports
+    if mod not in _DUCKDB_ADAPTER_MODULES
+]
+
 a = Analysis(
     ["scripts/_pyinstaller_entry.py"],
     pathex=["."],
