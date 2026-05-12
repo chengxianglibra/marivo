@@ -1,6 +1,7 @@
-.PHONY: test typecheck lint format check test-mysql
+.PHONY: test typecheck lint format check test-mysql binary binary-clean
 
 VENV_PYTHON := .venv/bin/python
+VENV_PIP := .venv/bin/pip
 VENV_PYTEST := .venv/bin/pytest
 VENV_MYPY := .venv/bin/mypy
 VENV_RUFF := .venv/bin/ruff
@@ -29,3 +30,14 @@ test-mysql:
 	$(VENV_PYTEST) tests/contracts/ -m mysql
 
 check: lint typecheck test
+
+binary: ## Build onedir Marivo binary (excludes duckdb)
+	@./scripts/require-venv.sh pyinstaller
+	@$(VENV_PIP) install pyinstaller
+	@$(VENV_PIP) install --no-deps .
+	@.venv/bin/pyinstaller marivo.spec --noconfirm
+	@echo "Binary built: dist/marivo/marivo"
+	@./dist/marivo/marivo --help || echo "Warning: binary smoke test failed"
+
+binary-clean: ## Remove PyInstaller build artifacts
+	rm -rf build/ dist/
