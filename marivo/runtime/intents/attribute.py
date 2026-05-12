@@ -140,11 +140,12 @@ def run_attribute_intent(
     if resolved_metric is None:
         raise ValueError(f"attribute: metric '{metric_name}' not found or not published")
 
+    _resolved_header = resolved_metric.semantic_object.get("header") or {}
     additivity_caps = derive_additivity_capabilities(
         header={
-            "additivity_constraints": resolved_metric.additivity_constraints,
-            "primary_time_ref": resolved_metric.primary_time_ref,
-            "sample_kind": resolved_metric.sample_kind,
+            "additivity_constraints": _resolved_header.get("additivity_constraints"),
+            "primary_time_ref": _resolved_header.get("primary_time_ref"),
+            "sample_kind": _resolved_header.get("sample_kind"),
         },
     )
 
