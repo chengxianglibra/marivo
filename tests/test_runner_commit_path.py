@@ -2281,6 +2281,20 @@ class TestDecomposeRunnerCommitPath(unittest.TestCase):
 
         # Configure resolved_metric with real values so validation passes
         resolved_metric = MagicMock()
+        resolved_metric.semantic_object = {
+            "header": {
+                "additivity_constraints": {
+                    "dimension_policy": "all",
+                    "time_axis_policy": "additive",
+                },
+                "primary_time_ref": "time.default",
+                "sample_kind": "rate",
+            },
+            "payload": {
+                "allowed_dimensions": ["dim1"],
+                "dimensions": ["dim1"],
+            },
+        }
         resolved_metric.additivity_constraints = {
             "dimension_policy": "all",
             "time_axis_policy": "additive",

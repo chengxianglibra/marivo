@@ -119,7 +119,8 @@ def run_decompose_intent(
         resolved_metric = runtime.resolve_metric(metric_name)
         if resolved_metric is None:
             raise ValueError(f"decompose: metric '{metric_name}' not found or not published")
-        constraints_for_gate = resolved_metric.additivity_constraints or {}
+        _metric_header = resolved_metric.semantic_object.get("header") or {}
+        constraints_for_gate = _metric_header.get("additivity_constraints") or {}
         gate_source = "current_metric_state"
 
     # Resolve metric for primary_time_ref and sample_kind needed by capability derivation
@@ -127,11 +128,12 @@ def run_decompose_intent(
     if resolved_metric is None:
         raise ValueError(f"decompose: metric '{metric_name}' not found or not published")
 
+    _resolved_header = resolved_metric.semantic_object.get("header") or {}
     additivity_caps = derive_additivity_capabilities(
         header={
             "additivity_constraints": constraints_for_gate,
-            "primary_time_ref": resolved_metric.primary_time_ref,
-            "sample_kind": resolved_metric.sample_kind,
+            "primary_time_ref": _resolved_header.get("primary_time_ref"),
+            "sample_kind": _resolved_header.get("sample_kind"),
         },
     )
     if not additivity_caps.supports_decompose:

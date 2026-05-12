@@ -144,6 +144,7 @@ def _gate_request_shape(
         normalized.metric_ref is not None
         and request_time_scope
         and resolved_inputs.resolved_filter_time is None
+        and not _request_has_explicit_time_field(normalized)
         and (
             resolved_inputs.resolved_metric is not None
             or resolved_inputs.resolved_process is not None
@@ -688,3 +689,11 @@ def _gate_lowering_precheck(
 def _optional_str(value: Any) -> str | None:
     text = str(value or "").strip()
     return text or None
+
+
+def _request_has_explicit_time_field(normalized: Any) -> bool:
+    """Check whether the request explicitly specifies a time axis field via time_scope.field."""
+    options = getattr(normalized, "request_options", None) or {}
+    time_axis = options.get("resolved_time_axis") or {}
+    override = time_axis.get("override_analysis_time_column")
+    return bool(override and str(override).strip())

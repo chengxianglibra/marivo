@@ -643,7 +643,11 @@ def _stable_plan_id(step: AnalysisStepIR, normalized_request: NormalizedCompiler
     return f"ir_plan.{step.step_type}.{step.index}.{digest}"
 
 
-def _metric_snapshot(metric: ResolvedSemanticObject) -> MetricRefSnapshot:
+def _metric_snapshot(
+    metric: ResolvedSemanticObject,
+    *,
+    request_time_field: str | None = None,
+) -> MetricRefSnapshot:
     header = dict(metric.semantic_object.get("header") or {})
     snapshot: MetricRefSnapshot = {
         "metric_ref": metric.ref,
@@ -651,6 +655,8 @@ def _metric_snapshot(metric: ResolvedSemanticObject) -> MetricRefSnapshot:
         "resolved_metric_object_id": metric.object_id,
     }
     primary_time_ref = _optional_str(header.get("primary_time_ref"))
+    if primary_time_ref is None:
+        primary_time_ref = request_time_field
     observation_grain_ref = _optional_str(header.get("observation_grain_ref"))
     if primary_time_ref is not None:
         snapshot["resolved_primary_time_ref"] = primary_time_ref
@@ -735,7 +741,13 @@ def _build_ir_inputs(
             for relationship in resolved_inputs.resolved_relationships.values()
         ]
     if resolved_inputs.resolved_metric is not None:
-        input_snapshot["resolved_metric"] = _metric_snapshot(resolved_inputs.resolved_metric)
+        _options = normalized_request.request_options or {}
+        _time_axis = _options.get("resolved_time_axis") or {}
+        _request_time_field = _optional_str(_time_axis.get("override_analysis_time_column"))
+        input_snapshot["resolved_metric"] = _metric_snapshot(
+            resolved_inputs.resolved_metric,
+            request_time_field=_request_time_field,
+        )
     resolved_processes = [
         process
         for process in (

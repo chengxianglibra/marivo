@@ -226,6 +226,7 @@ def run_diagnose_intent(
                 "start": baseline_window["start"],
                 "end": baseline_window["end"],
             },
+            time_scope_field=current_window.get("field"),
         )
         diagnoses.append(result)
         followed_candidate_count = 1
@@ -341,6 +342,7 @@ def run_diagnose_intent(
                 decomposition_limit=decomposition_limit,
                 grain=ts_granularity,
                 baseline_window_override=cand.get("baseline_window"),
+                time_scope_field=resolved_time_scope.get("field"),
             )
             diagnoses.append(cand_result)
             for issue in cand_result.get("issues") or []:
@@ -476,6 +478,7 @@ def _follow_up_candidate(
     decomposition_limit: int,
     grain: TimeGrain,
     baseline_window_override: dict[str, Any] | None = None,
+    time_scope_field: str | None = None,
 ) -> dict[str, Any]:
     """Expand a single detect candidate into observe+compare+decompose×D.
 
@@ -576,7 +579,12 @@ def _follow_up_candidate(
             session_id,
             {
                 "metric": metric_ref,
-                "time_scope": {"kind": "range", "start": current_start_str, "end": current_end_str},
+                "time_scope": {
+                    "kind": "range",
+                    "start": current_start_str,
+                    "end": current_end_str,
+                    **({"field": time_scope_field} if time_scope_field else {}),
+                },
                 "scope": combined_scope,
             },
         )
@@ -612,6 +620,7 @@ def _follow_up_candidate(
                     "kind": "range",
                     "start": baseline_start_str,
                     "end": baseline_end_str,
+                    **({"field": time_scope_field} if time_scope_field else {}),
                 },
                 "scope": combined_scope,
             },

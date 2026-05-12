@@ -114,6 +114,11 @@ def gate_request_shape(step_type: str, resolved_inputs: Any) -> list[ValidationI
     *resolved_inputs* must have ``.normalized_request`` (with ``.metric_ref``,
     ``.request_time_scope``), ``.resolved_filter_time`` (with truthiness),
     ``.resolved_metric``, ``.resolved_process``.
+
+    When the request explicitly specifies a time axis field via
+    ``time_scope.field`` (stored as ``request_options.resolved_time_axis.override_analysis_time_column``),
+    the COMPILER_TIME_REF_UNRESOLVED gate is bypassed because the time axis is
+    determined at request level rather than requiring a catalog-level primary_time_ref.
     """
     issues: list[ValidationIssue] = []
     normalized = resolved_inputs.normalized_request
@@ -132,6 +137,7 @@ def gate_request_shape(step_type: str, resolved_inputs: Any) -> list[ValidationI
         normalized.metric_ref is not None
         and request_time_scope
         and resolved_inputs.resolved_filter_time is None
+        and not _request_has_explicit_time_field(normalized)
         and (
             resolved_inputs.resolved_metric is not None
             or resolved_inputs.resolved_process is not None
@@ -579,3 +585,11 @@ def _normalize_metric_dimension_ref(value: Any) -> str | None:
 def _optional_str(value: Any) -> str | None:
     text = str(value or "").strip()
     return text or None
+
+
+def _request_has_explicit_time_field(normalized: Any) -> bool:
+    """Check whether the request explicitly specifies a time axis field via time_scope.field."""
+    options = getattr(normalized, "request_options", None) or {}
+    time_axis = options.get("resolved_time_axis") or {}
+    override = time_axis.get("override_analysis_time_column")
+    return bool(override and str(override).strip())

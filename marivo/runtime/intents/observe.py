@@ -982,17 +982,20 @@ def run_observe_intent(
     elif dimensions:
         # --- Segmented mode ---
         # metric_query single_window with dimensions generates GROUP BY on dimension cols
+        step_params_seg: dict[str, Any] = {
+            "table": qualified_table,
+            "metric": metric_name,
+            "time_scope": mq_params["time_scope"],
+            "calendar_policy_ref": normalized_calendar_policy_ref,
+            "scoped_query": scoped_query,
+        }
+        if time_scope_field:
+            step_params_seg["time_scope_field"] = time_scope_field
         compiled_query = runtime.compile_step(
             AnalysisStepIR(
                 index=0,
                 step_type="metric_query",
-                params={
-                    "table": qualified_table,
-                    "metric": metric_name,
-                    "time_scope": mq_params["time_scope"],
-                    "calendar_policy_ref": normalized_calendar_policy_ref,
-                    "scoped_query": scoped_query,
-                },
+                params=step_params_seg,
             ),
             engine_type=engine_type,
             semantic_context={
@@ -1069,17 +1072,20 @@ def run_observe_intent(
 
     else:
         # --- Scalar mode ---
+        step_params_scalar: dict[str, Any] = {
+            "table": qualified_table,
+            "metric": metric_name,
+            "time_scope": mq_params["time_scope"],
+            "calendar_policy_ref": normalized_calendar_policy_ref,
+            "scoped_query": scoped_query,
+        }
+        if time_scope_field:
+            step_params_scalar["time_scope_field"] = time_scope_field
         compiled_query = runtime.compile_step(
             AnalysisStepIR(
                 index=0,
                 step_type="metric_query",
-                params={
-                    "table": qualified_table,
-                    "metric": metric_name,
-                    "time_scope": mq_params["time_scope"],
-                    "calendar_policy_ref": normalized_calendar_policy_ref,
-                    "scoped_query": scoped_query,
-                },
+                params=step_params_scalar,
             ),
             engine_type=engine_type,
             semantic_context={
