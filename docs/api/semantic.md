@@ -22,9 +22,12 @@ GET /datasources/{datasource_id}/catalog/preview?schema=...&table=...
 | `POST` | `/semantic-models/validate` | Validate a draft OSI-Marivo document without writing it. |
 | `POST` | `/semantic-models/import` | Validate and import a complete OSI-Marivo document. |
 | `GET` | `/semantic-models/export` | Export stored semantic model documents. |
+| `DELETE` | `/semantic-models/{model}` | Delete the caller's private semantic model working copy. |
 
-All writes go through `/semantic-models/import`. The import document is the source of truth for
-datasets, fields, metrics, and relationships.
+Authoring writes go through `/semantic-models/import`. The import document is the source of truth
+for datasets, fields, metrics, and relationships. `DELETE /semantic-models/{model}` is the cleanup
+path for removing the caller's private working copy during modeling; it never deletes official
+public semantic models.
 
 ## Authoring Loop
 
@@ -36,6 +39,11 @@ datasets, fields, metrics, and relationships.
 6. Show the validated summary to the user and wait for explicit approval.
 7. Call `POST /semantic-models/import`.
 8. Confirm stored state with `GET /semantic-models/{model}` or `GET /semantic-models/export`.
+9. If the user wants to discard a private working copy, call `DELETE /semantic-models/{model}`.
+
+`DELETE /semantic-models/{model}` returns `204` on success, `404` when the caller has no matching
+private model, `403` when only an official public model has that name, and `422` when the transport
+has not set a user identity.
 
 ## Document Shape
 

@@ -229,3 +229,33 @@ class TestSemanticDocumentService(unittest.TestCase):
 
         with self.assertRaises(RuntimeError), _as_user(None):
             svc.export_osi_semantic_models()
+
+    def test_delete_private_model_cascades_children(self) -> None:
+        svc = _make_svc()
+
+        with _as_user("alice"):
+            svc.import_osi_semantic_models(_doc(_model("commerce")))
+            svc.delete_semantic_model("commerce", owner_user="alice")
+
+        self.assertIsNone(
+            svc.store.query_one("SELECT * FROM semantic_models WHERE name = ?", ["commerce"])
+        )
+        self.assertEqual(svc.store.query_rows("SELECT * FROM semantic_datasets"), [])
+        self.assertEqual(svc.store.query_rows("SELECT * FROM semantic_fields"), [])
+        self.assertEqual(svc.store.query_rows("SELECT * FROM semantic_metrics"), [])
+
+    def test_delete_private_model_leaves_other_owner_model(self) -> None:
+        svc = _make_svc()
+
+        with _as_user("alice"):
+            svc.import_osi_semantic_models(_doc(_model("commerce")))
+        with _as_user("bob"):
+            svc.import_osi_semantic_models(_doc(_model("commerce", fields=["order_id"])))
+
+        svc.delete_semantic_model("commerce", owner_user="alice")
+
+        bob_model = svc.get_semantic_model("commerce", requesting_user="bob")
+        self.assertEqual(
+            [field["name"] for field in bob_model["datasets"][0]["fields"]],
+            ["order_id"],
+        )

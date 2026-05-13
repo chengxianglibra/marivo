@@ -62,6 +62,17 @@ async def test_unexpected_exception():
 
 
 @pytest.mark.asyncio
+async def test_missing_user_identity_runtime_error_maps_to_validation():
+    def method():
+        raise RuntimeError(
+            "User identity not set — transport layer must set user before service calls"
+        )
+
+    result = await call_runtime(method)
+    assert result["error"]["code"] == "VALIDATION"
+
+
+@pytest.mark.asyncio
 async def test_success_dict_return():
     def method():
         return {"key": "value"}

@@ -30,6 +30,9 @@ class _FakeSvc:
     def get_semantic_model(self, **kw):
         return {}
 
+    def delete_semantic_model(self, **kw):
+        return {}
+
     def register_datasource(self, **kw):
         return {}
 
@@ -166,13 +169,13 @@ def test_semantic_tools_expose_compact_document_inventory() -> None:
         "validate_osi_semantic_models",
         "import_osi_semantic_models",
         "export_osi_semantic_models",
+        "delete_semantic_model",
     }.issubset(tools)
     assert {
         "create_semantic_model",
         "import_osi_document",
         "export_osi_document",
         "update_semantic_model",
-        "delete_semantic_model",
         "get_semantic_model_readiness",
         "create_dataset",
         "list_datasets",
@@ -225,9 +228,19 @@ def test_mcp_semantic_tools_do_not_expose_requesting_user() -> None:
     checked_names = [
         "list_semantic_models",
         "get_semantic_model",
+        "delete_semantic_model",
     ]
     for name in checked_names:
         assert "requesting_user" not in tools[name].parameters.get("properties", {})
+        assert "owner_user" not in tools[name].parameters.get("properties", {})
+
+
+def test_delete_semantic_model_tool_schema_is_model_only() -> None:
+    server = FastMCP("test")
+    register_tools(server, FakeRuntime(), transport="stdio")
+    tools = {tool.name: tool for tool in server._tool_manager.list_tools()}
+
+    assert set(tools["delete_semantic_model"].parameters["properties"]) == {"model"}
 
 
 def test_shared_tools_identical_schema():
