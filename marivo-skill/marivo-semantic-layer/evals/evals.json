@@ -3,14 +3,14 @@
   "evals": [
     {
       "id": 1,
-      "prompt": "I have one table and want to publish a reusable semantic model with a dataset, fields, a metric, and a readiness check.",
-      "expected_output": "Uses the semantic-layer route, grounds the dataset with source plus the MARIVO datasource extension, defines fields before metrics, and checks readiness before recommending analysis.",
+      "prompt": "I have one table and want to publish a reusable semantic model with a dataset, fields, and a metric.",
+      "expected_output": "Uses the semantic-layer route, drafts a complete OSI-Marivo document, grounds the dataset with source plus the MARIVO datasource extension, validates the document, and waits for user approval before import.",
       "files": []
     },
     {
       "id": 2,
-      "prompt": "My Marivo metric exists but it still is not usable. How should I troubleshoot readiness without guessing?",
-      "expected_output": "Starts with marivo-get_semantic_model_readiness, inspects the owning dataset, metric, or relationship, and repairs the earliest blocker rather than jumping into session analysis.",
+      "prompt": "My Marivo metric draft is not usable. How should I troubleshoot it without guessing?",
+      "expected_output": "Starts with marivo-validate_osi_semantic_models, uses json_pointer, message, and hint to locate the failing dataset, field, metric, or relationship, and repairs the document before recommending analysis.",
       "files": []
     },
     {

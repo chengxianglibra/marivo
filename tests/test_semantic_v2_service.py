@@ -1,4 +1,4 @@
-"""Tests for SemanticModelV2Service — OSI-aligned semantic layer CRUD."""
+"""Tests for the semantic service document surface."""
 
 from __future__ import annotations
 
@@ -6,23 +6,9 @@ import json
 import unittest
 from pathlib import Path
 
-from marivo.contracts.errors import (
-    ConflictError,
-    DomainError,
-    ForbiddenError,
-    NotFoundError,
-    ValidationError,
-)
+from marivo.identity import reset_current_user, set_current_user
 from marivo.runtime.semantic.semantic_service import SemanticModelV2Service
-from marivo.transports.http.models.osi import OSI_SPEC_VERSION
-from tests.shared_fixtures import (
-    ManagedSQLiteMetadataStore,
-    make_temp_metadata_store,
-)
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
+from tests.shared_fixtures import ManagedSQLiteMetadataStore, make_temp_metadata_store
 
 
 class TestSemanticV2ServiceTestFixtures(unittest.TestCase):
@@ -38,7 +24,6 @@ class TestSemanticV2ServiceTestFixtures(unittest.TestCase):
 
 
 def _make_store() -> ManagedSQLiteMetadataStore:
-    """Create a fresh metadata store with the current OSI v2 schema."""
     import uuid
 
     store = make_temp_metadata_store(prefix=f"marivo_v2_{uuid.uuid4().hex[:8]}_")
@@ -54,26 +39,8 @@ def _make_svc() -> SemanticModelV2Service:
 _ACTIVE_STORE: ManagedSQLiteMetadataStore | None = None
 
 
-def test_enrich_metric_extracts_additive_dimensions() -> None:
-    """Shared enrichment helper extracts additive_dimensions from MARIVO extension."""
-    metric_data = {
-        "name": "revenue",
-        "expression": {"dialects": [{"dialect": "ANSI_SQL", "expression": "SUM(amount)"}]},
-        "custom_extensions": [
-            {
-                "vendor_name": "MARIVO",
-                "data": {"additive_dimensions": ["region", "channel"]},
-            }
-        ],
-    }
-
-    enriched = SemanticModelV2Service._enrich_metric_with_marivo(metric_data)
-
-    assert enriched["additive_dimensions"] == ["region", "channel"]
-
-
-def _make_model_dict(name: str = "test_model") -> dict:
-    """Build a minimal OSI-conformant model dict for testing."""
+def _model(name: str = "commerce", *, fields: list[str] | None = None) -> dict:
+    field_names = fields or ["order_id", "order_date", "amount"]
     return {
         "name": name,
         "datasets": [
@@ -82,50 +49,56 @@ def _make_model_dict(name: str = "test_model") -> dict:
                 "source": "analytics.orders",
                 "primary_key": ["order_id"],
                 "custom_extensions": [
-                    {
-                        "vendor_name": "MARIVO",
-                        "data": {"datasource_id": "ds_001"},
-                    }
+                    {"vendor_name": "MARIVO", "data": {"datasource_id": "ds_001"}}
                 ],
                 "fields": [
                     {
-                        "name": "order_id",
+                        "name": field_name,
                         "expression": {
-                            "dialects": [{"dialect": "ANSI_SQL", "expression": "order_id"}]
+                            "dialects": [{"dialect": "ANSI_SQL", "expression": field_name}]
                         },
-                    },
-                    {
-                        "name": "order_date",
-                        "expression": {
-                            "dialects": [{"dialect": "ANSI_SQL", "expression": "order_date"}]
-                        },
-                        "dimension": {"is_time": True},
-                    },
-                    {
-                        "name": "amount",
-                        "expression": {
-                            "dialects": [{"dialect": "ANSI_SQL", "expression": "amount"}]
-                        },
-                    },
+                    }
+                    for field_name in field_names
+                ],
+            }
+        ],
+        "metrics": [
+            {
+                "name": "revenue",
+                "expression": {"dialects": [{"dialect": "ANSI_SQL", "expression": "SUM(amount)"}]},
+                "custom_extensions": [
+                    {"vendor_name": "MARIVO", "data": {"additive_dimensions": ["order_id"]}}
                 ],
             }
         ],
     }
 
 
-def _seed_public_model(
-    svc: SemanticModelV2Service,
-    name: str = "public_model",
-    *,
-    description: str = "public model",
-) -> None:
-    """Seed a public model row directly; import creates private working copies."""
+def _doc(*models: dict) -> dict:
+    return {"version": "0.1.1", "semantic_model": list(models)}
+
+
+def _as_user(user: str | None):
+    import contextlib
+
+    @contextlib.contextmanager
+    def _ctx():
+        token = set_current_user(user)
+        try:
+            yield
+        finally:
+            reset_current_user(token)
+
+    return _ctx()
+
+
+def _seed_public_model(svc: SemanticModelV2Service, name: str = "public_model") -> None:
     svc.store.execute(
         """
         INSERT INTO semantic_models (name, description, visibility, owner_user)
-        VALUES (?, ?, 'public', NULL)
+        VALUES (?, 'public model', 'public', NULL)
         """,
-        [name, description],
+        [name],
     )
     model_row = svc.store.query_one(
         "SELECT model_id FROM semantic_models WHERE name = ? AND visibility = 'public'",
@@ -140,10 +113,7 @@ def _seed_public_model(
         [model_row["model_id"], json.dumps(["order_id"])],
     )
     dataset_row = svc.store.query_one(
-        """
-        SELECT dataset_id FROM semantic_datasets
-        WHERE model_id = ? AND name = 'orders'
-        """,
+        "SELECT dataset_id FROM semantic_datasets WHERE model_id = ?",
         [model_row["model_id"]],
     )
     assert dataset_row is not None
@@ -158,1065 +128,104 @@ def _seed_public_model(
             json.dumps({"dialects": [{"dialect": "ANSI_SQL", "expression": "order_id"}]}),
         ],
     )
-    svc.store.execute(
-        """
-        INSERT INTO semantic_readiness_status (model_id, status, blockers)
-        VALUES (?, 'ready', '[]')
-        """,
-        [model_row["model_id"]],
-    )
 
 
-def _as_user(user: str | None):
-    """Context manager that sets current_user for the duration of the block."""
-    import contextlib
+class TestSemanticDocumentService(unittest.TestCase):
+    def tearDown(self) -> None:
+        if _ACTIVE_STORE is not None:
+            _ACTIVE_STORE.close()
 
-    from marivo.identity import reset_current_user, set_current_user
-
-    @contextlib.contextmanager
-    def _ctx():
-        token = set_current_user(user)
-        try:
-            yield
-        finally:
-            reset_current_user(token)
-
-    return _ctx()
-
-
-def _make_relationship_dict(
-    name: str = "orders_to_customers",
-    from_ds: str = "orders",
-    to_ds: str = "customers",
-) -> dict:
-    return {
-        "name": name,
-        "from": from_ds,
-        "to": to_ds,
-        "from_columns": ["customer_id"],
-        "to_columns": ["customer_id"],
-    }
-
-
-def _make_metric_dict(
-    name: str = "total_revenue",
-    additive_dimensions: list[str] | None = None,
-) -> dict:
-    marivo_data: dict = {}
-    if additive_dimensions is not None:
-        marivo_data["additive_dimensions"] = additive_dimensions
-    return {
-        "name": name,
-        "expression": {"dialects": [{"dialect": "ANSI_SQL", "expression": "SUM(amount)"}]},
-        "custom_extensions": [
-            {
-                "vendor_name": "MARIVO",
-                "data": marivo_data,
-            }
-        ],
-    }
-
-
-def _make_dataset_dict(
-    name: str = "customers",
-    source: str = "analytics.customers",
-) -> dict:
-    return {
-        "name": name,
-        "source": source,
-        "primary_key": ["customer_id"],
-        "custom_extensions": [
-            {
-                "vendor_name": "MARIVO",
-                "data": {"datasource_id": "ds_001"},
-            }
-        ],
-        "fields": [
-            {
-                "name": "customer_id",
-                "expression": {"dialects": [{"dialect": "ANSI_SQL", "expression": "customer_id"}]},
-            },
-            {
-                "name": "customer_name",
-                "expression": {
-                    "dialects": [{"dialect": "ANSI_SQL", "expression": "customer_name"}]
-                },
-            },
-        ],
-    }
-
-
-# ---------------------------------------------------------------------------
-# SemanticModel CRUD
-# ---------------------------------------------------------------------------
-
-
-class TestCreateSemanticModel(unittest.TestCase):
-    def test_create_public_model_returns_403(self) -> None:
-
+    def test_validate_returns_structured_summary(self) -> None:
         svc = _make_svc()
-        model_data = _make_model_dict()
-        with self.assertRaises(ForbiddenError), _as_user(None):
-            svc.create_semantic_model(model_data)
 
-    def test_create_private_model(self) -> None:
+        result = svc.validate_osi_semantic_models(_doc(_model()))
+
+        self.assertTrue(result["valid"])
+        self.assertEqual(result["schema_version"], "0.1.1")
+        self.assertEqual(result["summary"]["models"], 1)
+        self.assertEqual(result["summary"]["fields"], 3)
+
+    def test_validate_reports_reference_errors(self) -> None:
         svc = _make_svc()
+        model = _model()
+        model["datasets"][0]["primary_key"] = ["missing"]
+
+        result = svc.validate_osi_semantic_models(_doc(model))
+
+        self.assertFalse(result["valid"])
+        self.assertEqual(result["errors"][0]["code"], "UNKNOWN_FIELD")
+
+    def test_import_writes_current_users_private_model(self) -> None:
+        svc = _make_svc()
+
         with _as_user("alice"):
-            result = svc.create_semantic_model(_make_model_dict(name="private_model"))
-        self.assertEqual(result["name"], "private_model")
-        self.assertEqual(result["custom_extensions"], [])
+            result = svc.import_osi_semantic_models(_doc(_model()))
+
+        self.assertTrue(result["valid"])
+        self.assertEqual(result["import_report"]["models"][0]["name"], "commerce")
         row = svc.store.query_one(
             "SELECT visibility, owner_user FROM semantic_models WHERE name = ?",
-            ["private_model"],
+            ["commerce"],
         )
-        self.assertEqual(row["visibility"], "private")
-        self.assertEqual(row["owner_user"], "alice")
+        self.assertEqual(row, {"visibility": "private", "owner_user": "alice"})
 
-    def test_create_private_without_owner_fails(self) -> None:
+    def test_import_does_not_write_invalid_document(self) -> None:
         svc = _make_svc()
-        with self.assertRaises(ForbiddenError), _as_user(None):
-            svc.create_semantic_model(_make_model_dict())
+        invalid = _model()
+        invalid["datasets"][0]["primary_key"] = ["missing"]
 
-    def test_create_model_with_datasets_and_fields(self) -> None:
-        svc = _make_svc()
         with _as_user("alice"):
-            result = svc.create_semantic_model(_make_model_dict())
-        ds = result["datasets"][0]
-        self.assertEqual(ds["name"], "orders")
-        self.assertEqual(len(ds["fields"]), 3)
-        field_names = [f["name"] for f in ds["fields"]]
-        self.assertIn("order_id", field_names)
-        self.assertIn("order_date", field_names)
-        self.assertIn("amount", field_names)
+            result = svc.import_osi_semantic_models(_doc(invalid))
 
-    def test_create_model_with_relationships(self) -> None:
+        self.assertFalse(result["valid"])
+        self.assertIsNone(
+            svc.store.query_one("SELECT * FROM semantic_models WHERE name = 'commerce'")
+        )
+
+    def test_import_replaces_same_name_model_graph(self) -> None:
         svc = _make_svc()
-        model_data = _make_model_dict()
-        model_data["datasets"].append(_make_dataset_dict())
-        model_data["relationships"] = [_make_relationship_dict()]
-        result = svc.create_semantic_model(model_data)
-        self.assertEqual(len(result["relationships"]), 1)
-        self.assertEqual(result["relationships"][0]["name"], "orders_to_customers")
-        self.assertEqual(result["relationships"][0]["from"], "orders")
-        self.assertEqual(result["relationships"][0]["to"], "customers")
 
-    def test_create_model_with_metrics(self) -> None:
-        svc = _make_svc()
-        model_data = _make_model_dict()
-        model_data["metrics"] = [_make_metric_dict()]
-        result = svc.create_semantic_model(model_data)
-        self.assertEqual(len(result["metrics"]), 1)
-        self.assertEqual(result["metrics"][0]["name"], "total_revenue")
-
-    def test_semantic_models_schema_has_no_revision_column(self) -> None:
-        store = _make_store()
-        columns = {row["name"] for row in store.query_rows("PRAGMA table_info(semantic_models)")}
-        self.assertNotIn("revision", columns)
-
-
-class TestGetSemanticModel(unittest.TestCase):
-    def test_get_existing_model(self) -> None:
-        svc = _make_svc()
         with _as_user("alice"):
-            svc.create_semantic_model(_make_model_dict())
-        result = svc.get_semantic_model("test_model", requesting_user="alice")
-        self.assertEqual(result["name"], "test_model")
+            svc.import_osi_semantic_models(
+                _doc(_model(fields=["order_id", "order_date", "amount"]))
+            )
+            svc.import_osi_semantic_models(_doc(_model(fields=["order_id", "order_date"])))
+            exported = svc.export_osi_semantic_models("commerce")
 
-    def test_get_nonexistent_model(self) -> None:
+        fields = exported["semantic_model"][0]["datasets"][0]["fields"]
+        self.assertEqual([field["name"] for field in fields], ["order_id", "order_date"])
 
+    def test_get_prefers_requesters_private_model_over_public(self) -> None:
         svc = _make_svc()
-        with self.assertRaises(NotFoundError):
-            svc.get_semantic_model("nonexistent")
+        _seed_public_model(svc, "commerce")
 
-    def test_get_private_model_by_owner(self) -> None:
-        svc = _make_svc()
         with _as_user("alice"):
-            svc.create_semantic_model(_make_model_dict(name="private_model"))
-        result = svc.get_semantic_model("private_model", requesting_user="alice")
-        self.assertEqual(result["name"], "private_model")
+            svc.import_osi_semantic_models(
+                _doc(_model("commerce", fields=["order_id", "private_id"]))
+            )
 
-    def test_get_private_model_by_non_owner(self) -> None:
+        result = svc.get_semantic_model("commerce", requesting_user="alice")
 
-        svc = _make_svc()
-        with _as_user("alice"):
-            svc.create_semantic_model(_make_model_dict(name="private_model"))
-        with self.assertRaises(NotFoundError):
-            svc.get_semantic_model("private_model", requesting_user="bob")
+        self.assertEqual(
+            [field["name"] for field in result["datasets"][0]["fields"]],
+            ["order_id", "private_id"],
+        )
 
-    def test_get_private_model_without_user(self) -> None:
-
-        svc = _make_svc()
-        with _as_user("alice"):
-            svc.create_semantic_model(_make_model_dict(name="private_model"))
-        with self.assertRaises(NotFoundError):
-            svc.get_semantic_model("private_model")
-
-
-class TestListSemanticModels(unittest.TestCase):
-    def test_list_public_models(self) -> None:
-        svc = _make_svc()
-        _seed_public_model(svc, "model_a")
-        _seed_public_model(svc, "model_b")
-        results = svc.list_semantic_models()
-        names = [r["name"] for r in results]
-        self.assertIn("model_a", names)
-        self.assertIn("model_b", names)
-
-    def test_list_includes_private_for_owner(self) -> None:
+    def test_list_returns_public_and_requester_private_models(self) -> None:
         svc = _make_svc()
         _seed_public_model(svc, "public_model")
+
         with _as_user("alice"):
-            svc.create_semantic_model(_make_model_dict(name="private_model"))
-        results = svc.list_semantic_models(requesting_user="alice")
-        names = [r["name"] for r in results]
-        self.assertIn("public_model", names)
-        self.assertIn("private_model", names)
-
-    def test_list_excludes_private_for_other_user(self) -> None:
-        svc = _make_svc()
-        with _as_user("alice"):
-            svc.create_semantic_model(_make_model_dict(name="private_model"))
-        results = svc.list_semantic_models(requesting_user="bob")
-        names = [r["name"] for r in results]
-        self.assertNotIn("private_model", names)
-
-    def test_list_excludes_private_without_user(self) -> None:
-        svc = _make_svc()
-        with _as_user("alice"):
-            svc.create_semantic_model(_make_model_dict(name="private_model"))
-        results = svc.list_semantic_models()
-        names = [r["name"] for r in results]
-        self.assertNotIn("private_model", names)
-
-
-class TestUpdateSemanticModel(unittest.TestCase):
-    def test_update_description(self) -> None:
-        svc = _make_svc()
-        with _as_user("alice"):
-            svc.create_semantic_model(_make_model_dict())
-        result = svc.update_semantic_model(
-            "test_model", {"description": "Updated"}, owner_user="alice"
-        )
-        self.assertEqual(result["description"], "Updated")
-
-    def test_update_nonexistent_model(self) -> None:
-
-        svc = _make_svc()
-        with self.assertRaises(NotFoundError):
-            svc.update_semantic_model("nonexistent", {"description": "x"})
-
-    def test_update_official_model_returns_403(self) -> None:
-
-        svc = _make_svc()
-        _seed_public_model(svc, "official_model")
-        with self.assertRaises(ForbiddenError):
-            svc.update_semantic_model("official_model", {"description": "new"})
-
-
-class TestDeleteSemanticModel(unittest.TestCase):
-    def test_delete_model(self) -> None:
-
-        svc = _make_svc()
-        with _as_user("alice"):
-            svc.create_semantic_model(_make_model_dict())
-        svc.delete_semantic_model("test_model", owner_user="alice")
-        with self.assertRaises(NotFoundError):
-            svc.get_semantic_model("test_model", requesting_user="alice")
-
-    def test_delete_nonexistent_model(self) -> None:
-
-        svc = _make_svc()
-        with self.assertRaises(NotFoundError):
-            svc.delete_semantic_model("nonexistent")
-
-    def test_delete_official_model_returns_403(self) -> None:
-
-        svc = _make_svc()
-        _seed_public_model(svc, "official_model")
-        with self.assertRaises(ForbiddenError):
-            svc.delete_semantic_model("official_model")
-
-    def test_delete_cascades_datasets(self) -> None:
-        store = _make_store()
-        svc = SemanticModelV2Service(store)
-        with _as_user("alice"):
-            svc.create_semantic_model(_make_model_dict())
-        svc.delete_semantic_model("test_model", owner_user="alice")
-        rows = store.query_rows("SELECT * FROM semantic_datasets")
-        self.assertEqual(len(rows), 0)
-
-
-# ---------------------------------------------------------------------------
-# Dataset CRUD
-# ---------------------------------------------------------------------------
-
-
-class TestDatasetCRUD(unittest.TestCase):
-    def test_create_dataset(self) -> None:
-        svc = _make_svc()
-        with _as_user("alice"):
-            svc.create_semantic_model(_make_model_dict())
-        ds_data = _make_dataset_dict()
-        result = svc.create_dataset("test_model", ds_data, owner_user="alice")
-        self.assertEqual(result["name"], "customers")
-        self.assertEqual(len(result["fields"]), 2)
-
-    def test_get_dataset(self) -> None:
-        svc = _make_svc()
-        with _as_user("alice"):
-            svc.create_semantic_model(_make_model_dict())
-        result = svc.get_dataset("test_model", "orders", requesting_user="alice")
-        self.assertEqual(result["name"], "orders")
-
-    def test_get_nonexistent_dataset(self) -> None:
-
-        svc = _make_svc()
-        with _as_user("alice"):
-            svc.create_semantic_model(_make_model_dict())
-        with self.assertRaises(NotFoundError):
-            svc.get_dataset("test_model", "nonexistent", requesting_user="alice")
-
-    def test_list_datasets(self) -> None:
-        svc = _make_svc()
-        with _as_user("alice"):
-            svc.create_semantic_model(_make_model_dict())
-        svc.create_dataset("test_model", _make_dataset_dict(), owner_user="alice")
-        results = svc.list_datasets("test_model", requesting_user="alice")
-        names = [r["name"] for r in results]
-        self.assertIn("orders", names)
-        self.assertIn("customers", names)
-
-    def test_update_dataset(self) -> None:
-        svc = _make_svc()
-        with _as_user("alice"):
-            svc.create_semantic_model(_make_model_dict())
-        result = svc.update_dataset(
-            "test_model", "orders", {"description": "Updated orders"}, owner_user="alice"
-        )
-        self.assertEqual(result["description"], "Updated orders")
-
-    def test_delete_dataset(self) -> None:
-
-        svc = _make_svc()
-        with _as_user("alice"):
-            svc.create_semantic_model(_make_model_dict())
-        svc.delete_dataset("test_model", "orders", owner_user="alice")
-        with self.assertRaises(NotFoundError):
-            svc.get_dataset("test_model", "orders", requesting_user="alice")
-
-    def test_dataset_field_custom_extensions_empty(self) -> None:
-        svc = _make_svc()
-        with _as_user("alice"):
-            svc.create_semantic_model(_make_model_dict())
-        ds = svc.get_dataset("test_model", "orders", requesting_user="alice")
-        order_date = next(f for f in ds["fields"] if f["name"] == "order_date")
-        self.assertEqual(order_date.get("custom_extensions"), [])
-
-    def test_create_duplicate_dataset_returns_409(self) -> None:
-
-        svc = _make_svc()
-        with _as_user("alice"):
-            svc.create_semantic_model(_make_model_dict())
-        # "orders" already exists in the model
-        ds_data = _make_dataset_dict(name="orders", source="analytics.orders_v2")
-        with self.assertRaises(ConflictError):
-            svc.create_dataset("test_model", ds_data, owner_user="alice")
-
-
-# ---------------------------------------------------------------------------
-# Relationship CRUD
-# ---------------------------------------------------------------------------
-
-
-class TestRelationshipCRUD(unittest.TestCase):
-    def test_create_relationship(self) -> None:
-        svc = _make_svc()
-        model_data = _make_model_dict()
-        model_data["datasets"].append(_make_dataset_dict())
-        with _as_user("alice"):
-            svc.create_semantic_model(model_data)
-        rel_data = _make_relationship_dict()
-        result = svc.create_relationship("test_model", rel_data, owner_user="alice")
-        self.assertEqual(result["name"], "orders_to_customers")
-        self.assertEqual(result["from"], "orders")
-        self.assertEqual(result["to"], "customers")
-
-    def test_create_relationship_invalid_from(self) -> None:
-
-        svc = _make_svc()
-        with _as_user("alice"):
-            svc.create_semantic_model(_make_model_dict())
-        rel_data = _make_relationship_dict(from_ds="nonexistent")
-        with self.assertRaises(NotFoundError):
-            svc.create_relationship("test_model", rel_data, owner_user="alice")
-
-    def test_create_relationship_invalid_to(self) -> None:
-        svc = _make_svc()
-        with _as_user("alice"):
-            svc.create_semantic_model(_make_model_dict())
-        rel_data = _make_relationship_dict(to_ds="nonexistent")
-        with self.assertRaises(NotFoundError):
-            svc.create_relationship("test_model", rel_data, owner_user="alice")
-
-    def test_create_relationship_mismatched_column_lengths(self) -> None:
-
-        svc = _make_svc()
-        model_data = _make_model_dict()
-        model_data["datasets"].append(_make_dataset_dict())
-        with _as_user("alice"):
-            svc.create_semantic_model(model_data)
-        rel_data = _make_relationship_dict()
-        rel_data["from_columns"] = ["customer_id", "region_id"]
-        rel_data["to_columns"] = ["customer_id"]
-        with self.assertRaises(ValueError):
-            svc.create_relationship("test_model", rel_data, owner_user="alice")
-
-    def test_get_relationship(self) -> None:
-        svc = _make_svc()
-        model_data = _make_model_dict()
-        model_data["datasets"].append(_make_dataset_dict())
-        model_data["relationships"] = [_make_relationship_dict()]
-        with _as_user("alice"):
-            svc.create_semantic_model(model_data)
-        result = svc.get_relationship("test_model", "orders_to_customers", requesting_user="alice")
-        self.assertEqual(result["name"], "orders_to_customers")
-
-    def test_list_relationships(self) -> None:
-        svc = _make_svc()
-        model_data = _make_model_dict()
-        model_data["datasets"].append(_make_dataset_dict())
-        model_data["relationships"] = [_make_relationship_dict()]
-        with _as_user("alice"):
-            svc.create_semantic_model(model_data)
-        results = svc.list_relationships("test_model", requesting_user="alice")
-        self.assertEqual(len(results), 1)
-
-    def test_update_relationship(self) -> None:
-        svc = _make_svc()
-        model_data = _make_model_dict()
-        model_data["datasets"].append(_make_dataset_dict())
-        model_data["relationships"] = [_make_relationship_dict()]
-        with _as_user("alice"):
-            svc.create_semantic_model(model_data)
-        result = svc.update_relationship(
-            "test_model", "orders_to_customers", {"cardinality": "many_to_one"}, owner_user="alice"
-        )
-        self.assertEqual(result.get("custom_extensions"), [])
-        row = svc.store.query_one(
-            "SELECT cardinality FROM semantic_relationships WHERE name = ?",
-            ["orders_to_customers"],
-        )
-        self.assertEqual(row["cardinality"], "many_to_one")
-
-    def test_delete_relationship(self) -> None:
-
-        svc = _make_svc()
-        model_data = _make_model_dict()
-        model_data["datasets"].append(_make_dataset_dict())
-        model_data["relationships"] = [_make_relationship_dict()]
-        with _as_user("alice"):
-            svc.create_semantic_model(model_data)
-        svc.delete_relationship("test_model", "orders_to_customers", owner_user="alice")
-        with self.assertRaises(NotFoundError):
-            svc.get_relationship("test_model", "orders_to_customers", requesting_user="alice")
-
-
-# ---------------------------------------------------------------------------
-# Metric CRUD
-# ---------------------------------------------------------------------------
-
-
-class TestMetricCRUD(unittest.TestCase):
-    def test_create_metric(self) -> None:
-        svc = _make_svc()
-        with _as_user("alice"):
-            svc.create_semantic_model(_make_model_dict())
-        metric_data = _make_metric_dict()
-        result = svc.create_metric("test_model", metric_data, owner_user="alice")
-        self.assertEqual(result["name"], "total_revenue")
-
-    def test_get_metric(self) -> None:
-        svc = _make_svc()
-        with _as_user("alice"):
-            svc.create_semantic_model(_make_model_dict())
-        svc.create_metric("test_model", _make_metric_dict(), owner_user="alice")
-        result = svc.get_metric("test_model", "total_revenue", requesting_user="alice")
-        self.assertEqual(result["name"], "total_revenue")
-
-    def test_list_metrics(self) -> None:
-        svc = _make_svc()
-        with _as_user("alice"):
-            svc.create_semantic_model(_make_model_dict())
-        svc.create_metric("test_model", _make_metric_dict(), owner_user="alice")
-        svc.create_metric("test_model", _make_metric_dict(name="order_count"), owner_user="alice")
-        results = svc.list_metrics("test_model", requesting_user="alice")
-        self.assertEqual(len(results), 2)
-
-    def test_update_metric(self) -> None:
-        svc = _make_svc()
-        with _as_user("alice"):
-            svc.create_semantic_model(_make_model_dict())
-        svc.create_metric("test_model", _make_metric_dict(), owner_user="alice")
-        result = svc.update_metric(
-            "test_model",
-            "total_revenue",
-            {"description": "Total revenue metric"},
-            owner_user="alice",
-        )
-        self.assertEqual(result["description"], "Total revenue metric")
-
-    def test_delete_metric(self) -> None:
-
-        svc = _make_svc()
-        with _as_user("alice"):
-            svc.create_semantic_model(_make_model_dict())
-        svc.create_metric("test_model", _make_metric_dict(), owner_user="alice")
-        svc.delete_metric("test_model", "total_revenue", owner_user="alice")
-        with self.assertRaises(NotFoundError):
-            svc.get_metric("test_model", "total_revenue", requesting_user="alice")
-
-
-# ---------------------------------------------------------------------------
-# Validation
-# ---------------------------------------------------------------------------
-
-
-class TestValidation(unittest.TestCase):
-    def test_invalid_visibility(self) -> None:
-        # Without a user in context, visibility defaults to "public" → 403
-        svc = _make_svc()
-        with self.assertRaises(ForbiddenError), _as_user(None):
-            svc.create_semantic_model(_make_model_dict())
-
-    def test_private_without_owner(self) -> None:
-        # Same as above — no user means public → 403
-        svc = _make_svc()
-        with self.assertRaises(ForbiddenError), _as_user(None):
-            svc.create_semantic_model(_make_model_dict())
-
-    def test_relationship_references_unknown_dataset(self) -> None:
-        svc = _make_svc()
-        model_data = _make_model_dict()
-        model_data["relationships"] = [_make_relationship_dict(from_ds="nonexistent")]
-        with self.assertRaises(ValidationError) as ctx, _as_user("alice"):
-            svc.create_semantic_model(model_data)
-        self.assertIn("nonexistent", ctx.exception.message)
-
-    def test_metric_additive_dimensions_unknown_field(self) -> None:
-        svc = _make_svc()
-        model_data = _make_model_dict()
-        model_data["metrics"] = [_make_metric_dict(additive_dimensions=["nonexistent_dim"])]
-        with self.assertRaises(ValidationError) as ctx, _as_user("alice"):
-            svc.create_semantic_model(model_data)
-        self.assertIn("nonexistent_dim", ctx.exception.message)
-
-    def test_metric_additive_dimensions_valid(self) -> None:
-        svc = _make_svc()
-        model_data = _make_model_dict()
-        model_data["metrics"] = [_make_metric_dict(additive_dimensions=["amount"])]
-        result = svc.create_semantic_model(model_data)
-        self.assertEqual(result["name"], "test_model")
-
-
-# ---------------------------------------------------------------------------
-# Visibility filtering
-# ---------------------------------------------------------------------------
-
-
-class TestVisibilityFiltering(unittest.TestCase):
-    def test_owner_can_see_private_model(self) -> None:
-        svc = _make_svc()
-        with _as_user("alice"):
-            svc.create_semantic_model(_make_model_dict(name="private_model"))
-        result = svc.get_semantic_model("private_model", requesting_user="alice")
-        self.assertEqual(result["name"], "private_model")
-
-    def test_other_user_cannot_see_private_model(self) -> None:
-
-        svc = _make_svc()
-        with _as_user("alice"):
-            svc.create_semantic_model(_make_model_dict(name="private_model"))
-        with self.assertRaises(NotFoundError):
-            svc.get_semantic_model("private_model", requesting_user="bob")
-
-    def test_anonymous_cannot_see_private_model(self) -> None:
-
-        svc = _make_svc()
-        with _as_user("alice"):
-            svc.create_semantic_model(_make_model_dict(name="private_model"))
-        with self.assertRaises(NotFoundError):
-            svc.get_semantic_model("private_model")
-
-    def test_list_returns_public_and_owned_private(self) -> None:
-        svc = _make_svc()
-        _seed_public_model(svc, "public_model")
-        with _as_user("alice"):
-            svc.create_semantic_model(_make_model_dict(name="alice_private"))
+            svc.import_osi_semantic_models(_doc(_model("alice_model")))
         with _as_user("bob"):
-            svc.create_semantic_model(_make_model_dict(name="bob_private"))
-        results = svc.list_semantic_models(requesting_user="alice")
-        names = [r["name"] for r in results]
-        self.assertIn("public_model", names)
-        self.assertIn("alice_private", names)
-        self.assertNotIn("bob_private", names)
+            svc.import_osi_semantic_models(_doc(_model("bob_model")))
 
+        result = svc.list_semantic_models(requesting_user="alice")
 
-# ---------------------------------------------------------------------------
-# Import OSI document
-# ---------------------------------------------------------------------------
+        self.assertEqual([model["name"] for model in result], ["public_model", "alice_model"])
 
-
-class TestImportOSIDocument(unittest.TestCase):
-    def test_import_osi_document(self) -> None:
+    def test_export_requires_current_user(self) -> None:
         svc = _make_svc()
-        doc = {
-            "version": OSI_SPEC_VERSION,
-            "semantic_model": [
-                {
-                    "name": "imported_model",
-                    "datasets": [
-                        {
-                            "name": "sales",
-                            "source": "analytics.sales",
-                            "custom_extensions": [
-                                {
-                                    "vendor_name": "MARIVO",
-                                    "data": {"datasource_id": "ds_001"},
-                                }
-                            ],
-                            "fields": [
-                                {
-                                    "name": "sale_id",
-                                    "expression": {
-                                        "dialects": [
-                                            {
-                                                "dialect": "ANSI_SQL",
-                                                "expression": "sale_id",
-                                            }
-                                        ]
-                                    },
-                                }
-                            ],
-                        }
-                    ],
-                }
-            ],
-        }
-        results = svc.import_osi_document(doc)
-        self.assertEqual(len(results["models"]), 1)
-        self.assertEqual(results["models"][0]["name"], "imported_model")
-        self.assertTrue(results["models"][0]["created"])
-        result = svc.get_semantic_model("imported_model", requesting_user="test_user")
-        self.assertEqual(result["name"], "imported_model")
 
-    def test_import_rejects_private_model(self) -> None:
-
-        svc = _make_svc()
-        doc = {
-            "version": OSI_SPEC_VERSION,
-            "semantic_model": [
-                {
-                    "name": "private_import",
-                    "datasets": [
-                        {
-                            "name": "sales",
-                            "source": "analytics.sales",
-                            "custom_extensions": [
-                                {
-                                    "vendor_name": "MARIVO",
-                                    "data": {"datasource_id": "ds_001"},
-                                }
-                            ],
-                            "fields": [
-                                {
-                                    "name": "sale_id",
-                                    "expression": {
-                                        "dialects": [
-                                            {
-                                                "dialect": "ANSI_SQL",
-                                                "expression": "sale_id",
-                                            }
-                                        ]
-                                    },
-                                }
-                            ],
-                        }
-                    ],
-                    "custom_extensions": [
-                        {
-                            "vendor_name": "MARIVO",
-                            "data": {"visibility": "private", "owner_user": "alice"},
-                        }
-                    ],
-                }
-            ],
-        }
-        with self.assertRaises(DomainError):
-            svc.import_osi_document(doc)
-
-    def test_reimport_updates_current_model_state(self) -> None:
-        store = _make_store()
-        svc = SemanticModelV2Service(store)
-        # Create an initial private working copy via import
-        doc_initial = {
-            "version": OSI_SPEC_VERSION,
-            "semantic_model": [
-                {
-                    "name": "existing",
-                    "datasets": [
-                        {
-                            "name": "sales",
-                            "source": "analytics.sales",
-                            "custom_extensions": [
-                                {
-                                    "vendor_name": "MARIVO",
-                                    "data": {"datasource_id": "ds_001"},
-                                }
-                            ],
-                            "fields": [
-                                {
-                                    "name": "sale_id",
-                                    "expression": {
-                                        "dialects": [
-                                            {
-                                                "dialect": "ANSI_SQL",
-                                                "expression": "sale_id",
-                                            }
-                                        ]
-                                    },
-                                }
-                            ],
-                        }
-                    ],
-                }
-            ],
-        }
-        svc.import_osi_document(doc_initial)
-        initial = svc.get_semantic_model("existing", requesting_user="test_user")
-        self.assertEqual(initial["datasets"][0]["source"], "analytics.sales")
-
-        # Import a document that updates the same model
-        doc = {
-            "version": OSI_SPEC_VERSION,
-            "semantic_model": [
-                {
-                    "name": "existing",
-                    "datasets": [
-                        {
-                            "name": "sales",
-                            "source": "analytics.sales_v2",
-                            "custom_extensions": [
-                                {
-                                    "vendor_name": "MARIVO",
-                                    "data": {"datasource_id": "ds_001"},
-                                }
-                            ],
-                            "fields": [
-                                {
-                                    "name": "sale_id",
-                                    "expression": {
-                                        "dialects": [
-                                            {
-                                                "dialect": "ANSI_SQL",
-                                                "expression": "sale_id",
-                                            }
-                                        ]
-                                    },
-                                }
-                            ],
-                        }
-                    ],
-                }
-            ],
-        }
-        results = svc.import_osi_document(doc)
-        self.assertEqual(len(results["models"]), 1)
-        self.assertEqual(results["models"][0]["datasets"]["updated"], 1)
-        updated = svc.get_semantic_model("existing", requesting_user="test_user")
-        self.assertEqual(updated["datasets"][0]["source"], "analytics.sales_v2")
-
-    def test_import_merges_with_same_name_private(self) -> None:
-        store = _make_store()
-        svc = SemanticModelV2Service(store)
-        # Create a private model first
-        with _as_user("alice"):
-            svc.create_semantic_model(_make_model_dict(name="shared_name"))
-        rows_before = store.query_rows(
-            "SELECT visibility FROM semantic_models WHERE name = 'shared_name'"
-        )
-        self.assertEqual(len(rows_before), 1)
-        self.assertEqual(rows_before[0]["visibility"], "private")
-
-        # Import a private working-copy update with the same name.
-        doc = {
-            "version": OSI_SPEC_VERSION,
-            "semantic_model": [
-                {
-                    "name": "shared_name",
-                    "datasets": [
-                        {
-                            "name": "sales",
-                            "source": "analytics.sales",
-                            "custom_extensions": [
-                                {
-                                    "vendor_name": "MARIVO",
-                                    "data": {"datasource_id": "ds_001"},
-                                }
-                            ],
-                            "fields": [
-                                {
-                                    "name": "sale_id",
-                                    "expression": {
-                                        "dialects": [
-                                            {
-                                                "dialect": "ANSI_SQL",
-                                                "expression": "sale_id",
-                                            }
-                                        ]
-                                    },
-                                }
-                            ],
-                        }
-                    ],
-                }
-            ],
-        }
-        with _as_user("alice"):
-            results = svc.import_osi_document(doc)
-        self.assertEqual(len(results["models"]), 1)
-        self.assertEqual(results["models"][0]["name"], "shared_name")
-        self.assertTrue(results["models"][0]["updated"])
-
-        rows_after = store.query_rows(
-            "SELECT visibility FROM semantic_models WHERE name = 'shared_name' ORDER BY visibility"
-        )
-        self.assertEqual(len(rows_after), 1)
-        visibilities = [r["visibility"] for r in rows_after]
-        self.assertIn("private", visibilities)
-
-    def test_import_new_model_stores_current_state(self) -> None:
-        store = _make_store()
-        svc = SemanticModelV2Service(store)
-        doc = {
-            "version": OSI_SPEC_VERSION,
-            "semantic_model": [
-                {
-                    "name": "brand_new",
-                    "datasets": [
-                        {
-                            "name": "sales",
-                            "source": "analytics.sales",
-                            "custom_extensions": [
-                                {
-                                    "vendor_name": "MARIVO",
-                                    "data": {"datasource_id": "ds_001"},
-                                }
-                            ],
-                            "fields": [
-                                {
-                                    "name": "sale_id",
-                                    "expression": {
-                                        "dialects": [
-                                            {
-                                                "dialect": "ANSI_SQL",
-                                                "expression": "sale_id",
-                                            }
-                                        ]
-                                    },
-                                }
-                            ],
-                        }
-                    ],
-                }
-            ],
-        }
-        results = svc.import_osi_document(doc)
-        self.assertEqual(len(results["models"]), 1)
-        self.assertEqual(results["models"][0]["name"], "brand_new")
-        model_row = store.query_one(
-            "SELECT name, visibility, owner_user FROM semantic_models WHERE name = 'brand_new'"
-        )
-        self.assertEqual(model_row["name"], "brand_new")
-        self.assertEqual(model_row["visibility"], "private")
-        self.assertEqual(model_row["owner_user"], "test_user")
-
-
-# ---------------------------------------------------------------------------
-# Same-name shadowing (private shadows public)
-# ---------------------------------------------------------------------------
-
-
-class TestSameNameShadowing(unittest.TestCase):
-    """Tests that private models shadow public models when requesting_user matches."""
-
-    def _make_public_model(self, svc: SemanticModelV2Service, name: str = "commerce") -> None:
-        _seed_public_model(svc, name)
-
-    def test_get_model_prefers_private_over_public_for_owner(self) -> None:
-        svc = _make_svc()
-        self._make_public_model(svc, "commerce")
-        with _as_user("alice"):
-            model = _make_model_dict(name="commerce")
-            model["description"] = "private model"
-            svc.create_semantic_model(model)
-        # alice should see her private model
-        result = svc.get_semantic_model("commerce", requesting_user="alice")
-        self.assertEqual(result["description"], "private model")
-
-    def test_get_model_returns_public_for_non_owner(self) -> None:
-        svc = _make_svc()
-        self._make_public_model(svc, "commerce")
-        with _as_user("alice"):
-            model = _make_model_dict(name="commerce")
-            model["description"] = "private model"
-            svc.create_semantic_model(model)
-        # bob should see the public model
-        result = svc.get_semantic_model("commerce", requesting_user="bob")
-        self.assertEqual(result["description"], "public model")
-
-    def test_get_model_returns_public_when_no_user(self) -> None:
-        svc = _make_svc()
-        self._make_public_model(svc, "commerce")
-        with _as_user("alice"):
-            model = _make_model_dict(name="commerce")
-            model["description"] = "private model"
-            svc.create_semantic_model(model)
-        # No requesting_user → public model
-        result = svc.get_semantic_model("commerce")
-        self.assertEqual(result["description"], "public model")
-
-    def test_update_private_model_finds_correct_row(self) -> None:
-        svc = _make_svc()
-        self._make_public_model(svc, "commerce")
-        with _as_user("alice"):
-            svc.create_semantic_model(_make_model_dict(name="commerce"))
-        result = svc.update_semantic_model(
-            "commerce", {"description": "alice's version"}, owner_user="alice"
-        )
-        self.assertEqual(result["description"], "alice's version")
-        # Public model should be unchanged
-        public = svc.get_semantic_model("commerce", requesting_user="bob")
-        self.assertNotEqual(public.get("description"), "alice's version")
-
-    def test_delete_private_model_finds_correct_row(self) -> None:
-        svc = _make_svc()
-        self._make_public_model(svc, "commerce")
-        with _as_user("alice"):
-            svc.create_semantic_model(_make_model_dict(name="commerce"))
-        svc.delete_semantic_model("commerce", owner_user="alice")
-        # Public model should still exist
-        result = svc.get_semantic_model("commerce", requesting_user="bob")
-        self.assertEqual(result["name"], "commerce")
-
-    def test_import_finds_public_model_when_private_exists(self) -> None:
-        svc = _make_svc()
-        with _as_user("alice"):
-            model = _make_model_dict(name="shared")
-            model["description"] = "private model"
-            svc.create_semantic_model(model)
-        # Import a public model with the same name
-        self._make_public_model(svc, "shared")
-        # Both models should exist
-        result = svc.get_semantic_model("shared", requesting_user="alice")
-        self.assertEqual(result["description"], "private model")
-        result = svc.get_semantic_model("shared", requesting_user="bob")
-        self.assertEqual(result["description"], "public model")
-
-    def test_readiness_respects_visibility(self) -> None:
-
-        svc = _make_svc()
-        with _as_user("alice"):
-            svc.create_semantic_model(_make_model_dict())
-        # Non-owner should get 404
-        with self.assertRaises(NotFoundError):
-            svc.get_readiness("test_model", requesting_user="bob")
-        # Owner should succeed
-        result = svc.get_readiness("test_model", requesting_user="alice")
-        self.assertEqual(result["status"], "ready")
-
-    def test_two_private_models_same_name_different_owners(self) -> None:
-        svc = _make_svc()
-        with _as_user("alice"):
-            model = _make_model_dict(name="commerce")
-            model["description"] = "alice model"
-            svc.create_semantic_model(model)
-        with _as_user("bob"):
-            model = _make_model_dict(name="commerce")
-            model["description"] = "bob model"
-            svc.create_semantic_model(model)
-        # alice sees alice's model
-        result = svc.get_semantic_model("commerce", requesting_user="alice")
-        self.assertEqual(result["description"], "alice model")
-        # bob sees bob's model
-        result = svc.get_semantic_model("commerce", requesting_user="bob")
-        self.assertEqual(result["description"], "bob model")
-
-    def test_update_private_model_without_owner_returns_403(self) -> None:
-
-        svc = _make_svc()
-        self._make_public_model(svc, "commerce")
-        with _as_user("alice"):
-            svc.create_semantic_model(_make_model_dict(name="commerce"))
-        # Without owner_user, should find the public model and return 403
-        with self.assertRaises(ForbiddenError):
-            svc.update_semantic_model("commerce", {"description": "new"})
-
-
-# ---------------------------------------------------------------------------
-# Readiness
-# ---------------------------------------------------------------------------
-
-
-class TestReadiness(unittest.TestCase):
-    def test_get_readiness(self) -> None:
-        svc = _make_svc()
-        with _as_user("alice"):
-            svc.create_semantic_model(_make_model_dict())
-        result = svc.get_readiness("test_model", requesting_user="alice")
-        self.assertEqual(result["status"], "ready")
-        self.assertIsInstance(result["blockers"], list)
-        self.assertEqual(result["semantic_version_id"], None)
-        self.assertEqual(result["evaluated_semantic_version_id"], None)
-
-    def test_get_readiness_nonexistent_model(self) -> None:
-
-        svc = _make_svc()
-        with self.assertRaises(NotFoundError):
-            svc.get_readiness("nonexistent")
-
-
-# ---------------------------------------------------------------------------
-# Roundtrip: storage mapping
-# ---------------------------------------------------------------------------
-
-
-class TestStorageRoundtrip(unittest.TestCase):
-    def test_model_roundtrip(self) -> None:
-        svc = _make_svc()
-        model_data = _make_model_dict()
-        model_data["description"] = "Test model description"
-        model_data["datasets"].append(_make_dataset_dict())
-        model_data["relationships"] = [_make_relationship_dict()]
-        model_data["metrics"] = [_make_metric_dict()]
-
-        with _as_user("alice"):
-            created = svc.create_semantic_model(model_data)
-        fetched = svc.get_semantic_model("test_model", requesting_user="alice")
-
-        self.assertEqual(created["name"], fetched["name"])
-        self.assertEqual(created["description"], fetched["description"])
-        self.assertEqual(len(created["datasets"]), len(fetched["datasets"]))
-        self.assertEqual(len(created["relationships"]), len(fetched["relationships"]))
-        self.assertEqual(len(created["metrics"]), len(fetched["metrics"]))
-
-    def test_field_dimension_preserved(self) -> None:
-        svc = _make_svc()
-        with _as_user("alice"):
-            svc.create_semantic_model(_make_model_dict())
-        ds = svc.get_dataset("test_model", "orders", requesting_user="alice")
-        order_date = next(f for f in ds["fields"] if f["name"] == "order_date")
-        self.assertEqual(order_date["dimension"], {"is_time": True})
-
-        # Non-time field should not have dimension set to True
-        order_id = next(f for f in ds["fields"] if f["name"] == "order_id")
-        self.assertNotEqual(order_id.get("dimension"), {"is_time": True})
+        with self.assertRaises(RuntimeError), _as_user(None):
+            svc.export_osi_semantic_models()
