@@ -43,23 +43,21 @@ class TestExecutionEnvelope(unittest.TestCase):
         )
         self.assertEqual(env.product_metadata["validation"]["status"], "pass")
 
-    def test_to_legacy_dict_flat_merges_result(self) -> None:
-        """Backward compat: to_legacy_dict() produces the flat dict shape
-        that existing HTTP responses and MCP consumers expect."""
+    def test_model_dump_does_not_flatten_result(self) -> None:
         env = ExecutionEnvelope(
             intent_type="observe",
             step_type="observe",
             step_ref=StepRef(session_id="s1", step_id="step_1", step_type="observe"),
             artifact_id="art_1",
-            result={"value": 42.0, "observation_type": "scalar"},
+            result={"artifact_id": "art_1", "result": {"value": 42.0}},
         )
-        legacy = env.to_legacy_dict()
-        self.assertEqual(legacy["intent_type"], "observe")
-        self.assertEqual(legacy["step_ref"]["session_id"], "s1")
-        self.assertEqual(legacy["artifact_id"], "art_1")
-        # result fields are flat-merged at top level for backward compat
-        self.assertEqual(legacy["value"], 42.0)
-        self.assertEqual(legacy["observation_type"], "scalar")
+        dumped = env.model_dump()
+
+        self.assertEqual(
+            dumped["result"],
+            {"artifact_id": "art_1", "result": {"value": 42.0}},
+        )
+        self.assertNotIn("value", dumped)
 
 
 class TestCommitStepResultEnvelope(unittest.TestCase):
@@ -79,28 +77,3 @@ class TestCommitStepResultEnvelope(unittest.TestCase):
         self.assertIsInstance(env, ExecutionEnvelope)
         self.assertEqual(env.artifact_id, "art_1")
         self.assertEqual(env.result["value"], 42.0)
-
-    def test_envelope_legacy_dict_matches_old_shape(self) -> None:
-        """to_legacy_dict() must produce the same flat dict as the old code."""
-        from marivo.runtime.intents._helpers import build_envelope
-
-        env = build_envelope(
-            session_id="s1",
-            step_id="step_obs_1",
-            step_type="observe",
-            artifact_id="art_1",
-            artifact_payload={"value": 42.0},
-        )
-        legacy = env.to_legacy_dict()
-        self.assertEqual(legacy["intent_type"], "observe")
-        self.assertEqual(legacy["step_type"], "observe")
-        self.assertEqual(
-            legacy["step_ref"],
-            {
-                "session_id": "s1",
-                "step_id": "step_obs_1",
-                "step_type": "observe",
-            },
-        )
-        self.assertEqual(legacy["artifact_id"], "art_1")
-        self.assertEqual(legacy["value"], 42.0)

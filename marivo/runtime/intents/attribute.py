@@ -14,10 +14,13 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from marivo.contracts.errors import ExecutionError
-from marivo.core.intent.primitives import new_step_id
 from marivo.core.semantic.additivity import derive_additivity_capabilities
 from marivo.runtime.intents.compare import run_compare_intent
 from marivo.runtime.intents.decompose import run_decompose_intent
+from marivo.runtime.intents.derived_envelopes import (
+    aoi_artifact_dump,
+    build_derived_bundle_envelope,
+)
 from marivo.runtime.intents.normalization import (
     normalize_dimensions,
     normalize_metric_ref,
@@ -354,6 +357,7 @@ def run_attribute_intent(
 
     # ── Step 4: decompose × N ─────────────────────────────────────────────────
     drivers: list[dict[str, Any]] = []
+    decompose_results: list[dict[str, Any]] = []
     validation_issues: list[dict[str, Any]] = []
 
     for dimension in dimensions:
@@ -375,6 +379,7 @@ def run_attribute_intent(
             raise ValueError(
                 f"attribute: DECOMPOSE_FAILED for dimension '{dimension}': {exc}"
             ) from exc
+        decompose_results.append(decompose_result)
 
         decompose_step_id: str = decompose_result["step_ref"]["step_id"]
         decompose_artifact_id: str = decompose_result["artifact_id"]
@@ -592,17 +597,6 @@ def run_attribute_intent(
     }
 
     # ── Step 9: persist bundle as attribute_bundle artifact ───────────────────
-    step_id = new_step_id()
-    artifact_id = runtime.insert_artifact(
-        session_id, step_id, "attribute_bundle", f"{metric_name}_attribute_bundle", bundle
-    )
-    bundle["step_ref"] = {
-        "session_id": session_id,
-        "step_id": step_id,
-        "step_type": "attribute",
-    }
-    bundle["artifact_id"] = artifact_id
-
     summary = (
         f"attribute {metric_name}: {validation_status} "
         f"({len(dimensions)} dimension(s), "
@@ -619,8 +613,23 @@ def run_attribute_intent(
         "derived_logic_version": _DERIVED_LOGIC_VERSION,
         "projection_version": _PROJECTION_VERSION,
     }
-    runtime.insert_step(step_id, session_id, "attribute", summary, bundle, provenance=provenance)
-    return bundle
+    product_status = "succeeded" if validation_status == "attributable" else "needs_attention"
+    return build_derived_bundle_envelope(
+        runtime=runtime,
+        session_id=session_id,
+        step_type="attribute",
+        bundle_type="attribute_bundle",
+        artifact_name=f"{metric_name}_attribute_bundle",
+        aoi_artifacts=[
+            aoi_artifact_dump(compare_result),
+            *[aoi_artifact_dump(decompose_result) for decompose_result in decompose_results],
+        ],
+        summary=summary,
+        product_status=product_status,
+        issues=validation_issues,
+        legacy_bundle=bundle,
+        provenance=provenance,
+    )
 
 
 # ── Issue code remapping ───────────────────────────────────────────────────────

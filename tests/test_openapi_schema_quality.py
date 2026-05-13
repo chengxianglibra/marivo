@@ -38,6 +38,12 @@ SCHEMA_KEYS_THAT_MAKE_A_LEAF_TYPED = {
     "const",
 }
 
+ENVELOPE_OPEN_DICT_POINTERS = {
+    "/components/schemas/ExecutionEnvelope/properties/result/additionalProperties",
+    "/components/schemas/ExecutionEnvelope/properties/provenance/anyOf/0/additionalProperties",
+    "/components/schemas/ExecutionEnvelope/properties/product_metadata/anyOf/0/additionalProperties",
+}
+
 
 def _router_only_openapi() -> dict[str, Any]:
     app = FastAPI(title="Marivo Semantic Layer", version="0.1.0")
@@ -170,7 +176,9 @@ def _walk_schema(node: Any, pointer: str, violations: list[str]) -> None:
     if not isinstance(node, dict):
         return
 
-    if node.get("additionalProperties") is True:
+    if node.get("additionalProperties") is True and f"{pointer}/additionalProperties" not in (
+        ENVELOPE_OPEN_DICT_POINTERS
+    ):
         violations.append(f"{pointer}/additionalProperties: additionalProperties true is forbidden")
 
     if node.get("type") == "array":

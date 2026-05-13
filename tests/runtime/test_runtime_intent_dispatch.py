@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from unittest.mock import patch
 
+from marivo.contracts.generated import aoi
 from marivo.contracts.ids import (
     Action,
     ArtifactId,
@@ -147,6 +149,9 @@ class StubArtifactStore:
     def resolve_artifact_with_id(self, session_id, step_id):
         return None
 
+    def resolve_artifact_by_id(self, session_id, artifact_id):
+        return None
+
     def list_artifacts(self, session_id):
         return []
 
@@ -190,6 +195,80 @@ def _make_ports() -> object:
 # --- Helpers ---
 
 
+def _time_scope() -> aoi.TimeScope:
+    return aoi.TimeScope(
+        field="event_time",
+        start=datetime(2026, 5, 1, tzinfo=UTC),
+        end=datetime(2026, 5, 8, tzinfo=UTC),
+    )
+
+
+def _observe_request() -> aoi.Observe1:
+    return aoi.Observe1(
+        metric="view_time",
+        time_scope=_time_scope(),
+        filter=None,
+        granularity="day",
+        dimensions=None,
+    )
+
+
+def _compare_request() -> aoi.Compare:
+    return aoi.Compare(
+        left_artifact_id="artifact-left",
+        right_artifact_id="artifact-right",
+        compare_type="normal",
+    )
+
+
+def _decompose_request() -> aoi.Decompose:
+    return aoi.Decompose(
+        compare_artifact_id="artifact-compare",
+        dimension="region",
+        limit=10,
+    )
+
+
+def _correlate_request() -> aoi.Correlate:
+    return aoi.Correlate(
+        left_artifact_id="artifact-left",
+        right_artifact_id="artifact-right",
+        method="pearson",
+    )
+
+
+def _detect_request() -> aoi.Detect:
+    return aoi.Detect(
+        metric="view_time",
+        time_scope=_time_scope(),
+        granularity="day",
+        filter=None,
+        split_by=None,
+        profile=None,
+        sensitivity=None,
+        limit=10,
+    )
+
+
+def _test_request() -> aoi.Test:
+    return aoi.Test(
+        metric="view_time",
+        left=aoi.Slice(time_scope=_time_scope(), filter=None),
+        right=aoi.Slice(time_scope=_time_scope(), filter=None),
+        kind="numeric",
+        hypothesis=aoi.Hypothesis(
+            family="two_sample_mean",
+            alternative="two_sided",
+            alpha=0.05,
+            label=None,
+        ),
+    )
+
+
+def _forecast_request() -> aoi.Forecast:
+    return aoi.Forecast(source_artifact_id="artifact-source", horizon=7, profile=None)
+
+
 def _make_runtime() -> MarivoRuntime:
     ports = _make_ports()
     core = CoreEngine()
@@ -213,6 +292,22 @@ INTENT_METHODS = [
     "validate",
 ]
 
+ATOMIC_INTENT_REQUESTS = {
+    "observe": _observe_request,
+    "compare": _compare_request,
+    "decompose": _decompose_request,
+    "correlate": _correlate_request,
+    "detect": _detect_request,
+    "test": _test_request,
+    "forecast": _forecast_request,
+}
+
+DERIVED_INTENT_METHODS = [
+    "attribute",
+    "diagnose",
+    "validate",
+]
+
 
 def test_all_intent_methods_exist() -> None:
     rt = _make_runtime()
@@ -222,11 +317,20 @@ def test_all_intent_methods_exist() -> None:
 
 def test_intent_dispatches_to_intent_execution() -> None:
     rt = _make_runtime()
+    for intent_name, make_request in ATOMIC_INTENT_REQUESTS.items():
+        target = f"marivo.runtime.intent_execution.{intent_name}"
+        with patch(target, return_value={"status": "ok"}) as mock_fn:
+            request = make_request()
+            method = getattr(rt, intent_name)
+            result = method("sess_123", request)
+            mock_fn.assert_called_once_with(rt, SessionId("sess_123"), request)
+            assert result == {"status": "ok"}
+
     params = {
         "metric": "revenue",
         "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-02-01"},
     }
-    for intent_name in INTENT_METHODS:
+    for intent_name in DERIVED_INTENT_METHODS:
         target = f"marivo.runtime.intent_execution.{intent_name}"
         with patch(target, return_value={"status": "ok"}) as mock_fn:
             method = getattr(rt, intent_name)
@@ -238,15 +342,17 @@ def test_intent_dispatches_to_intent_execution() -> None:
 def test_observe_dispatches() -> None:
     rt = _make_runtime()
     with patch("marivo.runtime.intent_execution.observe", return_value={"status": "ok"}) as mock_fn:
-        rt.observe("s1", {"metric": "m"})
-        mock_fn.assert_called_once_with(rt, SessionId("s1"), {"metric": "m"})
+        request = _observe_request()
+        rt.observe("s1", request)
+        mock_fn.assert_called_once_with(rt, SessionId("s1"), request)
 
 
 def test_compare_dispatches() -> None:
     rt = _make_runtime()
     with patch("marivo.runtime.intent_execution.compare", return_value={"status": "ok"}) as mock_fn:
-        rt.compare("s1", {"metric": "m"})
-        mock_fn.assert_called_once_with(rt, SessionId("s1"), {"metric": "m"})
+        request = _compare_request()
+        rt.compare("s1", request)
+        mock_fn.assert_called_once_with(rt, SessionId("s1"), request)
 
 
 def test_decompose_dispatches() -> None:
@@ -254,8 +360,9 @@ def test_decompose_dispatches() -> None:
     with patch(
         "marivo.runtime.intent_execution.decompose", return_value={"status": "ok"}
     ) as mock_fn:
-        rt.decompose("s1", {"metric": "m"})
-        mock_fn.assert_called_once_with(rt, SessionId("s1"), {"metric": "m"})
+        request = _decompose_request()
+        rt.decompose("s1", request)
+        mock_fn.assert_called_once_with(rt, SessionId("s1"), request)
 
 
 def test_correlate_dispatches() -> None:
@@ -263,22 +370,25 @@ def test_correlate_dispatches() -> None:
     with patch(
         "marivo.runtime.intent_execution.correlate", return_value={"status": "ok"}
     ) as mock_fn:
-        rt.correlate("s1", {"metric": "m"})
-        mock_fn.assert_called_once_with(rt, SessionId("s1"), {"metric": "m"})
+        request = _correlate_request()
+        rt.correlate("s1", request)
+        mock_fn.assert_called_once_with(rt, SessionId("s1"), request)
 
 
 def test_detect_dispatches() -> None:
     rt = _make_runtime()
     with patch("marivo.runtime.intent_execution.detect", return_value={"status": "ok"}) as mock_fn:
-        rt.detect("s1", {"metric": "m"})
-        mock_fn.assert_called_once_with(rt, SessionId("s1"), {"metric": "m"})
+        request = _detect_request()
+        rt.detect("s1", request)
+        mock_fn.assert_called_once_with(rt, SessionId("s1"), request)
 
 
 def test_test_dispatches() -> None:
     rt = _make_runtime()
     with patch("marivo.runtime.intent_execution.test", return_value={"status": "ok"}) as mock_fn:
-        rt.test("s1", {"metric": "m"})
-        mock_fn.assert_called_once_with(rt, SessionId("s1"), {"metric": "m"})
+        request = _test_request()
+        rt.test("s1", request)
+        mock_fn.assert_called_once_with(rt, SessionId("s1"), request)
 
 
 def test_forecast_dispatches() -> None:
@@ -286,8 +396,9 @@ def test_forecast_dispatches() -> None:
     with patch(
         "marivo.runtime.intent_execution.forecast", return_value={"status": "ok"}
     ) as mock_fn:
-        rt.forecast("s1", {"metric": "m"})
-        mock_fn.assert_called_once_with(rt, SessionId("s1"), {"metric": "m"})
+        request = _forecast_request()
+        rt.forecast("s1", request)
+        mock_fn.assert_called_once_with(rt, SessionId("s1"), request)
 
 
 def test_attribute_dispatches() -> None:
@@ -321,5 +432,5 @@ def test_intent_returns_service_result() -> None:
     rt = _make_runtime()
     expected = {"step_id": "step_1", "status": "completed"}
     with patch("marivo.runtime.intent_execution.observe", return_value=expected) as mock_fn:
-        result = rt.observe("s1", {"metric": "m"})
+        result = rt.observe("s1", _observe_request())
         assert result is expected

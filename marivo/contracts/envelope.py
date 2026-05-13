@@ -45,11 +45,11 @@ class ExecutionEnvelope(BaseModel):
     product_metadata: dict[str, Any] | None = None
 
     def to_legacy_dict(self) -> dict[str, Any]:
-        """Produce the flat dict shape for backward-compatible serialization.
+        """Produce the flat dict shape for explicit migration callers only.
 
         Merges ``result`` keys at top level alongside step_ref and artifact_id.
-        This matches the current HTTP/MCP response contract until consumers
-        migrate to the structured envelope.
+        Target HTTP/MCP/runtime paths must return ``ExecutionEnvelope`` directly
+        and must not call this method.
 
         Note: ``result`` and ``product_metadata`` keys that collide with envelope
         fields (intent_type, step_type, step_ref, artifact_id) will silently

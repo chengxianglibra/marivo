@@ -65,7 +65,7 @@ McpStructuredObject = Annotated[
 
 
 class McpObservationRef(BaseModel):
-    """MCP-visible ref for compare inputs; mirrors CompareRequest ObservationRef."""
+    """Legacy MCP-visible ref shape retained for derived compatibility callers."""
 
     model_config = ConfigDict(extra="allow")
 

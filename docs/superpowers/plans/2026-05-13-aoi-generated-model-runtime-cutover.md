@@ -1,6 +1,6 @@
 # AOI Generated Model Runtime Cutover Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 将 Marivo atomic intent 的 HTTP/MCP/runtime/artifact commit 主路径切到 AOI generated model 约束，并用 `ExecutionEnvelope` 承载 Marivo 平台元数据。
 
@@ -98,7 +98,7 @@
 - Modify: `marivo/contracts/envelope.py`
 - Test: `tests/contracts/test_aoi_runtime_contract.py`
 
-- [ ] **Step 1: Write failing contract tests**
+- [x] **Step 1: Write failing contract tests**
 
 Create `tests/contracts/test_aoi_runtime_contract.py`:
 
@@ -213,7 +213,7 @@ def test_execution_envelope_keeps_aoi_artifact_under_result() -> None:
     assert dumped["provenance"] == {"query_hash": "abc"}
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run:
 
@@ -223,7 +223,7 @@ Run:
 
 Expected: FAIL with `ModuleNotFoundError: No module named 'marivo.contracts.aoi_runtime'`.
 
-- [ ] **Step 3: Implement AOI runtime contract module**
+- [x] **Step 3: Implement AOI runtime contract module**
 
 Create `marivo/contracts/aoi_runtime.py`:
 
@@ -319,7 +319,7 @@ Modify `marivo/contracts/envelope.py` docstring on `to_legacy_dict()`:
 
 Keep the method body unchanged in this task so old callers fail only when later tasks remove target-path usage.
 
-- [ ] **Step 4: Run contract test**
+- [x] **Step 4: Run contract test**
 
 Run:
 
@@ -329,7 +329,7 @@ Run:
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add marivo/contracts/aoi_runtime.py marivo/contracts/envelope.py tests/contracts/test_aoi_runtime_contract.py
@@ -347,7 +347,7 @@ git commit -m "feat: add AOI runtime contract layer"
 - Create: `tests/adapters/test_artifact_store_artifact_id_lookup.py`
 - Test: `tests/adapters/test_artifact_store_artifact_id_lookup.py`, `tests/adapters/test_file_artifact_store.py`
 
-- [ ] **Step 1: Write failing adapter tests**
+- [x] **Step 1: Write failing adapter tests**
 
 Create `tests/adapters/test_artifact_store_artifact_id_lookup.py`:
 
@@ -398,7 +398,7 @@ def test_resolve_artifact_by_id_is_session_scoped(tmp_path: Path) -> None:
     assert resolved is None
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run:
 
@@ -408,7 +408,7 @@ Run:
 
 Expected: FAIL with `AttributeError: 'FileArtifactStore' object has no attribute 'resolve_artifact_by_id'`.
 
-- [ ] **Step 3: Add port method and local adapter implementation**
+- [x] **Step 3: Add port method and local adapter implementation**
 
 Modify `marivo/ports/artifact_store.py`:
 
@@ -446,7 +446,7 @@ Add to `marivo/adapters/local/file_artifact_store.py`:
         return None
 ```
 
-- [ ] **Step 4: Add server adapter and runtime facade**
+- [x] **Step 4: Add server adapter and runtime facade**
 
 Add to `marivo/adapters/server/artifact_store.py`:
 
@@ -475,7 +475,7 @@ Add to `marivo/runtime/runtime.py` near existing artifact I/O methods:
         )
 ```
 
-- [ ] **Step 5: Update stub stores used by runtime tests**
+- [x] **Step 5: Update stub stores used by runtime tests**
 
 In these test files, add the method to each `StubArtifactStore`:
 
@@ -490,7 +490,7 @@ Use this exact method body:
         return None
 ```
 
-- [ ] **Step 6: Run artifact store tests**
+- [x] **Step 6: Run artifact store tests**
 
 Run:
 
@@ -500,7 +500,7 @@ Run:
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add marivo/ports/artifact_store.py marivo/adapters/local/file_artifact_store.py marivo/adapters/server/artifact_store.py marivo/runtime/runtime.py tests/adapters/test_artifact_store_artifact_id_lookup.py tests/adapters/test_file_artifact_store.py tests/runtime/test_runtime_intent_dispatch.py tests/runtime/test_runtime_construction.py tests/runtime/test_runtime_session_ops.py
@@ -514,7 +514,7 @@ git commit -m "feat: resolve artifacts by AOI artifact id"
 - Create: `tests/runtime/test_aoi_lowering.py`
 - Test: `tests/runtime/test_aoi_lowering.py`
 
-- [ ] **Step 1: Write failing lowering tests**
+- [x] **Step 1: Write failing lowering tests**
 
 Create `tests/runtime/test_aoi_lowering.py`:
 
@@ -576,7 +576,7 @@ def test_lower_forecast_request_uses_source_artifact_id() -> None:
     assert params == {"source_artifact_id": "art_obs", "horizon": 7, "profile": "level"}
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run:
 
@@ -586,7 +586,7 @@ Run:
 
 Expected: FAIL with `ModuleNotFoundError: No module named 'marivo.runtime.aoi_lowering'`.
 
-- [ ] **Step 3: Implement lowering module**
+- [x] **Step 3: Implement lowering module**
 
 Create `marivo/runtime/aoi_lowering.py`:
 
@@ -669,7 +669,7 @@ def lower_aoi_request(intent_type: str, request: AoiAtomicRequest) -> dict[str, 
     raise TypeError(f"Unsupported AOI request type: {request.__class__.__name__}")
 ```
 
-- [ ] **Step 4: Run lowering tests**
+- [x] **Step 4: Run lowering tests**
 
 Run:
 
@@ -679,7 +679,7 @@ Run:
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add marivo/runtime/aoi_lowering.py tests/runtime/test_aoi_lowering.py
@@ -695,7 +695,7 @@ git commit -m "feat: lower AOI requests for runtime runners"
 - Create: `tests/runtime/test_aoi_intent_execution.py`
 - Test: `tests/runtime/test_aoi_intent_execution.py`, `tests/runtime/test_runtime_intent_dispatch.py`
 
-- [ ] **Step 1: Write failing typed boundary tests**
+- [x] **Step 1: Write failing typed boundary tests**
 
 Create `tests/runtime/test_aoi_intent_execution.py`:
 
@@ -754,7 +754,7 @@ def test_registry_mismatch_fails_before_runner(monkeypatch: pytest.MonkeyPatch) 
     runner.assert_not_called()
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run:
 
@@ -764,7 +764,7 @@ Run:
 
 Expected: FAIL because `intent_execution.observe()` currently expects `params: dict[str, Any]`.
 
-- [ ] **Step 3: Implement typed dispatch**
+- [x] **Step 3: Implement typed dispatch**
 
 Modify `marivo/runtime/intent_execution.py`:
 
@@ -840,7 +840,7 @@ def _run_derived(
     return DERIVED_RUNNERS[intent_type](runtime, str(session_id), params)
 ```
 
-- [ ] **Step 4: Update runtime facade signatures**
+- [x] **Step 4: Update runtime facade signatures**
 
 Modify atomic methods in `marivo/runtime/runtime.py`:
 
@@ -859,7 +859,7 @@ Add import under `TYPE_CHECKING` or runtime import:
 from marivo.contracts.aoi_runtime import AoiAtomicRequest
 ```
 
-- [ ] **Step 5: Update old dispatch tests**
+- [x] **Step 5: Update old dispatch tests**
 
 In `tests/runtime/test_runtime_intent_dispatch.py`, change atomic dispatch calls from dict to generated AOI request objects. Use this helper:
 
@@ -889,7 +889,7 @@ rt.observe("s1", _observe_request())
 
 Do not update derived calls in this task.
 
-- [ ] **Step 6: Run runtime dispatch tests**
+- [x] **Step 6: Run runtime dispatch tests**
 
 Run:
 
@@ -899,7 +899,7 @@ Run:
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add marivo/runtime/intent_execution.py marivo/runtime/runtime.py tests/runtime/test_aoi_intent_execution.py tests/runtime/test_runtime_intent_dispatch.py
@@ -916,7 +916,7 @@ git commit -m "feat: dispatch atomic intents through AOI requests"
 - Modify: `tests/test_envelope.py`
 - Test: `tests/local/test_commit_step_result.py`, `tests/test_envelope.py`
 
-- [ ] **Step 1: Write failing helper tests**
+- [x] **Step 1: Write failing helper tests**
 
 Append to `tests/local/test_commit_step_result.py`:
 
@@ -965,7 +965,7 @@ def test_commit_aoi_artifact_result_rejects_non_aoi_payload() -> None:
     runtime.insert_step.assert_not_called()
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run:
 
@@ -975,7 +975,7 @@ Run:
 
 Expected: FAIL with `ImportError` for `commit_aoi_artifact_result`.
 
-- [ ] **Step 3: Implement AOI commit helper**
+- [x] **Step 3: Implement AOI commit helper**
 
 Add to `marivo/runtime/intents/_helpers.py`:
 
@@ -1041,7 +1041,7 @@ def commit_aoi_artifact_result(
 
 Before moving runners to this helper, keep `commit_step_result()` available for derived migration.
 
-- [ ] **Step 4: Rewrite envelope tests away from legacy target assertions**
+- [x] **Step 4: Rewrite envelope tests away from legacy target assertions**
 
 In `tests/test_envelope.py`, remove tests named:
 
@@ -1064,7 +1064,7 @@ Add:
         self.assertNotIn("value", dumped)
 ```
 
-- [ ] **Step 5: Run helper and envelope tests**
+- [x] **Step 5: Run helper and envelope tests**
 
 Run:
 
@@ -1074,7 +1074,7 @@ Run:
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add marivo/runtime/intents/_helpers.py tests/local/test_commit_step_result.py tests/test_envelope.py
@@ -1093,7 +1093,7 @@ git commit -m "feat: validate AOI artifacts before envelope return"
 - Create: `tests/runtime/test_aoi_artifact_references.py`
 - Test: `tests/runtime/test_aoi_artifact_references.py`
 
-- [ ] **Step 1: Write failing artifact reference tests**
+- [x] **Step 1: Write failing artifact reference tests**
 
 Create `tests/runtime/test_aoi_artifact_references.py`:
 
@@ -1143,7 +1143,7 @@ def test_forecast_rejects_missing_artifact_id() -> None:
         )
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run:
 
@@ -1153,7 +1153,7 @@ Run:
 
 Expected: FAIL because `run_forecast_intent()` currently requires `source_ref.step_id`.
 
-- [ ] **Step 3: Update forecast to artifact-id request path**
+- [x] **Step 3: Update forecast to artifact-id request path**
 
 In `marivo/runtime/intents/forecast.py`, replace source ref extraction with:
 
@@ -1176,7 +1176,7 @@ Replace artifact resolution block with:
 
 Remove the old `source_ref.step_id`, `source_ref.artifact_id`, and `source_ref.session_id` validation from the AOI path.
 
-- [ ] **Step 4: Apply same artifact-id resolution pattern to compare/decompose/correlate/test**
+- [x] **Step 4: Apply same artifact-id resolution pattern to compare/decompose/correlate/test**
 
 Use these parameter names:
 
@@ -1223,7 +1223,7 @@ For correlate:
         raise ValueError("correlate: INVALID_ARGUMENT - left_artifact_id and right_artifact_id are required")
 ```
 
-- [ ] **Step 5: Update API tests that seed refs**
+- [x] **Step 5: Update API tests that seed refs**
 
 In `tests/test_intent_api.py`, when constructing downstream requests, replace step-ref payloads:
 
@@ -1247,7 +1247,7 @@ For forecast:
 
 Keep a negative test for old cross-session step refs only if it targets derived compatibility endpoints. Atomic AOI endpoints should now reject unknown fields through generated model validation.
 
-- [ ] **Step 6: Run focused reference tests**
+- [x] **Step 6: Run focused reference tests**
 
 Run:
 
@@ -1257,7 +1257,7 @@ Run:
 
 Expected: PASS after tests are aligned to artifact-id references.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add marivo/runtime/intents/compare.py marivo/runtime/intents/decompose.py marivo/runtime/intents/correlate.py marivo/runtime/intents/forecast.py marivo/runtime/intents/test.py tests/runtime/test_aoi_artifact_references.py tests/test_intent_api.py
@@ -1273,7 +1273,7 @@ git commit -m "feat: resolve downstream AOI refs by artifact id"
 - Modify: `tests/test_openapi_schema_quality.py`
 - Test: `tests/transports/test_http_aoi_intents.py`, `tests/test_openapi_schema_quality.py`
 
-- [ ] **Step 1: Write failing HTTP tests**
+- [x] **Step 1: Write failing HTTP tests**
 
 Create `tests/transports/test_http_aoi_intents.py`:
 
@@ -1343,7 +1343,7 @@ def test_http_observe_rejects_old_time_scope_shape(tmp_path) -> None:
     assert response.status_code == 422
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run:
 
@@ -1353,7 +1353,7 @@ Run:
 
 Expected: FAIL because HTTP still uses `ObserveRequest` / `ObserveResponse`.
 
-- [ ] **Step 3: Add HTTP envelope model**
+- [x] **Step 3: Add HTTP envelope model**
 
 In `marivo/transports/http/models.py`, add a transport response model only for envelope serialization:
 
@@ -1363,7 +1363,7 @@ from marivo.contracts.envelope import ExecutionEnvelope
 
 Do not create new atomic response models. Atomic routes should return `ExecutionEnvelope` directly.
 
-- [ ] **Step 4: Switch atomic route request models to AOI generated models**
+- [x] **Step 4: Switch atomic route request models to AOI generated models**
 
 In `marivo/transports/http/sessions.py`, import:
 
@@ -1396,7 +1396,7 @@ Apply the same target response model for:
 
 Remove `_assert_same_session()` calls for atomic AOI endpoints because session scoping now happens in `resolve_artifact_by_id(session_id, artifact_id)` and generated requests no longer carry `session_id`.
 
-- [ ] **Step 5: Update `_run_intent` type**
+- [x] **Step 5: Update `_run_intent` type**
 
 In `marivo/transports/http/sessions.py`, change:
 
@@ -1420,7 +1420,7 @@ Call:
 
 Do not call `payload.model_dump()` for atomic routes.
 
-- [ ] **Step 6: Run HTTP tests**
+- [x] **Step 6: Run HTTP tests**
 
 Run:
 
@@ -1430,7 +1430,7 @@ Run:
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add marivo/transports/http/sessions.py marivo/transports/http/models.py tests/transports/test_http_aoi_intents.py tests/test_openapi_schema_quality.py
@@ -1445,7 +1445,7 @@ git commit -m "feat: expose AOI atomic HTTP envelope contract"
 - Create: `tests/transports/test_mcp_aoi_adapter.py`
 - Test: `tests/transports/test_mcp_aoi_adapter.py`
 
-- [ ] **Step 1: Write failing MCP adapter tests**
+- [x] **Step 1: Write failing MCP adapter tests**
 
 Create `tests/transports/test_mcp_aoi_adapter.py`:
 
@@ -1489,7 +1489,7 @@ def test_mcp_compare_dto_converts_to_aoi_request() -> None:
     assert request.right_artifact_id == "art_right"
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run:
 
@@ -1499,7 +1499,7 @@ Run:
 
 Expected: FAIL because conversion helpers do not exist.
 
-- [ ] **Step 3: Add MCP conversion helpers**
+- [x] **Step 3: Add MCP conversion helpers**
 
 Add to `marivo/transports/mcp/tools/intents.py`:
 
@@ -1559,7 +1559,7 @@ def to_aoi_forecast_request(*, source_artifact_id: str, horizon: int, profile: s
     )
 ```
 
-- [ ] **Step 4: Update MCP tool calls to pass AOI requests**
+- [x] **Step 4: Update MCP tool calls to pass AOI requests**
 
 In `register_observe`, replace `params` construction with:
 
@@ -1601,7 +1601,7 @@ In `register_compare`, change arguments to artifact ids:
 
 Update `decompose` and `forecast` similarly. Leave `attribute`, `diagnose`, and `validate` on DTO dicts until Task 9.
 
-- [ ] **Step 5: Verify async bridge supports new keyword name**
+- [x] **Step 5: Verify async bridge supports new keyword name**
 
 Open `marivo/transports/mcp/tools/_async_bridge.py`. If `call_runtime()` only accepts `params`, change it to forward arbitrary keyword arguments:
 
@@ -1616,7 +1616,7 @@ async def call_runtime(fn: Callable[..., Any], **kwargs: Any) -> dict[str, Any]:
         return {"data": None, "error": {"type": exc.__class__.__name__, "message": str(exc)}}
 ```
 
-- [ ] **Step 6: Run MCP adapter tests**
+- [x] **Step 6: Run MCP adapter tests**
 
 Run:
 
@@ -1626,7 +1626,7 @@ Run:
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add marivo/transports/mcp/tools/intents.py marivo/transports/mcp/tools/schemas.py marivo/transports/mcp/tools/_async_bridge.py tests/transports/test_mcp_aoi_adapter.py
@@ -1642,7 +1642,7 @@ git commit -m "feat: convert MCP atomic DTOs to AOI requests"
 - Create: `tests/runtime/test_derived_aoi_envelopes.py`
 - Test: `tests/runtime/test_derived_aoi_envelopes.py`, existing derived tests that remain in scope
 
-- [ ] **Step 1: Write failing derived envelope tests**
+- [x] **Step 1: Write failing derived envelope tests**
 
 Create `tests/runtime/test_derived_aoi_envelopes.py`:
 
@@ -1726,7 +1726,7 @@ def test_validate_maps_orchestration_failure_to_envelope_failure(monkeypatch: py
     assert result["product_metadata"]["issues"][0]["code"] == "derived_orchestration_failed"
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run:
 
@@ -1736,7 +1736,7 @@ Run:
 
 Expected: FAIL because derived intents still return old bundle contracts.
 
-- [ ] **Step 3: Implement derived bundle shape**
+- [x] **Step 3: Implement derived bundle shape**
 
 In each derived runner, return this envelope-compatible dict shape:
 
@@ -1790,7 +1790,7 @@ Apply equivalent `bundle_type` values:
 - `diagnosis_bundle`
 - `validation_bundle`
 
-- [ ] **Step 4: Run derived focused tests**
+- [x] **Step 4: Run derived focused tests**
 
 Run:
 
@@ -1800,7 +1800,7 @@ Run:
 
 Expected: PASS after old derived assertions are rewritten to bundle/envelope semantics.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add marivo/runtime/intents/attribute.py marivo/runtime/intents/diagnose.py marivo/runtime/intents/validate.py tests/runtime/test_derived_aoi_envelopes.py tests/test_intent_attribute.py tests/test_intent_validate.py
@@ -1817,7 +1817,7 @@ git commit -m "feat: return derived AOI bundle envelopes"
 - Modify: `marivo/transports/http/sessions.py`
 - Test: focused HTTP/runtime suites
 
-- [ ] **Step 1: Search for legacy target-path usage**
+- [x] **Step 1: Search for legacy target-path usage**
 
 Run:
 
@@ -1830,7 +1830,7 @@ Expected remaining allowed matches:
 - `to_legacy_dict()` only in `marivo/contracts/envelope.py`.
 - Old request/response classes only if they are no longer used by atomic route decorators or target-state tests.
 
-- [ ] **Step 2: Rewrite old HTTP model tests**
+- [x] **Step 2: Rewrite old HTTP model tests**
 
 In `tests/test_intent_api.py`, delete model-only tests for removed hand-written atomic request classes and replace with generated AOI validation tests:
 
@@ -1860,7 +1860,7 @@ def test_aoi_compare_requires_artifact_ids() -> None:
         aoi.Compare.model_validate({"left_ref": {"step_id": "step_1"}, "right_ref": {"step_id": "step_2"}})
 ```
 
-- [ ] **Step 3: Remove atomic imports from HTTP models if unused**
+- [x] **Step 3: Remove atomic imports from HTTP models if unused**
 
 In `marivo/transports/http/models.py`, remove atomic request/response classes that are no longer imported by any runtime code:
 
@@ -1874,7 +1874,7 @@ In `marivo/transports/http/models.py`, remove atomic request/response classes th
 
 Keep session, state, runtime-status, proposition, and derived compatibility models that are still used.
 
-- [ ] **Step 4: Run legacy usage search again**
+- [x] **Step 4: Run legacy usage search again**
 
 Run:
 
@@ -1884,7 +1884,7 @@ rg -n "to_legacy_dict\\(|ObserveRequest|ObserveResponse|CompareRequest|CompareRe
 
 Expected: no target-path usage outside explicitly retained derived compatibility or removed-class references.
 
-- [ ] **Step 5: Run focused suites**
+- [x] **Step 5: Run focused suites**
 
 Run:
 
@@ -1894,7 +1894,7 @@ Run:
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add marivo/transports/http/models.py marivo/transports/http/sessions.py tests/test_intent_api.py tests/runtime/test_runtime_intent_dispatch.py tests/test_openapi_schema_quality.py
@@ -1908,7 +1908,7 @@ git commit -m "refactor: remove legacy atomic intent contract path"
 - Modify: affected API docs if `rg -n "/sessions/\\{session_id\\}/intents" docs marivo` shows stale examples
 - Test: full focused and repository validation
 
-- [ ] **Step 1: Run stale doc search**
+- [x] **Step 1: Run stale doc search**
 
 Run:
 
@@ -1918,7 +1918,7 @@ rg -n "left_ref|right_ref|source_ref|compare_ref|step_id|ObserveRequest|CompareR
 
 Expected: stale atomic examples are identified; step refs may remain only in non-atomic session/state docs or migration notes.
 
-- [ ] **Step 2: Update docs to AOI artifact-id examples**
+- [x] **Step 2: Update docs to AOI artifact-id examples**
 
 In `docs/superpowers/specs/2026-05-13-aoi-generated-model-runtime-cutover-design.md`, add this implementation note under HTTP boundary:
 
@@ -1935,7 +1935,7 @@ Implementation note:
 - Step refs remain Marivo execution metadata and are not valid AOI atomic request fields.
 ```
 
-- [ ] **Step 3: Run focused verification**
+- [x] **Step 3: Run focused verification**
 
 Run:
 
@@ -1945,7 +1945,7 @@ Run:
 
 Expected: PASS.
 
-- [ ] **Step 4: Run repository validation**
+- [x] **Step 4: Run repository validation**
 
 Run:
 
@@ -1955,7 +1955,7 @@ make test
 
 Expected: PASS. If unrelated pre-existing failures appear, record the exact failing test names and rerun the focused AOI suites to prove this change set.
 
-- [ ] **Step 5: Run typecheck**
+- [x] **Step 5: Run typecheck**
 
 Run:
 
@@ -1965,7 +1965,7 @@ make typecheck
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit docs and final cleanup**
+- [x] **Step 6: Commit docs and final cleanup**
 
 ```bash
 git add docs/superpowers/specs/2026-05-13-aoi-generated-model-runtime-cutover-design.md docs tests marivo

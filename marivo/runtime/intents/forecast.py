@@ -125,29 +125,14 @@ def run_forecast_intent(
     p = params or {}
     now = datetime.now(UTC).isoformat()
 
-    # ── Extract source_ref ─────────────────────────────────────────────────────
-    source_ref_raw: dict[str, Any] = p.get("source_ref") or {}
-    src_step_id: str = source_ref_raw.get("step_id") or ""
-    src_session_id: str = source_ref_raw.get("session_id") or session_id
-    src_artifact_id: str | None = source_ref_raw.get("artifact_id") or None
-    src_step_type: str | None = source_ref_raw.get("step_type") or None
-    src_obs_type: str | None = source_ref_raw.get("observation_type") or None
-
-    # ── Basic ref validation ───────────────────────────────────────────────────
-    if not src_step_id:
-        raise ValueError("forecast: INVALID_ARGUMENT - source_ref.step_id is required")
-
-    if src_step_type != "observe":
-        raise ValueError(
-            f"forecast: INVALID_ARGUMENT - source_ref.step_type must be 'observe', "
-            f"got {src_step_type!r}"
-        )
-
-    if src_session_id != session_id:
-        raise ValueError(
-            "forecast: CROSS_SESSION_NOT_ALLOWED - "
-            "source_ref.session_id must match the current session"
-        )
+    source_artifact_id_raw = p.get("source_artifact_id")
+    uses_aoi_artifact_ref = source_artifact_id_raw is not None or "source_ref" not in p
+    source_artifact_id = (
+        source_artifact_id_raw.strip() if isinstance(source_artifact_id_raw, str) else ""
+    )
+    src_step_id = ""
+    src_obs_type: str | None = None
+    resolved_artifact_id = source_artifact_id
 
     # ── Request parameter validation ───────────────────────────────────────────
     horizon_raw = p.get("horizon")
@@ -192,19 +177,50 @@ def run_forecast_intent(
             )
 
     # ── Resolve source artifact ────────────────────────────────────────────────
-    resolved = runtime.resolve_artifact_with_id(session_id, src_step_id)
-    if resolved is None:
-        raise ValueError(
-            f"forecast: STEP_NOT_FOUND - no committed artifact for source_ref step '{src_step_id}'"
-        )
-    resolved_artifact_id, source_artifact = resolved
+    if uses_aoi_artifact_ref:
+        if not source_artifact_id:
+            raise ValueError("forecast: INVALID_ARGUMENT - source_artifact_id is required")
+        source_artifact = runtime.resolve_artifact_by_id(session_id, source_artifact_id)
+        if source_artifact is None:
+            raise ValueError(
+                "forecast: ARTIFACT_NOT_FOUND - no committed artifact for "
+                f"source_artifact_id '{source_artifact_id}'"
+            )
+    else:
+        source_ref_raw: dict[str, Any] = p.get("source_ref") or {}
+        src_step_id = source_ref_raw.get("step_id") or ""
+        src_session_id: str = source_ref_raw.get("session_id") or session_id
+        src_artifact_id: str | None = source_ref_raw.get("artifact_id") or None
+        src_step_type: str | None = source_ref_raw.get("step_type") or None
+        src_obs_type = source_ref_raw.get("observation_type") or None
 
-    # ── Validate artifact_id matches ref ──────────────────────────────────────
-    if src_artifact_id is not None and src_artifact_id != resolved_artifact_id:
-        raise ValueError(
-            "forecast: INVALID_ARGUMENT - source_ref.artifact_id does not match the committed "
-            f"observe artifact (expected '{resolved_artifact_id}', got '{src_artifact_id}')"
-        )
+        if not src_step_id:
+            raise ValueError("forecast: INVALID_ARGUMENT - source_ref.step_id is required")
+
+        if src_step_type != "observe":
+            raise ValueError(
+                f"forecast: INVALID_ARGUMENT - source_ref.step_type must be 'observe', "
+                f"got {src_step_type!r}"
+            )
+
+        if src_session_id != session_id:
+            raise ValueError(
+                "forecast: CROSS_SESSION_NOT_ALLOWED - "
+                "source_ref.session_id must match the current session"
+            )
+
+        resolved = runtime.resolve_artifact_with_id(session_id, src_step_id)
+        if resolved is None:
+            raise ValueError(
+                f"forecast: STEP_NOT_FOUND - no committed artifact for source_ref step '{src_step_id}'"
+            )
+        resolved_artifact_id, source_artifact = resolved
+
+        if src_artifact_id is not None and src_artifact_id != resolved_artifact_id:
+            raise ValueError(
+                "forecast: INVALID_ARGUMENT - source_ref.artifact_id does not match the committed "
+                f"observe artifact (expected '{resolved_artifact_id}', got '{src_artifact_id}')"
+            )
 
     # ── Validate observation_type ─────────────────────────────────────────────
     artifact_obs_type: str | None = source_artifact.get("observation_type")

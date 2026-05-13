@@ -49,8 +49,10 @@ class MetadataArtifactStoreAdapter:
         *,
         lifecycle: str = "committed",
         artifact_schema_version: str | None = None,
+        artifact_id: ArtifactId | None = None,
     ) -> ArtifactId:
-        artifact_id = f"art_{uuid4().hex[:12]}"
+        if artifact_id is None:
+            artifact_id = ArtifactId(f"art_{uuid4().hex[:12]}")
         self._metadata.execute(
             """
             INSERT INTO artifacts
@@ -69,7 +71,7 @@ class MetadataArtifactStoreAdapter:
                 artifact_schema_version,
             ],
         )
-        return ArtifactId(artifact_id)
+        return artifact_id
 
     def commit_artifact_with_extraction(
         self,
@@ -81,6 +83,7 @@ class MetadataArtifactStoreAdapter:
         *,
         step_type: str | None = None,
         artifact_schema_version: str | None = None,
+        artifact_id: ArtifactId | None = None,
         con: Any | None = None,
     ) -> ArtifactId:
         """Canonical commit boundary for mandatory-extraction artifacts.
@@ -105,18 +108,19 @@ class MetadataArtifactStoreAdapter:
         if extractor is None:
             # Non-mandatory family: insert as committed directly.
             if con is not None:
-                self._insert_artifact_on_con(
-                    con,
-                    session_id,
-                    step_id,
-                    artifact_type,
-                    name,
-                    content,
-                    "committed",
-                    artifact_schema_version,
+                return ArtifactId(
+                    self._insert_artifact_on_con(
+                        con,
+                        session_id,
+                        step_id,
+                        artifact_type,
+                        name,
+                        content,
+                        "committed",
+                        artifact_schema_version,
+                        artifact_id=artifact_id,
+                    )
                 )
-                # Caller commits
-                return ArtifactId(f"art_{uuid4().hex[:12]}")
             return self.insert_artifact(
                 session_id,
                 step_id,
@@ -125,10 +129,12 @@ class MetadataArtifactStoreAdapter:
                 content,
                 lifecycle="committed",
                 artifact_schema_version=artifact_schema_version,
+                artifact_id=artifact_id,
             )
 
         # Mandatory extraction family
-        artifact_id = f"art_{uuid4().hex[:12]}"
+        if artifact_id is None:
+            artifact_id = ArtifactId(f"art_{uuid4().hex[:12]}")
         from marivo.core.evidence.canonical_finding import StepRef
 
         effective_step_ref = StepRef(
@@ -233,9 +239,12 @@ class MetadataArtifactStoreAdapter:
         content: Any,
         lifecycle: str,
         artifact_schema_version: str | None,
+        *,
+        artifact_id: ArtifactId | None = None,
     ) -> str:
         """INSERT an artifact row on an existing connection (no commit)."""
-        artifact_id = f"art_{uuid4().hex[:12]}"
+        if artifact_id is None:
+            artifact_id = ArtifactId(f"art_{uuid4().hex[:12]}")
         self._metadata.execute_sql(
             con,
             """
@@ -320,6 +329,19 @@ class MetadataArtifactStoreAdapter:
         if row is None:
             return None
         return ArtifactId(str(row["artifact_id"])), json.loads(row["content_json"])
+
+    def resolve_artifact_by_id(
+        self,
+        session_id: SessionId,
+        artifact_id: ArtifactId,
+    ) -> dict[str, Any] | None:
+        row = self._metadata.query_one(
+            "SELECT content_json FROM artifacts "
+            "WHERE artifact_id = ? AND session_id = ? AND lifecycle = 'committed' "
+            "ORDER BY created_at DESC LIMIT 1",
+            [artifact_id, session_id],
+        )
+        return json.loads(row["content_json"]) if row else None
 
     def list_artifacts(
         self,

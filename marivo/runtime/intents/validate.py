@@ -18,7 +18,11 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
-from marivo.core.intent.primitives import new_step_id
+from marivo.runtime.intents.derived_envelopes import (
+    aoi_artifact_dump,
+    build_derived_bundle_envelope,
+    build_failed_derived_bundle_envelope,
+)
 from marivo.runtime.intents.normalization import normalize_metric_ref
 from marivo.runtime.intents.observe import run_observe_intent
 from marivo.runtime.intents.test import run_test_intent
@@ -231,7 +235,14 @@ def run_validate_intent(
             },
         )
     except Exception as exc:
-        raise ValueError(f"validate: TEST_FAILED - hypothesis test failed: {exc}") from exc
+        return build_failed_derived_bundle_envelope(
+            runtime=runtime,
+            session_id=session_id,
+            step_type="validate",
+            bundle_type="validation_bundle",
+            artifact_name=f"{metric_name}_validation_bundle",
+            exc=exc,
+        )
 
     test_step_id: str = test_result["step_ref"]["step_id"]
     test_artifact_id: str = test_result["artifact_id"]
@@ -289,7 +300,6 @@ def run_validate_intent(
 
     # ── Step 7: assemble validation_bundle ────────────────────────────────────
     now = datetime.now(UTC).isoformat()
-    step_id = new_step_id()
 
     left_resolved: dict[str, Any] = {
         "time_scope": left_obs.get("time_scope") or left_time_scope,
@@ -355,19 +365,6 @@ def run_validate_intent(
         f"{decision_label} (sample_kind={resolved_sample_kind})"
     )
 
-    # NOTE: Cannot use commit_step_result() here because this derived intent
-    # uses raw insert_artifact (no extraction boundary) and patches the
-    # artifact_id into the bundle between insert and step creation.
-    artifact_id = runtime.insert_artifact(
-        session_id, step_id, "validation_bundle", artifact_name, bundle
-    )
-    bundle["step_ref"] = {
-        "session_id": session_id,
-        "step_id": step_id,
-        "step_type": "validate",
-    }
-    bundle["artifact_id"] = artifact_id
-
     provenance: dict[str, Any] = {
         "left_step_id": left_step_id,
         "right_step_id": right_step_id,
@@ -377,5 +374,17 @@ def run_validate_intent(
         "derived_logic_version": _DERIVED_LOGIC_VERSION,
         "projection_version": _PROJECTION_VERSION,
     }
-    runtime.insert_step(step_id, session_id, "validate", summary, bundle, provenance=provenance)
-    return bundle
+    product_status = "succeeded" if validation_status == "validated" else "needs_attention"
+    return build_derived_bundle_envelope(
+        runtime=runtime,
+        session_id=session_id,
+        step_type="validate",
+        bundle_type="validation_bundle",
+        artifact_name=artifact_name,
+        aoi_artifacts=[aoi_artifact_dump(test_result)],
+        summary=summary,
+        product_status=product_status,
+        issues=bundle_issues,
+        legacy_bundle=bundle,
+        provenance=provenance,
+    )

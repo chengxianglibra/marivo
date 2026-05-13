@@ -36,23 +36,34 @@ def run_decompose_intent(
     p = params or {}
 
     compare_ref_raw: dict[str, Any] = p.get("compare_ref") or {}
-    compare_step_id: str = compare_ref_raw.get("step_id") or ""
-    compare_session_id: str = compare_ref_raw.get("session_id") or session_id
+    compare_artifact_id_raw = p.get("compare_artifact_id")
+    compare_artifact_id = (
+        compare_artifact_id_raw.strip() if isinstance(compare_artifact_id_raw, str) else ""
+    )
+    uses_aoi_artifact_ref = bool(compare_artifact_id) or "compare_ref" not in p
+    compare_step_id: str = "" if uses_aoi_artifact_ref else compare_ref_raw.get("step_id") or ""
+    compare_session_id: str = (
+        session_id if uses_aoi_artifact_ref else compare_ref_raw.get("session_id") or session_id
+    )
     dimension: str = (p.get("dimension") or "").strip()
     method: str = p.get("method") or "delta_share"
 
     # ── Input validation ──────────────────────────────────────────────────────
-    if not compare_step_id:
+    if uses_aoi_artifact_ref:
+        if not compare_artifact_id:
+            raise ValueError("decompose: INVALID_ARGUMENT - compare_artifact_id is required")
+    elif not compare_step_id:
         raise ValueError("decompose: compare_ref.step_id is required")
 
-    ref_step_type = compare_ref_raw.get("step_type")
-    if ref_step_type is not None and ref_step_type != "compare":
-        raise ValueError(
-            f"decompose: INVALID_ARGUMENT - compare_ref.step_type must be 'compare', "
-            f"got '{ref_step_type}'"
-        )
+    if not uses_aoi_artifact_ref:
+        ref_step_type = compare_ref_raw.get("step_type")
+        if ref_step_type is not None and ref_step_type != "compare":
+            raise ValueError(
+                f"decompose: INVALID_ARGUMENT - compare_ref.step_type must be 'compare', "
+                f"got '{ref_step_type}'"
+            )
 
-    if compare_session_id != session_id:
+    if not uses_aoi_artifact_ref and compare_session_id != session_id:
         raise ValueError(
             "decompose: Cross-session ref not allowed - compare_ref.session_id must match "
             "the current session"
@@ -67,10 +78,21 @@ def run_decompose_intent(
         )
 
     # ── Resolve compare artifact ──────────────────────────────────────────────
-    compare_artifact = runtime.resolve_artifact_for_ref(compare_session_id, compare_step_id)
-    if compare_artifact is None:
-        raise ValueError(
-            f"decompose: STEP_NOT_FOUND - no committed artifact for step '{compare_step_id}'"
+    if uses_aoi_artifact_ref:
+        compare_artifact = runtime.resolve_artifact_by_id(session_id, compare_artifact_id)
+        if compare_artifact is None:
+            raise ValueError(
+                "decompose: ARTIFACT_NOT_FOUND - no committed artifact for "
+                f"compare_artifact_id '{compare_artifact_id}'"
+            )
+    else:
+        compare_artifact = runtime.resolve_artifact_for_ref(compare_session_id, compare_step_id)
+        if compare_artifact is None:
+            raise ValueError(
+                f"decompose: STEP_NOT_FOUND - no committed artifact for step '{compare_step_id}'"
+            )
+        compare_artifact_id = (
+            runtime.resolve_artifact_id_for_step(session_id, compare_step_id) or ""
         )
 
     normalized_compare = _normalize_decompose_compare_input(compare_artifact)
@@ -242,9 +264,6 @@ def run_decompose_intent(
     qualified_table = qualified.get(table, table)
 
     # ── Fetch artifact IDs for canonical refs ─────────────────────────────────
-    compare_artifact_id: str | None = runtime.resolve_artifact_id_for_step(
-        session_id, compare_step_id
-    )
     left_obs_artifact_id: str | None = runtime.resolve_artifact_id_for_step(
         session_id, left_obs_step_id
     )

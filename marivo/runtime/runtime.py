@@ -3,8 +3,9 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
+from marivo.contracts.aoi_runtime import AoiAtomicRequest
 from marivo.contracts.errors import ErrorCode, NotFoundError, ValidationError
-from marivo.contracts.ids import ModelId, SessionId, StepId, UserId
+from marivo.contracts.ids import ArtifactId, ModelId, SessionId, StepId, UserId
 from marivo.contracts.semantic import ModelSummary, SemanticModel
 from marivo.contracts.session import SessionEvent, SessionState
 from marivo.runtime import intent_execution
@@ -145,6 +146,12 @@ class MarivoRuntime:
         artifact_id, content = result
         return str(artifact_id), content
 
+    def resolve_artifact_by_id(self, session_id: str, artifact_id: str) -> dict[str, Any] | None:
+        """Return committed artifact content for a session-scoped artifact_id."""
+        return self._ports.artifact_store.resolve_artifact_by_id(
+            SessionId(session_id), ArtifactId(artifact_id)
+        )
+
     def commit_artifact_with_extraction(self, *args: Any, **kwargs: Any) -> str:
         """Canonical commit boundary for mandatory-extraction artifacts.
 
@@ -283,26 +290,26 @@ class MarivoRuntime:
 
     # --- Intent use-cases (delegated to intent_execution) ---
 
-    def observe(self, session_id: str, params: dict[str, Any]) -> dict[str, Any]:
-        return intent_execution.observe(self, SessionId(session_id), params)
+    def observe(self, session_id: str, request: AoiAtomicRequest) -> dict[str, Any]:
+        return intent_execution.observe(self, SessionId(session_id), request)
 
-    def compare(self, session_id: str, params: dict[str, Any]) -> dict[str, Any]:
-        return intent_execution.compare(self, SessionId(session_id), params)
+    def compare(self, session_id: str, request: AoiAtomicRequest) -> dict[str, Any]:
+        return intent_execution.compare(self, SessionId(session_id), request)
 
-    def decompose(self, session_id: str, params: dict[str, Any]) -> dict[str, Any]:
-        return intent_execution.decompose(self, SessionId(session_id), params)
+    def decompose(self, session_id: str, request: AoiAtomicRequest) -> dict[str, Any]:
+        return intent_execution.decompose(self, SessionId(session_id), request)
 
-    def correlate(self, session_id: str, params: dict[str, Any]) -> dict[str, Any]:
-        return intent_execution.correlate(self, SessionId(session_id), params)
+    def correlate(self, session_id: str, request: AoiAtomicRequest) -> dict[str, Any]:
+        return intent_execution.correlate(self, SessionId(session_id), request)
 
-    def detect(self, session_id: str, params: dict[str, Any]) -> dict[str, Any]:
-        return intent_execution.detect(self, SessionId(session_id), params)
+    def detect(self, session_id: str, request: AoiAtomicRequest) -> dict[str, Any]:
+        return intent_execution.detect(self, SessionId(session_id), request)
 
-    def test(self, session_id: str, params: dict[str, Any]) -> dict[str, Any]:
-        return intent_execution.test(self, SessionId(session_id), params)
+    def test(self, session_id: str, request: AoiAtomicRequest) -> dict[str, Any]:
+        return intent_execution.test(self, SessionId(session_id), request)
 
-    def forecast(self, session_id: str, params: dict[str, Any]) -> dict[str, Any]:
-        return intent_execution.forecast(self, SessionId(session_id), params)
+    def forecast(self, session_id: str, request: AoiAtomicRequest) -> dict[str, Any]:
+        return intent_execution.forecast(self, SessionId(session_id), request)
 
     def attribute(self, session_id: str, params: dict[str, Any]) -> dict[str, Any]:
         return intent_execution.attribute(self, SessionId(session_id), params)

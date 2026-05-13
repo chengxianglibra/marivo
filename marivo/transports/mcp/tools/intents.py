@@ -4,10 +4,9 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
+from marivo.contracts.generated import aoi
 from marivo.transports.mcp.tools._async_bridge import call_runtime
 from marivo.transports.mcp.tools.schemas import (
-    McpCompareArtifactRef,
-    McpObservationRef,
     McpSliceRef,
     McpStructuredObject,
     McpTimeScope,
@@ -16,62 +15,196 @@ from marivo.transports.mcp.tools.schemas import (
 )
 
 
+def to_aoi_observe_request(
+    metric: str,
+    time_scope: McpTimeScope,
+    granularity: Literal["hour", "day", "week", "month", "quarter", "year"] | None = None,
+    dimensions: list[str] | None = None,
+    filter_expression: dict[str, Any] | None = None,
+) -> aoi.Observe1:
+    return aoi.Observe1.model_validate(
+        {
+            "metric": metric,
+            "time_scope": time_scope.model_dump(),
+            "filter": filter_expression,
+            "granularity": granularity,
+            "dimensions": dimensions,
+        }
+    )
+
+
+def to_aoi_compare_request(
+    left_artifact_id: str,
+    right_artifact_id: str,
+    compare_type: Literal[
+        "normal",
+        "yoy",
+        "mom",
+        "wow",
+        "holiday_aligned_yoy",
+        "weekday_aligned_yoy",
+        "weekday_aligned_mom",
+    ]
+    | None = "normal",
+) -> aoi.Compare:
+    return aoi.Compare.model_validate(
+        {
+            "left_artifact_id": left_artifact_id,
+            "right_artifact_id": right_artifact_id,
+            "compare_type": compare_type,
+        }
+    )
+
+
+def to_aoi_decompose_request(
+    compare_artifact_id: str,
+    dimension: str,
+    limit: int | None = None,
+) -> aoi.Decompose:
+    return aoi.Decompose.model_validate(
+        {
+            "compare_artifact_id": compare_artifact_id,
+            "dimension": dimension,
+            "limit": limit,
+        }
+    )
+
+
+def to_aoi_forecast_request(
+    source_artifact_id: str,
+    horizon: int,
+    profile: str | None = None,
+) -> aoi.Forecast:
+    return aoi.Forecast.model_validate(
+        {
+            "source_artifact_id": source_artifact_id,
+            "horizon": horizon,
+            "profile": profile,
+        }
+    )
+
+
+def to_aoi_correlate_request(
+    left_artifact_id: str,
+    right_artifact_id: str,
+    method: Literal["pearson", "spearman"] | None = None,
+) -> aoi.Correlate:
+    return aoi.Correlate.model_validate(
+        {
+            "left_artifact_id": left_artifact_id,
+            "right_artifact_id": right_artifact_id,
+            "method": method,
+        }
+    )
+
+
+def to_aoi_detect_request(
+    metric: str,
+    time_scope: McpTimeScope,
+    granularity: Literal["hour", "day", "week", "month", "quarter", "year"],
+    filter_expression: dict[str, Any] | None = None,
+    split_by: list[str] | None = None,
+    profile: str | None = None,
+    sensitivity: float | None = None,
+    limit: int | None = None,
+) -> aoi.Detect:
+    return aoi.Detect.model_validate(
+        {
+            "metric": metric,
+            "time_scope": time_scope.model_dump(),
+            "granularity": granularity,
+            "filter": filter_expression,
+            "split_by": split_by,
+            "profile": profile,
+            "sensitivity": sensitivity,
+            "limit": limit,
+        }
+    )
+
+
+def to_aoi_test_request(
+    metric: str,
+    left: McpSliceRef,
+    right: McpSliceRef,
+    kind: Literal["numeric", "rate"],
+    hypothesis: dict[str, Any],
+) -> aoi.Test:
+    return aoi.Test.model_validate(
+        {
+            "metric": metric,
+            "left": _to_aoi_slice(left),
+            "right": _to_aoi_slice(right),
+            "kind": kind,
+            "hypothesis": hypothesis,
+        }
+    )
+
+
+def _to_aoi_slice(slice_ref: McpSliceRef) -> dict[str, Any]:
+    return {
+        "time_scope": slice_ref.time_scope.model_dump(),
+        "filter": None,
+    }
+
+
 def register_observe(server: Any, runtime: Any) -> None:
     @server.tool()  # type: ignore
     async def observe(
         session_id: str,
         metric: str,
         time_scope: McpTimeScopeValidated,
-        granularity: str | None = None,
+        granularity: Literal["hour", "day", "week", "month", "quarter", "year"] | None = None,
         dimensions: list[str] | None = None,
-        scope: ObserveScope | None = None,
-        result_mode: str | None = None,
-        calendar_policy_ref: str | None = None,
+        filter_expression: McpStructuredObject | None = None,
     ) -> dict[str, Any]:
-        params: dict[str, Any] = {"metric": metric, "time_scope": time_scope.model_dump()}
-        if granularity is not None:
-            params["granularity"] = granularity
-        if dimensions is not None:
-            params["dimensions"] = dimensions
-        if scope is not None:
-            params["scope"] = scope.model_dump()
-        if result_mode is not None:
-            params["result_mode"] = result_mode
-        if calendar_policy_ref is not None:
-            params["calendar_policy_ref"] = calendar_policy_ref
-        return await call_runtime(runtime.observe, session_id=session_id, params=params)
+        request = to_aoi_observe_request(
+            metric=metric,
+            time_scope=time_scope,
+            granularity=granularity,
+            dimensions=dimensions,
+            filter_expression=filter_expression,
+        )
+        return await call_runtime(runtime.observe, session_id=session_id, request=request)
 
 
 def register_compare(server: Any, runtime: Any) -> None:
     @server.tool()  # type: ignore
     async def compare(
         session_id: str,
-        left_ref: McpObservationRef,
-        right_ref: McpObservationRef,
-        mode: Literal["auto", "scalar", "segmented", "time_series"] = "auto",
+        left_artifact_id: str,
+        right_artifact_id: str,
+        compare_type: Literal[
+            "normal",
+            "yoy",
+            "mom",
+            "wow",
+            "holiday_aligned_yoy",
+            "weekday_aligned_yoy",
+            "weekday_aligned_mom",
+        ] = "normal",
     ) -> dict[str, Any]:
-        params: dict[str, Any] = {
-            "left_ref": left_ref.model_dump(exclude_none=True),
-            "right_ref": right_ref.model_dump(exclude_none=True),
-            "mode": mode,
-        }
-        return await call_runtime(runtime.compare, session_id=session_id, params=params)
+        request = to_aoi_compare_request(
+            left_artifact_id=left_artifact_id,
+            right_artifact_id=right_artifact_id,
+            compare_type=compare_type,
+        )
+        return await call_runtime(runtime.compare, session_id=session_id, request=request)
 
 
 def register_decompose(server: Any, runtime: Any) -> None:
     @server.tool()  # type: ignore
     async def decompose(
         session_id: str,
-        compare_ref: McpCompareArtifactRef,
+        compare_artifact_id: str,
         dimension: str,
-        method: str = "delta_share",
+        limit: int | None = None,
     ) -> dict[str, Any]:
-        params: dict[str, Any] = {
-            "compare_ref": compare_ref.model_dump(exclude_none=True),
-            "dimension": dimension,
-            "method": method,
-        }
-        return await call_runtime(runtime.decompose, session_id=session_id, params=params)
+        request = to_aoi_decompose_request(
+            compare_artifact_id=compare_artifact_id,
+            dimension=dimension,
+            limit=limit,
+        )
+        return await call_runtime(runtime.decompose, session_id=session_id, request=request)
 
 
 def register_detect(server: Any, runtime: Any) -> None:
@@ -80,88 +213,76 @@ def register_detect(server: Any, runtime: Any) -> None:
         session_id: str,
         metric: str,
         time_scope: McpTimeScope,
-        granularity: Literal["hour", "day", "week", "month"],
-        scope: ObserveScope | None = None,
-        split_by: str | None = None,
-        profile: Literal["auto", "spike_dip", "level_shift", "seasonal_residual"] = "auto",
-        sensitivity: Literal["conservative", "balanced", "aggressive"] = "balanced",
+        granularity: Literal["hour", "day", "week", "month", "quarter", "year"],
+        filter_expression: McpStructuredObject | None = None,
+        split_by: list[str] | None = None,
+        profile: str | None = None,
+        sensitivity: float | None = None,
         limit: int | None = None,
-        max_series: int | None = None,
-        patterns: list[Literal["point_anomaly", "period_shift"]] | None = None,
     ) -> dict[str, Any]:
-        params: dict[str, Any] = {
-            "metric": metric,
-            "time_scope": time_scope.model_dump(),
-            "granularity": granularity,
-            "profile": profile,
-            "sensitivity": sensitivity,
-        }
-        if scope is not None:
-            params["scope"] = scope.model_dump()
-        if split_by is not None:
-            params["split_by"] = split_by
-        if limit is not None:
-            params["limit"] = limit
-        if max_series is not None:
-            params["max_series"] = max_series
-        if patterns is not None:
-            params["patterns"] = patterns
-        return await call_runtime(runtime.detect, session_id=session_id, params=params)
+        request = to_aoi_detect_request(
+            metric=metric,
+            time_scope=time_scope,
+            granularity=granularity,
+            filter_expression=filter_expression,
+            split_by=split_by,
+            profile=profile,
+            sensitivity=sensitivity,
+            limit=limit,
+        )
+        return await call_runtime(runtime.detect, session_id=session_id, request=request)
 
 
 def register_correlate(server: Any, runtime: Any) -> None:
     @server.tool()  # type: ignore
     async def correlate(
         session_id: str,
-        left_ref: McpStructuredObject,
-        right_ref: McpStructuredObject,
-        method: str = "spearman",
-        min_pairs: int = 5,
+        left_artifact_id: str,
+        right_artifact_id: str,
+        method: Literal["pearson", "spearman"] | None = None,
     ) -> dict[str, Any]:
-        params: dict[str, Any] = {
-            "left_ref": left_ref,
-            "right_ref": right_ref,
-            "method": method,
-            "min_pairs": min_pairs,
-        }
-        return await call_runtime(runtime.correlate, session_id=session_id, params=params)
+        request = to_aoi_correlate_request(
+            left_artifact_id=left_artifact_id,
+            right_artifact_id=right_artifact_id,
+            method=method,
+        )
+        return await call_runtime(runtime.correlate, session_id=session_id, request=request)
 
 
 def register_test_intent(server: Any, runtime: Any) -> None:
     @server.tool()  # type: ignore
     async def test_intent(
         session_id: str,
-        left_ref: McpStructuredObject,
-        right_ref: McpStructuredObject,
+        metric: str,
+        left: McpSliceRef,
+        right: McpSliceRef,
+        kind: Literal["numeric", "rate"],
         hypothesis: McpStructuredObject,
-        method: str = "auto",
     ) -> dict[str, Any]:
-        params: dict[str, Any] = {
-            "left_ref": left_ref,
-            "right_ref": right_ref,
-            "hypothesis": hypothesis,
-            "method": method,
-        }
-        return await call_runtime(runtime.test, session_id=session_id, params=params)
+        request = to_aoi_test_request(
+            metric=metric,
+            left=left,
+            right=right,
+            kind=kind,
+            hypothesis=hypothesis,
+        )
+        return await call_runtime(runtime.test, session_id=session_id, request=request)
 
 
 def register_forecast(server: Any, runtime: Any) -> None:
     @server.tool()  # type: ignore
     async def forecast(
         session_id: str,
-        source_ref: McpStructuredObject,
+        source_artifact_id: str,
         horizon: int,
-        profile: str = "auto",
-        interval_level: float | None = None,
+        profile: str | None = None,
     ) -> dict[str, Any]:
-        params: dict[str, Any] = {
-            "source_ref": source_ref,
-            "horizon": horizon,
-            "profile": profile,
-        }
-        if interval_level is not None:
-            params["interval_level"] = interval_level
-        return await call_runtime(runtime.forecast, session_id=session_id, params=params)
+        request = to_aoi_forecast_request(
+            source_artifact_id=source_artifact_id,
+            horizon=horizon,
+            profile=profile,
+        )
+        return await call_runtime(runtime.forecast, session_id=session_id, request=request)
 
 
 def register_attribute(server: Any, runtime: Any) -> None:

@@ -19,9 +19,12 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, cast
 
-from marivo.core.intent.primitives import new_step_id
 from marivo.runtime.intents.compare import run_compare_intent
 from marivo.runtime.intents.decompose import run_decompose_intent
+from marivo.runtime.intents.derived_envelopes import (
+    aoi_artifact_dump,
+    build_derived_bundle_envelope,
+)
 from marivo.runtime.intents.detect import run_detect_intent
 from marivo.runtime.intents.normalization import (
     normalize_dimensions,
@@ -368,6 +371,7 @@ def run_diagnose_intent(
             "total_candidate_count": total_candidate_count,
             "followed_candidate_count": followed_candidate_count,
             "truncated": follow_up_truncated,
+            "_aoi_artifact": aoi_artifact_dump(detect_result),
         }
 
     has_error_issue = any(i.get("severity") == "error" for i in top_level_issues)
@@ -384,8 +388,6 @@ def run_diagnose_intent(
         validation["guidance"] = validation_guidance
 
     now = datetime.now(UTC).isoformat()
-    step_id = new_step_id()
-
     bundle: dict[str, Any] = {
         "result_type": "diagnosis_bundle",
         "intent_type": "diagnose",
@@ -404,12 +406,7 @@ def run_diagnose_intent(
         "baseline_policy": baseline_policy,
         "validation": validation,
         "provenance": {
-            "artifact_ref": {
-                "session_id": session_id,
-                "step_id": step_id,
-                "step_type": "diagnose",
-                "artifact_id": None,  # patched after _insert_artifact
-            },
+            "artifact_ref": None,
             "source_detect_ref": detect_summary["detect_ref"] if detect_summary else None,
             "artifact_schema_version": "v1",
             "derivation_version": _DERIVED_LOGIC_VERSION,
@@ -437,20 +434,6 @@ def run_diagnose_intent(
         f"{len(dimensions)} dimension(s))"
     )
 
-    # NOTE: Cannot use commit_step_result() here because this derived intent
-    # uses raw insert_artifact (no extraction boundary) and patches the
-    # artifact_id into the bundle between insert and step creation.
-    artifact_id = runtime.insert_artifact(
-        session_id, step_id, "diagnosis_bundle", artifact_name, bundle
-    )
-    bundle["provenance"]["artifact_ref"]["artifact_id"] = artifact_id
-    bundle["step_ref"] = {
-        "session_id": session_id,
-        "step_id": step_id,
-        "step_type": "diagnose",
-    }
-    bundle["artifact_id"] = artifact_id
-
     provenance: dict[str, Any] = {
         "detect_step_id": detect_step_id,
         "mode": mode,
@@ -461,8 +444,20 @@ def run_diagnose_intent(
         "derived_logic_version": _DERIVED_LOGIC_VERSION,
         "projection_version": _PROJECTION_VERSION,
     }
-    runtime.insert_step(step_id, session_id, "diagnose", summary_str, bundle, provenance=provenance)
-    return bundle
+    product_status = "succeeded" if validation_status == "diagnosable" else "needs_attention"
+    return build_derived_bundle_envelope(
+        runtime=runtime,
+        session_id=session_id,
+        step_type="diagnose",
+        bundle_type="diagnosis_bundle",
+        artifact_name=artifact_name,
+        aoi_artifacts=_collect_diagnose_aoi_artifacts(detect_summary, diagnoses),
+        summary=summary_str,
+        product_status=product_status,
+        issues=top_level_issues,
+        legacy_bundle=bundle,
+        provenance=provenance,
+    )
 
 
 # ── Per-candidate follow-up ────────────────────────────────────────────────────
@@ -506,6 +501,7 @@ def _follow_up_candidate(
     cand_window: dict[str, Any] = candidate.get("window") or {}
     cand_slice: dict[str, Any] | None = candidate.get("slice") or None
     cand_issues: list[dict[str, Any]] = []
+    aoi_artifacts: list[dict[str, Any]] = []
 
     # ── Baseline derivation ────────────────────────────────────────────────────
     baseline_derivation: dict[str, Any]
@@ -589,6 +585,7 @@ def _follow_up_candidate(
             },
         )
         current_step_id = current_obs["step_ref"]["step_id"]
+        aoi_artifacts.append(aoi_artifact_dump(current_obs))
         current_artifact_id: str = current_obs["artifact_id"]
         current_ref = {
             "session_id": session_id,
@@ -626,6 +623,7 @@ def _follow_up_candidate(
             },
         )
         baseline_step_id = baseline_obs["step_ref"]["step_id"]
+        aoi_artifacts.append(aoi_artifact_dump(baseline_obs))
         baseline_artifact_id: str = baseline_obs["artifact_id"]
         baseline_ref = {
             "session_id": session_id,
@@ -671,6 +669,7 @@ def _follow_up_candidate(
                 },
             )
             compare_step_id = compare_result["step_ref"]["step_id"]
+            aoi_artifacts.append(aoi_artifact_dump(compare_result))
             compare_artifact_id_val: str = compare_result["artifact_id"]
             compare_ref = {
                 "session_id": session_id,
@@ -739,6 +738,9 @@ def _follow_up_candidate(
                 candidate_ref=candidate_ref,
             )
             drivers.append(driver)
+            raw_decompose_artifact = driver.pop("_aoi_artifact", None)
+            if raw_decompose_artifact is not None:
+                aoi_artifacts.append(raw_decompose_artifact)
             for iss in driver.get("issues") or []:
                 if iss.get("severity") == "error":
                     cand_issues.append(iss)
@@ -773,6 +775,7 @@ def _follow_up_candidate(
         "drivers": drivers,
         "status": status,
         "issues": cand_issues,
+        "_aoi_artifacts": aoi_artifacts,
     }
 
 
@@ -815,6 +818,7 @@ def _decompose_for_dimension(
         )
 
         decompose_step_id: str = decompose_result["step_ref"]["step_id"]
+        raw_aoi_artifact = aoi_artifact_dump(decompose_result)
         decompose_artifact_id: str = decompose_result["artifact_id"]
         decompose_ref = {
             "session_id": session_id,
@@ -898,6 +902,7 @@ def _decompose_for_dimension(
         "unexplained_share": unexplained_share,
         "unexplained_reason": unexplained_reason,
         "issues": driver_issues,
+        "_aoi_artifact": raw_aoi_artifact if "raw_aoi_artifact" in locals() else None,
     }
 
 
@@ -919,3 +924,19 @@ def _combine_scope(
     if base_scope and base_scope.get("predicate") is not None:
         result["predicate"] = base_scope["predicate"]
     return result
+
+
+def _collect_diagnose_aoi_artifacts(
+    detect_summary: dict[str, Any] | None,
+    diagnoses: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    artifacts: list[dict[str, Any]] = []
+    if detect_summary is not None:
+        raw_detect = detect_summary.pop("_aoi_artifact", None)
+        if raw_detect is not None:
+            artifacts.append(raw_detect)
+    for diagnosis in diagnoses:
+        raw_items = diagnosis.pop("_aoi_artifacts", [])
+        if isinstance(raw_items, list):
+            artifacts.extend(item for item in raw_items if isinstance(item, dict))
+    return artifacts

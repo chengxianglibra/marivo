@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from marivo.runtime.intents._helpers import commit_step_result
+import pytest
+from pydantic import ValidationError
+
+from marivo.contracts.envelope import ExecutionEnvelope
+from marivo.runtime.intents._helpers import commit_aoi_artifact_result, commit_step_result
 
 
 def test_commit_step_result_returns_dict_with_step_ref():
@@ -124,3 +128,83 @@ def test_commit_step_result_merges_payload_into_result():
     assert result["schema_version"] == "1.0"
     assert result["metric"] == "revenue"
     assert result["value"] == 100.0
+
+
+def test_commit_aoi_artifact_result_returns_envelope_and_inserts_nested_result():
+    mock_runtime = MagicMock()
+    mock_runtime.commit_artifact_with_extraction.side_effect = lambda *args, **kwargs: kwargs[
+        "artifact_id"
+    ]
+    payload = {
+        "artifact_id": "placeholder-artifact",
+        "result": {"value": 42.0},
+    }
+
+    envelope = commit_aoi_artifact_result(
+        runtime=mock_runtime,
+        session_id="sess-aoi",
+        step_id="step-aoi",
+        step_type="observe",
+        artifact_type="observation",
+        artifact_name="view_time_observe",
+        artifact_payload=payload,
+        summary="Observed view_time",
+        provenance={"query_hash": "abc123"},
+        product_metadata={"source": "task-5"},
+        semantic_metadata={"metric": "view_time"},
+    )
+
+    assert isinstance(envelope, ExecutionEnvelope)
+    assert envelope.artifact_id.startswith("art_")
+    assert envelope.artifact_id != "placeholder-artifact"
+    assert envelope.result == {
+        "artifact_id": envelope.artifact_id,
+        "result": {"value": 42.0},
+    }
+    assert "value" not in envelope.model_dump()
+
+    commit_args = mock_runtime.commit_artifact_with_extraction.call_args
+    assert commit_args[0] == (
+        "sess-aoi",
+        "step-aoi",
+        "observation",
+        "view_time_observe",
+        {
+            "artifact_id": envelope.artifact_id,
+            "result": {"value": 42.0},
+        },
+    )
+    assert commit_args[1]["step_type"] == "observe"
+    assert commit_args[1]["artifact_id"] == envelope.artifact_id
+
+    insert_args = mock_runtime.insert_step.call_args
+    assert insert_args[0] == (
+        "step-aoi",
+        "sess-aoi",
+        "observe",
+        "Observed view_time",
+        envelope.model_dump(),
+    )
+    assert insert_args[1]["provenance"] == {"query_hash": "abc123"}
+    assert insert_args[1]["semantic_metadata"] == {"metric": "view_time"}
+    assert insert_args[0][4]["artifact_id"] == envelope.artifact_id
+    assert insert_args[0][4]["result"]["artifact_id"] == envelope.artifact_id
+
+
+def test_commit_aoi_artifact_result_rejects_non_aoi_payload_before_insert():
+    mock_runtime = MagicMock()
+
+    with pytest.raises(ValidationError):
+        commit_aoi_artifact_result(
+            runtime=mock_runtime,
+            session_id="sess-aoi",
+            step_id="step-aoi",
+            step_type="observe",
+            artifact_type="observation",
+            artifact_name="invalid_observe",
+            artifact_payload={"value": 42.0},
+            summary="Invalid observe",
+        )
+
+    mock_runtime.commit_artifact_with_extraction.assert_not_called()
+    mock_runtime.insert_step.assert_not_called()

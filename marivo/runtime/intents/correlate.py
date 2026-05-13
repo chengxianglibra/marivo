@@ -75,22 +75,41 @@ def run_correlate_intent(
 
     left_ref_raw: dict[str, Any] = p.get("left_ref") or {}
     right_ref_raw: dict[str, Any] = p.get("right_ref") or {}
-    left_step_id: str = left_ref_raw.get("step_id") or ""
-    right_step_id: str = right_ref_raw.get("step_id") or ""
-    left_session_id: str = left_ref_raw.get("session_id") or session_id
-    right_session_id: str = right_ref_raw.get("session_id") or session_id
+    left_artifact_id_raw = p.get("left_artifact_id")
+    right_artifact_id_raw = p.get("right_artifact_id")
+    left_artifact_id = left_artifact_id_raw.strip() if isinstance(left_artifact_id_raw, str) else ""
+    right_artifact_id = (
+        right_artifact_id_raw.strip() if isinstance(right_artifact_id_raw, str) else ""
+    )
+    uses_aoi_artifact_refs = bool(left_artifact_id or right_artifact_id) or (
+        "left_ref" not in p and "right_ref" not in p
+    )
+    left_step_id: str = "" if uses_aoi_artifact_refs else left_ref_raw.get("step_id") or ""
+    right_step_id: str = "" if uses_aoi_artifact_refs else right_ref_raw.get("step_id") or ""
+    left_session_id: str = (
+        session_id if uses_aoi_artifact_refs else left_ref_raw.get("session_id") or session_id
+    )
+    right_session_id: str = (
+        session_id if uses_aoi_artifact_refs else right_ref_raw.get("session_id") or session_id
+    )
 
     # ── Input validation ──────────────────────────────────────────────────────
-    if not left_step_id or not right_step_id:
+    if uses_aoi_artifact_refs:
+        if not left_artifact_id or not right_artifact_id:
+            raise ValueError(
+                "correlate: INVALID_ARGUMENT - both left_artifact_id and right_artifact_id are required"
+            )
+    elif not left_step_id or not right_step_id:
         raise ValueError("correlate: both left_ref.step_id and right_ref.step_id are required")
 
-    for _side, _ref_raw in (("left", left_ref_raw), ("right", right_ref_raw)):
-        _ref_step_type = _ref_raw.get("step_type")
-        if _ref_step_type is not None and _ref_step_type != "observe":
-            raise ValueError(
-                f"correlate: INVALID_ARGUMENT - {_side}_ref.step_type must be 'observe', "
-                f"got '{_ref_step_type}'"
-            )
+    if not uses_aoi_artifact_refs:
+        for _side, _ref_raw in (("left", left_ref_raw), ("right", right_ref_raw)):
+            _ref_step_type = _ref_raw.get("step_type")
+            if _ref_step_type is not None and _ref_step_type != "observe":
+                raise ValueError(
+                    f"correlate: INVALID_ARGUMENT - {_side}_ref.step_type must be 'observe', "
+                    f"got '{_ref_step_type}'"
+                )
 
     if left_session_id != session_id:
         raise ValueError(
@@ -113,16 +132,32 @@ def run_correlate_intent(
     min_pairs: int = int(p.get("min_pairs") or _DEFAULT_MIN_PAIRS)
 
     # ── Resolve artifacts ─────────────────────────────────────────────────────
-    left_artifact = runtime.resolve_artifact_for_ref(session_id, left_step_id)
-    if left_artifact is None:
-        raise ValueError(
-            f"correlate: STEP_NOT_FOUND - no committed artifact for left_ref step '{left_step_id}'"
-        )
-    right_artifact = runtime.resolve_artifact_for_ref(session_id, right_step_id)
-    if right_artifact is None:
-        raise ValueError(
-            f"correlate: STEP_NOT_FOUND - no committed artifact for right_ref step '{right_step_id}'"
-        )
+    if uses_aoi_artifact_refs:
+        left_artifact = runtime.resolve_artifact_by_id(session_id, left_artifact_id)
+        if left_artifact is None:
+            raise ValueError(
+                "correlate: ARTIFACT_NOT_FOUND - no committed artifact for "
+                f"left_artifact_id '{left_artifact_id}'"
+            )
+        right_artifact = runtime.resolve_artifact_by_id(session_id, right_artifact_id)
+        if right_artifact is None:
+            raise ValueError(
+                "correlate: ARTIFACT_NOT_FOUND - no committed artifact for "
+                f"right_artifact_id '{right_artifact_id}'"
+            )
+    else:
+        left_artifact = runtime.resolve_artifact_for_ref(session_id, left_step_id)
+        if left_artifact is None:
+            raise ValueError(
+                f"correlate: STEP_NOT_FOUND - no committed artifact for left_ref step '{left_step_id}'"
+            )
+        right_artifact = runtime.resolve_artifact_for_ref(session_id, right_step_id)
+        if right_artifact is None:
+            raise ValueError(
+                f"correlate: STEP_NOT_FOUND - no committed artifact for right_ref step '{right_step_id}'"
+            )
+        left_artifact_id = runtime.resolve_artifact_id_for_step(session_id, left_step_id) or ""
+        right_artifact_id = runtime.resolve_artifact_id_for_step(session_id, right_step_id) or ""
 
     left_obs_type: str | None = left_artifact.get("observation_type")
     right_obs_type: str | None = right_artifact.get("observation_type")
@@ -261,9 +296,6 @@ def run_correlate_intent(
     # ── Build artifact ────────────────────────────────────────────────────────
     now = datetime.now(UTC).isoformat()
     step_id = new_step_id()
-
-    left_artifact_id: str | None = runtime.resolve_artifact_id_for_step(session_id, left_step_id)
-    right_artifact_id: str | None = runtime.resolve_artifact_id_for_step(session_id, right_step_id)
 
     # Fix 2: deterministic query_hash from artifact lineage + method
     _hash_input = f"{left_artifact_id or ''}:{right_artifact_id or ''}:{method}"
