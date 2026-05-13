@@ -24,6 +24,9 @@ class _FakeSvc:
     def import_osi_document(self, **kw):
         return {}
 
+    def export_osi_document(self, **kw):
+        return {}
+
     def get_semantic_model(self, **kw):
         return {}
 
@@ -49,6 +52,21 @@ class _FakeSvc:
         return {}
 
     def delete_dataset(self, **kw):
+        return {}
+
+    def create_field(self, **kw):
+        return {}
+
+    def list_fields(self, **kw):
+        return {}
+
+    def get_field(self, **kw):
+        return {}
+
+    def update_field(self, **kw):
+        return {}
+
+    def delete_field(self, **kw):
         return {}
 
     def create_relationship(self, **kw):
@@ -204,6 +222,42 @@ def test_stdio_omits_catalog_tools():
     assert _HTTP_ONLY_TOOLS.isdisjoint(tools), (
         f"Stdio mode should not expose catalog tools: {_HTTP_ONLY_TOOLS & tools}"
     )
+
+
+def test_semantic_tools_include_import_export_and_field_crud() -> None:
+    server = FastMCP("test")
+    register_tools(server, FakeRuntime(), transport="stdio")
+    tools = _tool_names(server)
+
+    assert "import_osi_document" in tools
+    assert "export_osi_document" in tools
+    assert "create_field" in tools
+    assert "list_fields" in tools
+    assert "get_field" in tools
+    assert "update_field" in tools
+    assert "delete_field" in tools
+
+
+def test_mcp_semantic_tools_do_not_expose_requesting_user() -> None:
+    server = FastMCP("test")
+    register_tools(server, FakeRuntime(), transport="stdio")
+    tools = {tool.name: tool for tool in server._tool_manager.list_tools()}
+
+    checked_names = [
+        "list_semantic_models",
+        "get_semantic_model",
+        "get_semantic_model_readiness",
+        "list_datasets",
+        "get_dataset",
+        "list_fields",
+        "get_field",
+        "list_relationships",
+        "get_relationship",
+        "list_metrics",
+        "get_metric",
+    ]
+    for name in checked_names:
+        assert "requesting_user" not in tools[name].parameters.get("properties", {})
 
 
 def test_shared_tools_identical_schema():

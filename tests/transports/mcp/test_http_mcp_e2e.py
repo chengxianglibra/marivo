@@ -54,6 +54,7 @@ def runtime(tmp_path_factory):
 @asynccontextmanager
 async def _mcp_client(
     server: FastMCP,
+    headers: dict[str, str] | None = None,
 ) -> AsyncGenerator[ClientSession, None]:
     """Yield an initialized MCP ClientSession connected to *server*.
 
@@ -72,7 +73,7 @@ async def _mcp_client(
             httpx.AsyncClient(
                 transport=http_transport,
                 base_url="http://testserver",
-                headers={"X-Marivo-User": "test_user"},
+                headers=headers if headers is not None else {"X-Marivo-User": "test_user"},
             ) as http_client,
             streamable_http_client(
                 "http://testserver/mcp",
@@ -96,6 +97,10 @@ def _make_server(runtime) -> FastMCP:
     )
     register_tools(server, runtime)
     return server
+
+
+def _tool_payload(result) -> dict[str, object]:
+    return json.loads(result.content[0].text)
 
 
 # ---------------------------------------------------------------------------
@@ -132,6 +137,48 @@ async def test_mcp_health_check(runtime):
         payload = json.loads(result.content[0].text)
         assert payload["data"]["status"] == "ok"
         assert payload["error"] is None
+
+
+@pytest.mark.asyncio
+async def test_http_mcp_requires_x_marivo_user(runtime):
+    """User-scoped MCP tools fail closed without X-Marivo-User."""
+    server = _make_server(runtime)
+
+    async with _mcp_client(server, headers={}) as session:
+        result = await session.call_tool("create_session", {"goal": "missing user"})
+        payload = _tool_payload(result)
+
+    assert payload["data"] is None
+    assert payload["error"] is not None
+    assert "user" in json.dumps(payload["error"]).lower()
+
+
+@pytest.mark.asyncio
+async def test_http_mcp_rejects_blank_x_marivo_user(runtime):
+    """Blank X-Marivo-User is normalized to missing identity."""
+    server = _make_server(runtime)
+
+    async with _mcp_client(server, headers={"X-Marivo-User": "   "}) as session:
+        result = await session.call_tool("create_session", {"goal": "blank user"})
+        payload = _tool_payload(result)
+
+    assert payload["data"] is None
+    assert payload["error"] is not None
+    assert "user" in json.dumps(payload["error"]).lower()
+
+
+@pytest.mark.asyncio
+async def test_http_mcp_uses_x_marivo_user(runtime):
+    """Explicit X-Marivo-User reaches runtime-owned user-scoped tools."""
+    server = _make_server(runtime)
+
+    async with _mcp_client(server, headers={"X-Marivo-User": "alice"}) as session:
+        result = await session.call_tool("create_session", {"goal": "explicit user"})
+        payload = _tool_payload(result)
+
+    assert payload["error"] is None
+    assert isinstance(payload["data"], dict)
+    assert str(payload["data"]["session_id"]).startswith("sess_")
 
 
 @pytest.mark.asyncio

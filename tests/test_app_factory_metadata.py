@@ -40,6 +40,10 @@ class DummyMetadataStore(MetadataStore):
     def query_one(self, sql: str, params: list[Any] | None = None) -> dict[str, Any] | None:
         raise NotImplementedError
 
+    @contextmanager
+    def transaction(self) -> Iterator[Any]:
+        raise NotImplementedError
+
 
 class RecordingMySQLStore(DummyMetadataStore):
     created_with: dict[str, Any] | None = None

@@ -15,6 +15,7 @@ class FakeCursor:
     def __init__(self, connection: FakeConnection) -> None:
         self.connection = connection
         self.rows: list[dict[str, Any]] = []
+        self.description: list[tuple[str]] | None = None
         self.rowcount = 0
         self.closed = False
 
@@ -36,6 +37,7 @@ class FakeCursor:
             self.rows = [] if params == ["missing"] else list(self.connection.session_rows)
         else:
             self.rows = []
+        self.description = [(column,) for row in self.rows[:1] for column in row]
         self.rowcount = len(self.rows)
 
     def executemany(self, sql: str, rows: list[tuple[Any, ...]]) -> None:
@@ -66,6 +68,7 @@ class FakeConnection:
         self.marker: dict[str, Any] | None = metadata_schema_marker_row("mysql")
         self.session_rows: list[dict[str, Any]] = []
         self.fail_on: str | None = None
+        self.fail_rollback = False
         self.failure_message = "insert failed"
 
     def cursor(self) -> FakeCursor:
@@ -76,6 +79,8 @@ class FakeConnection:
 
     def rollback(self) -> None:
         self.rollbacks += 1
+        if self.fail_rollback:
+            raise RuntimeError("rollback failed")
 
     def close(self) -> None:
         self.closes += 1
@@ -110,6 +115,44 @@ class MySQLMetadataStoreTests(unittest.TestCase):
         )
         self.assertIn("%s", connection.executed[0][0])
         self.assertNotIn("?", connection.executed[0][0])
+
+    def test_transaction_query_rows_returns_dict_cursor_values(self) -> None:
+        connection = FakeConnection()
+        connection.session_rows = [{"session_id": "s1", "goal": "g1"}]
+        store = _store(connection)
+
+        with store.transaction() as txn:
+            rows = txn.query_rows("SELECT * FROM sessions WHERE session_id = ?", ["s1"])
+
+        self.assertEqual(rows, [{"session_id": "s1", "goal": "g1"}])
+        self.assertNotEqual(rows, [{"session_id": "session_id", "goal": "goal"}])
+
+    def test_transaction_rolls_back_connection_on_checkout_before_reuse(self) -> None:
+        connection = FakeConnection()
+        store = _store(connection)
+
+        with store.connect() as con:
+            store.execute_sql(con, "SELECT * FROM sessions WHERE session_id = ?", ["missing"])
+
+        self.assertEqual(connection.rollbacks, 0)
+
+        with store.transaction() as txn:
+            txn.execute("INSERT INTO sessions (session_id) VALUES (?)", ["s1"])
+
+        self.assertEqual(connection.rollbacks, 1)
+        self.assertEqual(connection.commits, 1)
+
+    def test_transaction_discards_connection_when_checkout_rollback_fails(self) -> None:
+        connection = FakeConnection()
+        connection.fail_rollback = True
+        store = _store(connection)
+
+        with self.assertRaisesRegex(RuntimeError, "Failed to reset"), store.transaction():
+            self.fail("transaction should not yield after rollback reset failure")
+
+        self.assertEqual(connection.rollbacks, 1)
+        self.assertEqual(connection.closes, 1)
+        self.assertEqual(store._created_connections, 0)
 
     def test_initialize_accepts_current_schema(self) -> None:
         connection = FakeConnection()
