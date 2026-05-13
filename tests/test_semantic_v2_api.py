@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from marivo.adapters.server.semantic_service_adapter import SemanticServiceAdapter
 from marivo.datasources import DatasourceService
+from marivo.identity import reset_current_user, set_current_user
 from marivo.transports.http.models.osi import OSI_SPEC_VERSION
 from marivo.transports.http.semantic_v2 import router as semantic_v2_router
 from tests.shared_fixtures import ManagedSQLiteMetadataStore, make_temp_metadata_store
@@ -156,6 +157,10 @@ class FakeSemanticDocumentService:
             models = [self.models[semantic_model_name]]
         return {"version": OSI_SPEC_VERSION, "semantic_model": models}
 
+    def delete_semantic_model(self, name: str, owner_user: str | None = None) -> None:
+        self.calls.append(("delete", name, owner_user))
+        del self.models[name]
+
 
 def _make_app(
     service: FakeSemanticDocumentService | None = None,
@@ -291,13 +296,33 @@ class TestSemanticDocumentSurface(unittest.TestCase):
         self.assertEqual(body["semantic_model"][0]["name"], "commerce")
         self.assertEqual(service.calls[-1], ("export", "commerce"))
 
+    def test_delete_semantic_model_uses_current_identity(self) -> None:
+        client, service = _make_app()
+
+        resp = client.delete("/semantic-models/commerce", headers={"X-Marivo-User": "alice"})
+
+        self.assertEqual(resp.status_code, 204)
+        self.assertNotIn("commerce", service.models)
+        self.assertEqual(service.calls[-1], ("delete", "commerce", "test_user"))
+
+    def test_delete_semantic_model_requires_context_identity(self) -> None:
+        client, service = _make_app()
+
+        token = set_current_user(None)
+        try:
+            resp = client.delete("/semantic-models/commerce")
+        finally:
+            reset_current_user(token)
+
+        self.assertEqual(resp.status_code, 422)
+        self.assertIn("commerce", service.models)
+
     def test_removed_crud_and_readiness_routes_return_405_or_404(self) -> None:
         client, _ = _make_app()
 
         checks = [
             ("post", "/semantic-models"),
             ("put", "/semantic-models/commerce"),
-            ("delete", "/semantic-models/commerce"),
             ("post", "/semantic-models/commerce/datasets"),
             ("get", "/semantic-models/commerce/datasets"),
             ("get", "/semantic-models/commerce/datasets/orders"),
@@ -343,6 +368,7 @@ class TestSemanticServiceAdapterSurface(unittest.TestCase):
                 "validate_osi_semantic_models",
                 "import_osi_semantic_models",
                 "export_osi_semantic_models",
+                "delete_semantic_model",
             },
         )
 
@@ -418,3 +444,83 @@ class TestSemanticRealHttpIntegration(unittest.TestCase):
 
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["semantic_model"], [])
+
+    def test_delete_private_model_then_get_returns_404(self) -> None:
+        client = _make_real_app()
+        try:
+            client.post(
+                "/semantic-models/import",
+                json=_make_document("commerce"),
+                headers={"X-Marivo-User": "alice"},
+            )
+            resp = client.delete(
+                "/semantic-models/commerce",
+                headers={"X-Marivo-User": "alice"},
+            )
+            get_resp = client.get(
+                "/semantic-models/commerce",
+                headers={"X-Marivo-User": "alice"},
+            )
+        finally:
+            client.close()
+
+        self.assertEqual(resp.status_code, 204)
+        self.assertEqual(get_resp.status_code, 404)
+
+    def test_delete_nonexistent_private_model_returns_404(self) -> None:
+        client = _make_real_app()
+        try:
+            resp = client.delete(
+                "/semantic-models/missing",
+                headers={"X-Marivo-User": "alice"},
+            )
+        finally:
+            client.close()
+
+        self.assertEqual(resp.status_code, 404)
+
+    def test_delete_public_only_model_returns_403(self) -> None:
+        client = _make_real_app()
+        try:
+            service = client.app.state.semantic_v2_service.service
+            service.store.execute(
+                """
+                INSERT INTO semantic_models (name, description, visibility, owner_user)
+                VALUES ('official_model', 'official', 'public', NULL)
+                """
+            )
+            resp = client.delete(
+                "/semantic-models/official_model",
+                headers={"X-Marivo-User": "alice"},
+            )
+        finally:
+            client.close()
+
+        self.assertEqual(resp.status_code, 403)
+
+    def test_delete_private_model_leaves_other_owner_private_model_intact(self) -> None:
+        client = _make_real_app()
+        try:
+            client.post(
+                "/semantic-models/import",
+                json=_make_document("commerce"),
+                headers={"X-Marivo-User": "alice"},
+            )
+            client.post(
+                "/semantic-models/import",
+                json=_make_document("commerce"),
+                headers={"X-Marivo-User": "bob"},
+            )
+            resp = client.delete(
+                "/semantic-models/commerce",
+                headers={"X-Marivo-User": "alice"},
+            )
+            bob_resp = client.get(
+                "/semantic-models/commerce",
+                headers={"X-Marivo-User": "bob"},
+            )
+        finally:
+            client.close()
+
+        self.assertEqual(resp.status_code, 204)
+        self.assertEqual(bob_resp.status_code, 200)

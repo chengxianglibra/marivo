@@ -70,3 +70,6 @@ class SemanticServiceAdapter:
 
     def export_osi_semantic_models(self, semantic_model_name: str | None = None) -> dict[str, Any]:
         return _translate(lambda: self._service.export_osi_semantic_models(semantic_model_name))
+
+    def delete_semantic_model(self, name: str, owner_user: str | None = None) -> None:
+        _translate(lambda: self._service.delete_semantic_model(name, owner_user=owner_user))

@@ -7,7 +7,7 @@ from typing import Any, cast
 from pydantic import ValidationError as PydanticValidationError
 
 from marivo.adapters.metadata import MetadataStore
-from marivo.contracts.errors import ErrorCode, NotFoundError
+from marivo.contracts.errors import ErrorCode, ForbiddenError, NotFoundError
 from marivo.contracts.errors import ValidationError as DomainValidationError
 from marivo.contracts.generated import OSIDocument
 from marivo.identity import require_user
@@ -70,6 +70,33 @@ class SemanticModelV2Service:
                 f"Semantic model '{name}' not found",
             )
         return row
+
+    def _require_private_model(self, name: str, owner_user: str | None = None) -> dict[str, Any]:
+        if owner_user is not None:
+            row = self.store.query_one(
+                """
+                SELECT * FROM semantic_models
+                WHERE name = ? AND visibility = 'private' AND owner_user = ?
+                """,
+                [name, owner_user],
+            )
+            if row is not None:
+                return row
+
+        public_row = self.store.query_one(
+            "SELECT * FROM semantic_models WHERE name = ? AND visibility = 'public'",
+            [name],
+        )
+        if public_row is not None:
+            raise ForbiddenError(
+                ErrorCode.FORBIDDEN,
+                f"Cannot delete official semantic model '{name}' via private model delete.",
+            )
+
+        raise NotFoundError(
+            ErrorCode.MODEL_NOT_FOUND,
+            f"Semantic model '{name}' not found",
+        )
 
     def _assemble_model(self, model_row: dict[str, Any]) -> dict[str, Any]:
         """Assemble a full OSI-conformant model dict from storage rows."""
@@ -181,6 +208,14 @@ class SemanticModelV2Service:
                 detail={"errors": exc.errors()},
             ) from exc
         return document
+
+    def delete_semantic_model(self, name: str, owner_user: str | None = None) -> None:
+        """Delete the caller's private semantic model working copy."""
+        model_row = self._require_private_model(name, owner_user=owner_user)
+        self.store.execute(
+            "DELETE FROM semantic_models WHERE model_id = ?",
+            [model_row["model_id"]],
+        )
 
     def import_osi_document(self, doc_data: dict[str, Any]) -> dict[str, Any]:
         """Compatibility wrapper for in-process callers while tests migrate."""

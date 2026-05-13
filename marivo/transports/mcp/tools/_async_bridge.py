@@ -10,6 +10,7 @@ from typing import Any
 from marivo.contracts.errors import (
     ConflictError,
     DomainError,
+    ForbiddenError,
     IntegrityError,
     NotFoundError,
     ValidationError,
@@ -33,12 +34,18 @@ async def call_runtime(method: Callable[..., Any], /, **kwargs: Any) -> dict[str
         return _wrap_error("NOT_FOUND", str(e))
     except ConflictError as e:
         return _wrap_error("CONFLICT", str(e))
+    except ForbiddenError as e:
+        return _wrap_error("FORBIDDEN", str(e))
     except ValidationError as e:
         return _wrap_error("VALIDATION", str(e))
     except IntegrityError as e:
         return _wrap_error("INTEGRITY", str(e))
     except DomainError as e:
         return _wrap_error("DOMAIN", str(e))
+    except RuntimeError as e:
+        if "User identity not set" in str(e):
+            return _wrap_error("VALIDATION", str(e))
+        return _wrap_error("INTERNAL", str(e))
     except Exception as e:
         return _wrap_error("INTERNAL", str(e))
 

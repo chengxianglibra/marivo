@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from marivo.identity import resolve_user
+from marivo.identity import require_user, resolve_user
 from marivo.transports.mcp.tools._async_bridge import call_runtime
 from marivo.transports.mcp.tools.schemas import McpOsiDocumentInput, McpOsiExportInput
 
@@ -82,3 +82,12 @@ def register_semantic_tools(server: Any, runtime: Any) -> None:
             semantic_model_name=input.semantic_model_name,
         )
         return _write_export_output(input.output_path, result)
+
+    @server.tool()  # type: ignore
+    async def delete_semantic_model(model: str) -> dict[str, Any]:
+        """Delete the current user's private semantic model via DELETE /semantic-models/{model}."""
+        return await call_runtime(
+            svc.delete_semantic_model,
+            name=model,
+            owner_user=require_user(),
+        )

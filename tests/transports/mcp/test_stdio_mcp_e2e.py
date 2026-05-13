@@ -30,6 +30,9 @@ class _FakeSvc:
     def get_semantic_model(self, **kw):
         return {}
 
+    def delete_semantic_model(self, **kw):
+        return {}
+
     def register_datasource(self, **kw):
         return {}
 
@@ -141,6 +144,10 @@ class RecordingSemanticSvc:
     def get_semantic_model(self, **kw):
         return {}
 
+    def delete_semantic_model(self, **kw):
+        self.calls.append(("delete", kw))
+        return None
+
 
 class RecordingRuntime(FakeRuntime):
     def __init__(self) -> None:
@@ -226,6 +233,7 @@ def test_stdio_server_registers_tools():
         "validate_osi_semantic_models",
         "import_osi_semantic_models",
         "export_osi_semantic_models",
+        "delete_semantic_model",
         # Datasource tools
         "list_datasources",
         "create_datasource",
@@ -261,16 +269,19 @@ async def test_stdio_semantic_document_tools_support_local_json_files(tmp_path: 
     export_result = await tools["export_osi_semantic_models"].run(
         {"input": {"semantic_model_name": "commerce", "output_path": str(output_path)}}
     )
+    delete_result = await tools["delete_semantic_model"].run({"model": "commerce"})
 
     assert runtime.semantic.calls == [
         ("validate", {"doc_data": doc}),
         ("import", {"doc_data": doc}),
         ("export", {"semantic_model_name": "commerce"}),
+        ("delete", {"name": "commerce", "owner_user": "test_user"}),
     ]
     assert output_path.read_text(encoding="utf-8") == (
         '{\n  "version": "0.1.1",\n  "semantic_model": []\n}\n'
     )
     assert export_result["data"]["output_path"] == str(output_path)
+    assert delete_result == {"data": None, "error": None}
 
 
 def test_marivo_mcp_help_flag():

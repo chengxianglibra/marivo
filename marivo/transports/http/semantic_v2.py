@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from marivo.adapters.server.semantic_service_adapter import SemanticServiceAdapter
-from marivo.identity import resolve_user
+from marivo.identity import require_user, resolve_user
 from marivo.runtime.semantic.import_export import ImportOsiDocumentReport
 from marivo.transports.http.models.osi import OSI_SPEC_VERSION, OSIDocument
 
@@ -83,6 +83,13 @@ def _run(fn: Callable[[], _T]) -> _T:  # noqa: UP047
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+def _resolve_owner_user() -> str:
+    try:
+        return require_user()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 @router.get("", response_model=OSIDocument)
 def list_semantic_models(request: Request) -> OSIDocument:
     """List semantic models as an OSI document envelope."""
@@ -130,3 +137,11 @@ def get_semantic_model(model: str, request: Request) -> OSIDocument:
     svc = _get_service(request)
     result = _run(lambda: svc.get_semantic_model(model, requesting_user=resolve_user()))
     return _osi_model_wrap(result)
+
+
+@router.delete("/{model}", status_code=204)
+def delete_semantic_model(model: str, request: Request) -> None:
+    """Delete the caller's private semantic model working copy."""
+    svc = _get_service(request)
+    owner_user = _resolve_owner_user()
+    _run(lambda: svc.delete_semantic_model(model, owner_user=owner_user))
