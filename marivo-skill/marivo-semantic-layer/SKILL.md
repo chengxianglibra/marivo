@@ -1,260 +1,199 @@
 ---
 name: marivo-semantic-layer
-description: Use when the task is to intake business definitions, then build, inspect, update, or troubleshoot reusable Marivo semantic models, datasets, metrics, relationships, or readiness through the current stdio MCP tools.
+description: Use when the task is to intake business definitions, then build, inspect, validate, import, export, or troubleshoot reusable Marivo semantic model documents through the current stdio MCP tools.
 ---
 
 # Marivo Semantic-Layer Skill
 
-Use this skill for **current Marivo stdio MCP semantic-layer work** only.
+Use this skill for current Marivo stdio MCP semantic-layer work only.
 
-It owns business knowledge intake, reusable semantic contracts, semantic models, datasets, fields,
-metrics, relationships, and readiness. It does not own datasource-only browse or session-scoped
-investigation loops.
+It owns business knowledge intake, reusable semantic contracts, OSI-Marivo document drafting,
+validation, import, export, and deciding when to hand off to analysis. It does not own
+datasource-only browse or session-scoped investigation loops.
 
 ## What This Skill Owns
 
 - extracting candidate business definitions from user-provided metric docs, glossary material, or
   reporting references
-- drafting reusable semantic contracts and getting key metric definitions approved before writes
-- creating and reading semantic models
-- adding or updating datasets and dataset fields
-- adding or updating metrics and relationships
-- checking model readiness before reuse
+- drafting reusable semantic contracts and getting key metric definitions approved before import
+- reading or exporting current semantic model documents
+- validating draft OSI-Marivo documents and repairing validation issues
+- importing validated documents after explicit user approval
 - deciding when to hand off to analysis for a smoke test or real investigation
 
 ## Choose The Next Tool
 
-- business definition is still unclear: stop writes, collect user business material, then draft the
-  contract in `references/modeling.md`
-- model does not exist yet: `marivo-create_semantic_model`
-- model exists but needs another dataset: `marivo-create_dataset`
-- dataset exists but measurement is missing: `marivo-create_metric`
-- metric crosses datasets: `marivo-create_relationship`
-- object exists but needs repair: `marivo-update_dataset`, `marivo-update_metric`, or
-  `marivo-update_relationship`
-- model usability is unclear: `marivo-get_semantic_model_readiness`
-- reusable graph is ready and now needs a representative run: switch to `marivo-analysis`
+- Need physical metadata before authoring: use `marivo-datasource`.
+- Need current semantic state: `marivo-list_semantic_models`, `marivo-get_semantic_model`, or
+  `marivo-export_osi_semantic_models`.
+- Need to check a draft: `marivo-validate_osi_semantic_models`.
+- Draft is validated and user approved it: `marivo-import_osi_semantic_models`.
+- Reusable graph is imported and now needs a representative run: switch to `marivo-analysis`.
 
 ## Option Presentation Rules
 
 Follow the superpowers brainstorming pattern when presenting options to the user:
 
-- **Present options with clear labels** — use Option 1/2/3 or A/B/C with one-line descriptions.
+- Present options with clear labels: use Option 1/2/3 or A/B/C with one-line descriptions.
   When trade-offs exist, state them explicitly and recommend one option with reasoning.
-- **One decision at a time** — ask one question per message. Do not bundle multiple independent
+- One decision at a time: ask one question per message. Do not bundle multiple independent
   choices into a single message.
-- **Only present options when there is genuine choice.** If a decision can be unambiguously
-  determined from the schema (e.g. only one column can serve as PK, only one time column exists),
-  propose the single answer directly and ask the user to confirm — do not fabricate fake
-  alternatives.
-- **Prefer tables for structured comparisons** — when comparing options across multiple
-  dimensions (e.g. simple vs standard vs rich), use a markdown table with columns for the option
-  name, contents, and a one-line justification.
+- Only present options when there is genuine choice. If a decision can be unambiguously determined
+  from the schema, propose the single answer directly and ask the user to confirm.
+- Prefer tables for structured comparisons when comparing options across multiple dimensions.
 
-### When to Skip Options
+### When To Skip Options
 
 Skip presenting multiple options and go directly to confirmation when:
 
-- There is only one viable candidate (single table, single PK column, single time column)
-- The user has already specified their preference ("use all columns", "I want option 3")
-- The choice is obvious from prior context (e.g. user said "build a model on table X")
+- there is only one viable candidate, such as a single table, primary key column, or time column
+- the user has already specified their preference
+- the choice is obvious from prior context
 
-In these cases, present the single proposal and ask "Confirm?" — do not waste the user's time with
-synthetic alternatives.
+In these cases, present the single proposal and ask "Confirm?"
 
-## Staged Build With Mandatory User Confirmation
+## Document-First Build With Mandatory User Confirmation
 
-The semantic layer build is divided into per-dataset stages plus metric and relationship stages.
-**The agent MUST wait for explicit user confirmation before writing any object.**
+The agent drafts a complete OSI-Marivo JSON document, validates it, fixes validation errors, and
+only imports it after explicit user confirmation. Do not create datasets, fields, metrics, or
+relationships through separate management tools.
 
-### Prerequisite — Knowledge Intake
+### Prerequisite: Knowledge Intake
 
-**Before any technical work, the agent MUST ask the user for business knowledge.** The agent
-must not proceed to dataset selection until the user has provided at least one of the following:
+Before any technical work, ask the user for business knowledge. Do not proceed to datasource
+selection until the user has provided at least one of the following:
 
-- Metric definitions (names, formulas, business meaning)
-- Reporting requirements (what questions should the model answer)
-- Glossary or data dictionary references
-- Existing dashboards or analysis templates to replicate
-- Domain context (what does this data represent, who uses it, what decisions does it inform)
+- metric definitions, names, formulas, or business meaning
+- reporting requirements or the questions the model should answer
+- glossary or data dictionary references
+- existing dashboards or analysis templates to replicate
+- domain context for the data, users, and decisions
 
-Ask the user directly:
+Ask directly:
 
-> "Please share any business context you have — metric definitions, reporting requirements,
-> glossary docs, or existing dashboards. What questions should this semantic model answer?"
+> Please share any business context you have: metric definitions, reporting requirements, glossary
+> docs, or existing dashboards. What questions should this semantic model answer?
 
-**If the user provides no business material** (e.g. "just build from the table"), the agent
-MUST NOT fabricate business definitions. In this case, note the lack of business context and
-proceed with column-name-derived defaults, but flag to the user that metrics will be
-mechanically derived rather than business-meaningful.
+If the user provides no business material, do not fabricate business definitions. Proceed with
+column-name-derived defaults only after telling the user that metrics will be mechanically derived
+rather than business-meaningful.
 
-### Stage A — Dataset Selection
+### Authoring Stages
+
+1. Collect business knowledge before technical work.
+2. Browse datasource metadata to choose physical grounding.
+3. Draft the full OSI-Marivo JSON document in a file for non-trivial models.
+4. Run `marivo-validate_osi_semantic_models` with `input_path` or inline `document`.
+5. Fix every validation error using `json_pointer`, `message`, and `hint`.
+6. Repeat validation until `valid: true`.
+7. Present the validated document summary to the user and wait for approval.
+8. Run `marivo-import_osi_semantic_models`.
+9. Confirm with `marivo-get_semantic_model` or `marivo-export_osi_semantic_models`.
+
+### Dataset Selection
 
 Given the business domain goal and available tables from the datasource, present dataset
 candidates:
 
-- **Option 1 (minimal)**: a single core fact table only
-- **Option 2 (standard)**: core fact table + 1–2 key dimension tables
-- **Option 3 (rich)**: fact table + all related dimension tables
+| Option | Contents | When to use |
+| --- | --- | --- |
+| Option 1 | Single core fact table only. | The user needs a narrow first model. |
+| Option 2 | Core fact table plus 1-2 key dimension tables. | The model needs common cuts or labels. |
+| Option 3 | Fact table plus all clearly related dimension tables. | The user wants a broad reusable graph. |
 
-For each option, list the table names and a one-line justification. Wait for the user to pick one
-before proceeding.
+Wait for the user to pick one before finalizing the document. If only one table is available, skip
+the options and confirm directly.
 
-**If there is only one table available**, skip the options and confirm directly: "Only table X is available, use it?"
+### Field Selection
 
-### Stage B, C, D... — Field Selection, One Stage Per Dataset
+When the model has multiple datasets, each dataset gets its own independent field-selection stage.
+Do not merge fields from different datasets into a single stage.
 
-When the model has multiple datasets, each dataset gets its own independent field-selection
-stage. Do NOT merge fields from different datasets into a single stage.
+For each dataset, present candidate fields organized by role:
 
-For each dataset, present the candidate fields organized by role:
+| Role | Description | User decision needed |
+| --- | --- | --- |
+| Primary key | Uniquely identifies each row. | Confirm key column or columns. |
+| Unique keys | Additional business uniqueness constraints. | Confirm or skip. |
+| Time fields | Controls analysis time windows and should set `dimension.is_time: true`. | Confirm time column or columns. |
+| Dimensions | Group-by and filter columns. | Select from available columns. |
 
-| Role | Description | User Decision Needed |
-|------|-------------|---------------------|
-| Primary key | Uniquely identifies each row | Confirm PK column(s) |
-| Unique keys | Additional business uniqueness constraints | Confirm or skip |
-| Time fields | Controls the analysis time window, must have `dimension.is_time: true` | Confirm which column(s) |
-| Dimensions | Group-by / filter columns | Select from available columns |
-
-**Measures (numeric aggregation columns) belong in the Metric stage, NOT in the dataset field
-stage.** The dataset stage focuses on identity (PK), time semantics, and grouping (dimensions)
-only.
-
-**Rule**: When the agent is uncertain about PK, unique keys, or time fields, it MUST flag the
-uncertainty and ask the user to decide. Offer 2–3 concrete proposals (e.g. "A: use `create_time`
-as the sole time field; B: use `log_date` + `log_hour` as a composite time dimension").
-
-After the user confirms the field list for one dataset, immediately create that dataset before
-moving to the next dataset's field selection stage.
+Measures belong in the metric stage, not the dataset field stage. If primary key, unique key, or
+time semantics are uncertain, flag the uncertainty and ask the user to decide.
 
 ### Metric Stage
 
-After all datasets are created, present metric candidates.
+After dataset fields are drafted, present metric candidates. For each metric, include:
 
-For each metric, describe:
+- semantic name
+- ANSI SQL aggregation expression
+- one-line business meaning
+- observed dataset
+- primary time field
+- additive dimensions or non-additivity warning
 
-- **Name**: semantic name (e.g. `p90_elapsed_time_success`)
-- **Expression**: the ANSI SQL aggregation (e.g. `APPROX_PERCENTILE(...)`)
-- **Description**: one-line business meaning
-- **additive_dimensions**: list of dimensions across which this metric can be summed and
-  decomposed.
-
-**CRITICAL — `additive_dimensions` reminder**:
-- Every metric MUST declare `additive_dimensions` in its MARIVO custom extension.
-- SUM-based metrics (COUNT, SUM) are fully additive — declare all intended dimensions.
-- AVG / APPROX_PERCENTILE are non-additive and **cannot be decomposed**. The agent MUST warn the
-  user of this limitation when proposing such metrics.
-- The `additive_dimensions` value must be a list of field names, e.g.
-  `["cluster","source","query_type"]`.
-
-Present metric proposals from simple to comprehensive:
-
-- **Option 1 (minimal)**: 2–3 core metrics
-- **Option 2 (standard)**: 4–6 metrics covering basic KPIs
-- **Option 3 (rich)**: 8+ metrics with per-dimension breakdowns
-
-**If the user has already specified their preference** (e.g. "all columns" or "all measures"), skip the
-options and present the final metric list directly for confirmation.
-
-Wait for user confirmation before creating metrics.
+SUM-based metrics are additive only across approved dimensions. AVG and percentile-style metrics
+are non-additive and cannot be decomposed; warn the user before import.
 
 ### Relationship Stage
 
-If the model has multiple datasets, present the join paths with options:
+If the model has multiple datasets, present join paths with options:
 
-| Relationship | From | To | Join Columns | Cardinality |
-|-------------|------|----|-------------|-------------|
-| name | dataset_a | dataset_b | col → col | many_to_one |
+| Relationship | From | To | Join columns | Cardinality |
+| --- | --- | --- | --- | --- |
+| name | dataset_a | dataset_b | column to column | many_to_one |
 
-For each relationship, state:
-- `from_dataset.column → to_dataset.column`
-- Cardinality (many_to_one, one_to_one)
+Create relationships only in the draft document, and only after the user confirms the join path.
+If the model has one dataset, skip this stage.
 
-**Present relationship options when ambiguity exists:**
-- If join columns are unambiguous (e.g. same PK name), present the single relationship set and
-  ask for confirmation.
-- If multiple join paths are possible, offer 2–3 options (e.g. different join columns, different
-  cardinalities).
+## Default Operating Loop
 
-**Wait for user confirmation before creating relationships.**
-
-**If the model has only one dataset, skip this stage** — no relationships are needed.
-
-### After All Stages
-
-1. Create the model (one payload or incremental, depending on complexity).
-2. Check readiness with `marivo-get_semantic_model_readiness`.
-3. If readiness fails, surface the blockers to the user before attempting analysis.
-4. Hand off to `marivo-analysis` only after user approval and readiness are both in place.
-
-## Default Operating Loop (Summary)
-
-1. **Prerequisite — Knowledge Intake**: ask the user for business definitions, metric docs,
-   reporting requirements, or domain context. Do not proceed until the user responds.
-2. Confirm the datasource and live relation with `marivo-datasource`.
-3. **Stage A** — present dataset options, get user confirmation, create the model with the first
-   dataset.
-4. **Stages B, C, D...** — one stage per remaining dataset. For each: present field options (PK,
-   time, dimensions only — no measures), get confirmation, create the dataset. Repeat until all
-   datasets are created.
-5. **Metric stage** — present metric options, get user confirmation, create all metrics.
-6. **Relationship stage** — if multiple datasets, present join paths with options, get user
-   confirmation, create relationships.
-7. Check readiness before treating the model as reusable.
-8. Hand off to `marivo-analysis` only after approval and readiness are both in place.
+1. Ask for business definitions, metric docs, reporting requirements, or domain context.
+2. Confirm datasource and live relations through `marivo-datasource`.
+3. Present dataset options and get user confirmation.
+4. Draft one dataset section at a time: identity, time, and grouping fields only.
+5. Present metric options and get user confirmation.
+6. Present relationship options when multiple datasets are involved.
+7. Validate the complete OSI-Marivo document.
+8. Repair validation issues and revalidate until clean.
+9. Ask for explicit import approval.
+10. Import the document, confirm stored state, then hand off to `marivo-analysis`.
 
 ## High-Value Guardrails
 
-- **Knowledge intake comes first.** Before any datasource browsing or model creation, ask the user
-  for business definitions, metric docs, reporting requirements, or domain context. Never skip
-  this step.
-- **Follow the option presentation rules.** Only present multiple options when there is genuine
-  choice; otherwise propose directly and ask for confirmation.
-- **One stage per dataset.** When the model has multiple datasets, give each its own field-selection
-  stage. Never merge fields from different datasets into a single stage.
-- **Dataset stage = identity + time + grouping only.** Measures (numeric aggregation columns)
-  belong in the metric stage. Do not include them in dataset field selection.
-- **Relationship stage requires user confirmation.** Present join paths with options when
-  ambiguity exists; always wait for confirmation before creating relationships.
-- **Without business material, flag the gap.** If the user provides no business context, proceed
-  with column-name-derived defaults but warn the user that metrics lack business grounding.
+- Knowledge intake comes first. Never skip the request for metric definitions and domain context.
+- Only present multiple options when there is genuine choice.
+- One dataset field-selection stage per dataset.
+- Dataset stage equals identity, time, and grouping only.
+- Relationships require user confirmation.
+- Without business material, flag the gap before using column-name-derived defaults.
 - Physical grounding belongs in `dataset.source`, the dataset MARIVO datasource extension, and
   `field.expression`.
 - Reusable metrics start from approved business definitions, not from column names alone.
-- Create dataset fields before metrics and relationships that depend on them.
-- Every metric MUST declare `additive_dimensions` in its MARIVO custom extension; warn the user
-  when proposing non-additive metrics (AVG, APPROX_PERCENTILE) that cannot be decomposed.
-- Use the current stdio MCP semantic tools only; do not invent separate entity, predicate, time, or
-  dimension write flows that the current tool surface does not expose.
-- Creation success is not the same as usability; check readiness explicitly.
-- If user materials and live metadata disagree, surface the conflict and pause for a user decision
-  instead of guessing.
+- Every metric must declare additive behavior or carry a clear non-additivity warning.
+- Use current stdio MCP semantic document tools only; do not invent separate entity, predicate,
+  time, or dimension write flows.
+- A valid document is not user approval. Import only after explicit approval.
+- If user materials and live metadata disagree, surface the conflict and pause for a user decision.
 - Do not hand off to analysis on provisional or unapproved semantic contracts.
-- Keep payloads minimal and tool-shaped. If a tool rejects a payload, follow the live tool guidance
-  instead of copying examples from another surface.
+- Keep payloads minimal and tool-shaped. If a tool rejects a payload, follow the live tool guidance.
 
 ## Common Mistakes
 
-- **jumping into datasource browsing or model creation before asking for business knowledge** —
-  always ask the user for metric definitions and domain context first
-- **presenting fake options when there is only one viable choice** — if only one PK or time column
-  exists, propose directly and confirm; don't waste the user's time
-- **merging multiple datasets into a single field-selection stage** — each dataset must have its
-  own independent stage
-- **including measures in the dataset field stage** — measures belong in the metric stage only
-- **skipping user confirmation in the relationship stage** — relationships need approval like
-  every other stage
-- **omitting `additive_dimensions` on metrics** — leads to decompose failures during analysis
-- **not warning that AVG/APPROX_PERCENTILE metrics are non-decomposable** — user should know
-  before analysis
+- jumping into datasource browsing or document drafting before asking for business knowledge
+- presenting fake options when there is only one viable choice
+- merging multiple datasets into a single field-selection stage
+- including measures in the dataset field stage
+- skipping user confirmation for relationship paths
+- omitting additive behavior on metrics
+- not warning that AVG or percentile metrics are non-decomposable
 - turning field names into metric definitions without user business material
-- writing a metric before the underlying dataset fields exist
 - embedding physical table or column locators directly into downstream metric or relationship design
-- treating model creation as proof that the model is ready for repeated analysis
+- treating validation success as permission to import
 - using analysis as a workaround for missing contract approval
 
 ## Read Next
 
-- `references/modeling.md` for the authoring sequence
-- `references/readiness.md` for readiness repair
-- `marivo-analysis` once the reusable graph is ready for a smoke test or investigation
+- `references/modeling.md` for document examples and schema guidance
+- `references/readiness.md` for validation and usability troubleshooting
+- `marivo-analysis` once the reusable graph is imported and approved for a smoke test or investigation

@@ -5,6 +5,7 @@ from __future__ import annotations
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 from mcp.server.fastmcp import FastMCP
@@ -13,88 +14,19 @@ from mcp.server.fastmcp import FastMCP
 class _FakeSvc:
     """Minimal stub satisfying semantic_v2 / datasource service contracts."""
 
-    def create_semantic_model(self, **kw):
-        return {}
-
     def list_semantic_models(self, **kw):
         return {}
 
-    def import_osi_document(self, **kw):
+    def validate_osi_semantic_models(self, **kw):
         return {}
 
-    def export_osi_document(self, **kw):
+    def import_osi_semantic_models(self, **kw):
+        return {}
+
+    def export_osi_semantic_models(self, **kw):
         return {}
 
     def get_semantic_model(self, **kw):
-        return {}
-
-    def update_semantic_model(self, **kw):
-        return {}
-
-    def delete_semantic_model(self, **kw):
-        return {}
-
-    def get_readiness(self, **kw):
-        return {}
-
-    def create_dataset(self, **kw):
-        return {}
-
-    def list_datasets(self, **kw):
-        return {}
-
-    def get_dataset(self, **kw):
-        return {}
-
-    def update_dataset(self, **kw):
-        return {}
-
-    def delete_dataset(self, **kw):
-        return {}
-
-    def create_field(self, **kw):
-        return {}
-
-    def list_fields(self, **kw):
-        return {}
-
-    def get_field(self, **kw):
-        return {}
-
-    def update_field(self, **kw):
-        return {}
-
-    def delete_field(self, **kw):
-        return {}
-
-    def create_relationship(self, **kw):
-        return {}
-
-    def list_relationships(self, **kw):
-        return {}
-
-    def get_relationship(self, **kw):
-        return {}
-
-    def update_relationship(self, **kw):
-        return {}
-
-    def delete_relationship(self, **kw):
-        return {}
-
-    def create_metric(self, **kw):
-        return {}
-
-    def list_metrics(self, **kw):
-        return {}
-
-    def get_metric(self, **kw):
-        return {}
-
-    def update_metric(self, **kw):
-        return {}
-
-    def delete_metric(self, **kw):
         return {}
 
     def register_datasource(self, **kw):
@@ -186,6 +118,35 @@ class FakeRuntime:
         return {}
 
 
+class RecordingSemanticSvc:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict[str, Any]]] = []
+
+    def list_semantic_models(self, **kw):
+        return {}
+
+    def validate_osi_semantic_models(self, **kw):
+        self.calls.append(("validate", kw))
+        return {"valid": True}
+
+    def import_osi_semantic_models(self, **kw):
+        self.calls.append(("import", kw))
+        return {"imported": True}
+
+    def export_osi_semantic_models(self, **kw):
+        self.calls.append(("export", kw))
+        return {"version": "0.1.1", "semantic_model": []}
+
+    def get_semantic_model(self, **kw):
+        return {}
+
+
+class RecordingRuntime(FakeRuntime):
+    def __init__(self) -> None:
+        self.semantic = RecordingSemanticSvc()
+        self._services = {"semantic_v2": self.semantic, "datasource": _FakeSvc()}
+
+
 def test_marivo_mcp_entry_point_callable():
     """The marivo mcp subcommand handler is callable."""
     from marivo.transports.cli.cmd_mcp import handle
@@ -261,34 +222,11 @@ def test_stdio_server_registers_tools():
         "query_session_state",
         "get_proposition_context",
         # Semantic tools
-        "create_semantic_model",
         "list_semantic_models",
-        "import_osi_document",
-        "export_osi_document",
         "get_semantic_model",
-        "update_semantic_model",
-        "delete_semantic_model",
-        "get_semantic_model_readiness",
-        "create_dataset",
-        "list_datasets",
-        "get_dataset",
-        "update_dataset",
-        "delete_dataset",
-        "create_field",
-        "list_fields",
-        "get_field",
-        "update_field",
-        "delete_field",
-        "create_relationship",
-        "list_relationships",
-        "get_relationship",
-        "update_relationship",
-        "delete_relationship",
-        "create_metric",
-        "list_metrics",
-        "get_metric",
-        "update_metric",
-        "delete_metric",
+        "validate_osi_semantic_models",
+        "import_osi_semantic_models",
+        "export_osi_semantic_models",
         # Datasource tools
         "list_datasources",
         "create_datasource",
@@ -303,6 +241,37 @@ def test_stdio_server_registers_tools():
 
     for tool_name in expected_tools:
         assert tool_name in tool_names, f"Missing tool: {tool_name}"
+
+
+@pytest.mark.asyncio
+async def test_stdio_semantic_document_tools_support_local_json_files(tmp_path: Path):
+    from marivo.transports.mcp.tools import register_tools
+
+    runtime = RecordingRuntime()
+    server = FastMCP("marivo")
+    register_tools(server, runtime, transport="stdio")
+    tools = {t.name: t for t in server._tool_manager.list_tools()}
+
+    doc = {"version": "0.1.1", "semantic_model": []}
+    input_path = tmp_path / "semantic.json"
+    output_path = tmp_path / "exported.json"
+    input_path.write_text('{"version":"0.1.1","semantic_model":[]}', encoding="utf-8")
+
+    await tools["validate_osi_semantic_models"].run({"input": {"input_path": str(input_path)}})
+    await tools["import_osi_semantic_models"].run({"input": {"document": doc}})
+    export_result = await tools["export_osi_semantic_models"].run(
+        {"input": {"semantic_model_name": "commerce", "output_path": str(output_path)}}
+    )
+
+    assert runtime.semantic.calls == [
+        ("validate", {"doc_data": doc}),
+        ("import", {"doc_data": doc}),
+        ("export", {"semantic_model_name": "commerce"}),
+    ]
+    assert output_path.read_text(encoding="utf-8") == (
+        '{\n  "version": "0.1.1",\n  "semantic_model": []\n}\n'
+    )
+    assert export_result["data"]["output_path"] == str(output_path)
 
 
 def test_marivo_mcp_help_flag():

@@ -130,7 +130,7 @@ class SemanticImportExportServiceTests(unittest.TestCase):
         )
         self.assertEqual(row, {"visibility": "private", "owner_user": "alice"})
 
-    def test_import_merges_non_leaf_nodes_replaces_leaves_and_retains_missing_children(
+    def test_import_replaces_whole_model_graph(
         self,
     ) -> None:
         token = set_current_user("alice")
@@ -141,7 +141,7 @@ class SemanticImportExportServiceTests(unittest.TestCase):
                     datasets=[
                         _dataset(
                             "orders",
-                            fields=[_field("order_id"), _field("amount")],
+                            fields=[_field("order_id"), _field("customer_id"), _field("amount")],
                         ),
                         _dataset("customers", fields=[_field("customer_id")]),
                     ],
@@ -160,12 +160,7 @@ class SemanticImportExportServiceTests(unittest.TestCase):
                         ),
                     ],
                     metrics=[_metric("revenue", "SUM(gross_amount)")],
-                    relationships=[
-                        {
-                            **_relationship(),
-                            "from_columns": ["customer_id_v2"],
-                        }
-                    ],
+                    relationships=[],
                 )
             )
             exported = self.service.export_osi_document("commerce")
@@ -173,26 +168,28 @@ class SemanticImportExportServiceTests(unittest.TestCase):
             reset_current_user(token)
 
         model = exported["semantic_model"][0]
-        self.assertEqual(report["models"][0]["datasets"]["updated"], 1)
+        self.assertEqual(report["models"][0]["datasets"]["created"], 1)
         self.assertEqual(
             report["models"][0]["fields"],
-            {"created": 1, "updated": 1, "unchanged": 0},
+            {"created": 2, "updated": 0, "unchanged": 0},
         )
-        self.assertEqual(report["models"][0]["metrics"]["updated"], 1)
-        self.assertEqual(report["models"][0]["relationships"]["updated"], 1)
+        self.assertEqual(report["models"][0]["metrics"]["created"], 1)
+        self.assertEqual(
+            report["models"][0]["relationships"], {"created": 0, "updated": 0, "unchanged": 0}
+        )
         self.assertEqual(model["description"], "updated")
         datasets = {dataset["name"]: dataset for dataset in model["datasets"]}
         self.assertEqual(datasets["orders"]["source"], "analytics.orders_v2")
-        self.assertIn("customers", datasets)
+        self.assertNotIn("customers", datasets)
         self.assertEqual(
             [field["name"] for field in datasets["orders"]["fields"]],
-            ["order_id", "amount", "created_at"],
+            ["amount", "created_at"],
         )
         self.assertEqual(
             model["metrics"][0]["expression"]["dialects"][0]["expression"],
             "SUM(gross_amount)",
         )
-        self.assertEqual(model["relationships"][0]["from_columns"], ["customer_id_v2"])
+        self.assertNotIn("relationships", model)
 
     def test_export_without_name_returns_only_current_users_private_models(self) -> None:
         token = set_current_user("alice")
@@ -218,7 +215,7 @@ class SemanticImportExportServiceTests(unittest.TestCase):
             ["alice_model"],
         )
 
-    def test_import_retains_existing_model_description_when_omitted(self) -> None:
+    def test_import_replaces_existing_model_description_when_omitted(self) -> None:
         token = set_current_user("alice")
         try:
             self.service.import_osi_document(_doc(description="Retained model description"))
@@ -239,10 +236,10 @@ class SemanticImportExportServiceTests(unittest.TestCase):
             reset_current_user(token)
 
         model = exported["semantic_model"][0]
-        self.assertEqual(model["description"], "Retained model description")
+        self.assertNotIn("description", model)
         self.assertEqual(model["datasets"][0]["source"], "analytics.orders_v2")
 
-    def test_import_retains_existing_dataset_optional_attributes_when_omitted(self) -> None:
+    def test_import_replaces_existing_dataset_optional_attributes_when_omitted(self) -> None:
         token = set_current_user("alice")
         try:
             self.service.import_osi_document(
@@ -273,8 +270,8 @@ class SemanticImportExportServiceTests(unittest.TestCase):
             reset_current_user(token)
 
         dataset = exported["semantic_model"][0]["datasets"][0]
-        self.assertEqual(dataset["description"], "Retained dataset description")
-        self.assertEqual(dataset["primary_key"], ["order_id"])
+        self.assertNotIn("description", dataset)
+        self.assertNotIn("primary_key", dataset)
         self.assertEqual(dataset["source"], "analytics.orders_v2")
         self.assertEqual(
             dataset["custom_extensions"][0]["data"]["datasource_id"],
