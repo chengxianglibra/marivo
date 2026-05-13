@@ -81,15 +81,20 @@ def _make_model_payload() -> dict:
     }
 
 
-def test_create_semantic_model_with_generated_osi(service: SemanticModelV2Service) -> None:
+def test_import_semantic_model_with_generated_osi(service: SemanticModelV2Service) -> None:
     try:
         with _as_user("test_user"):
-            result = service.create_semantic_model(_make_model_payload())
-        assert result["name"] == "test_model"
-        assert len(result["datasets"]) == 1
-        assert len(result.get("metrics", [])) == 1
+            result = service.import_osi_semantic_models(
+                {"version": "0.1.1", "semantic_model": [_make_model_payload()]}
+            )
+            imported = service.export_osi_semantic_models("test_model")["semantic_model"][0]
 
-        metric = result["metrics"][0]
+        assert result["valid"] is True
+        assert imported["name"] == "test_model"
+        assert len(imported["datasets"]) == 1
+        assert len(imported.get("metrics", [])) == 1
+
+        metric = imported["metrics"][0]
         marivo_ext = None
         for ext in metric.get("custom_extensions", []):
             if ext.get("vendor_name") == "MARIVO":
@@ -104,7 +109,9 @@ def test_create_semantic_model_with_generated_osi(service: SemanticModelV2Servic
 def test_get_semantic_model_roundtrip(service: SemanticModelV2Service) -> None:
     try:
         with _as_user("test_user"):
-            service.create_semantic_model(_make_model_payload())
+            service.import_osi_semantic_models(
+                {"version": "0.1.1", "semantic_model": [_make_model_payload()]}
+            )
         fetched = service.get_semantic_model("test_model", requesting_user="test_user")
         assert fetched["name"] == "test_model"
         assert len(fetched["datasets"]) == 1

@@ -15,88 +15,19 @@ from marivo.transports.mcp.tools import register_tools
 class _FakeSvc:
     """Minimal stub satisfying semantic_v2 / datasource service contracts."""
 
-    def create_semantic_model(self, **kw):
-        return {}
-
     def list_semantic_models(self, **kw):
         return {}
 
-    def import_osi_document(self, **kw):
+    def validate_osi_semantic_models(self, **kw):
         return {}
 
-    def export_osi_document(self, **kw):
+    def import_osi_semantic_models(self, **kw):
+        return {}
+
+    def export_osi_semantic_models(self, **kw):
         return {}
 
     def get_semantic_model(self, **kw):
-        return {}
-
-    def update_semantic_model(self, **kw):
-        return {}
-
-    def delete_semantic_model(self, **kw):
-        return {}
-
-    def get_readiness(self, **kw):
-        return {}
-
-    def create_dataset(self, **kw):
-        return {}
-
-    def list_datasets(self, **kw):
-        return {}
-
-    def get_dataset(self, **kw):
-        return {}
-
-    def update_dataset(self, **kw):
-        return {}
-
-    def delete_dataset(self, **kw):
-        return {}
-
-    def create_field(self, **kw):
-        return {}
-
-    def list_fields(self, **kw):
-        return {}
-
-    def get_field(self, **kw):
-        return {}
-
-    def update_field(self, **kw):
-        return {}
-
-    def delete_field(self, **kw):
-        return {}
-
-    def create_relationship(self, **kw):
-        return {}
-
-    def list_relationships(self, **kw):
-        return {}
-
-    def get_relationship(self, **kw):
-        return {}
-
-    def update_relationship(self, **kw):
-        return {}
-
-    def delete_relationship(self, **kw):
-        return {}
-
-    def create_metric(self, **kw):
-        return {}
-
-    def list_metrics(self, **kw):
-        return {}
-
-    def get_metric(self, **kw):
-        return {}
-
-    def update_metric(self, **kw):
-        return {}
-
-    def delete_metric(self, **kw):
         return {}
 
     def register_datasource(self, **kw):
@@ -224,18 +155,66 @@ def test_stdio_omits_catalog_tools():
     )
 
 
-def test_semantic_tools_include_import_export_and_field_crud() -> None:
+def test_semantic_tools_expose_compact_document_inventory() -> None:
     server = FastMCP("test")
     register_tools(server, FakeRuntime(), transport="stdio")
     tools = _tool_names(server)
 
-    assert "import_osi_document" in tools
-    assert "export_osi_document" in tools
-    assert "create_field" in tools
-    assert "list_fields" in tools
-    assert "get_field" in tools
-    assert "update_field" in tools
-    assert "delete_field" in tools
+    assert {
+        "list_semantic_models",
+        "get_semantic_model",
+        "validate_osi_semantic_models",
+        "import_osi_semantic_models",
+        "export_osi_semantic_models",
+    }.issubset(tools)
+    assert {
+        "create_semantic_model",
+        "import_osi_document",
+        "export_osi_document",
+        "update_semantic_model",
+        "delete_semantic_model",
+        "get_semantic_model_readiness",
+        "create_dataset",
+        "list_datasets",
+        "get_dataset",
+        "update_dataset",
+        "delete_dataset",
+        "create_field",
+        "list_fields",
+        "get_field",
+        "update_field",
+        "delete_field",
+        "create_relationship",
+        "list_relationships",
+        "get_relationship",
+        "update_relationship",
+        "delete_relationship",
+        "create_metric",
+        "list_metrics",
+        "get_metric",
+        "update_metric",
+        "delete_metric",
+    }.isdisjoint(tools)
+
+
+def test_semantic_document_tools_accept_inline_document_or_file_inputs() -> None:
+    server = FastMCP("test")
+    register_tools(server, FakeRuntime(), transport="stdio")
+    tools = {tool.name: tool for tool in server._tool_manager.list_tools()}
+
+    validate_props = tools["validate_osi_semantic_models"].parameters["$defs"][
+        "McpOsiDocumentInput"
+    ]["properties"]
+    import_props = tools["import_osi_semantic_models"].parameters["$defs"]["McpOsiDocumentInput"][
+        "properties"
+    ]
+    export_props = tools["export_osi_semantic_models"].parameters["$defs"]["McpOsiExportInput"][
+        "properties"
+    ]
+
+    assert set(validate_props) == {"document", "input_path"}
+    assert set(import_props) == {"document", "input_path"}
+    assert set(export_props) == {"semantic_model_name", "output_path"}
 
 
 def test_mcp_semantic_tools_do_not_expose_requesting_user() -> None:
@@ -246,15 +225,6 @@ def test_mcp_semantic_tools_do_not_expose_requesting_user() -> None:
     checked_names = [
         "list_semantic_models",
         "get_semantic_model",
-        "get_semantic_model_readiness",
-        "list_datasets",
-        "get_dataset",
-        "list_fields",
-        "get_field",
-        "list_relationships",
-        "get_relationship",
-        "list_metrics",
-        "get_metric",
     ]
     for name in checked_names:
         assert "requesting_user" not in tools[name].parameters.get("properties", {})
