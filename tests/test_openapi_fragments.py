@@ -116,15 +116,34 @@ class OpenApiFragmentTests(unittest.TestCase):
         schema = response.json()
         components = schema["components"]["schemas"]
 
-        # Verify core infrastructure schemas are still published
+        # Verify core generated AOI atomic schemas and session schemas are still published.
         infrastructure_schemas = [
-            "ObserveRequest",
-            "CompareRequest",
-            "DetectRequest",
+            "Observe1",
+            "Compare",
+            "Detect",
+            "ExecutionEnvelope",
             "SessionCreateRequest",
         ]
         for schema_name in infrastructure_schemas:
             self.assertIn(schema_name, components)
+
+        observe_request = schema["paths"]["/sessions/{session_id}/intents/observe"]["post"][
+            "requestBody"
+        ]["content"]["application/json"]["schema"]
+        self.assertEqual(
+            [variant["$ref"] for variant in observe_request["anyOf"]],
+            [
+                "#/components/schemas/Observe1",
+                "#/components/schemas/Observe2",
+                "#/components/schemas/Observe3",
+                "#/components/schemas/Observe4",
+            ],
+        )
+
+        observe_response = schema["paths"]["/sessions/{session_id}/intents/observe"]["post"][
+            "responses"
+        ]["200"]["content"]["application/json"]["schema"]
+        self.assertEqual(observe_response["$ref"], "#/components/schemas/ExecutionEnvelope")
 
     def test_datasource_routes_publish_stable_request_and_response_schemas(self) -> None:
         response = self.client.get("/openapi.json")

@@ -190,10 +190,23 @@ def run_compare_intent(
 
     left_ref_raw: dict[str, Any] = p.get("left_ref") or {}
     right_ref_raw: dict[str, Any] = p.get("right_ref") or {}
-    left_step_id: str = left_ref_raw.get("step_id") or ""
-    right_step_id: str = right_ref_raw.get("step_id") or ""
-    left_session_id: str = left_ref_raw.get("session_id") or session_id
-    right_session_id: str = right_ref_raw.get("session_id") or session_id
+    left_artifact_id_raw = p.get("left_artifact_id")
+    right_artifact_id_raw = p.get("right_artifact_id")
+    left_artifact_id = left_artifact_id_raw.strip() if isinstance(left_artifact_id_raw, str) else ""
+    right_artifact_id = (
+        right_artifact_id_raw.strip() if isinstance(right_artifact_id_raw, str) else ""
+    )
+    uses_aoi_artifact_refs = bool(left_artifact_id or right_artifact_id) or (
+        "left_ref" not in p and "right_ref" not in p
+    )
+    left_step_id: str = "" if uses_aoi_artifact_refs else left_ref_raw.get("step_id") or ""
+    right_step_id: str = "" if uses_aoi_artifact_refs else right_ref_raw.get("step_id") or ""
+    left_session_id: str = (
+        session_id if uses_aoi_artifact_refs else left_ref_raw.get("session_id") or session_id
+    )
+    right_session_id: str = (
+        session_id if uses_aoi_artifact_refs else right_ref_raw.get("session_id") or session_id
+    )
     mode: str = p.get("mode") or "auto"
     if mode not in _VALID_COMPARE_MODES:
         raise ValueError(
@@ -201,31 +214,47 @@ def run_compare_intent(
             "'auto', 'scalar', 'segmented', 'time_series'"
         )
 
-    if not left_step_id or not right_step_id:
-        raise ValueError("compare: both left_ref.step_id and right_ref.step_id are required")
-
-    # Validate step_type in refs — Pydantic enforces Literal["observe"] at the HTTP surface;
-    # guard here for direct callers that bypass the HTTP layer.
-    for _side, _ref_raw in (("left", left_ref_raw), ("right", right_ref_raw)):
-        _ref_step_type = _ref_raw.get("step_type")
-        if _ref_step_type is not None and _ref_step_type != "observe":
+    if uses_aoi_artifact_refs:
+        if not left_artifact_id or not right_artifact_id:
             raise ValueError(
-                f"compare: INVALID_ARGUMENT - {_side}_ref.step_type must be 'observe', "
-                f"got '{_ref_step_type}'"
+                "compare: INVALID_ARGUMENT - both left_artifact_id and right_artifact_id are required"
             )
+        left_artifact = runtime.resolve_artifact_by_id(session_id, left_artifact_id)
+        if left_artifact is None:
+            raise ValueError(
+                f"compare: ARTIFACT_NOT_FOUND - no committed artifact for left_artifact_id '{left_artifact_id}'"
+            )
+        right_artifact = runtime.resolve_artifact_by_id(session_id, right_artifact_id)
+        if right_artifact is None:
+            raise ValueError(
+                f"compare: ARTIFACT_NOT_FOUND - no committed artifact for right_artifact_id '{right_artifact_id}'"
+            )
+    else:
+        if not left_step_id or not right_step_id:
+            raise ValueError("compare: both left_ref.step_id and right_ref.step_id are required")
 
-    # Resolve artifacts from DB
-    left_artifact = runtime.resolve_artifact_for_ref(left_session_id, left_step_id)
-    if left_artifact is None:
-        raise ValueError(
-            f"compare: STEP_NOT_FOUND - no committed artifact for step '{left_step_id}'"
-        )
+        # Validate step_type in refs — Pydantic enforces Literal["observe"] at the HTTP surface;
+        # guard here for direct callers that bypass the HTTP layer.
+        for _side, _ref_raw in (("left", left_ref_raw), ("right", right_ref_raw)):
+            _ref_step_type = _ref_raw.get("step_type")
+            if _ref_step_type is not None and _ref_step_type != "observe":
+                raise ValueError(
+                    f"compare: INVALID_ARGUMENT - {_side}_ref.step_type must be 'observe', "
+                    f"got '{_ref_step_type}'"
+                )
 
-    right_artifact = runtime.resolve_artifact_for_ref(right_session_id, right_step_id)
-    if right_artifact is None:
-        raise ValueError(
-            f"compare: STEP_NOT_FOUND - no committed artifact for step '{right_step_id}'"
-        )
+        left_artifact = runtime.resolve_artifact_for_ref(left_session_id, left_step_id)
+        if left_artifact is None:
+            raise ValueError(
+                f"compare: STEP_NOT_FOUND - no committed artifact for step '{left_step_id}'"
+            )
+        right_artifact = runtime.resolve_artifact_for_ref(right_session_id, right_step_id)
+        if right_artifact is None:
+            raise ValueError(
+                f"compare: STEP_NOT_FOUND - no committed artifact for step '{right_step_id}'"
+            )
+        left_artifact_id = runtime.resolve_artifact_id_for_step(session_id, left_step_id) or ""
+        right_artifact_id = runtime.resolve_artifact_id_for_step(session_id, right_step_id) or ""
 
     left_obs_type: str | None = left_artifact.get("observation_type")
     right_obs_type: str | None = right_artifact.get("observation_type")
@@ -389,11 +418,13 @@ def run_compare_intent(
         "session_id": left_session_id,
         "step_id": left_step_id,
         "step_type": "observe",
+        "artifact_id": left_artifact_id,
     }
     right_ref_out = {
         "session_id": right_session_id,
         "step_id": right_step_id,
         "step_type": "observe",
+        "artifact_id": right_artifact_id,
     }
     lineage: dict[str, Any] = {
         "left_source_ref": left_ref_out,
@@ -704,6 +735,8 @@ def run_compare_intent(
     provenance: dict[str, Any] = {
         "left_step_id": left_step_id,
         "right_step_id": right_step_id,
+        "left_artifact_id": left_artifact_id,
+        "right_artifact_id": right_artifact_id,
     }
     result = commit_step_result(
         runtime,

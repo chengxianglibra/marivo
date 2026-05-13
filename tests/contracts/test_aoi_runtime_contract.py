@@ -1,0 +1,173 @@
+from __future__ import annotations
+
+import pytest
+from pydantic import ValidationError
+
+from marivo.contracts.aoi_runtime import (
+    AOI_OPERATION_REGISTRY,
+    RuntimeIntentEnvelope,
+    artifact_to_envelope_result,
+    assert_request_matches_intent,
+    validate_aoi_artifact,
+)
+from marivo.contracts.envelope import ExecutionEnvelope, StepRef
+from marivo.contracts.generated import aoi
+
+
+def _time_scope() -> aoi.TimeScope:
+    return aoi.TimeScope.model_validate(
+        {
+            "field": "event_time",
+            "start": "2026-01-01T00:00:00Z",
+            "end": "2026-01-02T00:00:00Z",
+        }
+    )
+
+
+def _observe_request() -> aoi.Observe1:
+    return aoi.Observe1(
+        metric="view_time",
+        time_scope=_time_scope(),
+        filter=None,
+    )
+
+
+def test_runtime_intent_envelope_accepts_generated_observe_request() -> None:
+    request = _observe_request()
+
+    envelope = RuntimeIntentEnvelope(
+        session_id="session_1",
+        actor="alice",
+        request=request,
+    )
+
+    assert envelope.request is request
+
+
+def test_assert_request_matches_intent_rejects_operation_mismatch() -> None:
+    request = aoi.Forecast(horizon=7, profile=None, source_artifact_id="artifact_1")
+
+    with pytest.raises(ValueError, match="AOI_OPERATION_MISMATCH"):
+        assert_request_matches_intent("compare", request)
+
+
+def test_aoi_operation_registry_contains_atomic_operations() -> None:
+    assert set(AOI_OPERATION_REGISTRY) == {
+        "compare",
+        "correlate",
+        "decompose",
+        "detect",
+        "forecast",
+        "observe",
+        "test",
+    }
+
+
+def test_validate_aoi_artifact_returns_success_artifact() -> None:
+    artifact = validate_aoi_artifact(
+        {
+            "artifact_id": "artifact_1",
+            "result": {"value": 42.0},
+        }
+    )
+
+    assert isinstance(artifact, aoi.Artifact1)
+    assert artifact.artifact_id == "artifact_1"
+
+
+def test_validate_aoi_artifact_returns_failure_artifact() -> None:
+    artifact = validate_aoi_artifact(
+        {
+            "artifact_id": "artifact_1",
+            "failure": {
+                "code": "NOT_COMPARABLE",
+                "message": "No comparable baseline.",
+            },
+        }
+    )
+
+    assert isinstance(artifact, aoi.Artifact2)
+    assert artifact.failure.code == "NOT_COMPARABLE"
+
+
+def test_validate_aoi_artifact_accepts_generated_success_artifact() -> None:
+    source = aoi.Artifact1(
+        artifact_id="artifact_1",
+        result=aoi.ScalarObservationResult(value=42.0),
+    )
+
+    artifact = validate_aoi_artifact(source)
+
+    assert isinstance(artifact, aoi.Artifact1)
+    assert artifact.model_dump(exclude_none=True) == source.model_dump(exclude_none=True)
+
+
+def test_validate_aoi_artifact_rejects_mixed_generated_success_artifact() -> None:
+    source = aoi.Artifact1(
+        artifact_id="artifact_1",
+        result=aoi.ScalarObservationResult(value=42.0),
+        failure=aoi.AnalysisFailure(
+            code="NOT_COMPARABLE",
+            message="No comparable baseline.",
+        ),
+    )
+
+    with pytest.raises(ValidationError):
+        validate_aoi_artifact(source)
+
+
+def test_validate_aoi_artifact_rejects_non_aoi_artifact_shape() -> None:
+    with pytest.raises(ValidationError):
+        validate_aoi_artifact({"value": 42.0})
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {
+            "artifact_id": "artifact_1",
+            "result": {"value": 42.0},
+            "failure": None,
+        },
+        {
+            "artifact_id": "artifact_1",
+            "result": None,
+            "failure": {
+                "code": "NOT_COMPARABLE",
+                "message": "No comparable baseline.",
+            },
+        },
+    ],
+)
+def test_validate_aoi_artifact_rejects_nullable_counterpart_shapes(
+    payload: dict[str, object],
+) -> None:
+    with pytest.raises(ValidationError):
+        validate_aoi_artifact(payload)
+
+
+def test_execution_envelope_keeps_aoi_artifact_under_result() -> None:
+    artifact = validate_aoi_artifact(
+        {
+            "artifact_id": "artifact_1",
+            "result": {"value": 42.0},
+        }
+    )
+
+    envelope = ExecutionEnvelope(
+        intent_type="observe",
+        step_type="observe",
+        step_ref=StepRef(
+            session_id="session_1",
+            step_id="step_1",
+            step_type="observe",
+        ),
+        artifact_id="artifact_1",
+        result=artifact_to_envelope_result(artifact),
+    )
+
+    assert envelope.result == {
+        "artifact_id": "artifact_1",
+        "result": {"value": 42.0},
+    }
+    assert "value" not in envelope.model_dump()

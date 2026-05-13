@@ -113,6 +113,17 @@ HTTP atomic intent API 直接切到 AOI shape。
 
 `ExecutionEnvelope.to_legacy_dict()` 不得作为 HTTP atomic intent 的目标 response path。若短期保留该方法，只允许用于显式标记的迁移适配或测试辅助；新增目标态测试不能断言旧 flat response shape。
 
+Implementation note:
+
+- Atomic HTTP examples must use AOI artifact id references:
+  - `compare.left_artifact_id`
+  - `compare.right_artifact_id`
+  - `decompose.compare_artifact_id`
+  - `correlate.left_artifact_id`
+  - `correlate.right_artifact_id`
+  - `forecast.source_artifact_id`
+- Step refs remain Marivo execution metadata and are not valid AOI atomic request fields.
+
 ## 7. MCP 边界
 
 MCP 不直接暴露完整 AOI 原始对象。

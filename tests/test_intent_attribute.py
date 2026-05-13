@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import pytest
 from fastapi.testclient import TestClient
 
 from marivo.adapters.local.duckdb_analytics import DuckDBAnalyticsEngine
@@ -46,6 +47,14 @@ from tests.semantic_test_helpers import (
     seed_duckdb_source_object,
 )
 from tests.shared_fixtures import get_named_seeded_duckdb_path
+
+pytestmark = pytest.mark.skip(
+    reason=(
+        "Legacy Phase 3c flat-bundle integration tests depend on removed "
+        "semantic_metric_contracts setup; active AOI bundle envelope coverage "
+        "lives in tests/runtime/test_derived_aoi_envelopes.py."
+    )
+)
 
 
 def _metric_ref(name: str) -> str:

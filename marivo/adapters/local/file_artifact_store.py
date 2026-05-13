@@ -137,6 +137,7 @@ class FileArtifactStore:
         *,
         step_type: str | None = None,
         artifact_schema_version: str | None = None,
+        artifact_id: ArtifactId | None = None,
     ) -> ArtifactId:
         """Canonical commit boundary with optional finding extraction.
 
@@ -162,10 +163,12 @@ class FileArtifactStore:
                 content,
                 lifecycle="committed",
                 artifact_schema_version=artifact_schema_version,
+                artifact_id=artifact_id,
             )
 
         # Mandatory extraction family — run extraction then validate.
-        artifact_id = self._generate_artifact_id()
+        if artifact_id is None:
+            artifact_id = self._generate_artifact_id()
         effective_step_ref = StepRef(
             session_id=str(session_id),
             step_id=str(step_id),
@@ -242,6 +245,34 @@ class FileArtifactStore:
         if record.get("lifecycle") != "committed":
             return None
         return ArtifactId(record["artifact_id"]), record.get("content", {})
+
+    def resolve_artifact_by_id(
+        self,
+        session_id: SessionId,
+        artifact_id: ArtifactId,
+    ) -> dict[str, Any] | None:
+        """Return committed artifact content by session-scoped ArtifactId."""
+        for entry in reversed(self._read_index(session_id)):
+            if entry.get("artifact_id") != str(artifact_id):
+                continue
+            if entry.get("lifecycle") != "committed":
+                continue
+
+            step_id = entry.get("step_id")
+            if step_id is None:
+                return None
+            path = self._artifact_path(session_id, StepId(step_id))
+            if not path.is_file():
+                return None
+
+            record: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+            if record.get("artifact_id") != str(artifact_id):
+                return None
+            if record.get("lifecycle") != "committed":
+                return None
+            return record.get("content")
+
+        return None
 
     def list_artifacts(
         self,

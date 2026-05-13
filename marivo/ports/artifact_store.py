@@ -22,6 +22,7 @@ class ArtifactStore(Protocol):
         *,
         lifecycle: str = "committed",
         artifact_schema_version: str | None = None,
+        artifact_id: ArtifactId | None = None,
     ) -> ArtifactId: ...
 
     def commit_artifact_with_extraction(
@@ -34,6 +35,7 @@ class ArtifactStore(Protocol):
         *,
         step_type: str | None = None,
         artifact_schema_version: str | None = None,
+        artifact_id: ArtifactId | None = None,
     ) -> ArtifactId: ...
 
     def resolve_artifact_for_ref(
@@ -53,6 +55,12 @@ class ArtifactStore(Protocol):
         session_id: SessionId,
         step_id: StepId,
     ) -> tuple[ArtifactId, dict[str, Any]] | None: ...
+
+    def resolve_artifact_by_id(
+        self,
+        session_id: SessionId,
+        artifact_id: ArtifactId,
+    ) -> dict[str, Any] | None: ...
 
     def list_artifacts(
         self,

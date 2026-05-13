@@ -1,11 +1,9 @@
 """Tests for the Phase 2 Intent Action Surface.
 
 Covers:
-  - Intent request model schema validation (ObserveRequest, CompareRequest, etc.)
+  - Generated AOI request model schema validation
   - Intent HTTP endpoints: correct routing, schema errors (422), not-implemented (501)
-  - ObserveRequest model validation rules (illegal combinations)
-  - CompareRequest / CorrelateRequest / TestRequest / ForecastRequest same-session ref guard
-  - DecomposeRequest compare_ref.step_type validation
+  - AOI atomic request validation rules and artifact-id reference behavior
   - Legacy /steps/* endpoints confirm 404
   - run_intent: observe→metric_query execution (with semantic layer wired up)
   - run_intent: stub intents return NotImplementedError
@@ -20,18 +18,11 @@ from typing import Any
 
 import duckdb
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 from marivo.adapters.local.sqlite_metadata import SQLiteMetadataStore
+from marivo.contracts.generated import aoi
 from marivo.main import create_app
-from marivo.transports.http.models import (
-    ArtifactRef,
-    AttributeRequest,
-    CompareRequest,
-    DecomposeRequest,
-    DetectRequest,
-    ObservationRef,
-    ObserveRequest,
-)
 from tests.semantic_test_helpers import seed_duckdb_source_object
 from tests.shared_fixtures import get_seeded_duckdb_path
 
@@ -253,195 +244,73 @@ class _SessionBackedIntentEndpointMixin:
 # ── Model-level validation tests (no HTTP) ───────────────────────────────────
 
 
-class ObserveRequestModelTests(unittest.TestCase):
-    def _make(self, **kwargs):
-        base = {
-            "metric": _metric_ref("dau"),
-            "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+class AoiGeneratedIntentModelTests(unittest.TestCase):
+    def _time_scope(self) -> dict[str, str]:
+        return {
+            "field": "event_time",
+            "start": "2026-05-01T00:00:00+00:00",
+            "end": "2026-05-02T00:00:00+00:00",
         }
-        base.update(kwargs)
-        return ObserveRequest(**base)
 
-    def test_scalar_mode(self) -> None:
-        r = self._make()
-        self.assertEqual(r.result_mode, "standard")
-        self.assertIsNone(r.granularity)
-        self.assertIsNone(r.dimensions)
-
-    def test_time_series_mode(self) -> None:
-        r = self._make(granularity="day")
-        self.assertEqual(r.granularity, "day")
-
-    def test_calendar_policy_ref_is_accepted(self) -> None:
-        r = self._make(calendar_policy_ref="calendar_policy.calendar_yoy")
-        self.assertEqual(r.calendar_policy_ref, "calendar_policy.calendar_yoy")
-
-    def test_calendar_policy_ref_rejects_unknown_ref(self) -> None:
-        with self.assertRaisesRegex(Exception, "Unknown calendar_policy_ref"):
-            self._make(calendar_policy_ref="calendar_policy.not_real")
-
-    def test_segmented_mode(self) -> None:
-        r = self._make(dimensions=["region"])
-        self.assertEqual(r.dimensions, ["region"])
-
-    def test_empty_dimensions_normalized_to_none(self) -> None:
-        r = self._make(dimensions=[])
-        self.assertIsNone(r.dimensions)
-
-    def test_granularity_and_dimensions_mutually_exclusive(self) -> None:
-        with self.assertRaises(Exception):
-            self._make(granularity="day", dimensions=["region"])
-
-    def test_non_standard_mode_rejects_granularity(self) -> None:
-        with self.assertRaises(Exception):
-            self._make(result_mode="numeric_sample_summary", granularity="day")
-
-    def test_non_standard_mode_rejects_dimensions(self) -> None:
-        with self.assertRaises(Exception):
-            self._make(result_mode="rate_sample_summary", dimensions=["platform"])
-
-    def test_snapshot_now_time_scope(self) -> None:
-        r = ObserveRequest(
-            metric=_metric_ref("dau"),
-            time_scope={"kind": "snapshot_now"},
-        )
-        self.assertEqual(r.time_scope.kind, "snapshot_now")
-
-    def test_as_of_time_scope(self) -> None:
-        r = ObserveRequest(
-            metric=_metric_ref("dau"),
-            time_scope={"kind": "as_of", "at": "2024-06-01T00:00:00"},
-        )
-        self.assertEqual(r.time_scope.kind, "as_of")
-
-    def test_snapshot_now_rejects_granularity(self) -> None:
-        with self.assertRaises(Exception):
-            ObserveRequest(
-                metric=_metric_ref("dau"),
-                time_scope={"kind": "snapshot_now"},
-                granularity="day",
-            )
-
-    def test_hour_granularity_requires_datetime_range_boundaries(self) -> None:
-        with self.assertRaises(Exception):
-            ObserveRequest(
-                metric=_metric_ref("dau"),
-                time_scope={"kind": "range", "start": "2024-01-01", "end": "2024-01-02"},
-                granularity="hour",
-            )
-
-    def test_hour_granularity_accepts_space_separated_datetimes(self) -> None:
-        r = ObserveRequest(
-            metric=_metric_ref("dau"),
-            time_scope={
-                "kind": "range",
-                "start": "2024-01-01 00:00:00",
-                "end": "2024-01-01 02:00:00",
-            },
-            granularity="hour",
-        )
-        self.assertEqual(r.granularity, "hour")
-
-
-class AttributeRequestModelTests(unittest.TestCase):
-    def _make(self, **kwargs: Any) -> AttributeRequest:
-        base: dict[str, Any] = {
-            "metric": _metric_ref("dau"),
-            "left": {
-                "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
-            },
-            "right": {
-                "time_scope": {"kind": "range", "start": "2023-01-01", "end": "2023-01-08"},
-            },
-            "dimensions": ["region"],
-        }
-        base.update(kwargs)
-        return AttributeRequest(**base)
-
-    def test_side_level_calendar_policy_ref_is_accepted(self) -> None:
-        request = self._make(
-            left={
-                "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
-                "calendar_policy_ref": "calendar_policy.calendar_yoy",
-            },
-            right={
-                "time_scope": {"kind": "range", "start": "2023-01-01", "end": "2023-01-08"},
-                "calendar_policy_ref": "calendar_policy.calendar_yoy",
-            },
-        )
-        self.assertEqual(request.left.calendar_policy_ref, "calendar_policy.calendar_yoy")
-        self.assertEqual(request.right.calendar_policy_ref, "calendar_policy.calendar_yoy")
-
-    def test_side_level_calendar_policy_ref_rejects_unknown_ref(self) -> None:
-        with self.assertRaisesRegex(Exception, "Unknown calendar_policy_ref"):
-            self._make(
-                left={
-                    "time_scope": {
-                        "kind": "range",
-                        "start": "2024-01-01",
-                        "end": "2024-01-08",
-                    },
-                    "calendar_policy_ref": "calendar_policy.not_real",
+    def test_aoi_observe_rejects_unknown_fields(self) -> None:
+        with self.assertRaises(ValidationError):
+            aoi.Observe1.model_validate(
+                {
+                    "metric": "metric.dau",
+                    "time_scope": self._time_scope(),
+                    "filter": None,
+                    "unexpected": True,
                 }
             )
 
-
-class DetectRequestModelTests(unittest.TestCase):
-    def test_hour_detect_accepts_datetime_boundaries(self) -> None:
-        r = DetectRequest(
-            metric=_metric_ref("dau"),
-            time_scope={
-                "kind": "range",
-                "start": "2024-01-01T00:00:00",
-                "end": "2024-01-01 03:00:00",
-            },
-            granularity="hour",
+    def test_aoi_observe_accepts_generated_shape(self) -> None:
+        request = aoi.Observe1.model_validate(
+            {
+                "metric": "metric.dau",
+                "time_scope": self._time_scope(),
+                "filter": None,
+                "granularity": "day",
+                "dimensions": None,
+            }
         )
-        self.assertEqual(r.granularity, "hour")
 
-    def test_hour_detect_rejects_date_only_boundaries(self) -> None:
-        with self.assertRaises(Exception):
-            DetectRequest(
-                metric=_metric_ref("dau"),
-                time_scope={"kind": "range", "start": "2024-01-01", "end": "2024-01-02"},
-                granularity="hour",
+        self.assertEqual(request.metric, "metric.dau")
+        self.assertEqual(request.time_scope.field, "event_time")
+
+    def test_aoi_compare_requires_artifact_ids(self) -> None:
+        with self.assertRaises(ValidationError):
+            aoi.Compare.model_validate(
+                {
+                    "left_ref": {"step_id": "step_1"},
+                    "right_ref": {"step_id": "step_2"},
+                }
             )
 
-
-class CompareRequestModelTests(unittest.TestCase):
-    def _ref(self, session_id: str = "sess_a", step_id: str = "step_1") -> ObservationRef:
-        return ObservationRef(session_id=session_id, step_id=step_id, step_type="observe")
-
-    def test_valid_request(self) -> None:
-        r = CompareRequest(left_ref=self._ref(), right_ref=self._ref("sess_a", "step_2"))
-        self.assertEqual(r.mode, "auto")
-
-    def test_time_series_mode_allowed(self) -> None:
-        r = CompareRequest(
-            left_ref=self._ref(), right_ref=self._ref("sess_a", "step_2"), mode="time_series"
+    def test_aoi_compare_accepts_artifact_ids(self) -> None:
+        request = aoi.Compare.model_validate(
+            {
+                "left_artifact_id": "art_left",
+                "right_artifact_id": "art_right",
+                "compare_type": "normal",
+            }
         )
-        self.assertEqual(r.mode, "time_series")
 
-    def test_observation_ref_step_type_locked_to_observe(self) -> None:
-        with self.assertRaises(Exception):
-            ObservationRef(session_id="sess_a", step_id="step_1", step_type="compare")
+        self.assertEqual(request.left_artifact_id, "art_left")
+        self.assertEqual(request.right_artifact_id, "art_right")
 
+    def test_aoi_detect_rejects_legacy_time_scope_shape(self) -> None:
+        with self.assertRaises(ValidationError):
+            aoi.Detect.model_validate(
+                {
+                    "metric": "metric.dau",
+                    "time_scope": {"kind": "range", "start": "2026-05-01", "end": "2026-05-02"},
+                    "granularity": "day",
+                }
+            )
 
-class DecomposeRequestModelTests(unittest.TestCase):
-    def test_valid_request(self) -> None:
-        ref = ArtifactRef(session_id="sess_a", step_id="step_cmp", step_type="compare")
-        r = DecomposeRequest(compare_ref=ref, dimension="region")
-        self.assertEqual(r.method, "delta_share")
-
-    def test_compare_ref_must_be_compare_step_type(self) -> None:
-        ref = ArtifactRef(session_id="sess_a", step_id="step_obs", step_type="observe")
-        with self.assertRaises(Exception):
-            DecomposeRequest(compare_ref=ref, dimension="region")
-
-    def test_dimension_required(self) -> None:
-        ref = ArtifactRef(session_id="sess_a", step_id="step_cmp", step_type="compare")
-        with self.assertRaises(Exception):
-            DecomposeRequest(compare_ref=ref, dimension="")
+    def test_aoi_forecast_requires_source_artifact_id(self) -> None:
+        with self.assertRaises(ValidationError):
+            aoi.Forecast.model_validate({"source_ref": {"step_id": "step_1"}, "horizon": 7})
 
 
 # ── HTTP endpoint tests ───────────────────────────────────────────────────────
@@ -560,22 +429,16 @@ class LightweightIntentEndpointTests(_SessionBackedIntentEndpointMixin, unittest
     def test_compare_validation_error_includes_schema_guidance_and_example(self) -> None:
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/compare",
-            json={"left_ref": {"step_type": "observe"}},
+            json={"left_artifact_id": "art_left"},
         )
 
         self.assertEqual(r.status_code, 422)
         payload = r.json()
         self.assertEqual(payload["error"]["code"], "request_validation_error")
-        self.assertEqual(
-            payload["guidance"]["schema_url"],
-            "/openapi/schemas/CompareRequest?depth=6",
-        )
+        self.assertIn("/openapi/schemas/", payload["guidance"]["schema_url"])
         self.assertIn("/openapi/paths/", payload["guidance"]["contract_url"])
-        self.assertEqual(
-            payload["guidance"]["examples"][0]["payload"]["left_ref"]["step_type"],
-            "observe",
-        )
-        self.assertIn("step_id", payload["guidance"]["examples"][0]["payload"]["left_ref"])
+        self.assertIn("left_artifact_id", payload["guidance"]["examples"][0]["payload"])
+        self.assertIn("right_artifact_id", payload["guidance"]["examples"][0]["payload"])
 
     def test_detect_validation_error_includes_schema_guidance_and_example(self) -> None:
         r = self.client.post(
@@ -586,10 +449,7 @@ class LightweightIntentEndpointTests(_SessionBackedIntentEndpointMixin, unittest
         self.assertEqual(r.status_code, 422)
         payload = r.json()
         self.assertEqual(payload["error"]["code"], "request_validation_error")
-        self.assertEqual(
-            payload["guidance"]["schema_url"],
-            "/openapi/schemas/DetectRequest?depth=6",
-        )
+        self.assertIn("/openapi/schemas/", payload["guidance"]["schema_url"])
         example_time_scope = payload["guidance"]["examples"][0]["payload"]["time_scope"]
         self.assertEqual(example_time_scope["kind"], "range")
         self.assertEqual(set(example_time_scope), {"kind", "start", "end"})
@@ -599,75 +459,23 @@ class LightweightIntentEndpointTests(_SessionBackedIntentEndpointMixin, unittest
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/compare",
             json={
-                "left_ref": {
-                    "session_id": self.session_id,
-                    "step_id": "step_001",
-                    "step_type": "observe",
-                },
-                "right_ref": {
-                    "session_id": self.session_id,
-                    "step_id": "step_002",
-                    "step_type": "observe",
-                },
+                "left_artifact_id": "art_001",
+                "right_artifact_id": "art_002",
             },
         )
         self.assertEqual(r.status_code, 422)
-
-    def test_compare_rejects_cross_session_ref(self) -> None:
-        r = self.client.post(
-            f"/sessions/{self.session_id}/intents/compare",
-            json={
-                "left_ref": {
-                    "session_id": "sess_other",
-                    "step_id": "step_001",
-                    "step_type": "observe",
-                },
-                "right_ref": {
-                    "session_id": self.session_id,
-                    "step_id": "step_002",
-                    "step_type": "observe",
-                },
-            },
-        )
-        self.assertEqual(r.status_code, 422)
-        self.assertIn("Cross-session", r.json()["detail"])
-
-    def test_correlate_rejects_cross_session_ref(self) -> None:
-        r = self.client.post(
-            f"/sessions/{self.session_id}/intents/correlate",
-            json={
-                "left_ref": {
-                    "session_id": "sess_foreign",
-                    "step_id": "step_a",
-                    "step_type": "observe",
-                },
-                "right_ref": {
-                    "session_id": self.session_id,
-                    "step_id": "step_b",
-                    "step_type": "observe",
-                },
-            },
-        )
-        self.assertEqual(r.status_code, 422)
+        self.assertIn("ARTIFACT_NOT_FOUND", r.json()["detail"])
 
     def test_correlate_nonexistent_steps_returns_422(self) -> None:
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/correlate",
             json={
-                "left_ref": {
-                    "session_id": self.session_id,
-                    "step_id": "step_nonexistent_a",
-                    "step_type": "observe",
-                },
-                "right_ref": {
-                    "session_id": self.session_id,
-                    "step_id": "step_nonexistent_b",
-                    "step_type": "observe",
-                },
+                "left_artifact_id": "art_nonexistent_a",
+                "right_artifact_id": "art_nonexistent_b",
             },
         )
         self.assertEqual(r.status_code, 422)
-        self.assertIn("STEP_NOT_FOUND", r.json()["detail"])
+        self.assertIn("ARTIFACT_NOT_FOUND", r.json()["detail"])
 
     def test_detect_unregistered_metric_returns_422(self) -> None:
         r = self.client.post(
@@ -729,13 +537,7 @@ class LightweightIntentEndpointTests(_SessionBackedIntentEndpointMixin, unittest
     def test_forecast_rejects_missing_horizon(self) -> None:
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/forecast",
-            json={
-                "source_ref": {
-                    "session_id": self.session_id,
-                    "step_id": "step_1",
-                    "step_type": "observe",
-                }
-            },
+            json={"source_artifact_id": "art_source"},
         )
         self.assertEqual(r.status_code, 422)
 
@@ -743,15 +545,12 @@ class LightweightIntentEndpointTests(_SessionBackedIntentEndpointMixin, unittest
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/forecast",
             json={
-                "source_ref": {
-                    "session_id": self.session_id,
-                    "step_id": "step_1",
-                    "step_type": "observe",
-                },
+                "source_artifact_id": "art_source",
                 "horizon": 7,
             },
         )
         self.assertEqual(r.status_code, 422)
+        self.assertIn("ARTIFACT_NOT_FOUND", r.json()["detail"])
 
     def test_diagnose_invalid_request_returns_422(self) -> None:
         r = self.client.post(
@@ -775,7 +574,12 @@ class LightweightIntentEndpointTests(_SessionBackedIntentEndpointMixin, unittest
             "/sessions/sess_nonexistent/intents/observe",
             json={
                 "metric": _metric_ref("dau"),
-                "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+                "time_scope": {
+                    "field": "event_time",
+                    "start": "2024-01-01T00:00:00Z",
+                    "end": "2024-01-08T00:00:00Z",
+                },
+                "filter": None,
             },
         )
         self.assertEqual(r.status_code, 404)
@@ -805,7 +609,12 @@ class ClosedSessionWriteGuardTests(unittest.TestCase):
             f"/sessions/{self.session_id}/intents/observe",
             json={
                 "metric": _metric_ref("dau"),
-                "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+                "time_scope": {
+                    "field": "event_time",
+                    "start": "2024-01-01T00:00:00Z",
+                    "end": "2024-01-08T00:00:00Z",
+                },
+                "filter": None,
             },
         )
         self.assertEqual(r.status_code, 422)
@@ -816,8 +625,13 @@ class ClosedSessionWriteGuardTests(unittest.TestCase):
             f"/sessions/{self.session_id}/intents/detect",
             json={
                 "metric": _metric_ref("dau"),
-                "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+                "time_scope": {
+                    "field": "event_time",
+                    "start": "2024-01-01T00:00:00Z",
+                    "end": "2024-01-08T00:00:00Z",
+                },
                 "granularity": "day",
+                "filter": None,
             },
         )
         self.assertEqual(r.status_code, 422)

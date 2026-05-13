@@ -5,33 +5,19 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
+from marivo.contracts.envelope import ExecutionEnvelope
 from marivo.contracts.errors import ExecutionError, ForbiddenError, NotFoundError, ValidationError
+from marivo.contracts.generated import aoi
 from marivo.contracts.ids import SessionId, UserId
 from marivo.contracts.session import SessionState
 from marivo.runtime import SemanticRuntimeNotReadyError
 from marivo.transports.http.deps import get_services, http_error
 from marivo.transports.http.models import (
-    ArtifactRef,
     ArtifactRuntimeStatusResponse,
     AttributeRequest,
     AttributeResponse,
-    CompareRequest,
-    CompareResponse,
-    CorrelateRequest,
-    CorrelateResponse,
-    DecomposeRequest,
-    DecomposeResponse,
-    DetectRequest,
-    DetectResponse,
     DiagnoseRequest,
     DiagnoseResponse,
-    ForecastRequest,
-    ForecastResponse,
-    IntentTestRequest,
-    IntentTestResponse,
-    ObservationRef,
-    ObserveRequest,
-    ObserveResponse,
     PropositionContextView,
     PropositionRuntimeStatusResponse,
     SessionCreateRequest,
@@ -403,28 +389,11 @@ def get_proposition_runtime_status(
 # Literal path routes must be registered before parameterised routes.
 
 
-def _assert_same_session(session_id: str, *refs: ObservationRef | ArtifactRef) -> None:
-    """Reject any ref whose session_id does not match the current session."""
-    for ref in refs:
-        if ref.session_id is not None and ref.session_id != session_id:
-            raise HTTPException(
-                status_code=422,
-                detail=(
-                    f"Cross-session reference not allowed: "
-                    f"ref.session_id={ref.session_id!r} != session_id={session_id!r}"
-                ),
-            )
-
-
-def _run_intent(
-    session_id: str, intent_type: str, params: dict[str, Any], request: Request
-) -> dict[str, Any]:
+def _run_intent(session_id: str, intent_type: str, params: Any, request: Request) -> dict[str, Any]:
     """Dispatch an intent through MarivoRuntime with uniform error handling."""
     try:
         runtime = get_services(request).runtime
-        method: Callable[[str, dict[str, Any]], dict[str, Any]] | None = getattr(
-            runtime, intent_type, None
-        )
+        method: Callable[[str, Any], dict[str, Any]] | None = getattr(runtime, intent_type, None)
         if method is None:
             raise ValueError(f"Unknown intent type: '{intent_type}'")
         return method(session_id, params)
@@ -450,86 +419,67 @@ def _run_intent(
         raise HTTPException(status_code=502, detail=f"Intent execution error: {error}") from error
 
 
-@router.post("/sessions/{session_id}/intents/observe", response_model=ObserveResponse)
+@router.post("/sessions/{session_id}/intents/observe", response_model=ExecutionEnvelope)
 def intent_observe(
     session_id: str,
-    payload: ObserveRequest,
+    payload: aoi.Observe1 | aoi.Observe2 | aoi.Observe3 | aoi.Observe4,
     request: Request,
-) -> ObserveResponse:
-    return ObserveResponse.model_validate(
-        _run_intent(session_id, "observe", payload.model_dump(exclude_none=True), request)
-    )
+) -> ExecutionEnvelope:
+    return ExecutionEnvelope.model_validate(_run_intent(session_id, "observe", payload, request))
 
 
-@router.post("/sessions/{session_id}/intents/compare", response_model=CompareResponse)
+@router.post("/sessions/{session_id}/intents/compare", response_model=ExecutionEnvelope)
 def intent_compare(
     session_id: str,
-    payload: CompareRequest,
+    payload: aoi.Compare,
     request: Request,
-) -> CompareResponse:
-    _assert_same_session(session_id, payload.left_ref, payload.right_ref)
-    return CompareResponse.model_validate(
-        _run_intent(session_id, "compare", payload.model_dump(exclude_none=True), request)
-    )
+) -> ExecutionEnvelope:
+    return ExecutionEnvelope.model_validate(_run_intent(session_id, "compare", payload, request))
 
 
-@router.post("/sessions/{session_id}/intents/decompose", response_model=DecomposeResponse)
+@router.post("/sessions/{session_id}/intents/decompose", response_model=ExecutionEnvelope)
 def intent_decompose(
     session_id: str,
-    payload: DecomposeRequest,
+    payload: aoi.Decompose,
     request: Request,
-) -> DecomposeResponse:
-    _assert_same_session(session_id, payload.compare_ref)
-    return DecomposeResponse.model_validate(
-        _run_intent(session_id, "decompose", payload.model_dump(exclude_none=True), request)
-    )
+) -> ExecutionEnvelope:
+    return ExecutionEnvelope.model_validate(_run_intent(session_id, "decompose", payload, request))
 
 
-@router.post("/sessions/{session_id}/intents/correlate", response_model=CorrelateResponse)
+@router.post("/sessions/{session_id}/intents/correlate", response_model=ExecutionEnvelope)
 def intent_correlate(
     session_id: str,
-    payload: CorrelateRequest,
+    payload: aoi.Correlate,
     request: Request,
-) -> CorrelateResponse:
-    _assert_same_session(session_id, payload.left_ref, payload.right_ref)
-    return CorrelateResponse.model_validate(
-        _run_intent(session_id, "correlate", payload.model_dump(exclude_none=True), request)
-    )
+) -> ExecutionEnvelope:
+    return ExecutionEnvelope.model_validate(_run_intent(session_id, "correlate", payload, request))
 
 
-@router.post("/sessions/{session_id}/intents/detect", response_model=DetectResponse)
+@router.post("/sessions/{session_id}/intents/detect", response_model=ExecutionEnvelope)
 def intent_detect(
     session_id: str,
-    payload: DetectRequest,
+    payload: aoi.Detect,
     request: Request,
-) -> DetectResponse:
-    return DetectResponse.model_validate(
-        _run_intent(session_id, "detect", payload.model_dump(exclude_none=True), request)
-    )
+) -> ExecutionEnvelope:
+    return ExecutionEnvelope.model_validate(_run_intent(session_id, "detect", payload, request))
 
 
-@router.post("/sessions/{session_id}/intents/test", response_model=IntentTestResponse)
+@router.post("/sessions/{session_id}/intents/test", response_model=ExecutionEnvelope)
 def intent_test(
     session_id: str,
-    payload: IntentTestRequest,
+    payload: aoi.Test,
     request: Request,
-) -> IntentTestResponse:
-    _assert_same_session(session_id, payload.left_ref, payload.right_ref)
-    return IntentTestResponse.model_validate(
-        _run_intent(session_id, "test", payload.model_dump(exclude_none=True), request)
-    )
+) -> ExecutionEnvelope:
+    return ExecutionEnvelope.model_validate(_run_intent(session_id, "test", payload, request))
 
 
-@router.post("/sessions/{session_id}/intents/forecast", response_model=ForecastResponse)
+@router.post("/sessions/{session_id}/intents/forecast", response_model=ExecutionEnvelope)
 def intent_forecast(
     session_id: str,
-    payload: ForecastRequest,
+    payload: aoi.Forecast,
     request: Request,
-) -> ForecastResponse:
-    _assert_same_session(session_id, payload.source_ref)
-    return ForecastResponse.model_validate(
-        _run_intent(session_id, "forecast", payload.model_dump(exclude_none=True), request)
-    )
+) -> ExecutionEnvelope:
+    return ExecutionEnvelope.model_validate(_run_intent(session_id, "forecast", payload, request))
 
 
 @router.post("/sessions/{session_id}/intents/attribute", response_model=AttributeResponse)
