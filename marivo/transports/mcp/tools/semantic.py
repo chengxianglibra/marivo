@@ -4,22 +4,19 @@ from __future__ import annotations
 
 from typing import Any
 
-from marivo.identity import resolve_user
+from marivo.identity import require_user, resolve_user
 from marivo.transports.mcp.tools._async_bridge import call_runtime
 from marivo.transports.mcp.tools.schemas import (
     McpDatasetPayload,
+    McpFieldPayload,
+    McpFieldUpdatePayload,
     McpMetricPayload,
     McpMetricUpdatePayload,
+    McpOsiDocumentPayload,
     McpRelationshipPayload,
     McpRelationshipUpdatePayload,
     McpSemanticModelPayload,
 )
-
-
-def _resolve_requesting_user(requesting_user: str | None) -> str | None:
-    if requesting_user is not None:
-        return requesting_user
-    return resolve_user()
 
 
 def register_semantic_tools(server: Any, runtime: Any) -> None:
@@ -37,24 +34,33 @@ def register_semantic_tools(server: Any, runtime: Any) -> None:
         )
 
     @server.tool()  # type: ignore
-    async def list_semantic_models(
-        requesting_user: str | None = None,
-    ) -> dict[str, Any]:
+    async def list_semantic_models() -> dict[str, Any]:
         """List semantic models via GET /semantic-models."""
-        return await call_runtime(
-            svc.list_semantic_models, requesting_user=_resolve_requesting_user(requesting_user)
-        )
+        return await call_runtime(svc.list_semantic_models, requesting_user=resolve_user())
 
     @server.tool()  # type: ignore
-    async def get_semantic_model(
-        model: str,
-        requesting_user: str | None = None,
-    ) -> dict[str, Any]:
+    async def get_semantic_model(model: str) -> dict[str, Any]:
         """Get a semantic model as an OSI document via GET /semantic-models/{model}."""
         return await call_runtime(
             svc.get_semantic_model,
             name=model,
-            requesting_user=_resolve_requesting_user(requesting_user),
+            requesting_user=resolve_user(),
+        )
+
+    @server.tool()  # type: ignore
+    async def import_osi_document(document: McpOsiDocumentPayload) -> dict[str, Any]:
+        """Import an OSI document into the current user's private working copy."""
+        return await call_runtime(
+            svc.import_osi_document,
+            doc_data=document.model_dump(by_alias=True),
+        )
+
+    @server.tool()  # type: ignore
+    async def export_osi_document(semantic_model_name: str | None = None) -> dict[str, Any]:
+        """Export the current user's private working copy as an OSI document."""
+        return await call_runtime(
+            svc.export_osi_document,
+            semantic_model_name=semantic_model_name,
         )
 
     @server.tool()  # type: ignore
@@ -70,24 +76,21 @@ def register_semantic_tools(server: Any, runtime: Any) -> None:
             svc.update_semantic_model,
             name=model,
             updates=updates,
-            owner_user=resolve_user(),
+            owner_user=require_user(),
         )
 
     @server.tool()  # type: ignore
     async def delete_semantic_model(model: str) -> dict[str, Any]:
         """Delete a semantic model via DELETE /semantic-models/{model}."""
-        return await call_runtime(svc.delete_semantic_model, name=model, owner_user=resolve_user())
+        return await call_runtime(svc.delete_semantic_model, name=model, owner_user=require_user())
 
     @server.tool()  # type: ignore
-    async def get_semantic_model_readiness(
-        model: str,
-        requesting_user: str | None = None,
-    ) -> dict[str, Any]:
+    async def get_semantic_model_readiness(model: str) -> dict[str, Any]:
         """Get readiness status for a semantic model via GET /semantic-models/{model}/readiness."""
         return await call_runtime(
             svc.get_readiness,
             model_name=model,
-            requesting_user=_resolve_requesting_user(requesting_user),
+            requesting_user=resolve_user(),
         )
 
     # ------------------------------------------------------------------
@@ -104,33 +107,26 @@ def register_semantic_tools(server: Any, runtime: Any) -> None:
             svc.create_dataset,
             model_name=model,
             ds_data=payload.model_dump(by_alias=True),
-            owner_user=resolve_user(),
+            owner_user=require_user(),
         )
 
     @server.tool()  # type: ignore
-    async def list_datasets(
-        model: str,
-        requesting_user: str | None = None,
-    ) -> dict[str, Any]:
+    async def list_datasets(model: str) -> dict[str, Any]:
         """List datasets in a model via GET /semantic-models/{model}/datasets."""
         return await call_runtime(
             svc.list_datasets,
             model_name=model,
-            requesting_user=_resolve_requesting_user(requesting_user),
+            requesting_user=resolve_user(),
         )
 
     @server.tool()  # type: ignore
-    async def get_dataset(
-        model: str,
-        name: str,
-        requesting_user: str | None = None,
-    ) -> dict[str, Any]:
+    async def get_dataset(model: str, name: str) -> dict[str, Any]:
         """Get a dataset by name within a model via GET /semantic-models/{model}/datasets/{name}."""
         return await call_runtime(
             svc.get_dataset,
             model_name=model,
             dataset_name=name,
-            requesting_user=_resolve_requesting_user(requesting_user),
+            requesting_user=resolve_user(),
         )
 
     @server.tool()  # type: ignore
@@ -157,14 +153,85 @@ def register_semantic_tools(server: Any, runtime: Any) -> None:
             model_name=model,
             dataset_name=name,
             updates=updates,
-            owner_user=resolve_user(),
+            owner_user=require_user(),
         )
 
     @server.tool()  # type: ignore
     async def delete_dataset(model: str, name: str) -> dict[str, Any]:
         """Delete a dataset via DELETE /semantic-models/{model}/datasets/{name}."""
         return await call_runtime(
-            svc.delete_dataset, model_name=model, dataset_name=name, owner_user=resolve_user()
+            svc.delete_dataset, model_name=model, dataset_name=name, owner_user=require_user()
+        )
+
+    # ------------------------------------------------------------------
+    # Field CRUD
+    # ------------------------------------------------------------------
+
+    @server.tool()  # type: ignore
+    async def create_field(
+        model: str,
+        dataset: str,
+        payload: McpFieldPayload,
+    ) -> dict[str, Any]:
+        """Create a field in a dataset."""
+        return await call_runtime(
+            svc.create_field,
+            model_name=model,
+            dataset_name=dataset,
+            field_data=payload.model_dump(by_alias=True),
+            owner_user=require_user(),
+        )
+
+    @server.tool()  # type: ignore
+    async def list_fields(model: str, dataset: str) -> dict[str, Any]:
+        """List fields in a dataset."""
+        return await call_runtime(
+            svc.list_fields,
+            model_name=model,
+            dataset_name=dataset,
+            requesting_user=resolve_user(),
+        )
+
+    @server.tool()  # type: ignore
+    async def get_field(model: str, dataset: str, name: str) -> dict[str, Any]:
+        """Get a field by name."""
+        return await call_runtime(
+            svc.get_field,
+            model_name=model,
+            dataset_name=dataset,
+            field_name=name,
+            requesting_user=resolve_user(),
+        )
+
+    @server.tool()  # type: ignore
+    async def update_field(
+        model: str,
+        dataset: str,
+        name: str,
+        payload: McpFieldUpdatePayload,
+    ) -> dict[str, Any]:
+        """Patch a field by name."""
+        updates = {
+            field_name: getattr(payload, field_name) for field_name in payload.model_fields_set
+        }
+        return await call_runtime(
+            svc.update_field,
+            model_name=model,
+            dataset_name=dataset,
+            field_name=name,
+            updates=updates,
+            owner_user=require_user(),
+        )
+
+    @server.tool()  # type: ignore
+    async def delete_field(model: str, dataset: str, name: str) -> dict[str, Any]:
+        """Delete a field by name."""
+        return await call_runtime(
+            svc.delete_field,
+            model_name=model,
+            dataset_name=dataset,
+            field_name=name,
+            owner_user=require_user(),
         )
 
     # ------------------------------------------------------------------
@@ -181,33 +248,26 @@ def register_semantic_tools(server: Any, runtime: Any) -> None:
             svc.create_relationship,
             model_name=model,
             rel_data=payload.model_dump(by_alias=True),
-            owner_user=resolve_user(),
+            owner_user=require_user(),
         )
 
     @server.tool()  # type: ignore
-    async def list_relationships(
-        model: str,
-        requesting_user: str | None = None,
-    ) -> dict[str, Any]:
+    async def list_relationships(model: str) -> dict[str, Any]:
         """List relationships in a model via GET /semantic-models/{model}/relationships."""
         return await call_runtime(
             svc.list_relationships,
             model_name=model,
-            requesting_user=_resolve_requesting_user(requesting_user),
+            requesting_user=resolve_user(),
         )
 
     @server.tool()  # type: ignore
-    async def get_relationship(
-        model: str,
-        name: str,
-        requesting_user: str | None = None,
-    ) -> dict[str, Any]:
+    async def get_relationship(model: str, name: str) -> dict[str, Any]:
         """Get a relationship by name within a model via GET /semantic-models/{model}/relationships/{name}."""
         return await call_runtime(
             svc.get_relationship,
             model_name=model,
             rel_name=name,
-            requesting_user=_resolve_requesting_user(requesting_user),
+            requesting_user=resolve_user(),
         )
 
     @server.tool()  # type: ignore
@@ -222,14 +282,14 @@ def register_semantic_tools(server: Any, runtime: Any) -> None:
             model_name=model,
             rel_name=name,
             updates=payload.model_dump(exclude_none=True),
-            owner_user=resolve_user(),
+            owner_user=require_user(),
         )
 
     @server.tool()  # type: ignore
     async def delete_relationship(model: str, name: str) -> dict[str, Any]:
         """Delete a relationship via DELETE /semantic-models/{model}/relationships/{name}."""
         return await call_runtime(
-            svc.delete_relationship, model_name=model, rel_name=name, owner_user=resolve_user()
+            svc.delete_relationship, model_name=model, rel_name=name, owner_user=require_user()
         )
 
     # ------------------------------------------------------------------
@@ -246,33 +306,26 @@ def register_semantic_tools(server: Any, runtime: Any) -> None:
             svc.create_metric,
             model_name=model,
             metric_data=payload.model_dump(by_alias=True),
-            owner_user=resolve_user(),
+            owner_user=require_user(),
         )
 
     @server.tool()  # type: ignore
-    async def list_metrics(
-        model: str,
-        requesting_user: str | None = None,
-    ) -> dict[str, Any]:
+    async def list_metrics(model: str) -> dict[str, Any]:
         """List metrics in a model via GET /semantic-models/{model}/metrics."""
         return await call_runtime(
             svc.list_metrics,
             model_name=model,
-            requesting_user=_resolve_requesting_user(requesting_user),
+            requesting_user=resolve_user(),
         )
 
     @server.tool()  # type: ignore
-    async def get_metric(
-        model: str,
-        name: str,
-        requesting_user: str | None = None,
-    ) -> dict[str, Any]:
+    async def get_metric(model: str, name: str) -> dict[str, Any]:
         """Get a metric by name within a model via GET /semantic-models/{model}/metrics/{name}."""
         return await call_runtime(
             svc.get_metric,
             model_name=model,
             metric_name=name,
-            requesting_user=_resolve_requesting_user(requesting_user),
+            requesting_user=resolve_user(),
         )
 
     @server.tool()  # type: ignore
@@ -287,12 +340,12 @@ def register_semantic_tools(server: Any, runtime: Any) -> None:
             model_name=model,
             metric_name=name,
             updates=payload.model_dump(exclude_none=True),
-            owner_user=resolve_user(),
+            owner_user=require_user(),
         )
 
     @server.tool()  # type: ignore
     async def delete_metric(model: str, name: str) -> dict[str, Any]:
         """Delete a metric via DELETE /semantic-models/{model}/metrics/{name}."""
         return await call_runtime(
-            svc.delete_metric, model_name=model, metric_name=name, owner_user=resolve_user()
+            svc.delete_metric, model_name=model, metric_name=name, owner_user=require_user()
         )

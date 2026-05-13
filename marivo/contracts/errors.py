@@ -21,6 +21,13 @@ class ErrorCode(StrEnum):
     # Semantic model
     MODEL_NOT_FOUND = "model_not_found"
     MODEL_REVISION_CONFLICT = "model_revision_conflict"
+    NOT_FOUND_SEMANTIC_MODEL = "not_found_semantic_model"
+    NOT_FOUND_DATASET = "not_found_dataset"
+    NOT_FOUND_FIELD = "not_found_field"
+    NOT_FOUND_METRIC = "not_found_metric"
+    NOT_FOUND_RELATIONSHIP = "not_found_relationship"
+    DATASOURCE_BINDING_FAILED = "datasource_binding_failed"
+    DATASET_ACCESS_DENIED = "dataset_access_denied"
 
     # Evidence
     EVIDENCE_NOT_FOUND = "evidence_not_found"

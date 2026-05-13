@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from marivo.adapters.dialect import SQLITE_METADATA_DIALECT, MetadataDialect
-from marivo.adapters.metadata import MetadataStore
+from marivo.adapters.metadata import MetadataStore, MetadataTransaction
 from marivo.adapters.schema import metadata_ddl_for_backend, metadata_schema_marker_row
 
 _CATALOG_METADATA_SCHEMA_COLUMNS: tuple[tuple[str, str, str], ...] = ()
@@ -101,3 +101,14 @@ class SQLiteMetadataStore(MetadataStore):
     def query_one(self, sql: str, params: list[Any] | None = None) -> dict[str, Any] | None:
         rows = self.query_rows(sql, params)
         return rows[0] if rows else None
+
+    @contextmanager
+    def transaction(self) -> Iterator[MetadataTransaction]:
+        with self.connect() as con:
+            try:
+                yield MetadataTransaction(self, con)
+            except Exception:
+                con.rollback()
+                raise
+            else:
+                con.commit()
