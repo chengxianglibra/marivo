@@ -1,4 +1,4 @@
-.PHONY: test typecheck lint format check test-mysql binary binary-clean
+.PHONY: test typecheck lint format check test-mysql binary binary-sign binary-unquarantine binary-clean
 
 VENV_PYTHON := .venv/bin/python
 VENV_PIP := .venv/bin/pip
@@ -37,8 +37,46 @@ binary: ## Build onedir Marivo binary (excludes duckdb)
 	@$(VENV_PIP) install --no-deps .
 	@.venv/bin/pyinstaller marivo.spec --noconfirm
 	@echo "Binary built: dist/marivo/marivo"
+	@$(MAKE) binary-sign
 	@./dist/marivo/marivo --help || echo "Warning: binary smoke test failed"
 	@$(MAKE) package
+
+binary-sign: ## Ad-hoc sign macOS binary for internal distribution
+	@if [ "$$(uname -s)" = "Darwin" ]; then \
+		echo "Removing macOS quarantine attributes from dist/marivo"; \
+		$(MAKE) binary-unquarantine; \
+		if [ ! -f dist/marivo/marivo-bin ]; then \
+			mv dist/marivo/marivo dist/marivo/marivo-bin; \
+		fi; \
+		printf '%s\n' \
+			'#!/bin/sh' \
+			'set -eu' \
+			'TARGET_DIR=$${1:-$$(CDPATH= cd -- "$$(dirname -- "$$0")" && pwd)}' \
+			'/usr/bin/xattr -dr com.apple.quarantine "$$TARGET_DIR" 2>/dev/null || true' \
+			> dist/marivo/macos-unquarantine; \
+		chmod +x dist/marivo/macos-unquarantine; \
+		printf '%s\n' \
+			'#!/bin/sh' \
+			'set -eu' \
+			'SELF_DIR=$$(CDPATH= cd -- "$$(dirname -- "$$0")" && pwd)' \
+			'"$$SELF_DIR/macos-unquarantine" "$$SELF_DIR" 2>/dev/null || true' \
+			'exec "$$SELF_DIR/marivo-bin" "$$@"' \
+			> dist/marivo/marivo; \
+		chmod +x dist/marivo/marivo; \
+		echo "Ad-hoc signing macOS Mach-O files in dist/marivo"; \
+		find dist/marivo -type f -exec sh -c 'for file do if file "$$file" | grep -q "Mach-O"; then codesign --force --sign - "$$file"; fi; done' sh {} +; \
+		codesign --force --deep --sign - dist/marivo/marivo-bin; \
+		codesign --verify --deep --strict dist/marivo/marivo-bin; \
+	else \
+		echo "Skipping ad-hoc signing: not running on macOS"; \
+	fi
+
+binary-unquarantine: ## Remove macOS Gatekeeper quarantine from dist/marivo
+	@if [ "$$(uname -s)" = "Darwin" ]; then \
+		xattr -dr com.apple.quarantine dist/marivo 2>/dev/null || true; \
+	else \
+		echo "Skipping quarantine cleanup: not running on macOS"; \
+	fi
 
 package: ## Package dist/marivo/ into marivo_{version}_{target}.{tar.gz|zip}
 	@VERSION=$$(.venv/bin/python -c "import importlib.metadata; print(importlib.metadata.version('marivo'))") \
@@ -56,7 +94,7 @@ z = zipfile.ZipFile('marivo_$${VERSION}_$${TARGET}.zip', 'w', zipfile.ZIP_DEFLAT
 [z.write(str(p), str(p.relative_to('dist'))) for p in pathlib.Path('marivo').rglob('*') if p.is_file()]; \
 z.close()"; \
 	else \
-		tar czf marivo_$${VERSION}_$${TARGET}.tar.gz marivo/; \
+		COPYFILE_DISABLE=1 tar czf marivo_$${VERSION}_$${TARGET}.tar.gz marivo/; \
 	fi \
 	&& echo "Packaged: dist/marivo_$${VERSION}_$${TARGET}.*"
 
