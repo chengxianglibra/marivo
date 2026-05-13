@@ -73,6 +73,7 @@ created: 2026-05-02
 | `2026-05-09-phase6.3-contract-parity-tests-design.md` | draft | docs/superpowers/specs/ |
 | `2026-05-09-phase7-namespace-cutover-design.md` | completed | phase of architecture |
 | `2026-05-09-phase9-production-server-adapters-design.md` | completed | phase of architecture |
+| `2026-05-13-aoi-generated-model-runtime-cutover-design.md` | draft | docs/superpowers/specs/ |
 
 ### Canonical Gaps
 
