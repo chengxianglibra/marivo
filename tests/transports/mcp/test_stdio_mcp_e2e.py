@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import getpass
 import subprocess
 import sys
 from pathlib import Path
@@ -193,30 +194,28 @@ def test_marivo_mcp_entry_point_callable():
     assert callable(handle)
 
 
-def test_stdio_mcp_requires_marivo_user(monkeypatch: pytest.MonkeyPatch) -> None:
-    from marivo.transports.cli.cmd_mcp import _require_stdio_user
+def test_stdio_mcp_falls_back_to_system_user(monkeypatch: pytest.MonkeyPatch) -> None:
+    from marivo.transports.cli.cmd_mcp import _resolve_stdio_user
 
     monkeypatch.delenv("MARIVO_USER", raising=False)
 
-    with pytest.raises(RuntimeError, match="MARIVO_USER"):
-        _require_stdio_user()
+    assert _resolve_stdio_user() == getpass.getuser()
 
 
-def test_stdio_mcp_rejects_blank_marivo_user(monkeypatch: pytest.MonkeyPatch) -> None:
-    from marivo.transports.cli.cmd_mcp import _require_stdio_user
+def test_stdio_mcp_falls_back_on_blank_marivo_user(monkeypatch: pytest.MonkeyPatch) -> None:
+    from marivo.transports.cli.cmd_mcp import _resolve_stdio_user
 
     monkeypatch.setenv("MARIVO_USER", "   ")
 
-    with pytest.raises(RuntimeError, match="MARIVO_USER"):
-        _require_stdio_user()
+    assert _resolve_stdio_user() == getpass.getuser()
 
 
 def test_stdio_mcp_uses_explicit_marivo_user(monkeypatch: pytest.MonkeyPatch) -> None:
-    from marivo.transports.cli.cmd_mcp import _require_stdio_user
+    from marivo.transports.cli.cmd_mcp import _resolve_stdio_user
 
     monkeypatch.setenv("MARIVO_USER", "  alice  ")
 
-    assert _require_stdio_user() == "alice"
+    assert _resolve_stdio_user() == "alice"
 
 
 def test_stdio_server_registers_tools():

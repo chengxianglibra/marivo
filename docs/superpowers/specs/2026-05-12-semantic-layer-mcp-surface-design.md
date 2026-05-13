@@ -56,7 +56,7 @@ stdio MCP 和 HTTP MCP 的工具 surface 必须一致。HTTP API 可以保留 RE
 - 不由 Marivo 管理外部版本。版本由 git、文件名、知识库元信息或上游发布流程管理。
 - 不为旧 public import 语义保留兼容 surface。
 - 不允许 agent 或 payload 指定 owner、visibility、mode、datasource_mapping。
-- 不允许 runtime、HTTP 后端或 application service 在缺少用户身份时回退到默认用户、本机用户、workspace identity 或其他隐式身份。
+- 不允许 server HTTP 后端或 application service 在缺少用户身份时回退到默认用户、workspace identity 或其他隐式身份。local stdio MCP 在 `MARIVO_USER` 为空或未设置时允许回退到当前系统用户（`getpass.getuser()`）。
 - 不在 MCP 层直接暴露生成的 OSI Pydantic 模型作为原始透传参数。MCP 仍保留 agent-friendly DTO，再转换为 canonical OSI/application contract。
 - 不在本设计中定义 public/official 发布流程。发布应走独立 admin/publish surface。
 
@@ -123,7 +123,7 @@ get_semantic_model_readiness
 
 | transport | 身份来源 | 缺失或空值行为 |
 |---|---|---|
-| local stdio MCP | agent 启动 stdio server 时通过 `MARIVO_USER` 环境变量传递 | fail closed；server 启动或首次 tool call 返回结构化身份错误 |
+| local stdio MCP | agent 启动 stdio server 时通过 `MARIVO_USER` 环境变量传递 | `MARIVO_USER` 为空或未设置时回退到当前系统用户（`getpass.getuser()`） |
 | server HTTP MCP | agent 调用 HTTP MCP 时通过 `X-Marivo-User` header 传递 | fail closed；不进入 runtime 业务逻辑 |
 | HTTP API | 调用方通过 `X-Marivo-User` header 传递 | fail closed；不进入 runtime 业务逻辑 |
 
@@ -135,7 +135,7 @@ get_semantic_model_readiness
 - context provider 负责读取 env/header、trim 空白、拒绝空值，并写入 `current_user` context。
 - runtime、HTTP 后端、application service 和 repository 只消费已注入的 `current_user`；用户作用域写入、private export、session/datasource 等需要用户作用域的操作必须通过 `require_user()` 或等价机制 fail closed。
 - `resolve_user()` 只能用于可选可见性解析场景；不能用于写操作、private working copy import/export 或任何需要确定 owner 的路径。
-- 不允许使用 `getpass.getuser()`、`MARIVO_DEFAULT_USER`、workspace name、本地路径、匿名用户等作为 fallback。
+- 不允许 server HTTP 后端或 application service 使用 `MARIVO_DEFAULT_USER`、workspace name、本地路径、匿名用户等作为 fallback。local stdio MCP 在 `MARIVO_USER` 为空或未设置时允许使用 `getpass.getuser()` 作为 fallback。
 
 ### 4.2 HTTP API
 
@@ -532,6 +532,6 @@ HTTP API 使用同一条 HTTP identity 规则：调用方必须传递 `X-Marivo-
 6. import merge 对非叶子节点 patch，对叶子节点整体替换，不删除缺失对象。
 7. datasource 自动绑定在多个候选时按稳定顺序选择第一个可访问 datasource，并在 merge report 中记录选择。
 8. 普通 CRUD/import 无法修改 public/official/shared model。
-9. stdio MCP 必须由 agent 通过 `MARIVO_USER` 显式传递用户；HTTP API / HTTP MCP 必须由 agent 或调用方通过 `X-Marivo-User` 显式传递用户。
-10. runtime、HTTP 后端、application service 不存在 fallback/default-user 逻辑；缺失身份必须 fail closed。
+9. stdio MCP 优先通过 `MARIVO_USER` 环境变量传递用户，为空时回退到当前系统用户；HTTP API / HTTP MCP 必须由 agent 或调用方通过 `X-Marivo-User` 显式传递用户。
+10. server HTTP 后端、application service 不存在 fallback/default-user 逻辑；缺失身份必须 fail closed。local stdio MCP 允许在 `MARIVO_USER` 为空时回退到当前系统用户。
 11. `make test`、`make typecheck`、`make lint` 通过。
