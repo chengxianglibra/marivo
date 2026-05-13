@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import unittest
 from pathlib import Path
 
@@ -110,6 +111,60 @@ def _make_model_dict(name: str = "test_model") -> dict:
             }
         ],
     }
+
+
+def _seed_public_model(
+    svc: SemanticModelV2Service,
+    name: str = "public_model",
+    *,
+    description: str = "public model",
+) -> None:
+    """Seed a public model row directly; import creates private working copies."""
+    svc.store.execute(
+        """
+        INSERT INTO semantic_models (name, description, visibility, owner_user)
+        VALUES (?, ?, 'public', NULL)
+        """,
+        [name, description],
+    )
+    model_row = svc.store.query_one(
+        "SELECT model_id FROM semantic_models WHERE name = ? AND visibility = 'public'",
+        [name],
+    )
+    assert model_row is not None
+    svc.store.execute(
+        """
+        INSERT INTO semantic_datasets (model_id, name, source, primary_key, datasource_id)
+        VALUES (?, 'orders', 'analytics.orders', ?, 'ds_001')
+        """,
+        [model_row["model_id"], json.dumps(["order_id"])],
+    )
+    dataset_row = svc.store.query_one(
+        """
+        SELECT dataset_id FROM semantic_datasets
+        WHERE model_id = ? AND name = 'orders'
+        """,
+        [model_row["model_id"]],
+    )
+    assert dataset_row is not None
+    svc.store.execute(
+        """
+        INSERT INTO semantic_fields
+            (dataset_id, name, expression, is_time, is_dimension, position)
+        VALUES (?, 'order_id', ?, 0, 0, 0)
+        """,
+        [
+            dataset_row["dataset_id"],
+            json.dumps({"dialects": [{"dialect": "ANSI_SQL", "expression": "order_id"}]}),
+        ],
+    )
+    svc.store.execute(
+        """
+        INSERT INTO semantic_readiness_status (model_id, status, blockers)
+        VALUES (?, 'ready', '[]')
+        """,
+        [model_row["model_id"]],
+    )
 
 
 def _as_user(user: str | None):
@@ -300,65 +355,8 @@ class TestGetSemanticModel(unittest.TestCase):
 class TestListSemanticModels(unittest.TestCase):
     def test_list_public_models(self) -> None:
         svc = _make_svc()
-        # Use import to create public models
-        doc = {
-            "version": OSI_SPEC_VERSION,
-            "semantic_model": [
-                {
-                    "name": "model_a",
-                    "datasets": [
-                        {
-                            "name": "orders",
-                            "source": "analytics.orders",
-                            "primary_key": ["order_id"],
-                            "custom_extensions": [
-                                {
-                                    "vendor_name": "MARIVO",
-                                    "data": {"datasource_id": "ds_001"},
-                                }
-                            ],
-                            "fields": [
-                                {
-                                    "name": "order_id",
-                                    "expression": {
-                                        "dialects": [
-                                            {"dialect": "ANSI_SQL", "expression": "order_id"}
-                                        ]
-                                    },
-                                },
-                            ],
-                        }
-                    ],
-                },
-                {
-                    "name": "model_b",
-                    "datasets": [
-                        {
-                            "name": "orders",
-                            "source": "analytics.orders",
-                            "primary_key": ["order_id"],
-                            "custom_extensions": [
-                                {
-                                    "vendor_name": "MARIVO",
-                                    "data": {"datasource_id": "ds_001"},
-                                }
-                            ],
-                            "fields": [
-                                {
-                                    "name": "order_id",
-                                    "expression": {
-                                        "dialects": [
-                                            {"dialect": "ANSI_SQL", "expression": "order_id"}
-                                        ]
-                                    },
-                                },
-                            ],
-                        }
-                    ],
-                },
-            ],
-        }
-        svc.import_osi_document(doc)
+        _seed_public_model(svc, "model_a")
+        _seed_public_model(svc, "model_b")
         results = svc.list_semantic_models()
         names = [r["name"] for r in results]
         self.assertIn("model_a", names)
@@ -366,39 +364,7 @@ class TestListSemanticModels(unittest.TestCase):
 
     def test_list_includes_private_for_owner(self) -> None:
         svc = _make_svc()
-        # Use import to create a public model
-        doc = {
-            "version": OSI_SPEC_VERSION,
-            "semantic_model": [
-                {
-                    "name": "public_model",
-                    "datasets": [
-                        {
-                            "name": "orders",
-                            "source": "analytics.orders",
-                            "primary_key": ["order_id"],
-                            "custom_extensions": [
-                                {
-                                    "vendor_name": "MARIVO",
-                                    "data": {"datasource_id": "ds_001"},
-                                }
-                            ],
-                            "fields": [
-                                {
-                                    "name": "order_id",
-                                    "expression": {
-                                        "dialects": [
-                                            {"dialect": "ANSI_SQL", "expression": "order_id"}
-                                        ]
-                                    },
-                                },
-                            ],
-                        }
-                    ],
-                },
-            ],
-        }
-        svc.import_osi_document(doc)
+        _seed_public_model(svc, "public_model")
         with _as_user("alice"):
             svc.create_semantic_model(_make_model_dict(name="private_model"))
         results = svc.list_semantic_models(requesting_user="alice")
@@ -442,39 +408,7 @@ class TestUpdateSemanticModel(unittest.TestCase):
     def test_update_official_model_returns_403(self) -> None:
 
         svc = _make_svc()
-        # Create official model via import
-        doc = {
-            "version": OSI_SPEC_VERSION,
-            "semantic_model": [
-                {
-                    "name": "official_model",
-                    "datasets": [
-                        {
-                            "name": "orders",
-                            "source": "analytics.orders",
-                            "primary_key": ["order_id"],
-                            "custom_extensions": [
-                                {
-                                    "vendor_name": "MARIVO",
-                                    "data": {"datasource_id": "ds_001"},
-                                }
-                            ],
-                            "fields": [
-                                {
-                                    "name": "order_id",
-                                    "expression": {
-                                        "dialects": [
-                                            {"dialect": "ANSI_SQL", "expression": "order_id"}
-                                        ]
-                                    },
-                                },
-                            ],
-                        }
-                    ],
-                }
-            ],
-        }
-        svc.import_osi_document(doc)
+        _seed_public_model(svc, "official_model")
         with self.assertRaises(ForbiddenError):
             svc.update_semantic_model("official_model", {"description": "new"})
 
@@ -498,39 +432,7 @@ class TestDeleteSemanticModel(unittest.TestCase):
     def test_delete_official_model_returns_403(self) -> None:
 
         svc = _make_svc()
-        # Create official model via import
-        doc = {
-            "version": OSI_SPEC_VERSION,
-            "semantic_model": [
-                {
-                    "name": "official_model",
-                    "datasets": [
-                        {
-                            "name": "orders",
-                            "source": "analytics.orders",
-                            "primary_key": ["order_id"],
-                            "custom_extensions": [
-                                {
-                                    "vendor_name": "MARIVO",
-                                    "data": {"datasource_id": "ds_001"},
-                                }
-                            ],
-                            "fields": [
-                                {
-                                    "name": "order_id",
-                                    "expression": {
-                                        "dialects": [
-                                            {"dialect": "ANSI_SQL", "expression": "order_id"}
-                                        ]
-                                    },
-                                },
-                            ],
-                        }
-                    ],
-                }
-            ],
-        }
-        svc.import_osi_document(doc)
+        _seed_public_model(svc, "official_model")
         with self.assertRaises(ForbiddenError):
             svc.delete_semantic_model("official_model")
 
@@ -847,39 +749,7 @@ class TestVisibilityFiltering(unittest.TestCase):
 
     def test_list_returns_public_and_owned_private(self) -> None:
         svc = _make_svc()
-        # Use import to create a public model
-        doc = {
-            "version": OSI_SPEC_VERSION,
-            "semantic_model": [
-                {
-                    "name": "public_model",
-                    "datasets": [
-                        {
-                            "name": "orders",
-                            "source": "analytics.orders",
-                            "primary_key": ["order_id"],
-                            "custom_extensions": [
-                                {
-                                    "vendor_name": "MARIVO",
-                                    "data": {"datasource_id": "ds_001"},
-                                }
-                            ],
-                            "fields": [
-                                {
-                                    "name": "order_id",
-                                    "expression": {
-                                        "dialects": [
-                                            {"dialect": "ANSI_SQL", "expression": "order_id"}
-                                        ]
-                                    },
-                                },
-                            ],
-                        }
-                    ],
-                },
-            ],
-        }
-        svc.import_osi_document(doc)
+        _seed_public_model(svc, "public_model")
         with _as_user("alice"):
             svc.create_semantic_model(_make_model_dict(name="alice_private"))
         with _as_user("bob"):
@@ -933,8 +803,11 @@ class TestImportOSIDocument(unittest.TestCase):
             ],
         }
         results = svc.import_osi_document(doc)
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["name"], "imported_model")
+        self.assertEqual(len(results["models"]), 1)
+        self.assertEqual(results["models"][0]["name"], "imported_model")
+        self.assertTrue(results["models"][0]["created"])
+        result = svc.get_semantic_model("imported_model", requesting_user="test_user")
+        self.assertEqual(result["name"], "imported_model")
 
     def test_import_rejects_private_model(self) -> None:
 
@@ -984,7 +857,7 @@ class TestImportOSIDocument(unittest.TestCase):
     def test_reimport_updates_current_model_state(self) -> None:
         store = _make_store()
         svc = SemanticModelV2Service(store)
-        # Create an initial official model via import
+        # Create an initial private working copy via import
         doc_initial = {
             "version": OSI_SPEC_VERSION,
             "semantic_model": [
@@ -1019,7 +892,7 @@ class TestImportOSIDocument(unittest.TestCase):
             ],
         }
         svc.import_osi_document(doc_initial)
-        initial = svc.get_semantic_model("existing")
+        initial = svc.get_semantic_model("existing", requesting_user="test_user")
         self.assertEqual(initial["datasets"][0]["source"], "analytics.sales")
 
         # Import a document that updates the same model
@@ -1057,10 +930,12 @@ class TestImportOSIDocument(unittest.TestCase):
             ],
         }
         results = svc.import_osi_document(doc)
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["datasets"][0]["source"], "analytics.sales_v2")
+        self.assertEqual(len(results["models"]), 1)
+        self.assertEqual(results["models"][0]["datasets"]["updated"], 1)
+        updated = svc.get_semantic_model("existing", requesting_user="test_user")
+        self.assertEqual(updated["datasets"][0]["source"], "analytics.sales_v2")
 
-    def test_import_official_coexists_with_same_name_private(self) -> None:
+    def test_import_merges_with_same_name_private(self) -> None:
         store = _make_store()
         svc = SemanticModelV2Service(store)
         # Create a private model first
@@ -1072,7 +947,7 @@ class TestImportOSIDocument(unittest.TestCase):
         self.assertEqual(len(rows_before), 1)
         self.assertEqual(rows_before[0]["visibility"], "private")
 
-        # Import an official model with the same name
+        # Import a private working-copy update with the same name.
         doc = {
             "version": OSI_SPEC_VERSION,
             "semantic_model": [
@@ -1106,18 +981,18 @@ class TestImportOSIDocument(unittest.TestCase):
                 }
             ],
         }
-        results = svc.import_osi_document(doc)
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["name"], "shared_name")
+        with _as_user("alice"):
+            results = svc.import_osi_document(doc)
+        self.assertEqual(len(results["models"]), 1)
+        self.assertEqual(results["models"][0]["name"], "shared_name")
+        self.assertTrue(results["models"][0]["updated"])
 
-        # Both models should now exist
         rows_after = store.query_rows(
             "SELECT visibility FROM semantic_models WHERE name = 'shared_name' ORDER BY visibility"
         )
-        self.assertEqual(len(rows_after), 2)
+        self.assertEqual(len(rows_after), 1)
         visibilities = [r["visibility"] for r in rows_after]
         self.assertIn("private", visibilities)
-        self.assertIn("public", visibilities)
 
     def test_import_new_model_stores_current_state(self) -> None:
         store = _make_store()
@@ -1156,10 +1031,14 @@ class TestImportOSIDocument(unittest.TestCase):
             ],
         }
         results = svc.import_osi_document(doc)
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["name"], "brand_new")
-        model_row = store.query_one("SELECT name FROM semantic_models WHERE name = 'brand_new'")
+        self.assertEqual(len(results["models"]), 1)
+        self.assertEqual(results["models"][0]["name"], "brand_new")
+        model_row = store.query_one(
+            "SELECT name, visibility, owner_user FROM semantic_models WHERE name = 'brand_new'"
+        )
         self.assertEqual(model_row["name"], "brand_new")
+        self.assertEqual(model_row["visibility"], "private")
+        self.assertEqual(model_row["owner_user"], "test_user")
 
 
 # ---------------------------------------------------------------------------
@@ -1171,39 +1050,7 @@ class TestSameNameShadowing(unittest.TestCase):
     """Tests that private models shadow public models when requesting_user matches."""
 
     def _make_public_model(self, svc: SemanticModelV2Service, name: str = "commerce") -> None:
-        """Import a public model via import_osi_document."""
-        doc = {
-            "version": OSI_SPEC_VERSION,
-            "semantic_model": [
-                {
-                    "name": name,
-                    "description": "public model",
-                    "datasets": [
-                        {
-                            "name": "orders",
-                            "source": "analytics.orders",
-                            "custom_extensions": [
-                                {
-                                    "vendor_name": "MARIVO",
-                                    "data": {"datasource_id": "ds_001"},
-                                }
-                            ],
-                            "fields": [
-                                {
-                                    "name": "order_id",
-                                    "expression": {
-                                        "dialects": [
-                                            {"dialect": "ANSI_SQL", "expression": "order_id"}
-                                        ]
-                                    },
-                                }
-                            ],
-                        }
-                    ],
-                }
-            ],
-        }
-        svc.import_osi_document(doc)
+        _seed_public_model(svc, name)
 
     def test_get_model_prefers_private_over_public_for_owner(self) -> None:
         svc = _make_svc()

@@ -246,12 +246,12 @@ class TestListSemanticModelsAPI(unittest.TestCase):
 
     def test_list_with_requesting_user(self) -> None:
         client = _make_app()
-        # Use import to create a public model
+        # Import creates a private working copy for the transport-injected user.
         doc = {
             "version": OSI_SPEC_VERSION,
             "semantic_model": [
                 {
-                    "name": "public_model",
+                    "name": "imported_model",
                     "datasets": [
                         {
                             "name": "orders",
@@ -278,26 +278,27 @@ class TestListSemanticModelsAPI(unittest.TestCase):
                 }
             ],
         }
-        client.post("/semantic-models/import", json=doc)
+        client.post(
+            "/semantic-models/import",
+            json=doc,
+            headers={"X-Marivo-User": "alice"},
+        )
         client.post(
             "/semantic-models",
             json=_make_model_dict(name="private_model"),
             headers={"X-Marivo-User": "alice"},
         )
-        # Without requesting_user, only public models are visible
         resp = client.get("/semantic-models")
         names = [m["name"] for m in resp.json()["semantic_model"]]
-        self.assertIn("public_model", names)
+        self.assertNotIn("imported_model", names)
         self.assertNotIn("private_model", names)
-        # With requesting_user=alice, private model is also visible
         resp = client.get("/semantic-models", params={"requesting_user": "alice"})
         names = [m["name"] for m in resp.json()["semantic_model"]]
-        self.assertIn("public_model", names)
+        self.assertIn("imported_model", names)
         self.assertIn("private_model", names)
-        # With requesting_user=bob, private model is not visible
         resp = client.get("/semantic-models", params={"requesting_user": "bob"})
         names = [m["name"] for m in resp.json()["semantic_model"]]
-        self.assertIn("public_model", names)
+        self.assertNotIn("imported_model", names)
         self.assertNotIn("private_model", names)
 
 
@@ -357,14 +358,14 @@ class TestDeleteSemanticModelAPI(unittest.TestCase):
             json=_make_model_dict(),
             headers={"X-Marivo-User": "alice"},
         )
-        resp = client.delete("/semantic-models/test_model?requesting_user=alice")
+        resp = client.delete("/semantic-models/test_model", headers={"X-Marivo-User": "alice"})
         self.assertEqual(resp.status_code, 204)
         resp = client.get("/semantic-models/test_model", params={"requesting_user": "alice"})
         self.assertEqual(resp.status_code, 404)
 
     def test_delete_nonexistent_returns_404(self) -> None:
         client = _make_app()
-        resp = client.delete("/semantic-models/nonexistent")
+        resp = client.delete("/semantic-models/nonexistent", headers={"X-Marivo-User": "alice"})
         self.assertEqual(resp.status_code, 404)
 
 
@@ -382,7 +383,9 @@ class TestCreateDatasetAPI(unittest.TestCase):
             headers={"X-Marivo-User": "alice"},
         )
         resp = client.post(
-            "/semantic-models/test_model/datasets?requesting_user=alice", json=_make_dataset_dict()
+            "/semantic-models/test_model/datasets",
+            json=_make_dataset_dict(),
+            headers={"X-Marivo-User": "alice"},
         )
         self.assertEqual(resp.status_code, 200)
         body = resp.json()
@@ -391,8 +394,103 @@ class TestCreateDatasetAPI(unittest.TestCase):
 
     def test_create_dataset_in_nonexistent_model(self) -> None:
         client = _make_app()
-        resp = client.post("/semantic-models/nonexistent/datasets", json=_make_dataset_dict())
+        resp = client.post(
+            "/semantic-models/nonexistent/datasets",
+            json=_make_dataset_dict(),
+            headers={"X-Marivo-User": "alice"},
+        )
         self.assertEqual(resp.status_code, 404)
+
+
+# ---------------------------------------------------------------------------
+# Field CRUD
+# ---------------------------------------------------------------------------
+
+
+class TestFieldCrudAPI(unittest.TestCase):
+    def test_create_list_get_update_delete_field(self) -> None:
+        client = _make_app()
+        client.post(
+            "/semantic-models",
+            json=_make_model_dict(name="field_model"),
+            headers={"X-Marivo-User": "alice"},
+        )
+
+        field = {
+            "name": "status",
+            "expression": {"dialects": [{"dialect": "ANSI_SQL", "expression": "status"}]},
+            "label": "Order Status",
+        }
+        resp = client.post(
+            "/semantic-models/field_model/datasets/orders/fields",
+            json=field,
+            headers={"X-Marivo-User": "alice"},
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["name"], "status")
+
+        resp = client.get(
+            "/semantic-models/field_model/datasets/orders/fields",
+            params={"requesting_user": "alice"},
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("status", [item["name"] for item in resp.json()])
+
+        resp = client.get(
+            "/semantic-models/field_model/datasets/orders/fields/status",
+            params={"requesting_user": "alice"},
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["label"], "Order Status")
+
+        resp = client.patch(
+            "/semantic-models/field_model/datasets/orders/fields/status",
+            json={"description": "Lifecycle status"},
+            headers={"X-Marivo-User": "alice"},
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["description"], "Lifecycle status")
+
+        resp = client.delete(
+            "/semantic-models/field_model/datasets/orders/fields/status",
+            headers={"X-Marivo-User": "alice"},
+        )
+        self.assertEqual(resp.status_code, 204)
+
+    def test_field_write_routes_use_header_identity_not_requesting_user_param(self) -> None:
+        client = _make_app()
+        client.post(
+            "/semantic-models",
+            json=_make_model_dict(name="field_owner_model"),
+            headers={"X-Marivo-User": "alice"},
+        )
+
+        field = {
+            "name": "status",
+            "expression": {"dialects": [{"dialect": "ANSI_SQL", "expression": "status"}]},
+            "description": "Alice field",
+        }
+        resp = client.post(
+            "/semantic-models/field_owner_model/datasets/orders/fields",
+            json=field,
+            headers={"X-Marivo-User": "alice"},
+        )
+        self.assertEqual(resp.status_code, 200)
+
+        resp = client.patch(
+            "/semantic-models/field_owner_model/datasets/orders/fields/status"
+            "?requesting_user=alice",
+            json={"description": "Bob hijack"},
+            headers={"X-Marivo-User": "bob"},
+        )
+        self.assertEqual(resp.status_code, 404)
+
+        resp = client.get(
+            "/semantic-models/field_owner_model/datasets/orders/fields/status",
+            params={"requesting_user": "alice"},
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["description"], "Alice field")
 
 
 # ---------------------------------------------------------------------------
@@ -479,20 +577,32 @@ class TestImportOSIDocumentAPI(unittest.TestCase):
                 }
             ],
         }
-        resp = client.post("/semantic-models/import", json=doc)
+        resp = client.post(
+            "/semantic-models/import",
+            json=doc,
+            headers={"X-Marivo-User": "alice"},
+        )
         self.assertEqual(resp.status_code, 200)
         body = resp.json()
-        self.assertEqual(body["version"], OSI_SPEC_VERSION)
-        names = [m["name"] for m in body["semantic_model"]]
-        self.assertIn("imported_model", names)
+        self.assertEqual(body["models"][0]["name"], "imported_model")
+        self.assertTrue(body["models"][0]["created"])
+        self.assertEqual(body["models"][0]["datasets"]["created"], 1)
+        self.assertEqual(body["models"][0]["fields"]["created"], 1)
 
-    def test_import_rejects_private_model(self) -> None:
+        get_resp = client.get(
+            "/semantic-models/imported_model",
+            headers={"X-Marivo-User": "alice"},
+        )
+        self.assertEqual(get_resp.status_code, 200)
+        self.assertEqual(get_resp.json()["semantic_model"][0]["name"], "imported_model")
+
+    def test_import_requires_x_marivo_user(self) -> None:
         client = _make_app()
         doc = {
             "version": OSI_SPEC_VERSION,
             "semantic_model": [
                 {
-                    "name": "private_import",
+                    "name": "imported_model",
                     "datasets": [
                         {
                             "name": "sales",
@@ -515,17 +625,12 @@ class TestImportOSIDocumentAPI(unittest.TestCase):
                             ],
                         }
                     ],
-                    "custom_extensions": [
-                        {
-                            "vendor_name": "MARIVO",
-                            "data": {"visibility": "private", "owner_user": "alice"},
-                        }
-                    ],
                 }
             ],
         }
         resp = client.post("/semantic-models/import", json=doc)
         self.assertEqual(resp.status_code, 422)
+        self.assertIn("User identity", resp.text)
 
 
 class TestPerModelImport(unittest.TestCase):
@@ -589,7 +694,7 @@ class TestPerModelImport(unittest.TestCase):
                 },
             ],
         }
-        client.post("/semantic-models/import", json=doc)
+        client.post("/semantic-models/import", json=doc, headers={"X-Marivo-User": "alice"})
         # Second import: only commerce updated
         doc2 = {
             "version": OSI_SPEC_VERSION,
@@ -630,14 +735,24 @@ class TestPerModelImport(unittest.TestCase):
                 },
             ],
         }
-        resp = client.post("/semantic-models/import", json=doc2)
+        resp = client.post(
+            "/semantic-models/import",
+            json=doc2,
+            headers={"X-Marivo-User": "alice"},
+        )
         self.assertEqual(resp.status_code, 200)
         # commerce updated
-        commerce = client.get("/semantic-models/commerce").json()["semantic_model"][0]
+        commerce = client.get(
+            "/semantic-models/commerce",
+            headers={"X-Marivo-User": "alice"},
+        ).json()["semantic_model"][0]
         self.assertEqual(commerce["datasets"][0]["source"], "analytics.orders_v2")
         self.assertEqual(len(commerce["datasets"][0]["fields"]), 2)
         # growth unchanged
-        growth = client.get("/semantic-models/growth").json()["semantic_model"][0]
+        growth = client.get(
+            "/semantic-models/growth",
+            headers={"X-Marivo-User": "alice"},
+        ).json()["semantic_model"][0]
         self.assertEqual(growth["datasets"][0]["source"], "analytics.events")
 
     def test_reimport_updates_current_model_state(self) -> None:
@@ -673,7 +788,7 @@ class TestPerModelImport(unittest.TestCase):
                 },
             ],
         }
-        client.post("/semantic-models/import", json=doc)
+        client.post("/semantic-models/import", json=doc, headers={"X-Marivo-User": "alice"})
         updated_doc = {
             **doc,
             "semantic_model": [
@@ -688,12 +803,19 @@ class TestPerModelImport(unittest.TestCase):
                 }
             ],
         }
-        client.post("/semantic-models/import", json=updated_doc)
-        model = client.get("/semantic-models/commerce").json()["semantic_model"][0]
+        client.post(
+            "/semantic-models/import",
+            json=updated_doc,
+            headers={"X-Marivo-User": "alice"},
+        )
+        model = client.get(
+            "/semantic-models/commerce",
+            headers={"X-Marivo-User": "alice"},
+        ).json()["semantic_model"][0]
         self.assertEqual(model["datasets"][0]["source"], "analytics.orders_v2")
 
-    def test_import_official_model_with_same_name_as_private_succeeds(self) -> None:
-        """Importing official model when private model with same name exists should succeed."""
+    def test_import_merges_model_with_same_name_as_private(self) -> None:
+        """Importing a model with the same name merges Alice's private copy."""
         client = _make_app()
         # Create private model first
         client.post(
@@ -701,7 +823,7 @@ class TestPerModelImport(unittest.TestCase):
             json=_make_model_dict(name="commerce"),
             headers={"X-Marivo-User": "alice"},
         )
-        # Import official model with same name
+        # Import private working-copy update with same name
         doc = {
             "version": OSI_SPEC_VERSION,
             "semantic_model": [
@@ -733,14 +855,17 @@ class TestPerModelImport(unittest.TestCase):
                 },
             ],
         }
-        resp = client.post("/semantic-models/import", json=doc)
+        resp = client.post(
+            "/semantic-models/import",
+            json=doc,
+            headers={"X-Marivo-User": "alice"},
+        )
         self.assertEqual(resp.status_code, 200)
-        # Both models should exist
         models = client.get("/semantic-models", params={"requesting_user": "alice"}).json()[
             "semantic_model"
         ]
         commerce_models = [m for m in models if m["name"] == "commerce"]
-        self.assertEqual(len(commerce_models), 2)  # one official, one private
+        self.assertEqual(len(commerce_models), 1)
 
     def test_import_new_model_stores_current_state(self) -> None:
         client = _make_app()
@@ -775,8 +900,11 @@ class TestPerModelImport(unittest.TestCase):
                 },
             ],
         }
-        client.post("/semantic-models/import", json=doc)
-        model = client.get("/semantic-models/commerce").json()["semantic_model"][0]
+        client.post("/semantic-models/import", json=doc, headers={"X-Marivo-User": "alice"})
+        model = client.get(
+            "/semantic-models/commerce",
+            headers={"X-Marivo-User": "alice"},
+        ).json()["semantic_model"][0]
         self.assertEqual(model["name"], "commerce")
         self.assertEqual(model["datasets"][0]["source"], "analytics.orders")
 
@@ -801,7 +929,7 @@ class TestVisibilityGuardOnModelWrites(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 200)
 
-    def test_update_official_model_returns_403(self) -> None:
+    def test_update_imported_private_model_without_identity_returns_422(self) -> None:
         client = _make_app()
         doc = {
             "version": OSI_SPEC_VERSION,
@@ -834,9 +962,9 @@ class TestVisibilityGuardOnModelWrites(unittest.TestCase):
                 }
             ],
         }
-        client.post("/semantic-models/import", json=doc)
+        client.post("/semantic-models/import", json=doc, headers={"X-Marivo-User": "alice"})
         resp = client.put("/semantic-models/official_model", json={"description": "new"})
-        self.assertEqual(resp.status_code, 403)
+        self.assertEqual(resp.status_code, 422)
 
     def test_update_private_model_succeeds(self) -> None:
         client = _make_app()
@@ -846,11 +974,13 @@ class TestVisibilityGuardOnModelWrites(unittest.TestCase):
             headers={"X-Marivo-User": "alice"},
         )
         resp = client.put(
-            "/semantic-models/priv_model?requesting_user=alice", json={"description": "new"}
+            "/semantic-models/priv_model",
+            json={"description": "new"},
+            headers={"X-Marivo-User": "alice"},
         )
         self.assertEqual(resp.status_code, 200)
 
-    def test_delete_official_model_returns_403(self) -> None:
+    def test_delete_imported_private_model_without_identity_returns_422(self) -> None:
         client = _make_app()
         doc = {
             "version": OSI_SPEC_VERSION,
@@ -883,9 +1013,9 @@ class TestVisibilityGuardOnModelWrites(unittest.TestCase):
                 }
             ],
         }
-        client.post("/semantic-models/import", json=doc)
+        client.post("/semantic-models/import", json=doc, headers={"X-Marivo-User": "alice"})
         resp = client.delete("/semantic-models/official_model")
-        self.assertEqual(resp.status_code, 403)
+        self.assertEqual(resp.status_code, 422)
 
     def test_delete_private_model_succeeds(self) -> None:
         client = _make_app()
@@ -894,7 +1024,7 @@ class TestVisibilityGuardOnModelWrites(unittest.TestCase):
             json=_make_model_dict(name="priv_model"),
             headers={"X-Marivo-User": "alice"},
         )
-        resp = client.delete("/semantic-models/priv_model?requesting_user=alice")
+        resp = client.delete("/semantic-models/priv_model", headers={"X-Marivo-User": "alice"})
         self.assertEqual(resp.status_code, 204)
 
 
@@ -904,7 +1034,7 @@ class TestVisibilityGuardOnModelWrites(unittest.TestCase):
 
 
 class TestVisibilityGuardOnSubEntityWrites(unittest.TestCase):
-    def _create_official_model(self, client: TestClient) -> None:
+    def _create_imported_private_model(self, client: TestClient) -> None:
         doc = {
             "version": OSI_SPEC_VERSION,
             "semantic_model": [
@@ -936,31 +1066,33 @@ class TestVisibilityGuardOnSubEntityWrites(unittest.TestCase):
                 }
             ],
         }
-        client.post("/semantic-models/import", json=doc)
+        client.post("/semantic-models/import", json=doc, headers={"X-Marivo-User": "alice"})
 
-    def test_create_dataset_in_official_returns_403(self) -> None:
+    def test_create_dataset_in_imported_private_model_without_identity_returns_422(self) -> None:
         client = _make_app()
-        self._create_official_model(client)
+        self._create_imported_private_model(client)
         resp = client.post("/semantic-models/official_model/datasets", json=_make_dataset_dict())
-        self.assertEqual(resp.status_code, 403)
+        self.assertEqual(resp.status_code, 422)
 
-    def test_update_dataset_in_official_returns_403(self) -> None:
+    def test_update_dataset_in_imported_private_model_without_identity_returns_422(self) -> None:
         client = _make_app()
-        self._create_official_model(client)
+        self._create_imported_private_model(client)
         resp = client.put(
             "/semantic-models/official_model/datasets/orders", json={"description": "new"}
         )
-        self.assertEqual(resp.status_code, 403)
+        self.assertEqual(resp.status_code, 422)
 
-    def test_delete_dataset_in_official_returns_403(self) -> None:
+    def test_delete_dataset_in_imported_private_model_without_identity_returns_422(self) -> None:
         client = _make_app()
-        self._create_official_model(client)
+        self._create_imported_private_model(client)
         resp = client.delete("/semantic-models/official_model/datasets/orders")
-        self.assertEqual(resp.status_code, 403)
+        self.assertEqual(resp.status_code, 422)
 
-    def test_create_relationship_in_official_returns_403(self) -> None:
+    def test_create_relationship_in_imported_private_model_without_identity_returns_422(
+        self,
+    ) -> None:
         client = _make_app()
-        self._create_official_model(client)
+        self._create_imported_private_model(client)
         rel = {
             "name": "r",
             "from": "orders",
@@ -969,17 +1101,17 @@ class TestVisibilityGuardOnSubEntityWrites(unittest.TestCase):
             "to_columns": ["order_id"],
         }
         resp = client.post("/semantic-models/official_model/relationships", json=rel)
-        self.assertEqual(resp.status_code, 403)
+        self.assertEqual(resp.status_code, 422)
 
-    def test_create_metric_in_official_returns_403(self) -> None:
+    def test_create_metric_in_imported_private_model_without_identity_returns_422(self) -> None:
         client = _make_app()
-        self._create_official_model(client)
+        self._create_imported_private_model(client)
         metric = {
             "name": "total",
             "expression": {"dialects": [{"dialect": "ANSI_SQL", "expression": "COUNT(order_id)"}]},
         }
         resp = client.post("/semantic-models/official_model/metrics", json=metric)
-        self.assertEqual(resp.status_code, 403)
+        self.assertEqual(resp.status_code, 422)
 
 
 # ---------------------------------------------------------------------------
@@ -1018,8 +1150,8 @@ class TestSameNameValidation(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 200)
 
-    def test_private_same_name_as_official_succeeds(self) -> None:
-        """Private model with same name as official model is allowed."""
+    def test_import_same_name_as_existing_private_merges(self) -> None:
+        """Import with the same name as an existing private model merges that model."""
         client = _make_app()
         doc = {
             "version": OSI_SPEC_VERSION,
@@ -1052,13 +1184,14 @@ class TestSameNameValidation(unittest.TestCase):
                 }
             ],
         }
-        client.post("/semantic-models/import", json=doc)
-        resp = client.post(
+        client.post(
             "/semantic-models",
             json=_make_model_dict(name="commerce"),
             headers={"X-Marivo-User": "alice"},
         )
+        resp = client.post("/semantic-models/import", json=doc, headers={"X-Marivo-User": "alice"})
         self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.json()["models"][0]["updated"])
 
 
 # ---------------------------------------------------------------------------
@@ -1112,7 +1245,11 @@ class TestSubEntityReadVisibility(unittest.TestCase):
             "from_columns": ["order_id"],
             "to_columns": ["order_id"],
         }
-        client.post("/semantic-models/priv_model/relationships?requesting_user=alice", json=rel)
+        client.post(
+            "/semantic-models/priv_model/relationships",
+            json=rel,
+            headers={"X-Marivo-User": "alice"},
+        )
         resp = client.get(
             "/semantic-models/priv_model/relationships/self_rel",
             params={"requesting_user": "alice"},
@@ -1147,7 +1284,11 @@ class TestSubEntityReadVisibility(unittest.TestCase):
             "name": "total_orders",
             "expression": {"dialects": [{"dialect": "ANSI_SQL", "expression": "COUNT(order_id)"}]},
         }
-        client.post("/semantic-models/priv_model/metrics?requesting_user=alice", json=metric)
+        client.post(
+            "/semantic-models/priv_model/metrics",
+            json=metric,
+            headers={"X-Marivo-User": "alice"},
+        )
         resp = client.get(
             "/semantic-models/priv_model/metrics/total_orders", params={"requesting_user": "alice"}
         )
@@ -1167,8 +1308,8 @@ class TestSubEntityReadVisibility(unittest.TestCase):
         resp = client.get("/semantic-models/priv_model/metrics", params={"requesting_user": "bob"})
         self.assertEqual(resp.status_code, 404)
 
-    def test_public_model_sub_entities_visible_to_all(self) -> None:
-        """Sub-entity reads on a public model should succeed for any user."""
+    def test_imported_private_model_sub_entities_visible_to_owner_only(self) -> None:
+        """Sub-entity reads on imported private models require the owner."""
         client = _make_app()
         doc = {
             "version": OSI_SPEC_VERSION,
@@ -1201,32 +1342,42 @@ class TestSubEntityReadVisibility(unittest.TestCase):
                 }
             ],
         }
-        client.post("/semantic-models/import", json=doc)
-        resp = client.get("/semantic-models/public_model/datasets/orders")
+        client.post("/semantic-models/import", json=doc, headers={"X-Marivo-User": "alice"})
+        resp = client.get(
+            "/semantic-models/public_model/datasets/orders",
+            headers={"X-Marivo-User": "alice"},
+        )
         self.assertEqual(resp.status_code, 200)
         resp = client.get("/semantic-models/public_model/datasets")
-        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.status_code, 404)
         resp = client.get(
             "/semantic-models/public_model/datasets/orders", params={"requesting_user": "bob"}
         )
-        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.status_code, 404)
 
 
 # ---------------------------------------------------------------------------
-# Same-name shadowing (private shadows public via requesting_user)
+# Same-name private models are isolated by owner.
 # ---------------------------------------------------------------------------
 
 
 class TestSameNameShadowingAPI(unittest.TestCase):
-    """API-level tests that private models shadow public models for their owner."""
+    """API-level tests that same-name private models are owner-scoped."""
 
-    def _import_public_model(self, client, name: str = "commerce") -> None:
+    def _import_private_model(
+        self,
+        client: TestClient,
+        name: str = "commerce",
+        *,
+        user: str = "alice",
+        description: str = "imported model",
+    ) -> None:
         doc = {
             "version": OSI_SPEC_VERSION,
             "semantic_model": [
                 {
                     "name": name,
-                    "description": "public model",
+                    "description": description,
                     "datasets": [
                         {
                             "name": "orders",
@@ -1252,66 +1403,46 @@ class TestSameNameShadowingAPI(unittest.TestCase):
                 }
             ],
         }
-        resp = client.post("/semantic-models/import", json=doc)
+        resp = client.post(
+            "/semantic-models/import",
+            json=doc,
+            headers={"X-Marivo-User": user},
+        )
         self.assertEqual(resp.status_code, 200)
 
-    def test_get_model_prefers_private_over_public_for_owner(self) -> None:
+    def test_get_model_returns_imported_private_for_owner(self) -> None:
         client = _make_app()
-        self._import_public_model(client, "commerce")
-        private = _make_model_dict(name="commerce")
-        private["description"] = "private model"
-        client.post(
-            "/semantic-models",
-            json=private,
-            headers={"X-Marivo-User": "alice"},
-        )
-        # alice sees her private model
+        self._import_private_model(client, "commerce", user="alice", description="alice import")
         resp = client.get("/semantic-models/commerce", params={"requesting_user": "alice"})
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
-        self.assertEqual(data["semantic_model"][0]["description"], "private model")
+        self.assertEqual(data["semantic_model"][0]["description"], "alice import")
 
-    def test_get_model_returns_public_for_non_owner(self) -> None:
+    def test_get_model_returns_404_for_non_owner(self) -> None:
         client = _make_app()
-        self._import_public_model(client, "commerce")
-        private = _make_model_dict(name="commerce")
-        private["description"] = "private model"
-        client.post(
-            "/semantic-models",
-            json=private,
-            headers={"X-Marivo-User": "alice"},
-        )
-        # bob sees the public model
+        self._import_private_model(client, "commerce", user="alice")
         resp = client.get("/semantic-models/commerce", params={"requesting_user": "bob"})
-        self.assertEqual(resp.status_code, 200)
-        data = resp.json()
-        self.assertEqual(data["semantic_model"][0]["description"], "public model")
+        self.assertEqual(resp.status_code, 404)
 
     def test_update_private_model_finds_correct_row(self) -> None:
         client = _make_app()
-        self._import_public_model(client, "commerce")
-        client.post(
-            "/semantic-models",
-            json=_make_model_dict(name="commerce"),
-            headers={"X-Marivo-User": "alice"},
-        )
+        self._import_private_model(client, "commerce", user="alice")
+        self._import_private_model(client, "commerce", user="bob", description="bob import")
         resp = client.put(
-            "/semantic-models/commerce?requesting_user=alice",
+            "/semantic-models/commerce",
             json={"description": "alice's version"},
+            headers={"X-Marivo-User": "alice"},
         )
         self.assertEqual(resp.status_code, 200)
+        bob = client.get("/semantic-models/commerce", params={"requesting_user": "bob"})
+        self.assertEqual(bob.json()["semantic_model"][0]["description"], "bob import")
 
-    def test_delete_private_model_leaves_public_intact(self) -> None:
+    def test_delete_private_model_leaves_other_owners_private_model_intact(self) -> None:
         client = _make_app()
-        self._import_public_model(client, "commerce")
-        client.post(
-            "/semantic-models",
-            json=_make_model_dict(name="commerce"),
-            headers={"X-Marivo-User": "alice"},
-        )
-        resp = client.delete("/semantic-models/commerce?requesting_user=alice")
+        self._import_private_model(client, "commerce", user="alice")
+        self._import_private_model(client, "commerce", user="bob", description="bob import")
+        resp = client.delete("/semantic-models/commerce", headers={"X-Marivo-User": "alice"})
         self.assertEqual(resp.status_code, 204)
-        # Public model should still exist
         resp = client.get("/semantic-models/commerce", params={"requesting_user": "bob"})
         self.assertEqual(resp.status_code, 200)
 
@@ -1357,3 +1488,40 @@ class TestSameNameShadowingAPI(unittest.TestCase):
         resp = client.get("/semantic-models/commerce", params={"requesting_user": "bob"})
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["semantic_model"][0]["description"], "bob model")
+
+
+class TestImportExportTargetStateAPI(unittest.TestCase):
+    def test_import_returns_report_not_osi_document(self) -> None:
+        client = _make_app()
+        resp = client.post(
+            "/semantic-models/import",
+            json={
+                "version": OSI_SPEC_VERSION,
+                "semantic_model": [_make_model_dict(name="report_model")],
+            },
+            headers={"X-Marivo-User": "alice"},
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertIn("models", body)
+        self.assertNotIn("semantic_model", body)
+        self.assertEqual(body["models"][0]["name"], "report_model")
+
+    def test_export_returns_private_osi_document(self) -> None:
+        client = _make_app()
+        client.post(
+            "/semantic-models/import",
+            json={
+                "version": OSI_SPEC_VERSION,
+                "semantic_model": [_make_model_dict(name="export_model")],
+            },
+            headers={"X-Marivo-User": "alice"},
+        )
+
+        resp = client.get("/semantic-models/export", headers={"X-Marivo-User": "alice"})
+
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body["version"], OSI_SPEC_VERSION)
+        self.assertEqual([model["name"] for model in body["semantic_model"]], ["export_model"])

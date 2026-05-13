@@ -38,6 +38,8 @@ def _translate(fn: Callable[[], _T]) -> _T:  # noqa: UP047
         raise HTTPException(status_code=422, detail=exc.message) from exc
     except DomainError as exc:
         raise HTTPException(status_code=400, detail=exc.message) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 class SemanticServiceAdapter:
@@ -134,6 +136,82 @@ class SemanticServiceAdapter:
     ) -> None:
         _translate(
             lambda: self._service.delete_dataset(model_name, dataset_name, owner_user=owner_user)
+        )
+
+    # ------------------------------------------------------------------
+    # Field CRUD
+    # ------------------------------------------------------------------
+
+    def create_field(
+        self,
+        model_name: str,
+        dataset_name: str,
+        field_data: dict[str, Any],
+        owner_user: str | None = None,
+    ) -> dict[str, Any]:
+        return _translate(
+            lambda: self._service.create_field(
+                model_name, dataset_name, field_data, owner_user=owner_user
+            )
+        )
+
+    def get_field(
+        self,
+        model_name: str,
+        dataset_name: str,
+        field_name: str,
+        requesting_user: str | None = None,
+    ) -> dict[str, Any]:
+        return _translate(
+            lambda: self._service.get_field(
+                model_name,
+                dataset_name,
+                field_name,
+                requesting_user=requesting_user,
+            )
+        )
+
+    def list_fields(
+        self,
+        model_name: str,
+        dataset_name: str,
+        requesting_user: str | None = None,
+    ) -> list[dict[str, Any]]:
+        return _translate(
+            lambda: self._service.list_fields(
+                model_name, dataset_name, requesting_user=requesting_user
+            )
+        )
+
+    def update_field(
+        self,
+        model_name: str,
+        dataset_name: str,
+        field_name: str,
+        updates: dict[str, Any],
+        owner_user: str | None = None,
+    ) -> dict[str, Any]:
+        return _translate(
+            lambda: self._service.update_field(
+                model_name,
+                dataset_name,
+                field_name,
+                updates,
+                owner_user=owner_user,
+            )
+        )
+
+    def delete_field(
+        self,
+        model_name: str,
+        dataset_name: str,
+        field_name: str,
+        owner_user: str | None = None,
+    ) -> None:
+        _translate(
+            lambda: self._service.delete_field(
+                model_name, dataset_name, field_name, owner_user=owner_user
+            )
         )
 
     # ------------------------------------------------------------------
@@ -234,8 +312,11 @@ class SemanticServiceAdapter:
     # Import & Readiness
     # ------------------------------------------------------------------
 
-    def import_osi_document(self, doc_data: dict[str, Any]) -> list[dict[str, Any]]:
+    def import_osi_document(self, doc_data: dict[str, Any]) -> dict[str, Any]:
         return _translate(lambda: self._service.import_osi_document(doc_data))
+
+    def export_osi_document(self, semantic_model_name: str | None = None) -> dict[str, Any]:
+        return _translate(lambda: self._service.export_osi_document(semantic_model_name))
 
     def get_readiness(self, model_name: str, requesting_user: str | None = None) -> dict[str, Any]:
         return _translate(

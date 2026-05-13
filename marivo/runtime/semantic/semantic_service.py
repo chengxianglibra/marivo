@@ -22,6 +22,7 @@ from marivo.contracts.errors import (
 )
 from marivo.contracts.generated import (
     Dataset,
+    Field,
     Metric,
     OSIDocument,
     Relationship,
@@ -31,9 +32,16 @@ from marivo.core.semantic.semantic_validation import (
     SemanticValidationError,
     validate_semantic_model,
 )
-from marivo.identity import resolve_user
+from marivo.identity import require_user, resolve_user
+from marivo.runtime.semantic.import_export import (
+    DatasourceBinder,
+    OsiDocumentExporter,
+    SemanticMergeExecutor,
+    SemanticMergePlanner,
+)
 from marivo.runtime.semantic.osi_storage import (
     _storage_to_dataset,
+    _storage_to_field,
     _storage_to_metric,
     _storage_to_relationship,
     dataset_to_storage,
@@ -705,6 +713,185 @@ class SemanticModelV2Service:
         )
 
     # ------------------------------------------------------------------
+    # Field CRUD
+    # ------------------------------------------------------------------
+
+    def _require_dataset_row_for_model(
+        self, model_row: dict[str, Any], model_name: str, dataset_name: str
+    ) -> dict[str, Any]:
+        ds_row = self.store.query_one(
+            "SELECT * FROM semantic_datasets WHERE model_id = ? AND name = ?",
+            [model_row["model_id"], dataset_name],
+        )
+        if ds_row is None:
+            raise NotFoundError(
+                ErrorCode.NOT_FOUND_DATASET,
+                f"Dataset '{dataset_name}' not found in model '{model_name}'",
+            )
+        return ds_row
+
+    def list_fields(
+        self,
+        model_name: str,
+        dataset_name: str,
+        requesting_user: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """List all fields in a dataset."""
+        model_row = self._require_visible_model(model_name, requesting_user)
+        ds_row = self._require_dataset_row_for_model(model_row, model_name, dataset_name)
+        field_rows = self.store.query_rows(
+            "SELECT * FROM semantic_fields WHERE dataset_id = ? ORDER BY position",
+            [ds_row["dataset_id"]],
+        )
+        return [_storage_to_field(dict(row)) for row in field_rows]
+
+    def get_field(
+        self,
+        model_name: str,
+        dataset_name: str,
+        field_name: str,
+        requesting_user: str | None = None,
+    ) -> dict[str, Any]:
+        """Get a field by name within a dataset."""
+        model_row = self._require_visible_model(model_name, requesting_user)
+        ds_row = self._require_dataset_row_for_model(model_row, model_name, dataset_name)
+        field_row = self.store.query_one(
+            "SELECT * FROM semantic_fields WHERE dataset_id = ? AND name = ?",
+            [ds_row["dataset_id"], field_name],
+        )
+        if field_row is None:
+            raise NotFoundError(
+                ErrorCode.NOT_FOUND_FIELD,
+                f"Field '{field_name}' not found in dataset '{dataset_name}'",
+            )
+        return _storage_to_field(dict(field_row))
+
+    def create_field(
+        self,
+        model_name: str,
+        dataset_name: str,
+        field_data: dict[str, Any],
+        owner_user: str | None = None,
+    ) -> dict[str, Any]:
+        """Create a field within a dataset."""
+        model_row = self._require_private_model(model_name, owner_user=owner_user)
+        ds_row = self._require_dataset_row_for_model(model_row, model_name, dataset_name)
+        field = Field.model_validate(field_data)
+
+        existing = self.store.query_one(
+            "SELECT 1 FROM semantic_fields WHERE dataset_id = ? AND name = ?",
+            [ds_row["dataset_id"], field.name],
+        )
+        if existing:
+            raise ConflictError(
+                ErrorCode.CONFLICT,
+                f"Field '{field.name}' already exists in dataset '{dataset_name}'",
+            )
+
+        max_position_row = self.store.query_one(
+            "SELECT COALESCE(MAX(position), -1) AS max_position FROM semantic_fields WHERE dataset_id = ?",
+            [ds_row["dataset_id"]],
+        )
+        max_position = max_position_row["max_position"] if max_position_row is not None else -1
+        field_storage = field_to_storage(field, ds_row["dataset_id"], max_position + 1)
+        self.store.execute(
+            """
+            INSERT INTO semantic_fields
+                (dataset_id, name, expression, is_time, is_dimension, label, description,
+                 ai_context, data_type, position)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                field_storage["dataset_id"],
+                field_storage["name"],
+                field_storage["expression"],
+                field_storage["is_time"],
+                field_storage["is_dimension"],
+                field_storage["label"],
+                field_storage["description"],
+                field_storage["ai_context"],
+                field_storage["data_type"],
+                field_storage["position"],
+            ],
+        )
+        return self.get_field(
+            model_name, dataset_name, field.name, requesting_user=model_row["owner_user"]
+        )
+
+    def update_field(
+        self,
+        model_name: str,
+        dataset_name: str,
+        field_name: str,
+        updates: dict[str, Any],
+        owner_user: str | None = None,
+    ) -> dict[str, Any]:
+        """Patch a field while preserving its name and position."""
+        model_row = self._require_private_model(model_name, owner_user=owner_user)
+        ds_row = self._require_dataset_row_for_model(model_row, model_name, dataset_name)
+        field_row = self.store.query_one(
+            "SELECT * FROM semantic_fields WHERE dataset_id = ? AND name = ?",
+            [ds_row["dataset_id"], field_name],
+        )
+        if field_row is None:
+            raise NotFoundError(
+                ErrorCode.NOT_FOUND_FIELD,
+                f"Field '{field_name}' not found in dataset '{dataset_name}'",
+            )
+
+        current = _storage_to_field(dict(field_row))
+        patched = {**current, **updates, "name": field_name}
+        field = Field.model_validate(patched)
+        field_storage = field_to_storage(field, ds_row["dataset_id"], field_row["position"])
+
+        self.store.execute(
+            """
+            UPDATE semantic_fields
+            SET expression = ?, is_time = ?, is_dimension = ?, label = ?, description = ?,
+                ai_context = ?, data_type = ?, updated_at = datetime('now')
+            WHERE field_id = ?
+            """,
+            [
+                field_storage["expression"],
+                field_storage["is_time"],
+                field_storage["is_dimension"],
+                field_storage["label"],
+                field_storage["description"],
+                field_storage["ai_context"],
+                field_storage["data_type"],
+                field_row["field_id"],
+            ],
+        )
+
+        return self.get_field(
+            model_name, dataset_name, field_name, requesting_user=model_row["owner_user"]
+        )
+
+    def delete_field(
+        self,
+        model_name: str,
+        dataset_name: str,
+        field_name: str,
+        owner_user: str | None = None,
+    ) -> None:
+        """Delete a field from a dataset."""
+        model_row = self._require_private_model(model_name, owner_user=owner_user)
+        ds_row = self._require_dataset_row_for_model(model_row, model_name, dataset_name)
+        field_row = self.store.query_one(
+            "SELECT field_id FROM semantic_fields WHERE dataset_id = ? AND name = ?",
+            [ds_row["dataset_id"], field_name],
+        )
+        if field_row is None:
+            raise NotFoundError(
+                ErrorCode.NOT_FOUND_FIELD,
+                f"Field '{field_name}' not found in dataset '{dataset_name}'",
+            )
+        self.store.execute(
+            "DELETE FROM semantic_fields WHERE field_id = ?",
+            [field_row["field_id"]],
+        )
+
+    # ------------------------------------------------------------------
     # Relationship CRUD
     # ------------------------------------------------------------------
 
@@ -1019,15 +1206,9 @@ class SemanticModelV2Service:
     # Import
     # ------------------------------------------------------------------
 
-    def import_osi_document(self, doc_data: dict[str, Any]) -> list[dict[str, Any]]:
-        """Import an OSI document with per-model upsert.
-
-        Each model in the document is independently imported:
-        - If an official model with the same name exists, UPDATE in place
-          (replace all child entities).
-        - If no model with that name exists, INSERT it.
-        - Models NOT in the document are left untouched.
-        """
+    def import_osi_document(self, doc_data: dict[str, Any]) -> dict[str, Any]:
+        """Import an OSI document into the current user's private working copies."""
+        owner_user = require_user()
         try:
             doc = OSIDocument.model_validate(doc_data)
         except PydanticValidationError as exc:
@@ -1037,13 +1218,40 @@ class SemanticModelV2Service:
                 detail={"errors": exc.errors()},
             ) from exc
 
-        results: list[dict[str, Any]] = []
-        for sm in doc.semantic_model:
-            # Convert to dict and force public visibility
-            model_dict = sm.model_dump(by_alias=True, exclude_none=True)
+        document = doc.model_dump(by_alias=True, exclude_none=True)
+        binder = (
+            DatasourceBinder(self.datasource_service)
+            if self.datasource_service is not None
+            else None
+        )
+        plan = SemanticMergePlanner(binder).preflight(document)
+        try:
+            doc = OSIDocument.model_validate(plan.document)
+        except PydanticValidationError as exc:
+            raise DomainValidationError(
+                code=ErrorCode.VALIDATION,
+                message=str(exc),
+                detail={"errors": exc.errors()},
+            ) from exc
 
-            # Enrich and validate
-            enriched = self._enrich_model_dict_with_marivo(model_dict)
+        normalized_document = doc.model_dump(by_alias=True, exclude_none=True)
+        execution_document = {**normalized_document, "semantic_model": []}
+        for model_dict in normalized_document["semantic_model"]:
+            existing_model = self._get_private_model_for_import(
+                model_dict["name"],
+                owner_user=owner_user,
+            )
+            validation_model = self._build_private_import_validation_model(
+                model_dict,
+                existing_model=existing_model,
+                owner_user=owner_user,
+            )
+            execution_model = self._build_private_import_execution_model(
+                model_dict,
+                existing_model=existing_model,
+            )
+            execution_document["semantic_model"].append(execution_model)
+            enriched = self._enrich_model_dict_with_marivo(validation_model)
             try:
                 validate_semantic_model(enriched)
             except SemanticValidationError as exc:
@@ -1053,197 +1261,116 @@ class SemanticModelV2Service:
                     detail={"errors": exc.errors},
                 ) from exc
 
-            # Parse with Pydantic
-            model = SemanticModel.model_validate(model_dict)
-            storage_data = model_to_storage(model, owner_user=None, visibility="public")
+        report = SemanticMergeExecutor(self.store).execute(
+            document=execution_document,
+            owner_user=owner_user,
+            bindings=plan.bindings,
+        )
+        return report.model_dump()
 
-            # Check if a public model with same name already exists (import always targets public)
-            existing_row = self.store.query_one(
-                "SELECT * FROM semantic_models WHERE name = ? AND visibility = 'public'",
-                [sm.name],
+    def export_osi_document(self, semantic_model_name: str | None = None) -> dict[str, Any]:
+        """Export the current user's private semantic working copies."""
+        owner_user = require_user()
+        document = OsiDocumentExporter(self.store).export(
+            owner_user=owner_user,
+            semantic_model_name=semantic_model_name,
+        )
+        try:
+            OSIDocument.model_validate(document)
+        except PydanticValidationError as exc:
+            raise DomainValidationError(
+                code=ErrorCode.VALIDATION,
+                message=str(exc),
+                detail={"errors": exc.errors()},
+            ) from exc
+        return document
+
+    def _build_private_import_validation_model(
+        self,
+        model_dict: dict[str, Any],
+        *,
+        existing_model: dict[str, Any] | None,
+        owner_user: str,
+    ) -> dict[str, Any]:
+        if existing_model is None:
+            merged = dict(model_dict)
+        else:
+            merged = self._merge_model_dict(existing_model, model_dict)
+        merged["visibility"] = "private"
+        merged["owner_user"] = owner_user
+        return merged
+
+    def _get_private_model_for_import(
+        self,
+        model_name: str,
+        *,
+        owner_user: str,
+    ) -> dict[str, Any] | None:
+        existing = self.store.query_one(
+            "SELECT * FROM semantic_models WHERE name = ? AND visibility = 'private' AND owner_user = ?",
+            [model_name, owner_user],
+        )
+        return None if existing is None else self._assemble_model(existing)
+
+    @staticmethod
+    def _build_private_import_execution_model(
+        model_dict: dict[str, Any],
+        *,
+        existing_model: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        if existing_model is None:
+            return dict(model_dict)
+
+        patched = dict(model_dict)
+        for key in ("description", "ai_context"):
+            if key not in patched and key in existing_model:
+                patched[key] = existing_model[key]
+
+        existing_datasets = {
+            dataset["name"]: dataset for dataset in existing_model.get("datasets") or []
+        }
+        patched_datasets = []
+        for dataset in model_dict.get("datasets") or []:
+            existing_dataset = existing_datasets.get(dataset["name"])
+            if existing_dataset is None:
+                patched_datasets.append(dict(dataset))
+                continue
+            patched_dataset = dict(dataset)
+            for key in (
+                "primary_key",
+                "unique_keys",
+                "description",
+                "ai_context",
+                "custom_extensions",
+            ):
+                if key not in patched_dataset and key in existing_dataset:
+                    patched_dataset[key] = existing_dataset[key]
+            patched_datasets.append(patched_dataset)
+        patched["datasets"] = patched_datasets
+        return patched
+
+    @staticmethod
+    def _merge_model_dict(base: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
+        merged = dict(base)
+        for key, value in incoming.items():
+            if key not in {"datasets", "metrics", "relationships"}:
+                merged[key] = value
+        merged["datasets"] = _merge_named_children(
+            base.get("datasets") or [],
+            incoming.get("datasets") or [],
+            nested_key="fields",
+        )
+        if "metrics" in incoming or base.get("metrics"):
+            merged["metrics"] = _merge_named_children(
+                base.get("metrics") or [],
+                incoming.get("metrics") or [],
             )
-
-            if existing_row is not None and existing_row["visibility"] == "public":
-                # Update existing official model — replace children
-                model_id = existing_row["model_id"]
-
-                # Delete children (will re-insert below)
-                self.store.execute("DELETE FROM semantic_metrics WHERE model_id = ?", [model_id])
-                self.store.execute(
-                    "DELETE FROM semantic_relationships WHERE model_id = ?", [model_id]
-                )
-                self.store.execute(
-                    "DELETE FROM semantic_fields WHERE dataset_id IN (SELECT dataset_id FROM semantic_datasets WHERE model_id = ?)",
-                    [model_id],
-                )
-                self.store.execute("DELETE FROM semantic_datasets WHERE model_id = ?", [model_id])
-
-                # Update model row
-                self.store.execute(
-                    """
-                    UPDATE semantic_models
-                    SET description = ?, ai_context = ?, updated_at = datetime('now')
-                    WHERE model_id = ?
-                    """,
-                    [
-                        storage_data["description"],
-                        storage_data["ai_context"],
-                        model_id,
-                    ],
-                )
-            elif existing_row is not None and existing_row["visibility"] == "private":
-                # Private model with same name exists — insert official model alongside it
-                self.store.execute(
-                    """
-                    INSERT INTO semantic_models
-                        (name, description, ai_context, visibility, owner_user)
-                    VALUES (?, ?, ?, ?, ?)
-                    """,
-                    [
-                        storage_data["name"],
-                        storage_data["description"],
-                        storage_data["ai_context"],
-                        "public",
-                        None,
-                    ],
-                )
-                official_row = self.store.query_one(
-                    "SELECT model_id FROM semantic_models WHERE name = ? AND visibility = 'public'",
-                    [sm.name],
-                )
-                assert official_row is not None
-                model_id = official_row["model_id"]
-            else:
-                # New model
-                self.store.execute(
-                    """
-                    INSERT INTO semantic_models
-                        (name, description, ai_context, visibility, owner_user)
-                    VALUES (?, ?, ?, ?, ?)
-                    """,
-                    [
-                        storage_data["name"],
-                        storage_data["description"],
-                        storage_data["ai_context"],
-                        "public",
-                        None,
-                    ],
-                )
-                new_row = self.store.query_one(
-                    "SELECT model_id FROM semantic_models WHERE name = ? AND visibility = 'public'",
-                    [sm.name],
-                )
-                assert new_row is not None
-                model_id = new_row["model_id"]
-
-            # Insert datasets + fields
-            for ds in model.datasets:
-                ds_storage = dataset_to_storage(ds, model_id)
-                self.store.execute(
-                    """
-                    INSERT INTO semantic_datasets
-                        (model_id, name, source, primary_key, unique_keys, description,
-                         ai_context, datasource_id)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    [
-                        ds_storage["model_id"],
-                        ds_storage["name"],
-                        ds_storage["source"],
-                        ds_storage["primary_key"],
-                        ds_storage["unique_keys"],
-                        ds_storage["description"],
-                        ds_storage["ai_context"],
-                        ds_storage["datasource_id"],
-                    ],
-                )
-                ds_row = self.store.query_one(
-                    "SELECT dataset_id FROM semantic_datasets WHERE model_id = ? AND name = ?",
-                    [model_id, ds.name],
-                )
-                assert ds_row is not None
-                dataset_id = ds_row["dataset_id"]
-                for pos, field in enumerate(ds.fields or []):
-                    f_storage = field_to_storage(field, dataset_id, pos)
-                    self.store.execute(
-                        """
-                        INSERT INTO semantic_fields
-                            (dataset_id, name, expression, is_time, label, description,
-                             ai_context, data_type, position)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        [
-                            f_storage["dataset_id"],
-                            f_storage["name"],
-                            f_storage["expression"],
-                            f_storage["is_time"],
-                            f_storage["label"],
-                            f_storage["description"],
-                            f_storage["ai_context"],
-                            f_storage["data_type"],
-                            f_storage["position"],
-                        ],
-                    )
-
-            for rel in model.relationships or []:
-                rel_storage = relationship_to_storage(rel, model_id)
-                self.store.execute(
-                    """
-                    INSERT INTO semantic_relationships
-                        (model_id, name, from_dataset, to_dataset, from_columns,
-                         to_columns, ai_context, cardinality)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    [
-                        rel_storage["model_id"],
-                        rel_storage["name"],
-                        rel_storage["from_dataset"],
-                        rel_storage["to_dataset"],
-                        rel_storage["from_columns"],
-                        rel_storage["to_columns"],
-                        rel_storage["ai_context"],
-                        rel_storage["cardinality"],
-                    ],
-                )
-
-            for metric in model.metrics or []:
-                metric_storage = metric_to_storage(metric, model_id)
-                self.store.execute(
-                    """
-                    INSERT INTO semantic_metrics
-                        (model_id, name, expression, description, ai_context,
-                         additive_dimensions)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                    """,
-                    [
-                        metric_storage["model_id"],
-                        metric_storage["name"],
-                        metric_storage["expression"],
-                        metric_storage["description"],
-                        metric_storage["ai_context"],
-                        metric_storage["additive_dimensions"],
-                    ],
-                )
-
-            # Upsert readiness status
-            existing_readiness = self.store.query_one(
-                "SELECT 1 FROM semantic_readiness_status WHERE model_id = ?", [model_id]
+        if "relationships" in incoming or base.get("relationships"):
+            merged["relationships"] = _merge_named_children(
+                base.get("relationships") or [],
+                incoming.get("relationships") or [],
             )
-            if not existing_readiness:
-                self.store.execute(
-                    "INSERT INTO semantic_readiness_status (model_id, status, blockers) VALUES (?, 'not_ready', '[]')",
-                    [model_id],
-                )
-
-            # Re-fetch the official model row (may coexist with private same-name model)
-            model_row = self.store.query_one(
-                "SELECT * FROM semantic_models WHERE name = ? AND visibility = 'public'",
-                [sm.name],
-            )
-            assert model_row is not None
-            results.append(self._assemble_model(model_row))
-
-        return results
+        return merged
 
     # ------------------------------------------------------------------
     # Readiness
@@ -1345,3 +1472,27 @@ class SemanticModelV2Service:
                 }
             ]
         return []
+
+
+def _merge_named_children(
+    base: list[dict[str, Any]],
+    incoming: list[dict[str, Any]],
+    *,
+    nested_key: str | None = None,
+) -> list[dict[str, Any]]:
+    by_name = {str(item["name"]): dict(item) for item in base}
+    order = [str(item["name"]) for item in base]
+    for item in incoming:
+        name = str(item["name"])
+        if name not in by_name:
+            order.append(name)
+            by_name[name] = dict(item)
+            continue
+        merged = {**by_name[name], **dict(item)}
+        if nested_key is not None:
+            merged[nested_key] = _merge_named_children(
+                by_name[name].get(nested_key) or [],
+                item.get(nested_key) or [],
+            )
+        by_name[name] = merged
+    return [by_name[name] for name in order]

@@ -9,7 +9,7 @@ from importlib import import_module
 from typing import Any
 
 from marivo.adapters.dialect import MYSQL_METADATA_DIALECT, MetadataDialect
-from marivo.adapters.metadata import MetadataStore
+from marivo.adapters.metadata import MetadataStore, MetadataTransaction
 from marivo.adapters.schema import (
     evaluate_metadata_schema_state,
     metadata_ddl_for_backend,
@@ -123,6 +123,31 @@ class MySQLMetadataStore(MetadataStore):
     def query_one(self, sql: str, params: list[Any] | None = None) -> dict[str, Any] | None:
         rows = self.query_rows(sql, params)
         return rows[0] if rows else None
+
+    @contextmanager
+    def transaction(self) -> Iterator[MetadataTransaction]:
+        con = self._acquire_connection()
+        reusable = self._rollback_quietly(con)
+        try:
+            if not reusable:
+                raise RuntimeError("Failed to reset MySQL metadata transaction")
+            yield MetadataTransaction(self, con)
+        except Exception:
+            if reusable:
+                reusable = self._rollback_quietly(con)
+            raise
+        else:
+            try:
+                con.commit()
+            except Exception:
+                reusable = self._rollback_quietly(con)
+                raise
+        finally:
+            if reusable:
+                self._release_connection(con)
+            else:
+                with self._pool_lock:
+                    self._created_connections -= 1
 
     def execute_sql(self, con: Any, sql: str, params: list[Any] | None = None) -> Any:
         cursor = con.cursor()
