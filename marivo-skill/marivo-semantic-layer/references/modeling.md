@@ -154,7 +154,8 @@ If any answer is still provisional, keep the document in draft form and do not i
 
 Use this as an orientation skeleton only. Before filling any object, read
 `references/osi-marivo.schema.json`; required fields, allowed enum values, `additionalProperties`,
-and MARIVO extension data shapes are defined by the schema, not by this example.
+and MARIVO extension data shapes are defined by the schema, not by this example. Keep this example
+schema-valid so it can be copied into a file and validated before editing.
 
 ```json
 {
@@ -171,13 +172,18 @@ and MARIVO extension data shapes are defined by the schema, not by this example.
             {
               "name": "id",
               "expression": {
-                "dialects": []
+                "dialects": [
+                  { "dialect": "ANSI_SQL", "expression": "id" }
+                ]
               },
               "dimension": {}
             }
           ],
           "custom_extensions": [
-            { "vendor_name": "MARIVO", "data": {} }
+            {
+              "vendor_name": "MARIVO",
+              "data": { "datasource_id": "datasource_id" }
+            }
           ]
         }
       ],
@@ -188,19 +194,22 @@ and MARIVO extension data shapes are defined by the schema, not by this example.
           "to": "other_dataset_name",
           "from_columns": ["field_name"],
           "to_columns": ["field_name"],
-          "custom_extensions": [
-            { "vendor_name": "MARIVO", "data": {} }
-          ]
+          "custom_extensions": []
         }
       ],
       "metrics": [
         {
           "name": "metric_name",
           "expression": {
-            "dialects": []
+            "dialects": [
+              { "dialect": "ANSI_SQL", "expression": "COUNT(*)" }
+            ]
           },
           "custom_extensions": [
-            { "vendor_name": "MARIVO", "data": {} }
+            {
+              "vendor_name": "MARIVO",
+              "data": { "additive_dimensions": ["id"] }
+            }
           ]
         }
       ]
