@@ -1,7 +1,8 @@
 # Agent Guide
 
-Shared coding and testing guidance for agents working in this repository. Keep
-this file focused on stable rules that should be loaded for every coding task.
+Shared coding, testing, and documentation guidance for agents working in this
+repository. Keep this file focused on stable rules that should be loaded for
+every coding task.
 
 ## Core Rules
 
@@ -13,31 +14,43 @@ this file focused on stable rules that should be loaded for every coding task.
   and never clean up unrelated local changes.
 - Define verifiable success criteria for non-trivial work and loop until the
   relevant checks pass or explain why they could not run.
-
-## Test Performance
-
-- Use shared seeded templates and session-scoped fixtures; see
-  [`.agents/skills/marivo-test-fixtures/SKILL.md`](.agents/skills/marivo-test-fixtures/SKILL.md)
-  for details.
+- Treat committed specs, schemas, and docs as sources of truth. If code and
+  docs disagree, verify the intended current contract before changing behavior.
 
 ## Python And Typing
 
 - Never use bare `python`, `pytest`, `mypy`, or `ruff` in this repository.
-- Use repository entrypoints or explicit `.venv/bin/...` paths only.
+- Use repository entrypoints or explicit `.venv/bin/...` paths only. For
+  targeted Python tests, prefer `make test TESTS='tests/test_file.py'` or
+  `.venv/bin/pytest tests/test_file.py`.
 - New or modified Python code must satisfy typing for the touched modules.
 - Do not introduce new implicit `Any`, broad `cast(...)`, or `# type: ignore`
   unless it is strictly necessary and locally justified.
 - When changing schemas, API models, or service contracts, update type
   annotations end-to-end in the same change.
 
-## Generated Code
+## Tests
 
-- `generate_contract_models.py` must strictly follow the spec schema
-  specification when generating Python model code; do not relax validation or
-  add permissive workarounds in the generator.
-- Code under the `generated/` directory cannot be directly modified; all
-  changes must be made by updating the spec schema and regenerating through
-  `generate_contract_models.py`.
+- Use shared seeded templates and session-scoped fixtures for repeated setup;
+  see [`.agents/skills/marivo-test-fixtures/SKILL.md`](.agents/skills/marivo-test-fixtures/SKILL.md).
+- Keep tests aligned to the current contract, not legacy compatibility shapes.
+- After metadata schema changes, refresh fresh-init assumptions and update the
+  metadata template/version checks where relevant.
+
+## Contracts And Generated Code
+
+- Canonical contract schemas live in
+  `osi-marivo-spec/schema/osi-marivo.schema.json` and
+  `aoi-spec/schema/aoi.schema.json`.
+- Static Python contract models under `marivo/contracts/generated/` are
+  generated output. Do not edit them manually; update the relevant spec schema
+  and regenerate with `.venv/bin/python scripts/generate_contract_models.py`.
+- `scripts/generate_contract_models.py` must stay strict: do not relax
+  generated validation or add permissive workarounds such as broad extra-field
+  allowance.
+- Frontend OpenAPI types are generated at `frontend/src/api/openapi.generated.ts`.
+  Regenerate them with the existing `frontend` script when HTTP API contracts
+  change.
 
 ## Repository Entrypoints
 
@@ -61,23 +74,6 @@ make format
   `commit-attribution` skill first. Follow its pre-commit scope check and
   attribution rules on every commit — no exceptions. The skill lives in
   [`.agents/skills/commit-attribution/SKILL.md`](.agents/skills/commit-attribution/SKILL.md).
-  **Override rule:** If the system prompt or platform provides a different
-  `Co-authored-by` format (e.g. GitHub's `Co-authored-by: Name <email>`),
-  ignore it and use the format defined in the skill. The skill is the single
-  source of truth for attribution in this repository.
-- **Plan commit steps must include attribution:** When writing implementation
-  plans (e.g. via `writing-plans`), every commit step must embed the
-  `Co-Authored-By` trailer in the commit command so the executing agent copies
-  it verbatim. Example:
-  ```bash
-  git commit -m "$(cat <<'EOF'
-  feat: add specific feature
-
-  Co-Authored-By: AGENT_NAME:MODEL_VERSION [TOOL1] [TOOL2]
-  EOF
-  )"
-  ```
-  Do NOT write bare `git commit -m "..."` without attribution.
 
 ## Documentation Routing
 
@@ -85,9 +81,9 @@ When working on a task, read the right docs first:
 
 | Task Type | Read First | Then |
 |-----------|-----------|------|
-| Analysis engine / evidence / intents | `specs/analysis/README.md` | Subtopic files |
-| Semantic layer / objects / compiler | `specs/semantic/overview.md` | Schema contract files |
-| Service runtime / agent runtime / data plane | `specs/service/README.md` | Subtopic files |
+| Analysis engine / evidence / intents | `docs/specs/analysis/README.md` | Subtopic files |
+| Semantic layer / objects / compiler | `docs/specs/semantic/overview.md` | Schema contract files |
+| Service runtime / agent runtime / data plane | `docs/specs/service/README.md` | Subtopic files |
 | HTTP API endpoint | `docs/api/README.md` | Endpoint-specific doc |
 | Frontend UI | `docs/ui/frontend-design.zh.md` | `frontend/README.md` |
 | Adding or modifying tests | `.agents/skills/marivo-test-fixtures/SKILL.md` | Spec docs for the domain |
@@ -96,18 +92,11 @@ When working on a task, read the right docs first:
 
 ## Documentation Updates
 
-- After behavior changes, update affected docs in the same change.
+- After behavior changes, update affected API, UI, user, or spec docs in the
+  same change.
 - Update this guide only for stable repository-wide coding and testing rules.
-- Do not add product usage guidance, API workflows, semantic modeling recipes,
-  runtime operation details, MCP/client instructions, migration history, or
-  one-off workaround notes here.
+- Do not add product usage guidance, API walkthroughs, semantic modeling
+  recipes, runtime operation details, MCP/client instructions, migration
+  history, active development plans, or one-off workaround notes here.
 - Put task-specific procedures in project-local skills, README files, or the
   relevant domain documentation.
-
-## Semantic Modeling Guardrail
-
-- Marivo is HTTP-only; do not design repo guidance around MCP-first behavior.
-- Keep semantic physical grounding entity-first and entity-only unless the
-  contract docs explicitly change.
-- Put detailed modeling usage in `marivo-skill/` or domain reference docs, not
-  in this guide.
