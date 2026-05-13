@@ -6,6 +6,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 from mcp.server.fastmcp import FastMCP
 
 
@@ -16,6 +17,12 @@ class _FakeSvc:
         return {}
 
     def list_semantic_models(self, **kw):
+        return {}
+
+    def import_osi_document(self, **kw):
+        return {}
+
+    def export_osi_document(self, **kw):
         return {}
 
     def get_semantic_model(self, **kw):
@@ -43,6 +50,21 @@ class _FakeSvc:
         return {}
 
     def delete_dataset(self, **kw):
+        return {}
+
+    def create_field(self, **kw):
+        return {}
+
+    def list_fields(self, **kw):
+        return {}
+
+    def get_field(self, **kw):
+        return {}
+
+    def update_field(self, **kw):
+        return {}
+
+    def delete_field(self, **kw):
         return {}
 
     def create_relationship(self, **kw):
@@ -171,6 +193,32 @@ def test_marivo_mcp_entry_point_callable():
     assert callable(handle)
 
 
+def test_stdio_mcp_requires_marivo_user(monkeypatch: pytest.MonkeyPatch) -> None:
+    from marivo.transports.cli.cmd_mcp import _require_stdio_user
+
+    monkeypatch.delenv("MARIVO_USER", raising=False)
+
+    with pytest.raises(RuntimeError, match="MARIVO_USER"):
+        _require_stdio_user()
+
+
+def test_stdio_mcp_rejects_blank_marivo_user(monkeypatch: pytest.MonkeyPatch) -> None:
+    from marivo.transports.cli.cmd_mcp import _require_stdio_user
+
+    monkeypatch.setenv("MARIVO_USER", "   ")
+
+    with pytest.raises(RuntimeError, match="MARIVO_USER"):
+        _require_stdio_user()
+
+
+def test_stdio_mcp_uses_explicit_marivo_user(monkeypatch: pytest.MonkeyPatch) -> None:
+    from marivo.transports.cli.cmd_mcp import _require_stdio_user
+
+    monkeypatch.setenv("MARIVO_USER", "  alice  ")
+
+    assert _require_stdio_user() == "alice"
+
+
 def test_stdio_server_registers_tools():
     """A stdio-configured FastMCP server registers tools without catalog/OpenAPI group."""
     from marivo.transports.mcp.tools import register_tools
@@ -215,6 +263,8 @@ def test_stdio_server_registers_tools():
         # Semantic tools
         "create_semantic_model",
         "list_semantic_models",
+        "import_osi_document",
+        "export_osi_document",
         "get_semantic_model",
         "update_semantic_model",
         "delete_semantic_model",
@@ -224,6 +274,11 @@ def test_stdio_server_registers_tools():
         "get_dataset",
         "update_dataset",
         "delete_dataset",
+        "create_field",
+        "list_fields",
+        "get_field",
+        "update_field",
+        "delete_field",
         "create_relationship",
         "list_relationships",
         "get_relationship",

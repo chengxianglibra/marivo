@@ -10,13 +10,18 @@ from typing import Annotated, Any, Literal, TypeAlias
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
 
+from marivo.contracts.generated import OSIDocument
 from marivo.contracts.generated.osi import (
     AIContext1,
     Dataset,
+    Dimension,
     Expression,
     Metric,
     Relationship,
     SemanticModel,
+)
+from marivo.contracts.generated.osi import (
+    FieldModel as OsiField,
 )
 
 
@@ -165,6 +170,18 @@ class McpRelationshipUpdatePayload(BaseModel):
     ai_context: str | AIContext1 | None = Field(None, description="Additional context for AI tools")
 
 
+class McpFieldUpdatePayload(BaseModel):
+    """Payload for update_field MCP tool."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    expression: Expression | None = Field(None, description="Multi-dialect field expression")
+    dimension: Dimension | None = Field(None, description="Dimension metadata")
+    label: str | None = Field(None, description="Label for categorization")
+    description: str | None = Field(None, description="Human-readable description")
+    ai_context: str | AIContext1 | None = Field(None, description="Additional context for AI tools")
+
+
 # ---------------------------------------------------------------------------
 # JSON string coercer for create payload parameters
 # ---------------------------------------------------------------------------
@@ -195,6 +212,8 @@ def _coerce_json_string_to_dict(v: Any) -> Any:
 
 
 McpSemanticModelPayload = Annotated[SemanticModel, BeforeValidator(_coerce_json_string_to_dict)]
+McpOsiDocumentPayload = Annotated[OSIDocument, BeforeValidator(_coerce_json_string_to_dict)]
 McpDatasetPayload = Annotated[Dataset, BeforeValidator(_coerce_json_string_to_dict)]
+McpFieldPayload = Annotated[OsiField, BeforeValidator(_coerce_json_string_to_dict)]
 McpMetricPayload = Annotated[Metric, BeforeValidator(_coerce_json_string_to_dict)]
 McpRelationshipPayload = Annotated[Relationship, BeforeValidator(_coerce_json_string_to_dict)]
