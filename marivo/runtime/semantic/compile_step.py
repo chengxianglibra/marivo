@@ -86,7 +86,6 @@ class DerivedMetricCapabilities:
     supports_test: bool = False
     supports_detect: bool = False
     supports_validate: bool = False
-    time_rollup_allowed: bool = False
     additive_dimensions: list[str] = field(default_factory=list)
 
 
@@ -642,8 +641,6 @@ def _stable_plan_id(step: AnalysisStepIR, normalized_request: NormalizedCompiler
 
 def _metric_snapshot(
     metric: ResolvedSemanticObject,
-    *,
-    request_time_field: str | None = None,
 ) -> MetricRefSnapshot:
     header = dict(metric.semantic_object.get("header") or {})
     snapshot: MetricRefSnapshot = {
@@ -651,12 +648,7 @@ def _metric_snapshot(
         "resolved_metric_revision": metric.revision,
         "resolved_metric_object_id": metric.object_id,
     }
-    primary_time_ref = _optional_str(header.get("primary_time_ref"))
-    if primary_time_ref is None:
-        primary_time_ref = request_time_field
     observation_grain_ref = _optional_str(header.get("observation_grain_ref"))
-    if primary_time_ref is not None:
-        snapshot["resolved_primary_time_ref"] = primary_time_ref
     if observation_grain_ref is not None:
         snapshot["resolved_observation_grain_ref"] = observation_grain_ref
     return snapshot
@@ -738,12 +730,8 @@ def _build_ir_inputs(
             for relationship in resolved_inputs.resolved_relationships.values()
         ]
     if resolved_inputs.resolved_metric is not None:
-        _options = normalized_request.request_options or {}
-        _time_axis = _options.get("resolved_time_axis") or {}
-        _request_time_field = _optional_str(_time_axis.get("override_analysis_time_column"))
         input_snapshot["resolved_metric"] = _metric_snapshot(
             resolved_inputs.resolved_metric,
-            request_time_field=_request_time_field,
         )
     resolved_processes = [
         process

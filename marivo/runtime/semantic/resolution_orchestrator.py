@@ -411,14 +411,9 @@ def _resolved_filter_time_ref(
     resolved: ResolvedCompilerInputs,
 ) -> str | None:
     # NOTE: time_scope compatibility validation is deferred to S5-02 (Gate 3).
-    # For now we extract the time ref without validating time_scope compatibility.
+    # The time axis is determined at request level via time_scope.field,
+    # so we only check for process anchor time ref here.
     _ = normalized_request
-    if resolved.resolved_metric is not None:
-        header = resolved.resolved_metric.semantic_object.get("header") or {}
-        primary_time_ref = header.get("primary_time_ref")
-        if primary_time_ref is not None:
-            return str(primary_time_ref)
-
     if resolved.resolved_process is not None:
         anchor_time_ref = resolved.resolved_process.semantic_object.get("anchor_time_ref")
         if anchor_time_ref is not None:

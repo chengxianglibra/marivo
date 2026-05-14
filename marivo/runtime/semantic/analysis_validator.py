@@ -497,11 +497,6 @@ def _gate_dimension_compatibility(resolved_inputs: ResolvedCompilerInputs) -> li
         time_requirement = dict(interface_contract.get("time_derived_requirement") or {})
         required_time_anchor_ref = _optional_str(time_requirement.get("required_time_anchor_ref"))
         if required_time_anchor_ref is not None:
-            metric_header = (
-                dict(resolved_inputs.resolved_metric.semantic_object.get("header") or {})
-                if resolved_inputs.resolved_metric is not None
-                else {}
-            )
             process_contract = (
                 dict(
                     resolved_inputs.resolved_process.semantic_object.get("interface_contract") or {}
@@ -510,7 +505,6 @@ def _gate_dimension_compatibility(resolved_inputs: ResolvedCompilerInputs) -> li
                 else {}
             )
             available_anchor_refs = {
-                _optional_str(metric_header.get("primary_time_ref")),
                 _optional_str(process_contract.get("anchor_time_ref")),
                 resolved_inputs.resolved_filter_time.ref
                 if resolved_inputs.resolved_filter_time

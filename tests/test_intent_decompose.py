@@ -250,6 +250,7 @@ class DecomposeHourWindowTests(unittest.TestCase):
 
 def _make_compare_artifact(
     additive_dimensions: list[str] | None = None,
+    time_scope_field: str = "time.date",
 ) -> dict:
     """Build a minimal scalar_delta compare artifact for decompose gate testing."""
     am: dict = {}
@@ -269,8 +270,18 @@ def _make_compare_artifact(
             "right_source_ref": {"step_id": "step_obs_right", "session_id": "session_1"},
         },
         "resolved_input_summary": {
-            "left_time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
-            "right_time_scope": {"kind": "range", "start": "2023-12-25", "end": "2024-01-01"},
+            "left_time_scope": {
+                "field": time_scope_field,
+                "kind": "range",
+                "start": "2024-01-01",
+                "end": "2024-01-08",
+            },
+            "right_time_scope": {
+                "field": time_scope_field,
+                "kind": "range",
+                "start": "2023-12-25",
+                "end": "2024-01-01",
+            },
         },
         "analytical_metadata": am,
     }
@@ -307,13 +318,11 @@ def _make_time_series_compare_artifact(
 
 def _make_mock_metric(
     additive_dimensions: list[str] | None = None,
-    primary_time_ref: str = "time.date",
     sample_kind: str = "numeric",
     dimensions: list[str] | None = None,
 ) -> MagicMock:
     mock = MagicMock()
     mock.additive_dimensions = additive_dimensions
-    mock.primary_time_ref = primary_time_ref
     mock.sample_kind = sample_kind
     dims = dimensions or ["dimension.country"]
     mock.allowed_dimensions = dims
@@ -321,7 +330,6 @@ def _make_mock_metric(
     mock.grain = "day"
     # Semantic object header carries additive_dimensions for the runtime path
     header: dict = {
-        "primary_time_ref": primary_time_ref,
         "sample_kind": sample_kind,
     }
     if additive_dimensions is not None:
@@ -332,15 +340,16 @@ def _make_mock_metric(
 
 def _build_decompose_success_runtime(
     additive_dimensions: list[str] | None,
-    primary_time_ref: str = "time.date",
     sample_kind: str = "numeric",
     dimensions: list[str] | None = None,
+    time_scope_field: str = "time.date",
 ) -> MagicMock:
     """Build mock runtime that allows decompose to succeed through the execution path."""
-    compare_artifact = _make_compare_artifact(additive_dimensions=additive_dimensions)
+    compare_artifact = _make_compare_artifact(
+        additive_dimensions=additive_dimensions, time_scope_field=time_scope_field
+    )
     mock_metric = _make_mock_metric(
         additive_dimensions=additive_dimensions,
-        primary_time_ref=primary_time_ref,
         sample_kind=sample_kind,
         dimensions=dimensions,
     )
@@ -696,7 +705,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
 
     # ── time_rollup_allowed metadata tests ───────────────────────────────────
 
-    def test_time_rollup_allowed_true_when_time_ref_in_additive_dimensions(self) -> None:
+    def test_time_rollup_allowed_true_when_time_field_in_additive_dimensions(self) -> None:
         runtime = _build_decompose_success_runtime(
             additive_dimensions=["dimension.country", "time.date"],
             dimensions=["dimension.country"],
