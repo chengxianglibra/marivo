@@ -35,7 +35,7 @@ v1 明确约束：
 - `left` 与 `right` 都必须由调用方显式提供，不自动推导基线（baseline）
 - 只支持差异假设族（`difference` hypothesis family）
 - 内部只创建两个推断就绪（inferential-ready）`observe` 和一个 `test`
-- `sample_kind = “auto”` 从 metric 的 `MarivoMetricExtension.sample_kind` 解析；若 metric 未声明 `sample_kind` 或值不唯一，仍触发 `SAMPLE_KIND_AMBIGUOUS`
+- `sample_kind` 从 metric 的 `MarivoMetricExtension.sample_kind` 自动解析；若 metric 声明的值不是 `numeric` 或 `rate`，仍触发 `SAMPLE_KIND_UNSUPPORTED`
 - 不输出因果结论、业务建议或自由文本解释作为证据主体
 
 ## 请求形状（Request Shape）
@@ -72,7 +72,6 @@ v1 明确约束：
       }
     }
   },
-  "sample_kind": "auto",
   "hypothesis": {
     "family": "difference",
     "alternative": "greater",
@@ -91,7 +90,6 @@ type ValidateRequest = {
   metric: string;
   left: ValidateObservationInput;
   right: ValidateObservationInput;
-  sample_kind?: "auto" | "numeric" | "rate" | null;
   hypothesis?: ValidateHypothesis | null;
   method?: "auto" | "welch_t" | "two_proportion_z" | null;
 };
@@ -146,7 +144,7 @@ v1 支持的输入形态如下：
 
 - `metric` 必须解析到已发布的 semantic metric
 - `left` 与 `right` 都必须能确定性展开为 `observe(..., granularity = null, dimensions = null)` 的 inferential-ready scalar observation
-- `sample_kind` 省略时默认为 `auto`
+- `sample_kind` 从 metric 的 `MarivoMetricExtension.sample_kind` 自动解析
 - `hypothesis.family` 省略时默认为 `difference`
 - `hypothesis.alternative` 省略时默认为 `two_sided`
 - `hypothesis.alpha` 省略时默认为 `0.05`
@@ -204,21 +202,14 @@ v1 支持的输入形态如下：
 
 ### sample_kind
 
-控制内部 `observe` 应准备哪一类 inferential summary。
+从 metric 的 `MarivoMetricExtension.sample_kind` 自动解析，决定内部 `observe` 应准备哪一类 inferential summary。
 
-v1 支持：
-
-- `auto`
-- `numeric`
-- `rate`
-
-确定性推导规则：
+v1 支持 metric 声明的值：
 
 - `numeric` -> 两个内部 `observe.result_mode = "numeric_sample_summary"`
 - `rate` -> 两个内部 `observe.result_mode = "rate_sample_summary"`
-- `auto` -> 必须能由 metric capability 唯一确定一种 inferential summary mode
 
-若 `auto` 下同时存在多个合法 inferential-ready mode，则必须直接失败，而不是静默猜测。
+若 metric 声明的 `sample_kind` 不是 `numeric` 或 `rate`（如 `binary`、`survival`），则触发 `SAMPLE_KIND_UNSUPPORTED` 错误。
 
 ### hypothesis
 
@@ -255,7 +246,7 @@ v1 每次请求只支持一种方法：
 
 固定展开如下：
 
-1. 根据 `sample_kind` 确定内部 inferential summary mode
+1. 从 metric 的 `MarivoMetricExtension.sample_kind` 解析 inferential summary mode
 2. `observe(metric, left.time_scope, left.scope, result_mode = inferred_mode, granularity = null, dimensions = null)`
 3. `observe(metric, right.time_scope, right.scope, result_mode = inferred_mode, granularity = null, dimensions = null)`
 4. `test(left_ref, right_ref, hypothesis, method)`
@@ -278,7 +269,7 @@ v1 每次请求只支持一种方法：
 - `metric` 不存在
 - `left` 或 `right` 缺少合法 `time_scope`
 - `left.scope` 或 `right.scope` 含非法字段或非法时间条件
-- `sample_kind` 不是合法枚举
+- metric 的 `sample_kind` 不是 `numeric` 或 `rate`
 - `hypothesis.family` 不是 `difference`
 - `hypothesis.alpha != null && (hypothesis.alpha <= 0 || hypothesis.alpha >= 1)`
 - `method` 不是合法枚举
@@ -288,7 +279,7 @@ v1 每次请求只支持一种方法：
 以下情况应直接失败，而不是退化为 planner 行为：
 
 - metric 不支持所请求的 inferential-ready observation mode
-- `sample_kind = "auto"` 时无法唯一确定 inferential summary mode
+- metric 的 `sample_kind` 不是 `numeric` 或 `rate`
 - `left` 或 `right` 无法被确定性归一化为 inferential-ready scalar observe 请求
 - 内部需要额外推导 baseline、候选样本或其他未在契约中声明的执行分支
 
@@ -303,7 +294,7 @@ v1 每次请求只支持一种方法：
 - 内部 `test` 所请求的方法与 observation type 兼容
 - 两边输入满足 `test` 的 comparability、completeness 与 summary-statistics 校验
 
-若检验只达到 `needs_attention`，可带 issue 成功返回，但不得静默替换 metric、scope、sample_kind 或 method。
+若检验只达到 `needs_attention`，可带 issue 成功返回，但不得静默替换 metric、scope 或 method。
 
 ## Response Shape
 
@@ -381,7 +372,7 @@ type ValidateIssue = {
     | "metric_mismatch"
     | "test_needs_attention"
     | "test_invalid"
-    | "sample_kind_ambiguous";
+    | "sample_kind_unsupported";
   severity: "error" | "warning";
   message: string;
 };
@@ -444,12 +435,12 @@ type ValidateInferenceResult = {
 - `metric = "conversion_rate"`
 - `left.scope.predicate = experiment_group = treatment`
 - `right.scope.predicate = experiment_group = control`
-- `sample_kind = auto`
 - `hypothesis.alternative = greater`
 
 含义：
 
-- 让系统准备 treatment 与 control 的 rate sample summary
+- 系统从 metric 的 `sample_kind = "rate"` 解析 inferential summary mode
+- 准备 treatment 与 control 的 rate sample summary
 - 再评估 treatment 转化率是否显著高于 control
 
 ### 例 2：验证改版前后客单价均值是否不同
@@ -459,26 +450,26 @@ type ValidateInferenceResult = {
 - `metric = "avg_order_value"`
 - `left.time_scope = 改版后窗口`
 - `right.time_scope = 改版前窗口`
-- `sample_kind = numeric`
 - `hypothesis.alternative = two_sided`
 - `method = welch_t`
 
 含义：
 
+- 系统从 metric 的 `sample_kind = "numeric"` 解析 inferential summary mode
 - 先准备两个窗口下的 numeric sample summary
 - 再检验两侧均值差异是否显著
 
-### 例 3：`sample_kind = auto` 的歧义失败
+### 例 3：metric 的 sample_kind 不受支持
 
 请求：
 
-- `metric` 同时支持 `numeric_sample_summary` 与 `rate_sample_summary`
-- `sample_kind = auto`
+- `metric` 的 `MarivoMetricExtension.sample_kind = "binary"`
+- `left` / `right` 正常提供
 
 含义：
 
-- `validate` 无法唯一确定应准备哪种 inferential summary
-- 系统必须直接返回请求歧义错误，而不是静默挑一种方法继续执行
+- `validate` 要求 metric 的 `sample_kind` 为 `numeric` 或 `rate`
+- `binary` 不受支持，系统返回 `SAMPLE_KIND_UNSUPPORTED` 错误
 
 ## v1 Scope Limits
 

@@ -368,7 +368,6 @@ def register_validate(server: Any, runtime: Any) -> None:
         metric: str,
         left: McpSliceRef,
         right: McpSliceRef,
-        sample_kind: Literal["auto", "numeric", "rate"] | None = None,
         hypothesis: McpStructuredObject | None = None,
         method: Literal["auto", "welch_t", "two_proportion_z"] | None = None,
     ) -> dict[str, Any]:
@@ -377,8 +376,6 @@ def register_validate(server: Any, runtime: Any) -> None:
             "left": left.model_dump(),
             "right": right.model_dump(),
         }
-        if sample_kind is not None:
-            params["sample_kind"] = sample_kind
         if hypothesis is not None:
             params["hypothesis"] = hypothesis
         if method is not None:

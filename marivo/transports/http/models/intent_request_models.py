@@ -320,12 +320,6 @@ class ValidateRequest(BaseModel):
     )
     left: ValidateObservationInput = Field(description="Primary / treatment population.")
     right: ValidateObservationInput = Field(description="Comparison / control population.")
-    sample_kind: Literal["auto", "numeric", "rate"] | None = Field(
-        default=None,
-        description=(
-            "Inferential summary mode. 'auto' resolves from the metric's declared sample_kind."
-        ),
-    )
     hypothesis: ValidateHypothesis | None = Field(default=None)
     method: Literal["auto", "welch_t", "two_proportion_z"] | None = Field(default=None)
 

@@ -629,13 +629,12 @@ Request body fields:
 - `metric`: required semantic metric
 - `left`: required inferential-ready scalar-observation input
 - `right`: required inferential-ready scalar-observation input
-- `sample_kind`: `auto`, `numeric`, or `rate`; defaults to `auto`; `"auto"` resolves from the metric's declared `sample_kind` in `MarivoMetricExtension`
 - `hypothesis`: optional difference-hypothesis contract
 - `method`: `auto`, `welch_t`, or `two_proportion_z`; defaults to `auto`
 
 Normalization rules:
 
-- `sample_kind` defaults to `auto`
+- `sample_kind` is resolved from the metric's declared `sample_kind` in `MarivoMetricExtension`
 - `hypothesis.family` defaults to `difference`
 - `hypothesis.alternative` defaults to `two_sided`
 - `hypothesis.alpha` defaults to `0.05`
@@ -643,7 +642,7 @@ Normalization rules:
 
 Deterministic expansion:
 
-1. determine the inferential-ready observation mode from `sample_kind`
+1. resolve the inferential-ready observation mode from the metric's `sample_kind`
 2. `observe(left, result_mode = inferred_mode)`
 3. `observe(right, result_mode = inferred_mode)`
 4. `test(left_ref, right_ref, hypothesis, method)`
@@ -656,7 +655,7 @@ Unsupported inputs include:
 - multi-arm or paired tests
 - planner-style sample preparation beyond the declared contract
 
-Success returns `ValidateResponse`, the canonical `validation_bundle`. The payload includes normalized left/right scopes, resolved `sample_kind`, normalized hypothesis, method, derived refs, validation issues, provenance, and the packaged inferential result.
+Success returns `ValidateResponse`, the canonical `validation_bundle`. The payload includes normalized left/right scopes, resolved `sample_kind` (from metric), normalized hypothesis, method, derived refs, validation issues, provenance, and the packaged inferential result.
 
 `validate` does not accept `calendar_policy_ref`. If either side requires calendar alignment semantics, the two internal `observe` steps freeze that metadata in `resolved_policy_summary`, and the derived intent reuses it only through the internal `test(left_ref, right_ref, ...)` step. `validate` must not rebuild holiday / weekday / event pairing or reselect calendar versions on its own.
 

@@ -5,10 +5,9 @@ Deterministically expands to:
   + observe(metric, right.time_scope, right.scope, result_mode=inferred_mode)
   + test(left_obs_ref, right_obs_ref, hypothesis, method)
 
-sample_kind controls which inferential summary mode the internal observes produce:
+sample_kind is resolved from the metric's declared sample_kind in MarivoMetricExtension:
   "numeric" -> numeric_sample_summary
   "rate"    -> rate_sample_summary
-  "auto"    -> resolves from the metric's declared sample_kind in MarivoMetricExtension
 
 Design contract: docs/analysis/intents/derived/validate.md
 """
@@ -53,12 +52,13 @@ def run_validate_intent(
       metric:      published semantic metric
       left:        { time_scope, scope? } — primary / treatment side
       right:       { time_scope, scope? } — comparison / control side
-      sample_kind: "numeric" | "rate" | "auto" (auto resolves from metric's declared sample_kind)
       hypothesis:  { family?, alternative?, alpha?, label? }
       method:      "auto" | "welch_t" | "two_proportion_z" (passed through to test)
 
+    sample_kind is resolved from the metric's declared sample_kind in MarivoMetricExtension.
+
     Failure semantics:
-      - sample_kind="auto" when metric has no unambiguous sample_kind → SAMPLE_KIND_AMBIGUOUS
+      - metric's declared sample_kind is not "numeric" or "rate" → SAMPLE_KIND_UNSUPPORTED
       - observe failures → hard fail
       - observation_type mismatch → hard fail
       - test failures → hard fail
@@ -100,26 +100,17 @@ def run_validate_intent(
     left_scope: dict[str, Any] | None = left_input.get("scope") or None
     right_scope: dict[str, Any] | None = right_input.get("scope") or None
 
-    raw_sample_kind: str = str(p.get("sample_kind") or "auto").lower()
-    if raw_sample_kind == "auto":
-        resolved_metric = runtime.resolve_metric(metric_name)
-        _metric_header = (resolved_metric.semantic_object or {}).get("header") or {}
-        metric_sample_kind = _metric_header.get("sample_kind")
-        if metric_sample_kind in {"numeric", "rate"}:
-            raw_sample_kind = metric_sample_kind
-        else:
-            raise ValueError(
-                "validate: SAMPLE_KIND_AMBIGUOUS - sample_kind='auto' cannot be uniquely resolved "
-                "from metric's declared sample_kind. Specify 'numeric' or 'rate' explicitly."
-            )
-    if raw_sample_kind not in {"numeric", "rate"}:
+    resolved_metric = runtime.resolve_metric(metric_name)
+    _metric_header = (resolved_metric.semantic_object or {}).get("header") or {}
+    metric_sample_kind = _metric_header.get("sample_kind")
+    if metric_sample_kind not in {"numeric", "rate"}:
         raise ValueError(
-            f"validate: INVALID_ARGUMENT - sample_kind must be 'numeric' or 'rate', "
-            f"got '{raw_sample_kind}'"
+            f"validate: SAMPLE_KIND_UNSUPPORTED - metric's declared sample_kind "
+            f"is '{metric_sample_kind}', but validate requires 'numeric' or 'rate'."
         )
 
-    result_mode: str = _SAMPLE_KIND_TO_RESULT_MODE[raw_sample_kind]
-    resolved_sample_kind: str = raw_sample_kind  # "numeric" or "rate"
+    resolved_sample_kind: str = metric_sample_kind
+    result_mode: str = _SAMPLE_KIND_TO_RESULT_MODE[resolved_sample_kind]
 
     # Hypothesis parsing and validation
     hypothesis_raw: dict[str, Any] = p.get("hypothesis") or {}
