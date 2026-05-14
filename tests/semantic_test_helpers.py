@@ -491,16 +491,15 @@ def ensure_published_typed_entity(
                 entity_contract_id, entity_ref, display_name, description,
                 properties_json, catalog_metadata_json, entity_contract_version,
                 entity_kind, uniqueness_scope, id_stability, nullable_key_policy,
-                primary_time_ref, fields_json, binding_json, status, revision,
+                fields_json, binding_json, status, revision,
                 created_at, updated_at
             ) VALUES (?, ?, ?, '', '{}', '{}', 'entity.v4', 'business_entity',
-                'global', 'stable', 'reject', ?, ?, ?, 'published', 1, ?, ?)
+                'global', 'stable', 'reject', ?, ?, 'published', 1, ?, ?)
             """,
             [
                 entity_contract_id,
                 entity_ref,
                 display_name or entity_name.replace("_", " ").title(),
-                _DEFAULT_TYPED_TIME_REF,
                 json.dumps(grounding["fields"]),
                 json.dumps(grounding["binding"]),
                 now,
@@ -624,7 +623,7 @@ def ensure_published_typed_metric(
     metric_ref = f"metric.{metric_name}"
     existing = metadata.query_one(
         """
-        SELECT metric_contract_id, status, observed_entity_ref, primary_time_ref
+        SELECT metric_contract_id, status, observed_entity_ref
         FROM semantic_metric_contracts
         WHERE metric_ref = ?
         """,
@@ -634,7 +633,7 @@ def ensure_published_typed_metric(
         metadata,
         measure_type=measure_type,
     )
-    primary_time_ref = ensure_published_typed_time(metadata)
+    ensure_published_typed_time(metadata)
     for dimension_name in dimensions or []:
         if dimension_name.startswith("dimension."):
             ensure_published_typed_dimension(
@@ -655,11 +654,11 @@ def ensure_published_typed_metric(
             INSERT INTO semantic_metric_contracts (
                 metric_contract_id, metric_ref, display_name, description,
                 metric_family, observed_entity_ref, observation_grain_ref,
-                sample_kind, value_semantics, aggregation_scope, primary_time_ref,
+                sample_kind, value_semantics, aggregation_scope,
                 additive_dimensions_json, metric_contract_version,
                 family_payload_json, catalog_metadata_json, status, revision,
                 is_latest_active, created_at, updated_at
-            ) VALUES (?, ?, ?, '', ?, ?, ?, ?, ?, 'window', ?, ?, 'metric.v1',
+            ) VALUES (?, ?, ?, '', ?, ?, ?, ?, ?, 'window', ?, 'metric.v1',
                 ?, '{}', 'published', 1, 1, ?, ?)
             """,
             [
@@ -671,7 +670,6 @@ def ensure_published_typed_metric(
                 f"grain.{grain or 'row'}",
                 sample_kind,
                 value_semantics,
-                primary_time_ref,
                 json.dumps(additive_dimensions),
                 json.dumps(
                     _metric_payload_with_default_input_fields(metric_name, measure_type, entity_ref)

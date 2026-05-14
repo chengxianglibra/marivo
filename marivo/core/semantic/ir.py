@@ -44,7 +44,6 @@ class MetricRefSnapshot(TypedDict):
     metric_ref: str
     resolved_metric_revision: NotRequired[int | None]
     resolved_metric_object_id: NotRequired[str | None]
-    resolved_primary_time_ref: NotRequired[str | None]
     resolved_observation_grain_ref: NotRequired[str | None]
 
 

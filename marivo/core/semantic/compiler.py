@@ -906,8 +906,6 @@ def _stable_plan_id(step_index: int, step_type: str, normalized_request: Any) ->
 
 def metric_snapshot(
     metric: Any,
-    *,
-    request_time_field: str | None = None,
 ) -> MetricRefSnapshot:
     header = dict(metric.semantic_object.get("header") or {})
     snapshot: MetricRefSnapshot = {
@@ -915,12 +913,7 @@ def metric_snapshot(
         "resolved_metric_revision": metric.revision,
         "resolved_metric_object_id": metric.object_id,
     }
-    primary_time_ref = _optional_str(header.get("primary_time_ref"))
-    if primary_time_ref is None:
-        primary_time_ref = request_time_field
     observation_grain_ref = _optional_str(header.get("observation_grain_ref"))
-    if primary_time_ref is not None:
-        snapshot["resolved_primary_time_ref"] = primary_time_ref
     if observation_grain_ref is not None:
         snapshot["resolved_observation_grain_ref"] = observation_grain_ref
     return snapshot

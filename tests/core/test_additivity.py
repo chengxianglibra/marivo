@@ -13,27 +13,15 @@ def test_non_additive_empty_dimensions() -> None:
     result = derive_additivity_capabilities(additive_dimensions=[])
     assert result.supports_observe is True
     assert result.supports_decompose is False
-    assert result.time_rollup_allowed is False
     assert result.blocker == "ADDITIVITY_NONE"
     assert result.remediation_hint is not None
     assert result.capability_condition is None
     assert result.additive_dimensions == []
 
 
-def test_non_additive_compare_requires_primary_time_ref() -> None:
+def test_non_additive_compare_always_supported() -> None:
     result = derive_additivity_capabilities(additive_dimensions=[])
-    assert result.supports_compare is False
-
-
-def test_non_additive_with_primary_time_ref() -> None:
-    result = derive_additivity_capabilities(additive_dimensions=[], primary_time_ref="time.day")
-    # Still non-additive: decompose blocked, time_rollup blocked
-    assert result.supports_decompose is False
-    assert result.time_rollup_allowed is False
-    assert result.blocker == "ADDITIVITY_NONE"
-    # But compare/detect are gated on primary_time_ref, not additivity
     assert result.supports_compare is True
-    assert result.supports_detect is True
 
 
 # ---------------------------------------------------------------------------
@@ -43,46 +31,28 @@ def test_non_additive_with_primary_time_ref() -> None:
 
 def test_subset_additive_basic() -> None:
     result = derive_additivity_capabilities(
-        additive_dimensions=["country", "date"], primary_time_ref="date"
+        additive_dimensions=["country", "date"],
     )
     assert result.supports_decompose is True
-    assert result.time_rollup_allowed is True
     assert result.capability_condition == "dimension_must_be_allowed"
     assert result.additive_dimensions == ["country", "date"]
     assert result.blocker is None
     assert result.remediation_hint is None
 
 
-def test_subset_additive_time_not_in_dimensions() -> None:
-    result = derive_additivity_capabilities(
-        additive_dimensions=["country", "product"], primary_time_ref="date"
-    )
-    assert result.supports_decompose is True
-    assert result.time_rollup_allowed is False
-    assert result.capability_condition == "dimension_must_be_allowed"
-
-
-def test_subset_additive_no_primary_time_ref() -> None:
+def test_subset_additive_no_time_field() -> None:
     result = derive_additivity_capabilities(additive_dimensions=["country", "product"])
     assert result.supports_decompose is True
-    assert result.time_rollup_allowed is False
-    assert result.supports_compare is False
+    assert result.supports_compare is True
 
 
 # ---------------------------------------------------------------------------
-# supports_compare
+# supports_compare (always True since time_scope.field is required)
 # ---------------------------------------------------------------------------
 
 
-def test_supports_compare_requires_primary_time_ref() -> None:
-    result = derive_additivity_capabilities(additive_dimensions=["country"], primary_time_ref=None)
-    assert result.supports_compare is False
-
-
-def test_supports_compare_with_primary_time_ref() -> None:
-    result = derive_additivity_capabilities(
-        additive_dimensions=["country"], primary_time_ref="date"
-    )
+def test_supports_compare_always_true() -> None:
+    result = derive_additivity_capabilities(additive_dimensions=["country"])
     assert result.supports_compare is True
 
 
@@ -91,23 +61,17 @@ def test_supports_compare_with_primary_time_ref() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_supports_attribute_requires_compare_and_decompose() -> None:
-    # Non-additive: decompose=False, so attribute=False even with time ref
-    result = derive_additivity_capabilities(additive_dimensions=[], primary_time_ref="date")
+def test_supports_attribute_requires_decompose() -> None:
+    # Non-additive: decompose=False, so attribute=False
+    result = derive_additivity_capabilities(additive_dimensions=[])
     assert result.supports_attribute is False
 
 
 def test_supports_attribute_enabled() -> None:
     result = derive_additivity_capabilities(
-        additive_dimensions=["country", "date"], primary_time_ref="date"
+        additive_dimensions=["country", "date"],
     )
     assert result.supports_attribute is True
-
-
-def test_supports_attribute_no_primary_time_ref() -> None:
-    # decompose=True but compare=False (no primary_time_ref) => attribute=False
-    result = derive_additivity_capabilities(additive_dimensions=["country"])
-    assert result.supports_attribute is False
 
 
 # ---------------------------------------------------------------------------
@@ -141,34 +105,18 @@ def test_supports_test_no_sample_kind() -> None:
 
 
 # ---------------------------------------------------------------------------
-# supports_detect
+# supports_detect (now depends only on process_anchor_time_ref)
 # ---------------------------------------------------------------------------
 
 
-def test_supports_detect_requires_time_ref() -> None:
+def test_supports_detect_no_time_ref() -> None:
     result = derive_additivity_capabilities(additive_dimensions=["country"])
     assert result.supports_detect is False
-
-
-def test_supports_detect_with_primary_time_ref() -> None:
-    result = derive_additivity_capabilities(
-        additive_dimensions=["country"], primary_time_ref="date"
-    )
-    assert result.supports_detect is True
 
 
 def test_supports_detect_with_process_anchor_time_ref() -> None:
     result = derive_additivity_capabilities(
         additive_dimensions=["country"], process_anchor_time_ref="event_time"
-    )
-    assert result.supports_detect is True
-
-
-def test_supports_detect_either_time_ref() -> None:
-    result = derive_additivity_capabilities(
-        additive_dimensions=["country"],
-        primary_time_ref="date",
-        process_anchor_time_ref="event_time",
     )
     assert result.supports_detect is True
 
@@ -200,17 +148,17 @@ def test_supports_validate_no_sample_kind() -> None:
 
 def test_to_dict() -> None:
     result = derive_additivity_capabilities(
-        additive_dimensions=["country", "date"], primary_time_ref="date"
+        additive_dimensions=["country", "date"],
     )
     d = result.to_dict()
     assert isinstance(d, dict)
     assert d["supports_observe"] is True
     assert d["additive_dimensions"] == ["country", "date"]
-    assert d["time_rollup_allowed"] is True
     assert d["blocker"] is None
     assert d["capability_condition"] == "dimension_must_be_allowed"
     assert "dimension_policy" not in d
     assert "time_axis_policy" not in d
+    assert "time_rollup_allowed" not in d
 
 
 # ---------------------------------------------------------------------------
@@ -244,11 +192,6 @@ def test_no_remediation_hint_when_additive() -> None:
 # ---------------------------------------------------------------------------
 # Whitespace / empty-string normalization for optional params
 # ---------------------------------------------------------------------------
-
-
-def test_primary_time_ref_whitespace_treated_as_none() -> None:
-    result = derive_additivity_capabilities(additive_dimensions=["country"], primary_time_ref="  ")
-    assert result.supports_compare is False
 
 
 def test_sample_kind_whitespace_treated_as_empty() -> None:

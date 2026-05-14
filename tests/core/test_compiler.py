@@ -343,11 +343,10 @@ class _FakeResolvedObject:
 def test_metric_snapshot() -> None:
     metric = _FakeResolvedObject(
         "metric.revenue",
-        semantic_object={"header": {"primary_time_ref": "time.event_date"}},
+        semantic_object={"header": {}},
     )
     snap = metric_snapshot(metric)
     assert snap["metric_ref"] == "metric.revenue"
-    assert snap["resolved_primary_time_ref"] == "time.event_date"
 
 
 def test_process_snapshot() -> None:

@@ -700,7 +700,6 @@ class AttributeRunnerServiceTests(unittest.TestCase):
             semantic_object={
                 "header": {
                     "additive_dimensions": ["channel", "region", "time.event_date"],
-                    "primary_time_ref": "time.event_date",
                     "sample_kind": "numeric",
                 },
             },
@@ -1088,7 +1087,6 @@ class AttributeHourWindowTests(unittest.TestCase):
                 mock_metric.semantic_object = {
                     "header": {
                         "additive_dimensions": ["channel", "time.default"],
-                        "primary_time_ref": "time.default",
                         "sample_kind": "rate",
                     },
                 }

@@ -118,7 +118,7 @@ def gate_request_shape(step_type: str, resolved_inputs: Any) -> list[ValidationI
     When the request explicitly specifies a time axis field via
     ``time_scope.field`` (stored as ``request_options.resolved_time_axis.override_analysis_time_column``),
     the COMPILER_TIME_REF_UNRESOLVED gate is bypassed because the time axis is
-    determined at request level rather than requiring a catalog-level primary_time_ref.
+    determined at request level.
     """
     issues: list[ValidationIssue] = []
     normalized = resolved_inputs.normalized_request
@@ -420,11 +420,6 @@ def gate_dimension_compatibility(resolved_inputs: Any) -> list[ValidationIssue]:
         time_requirement = dict(interface_contract.get("time_derived_requirement") or {})
         required_time_anchor_ref = _optional_str(time_requirement.get("required_time_anchor_ref"))
         if required_time_anchor_ref is not None:
-            metric_header = (
-                dict(resolved_inputs.resolved_metric.semantic_object.get("header") or {})
-                if resolved_inputs.resolved_metric is not None
-                else {}
-            )
             process_contract = (
                 dict(
                     resolved_inputs.resolved_process.semantic_object.get("interface_contract") or {}
@@ -433,7 +428,6 @@ def gate_dimension_compatibility(resolved_inputs: Any) -> list[ValidationIssue]:
                 else {}
             )
             available_anchor_refs = {
-                _optional_str(metric_header.get("primary_time_ref")),
                 _optional_str(process_contract.get("anchor_time_ref")),
                 resolved_inputs.resolved_filter_time.ref
                 if resolved_inputs.resolved_filter_time

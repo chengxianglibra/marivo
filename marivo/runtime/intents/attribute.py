@@ -144,38 +144,17 @@ def run_attribute_intent(
         raise ValueError(f"attribute: metric '{metric_name}' not found or not published")
 
     _resolved_header = resolved_metric.semantic_object.get("header") or {}
+    _additive_dimensions = _resolved_header.get("additive_dimensions", [])
     additivity_caps = derive_additivity_capabilities(
-        additive_dimensions=_resolved_header.get("additive_dimensions", []),
-        primary_time_ref=_resolved_header.get("primary_time_ref"),
+        additive_dimensions=_additive_dimensions,
         sample_kind=_resolved_header.get("sample_kind"),
     )
 
-    # Gate 1: metric must support compare
-    if not additivity_caps.supports_compare:
-        raise ExecutionError(
-            code="ADDITIVITY_CONSTRAINT",
-            category="compatibility",
-            message=(
-                f"attribute: ADDITIVITY_CONSTRAINT - metric '{metric_name}' does not support "
-                f"compare (additive_dimensions={additivity_caps.additive_dimensions})"
-                + (
-                    f"; {additivity_caps.remediation_hint}"
-                    if additivity_caps.remediation_hint
-                    else ""
-                )
-            ),
-            detail={
-                "compatibility_error": {
-                    "code": "ADDITIVITY_CONSTRAINT",
-                    "gate": "supports_compare",
-                    "metric": metric_ref,
-                    "additive_dimensions": additivity_caps.additive_dimensions,
-                    "time_rollup_allowed": additivity_caps.time_rollup_allowed,
-                    "blocker": additivity_caps.blocker,
-                    "remediation_hint": additivity_caps.remediation_hint,
-                },
-            },
-        )
+    # Derive time_rollup_allowed from request-level time_scope.field
+    _time_scope_field = (
+        str(current_time_scope.get("field") or "").strip() if current_time_scope else None
+    )
+    time_rollup_allowed = _time_scope_field in _additive_dimensions if _time_scope_field else False
 
     # Gate 2: metric must support decompose
     if not additivity_caps.supports_decompose:
@@ -197,7 +176,7 @@ def run_attribute_intent(
                     "gate": "supports_decompose",
                     "metric": metric_ref,
                     "additive_dimensions": additivity_caps.additive_dimensions,
-                    "time_rollup_allowed": additivity_caps.time_rollup_allowed,
+                    "time_rollup_allowed": time_rollup_allowed,
                     "blocker": additivity_caps.blocker,
                     "remediation_hint": additivity_caps.remediation_hint,
                 },
@@ -222,7 +201,7 @@ def run_attribute_intent(
                     "allowed_dimensions": [],
                     "disallowed_dimensions": list(dimensions),
                     "requested_dimensions": list(dimensions),
-                    "time_rollup_allowed": additivity_caps.time_rollup_allowed,
+                    "time_rollup_allowed": time_rollup_allowed,
                     "remediation_hint": (
                         "Metric has no additive_dimensions. "
                         "Add dimension names to additive_dimensions "
@@ -253,7 +232,7 @@ def run_attribute_intent(
                         "additive_dimensions": sorted(allowed_set),
                         "disallowed_dimensions": disallowed_requested,
                         "requested_dimensions": list(dimensions),
-                        "time_rollup_allowed": additivity_caps.time_rollup_allowed,
+                        "time_rollup_allowed": time_rollup_allowed,
                         "remediation_hint": (
                             f"Retry with only allowed dimensions: {sorted(allowed_set)}"
                         ),
@@ -562,7 +541,7 @@ def run_attribute_intent(
             "share_suppression_policy": _SHARE_SUPPRESSION_POLICY,
             "additivity_basis": {
                 "additive_dimensions": additivity_caps.additive_dimensions,
-                "time_rollup_allowed": additivity_caps.time_rollup_allowed,
+                "time_rollup_allowed": time_rollup_allowed,
                 "capability_condition": additivity_caps.capability_condition,
             },
             "time_boundary_constraint": {

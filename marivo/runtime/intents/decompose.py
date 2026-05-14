@@ -150,7 +150,7 @@ def run_decompose_intent(
                 dims_for_gate = legacy_constraints.get("additive_dimensions") or []
         gate_source = "current_metric_state"
 
-    # Resolve metric for primary_time_ref and sample_kind needed by capability derivation
+    # Resolve metric for sample_kind needed by capability derivation
     resolved_metric = runtime.resolve_metric(metric_name)
     if resolved_metric is None:
         raise ValueError(f"decompose: metric '{metric_name}' not found or not published")
@@ -158,9 +158,12 @@ def run_decompose_intent(
     _resolved_header = resolved_metric.semantic_object.get("header") or {}
     additivity_caps = derive_additivity_capabilities(
         additive_dimensions=dims_for_gate,
-        primary_time_ref=_resolved_header.get("primary_time_ref"),
         sample_kind=_resolved_header.get("sample_kind"),
     )
+
+    # Derive time_rollup_allowed from request-level time_scope.field
+    _time_scope_field = str(left_time_scope.get("field") or "").strip() if left_time_scope else None
+    time_rollup_allowed = _time_scope_field in dims_for_gate if _time_scope_field else False
     if not additivity_caps.supports_decompose:
         raise ExecutionError(
             code="ADDITIVITY_CONSTRAINT",
@@ -181,7 +184,7 @@ def run_decompose_intent(
                     "code": "ADDITIVITY_CONSTRAINT",
                     "metric": metric_name,
                     "additive_dimensions": additivity_caps.additive_dimensions,
-                    "time_rollup_allowed": additivity_caps.time_rollup_allowed,
+                    "time_rollup_allowed": time_rollup_allowed,
                     "blocker": additivity_caps.blocker,
                     "gate_source": gate_source,
                     "remediation_hint": additivity_caps.remediation_hint,
@@ -216,7 +219,7 @@ def run_decompose_intent(
                     "additive_dimensions": sorted(additivity_caps.additive_dimensions),
                     "disallowed_dimensions": disallowed,
                     "requested_dimensions": [dimension],
-                    "time_rollup_allowed": additivity_caps.time_rollup_allowed,
+                    "time_rollup_allowed": time_rollup_allowed,
                     "remediation_hint": additivity_caps.remediation_hint,
                 },
             },
@@ -478,7 +481,7 @@ def run_decompose_intent(
             "aggregation_semantics": "sum",
             "additive_dimensions": dims_for_gate,
             "additive_dimensions_source": gate_source,
-            "time_rollup_allowed": additivity_caps.time_rollup_allowed,
+            "time_rollup_allowed": time_rollup_allowed,
             "reconciliation_expected": True,
             "flat_tolerance_relative": _FLAT_TOLERANCE_RELATIVE,
             "left_row_count": len(left_rows),

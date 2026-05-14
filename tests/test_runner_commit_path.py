@@ -2284,7 +2284,6 @@ class TestDecomposeRunnerCommitPath(unittest.TestCase):
         resolved_metric.semantic_object = {
             "header": {
                 "additive_dimensions": ["dim1", "time.default"],
-                "primary_time_ref": "time.default",
                 "sample_kind": "rate",
             },
             "payload": {
@@ -2293,7 +2292,6 @@ class TestDecomposeRunnerCommitPath(unittest.TestCase):
             },
         }
         resolved_metric.additive_dimensions = ["dim1", "time.default"]
-        resolved_metric.primary_time_ref = "time.default"
         resolved_metric.sample_kind = "rate"
         resolved_metric.allowed_dimensions = ["dim1"]
         resolved_metric.dimensions = ["dim1"]
