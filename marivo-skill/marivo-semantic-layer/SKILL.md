@@ -11,67 +11,209 @@ It owns business knowledge intake, reusable semantic contracts, OSI-Marivo docum
 validation, import, export, and deciding when to hand off to analysis. It does not own
 datasource-only browse or session-scoped investigation loops.
 
-## Responsibility Split
+## Checklist
 
-- `SKILL.md` is the entrypoint: scope, routing, non-negotiable rules, and which reference to read.
-- `references/modeling.md` is the authoring runbook: business intake, dataset/field/metric/
-  relationship decisions, schema reading, validation/import, examples, and repair rules.
-- `references/osi-marivo.schema.json` is the canonical contract reference for object shape.
-- `references/readiness.md` is for validation failures, usability issues, and imported-model
-  troubleshooting.
+You MUST complete these items in order when building or changing a reusable semantic model:
 
-## Scope
+1. **Gather business background** - collect knowledge-base entries, metric docs, KPI definitions,
+   dashboard notes, field glossaries, reporting SQL, or related report references.
+2. **Confirm datasource metadata** - use `marivo-datasource` to verify datasource availability
+   and discover physical schema before defining analysis scenarios.
+3. **Clarify target analysis scenarios** - identify the questions, output shape, time expectation,
+   and scenario-level dimensions the model must support.
+4. **Approve dataset scope** - present the candidate datasets and wait for explicit user approval.
+5. **Approve field semantics** - present primary keys, unique keys, time fields, dimensions, and
+   uncertainties before writing fields into the document.
+6. **Approve metric definitions** - present metric names, ANSI SQL aggregation expressions,
+   business meanings, primary time fields, additivity, and non-additive warnings.
+7. **Approve relationship paths** - present join paths and cardinality, or get explicit approval
+   for a relationship-free model.
+8. **Draft and validate the document** - write a complete OSI-Marivo JSON document to a local file
+   and validate it with `marivo-validate_osi_semantic_models` using `input_path`.
+9. **Get import approval** - summarize the validated model and local JSON path, then import only
+   after the user explicitly approves import.
+10. **Hand off to analysis** - once imported and approved for use, switch to `marivo-analysis` for a
+    smoke test or real investigation.
 
-- extracting candidate business definitions from user-provided metric docs, glossary material, or
-  reporting references
-- drafting reusable semantic contracts and getting key metric definitions approved before import
-- reading or exporting current semantic model documents
-- validating draft OSI-Marivo documents and repairing validation issues
-- importing validated documents after explicit user approval
-- deciding when to hand off to analysis for a smoke test or real investigation
+## Process Flow
 
-## Tool Routing
+```dot
+digraph marivo_semantic_layer {
+    "Business background" [shape=box];
+    "Confirm datasource metadata" [shape=box];
+    "Use marivo-datasource" [shape=box];
+    "Target analysis scenarios" [shape=box];
+    "Approve dataset scope" [shape=box];
+    "Approve field semantics" [shape=box];
+    "Approve metric definitions" [shape=box];
+    "Multiple datasets?" [shape=diamond];
+    "Approve relationship paths" [shape=box];
+    "Approve relationship-free model" [shape=box];
+    "Draft OSI-Marivo JSON file" [shape=box];
+    "Validate with input_path" [shape=box];
+    "Validation clean?" [shape=diamond];
+    "Repair document" [shape=box];
+    "User approves import?" [shape=diamond];
+    "Import OSI-Marivo document" [shape=box];
+    "Switch to marivo-analysis" [shape=doublecircle];
 
-- Need physical metadata before authoring: use `marivo-datasource`.
-- Need current semantic state: `marivo-list_semantic_models`, `marivo-get_semantic_model`, or
-  `marivo-export_osi_semantic_models`.
-- Need to check a draft: `marivo-validate_osi_semantic_models`.
-- Draft is validated and user approved it: `marivo-import_osi_semantic_models`.
-- Reusable graph is imported and now needs a representative run: switch to `marivo-analysis`.
+    "Business background" -> "Confirm datasource metadata";
+    "Confirm datasource metadata" -> "Use marivo-datasource";
+    "Use marivo-datasource" -> "Target analysis scenarios";
+    "Target analysis scenarios" -> "Approve dataset scope";
+    "Approve dataset scope" -> "Approve field semantics";
+    "Approve field semantics" -> "Approve metric definitions";
+    "Approve metric definitions" -> "Multiple datasets?";
+    "Multiple datasets?" -> "Approve relationship paths" [label="yes"];
+    "Multiple datasets?" -> "Approve relationship-free model" [label="no"];
+    "Approve relationship paths" -> "Draft OSI-Marivo JSON file";
+    "Approve relationship-free model" -> "Draft OSI-Marivo JSON file";
+    "Draft OSI-Marivo JSON file" -> "Validate with input_path";
+    "Validate with input_path" -> "Validation clean?";
+    "Validation clean?" -> "Repair document" [label="no"];
+    "Repair document" -> "Validate with input_path";
+    "Validation clean?" -> "User approves import?" [label="yes"];
+    "User approves import?" -> "Import OSI-Marivo document" [label="yes"];
+    "User approves import?" -> "Draft OSI-Marivo JSON file" [label="changes requested"];
+    "Import OSI-Marivo document" -> "Switch to marivo-analysis";
+}
+```
 
-## Non-Negotiable Rules
+The terminal state is switching to `marivo-analysis`. Do not start a session-scoped investigation
+inside this skill.
 
-- Read `references/modeling.md` before authoring or repairing reusable semantic model documents.
-- Before generating semantic model object data, read `references/osi-marivo.schema.json`; do not
-  rely on memory, examples, or generated-model intuition alone.
-- Build a complete OSI-Marivo JSON document. Do not create datasets, fields, metrics, or
-  relationships through separate management tools.
-- Validate and import newly generated semantic model JSON through a document file with `input_path`;
-  do not use inline JSON payloads for validation or import.
-- Import only after explicit user approval. A valid document is not approval.
+## The Process
+
+**1. Gather business background:**
+
+- Start with business background, not table names. A table name or column list is physical metadata,
+  not a reusable semantic contract.
+- Ask for knowledge-base entries, metric docs, KPI definitions, dashboard notes, field glossaries,
+  reporting SQL, or related report references.
+- Do not ask for target scenarios or datasource connection details in the same question.
+- This step is complete only when the user has provided written business background material, or has
+  explicitly said none exists, and you can name the business entity or grain, population or
+  exclusions, and important terms.
+
+**2. Confirm datasource metadata:**
+
+- Use `marivo-datasource` to verify datasource availability and discover physical schema before
+  defining analysis scenarios.
+- Browse schemas, tables, columns, and sample rows as metadata context, not as canonical analysis
+  evidence.
+- Return to this skill after the physical metadata needed for semantic authoring is available.
+
+**3. Clarify target analysis scenarios:**
+
+- Ask for the analysis questions this semantic model must support.
+- Identify the expected output shape: observation, trend, anomaly detection, comparison,
+  decomposition, validation, forecast, or similar.
+- Clarify the primary time expectation and scenario-level dimensions.
+- Do not ask for datasource connection details in the same question.
+- This step is complete only when the target analysis question, output shape, primary time
+  expectation, and scenario-level dimensions are clear.
+
+**4. Approve dataset scope:**
+
+- After metadata is confirmed, present the dataset scope options and stop. If there is only one
+  viable dataset, still ask the user to confirm that dataset.
+- Prefer the smallest business-approved dataset set that supports the target scenario.
+- Do not make field, metric, or relationship decisions until the in-scope dataset list is explicitly
+  approved.
+
+**5. Approve field semantics:**
+
+- For each selected dataset or clear group of similar datasets, present the proposed primary key,
+  unique keys, time fields, dimensions, and uncertainties.
+- Choose the primary key from the approved business grain, not from physical naming conventions
+  alone.
+- Use explicit time fields. Distinguish event time, snapshot time, partition time, and ingestion
+  time when they differ.
+- Mark time fields with `dimension.is_time: true`.
+- Keep measures in the metric stage, not the field stage.
+- Do not write fields into the document until the user explicitly approves the primary key, unique
+  keys, time fields, and dimensions.
+
+**6. Approve metric definitions:**
+
+- Present proposed metrics with name, observed dataset, ANSI SQL aggregation expression, business
+  meaning, primary time field, additive dimensions, and non-additive warnings.
+- Do not create reusable metrics from source column names alone.
+- Metrics using `SUM` are additive only across approved dimensions.
+- `AVG`, ratios, and percentile-style metrics are non-additive. Label them clearly and explain that
+  they are not decomposable.
+- Do not write a metric into the document until the user explicitly approves its name, expression,
+  meaning, primary time field, and additivity warning.
+
+**7. Approve relationship paths:**
+
+- If multiple datasets are used, present join paths, join columns, and cardinality, then stop for
+  approval.
+- If relationships are intentionally omitted, get explicit approval for a relationship-free model.
+- For a single-dataset model, do not skip this silently; present "single dataset, no relationships"
+  and wait for explicit approval.
+- Add relationships only when the target scenario requires cross-dataset semantics and the user
+  approves the path and cardinality.
+
+**8. Draft and validate the document:**
+
+- Refer to `references/osi-marivo.schema.json` for the OSI-Marivo JSON document schema when drafting
+  the document structure, fields, and extensions.
+- Write the document to a local JSON file before validation.
+- Validate with `mcp__marivo__validate_osi_semantic_models`, passing
+  `input: { input_path: "<local_json_file_path>" }`; do not use inline JSON payloads.
+- Repair validation issues immediately and re-run validation from the local file.
+- Validation success is not import approval.
+
+**9. Get import approval:**
+
+- After validation succeeds, present a concise summary of models, datasets, fields, metrics,
+  relationships, known limitations, and the local JSON path.
+- Ask explicitly whether the user approves import.
+- Import only after explicit user approval, using the validated local document file rather than
+  inline JSON.
 - After import, report the local semantic model JSON document path used for validation/import.
 
-## Default Loop
+**10. Hand off to analysis:**
 
-1. Ask for business definitions, metric docs, reporting requirements, or domain context.
-2. Confirm datasource and live relations through `marivo-datasource`.
-3. Use `references/modeling.md` for dataset, field, metric, relationship, and option decisions.
-4. Write the complete OSI-Marivo JSON document to a local file.
-5. Validate the file with `marivo-validate_osi_semantic_models` using `input_path`.
-6. Repair and revalidate until clean.
-7. Ask for explicit import approval.
-8. Import the approved file with `marivo-import_osi_semantic_models` using `input_path`.
-9. Confirm stored state, report the local JSON document path, then hand off to `marivo-analysis`
-   when a representative run is needed.
+- Need current semantic state: use `marivo-list_semantic_models`, `marivo-get_semantic_model`, or
+  `marivo-export_osi_semantic_models`.
+- Once the reusable graph is imported and approved for use, switch to `marivo-analysis`.
+- Use `marivo-analysis` for a representative smoke test or real investigation.
+- If analysis reveals a semantic gap, return to this skill and repeat the document repair,
+  validation, and import-approval steps.
 
-## Load References
+## After Building Semantic Layer
 
-- Read `references/modeling.md` for all authoring, validation, import, and repair work.
-- Read `references/osi-marivo.schema.json` immediately before preparing semantic model object data
-  or when schema details are uncertain.
-- Read `references/readiness.md` when validation succeeds but the imported model is not usable or
-  readiness is unclear.
+Before analysis, make sure all of the following are true:
 
-## Read Next
+- datasource is ready
+- semantic contract is explicit
+- datasource metadata is confirmed and target analysis scenarios are clear
+- dataset scope, field semantics, metric definitions, and relationship paths were approved in order
+- the complete OSI-Marivo document was validated from a local file with `input_path`
+- the user explicitly approved import
+- the imported model limitations are known, especially non-additive metrics
 
-- `marivo-analysis` once the reusable graph is imported and approved for a smoke test or investigation
+When these checks pass, hand off to `marivo-analysis` for the smoke test or investigation. If the
+analysis reveals a semantic gap, return to this skill, repair the document, validate it again, and
+get import approval again before continuing analysis.
+
+## Key Principles
+
+- **Business first** - Do not infer reusable semantic contracts from table names or column names
+  alone.
+- **One approval at a time** - A single user response approves only the currently active gate unless
+  the user explicitly names multiple gates and approves them together.
+- **Multiple choice preferred** - Easier to answer than open-ended when possible.
+- **Document-first management** - Build, validate, import, export, and repair complete OSI-Marivo
+  documents instead of mutating semantic objects one by one.
+- **Explicit grain before fields** - State what one row represents before choosing primary keys,
+  time fields, dimensions, or metrics.
+- **Metrics are business formulas** - Metric names, expressions, meanings, time fields, and
+  additivity must come from approved business definitions.
+- **Validation is technical, not business approval** - A valid document can still encode the wrong
+  contract.
+- **Import is a hard gate** - Never import without explicit user approval.
+- **Analysis is separate** - This skill prepares reusable semantics; `marivo-analysis` produces
+  session-scoped evidence.
