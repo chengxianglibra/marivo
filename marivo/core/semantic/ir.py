@@ -104,22 +104,9 @@ class MetricDefaultLineage(TypedDict):
     default_predicate_refs: list[str]
 
 
-class ComponentQualifierLineage(TypedDict):
-    component_field: str
-    qualifier_refs: list[str]
-
-
-class ComponentEffectiveScope(TypedDict):
-    component_field: str
-    effective_scope_refs: list[str]
-    scope_fingerprint: str
-
-
 class PredicateFilterLineage(TypedDict):
     shared_effective_scope: SharedEffectiveScope
     metric_default_lineage: MetricDefaultLineage
-    component_qualifier_lineages: list[ComponentQualifierLineage]
-    component_effective_scopes: list[ComponentEffectiveScope]
 
 
 class ArtifactLineageEntry(TypedDict):
@@ -137,7 +124,6 @@ class IrArtifact(TypedDict):
 
 
 class InputBinding(TypedDict):
-    slot_name: str
     artifact_kind: str
     artifact_id: str
     semantic_role: Literal[
@@ -146,8 +132,6 @@ class InputBinding(TypedDict):
         "right",
         "compare_source",
         "decompose_source",
-        "test_left",
-        "test_right",
         "forecast_source",
     ]
 
@@ -171,15 +155,13 @@ class MeasurementNode(TypedDict):
     metric_ref: str
     observed_entity_ref: str
     observation_grain_ref: str
-    sample_kind: Literal["numeric", "rate"]
     value_semantics: str
     additive_dimensions: list[str]
+    aggregation_semantics: NotRequired[str | None]
     depends_on: NotRequired[list[str] | None]
     input_bindings: NotRequired[list[InputBinding] | None]
     output_bindings: NotRequired[list[OutputBinding] | None]
-    inferential_summary_mode: NotRequired[str | None]
     predicate_filter_lineage: NotRequired[PredicateFilterLineage | None]
-    component_lowering_inputs: NotRequired[list[dict[str, Any]] | None]
 
 
 class ProcessNode(TypedDict):

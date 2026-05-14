@@ -8,9 +8,8 @@ from marivo.transports.mcp.tools.intents import (
     to_aoi_decompose_request,
     to_aoi_forecast_request,
     to_aoi_observe_request,
-    to_aoi_test_request,
 )
-from marivo.transports.mcp.tools.schemas import McpSliceRef, McpTimeScope
+from marivo.transports.mcp.tools.schemas import McpTimeScope
 
 
 def test_to_aoi_observe_request_builds_observe_model() -> None:
@@ -75,39 +74,3 @@ def test_to_aoi_forecast_request_builds_forecast_model() -> None:
     assert request.source_artifact_id == "artifact_obs_1"
     assert request.horizon == 7
     assert request.profile == "auto"
-
-
-def test_to_aoi_test_request_builds_test_model() -> None:
-    left = McpSliceRef(
-        time_scope=McpTimeScope(
-            field="log_time",
-            start="2026-05-01T00:00:00Z",
-            end="2026-05-08T00:00:00Z",
-        )
-    )
-    right = McpSliceRef(
-        time_scope=McpTimeScope(
-            field="log_time",
-            start="2026-04-24T00:00:00Z",
-            end="2026-05-01T00:00:00Z",
-        )
-    )
-
-    request = to_aoi_test_request(
-        metric="view_time",
-        left=left,
-        right=right,
-        kind="numeric",
-        hypothesis={
-            "family": "two_sample_mean",
-            "alternative": "two_sided",
-            "alpha": 0.05,
-            "label": "weekly change",
-        },
-    )
-
-    assert isinstance(request, aoi.Test)
-    assert request.metric == "view_time"
-    assert request.kind == "numeric"
-    assert request.left.time_scope.field == "log_time"
-    assert request.hypothesis.family == "two_sample_mean"

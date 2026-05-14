@@ -2,9 +2,6 @@ from __future__ import annotations
 
 from typing import Any
 
-import pytest
-
-from marivo.runtime.intents import validate as validate_intent
 from marivo.runtime.intents.derived_envelopes import build_derived_bundle_envelope
 
 
@@ -29,7 +26,7 @@ class _Runtime:
             "M",
             (),
             {
-                "semantic_object": {"header": {"sample_kind": "numeric"}},
+                "semantic_object": {"header": {"aggregation_semantics": "sum"}},
             },
         )()
 
@@ -83,24 +80,6 @@ def _params() -> dict[str, Any]:
         "metric": "metric.revenue",
         "left": {"time_scope": {"start": "2026-01-01", "end": "2026-01-02"}},
         "right": {"time_scope": {"start": "2026-01-08", "end": "2026-01-09"}},
-    }
-
-
-def _observe(step_id: str, artifact_id: str) -> dict[str, Any]:
-    return {
-        "intent_type": "observe",
-        "step_type": "observe",
-        "step_ref": {
-            "session_id": "sess_1",
-            "step_id": step_id,
-            "step_type": "observe",
-        },
-        "artifact_id": artifact_id,
-        "observation_type": "numeric_sample_summary",
-        "result": {
-            "artifact_id": artifact_id,
-            "result": {"sample_size": 10, "mean": 1.0, "stddev": 0.1},
-        },
     }
 
 
@@ -161,75 +140,3 @@ def test_diagnosis_bundle_envelope_keeps_aoi_artifacts_in_result_and_product_met
     assert result["product_metadata"]["issues"][0]["code"] == "low_confidence"
     assert result["product_metadata"]["aoi_artifacts"][0]["artifact_id"] == "art_detect"
     _assert_bundle_storage_is_consistent(result, runtime)
-
-
-def test_validate_returns_validation_bundle_with_aoi_artifact_dump(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    observes = iter([_observe("step_left", "art_left"), _observe("step_right", "art_right")])
-
-    def _run_observe_intent(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
-        return next(observes)
-
-    def _run_test_intent(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
-        return {
-            "intent_type": "test",
-            "step_type": "test",
-            "step_ref": {
-                "session_id": "sess_1",
-                "step_id": "step_test",
-                "step_type": "test",
-            },
-            "artifact_id": "art_test",
-            "result": {
-                "artifact_id": "art_test",
-                "result": {
-                    "method": "welch_t",
-                    "decision": {"reject_null": True},
-                    "estimate": {"estimand": "mean_diff", "value": 10.0},
-                    "p_value": 0.01,
-                },
-            },
-            "method": "welch_t",
-            "decision": {"reject_null": True},
-            "estimate": {"estimand": "mean_diff", "value": 10.0},
-            "p_value": 0.01,
-            "validation": {"status": "valid", "issues": []},
-        }
-
-    monkeypatch.setattr(validate_intent, "run_observe_intent", _run_observe_intent)
-    monkeypatch.setattr(validate_intent, "run_test_intent", _run_test_intent)
-
-    runtime = _Runtime()
-    result = validate_intent.run_validate_intent(runtime, "sess_1", _params())
-
-    assert result["intent_type"] == "validate"
-    assert result["result"]["bundle_type"] == "validation_bundle"
-    assert result["product_metadata"]["derived_operation"] == "validate"
-    assert result["product_metadata"]["status"] == "succeeded"
-    assert result["product_metadata"]["aoi_artifacts"][0]["artifact_id"] == "art_test"
-    _assert_bundle_storage_is_consistent(result, runtime)
-
-
-def test_validate_returns_failed_validation_bundle_when_atomic_test_fails(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    observes = iter([_observe("step_left", "art_left"), _observe("step_right", "art_right")])
-
-    def _run_observe_intent(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
-        return next(observes)
-
-    def _run_test_intent(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
-        raise ValueError("test rejected the input")
-
-    monkeypatch.setattr(validate_intent, "run_observe_intent", _run_observe_intent)
-    monkeypatch.setattr(validate_intent, "run_test_intent", _run_test_intent)
-
-    runtime = _Runtime()
-    result = validate_intent.run_validate_intent(runtime, "sess_1", _params())
-
-    assert result["intent_type"] == "validate"
-    assert result["result"] == {"bundle_type": "validation_bundle", "aoi_artifacts": []}
-    assert result["product_metadata"]["status"] == "failed"
-    assert result["product_metadata"]["issues"][0]["code"] == "derived_orchestration_failed"
-    assert runtime.artifacts[0]["content"]["artifact_id"] == result["artifact_id"]

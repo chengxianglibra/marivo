@@ -61,7 +61,6 @@ def _seed_metadata(
     table_fqn: str = "analytics.detect_events",
     native_name: str = "detect_events",
     binding_role: str = "primary",
-    metric_input_target_keys: list[str] | None = None,
     measure_type: str | None = None,
     dimensions: list[str] | None = None,
 ) -> str:
@@ -94,7 +93,6 @@ def _seed_metadata(
         carrier_locator=table_fqn,
         source_object_ref=obj_id,
         binding_role=binding_role,
-        metric_input_target_keys=metric_input_target_keys,
         dimension_names=dimensions or ["event_date"],
     )
     return metric_name
@@ -636,7 +634,6 @@ class DetectIntentEndpointTests(unittest.TestCase):
             metric_name="http_detect_not_ready_metric",
             table_fqn="analytics.not_ready_events",
             native_name="not_ready_events",
-            metric_input_target_keys=["numerator"],
             measure_type="average",
             dimensions=["event_date", "dimension.cluster"],
         )

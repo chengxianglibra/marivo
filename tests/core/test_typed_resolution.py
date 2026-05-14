@@ -10,7 +10,6 @@ from marivo.core.semantic.typed_resolution import (
     ResolvedRelationship,
     filter_none_dict,
     mapping_dict,
-    metric_component_items,
     normalize_dimension_refs,
     normalize_metric_ref,
     optional_bool,
@@ -174,26 +173,6 @@ def test_optional_bool_value() -> None:
 def test_filter_none_dict() -> None:
     result = filter_none_dict(a=1, b=None, c="hello", d=None)
     assert result == {"a": 1, "c": "hello"}
-
-
-# ── metric_component_items ─────────────────────────────────────────────
-
-
-def test_metric_component_items() -> None:
-    payload = {
-        "measure": {"input_field_ref": "entity.user.field.age", "aggregation": "mean"},
-        "numerator": {"input_field_ref": "entity.event.field.revenue"},
-        "denominator": None,  # Not a dict
-    }
-    items = metric_component_items(payload)
-    names = [name for name, _ in items]
-    assert "measure" in names
-    assert "numerator" in names
-    assert "denominator" not in names
-
-
-def test_metric_component_items_empty() -> None:
-    assert metric_component_items({}) == []
 
 
 # ── predicate_atoms ────────────────────────────────────────────────────

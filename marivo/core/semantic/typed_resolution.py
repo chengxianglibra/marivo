@@ -187,24 +187,6 @@ def filter_none_dict(**values: Any) -> dict[str, Any]:
 
 # ── Pure metric helpers ────────────────────────────────────────────────
 
-
-def metric_component_items(payload: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
-    """Extract (component_name, component_dict) pairs from a metric payload."""
-    items: list[tuple[str, dict[str, Any]]] = []
-    for component_name in (
-        "count_target",
-        "measure",
-        "numerator",
-        "denominator",
-        "value_component",
-        "score_source",
-    ):
-        component = payload.get(component_name)
-        if isinstance(component, dict):
-            items.append((component_name, component))
-    return items
-
-
 # ── Pure predicate helpers ─────────────────────────────────────────────
 
 

@@ -8,22 +8,18 @@ Registered via ``_bootstrap_finding_extractors()`` in
 
 Artifact type: ``"observation"``   Schema version: ``"v1"``   Family: ``"observe"``
 
-Maps the five ``observation_type`` variants to :class:`ObservationFinding`:
+Maps the three ``observation_type`` variants to :class:`ObservationFinding`:
 
 - ``scalar``               → 1 finding (:class:`ScalarObservationPayload`)
 - ``time_series``          → 1 finding per bucket (:class:`TimeBucketObservationPayload`);
                              empty series → 0 findings (success-empty)
 - ``segmented``            → 1 finding per segment (:class:`SegmentObservationPayload`);
                              empty segments → 0 findings (success-empty)
-- ``numeric_sample_summary`` → 1 finding (:class:`SampleSummaryObservationPayload`,
-                               ``sample_kind="numeric"``)
-- ``rate_sample_summary``  → 1 finding (:class:`SampleSummaryObservationPayload`,
-                               ``sample_kind="rate"``)
 """
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any
 
 from marivo.core.evidence.canonical_finding import (
     FindingExtractionResult,
@@ -31,7 +27,6 @@ from marivo.core.evidence.canonical_finding import (
     FindingQuality,
     FindingSubject,
     ObservationFinding,
-    SampleSummaryObservationPayload,
     ScalarObservationPayload,
     SegmentObservationPayload,
     StepRef,
@@ -125,15 +120,10 @@ class ObserveArtifactExtractor(FindingExtractor):
             findings = self._extract_time_series(artifact_id, artifact_payload, step_ref)
         elif obs_type == "segmented":
             findings = self._extract_segmented(artifact_id, artifact_payload, step_ref)
-        elif obs_type == "numeric_sample_summary":
-            findings = self._extract_numeric_sample_summary(artifact_id, artifact_payload, step_ref)
-        elif obs_type == "rate_sample_summary":
-            findings = self._extract_rate_sample_summary(artifact_id, artifact_payload, step_ref)
         else:
             raise ValueError(
                 f"ObserveArtifactExtractor: unknown observation_type={obs_type!r}. "
-                "Expected one of: scalar, time_series, segmented, "
-                "numeric_sample_summary, rate_sample_summary."
+                "Expected one of: scalar, time_series, segmented."
             )
 
         return FindingExtractionResult(
@@ -304,58 +294,3 @@ class ObserveArtifactExtractor(FindingExtractor):
             )
             findings.append(finding)
         return findings
-
-    def _extract_sample_summary(
-        self,
-        artifact_id: str,
-        payload: dict[str, Any],
-        step_ref: StepRef,
-        sample_kind: Literal["numeric", "rate"],
-    ) -> list[ObservationFinding]:
-        canonical_item_key, item_ref = make_item_identity("result")
-        finding_id = make_finding_id(artifact_id, "observation", canonical_item_key)
-        am = payload.get("analytical_metadata") or {}
-
-        raw_summary = payload.get("sample_summary") or {}
-        # Coerce all values to float | None — any non-numeric type (str, bool-as-int
-        # is already handled by float()) maps to None via _to_float_or_none.
-        summary = {k: _to_float_or_none(v) for k, v in raw_summary.items()}
-
-        finding = ObservationFinding(
-            finding_id=finding_id,
-            finding_type="observation",
-            artifact_id=artifact_id,
-            step_ref=step_ref,
-            subject=FindingSubject(
-                metric=payload.get("metric"),
-                entity=None,
-                slice=payload.get("scope") or {},
-                grain=None,
-                analysis_axis="scalar",
-            ),
-            observed_window=payload.get("time_scope"),
-            quality=_quality_from_am(am),
-            provenance=self._make_provenance(step_ref, canonical_item_key, item_ref),
-            payload=SampleSummaryObservationPayload(
-                observation_kind="sample_summary",
-                sample_kind=sample_kind,
-                summary=summary,
-            ),
-        )
-        return [finding]
-
-    def _extract_numeric_sample_summary(
-        self,
-        artifact_id: str,
-        payload: dict[str, Any],
-        step_ref: StepRef,
-    ) -> list[ObservationFinding]:
-        return self._extract_sample_summary(artifact_id, payload, step_ref, "numeric")
-
-    def _extract_rate_sample_summary(
-        self,
-        artifact_id: str,
-        payload: dict[str, Any],
-        step_ref: StepRef,
-    ) -> list[ObservationFinding]:
-        return self._extract_sample_summary(artifact_id, payload, step_ref, "rate")

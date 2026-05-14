@@ -25,7 +25,6 @@ def test_core_engine_has_no_io_methods() -> None:
         "resolve_metric_table",
         "resolve_metric_dimensions",
         "resolve_metric_sql_for_execution",
-        "resolve_metric_value_sql_for_execution",
         "resolve_scope_constraint_column",
         "compile_step",
         "resolve_windowed_query_time_axis",

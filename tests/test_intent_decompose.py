@@ -318,19 +318,19 @@ def _make_time_series_compare_artifact(
 
 def _make_mock_metric(
     additive_dimensions: list[str] | None = None,
-    sample_kind: str = "numeric",
+    aggregation_semantics: str = "sum",
     dimensions: list[str] | None = None,
 ) -> MagicMock:
     mock = MagicMock()
     mock.additive_dimensions = additive_dimensions
-    mock.sample_kind = sample_kind
+    mock.aggregation_semantics = aggregation_semantics
     dims = dimensions or ["dimension.country"]
     mock.allowed_dimensions = dims
     mock.dimensions = dims
     mock.grain = "day"
     # Semantic object header carries additive_dimensions for the runtime path
     header: dict = {
-        "sample_kind": sample_kind,
+        "aggregation_semantics": aggregation_semantics,
     }
     if additive_dimensions is not None:
         header["additive_dimensions"] = additive_dimensions
@@ -340,7 +340,7 @@ def _make_mock_metric(
 
 def _build_decompose_success_runtime(
     additive_dimensions: list[str] | None,
-    sample_kind: str = "numeric",
+    aggregation_semantics: str = "sum",
     dimensions: list[str] | None = None,
     time_scope_field: str = "time.date",
 ) -> MagicMock:
@@ -350,7 +350,7 @@ def _build_decompose_success_runtime(
     )
     mock_metric = _make_mock_metric(
         additive_dimensions=additive_dimensions,
-        sample_kind=sample_kind,
+        aggregation_semantics=aggregation_semantics,
         dimensions=dimensions,
     )
     runtime = MagicMock()

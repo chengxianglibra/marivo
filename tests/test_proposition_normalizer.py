@@ -546,7 +546,7 @@ class TestTestHypothesisIdentity(unittest.TestCase):
 
     def test_different_method_family(self) -> None:
         k1 = self._k(method_family="welch_t")
-        k2 = self._k(method_family="two_proportion_z")
+        k2 = self._k(method_family="spearman")
         self.assertNotEqual(k1, k2)
 
     def test_hypothesis_label_not_in_identity(self) -> None:

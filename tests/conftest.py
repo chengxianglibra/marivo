@@ -52,8 +52,6 @@ def _set_test_user():
 collect_ignore_glob = [
     "test_intent_attribute.py",
     "test_intent_detect.py",
-    "test_intent_test.py",
-    "test_intent_validate.py",
     "test_intent_diagnose.py",
     "test_intent_forecast.py",
     "test_intent_compare.py",

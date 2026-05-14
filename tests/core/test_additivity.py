@@ -75,31 +75,6 @@ def test_supports_attribute_enabled() -> None:
 
 
 # ---------------------------------------------------------------------------
-# supports_test
-# ---------------------------------------------------------------------------
-
-
-def test_supports_test_numeric() -> None:
-    result = derive_additivity_capabilities(additive_dimensions=["country"], sample_kind="numeric")
-    assert result.supports_test is True
-
-
-def test_supports_test_rate() -> None:
-    result = derive_additivity_capabilities(additive_dimensions=["country"], sample_kind="rate")
-    assert result.supports_test is True
-
-
-def test_supports_test_unsupported_kind() -> None:
-    result = derive_additivity_capabilities(additive_dimensions=["country"], sample_kind="ordinal")
-    assert result.supports_test is False
-
-
-def test_supports_test_no_sample_kind() -> None:
-    result = derive_additivity_capabilities(additive_dimensions=["country"])
-    assert result.supports_test is True
-
-
-# ---------------------------------------------------------------------------
 # supports_detect (now depends only on process_anchor_time_ref)
 # ---------------------------------------------------------------------------
 
@@ -114,26 +89,6 @@ def test_supports_detect_with_process_anchor_time_ref() -> None:
         additive_dimensions=["country"], process_anchor_time_ref="event_time"
     )
     assert result.supports_detect is True
-
-
-# ---------------------------------------------------------------------------
-# supports_validate
-# ---------------------------------------------------------------------------
-
-
-def test_supports_validate_rate() -> None:
-    result = derive_additivity_capabilities(additive_dimensions=["country"], sample_kind="rate")
-    assert result.supports_validate is True
-
-
-def test_supports_validate_non_rate() -> None:
-    result = derive_additivity_capabilities(additive_dimensions=["country"], sample_kind="numeric")
-    assert result.supports_validate is False
-
-
-def test_supports_validate_no_sample_kind() -> None:
-    result = derive_additivity_capabilities(additive_dimensions=["country"])
-    assert result.supports_validate is False
 
 
 # ---------------------------------------------------------------------------
@@ -182,14 +137,3 @@ def test_remediation_hint_non_additive() -> None:
 def test_no_remediation_hint_when_additive() -> None:
     result = derive_additivity_capabilities(additive_dimensions=["country"])
     assert result.remediation_hint is None
-
-
-# ---------------------------------------------------------------------------
-# Whitespace / empty-string normalization for optional params
-# ---------------------------------------------------------------------------
-
-
-def test_sample_kind_whitespace_treated_as_default() -> None:
-    result = derive_additivity_capabilities(additive_dimensions=["country"], sample_kind="  ")
-    assert result.supports_test is True
-    assert result.supports_validate is False

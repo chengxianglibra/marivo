@@ -1,7 +1,12 @@
 {
   "version": "0.1.1",
-  "dialects": ["ANSI_SQL", "SNOWFLAKE"],
-  "vendors": ["MARIVO"],
+  "dialects": [
+    "ANSI_SQL",
+    "SNOWFLAKE"
+  ],
+  "vendors": [
+    "MARIVO"
+  ],
   "semantic_model": [
     {
       "name": "ecommerce",
@@ -10,92 +15,215 @@
         {
           "name": "orders",
           "source": "analytics.ecom.orders",
-          "primary_key": ["order_id"],
+          "primary_key": [
+            "order_id"
+          ],
           "description": "Order fact table",
           "fields": [
             {
               "name": "order_id",
-              "expression": { "dialects": [{ "dialect": "ANSI_SQL", "expression": "order_id" }] }
+              "expression": {
+                "dialects": [
+                  {
+                    "dialect": "ANSI_SQL",
+                    "expression": "order_id"
+                  }
+                ]
+              }
             },
             {
               "name": "customer_id",
-              "expression": { "dialects": [{ "dialect": "ANSI_SQL", "expression": "customer_id" }] }
+              "expression": {
+                "dialects": [
+                  {
+                    "dialect": "ANSI_SQL",
+                    "expression": "customer_id"
+                  }
+                ]
+              }
             },
             {
               "name": "order_date",
-              "expression": { "dialects": [{ "dialect": "ANSI_SQL", "expression": "order_date" }] },
-              "dimension": { "is_time": true }
+              "expression": {
+                "dialects": [
+                  {
+                    "dialect": "ANSI_SQL",
+                    "expression": "order_date"
+                  }
+                ]
+              },
+              "dimension": {
+                "is_time": true
+              }
             },
             {
               "name": "amount",
-              "expression": { "dialects": [{ "dialect": "ANSI_SQL", "expression": "total_amount" }] }
+              "expression": {
+                "dialects": [
+                  {
+                    "dialect": "ANSI_SQL",
+                    "expression": "total_amount"
+                  }
+                ]
+              }
             },
             {
               "name": "quantity",
-              "expression": { "dialects": [{ "dialect": "ANSI_SQL", "expression": "item_count" }] }
+              "expression": {
+                "dialects": [
+                  {
+                    "dialect": "ANSI_SQL",
+                    "expression": "item_count"
+                  }
+                ]
+              }
             },
             {
               "name": "channel",
-              "expression": { "dialects": [{ "dialect": "ANSI_SQL", "expression": "sales_channel" }] }
+              "expression": {
+                "dialects": [
+                  {
+                    "dialect": "ANSI_SQL",
+                    "expression": "sales_channel"
+                  }
+                ]
+              }
             },
             {
               "name": "is_refunded",
-              "expression": { "dialects": [{ "dialect": "ANSI_SQL", "expression": "refund_flag" }] }
+              "expression": {
+                "dialects": [
+                  {
+                    "dialect": "ANSI_SQL",
+                    "expression": "refund_flag"
+                  }
+                ]
+              }
             }
           ],
           "custom_extensions": [
-            { "vendor_name": "MARIVO", "data": { "datasource_id": "ds_snowflake_prod" } }
+            {
+              "vendor_name": "MARIVO",
+              "data": {
+                "datasource_id": "ds_snowflake_prod"
+              }
+            }
           ]
         },
         {
           "name": "customers",
           "source": "analytics.ecom.customers",
-          "primary_key": ["customer_id"],
+          "primary_key": [
+            "customer_id"
+          ],
           "description": "Customer dimension table",
           "fields": [
             {
               "name": "customer_id",
-              "expression": { "dialects": [{ "dialect": "ANSI_SQL", "expression": "customer_id" }] }
+              "expression": {
+                "dialects": [
+                  {
+                    "dialect": "ANSI_SQL",
+                    "expression": "customer_id"
+                  }
+                ]
+              }
             },
             {
               "name": "name",
-              "expression": { "dialects": [{ "dialect": "ANSI_SQL", "expression": "full_name" }] }
+              "expression": {
+                "dialects": [
+                  {
+                    "dialect": "ANSI_SQL",
+                    "expression": "full_name"
+                  }
+                ]
+              }
             },
             {
               "name": "signup_date",
-              "expression": { "dialects": [{ "dialect": "ANSI_SQL", "expression": "created_at" }] },
-              "dimension": { "is_time": true }
+              "expression": {
+                "dialects": [
+                  {
+                    "dialect": "ANSI_SQL",
+                    "expression": "created_at"
+                  }
+                ]
+              },
+              "dimension": {
+                "is_time": true
+              }
             },
             {
               "name": "region",
-              "expression": { "dialects": [{ "dialect": "ANSI_SQL", "expression": "geo_region" }] }
+              "expression": {
+                "dialects": [
+                  {
+                    "dialect": "ANSI_SQL",
+                    "expression": "geo_region"
+                  }
+                ]
+              }
             }
           ],
           "custom_extensions": [
-            { "vendor_name": "MARIVO", "data": { "datasource_id": "ds_snowflake_prod" } }
+            {
+              "vendor_name": "MARIVO",
+              "data": {
+                "datasource_id": "ds_snowflake_prod"
+              }
+            }
           ]
         },
         {
           "name": "products",
           "source": "analytics.ecom.products",
-          "primary_key": ["product_id"],
+          "primary_key": [
+            "product_id"
+          ],
           "description": "Product dimension table",
           "fields": [
             {
               "name": "product_id",
-              "expression": { "dialects": [{ "dialect": "ANSI_SQL", "expression": "product_id" }] }
+              "expression": {
+                "dialects": [
+                  {
+                    "dialect": "ANSI_SQL",
+                    "expression": "product_id"
+                  }
+                ]
+              }
             },
             {
               "name": "category",
-              "expression": { "dialects": [{ "dialect": "ANSI_SQL", "expression": "product_category" }] }
+              "expression": {
+                "dialects": [
+                  {
+                    "dialect": "ANSI_SQL",
+                    "expression": "product_category"
+                  }
+                ]
+              }
             },
             {
               "name": "price",
-              "expression": { "dialects": [{ "dialect": "ANSI_SQL", "expression": "unit_price" }] }
+              "expression": {
+                "dialects": [
+                  {
+                    "dialect": "ANSI_SQL",
+                    "expression": "unit_price"
+                  }
+                ]
+              }
             }
           ],
           "custom_extensions": [
-            { "vendor_name": "MARIVO", "data": { "datasource_id": "ds_snowflake_prod" } }
+            {
+              "vendor_name": "MARIVO",
+              "data": {
+                "datasource_id": "ds_snowflake_prod"
+              }
+            }
           ]
         }
       ],
@@ -104,47 +232,90 @@
           "name": "orders_to_customers",
           "from": "orders",
           "to": "customers",
-          "from_columns": ["customer_id"],
-          "to_columns": ["customer_id"]
+          "from_columns": [
+            "customer_id"
+          ],
+          "to_columns": [
+            "customer_id"
+          ]
         }
       ],
       "metrics": [
         {
           "name": "gmv",
-          "expression": { "dialects": [{ "dialect": "ANSI_SQL", "expression": "SUM(total_amount)" }] },
+          "expression": {
+            "dialects": [
+              {
+                "dialect": "ANSI_SQL",
+                "expression": "SUM(total_amount)"
+              }
+            ]
+          },
           "description": "Gross merchandise value",
           "custom_extensions": [
             {
               "vendor_name": "MARIVO",
-              "data": { "additive_dimensions": ["region", "channel", "order_date"], "sample_kind": "numeric" }
+              "data": {
+                "additive_dimensions": [
+                  "region",
+                  "channel",
+                  "order_date"
+                ],
+                "aggregation_semantics": "sum"
+              }
             }
           ]
         },
         {
           "name": "order_count",
-          "expression": { "dialects": [{ "dialect": "ANSI_SQL", "expression": "COUNT(DISTINCT order_id)" }] },
+          "expression": {
+            "dialects": [
+              {
+                "dialect": "ANSI_SQL",
+                "expression": "COUNT(DISTINCT order_id)"
+              }
+            ]
+          },
           "description": "Number of unique orders",
           "custom_extensions": [
             {
               "vendor_name": "MARIVO",
-              "data": { "additive_dimensions": ["region", "channel"], "sample_kind": "numeric" }
+              "data": {
+                "additive_dimensions": [
+                  "region",
+                  "channel"
+                ],
+                "aggregation_semantics": "sum"
+              }
             }
           ]
         },
         {
           "name": "aov",
-          "expression": { "dialects": [{ "dialect": "ANSI_SQL", "expression": "SUM(total_amount) / COUNT(DISTINCT order_id)" }] },
+          "expression": {
+            "dialects": [
+              {
+                "dialect": "ANSI_SQL",
+                "expression": "SUM(total_amount) / COUNT(DISTINCT order_id)"
+              }
+            ]
+          },
           "description": "Average order value",
           "custom_extensions": [
             {
               "vendor_name": "MARIVO",
-              "data": { "additive_dimensions": ["region", "channel"], "sample_kind": "numeric" }
+              "data": {
+                "additive_dimensions": [
+                  "region",
+                  "channel"
+                ],
+                "aggregation_semantics": "weighted_average"
+              }
             }
           ]
         }
       ],
-      "custom_extensions": [
-      ]
+      "custom_extensions": []
     }
   ]
 }

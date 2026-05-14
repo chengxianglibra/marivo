@@ -176,7 +176,7 @@ def metric_to_storage(metric: Metric, model_id: int) -> dict[str, Any]:
         if marivo_ext and marivo_ext.additive_dimensions is not None
         else None
     )
-    sample_kind = marivo_ext.sample_kind if marivo_ext else "numeric"
+    aggregation_semantics = marivo_ext.aggregation_semantics if marivo_ext else "sum"
     expression = json.dumps(metric.expression.model_dump(exclude_none=True))
     ai_context = _ai_context_to_json(metric.ai_context)
     return {
@@ -186,7 +186,7 @@ def metric_to_storage(metric: Metric, model_id: int) -> dict[str, Any]:
         "description": metric.description,
         "ai_context": ai_context,
         "additive_dimensions": additive_dimensions,
-        "sample_kind": sample_kind,
+        "aggregation_semantics": aggregation_semantics,
     }
 
 
@@ -266,11 +266,12 @@ def _storage_to_metric(row: dict[str, Any]) -> dict[str, Any]:
         if row.get("additive_dimensions") is not None
         else None
     )
-    sample_kind: Literal["numeric", "rate"] = cast(
-        "Literal['numeric', 'rate']", row.get("sample_kind") or "numeric"
+    aggregation_semantics: Literal["sum", "ratio", "weighted_average"] = cast(
+        "Literal['sum', 'ratio', 'weighted_average']", row.get("aggregation_semantics") or "sum"
     )
     marivo_ext = MarivoMetricExtension(
-        additive_dimensions=additive_dimensions or [], sample_kind=sample_kind
+        additive_dimensions=additive_dimensions or [],
+        aggregation_semantics=aggregation_semantics,
     )
     result: dict[str, Any] = {
         "name": row["name"],

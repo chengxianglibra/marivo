@@ -27,30 +27,18 @@ def _entity_field_ref(entity_ref: str, field_name: str) -> str:
     return f"{entity_ref}.field.{field_name.removeprefix('field.')}"
 
 
-def _default_metric_input_field_refs(entity_ref: str, measure_type: str | None) -> dict[str, str]:
+def _default_metric_aggregation_semantics(entity_ref: str, measure_type: str | None) -> str:
     kind = str(measure_type or "count").strip().lower()
-    if kind in {"percentile", "quantile"}:
-        return {"value_component": _entity_field_ref(entity_ref, "value")}
-    if kind in {"ratio", "rate", "average", "mean"}:
-        return {
-            "numerator": _entity_field_ref(entity_ref, "numerator"),
-            "denominator": _entity_field_ref(entity_ref, "denominator"),
-        }
-    if kind == "sum":
-        return {"measure": _entity_field_ref(entity_ref, "value")}
-    return {"count_target": _entity_field_ref(entity_ref, "user_id")}
+    if kind in {"ratio", "rate"}:
+        return "ratio"
+    return "sum"
 
 
 def _metric_payload_with_default_input_fields(
     metric_name: str, measure_type: str | None, entity_ref: str
 ) -> dict[str, Any]:
     payload = _metric_payload_for_measure_type(metric_name, measure_type)
-    for component_name, field_ref in _default_metric_input_field_refs(
-        entity_ref, measure_type
-    ).items():
-        component = payload.get(component_name)
-        if isinstance(component, dict) and "input_field_ref" not in component:
-            component["input_field_ref"] = field_ref
+    _ = _default_metric_aggregation_semantics(entity_ref, measure_type)
     return payload
 
 
@@ -61,7 +49,7 @@ def _default_entity_fields_for_metric(
     source_object_fqn: str = "analytics.watch_events",
 ) -> dict[str, Any]:
     _ = source_object_fqn
-    input_fields = _default_metric_input_field_refs(entity_ref, measure_type)
+    aggregation_semantics = _default_metric_aggregation_semantics(entity_ref, measure_type)
     fields: dict[str, dict[str, Any]] = {
         "user_id": {
             "field_ref": "field.user_id",
@@ -76,18 +64,17 @@ def _default_entity_fields_for_metric(
             "physical_column": "event_date",
         },
     }
-    for field_ref in input_fields.values():
-        field_name = field_ref.rsplit(".field.", 1)[-1]
-        value_type = "number" if field_name in {"value", "numerator", "denominator"} else "string"
-        fields.setdefault(
-            field_name,
-            {
-                "field_ref": f"field.{field_name}",
-                "value_type": value_type,
-                "nullable": False,
-                "physical_column": field_name,
-            },
-        )
+    if aggregation_semantics == "ratio":
+        for field_name in ("numerator", "denominator"):
+            fields.setdefault(
+                field_name,
+                {
+                    "field_ref": f"field.{field_name}",
+                    "value_type": "number",
+                    "nullable": False,
+                    "physical_column": field_name,
+                },
+            )
     return {"fields": list(fields.values()), "binding": {}}
 
 
@@ -413,11 +400,6 @@ def _metric_payload_for_measure_type(metric_name: str, measure_type: str | None)
         }
     return {
         "metric_family": "count_metric",
-        "count_target": {
-            "name": metric_name,
-            "semantics": f"Count target for {metric_name}",
-            "aggregation": "count",
-        },
     }
 
 
@@ -426,34 +408,34 @@ def _metric_header_axes(measure_type: str | None) -> tuple[str, str, str, list[s
     if kind in {"percentile", "quantile"}:
         return (
             "distribution_metric",
-            "numeric",
+            "distribution_statistic",
             "distribution_statistic",
             [],
         )
     if kind in {"ratio", "rate"}:
         return (
             "rate_metric",
-            "rate",
+            "ratio",
             "ratio",
             [],
         )
     if kind in {"average", "mean"}:
         return (
             "average_metric",
-            "numeric",
+            "weighted_average",
             "mean",
             [],
         )
     if kind == "sum":
         return (
             "sum_metric",
-            "numeric",
+            "sum",
             "sum",
             ["country", "device", "date"],
         )
     return (
         "count_metric",
-        "numeric",
+        "sum",
         "count",
         ["country", "device", "date"],
     )
@@ -721,7 +703,7 @@ def ensure_published_typed_metric(
 
     dimension_names = list(dimensions or [])
     additive_dimensions = list(allowed_dimensions or dimension_names)
-    _, sample_kind, _, _ = _metric_header_axes(measure_type)
+    _, aggregation_semantics, _, _ = _metric_header_axes(measure_type)
     metric_sql = definition_sql or "COUNT(*)"
 
     for dimension_name in dimension_names:
@@ -757,7 +739,7 @@ def ensure_published_typed_metric(
         metadata.execute(
             """
             INSERT INTO semantic_metrics (
-                model_id, name, expression, description, additive_dimensions, sample_kind
+                model_id, name, expression, description, additive_dimensions, aggregation_semantics
             ) VALUES (?, ?, ?, ?, ?, ?)
             """,
             [
@@ -766,14 +748,14 @@ def ensure_published_typed_metric(
                 metric_expression,
                 description,
                 additive_dimensions_json,
-                sample_kind,
+                aggregation_semantics,
             ],
         )
     else:
         metadata.execute(
             """
             UPDATE semantic_metrics
-            SET expression = ?, description = ?, additive_dimensions = ?, sample_kind = ?,
+            SET expression = ?, description = ?, additive_dimensions = ?, aggregation_semantics = ?,
                 updated_at = datetime('now')
             WHERE metric_id = ?
             """,
@@ -781,7 +763,7 @@ def ensure_published_typed_metric(
                 metric_expression,
                 description,
                 additive_dimensions_json,
-                sample_kind,
+                aggregation_semantics,
                 existing["metric_id"],
             ],
         )
@@ -798,7 +780,6 @@ def ensure_published_typed_metric_binding(
     surface_name: str = "value",
     surface_physical_name: str | None = None,
     dimension_names: Sequence[str] | None = None,
-    metric_input_target_keys: Sequence[str] | None = None,
     binding_imports: Sequence[dict[str, Any]] | None = None,
     field_surfaces_extra: Sequence[dict[str, Any]] | None = None,
     time_surfaces: Sequence[dict[str, Any]] | None = None,
@@ -817,7 +798,6 @@ def ensure_published_typed_metric_binding(
     _ = binding_role
     _ = surface_name
     _ = surface_physical_name
-    _ = metric_input_target_keys
     _ = binding_imports
     _ = field_surfaces_extra
     _ = time_surfaces

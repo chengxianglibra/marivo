@@ -59,7 +59,10 @@ def test_version_constants_exist() -> None:
 def test_marivo_metric_extension_matches_spec() -> None:
     from marivo.transports.http.models.marivo_extensions import MarivoMetricExtension
 
-    assert set(MarivoMetricExtension.model_fields) == {"additive_dimensions", "sample_kind"}
+    assert set(MarivoMetricExtension.model_fields) == {
+        "additive_dimensions",
+        "aggregation_semantics",
+    }
 
 
 def test_semantic_metrics_ddl_has_additive_dimensions() -> None:

@@ -1,8 +1,8 @@
 """Tests for the observe artifact → observation finding extractor (Phase 4d-1).
 
 Covers acceptance criteria:
-- All 5 observation_type modes (scalar, time_series, segmented,
-  numeric_sample_summary, rate_sample_summary) produce correct ObservationFindings.
+- All 3 observation_type modes (scalar, time_series, segmented)
+  produce correct ObservationFindings.
 - time_series / segmented success-empty (empty collection → 0 findings) is legal.
 - finding_id is stable across replay for every mode.
 - Segment canonical_item_key is derived from sorted key-value pairs (projection order
@@ -114,55 +114,6 @@ def _segmented_payload(
             "quality_status": "ready" if segments else "not_ready",
             "row_count": len(segments),
             "sample_size": len(segments),
-            "null_rate": None,
-        },
-    }
-
-
-def _numeric_summary_payload() -> dict[str, Any]:
-    return {
-        "schema_version": "1.0",
-        "observation_type": "numeric_sample_summary",
-        "metric": "session_duration",
-        "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
-        "scope": {},
-        "unit": None,
-        "sample_summary": {
-            "n": 1000,
-            "mean": 45.2,
-            "variance": 100.0,
-            "standard_deviation": 10.0,
-            "min": 1.0,
-            "max": 300.0,
-        },
-        "analytical_metadata": {
-            "data_complete": None,
-            "quality_status": "ready",
-            "row_count": 1000,
-            "sample_size": 1000,
-            "null_rate": None,
-        },
-    }
-
-
-def _rate_summary_payload(rate: float | None = 0.25) -> dict[str, Any]:
-    return {
-        "schema_version": "1.0",
-        "observation_type": "rate_sample_summary",
-        "metric": "conversion_rate",
-        "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
-        "scope": {},
-        "unit": None,
-        "sample_summary": {
-            "successes": 250,
-            "trials": 1000,
-            "rate": rate,
-        },
-        "analytical_metadata": {
-            "data_complete": None,
-            "quality_status": "ready",
-            "row_count": 1000,
-            "sample_size": 1000,
             "null_rate": None,
         },
     }
@@ -376,79 +327,6 @@ class TestObserveExtractorSegmented(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# TestObserveExtractorNumericSampleSummary
-# ---------------------------------------------------------------------------
-
-
-class TestObserveExtractorNumericSampleSummary(unittest.TestCase):
-    def setUp(self) -> None:
-        self.result = _EXTRACTOR.extract(_ART_ID, _numeric_summary_payload(), _STEP_REF, _SESSION)
-
-    def test_produces_one_finding(self) -> None:
-        self.assertEqual(len(self.result["findings"]), 1)
-
-    def test_finding_count_matches_findings(self) -> None:
-        self.assertEqual(self.result["finding_count"], 1)
-
-    def test_sample_kind_is_numeric(self) -> None:
-        f = self.result["findings"][0]
-        self.assertEqual(f["payload"]["sample_kind"], "numeric")
-
-    def test_observation_kind_is_sample_summary(self) -> None:
-        f = self.result["findings"][0]
-        self.assertEqual(f["payload"]["observation_kind"], "sample_summary")
-
-    def test_canonical_item_key_is_result(self) -> None:
-        f = self.result["findings"][0]
-        self.assertEqual(f["provenance"]["canonical_item_key"], "result")
-
-    def test_int_n_coerced_to_float(self) -> None:
-        f = self.result["findings"][0]
-        n = f["payload"]["summary"]["n"]
-        self.assertIsInstance(n, float)
-        self.assertEqual(n, 1000.0)
-
-    def test_float_fields_preserved(self) -> None:
-        f = self.result["findings"][0]
-        self.assertEqual(f["payload"]["summary"]["mean"], 45.2)
-
-    def test_quality_propagated(self) -> None:
-        f = self.result["findings"][0]
-        self.assertEqual(f["quality"]["quality_status"], "ready")
-        self.assertEqual(f["quality"]["sample_size"], 1000)
-
-
-# ---------------------------------------------------------------------------
-# TestObserveExtractorRateSampleSummary
-# ---------------------------------------------------------------------------
-
-
-class TestObserveExtractorRateSampleSummary(unittest.TestCase):
-    def test_produces_one_finding(self) -> None:
-        result = _EXTRACTOR.extract(_ART_ID, _rate_summary_payload(), _STEP_REF, _SESSION)
-        self.assertEqual(len(result["findings"]), 1)
-
-    def test_sample_kind_is_rate(self) -> None:
-        result = _EXTRACTOR.extract(_ART_ID, _rate_summary_payload(), _STEP_REF, _SESSION)
-        self.assertEqual(result["findings"][0]["payload"]["sample_kind"], "rate")
-
-    def test_canonical_item_key_is_result(self) -> None:
-        result = _EXTRACTOR.extract(_ART_ID, _rate_summary_payload(), _STEP_REF, _SESSION)
-        self.assertEqual(result["findings"][0]["provenance"]["canonical_item_key"], "result")
-
-    def test_null_rate_allowed(self) -> None:
-        result = _EXTRACTOR.extract(_ART_ID, _rate_summary_payload(rate=None), _STEP_REF, _SESSION)
-        self.assertEqual(len(result["findings"]), 1)
-        self.assertIsNone(result["findings"][0]["payload"]["summary"]["rate"])
-
-    def test_int_trials_coerced_to_float(self) -> None:
-        result = _EXTRACTOR.extract(_ART_ID, _rate_summary_payload(), _STEP_REF, _SESSION)
-        trials = result["findings"][0]["payload"]["summary"]["trials"]
-        self.assertIsInstance(trials, float)
-        self.assertEqual(trials, 1000.0)
-
-
-# ---------------------------------------------------------------------------
 # TestObserveExtractorUnknownType
 # ---------------------------------------------------------------------------
 
@@ -517,9 +395,6 @@ class TestObserveExtractorIdentityStability(unittest.TestCase):
         seg_key = "region=US"
         assert_finding_id_stable(self, _ART_ID, "observation", "rows", key=seg_key)
 
-    def test_sample_summary_item_identity_stable(self) -> None:
-        assert_finding_id_stable(self, _ART_ID, "observation", "result")
-
     def test_segment_projection_order_excluded(self) -> None:
         # A segment with a stable key must produce the same finding_id regardless
         # of what rank it had in a projection order.
@@ -569,45 +444,6 @@ class TestObserveExtractorValidateForCommit(unittest.TestCase):
     def test_validate_segmented_empty_passes(self) -> None:
         # D4: observe allows success-empty.
         self._validate(_segmented_payload(segments=[]))
-
-    def test_validate_numeric_summary_passes(self) -> None:
-        self._validate(_numeric_summary_payload())
-
-    def test_validate_rate_summary_passes(self) -> None:
-        self._validate(_rate_summary_payload())
-
-
-# ---------------------------------------------------------------------------
-# TestSampleSummaryCoercion
-# ---------------------------------------------------------------------------
-
-
-class TestSampleSummaryCoercion(unittest.TestCase):
-    """summary dict must produce dict[str, float | None] for all value types."""
-
-    def test_string_value_coerced_to_none(self) -> None:
-        # A malformed artifact with a string "n/a" must not leak a str into the
-        # typed summary dict; _to_float_or_none must map it to None.
-        payload = {
-            **_numeric_summary_payload(),
-            "sample_summary": {"n": 100, "mean": "n/a"},
-        }
-        result = _EXTRACTOR.extract(_ART_ID, payload, _STEP_REF, _SESSION)
-        summary = result["findings"][0]["payload"]["summary"]
-        self.assertIsNone(summary["mean"])
-        self.assertIsInstance(summary["n"], float)
-
-    def test_all_values_are_float_or_none(self) -> None:
-        payload = {
-            **_numeric_summary_payload(),
-            "sample_summary": {"n": 1000, "mean": 45.2, "missing": None, "bad": "oops"},
-        }
-        result = _EXTRACTOR.extract(_ART_ID, payload, _STEP_REF, _SESSION)
-        summary = result["findings"][0]["payload"]["summary"]
-        for k, v in summary.items():
-            self.assertIn(
-                type(v), (float, type(None)), msg=f"key {k!r} has unexpected type {type(v)}"
-            )
 
 
 # ---------------------------------------------------------------------------

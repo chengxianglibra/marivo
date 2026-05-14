@@ -360,14 +360,12 @@ def _bootstrap_finding_extractors() -> None:
     from marivo.runtime.evidence.detect_extractor import DetectArtifactExtractor
     from marivo.runtime.evidence.forecast_extractor import ForecastArtifactExtractor
     from marivo.runtime.evidence.observe_extractor import ObserveArtifactExtractor
-    from marivo.runtime.evidence.test_extractor import TestArtifactExtractor
 
     default_finding_registry.register(ObserveArtifactExtractor())
     default_finding_registry.register(DetectArtifactExtractor())
     default_finding_registry.register(CompareArtifactExtractor())
     default_finding_registry.register(DecomposeArtifactExtractor())
     default_finding_registry.register(CorrelateArtifactExtractor())
-    default_finding_registry.register(TestArtifactExtractor())
     default_finding_registry.register(ForecastArtifactExtractor())
 
 

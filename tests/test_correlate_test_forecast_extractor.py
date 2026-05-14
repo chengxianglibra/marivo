@@ -1,4 +1,4 @@
-"""Tests for correlate / test / forecast finding extractors (Phase 4d-4).
+"""Tests for correlate / forecast finding extractors (Phase 4d-4).
 
 CorrelateArtifactExtractor (pairwise_time_series_association → CorrelationResultFinding):
 - D5: exactly 1 finding per artifact
@@ -9,15 +9,6 @@ CorrelateArtifactExtractor (pairwise_time_series_association → CorrelationResu
 - observed_window from matched_time_scope when present; None when absent
 - validate_for_commit("correlate", result) passes
 - Registered under ("pairwise_time_series_association", "v1"); NULL normalisation
-
-TestArtifactExtractor (hypothesis_test → TestResultFinding):
-- D5: exactly 1 finding per artifact
-- finding_id stability
-- payload fields (method, statistic_name, statistic_value, p_value, reject_null, alpha, estimate_value)
-- subject.analysis_axis = "test"; subject.metric = None
-- observed_window = None
-- validate_for_commit("test", result) passes
-- Registered under ("hypothesis_test", "v1"); NULL normalisation
 
 ForecastArtifactExtractor (forecast_series → ForecastPointFinding):
 - N buckets → N findings
@@ -50,7 +41,6 @@ from marivo.runtime.evidence.finding_extractor_registry import (
     validate_for_commit,
 )
 from marivo.runtime.evidence.correlate_extractor import CorrelateArtifactExtractor
-from marivo.runtime.evidence.test_extractor import TestArtifactExtractor
 from marivo.runtime.evidence.forecast_extractor import ForecastArtifactExtractor
 from marivo.core.evidence.family_contract import FamilyEmptyError
 from tests.finding_identity_testutil import assert_finding_id_stable
@@ -63,17 +53,14 @@ _SESSION = "sess_4d4_test"
 _STEP_ID = "step_4d4_001"
 
 _CORRELATE_STEP_REF: StepRef = StepRef(session_id=_SESSION, step_id=_STEP_ID, step_type="correlate")
-_TEST_STEP_REF: StepRef = StepRef(session_id=_SESSION, step_id=_STEP_ID, step_type="test")
 _FORECAST_STEP_REF: StepRef = StepRef(session_id=_SESSION, step_id=_STEP_ID, step_type="forecast")
 
 _LEFT_ART_ID = "art_obs_left_001"
 _RIGHT_ART_ID = "art_obs_right_001"
 _CORRELATE_ART_ID = "art_correlate_001"
-_TEST_ART_ID = "art_test_001"
 _FORECAST_ART_ID = "art_forecast_001"
 
 _CORRELATE_EXTRACTOR = CorrelateArtifactExtractor()
-_TEST_EXTRACTOR = TestArtifactExtractor()
 _FORECAST_EXTRACTOR = ForecastArtifactExtractor()
 
 
@@ -122,74 +109,6 @@ def _correlate_payload(
             "pairing_rule": pairing_rule,
             "matched_time_scope": matched_time_scope,
         },
-    }
-
-
-def _test_payload(
-    left_artifact_id: str = _LEFT_ART_ID,
-    right_artifact_id: str = _RIGHT_ART_ID,
-    method: str = "welch_t",
-    estimate_value: float | None = 2.5,
-    stat_name: str = "t",
-    stat_value: float | None = 3.14,
-    p_value: float | None = 0.003,
-    reject_null: bool | None = True,
-    alpha: float = 0.05,
-    comparability: dict[str, Any] | None = None,
-    calendar_alignment: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    payload: dict[str, Any] = {
-        "artifact_schema_version": "v1",
-        "result_type": "hypothesis_test",
-        "left_ref": {
-            "step_type": "observe",
-            "session_id": _SESSION,
-            "step_id": "step_obs_left",
-            "artifact_id": left_artifact_id,
-            "observation_type": "numeric_sample_summary",
-        },
-        "right_ref": {
-            "step_type": "observe",
-            "session_id": _SESSION,
-            "step_id": "step_obs_right",
-            "artifact_id": right_artifact_id,
-            "observation_type": "numeric_sample_summary",
-        },
-        "method": method,
-        "estimate": {"estimand": "mean_diff", "value": estimate_value},
-        "statistic": {"name": stat_name, "value": stat_value},
-        "p_value": p_value,
-        "decision": {"reject_null": reject_null},
-        "hypothesis": {"family": "difference", "alternative": "two_sided", "alpha": alpha},
-    }
-    if comparability is not None:
-        payload["comparability"] = comparability
-    if calendar_alignment is not None:
-        payload["resolved_input_summary"] = {"calendar_alignment": calendar_alignment}
-    return payload
-
-
-def _calendar_alignment_summary(
-    *,
-    aligned_ratio: float = 1.0,
-    unpaired_bucket_count: int = 0,
-) -> dict[str, Any]:
-    coverage = {
-        "aligned_bucket_count": 7,
-        "unpaired_bucket_count": unpaired_bucket_count,
-        "aligned_ratio": aligned_ratio,
-    }
-    return {
-        "reuse_source": "observation_resolved_policy_summary",
-        "policy_ref": "calendar_policy.calendar_yoy",
-        "comparison_basis": "yoy",
-        "resolved_calendar_source": "calendar.cn_holidays",
-        "resolved_calendar_version": "2026.01",
-        "comparability_warnings": [],
-        "rollup_safe": True,
-        "left_coverage_summary": dict(coverage),
-        "right_coverage_summary": dict(coverage),
-        "effective_coverage_summary": dict(coverage),
     }
 
 
@@ -342,136 +261,6 @@ class TestCorrelateExtractor(unittest.TestCase):
 
 
 # ===========================================================================
-# TestArtifactExtractor tests
-# ===========================================================================
-
-
-class TestTestExtractor(unittest.TestCase):
-    def _extract(self, payload: dict[str, Any] | None = None) -> Any:
-        p = payload if payload is not None else _test_payload()
-        return _TEST_EXTRACTOR.extract(_TEST_ART_ID, p, _TEST_STEP_REF, _SESSION)
-
-    def test_d5_exactly_one_finding(self) -> None:
-        result = self._extract()
-        self.assertEqual(result["finding_count"], 1)
-        self.assertEqual(len(result["findings"]), 1)
-
-    def test_finding_type(self) -> None:
-        result = self._extract()
-        self.assertEqual(result["findings"][0]["finding_type"], "test_result")
-
-    def test_finding_id_stable(self) -> None:
-        assert_finding_id_stable(
-            self,
-            _TEST_ART_ID,
-            "test_result",
-            "result",
-        )
-
-    def test_finding_id_derivation(self) -> None:
-        result = self._extract()
-        expected_key, _ = make_item_identity("result")
-        expected_id = make_finding_id(_TEST_ART_ID, "test_result", expected_key)
-        self.assertEqual(result["findings"][0]["finding_id"], expected_id)
-
-    def test_payload_method(self) -> None:
-        result = self._extract(_test_payload(method="two_proportion_z"))
-        self.assertEqual(result["findings"][0]["payload"]["method"], "two_proportion_z")
-
-    def test_payload_statistic_fields(self) -> None:
-        result = self._extract(_test_payload(stat_name="z", stat_value=2.58))
-        payload = result["findings"][0]["payload"]
-        self.assertEqual(payload["statistic_name"], "z")
-        self.assertAlmostEqual(payload["statistic_value"], 2.58)
-
-    def test_payload_p_value_and_reject_null(self) -> None:
-        result = self._extract(_test_payload(p_value=0.001, reject_null=True))
-        payload = result["findings"][0]["payload"]
-        self.assertAlmostEqual(payload["p_value"], 0.001)
-        self.assertTrue(payload["reject_null"])
-
-    def test_payload_reject_null_false(self) -> None:
-        result = self._extract(_test_payload(reject_null=False))
-        self.assertFalse(result["findings"][0]["payload"]["reject_null"])
-
-    def test_payload_alpha(self) -> None:
-        result = self._extract(_test_payload(alpha=0.01))
-        self.assertAlmostEqual(result["findings"][0]["payload"]["alpha"], 0.01)
-
-    def test_payload_estimate_value(self) -> None:
-        result = self._extract(_test_payload(estimate_value=5.5))
-        self.assertAlmostEqual(result["findings"][0]["payload"]["estimate_value"], 5.5)
-
-    def test_payload_left_right_artifact_ids(self) -> None:
-        result = self._extract()
-        payload = result["findings"][0]["payload"]
-        self.assertEqual(payload["left_ref"]["artifact_id"], _LEFT_ART_ID)
-        self.assertEqual(payload["right_ref"]["artifact_id"], _RIGHT_ART_ID)
-
-    def test_subject_analysis_axis(self) -> None:
-        result = self._extract()
-        self.assertEqual(result["findings"][0]["subject"]["analysis_axis"], "test")
-
-    def test_subject_metric_is_none(self) -> None:
-        result = self._extract()
-        self.assertIsNone(result["findings"][0]["subject"]["metric"])
-
-    def test_observed_window_is_none(self) -> None:
-        result = self._extract()
-        self.assertIsNone(result["findings"][0]["observed_window"])
-
-    def test_validate_for_commit_passes(self) -> None:
-        result = self._extract()
-        validate_for_commit("test", result)
-
-    def test_comparability_and_calendar_alignment_propagated(self) -> None:
-        result = self._extract(
-            _test_payload(
-                comparability={
-                    "status": "needs_attention",
-                    "issues": [
-                        {
-                            "code": "alignment_coverage_insufficient",
-                            "severity": "warning",
-                            "message": "coverage warning",
-                        }
-                    ],
-                },
-                calendar_alignment=_calendar_alignment_summary(
-                    aligned_ratio=0.8, unpaired_bucket_count=1
-                ),
-            )
-        )
-        payload = result["findings"][0]["payload"]
-        self.assertEqual(payload["comparability"]["status"], "needs_attention")
-        self.assertEqual(
-            payload["comparability"]["issues"][0]["code"], "alignment_coverage_insufficient"
-        )
-        self.assertEqual(
-            payload["calendar_alignment"]["policy_ref"], "calendar_policy.calendar_yoy"
-        )
-
-    def test_registered_in_default_registry(self) -> None:
-        extractor = default_finding_registry.find("hypothesis_test", "v1")
-        self.assertIsNotNone(extractor)
-        self.assertIsInstance(extractor, TestArtifactExtractor)
-
-    def test_null_version_normalisation(self) -> None:
-        extractor = default_finding_registry.find("hypothesis_test", None)
-        self.assertIsNotNone(extractor)
-
-    def test_payload_method_unknown_passes_through(self) -> None:
-        """Unknown method string is preserved as-is, not coerced to a default."""
-        result = self._extract(_test_payload(method="mann_whitney"))
-        self.assertEqual(result["findings"][0]["payload"]["method"], "mann_whitney")
-
-    def test_payload_stat_name_unknown_passes_through(self) -> None:
-        """Unknown statistic name is preserved as-is, not coerced to a default."""
-        result = self._extract(_test_payload(stat_name="f"))
-        self.assertEqual(result["findings"][0]["payload"]["statistic_name"], "f")
-
-
-# ===========================================================================
 # ForecastArtifactExtractor tests
 # ===========================================================================
 
@@ -610,7 +399,7 @@ class TestForecastExtractor(unittest.TestCase):
 
 
 class TestRegistrySnapshotCompleteness(unittest.TestCase):
-    def test_snapshot_contains_all_seven_extractors(self) -> None:
+    def test_snapshot_contains_all_six_extractors(self) -> None:
         snapshot = default_finding_registry.snapshot()
         artifact_types = {e["artifact_type"] for e in snapshot}
         expected = {
@@ -619,11 +408,10 @@ class TestRegistrySnapshotCompleteness(unittest.TestCase):
             "compare_artifact",
             "delta_decomposition",
             "pairwise_time_series_association",
-            "hypothesis_test",
             "forecast_series",
         }
         self.assertEqual(artifact_types, expected)
 
-    def test_snapshot_has_seven_entries(self) -> None:
+    def test_snapshot_has_six_entries(self) -> None:
         snapshot = default_finding_registry.snapshot()
-        self.assertEqual(len(snapshot), 7)
+        self.assertEqual(len(snapshot), 6)

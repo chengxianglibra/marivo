@@ -1,7 +1,7 @@
 """Typed request models for the Marivo intent-based write surface.
 
 Intent API models for observe, compare, correlate, decompose, detect,
-test, forecast, attribute, diagnose, and validate intents.
+forecast, attribute, and diagnose intents.
 
 Path (/intents/<intent_type>) acts as the discriminator; no step_type field.
 """
@@ -43,23 +43,6 @@ class CorrelateObservationRef(ObservationRef):
     observation_type: Literal["time_series"] = Field(
         default="time_series",
         description="Must be 'time_series'.  v1 does not support scalar or segmented correlations.",
-    )
-
-
-class TestObservationRef(ObservationRef):
-    """Full typed artifact reference for `test`.
-
-    Matches the typed reference contract from docs/analysis/intents/atomic/test.md.
-    """
-
-    artifact_id: str = Field(
-        description="Artifact ID of the upstream committed observe artifact.",
-    )
-    observation_type: Literal["numeric_sample_summary", "rate_sample_summary"] = Field(
-        description=(
-            "Inferential-ready observation artifact type. "
-            "Must be 'numeric_sample_summary' or 'rate_sample_summary'."
-        ),
     )
 
 
@@ -294,36 +277,3 @@ class DiagnoseRequest(BaseModel):
             if self.patterns is not None:
                 raise ValueError("patterns are only valid when mode='auto_detect'")
         return self
-
-
-class ValidateObservationInput(BaseModel):
-    """One side (left/right) of a validate intent: time scope + optional non-time scope."""
-
-    time_scope: ObserveTimeScope
-    scope: ObserveScope | None = None
-
-
-class ValidateHypothesis(BaseModel):
-    """Hypothesis specification for a validate intent (difference family only in v1)."""
-
-    family: Literal["difference"] = "difference"
-    alternative: Literal["two_sided", "greater", "less"] = "two_sided"
-    alpha: float = Field(default=0.05, gt=0.0, lt=1.0)
-    label: str | None = None
-
-
-class ValidateRequest(BaseModel):
-    """Derived intent: validate a hypothesis (expands to observe×2 + test)."""
-
-    metric: str = Field(
-        description="Canonical semantic metric ref to validate (e.g., 'metric.watch_time')."
-    )
-    left: ValidateObservationInput = Field(description="Primary / treatment population.")
-    right: ValidateObservationInput = Field(description="Comparison / control population.")
-    hypothesis: ValidateHypothesis | None = Field(default=None)
-    method: Literal["auto", "welch_t", "two_proportion_z"] | None = Field(default=None)
-
-    @field_validator("metric")
-    @classmethod
-    def _validate_metric_ref(cls, value: str) -> str:
-        return validate_ref_prefix(value, "metric", "metric")
