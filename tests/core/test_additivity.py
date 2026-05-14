@@ -101,7 +101,7 @@ def test_supports_test_unsupported_kind() -> None:
 
 def test_supports_test_no_sample_kind() -> None:
     result = derive_additivity_capabilities(additive_dimensions=["country"])
-    assert result.supports_test is False
+    assert result.supports_test is True
 
 
 # ---------------------------------------------------------------------------
@@ -194,7 +194,7 @@ def test_no_remediation_hint_when_additive() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_sample_kind_whitespace_treated_as_empty() -> None:
+def test_sample_kind_whitespace_treated_as_default() -> None:
     result = derive_additivity_capabilities(additive_dimensions=["country"], sample_kind="  ")
-    assert result.supports_test is False
+    assert result.supports_test is True
     assert result.supports_validate is False

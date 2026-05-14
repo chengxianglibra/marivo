@@ -629,7 +629,7 @@ Request body fields:
 - `metric`: required semantic metric
 - `left`: required inferential-ready scalar-observation input
 - `right`: required inferential-ready scalar-observation input
-- `sample_kind`: `auto`, `numeric`, or `rate`; defaults to `auto`
+- `sample_kind`: `auto`, `numeric`, or `rate`; defaults to `auto`; `"auto"` resolves from the metric's declared `sample_kind` in `MarivoMetricExtension`
 - `hypothesis`: optional difference-hypothesis contract
 - `method`: `auto`, `welch_t`, or `two_proportion_z`; defaults to `auto`
 

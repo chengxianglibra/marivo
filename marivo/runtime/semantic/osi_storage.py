@@ -7,7 +7,7 @@ expected by / returned from the SQLite metadata store.
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, Literal, cast
 
 from pydantic import BaseModel
 
@@ -176,6 +176,7 @@ def metric_to_storage(metric: Metric, model_id: int) -> dict[str, Any]:
         if marivo_ext and marivo_ext.additive_dimensions is not None
         else None
     )
+    sample_kind = marivo_ext.sample_kind if marivo_ext else "numeric"
     expression = json.dumps(metric.expression.model_dump(exclude_none=True))
     ai_context = _ai_context_to_json(metric.ai_context)
     return {
@@ -185,6 +186,7 @@ def metric_to_storage(metric: Metric, model_id: int) -> dict[str, Any]:
         "description": metric.description,
         "ai_context": ai_context,
         "additive_dimensions": additive_dimensions,
+        "sample_kind": sample_kind,
     }
 
 
@@ -264,7 +266,12 @@ def _storage_to_metric(row: dict[str, Any]) -> dict[str, Any]:
         if row.get("additive_dimensions") is not None
         else None
     )
-    marivo_ext = MarivoMetricExtension(additive_dimensions=additive_dimensions or [])
+    sample_kind: Literal["numeric", "rate", "binary", "survival"] = cast(
+        "Literal['numeric', 'rate', 'binary', 'survival']", row.get("sample_kind") or "numeric"
+    )
+    marivo_ext = MarivoMetricExtension(
+        additive_dimensions=additive_dimensions or [], sample_kind=sample_kind
+    )
     result: dict[str, Any] = {
         "name": row["name"],
         "expression": json.loads(row["expression"]),

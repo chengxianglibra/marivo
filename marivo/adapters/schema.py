@@ -7,7 +7,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Literal
 
-METADATA_SCHEMA_VERSION = "metadata.contract_removal.v1"
+METADATA_SCHEMA_VERSION = "metadata.sample_kind.v1"
 METADATA_SCHEMA_MARKER_TABLE = "metadata_schema_marker"
 
 METADATA_DDL: list[str] = [
@@ -172,6 +172,7 @@ METADATA_DDL: list[str] = [
         description         TEXT,
         ai_context          TEXT,
         additive_dimensions TEXT,
+        sample_kind         TEXT NOT NULL DEFAULT 'numeric',
         created_at          TEXT NOT NULL DEFAULT (datetime('now')),
         updated_at          TEXT NOT NULL DEFAULT (datetime('now')),
         UNIQUE(model_id, name)
@@ -663,6 +664,7 @@ def _mysql_text_type(column_name: str, suffix: str, indexed_columns: set[str]) -
         "proposition_type",
         "assessment_type",
         "action_kind",
+        "sample_kind",
         "fqn",
         "lifecycle",
         "native_name",

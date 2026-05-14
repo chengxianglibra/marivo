@@ -47,7 +47,7 @@
           "custom_extensions": [
             {
               "vendor_name": "MARIVO",
-              "data": { "additive_dimensions": ["txn_date"] }
+              "data": { "additive_dimensions": ["txn_date"], "sample_kind": "numeric" }
             }
           ]
         }

@@ -8,7 +8,7 @@ Deterministically expands to:
 sample_kind controls which inferential summary mode the internal observes produce:
   "numeric" -> numeric_sample_summary
   "rate"    -> rate_sample_summary
-  "auto"    -> fails SAMPLE_KIND_AMBIGUOUS in v1 (metric capability hints not yet in schema)
+  "auto"    -> resolves from the metric's declared sample_kind in MarivoMetricExtension
 
 Design contract: docs/analysis/intents/derived/validate.md
 """
@@ -53,12 +53,12 @@ def run_validate_intent(
       metric:      published semantic metric
       left:        { time_scope, scope? } — primary / treatment side
       right:       { time_scope, scope? } — comparison / control side
-      sample_kind: "numeric" | "rate" | "auto" (auto fails in v1)
+      sample_kind: "numeric" | "rate" | "auto" (auto resolves from metric's declared sample_kind)
       hypothesis:  { family?, alternative?, alpha?, label? }
       method:      "auto" | "welch_t" | "two_proportion_z" (passed through to test)
 
     Failure semantics:
-      - sample_kind="auto" → SAMPLE_KIND_AMBIGUOUS (v1 limitation)
+      - sample_kind="auto" when metric has no unambiguous sample_kind → SAMPLE_KIND_AMBIGUOUS
       - observe failures → hard fail
       - observation_type mismatch → hard fail
       - test failures → hard fail
@@ -102,10 +102,16 @@ def run_validate_intent(
 
     raw_sample_kind: str = str(p.get("sample_kind") or "auto").lower()
     if raw_sample_kind == "auto":
-        raise ValueError(
-            "validate: SAMPLE_KIND_AMBIGUOUS - sample_kind='auto' cannot be uniquely resolved "
-            "in v1. Specify 'numeric' or 'rate' explicitly."
-        )
+        resolved_metric = runtime.resolve_metric(metric_name)
+        _metric_header = (resolved_metric.semantic_object or {}).get("header") or {}
+        metric_sample_kind = _metric_header.get("sample_kind")
+        if metric_sample_kind in {"numeric", "rate"}:
+            raw_sample_kind = metric_sample_kind
+        else:
+            raise ValueError(
+                "validate: SAMPLE_KIND_AMBIGUOUS - sample_kind='auto' cannot be uniquely resolved "
+                "from metric's declared sample_kind. Specify 'numeric' or 'rate' explicitly."
+            )
     if raw_sample_kind not in {"numeric", "rate"}:
         raise ValueError(
             f"validate: INVALID_ARGUMENT - sample_kind must be 'numeric' or 'rate', "

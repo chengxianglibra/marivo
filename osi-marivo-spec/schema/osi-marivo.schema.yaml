@@ -17,6 +17,7 @@ dataset_extension:
 metric_extension:
   additive_dimensions:         # Dimension and time fields across which the metric is additive.
     - string
+  sample_kind: string          # numeric | rate | binary | survival. Default: numeric. NOT NULL.
 
 # OSI custom extension envelope for MARIVO dataset/metric payloads.
 custom_extension:

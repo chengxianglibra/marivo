@@ -57,17 +57,10 @@ class AdditivityCapabilityResult:
         }
 
 
-def _optional_str(value: Any) -> str | None:
-    if isinstance(value, str):
-        normalized = value.strip()
-        return normalized or None
-    return None
-
-
 def derive_additivity_capabilities(
     *,
     additive_dimensions: list[str],
-    sample_kind: str | None = None,
+    sample_kind: str = "numeric",
     process_anchor_time_ref: str | None = None,
 ) -> AdditivityCapabilityResult:
     """Derive analysis capabilities from additive_dimensions.
@@ -83,7 +76,7 @@ def derive_additivity_capabilities(
         Optional anchor time ref from an associated process object.
         Affects supports_detect.
     """
-    sample_kind = _optional_str(sample_kind) or ""
+    sample_kind = sample_kind.strip() or "numeric"
 
     if len(additive_dimensions) == 0:
         supports_decompose = False

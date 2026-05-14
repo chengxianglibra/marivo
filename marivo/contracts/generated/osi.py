@@ -155,6 +155,10 @@ class MarivoMetricExtension(BaseModel):
         None,
         description="Field names across which the metric is additive, including ordinary dimensions and time fields. Empty array means the metric is not additive on any dimension.",
     )
+    sample_kind: Literal["numeric", "rate", "binary", "survival"] = Field(
+        "numeric",
+        description="Sample type of the metric. Determines inferential summary mode and which analysis intents are supported.",
+    )
 
 
 class MarivoDatasetCustomExtension(BaseModel):
