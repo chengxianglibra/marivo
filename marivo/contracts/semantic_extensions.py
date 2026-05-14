@@ -74,29 +74,6 @@ class MarivoMetricExtension(BaseModel):
     def _validate_additive_dimensions(self) -> MarivoMetricExtension:
         return self
 
-    @model_validator(mode="before")
-    @classmethod
-    def _normalize_legacy_payload(cls, data: object) -> object:
-        if not isinstance(data, dict):
-            return data
-
-        normalized = dict(data)
-
-        # Legacy: additivity -> additive_dimensions
-        if "additive_dimensions" not in normalized:
-            additivity = normalized.get("additivity")
-            if isinstance(additivity, dict) and "additive_dimensions" in additivity:
-                normalized["additive_dimensions"] = additivity.get("additive_dimensions")
-
-        # Legacy: sample_kind -> aggregation_semantics
-        if "sample_kind" in normalized and "aggregation_semantics" not in normalized:
-            sample_kind = normalized.pop("sample_kind")
-            if sample_kind == "rate":
-                normalized["aggregation_semantics"] = "ratio"
-            # sample_kind="numeric" defaults to aggregation_semantics="sum"
-
-        return normalized
-
     @property
     def observed_dataset(self) -> str | None:
         return getattr(self, "__pydantic_extra__", {}).get("observed_dataset")
