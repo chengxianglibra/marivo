@@ -266,8 +266,8 @@ def _storage_to_metric(row: dict[str, Any]) -> dict[str, Any]:
         if row.get("additive_dimensions") is not None
         else None
     )
-    sample_kind: Literal["numeric", "rate", "binary", "survival"] = cast(
-        "Literal['numeric', 'rate', 'binary', 'survival']", row.get("sample_kind") or "numeric"
+    sample_kind: Literal["numeric", "rate"] = cast(
+        "Literal['numeric', 'rate']", row.get("sample_kind") or "numeric"
     )
     marivo_ext = MarivoMetricExtension(
         additive_dimensions=additive_dimensions or [], sample_kind=sample_kind

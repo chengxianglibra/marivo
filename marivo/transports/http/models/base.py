@@ -41,7 +41,7 @@ MetricFamily = Literal[
     "score_metric",
     "survival_metric",
 ]
-SampleKind = Literal["numeric", "rate", "binary", "survival"]
+SampleKind = Literal["numeric", "rate"]
 ValueSemantics = Literal[
     "count",
     "sum",

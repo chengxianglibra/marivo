@@ -89,11 +89,6 @@ def test_supports_test_rate() -> None:
     assert result.supports_test is True
 
 
-def test_supports_test_binary() -> None:
-    result = derive_additivity_capabilities(additive_dimensions=["country"], sample_kind="binary")
-    assert result.supports_test is True
-
-
 def test_supports_test_unsupported_kind() -> None:
     result = derive_additivity_capabilities(additive_dimensions=["country"], sample_kind="ordinal")
     assert result.supports_test is False

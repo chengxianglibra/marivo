@@ -342,8 +342,6 @@ class TestLiteralTypes(unittest.TestCase):
     def test_sample_kind(self):
         kind: SampleKind = "numeric"
         kind = "rate"
-        kind = "binary"
-        kind = "survival"
 
     def test_value_semantics(self):
         semantics: ValueSemantics = "count"

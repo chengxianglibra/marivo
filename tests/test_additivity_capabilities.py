@@ -95,20 +95,6 @@ class DeriveAdditivityCapabilitiesTests(unittest.TestCase):
         )
         self.assertTrue(caps.supports_test)
 
-    def test_supports_test_binary(self) -> None:
-        caps = derive_additivity_capabilities(
-            additive_dimensions=["country"],
-            sample_kind="binary",
-        )
-        self.assertTrue(caps.supports_test)
-
-    def test_no_supports_test_survival(self) -> None:
-        caps = derive_additivity_capabilities(
-            additive_dimensions=["country"],
-            sample_kind="survival",
-        )
-        self.assertFalse(caps.supports_test)
-
     # -- supports_detect (process_anchor_time_ref only) -----------------------
 
     def test_supports_detect_from_process_anchor(self) -> None:
@@ -231,7 +217,7 @@ class DeriveAdditivityCapabilitiesTests(unittest.TestCase):
         caps = derive_additivity_capabilities(additive_dimensions=["country"])
         # supports_compare always True (time_scope.field guaranteed at request level)
         self.assertTrue(caps.supports_compare)
-        # supports_test = sample_kind in {"numeric", "rate", "binary"} -> True (default "numeric")
+        # supports_test = sample_kind in {"numeric", "rate"} -> True (default "numeric")
         self.assertTrue(caps.supports_test)
         # supports_detect = bool(process_anchor_time_ref) -> False
         self.assertFalse(caps.supports_detect)

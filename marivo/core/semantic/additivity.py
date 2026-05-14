@@ -96,7 +96,7 @@ def derive_additivity_capabilities(
     # Composite capabilities
     supports_compare = True
     supports_attribute = supports_compare and supports_decompose
-    supports_test = sample_kind in {"numeric", "rate", "binary"}
+    supports_test = sample_kind in {"numeric", "rate"}
     supports_detect = bool(process_anchor_time_ref)
     supports_validate = sample_kind == "rate"
 

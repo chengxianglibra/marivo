@@ -148,7 +148,7 @@
 - subject_key_semantics：分析主体键
 - observation_unit：user / device / session / order
 - numerator / denominator contract
-- sample_kind：numeric / rate / binary / survival
+- sample_kind：numeric / rate
 - additivity：additive / semi_additive / non_additive
 - attribution_basis：assignment / exposure / event-time / session-time
 - attribution_window
