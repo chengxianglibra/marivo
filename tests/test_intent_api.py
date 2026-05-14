@@ -672,7 +672,6 @@ class ClosedSessionWriteGuardTests(unittest.TestCase):
             f"/sessions/{self.session_id}/intents/validate",
             json={
                 "metric": _metric_ref("dau"),
-                "sample_kind": "rate",
                 "left": {
                     "time_scope": {"kind": "range", "start": "2024-01-08", "end": "2024-01-15"}
                 },

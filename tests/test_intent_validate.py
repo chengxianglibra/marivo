@@ -10,21 +10,20 @@ Covers:
   - run_validate_intent: result.decision = "fail_to_reject" when both sides have same data
   - run_validate_intent: artifact_id persisted and retrievable
   - run_validate_intent: result_type = "validation_bundle"
-  - run_validate_intent: sample_kind = "rate" triggers rate_sample_summary observations
+  - run_validate_intent: rate metric resolves sample_kind from metric header → rate_sample_summary observations
   - run_validate_intent: hypothesis.alternative = "greater" propagated to bundle
   - run_validate_intent: method = "auto" resolved to concrete method in bundle
   - run_validate_intent: result.estimate has estimand and value
   - run_validate_intent: missing metric → ValueError
   - run_validate_intent: missing left.time_scope → ValueError
   - run_validate_intent: missing right.time_scope → ValueError
-  - run_validate_intent: sample_kind = "auto" → ValueError (SAMPLE_KIND_AMBIGUOUS)
+  - run_validate_intent: unsupported sample_kind (binary/survival) → ValueError (SAMPLE_KIND_UNSUPPORTED)
   - run_validate_intent: hypothesis.family = "ratio" → ValueError
   - run_validate_intent: hypothesis.alpha = 0 → ValueError
   - run_validate_intent: method = "badmethod" → ValueError
   - HTTP endpoint: valid validate returns 200 with result_type = "validation_bundle"
   - HTTP endpoint: missing left returns 422
   - HTTP endpoint: unknown session returns 404
-  - HTTP endpoint: sample_kind omitted returns 422 with SAMPLE_KIND_AMBIGUOUS
 """
 
 from __future__ import annotations
@@ -241,7 +240,6 @@ class ValidateRunnerServiceTests(unittest.TestCase):
                 "metric": _METRIC_NUMERIC,
                 "left": {"time_scope": {"kind": "range", "start": left_start, "end": left_end}},
                 "right": {"time_scope": {"kind": "range", "start": right_start, "end": right_end}},
-                "sample_kind": "numeric",
                 "hypothesis": {"family": "difference", "alternative": alternative, "alpha": alpha},
                 "method": "auto",
             },
@@ -423,8 +421,8 @@ class ValidateRunnerServiceTests(unittest.TestCase):
         )
         self.assertEqual(len(rows), 1)
 
-    def test_sample_kind_rate_triggers_rate_summary_observations(self) -> None:
-        """sample_kind='rate' causes observe steps to produce rate_sample_summary artifacts."""
+    def test_rate_metric_resolves_rate_summary_observations(self) -> None:
+        """Rate metric resolves sample_kind from header → observe steps produce rate_sample_summary artifacts."""
         sid = self._make_session()
         bundle = self.service.run_intent(
             sid,
@@ -445,7 +443,6 @@ class ValidateRunnerServiceTests(unittest.TestCase):
                         "end": _WINDOW_B_END,
                     }
                 },
-                "sample_kind": "rate",
             },
         )
         left_ref = bundle["refs"]["left_observation_ref"]
@@ -515,7 +512,6 @@ class ValidateValidationBoundaryTests(unittest.TestCase):
             "right": {
                 "time_scope": {"kind": "range", "start": _WINDOW_B_START, "end": _WINDOW_B_END}
             },
-            "sample_kind": "numeric",
         }
         p.update(overrides)
         return p
@@ -549,12 +545,25 @@ class ValidateValidationBoundaryTests(unittest.TestCase):
             )
         self.assertIn("right", str(ctx.exception).lower())
 
-    def test_sample_kind_auto_raises_sample_kind_ambiguous(self) -> None:
-        """sample_kind='auto' → ValueError: SAMPLE_KIND_AMBIGUOUS."""
+    def test_unsupported_sample_kind_raises_sample_kind_unsupported(self) -> None:
+        """Metric with sample_kind='binary' → ValueError: SAMPLE_KIND_UNSUPPORTED."""
         sid = self._make_session()
-        with self.assertRaises(ValueError) as ctx:
-            self.service.run_intent(sid, "validate", self._base_params(sample_kind="auto"))
-        self.assertIn("SAMPLE_KIND_AMBIGUOUS", str(ctx.exception))
+        with (
+            patch.object(
+                self.service,
+                "resolve_metric",
+                return_value=type(
+                    "M",
+                    (),
+                    {
+                        "semantic_object": {"header": {"sample_kind": "binary"}},
+                    },
+                )(),
+            ),
+            self.assertRaises(ValueError) as ctx,
+        ):
+            self.service.run_intent(sid, "validate", self._base_params())
+        self.assertIn("SAMPLE_KIND_UNSUPPORTED", str(ctx.exception))
 
     def test_hypothesis_family_ratio_raises_value_error(self) -> None:
         """hypothesis.family='ratio' → ValueError (only 'difference' in v1)."""
@@ -625,7 +634,6 @@ class ValidateHTTPTests(unittest.TestCase):
                 "right": {
                     "time_scope": {"kind": "range", "start": _WINDOW_B_START, "end": _WINDOW_B_END}
                 },
-                "sample_kind": "numeric",
             },
         )
         self.assertEqual(resp.status_code, 200)
@@ -641,7 +649,6 @@ class ValidateHTTPTests(unittest.TestCase):
                 "right": {
                     "time_scope": {"kind": "range", "start": _WINDOW_B_START, "end": _WINDOW_B_END}
                 },
-                "sample_kind": "numeric",
             },
         )
         self.assertEqual(resp.status_code, 422)
@@ -658,25 +665,6 @@ class ValidateHTTPTests(unittest.TestCase):
                 "right": {
                     "time_scope": {"kind": "range", "start": _WINDOW_B_START, "end": _WINDOW_B_END}
                 },
-                "sample_kind": "numeric",
             },
         )
         self.assertEqual(resp.status_code, 404)
-
-    def test_sample_kind_omitted_returns_422_with_ambiguous_error(self) -> None:
-        """Omitting sample_kind defaults to 'auto' → SAMPLE_KIND_AMBIGUOUS → 422."""
-        resp = self.client.post(
-            f"/sessions/{self.session_id}/intents/validate",
-            json={
-                "metric": _metric_ref(_METRIC_NUMERIC),
-                "left": {
-                    "time_scope": {"kind": "range", "start": _WINDOW_A_START, "end": _WINDOW_A_END}
-                },
-                "right": {
-                    "time_scope": {"kind": "range", "start": _WINDOW_B_START, "end": _WINDOW_B_END}
-                },
-                # sample_kind omitted → defaults to "auto" → SAMPLE_KIND_AMBIGUOUS → 422
-            },
-        )
-        self.assertEqual(resp.status_code, 422)
-        self.assertIn("SAMPLE_KIND_AMBIGUOUS", resp.json()["detail"])

@@ -23,6 +23,16 @@ class _Runtime:
         self.artifacts: list[dict[str, Any]] = []
         self.steps: list[dict[str, Any]] = []
 
+    @staticmethod
+    def resolve_metric(metric_name: str) -> Any:
+        return type(
+            "M",
+            (),
+            {
+                "semantic_object": {"header": {"sample_kind": "numeric"}},
+            },
+        )()
+
     def insert_artifact(
         self,
         session_id: str,
@@ -73,7 +83,6 @@ def _params() -> dict[str, Any]:
         "metric": "metric.revenue",
         "left": {"time_scope": {"start": "2026-01-01", "end": "2026-01-02"}},
         "right": {"time_scope": {"start": "2026-01-08", "end": "2026-01-09"}},
-        "sample_kind": "numeric",
     }
 
 

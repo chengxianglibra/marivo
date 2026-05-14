@@ -1622,8 +1622,9 @@ interface AssociationResult {
 | 参数 | 类型 | 必填 | 默认 | 说明 |
 |------|------|------|------|------|
 | method | `"auto"` \| `"welch_t"` \| `"two_proportion_z"` \| null | 否 | null | 检验方法，null 由系统自动选择 |
-| sample_kind | `"auto"` \| `"numeric"` \| `"rate"` \| null | 否 | null | 样本类型；`"auto"` 从 metric 的 MarivoMetricExtension.sample_kind 解析 |
 | hypothesis | object \| null | 否 | null | 假设描述对象（需为结构化对象，不接受 JSON 字符串） |
+
+`sample_kind` 从 metric 的 `MarivoMetricExtension.sample_kind` 自动解析（`"numeric"` 或 `"rate"`），不需要用户指定。
 
 **输出 — ValidateArtifact**：
 
@@ -1658,8 +1659,7 @@ interface Decision {
   "right": {
     "time_scope": { "field": "create_time", "start": "2025-03-04", "end": "2025-03-11" }
   },
-  "method": "welch_t",
-  "sample_kind": "numeric"
+  "method": "welch_t"
 }
 ```
 
