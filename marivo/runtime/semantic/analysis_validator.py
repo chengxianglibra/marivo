@@ -591,17 +591,14 @@ def _gate_dimension_additivity_condition(
     resolved_inputs: ResolvedCompilerInputs,
     derived_state: DerivedCompilerState,
 ) -> list[ValidationIssue]:
-    """Gate decompose/attribute dimensions against additive_dimensions when
-    capability_condition is 'dimension_must_be_allowed'."""
+    """Gate decompose/attribute dimensions against additive_dimensions."""
     issues: list[ValidationIssue] = []
     caps = derived_state.metric_capabilities
     if caps is None:
         return issues
-    if caps.capability_condition != "dimension_must_be_allowed":
-        return issues
     if step_type not in ("decompose", "attribute"):
         return issues
-    if caps.additive_dimensions is None:
+    if len(caps.additive_dimensions) == 0:
         return issues
 
     # Check resolved canonical dimension refs against additive_dimensions.
@@ -614,10 +611,7 @@ def _gate_dimension_additivity_condition(
                     gate="dimension_additivity",
                     category="compatibility",
                     severity="error",
-                    message=(
-                        f"Dimension '{dim}' is not in additive_dimensions "
-                        f"for this metric (dimension_policy='subset')."
-                    ),
+                    message=(f"Dimension '{dim}' is not in additive_dimensions for this metric."),
                     subject_ref=resolved_inputs.resolved_metric.ref
                     if resolved_inputs.resolved_metric is not None
                     else None,
@@ -639,7 +633,7 @@ def _gate_dimension_additivity_condition(
                 message=(
                     f"Dimension '{dim}' could not be resolved to a canonical ref "
                     f"and cannot be verified against additive_dimensions "
-                    f"for this metric (dimension_policy='subset')."
+                    f"for this metric."
                 ),
                 subject_ref=resolved_inputs.resolved_metric.ref
                 if resolved_inputs.resolved_metric is not None

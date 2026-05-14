@@ -128,7 +128,7 @@ def _scalar_observation(metric: str = "m1") -> dict[str, Any]:
         "value": 42.0,
         "analytical_metadata": {
             "aggregation_semantics": "sum",
-            "additivity_constraints": {"dimension_policy": "all", "time_axis_policy": "additive"},
+            "additive_dimensions": ["country", "device", "date"],
             "row_count": 10,
         },
         "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
@@ -163,7 +163,7 @@ def _time_series_observation(
         "series": series,
         "analytical_metadata": {
             "aggregation_semantics": "sum",
-            "additivity_constraints": {"dimension_policy": "all", "time_axis_policy": "additive"},
+            "additive_dimensions": ["country", "device", "date"],
             "row_count": len(series),
         },
         "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-03"},
@@ -2283,10 +2283,7 @@ class TestDecomposeRunnerCommitPath(unittest.TestCase):
         resolved_metric = MagicMock()
         resolved_metric.semantic_object = {
             "header": {
-                "additivity_constraints": {
-                    "dimension_policy": "all",
-                    "time_axis_policy": "additive",
-                },
+                "additive_dimensions": ["dim1", "time.default"],
                 "primary_time_ref": "time.default",
                 "sample_kind": "rate",
             },
@@ -2295,10 +2292,7 @@ class TestDecomposeRunnerCommitPath(unittest.TestCase):
                 "dimensions": ["dim1"],
             },
         }
-        resolved_metric.additivity_constraints = {
-            "dimension_policy": "all",
-            "time_axis_policy": "additive",
-        }  # fully additive supports decompose
+        resolved_metric.additive_dimensions = ["dim1", "time.default"]
         resolved_metric.primary_time_ref = "time.default"
         resolved_metric.sample_kind = "rate"
         resolved_metric.allowed_dimensions = ["dim1"]

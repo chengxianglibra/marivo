@@ -10,7 +10,7 @@ is then handed to core.semantic.* pure functions for the actual work.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -61,7 +61,7 @@ class MetricExecutionContext:
     execution_locator: dict[str, Any] | None = None
     routing_detail: dict[str, Any] | None = None
     input_field_map: dict[str, str] | None = None
-    additivity_constraints: dict[str, Any] | None = None
+    additive_dimensions: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)
@@ -719,8 +719,8 @@ def _dataset_native_metric_resolution(
         execution_locator={**authority_locator, "datasource_id": datasource_id},
         routing_detail={"resolution_status": "dataset_native", "datasource_id": datasource_id},
         input_field_map=input_field_map,
-        additivity_constraints=resolved.semantic_object.get("header", {}).get(
-            "additivity_constraints"
+        additive_dimensions=resolved.semantic_object.get("header", {}).get(
+            "additive_dimensions", []
         ),
     )
 
@@ -891,7 +891,7 @@ def resolve_metric_execution_context(
         session_id=session_id,
     )
     metric_header = dict(availability.resolved.semantic_object.get("header") or {})
-    metric_additivity_constraints = metric_header.get("additivity_constraints")
+    metric_additive_dimensions = metric_header.get("additive_dimensions", [])
     dataset_resolution = _dataset_native_metric_resolution(runtime, metric_ref)
     if dataset_resolution is not None:
         return dataset_resolution
@@ -908,7 +908,7 @@ def resolve_metric_execution_context(
             execution_locator=resolution.execution_locator,
             routing_detail=resolution.routing_detail,
             input_field_map=dict(resolution.input_field_map),
-            additivity_constraints=metric_additivity_constraints,
+            additive_dimensions=metric_additive_dimensions,
         )
     candidate_bindings = _metric_binding_candidates(runtime, metric_ref, session_id=session_id)
     metric_input_failures = [

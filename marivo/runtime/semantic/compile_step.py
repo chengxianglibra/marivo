@@ -87,10 +87,7 @@ class DerivedMetricCapabilities:
     supports_detect: bool = False
     supports_validate: bool = False
     time_rollup_allowed: bool = False
-    dimension_policy: str = "none"
-    time_axis_policy: str = "non_additive"
-    additive_dimensions: list[str] | None = None
-    capability_condition: str | None = None
+    additive_dimensions: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -777,10 +774,7 @@ def _measurement_node(
         "Literal['numeric', 'rate', 'binary', 'survival']",
         _optional_str(header.get("sample_kind")) or "numeric",
     )
-    constraints = header.get("additivity_constraints") or {}
-    dimension_policy = str(constraints.get("dimension_policy", "none"))
-    time_axis_policy = str(constraints.get("time_axis_policy", "non_additive"))
-    additive_dimensions = constraints.get("additive_dimensions")
+    additive_dimensions = header.get("additive_dimensions", [])
     node: MeasurementNode = {
         "node_id": f"measurement:{step.index}",
         "node_type": "measurement",
@@ -789,12 +783,9 @@ def _measurement_node(
         "observation_grain_ref": _optional_str(header.get("observation_grain_ref")) or "",
         "sample_kind": sample_kind,
         "value_semantics": _optional_str(header.get("value_semantics")) or "",
-        "dimension_policy": dimension_policy,
-        "time_axis_policy": time_axis_policy,
+        "additive_dimensions": additive_dimensions,
         "output_bindings": [output_binding],
     }
-    if additive_dimensions is not None:
-        node["additive_dimensions"] = additive_dimensions
     inferential_summary_mode = _optional_str(header.get("inferential_summary_mode"))
     if inferential_summary_mode is not None:
         node["inferential_summary_mode"] = inferential_summary_mode

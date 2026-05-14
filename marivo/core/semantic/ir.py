@@ -174,9 +174,7 @@ class MeasurementNode(TypedDict):
     observation_grain_ref: str
     sample_kind: Literal["numeric", "rate", "binary", "survival"]
     value_semantics: str
-    dimension_policy: str
-    time_axis_policy: str
-    additive_dimensions: NotRequired[list[str] | None]
+    additive_dimensions: list[str]
     depends_on: NotRequired[list[str] | None]
     input_bindings: NotRequired[list[InputBinding] | None]
     output_bindings: NotRequired[list[OutputBinding] | None]

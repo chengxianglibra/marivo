@@ -682,7 +682,7 @@ def run_observe_intent(
                 "max": max_val,
             },
             "analytical_metadata": {
-                "additivity_constraints": execution_context.additivity_constraints,
+                "additive_dimensions": execution_context.additive_dimensions,
                 "aggregation_semantics": None,
                 "timezone": None,
                 "data_complete": None,
@@ -784,7 +784,7 @@ def run_observe_intent(
                 "rate": rate_val,
             },
             "analytical_metadata": {
-                "additivity_constraints": execution_context.additivity_constraints,
+                "additive_dimensions": execution_context.additive_dimensions,
                 "aggregation_semantics": None,
                 "timezone": None,
                 "data_complete": None,
@@ -959,7 +959,7 @@ def run_observe_intent(
             "granularity": granularity,
             "series": series,
             "analytical_metadata": {
-                "additivity_constraints": execution_context.additivity_constraints,
+                "additive_dimensions": execution_context.additive_dimensions,
                 "aggregation_semantics": "sum",
                 "timezone": None,
                 "data_complete": data_complete,
@@ -1050,7 +1050,7 @@ def run_observe_intent(
             "segments": segments,
             "scope_value": None,
             "analytical_metadata": {
-                "additivity_constraints": execution_context.additivity_constraints,
+                "additive_dimensions": execution_context.additive_dimensions,
                 "aggregation_semantics": "sum",
                 "timezone": None,
                 "data_complete": None,
@@ -1128,7 +1128,7 @@ def run_observe_intent(
             "predicate_filter_lineage": predicate_filter_lineage_scalar,
             "unit": None,
             "analytical_metadata": {
-                "additivity_constraints": execution_context.additivity_constraints,
+                "additive_dimensions": execution_context.additive_dimensions,
                 "aggregation_semantics": "sum",
                 "timezone": None,
                 "data_complete": None,

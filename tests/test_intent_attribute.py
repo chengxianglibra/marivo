@@ -697,9 +697,13 @@ class AttributeRunnerServiceTests(unittest.TestCase):
             "metric."
         )
         runtime.resolve_metric.return_value = SimpleNamespace(
-            additivity_constraints={"dimension_policy": "all", "time_axis_policy": "additive"},
-            primary_time_ref="time.event_date",
-            sample_kind="numeric",
+            semantic_object={
+                "header": {
+                    "additive_dimensions": ["channel", "region", "time.event_date"],
+                    "primary_time_ref": "time.event_date",
+                    "sample_kind": "numeric",
+                },
+            },
         )
         runtime.new_step_id.return_value = "step_attr_dedup"
         runtime.insert_artifact.return_value = "art_attr_dedup"
@@ -1081,12 +1085,13 @@ class AttributeHourWindowTests(unittest.TestCase):
                 self._step_counter = 0
                 # Mock resolve_metric for metric resolution
                 mock_metric = MagicMock()
-                mock_metric.additivity_constraints = {
-                    "dimension_policy": "all",
-                    "time_axis_policy": "additive",
+                mock_metric.semantic_object = {
+                    "header": {
+                        "additive_dimensions": ["channel", "time.default"],
+                        "primary_time_ref": "time.default",
+                        "sample_kind": "rate",
+                    },
                 }
-                mock_metric.primary_time_ref = "time.default"
-                mock_metric.sample_kind = "rate"
                 self._mock_metric = mock_metric
 
             def resolve_metric(self, metric_name: str) -> Any:
@@ -1392,8 +1397,7 @@ class AttributeEndpointTests(unittest.TestCase):
                     "compatibility_error": {
                         "code": "ADDITIVITY_CONSTRAINT_DIMENSION_NOT_ALLOWED",
                         "metric": "metric.test",
-                        "dimension_policy": "subset",
-                        "time_axis_policy": "non_additive",
+                        "additive_dimensions": ["dimension.country"],
                         "allowed_dimensions": ["dimension.country"],
                         "disallowed_dimensions": ["dimension.product"],
                         "time_rollup_allowed": False,
@@ -1432,7 +1436,11 @@ class AttributeEndpointTests(unittest.TestCase):
             body = resp.json()
             detail = body["detail"]
             self.assertEqual(detail["code"], "ADDITIVITY_CONSTRAINT_DIMENSION_NOT_ALLOWED")
+            self.assertIn("additive_dimensions", detail)
             self.assertIn("allowed_dimensions", detail)
             self.assertIn("disallowed_dimensions", detail)
+            self.assertIn("time_rollup_allowed", detail)
+            self.assertEqual(detail["additive_dimensions"], ["dimension.country"])
             self.assertEqual(detail["allowed_dimensions"], ["dimension.country"])
             self.assertEqual(detail["disallowed_dimensions"], ["dimension.product"])
+            self.assertFalse(detail["time_rollup_allowed"])

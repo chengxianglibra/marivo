@@ -153,8 +153,7 @@ class MarivoMetricExtension(BaseModel):
     )
     additive_dimensions: list[AdditiveDimension] | None = Field(
         None,
-        description="Field names across which the metric is additive, including ordinary dimensions and time fields.",
-        min_length=1,
+        description="Field names across which the metric is additive, including ordinary dimensions and time fields. Empty array means the metric is not additive on any dimension.",
     )
 
 

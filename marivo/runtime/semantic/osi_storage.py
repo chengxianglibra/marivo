@@ -264,7 +264,7 @@ def _storage_to_metric(row: dict[str, Any]) -> dict[str, Any]:
         if row.get("additive_dimensions") is not None
         else None
     )
-    marivo_ext = MarivoMetricExtension(additive_dimensions=additive_dimensions)
+    marivo_ext = MarivoMetricExtension(additive_dimensions=additive_dimensions or [])
     result: dict[str, Any] = {
         "name": row["name"],
         "expression": json.loads(row["expression"]),

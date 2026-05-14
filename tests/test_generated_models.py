@@ -115,17 +115,14 @@ def test_aoi_timescope_requires_field() -> None:
 
 
 def test_additive_dimensions_validation() -> None:
-    """additive_dimensions must be a non-empty list when present."""
+    """additive_dimensions defaults to empty list; empty list means non-additive."""
     from marivo.transports.http.models.marivo_extensions import MarivoMetricExtension
 
     ext = MarivoMetricExtension(additive_dimensions=["region", "channel"])
     assert ext.additive_dimensions == ["region", "channel"]
 
     ext = MarivoMetricExtension()
-    assert ext.additive_dimensions is None
+    assert ext.additive_dimensions == []
 
-    ext = MarivoMetricExtension(additive_dimensions=None)
-    assert ext.additive_dimensions is None
-
-    with pytest.raises(ValidationError):
-        MarivoMetricExtension(additive_dimensions=[])
+    ext = MarivoMetricExtension(additive_dimensions=[])
+    assert ext.additive_dimensions == []

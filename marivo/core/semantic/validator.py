@@ -496,8 +496,7 @@ def gate_dimension_additivity_condition(
 ) -> list[ValidationIssue]:
     """Gate decompose/attribute dimensions against additive_dimensions.
 
-    *derived_state* must have ``.metric_capabilities`` (with ``.capability_condition``,
-    ``.additive_dimensions``).
+    *derived_state* must have ``.metric_capabilities`` (with ``.additive_dimensions``).
     *resolved_inputs* must have ``.resolved_dimension_refs``, ``.normalized_request``
     (with ``.request_dimensions``), ``.resolved_metric`` (with ``.ref``).
     """
@@ -505,11 +504,9 @@ def gate_dimension_additivity_condition(
     caps = derived_state.metric_capabilities
     if caps is None:
         return issues
-    if caps.capability_condition != "dimension_must_be_allowed":
-        return issues
     if step_type not in ("decompose", "attribute"):
         return issues
-    if caps.additive_dimensions is None:
+    if len(caps.additive_dimensions) == 0:
         return issues
 
     resolved_refs = set(resolved_inputs.resolved_dimension_refs)
@@ -521,10 +518,7 @@ def gate_dimension_additivity_condition(
                     gate="dimension_additivity",
                     category="compatibility",
                     severity="error",
-                    message=(
-                        f"Dimension '{dim}' is not in additive_dimensions "
-                        f"for this metric (dimension_policy='subset')."
-                    ),
+                    message=(f"Dimension '{dim}' is not in additive_dimensions for this metric."),
                     subject_ref=resolved_inputs.resolved_metric.ref
                     if resolved_inputs.resolved_metric is not None
                     else None,
@@ -543,7 +537,7 @@ def gate_dimension_additivity_condition(
                 message=(
                     f"Dimension '{dim}' could not be resolved to a canonical ref "
                     f"and cannot be verified against additive_dimensions "
-                    f"for this metric (dimension_policy='subset')."
+                    f"for this metric."
                 ),
                 subject_ref=resolved_inputs.resolved_metric.ref
                 if resolved_inputs.resolved_metric is not None

@@ -41,7 +41,7 @@ def _insert_observe_artifact(
         "analytical_metadata": {
             "quality_status": "ready",
             "aggregation_semantics": "sum",
-            "additivity_constraints": {"dimension_policy": "all", "time_axis_policy": "additive"},
+            "additive_dimensions": ["country", "device", "date"],
             "row_count": 1,
         },
         "execution_metadata": {

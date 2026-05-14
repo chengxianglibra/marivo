@@ -444,7 +444,7 @@ def run_compare_intent(
         resolved_input_summary["predicate_lineage"] = predicate_lineage_summary["reuse_summary"]
     analytical_metadata: dict[str, Any] = {
         "aggregation_semantics": left_am.get("aggregation_semantics", "sum"),
-        "additivity_constraints": left_am.get("additivity_constraints"),
+        "additive_dimensions": left_am.get("additive_dimensions"),
         "relative_delta_denominator": "right",
         "flat_tolerance_relative": flat_tolerance_relative,
         "left_row_count": left_am.get("row_count"),
