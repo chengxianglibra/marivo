@@ -626,7 +626,7 @@ def run_observe_intent(
             engine_type=engine_type,
             semantic_context={"metric_execution_context": execution_context},
         )
-        rows = list(execute_compiled(engine, compiled_query).rows)
+        rows = list(execute_compiled(engine, compiled_query, session_id=session_id).rows)
         provenance = make_provenance(
             compiled_query.sql, compiled_query.params, engine_type=engine_type
         )
@@ -746,7 +746,7 @@ def run_observe_intent(
             engine_type=engine_type,
             semantic_context={"metric_execution_context": execution_context},
         )
-        rows = list(execute_compiled(engine, compiled_query).rows)
+        rows = list(execute_compiled(engine, compiled_query, session_id=session_id).rows)
         provenance = make_provenance(
             compiled_query.sql, compiled_query.params, engine_type=engine_type
         )
@@ -847,7 +847,7 @@ def run_observe_intent(
             engine_type=engine_type,
             semantic_context={"metric_execution_context": execution_context},
         )
-        rows = list(execute_compiled(engine, compiled_query).rows)
+        rows = list(execute_compiled(engine, compiled_query, session_id=session_id).rows)
         provenance = make_provenance(
             compiled_query.sql, compiled_query.params, engine_type=engine_type
         )
@@ -913,7 +913,9 @@ def run_observe_intent(
                 engine_type=engine_type,
                 semantic_context={"metric_execution_context": execution_context},
             )
-            baseline_rows = list(execute_compiled(engine, baseline_compiled_query).rows)
+            baseline_rows = list(
+                execute_compiled(engine, baseline_compiled_query, session_id=session_id).rows
+            )
             baseline_sparse_series = _series_from_rows(baseline_rows, granularity=granularity_typed)
             baseline_series = _build_dense_series(
                 sparse_series=baseline_sparse_series,
@@ -1004,7 +1006,7 @@ def run_observe_intent(
                 "metric_execution_context": execution_context,
             },
         )
-        rows = list(execute_compiled(engine, compiled_query).rows)
+        rows = list(execute_compiled(engine, compiled_query, session_id=session_id).rows)
         provenance = make_provenance(
             compiled_query.sql, compiled_query.params, engine_type=engine_type
         )
@@ -1094,7 +1096,7 @@ def run_observe_intent(
                 "metric_execution_context": execution_context,
             },
         )
-        rows = list(execute_compiled(engine, compiled_query).rows)
+        rows = list(execute_compiled(engine, compiled_query, session_id=session_id).rows)
         provenance = make_provenance(
             compiled_query.sql, compiled_query.params, engine_type=engine_type
         )

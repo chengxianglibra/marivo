@@ -18,6 +18,12 @@ _DEFAULT_TRANSLATOR = DefaultQueryTranslator()
 _DEFAULT_FEDERATION_RUNTIME = FederationRuntime()
 
 
+def annotate_sql(sql: str, session_id: str) -> str:
+    """Prepend a Marivo actor comment to SQL for engine-level observability."""
+    safe_id = session_id.replace("*/", "").replace("/*", "")
+    return f"/* actor=marivo, session_id={safe_id} */\n{sql}"
+
+
 @dataclass(slots=True)
 class ExecutionResult:
     rows: list[dict[str, Any]]
@@ -27,6 +33,8 @@ class ExecutionResult:
 def execute_compiled(
     engine: AnalyticsEngine,
     compiled_query: CompiledQuery,
+    *,
+    session_id: str | None = None,
 ) -> ExecutionResult:
     """Execute a compiled query through the analytics engine abstraction."""
 
@@ -42,6 +50,7 @@ def execute_compiled(
             translated_sql=translation_result.sql,
             params=translation_result.params,
             plan=translation_result.federation_plan,
+            session_id=session_id,
         )
     except ExecutionError:
         raise
@@ -51,6 +60,7 @@ def execute_compiled(
         rows=execution_result.rows,
         metadata={
             **compiled_query.metadata,
+            "session_id": session_id,
             "translated_sql": translation_result.sql,
             "translation": translation_result.to_dict(),
             "federation_plan": execution_result.plan.to_dict(),

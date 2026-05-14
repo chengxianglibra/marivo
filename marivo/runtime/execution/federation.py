@@ -251,6 +251,7 @@ class FederationRuntime:
         translated_sql: str,
         params: list[Any] | None = None,
         plan: FederationPlan | None = None,
+        session_id: str | None = None,
     ) -> FederatedExecutionResult:
         effective_plan = plan or FederationPlan(
             mode="single_engine",
@@ -270,6 +271,9 @@ class FederationRuntime:
         stage = effective_plan.stages[0]
         executed_sql = stage.sql or translated_sql
         executed_params = stage.params or list(params or [])
+        if session_id is not None:
+            safe_id = session_id.replace("*/", "").replace("/*", "")
+            executed_sql = f"/* actor=marivo, session_id={safe_id} */\n{executed_sql}"
         logger.info(
             "SQL execution",
             extra={
@@ -284,11 +288,14 @@ class FederationRuntime:
             },
         )
         rows = engine.query_rows(executed_sql, executed_params)
+        result_metadata: dict[str, Any] = {
+            "mode": effective_plan.mode,
+            "executed_stage": stage.stage_id,
+        }
+        if session_id is not None:
+            result_metadata["annotated_sql"] = executed_sql
         return FederatedExecutionResult(
             rows=rows,
             plan=effective_plan,
-            metadata={
-                "mode": effective_plan.mode,
-                "executed_stage": stage.stage_id,
-            },
+            metadata=result_metadata,
         )

@@ -676,7 +676,7 @@ def _run_segmented_query(
         engine_type=engine_type,
         semantic_context={"metric_sql": metric_sql, "dimensions": [dimension]},
     )
-    result = execute_compiled(engine, compiled_query)
+    result = execute_compiled(engine, compiled_query, session_id=session_id)
     sql = result.metadata.get("translated_sql") or ""
     query_hash: str | None = hashlib.md5(sql.encode()).hexdigest() if sql else None
     return list(result.rows), query_hash
