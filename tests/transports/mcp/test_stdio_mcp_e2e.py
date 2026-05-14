@@ -149,10 +149,20 @@ class RecordingSemanticSvc:
         return None
 
 
+class RecordingDatasourceSvc(_FakeSvc):
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict[str, Any]]] = []
+
+    def preview_table(self, **kw):
+        self.calls.append(("preview", kw))
+        return {"previewed": True}
+
+
 class RecordingRuntime(FakeRuntime):
     def __init__(self) -> None:
         self.semantic = RecordingSemanticSvc()
-        self._services = {"semantic_v2": self.semantic, "datasource": _FakeSvc()}
+        self.datasource = RecordingDatasourceSvc()
+        self._services = {"semantic_v2": self.semantic, "datasource": self.datasource}
 
 
 def test_marivo_mcp_entry_point_callable():
@@ -282,6 +292,89 @@ async def test_stdio_semantic_document_tools_support_local_json_files(tmp_path: 
     )
     assert export_result["data"]["output_path"] == str(output_path)
     assert delete_result == {"data": None, "error": None}
+
+
+@pytest.mark.asyncio
+async def test_stdio_preview_table_accepts_structured_filter_dict() -> None:
+    from marivo.transports.mcp.tools import register_tools
+
+    runtime = RecordingRuntime()
+    server = FastMCP("marivo")
+    register_tools(server, runtime, transport="stdio")
+    tools = {t.name: t for t in server._tool_manager.list_tools()}
+
+    result = await tools["preview_table"].run(
+        {
+            "datasource_id": "ds_test",
+            "schema": "analytics",
+            "table": "jobs",
+            "filters": {"state": "FAILED"},
+        }
+    )
+
+    assert result == {"data": {"previewed": True}, "error": None}
+    assert runtime.datasource.calls == [
+        (
+            "preview",
+            {
+                "datasource_id": "ds_test",
+                "schema_name": "analytics",
+                "table_name": "jobs",
+                "limit": 100,
+                "filters": {"state": "FAILED"},
+            },
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_stdio_preview_table_omits_missing_filters() -> None:
+    from marivo.transports.mcp.tools import register_tools
+
+    runtime = RecordingRuntime()
+    server = FastMCP("marivo")
+    register_tools(server, runtime, transport="stdio")
+    tools = {t.name: t for t in server._tool_manager.list_tools()}
+
+    await tools["preview_table"].run(
+        {
+            "datasource_id": "ds_test",
+            "schema": "analytics",
+            "table": "jobs",
+        }
+    )
+
+    assert runtime.datasource.calls == [
+        (
+            "preview",
+            {
+                "datasource_id": "ds_test",
+                "schema_name": "analytics",
+                "table_name": "jobs",
+                "limit": 100,
+            },
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_stdio_preview_table_rejects_filter_array() -> None:
+    from marivo.transports.mcp.tools import register_tools
+
+    runtime = RecordingRuntime()
+    server = FastMCP("marivo")
+    register_tools(server, runtime, transport="stdio")
+    tools = {t.name: t for t in server._tool_manager.list_tools()}
+
+    with pytest.raises(Exception, match="Input should be a valid dictionary"):
+        await tools["preview_table"].run(
+            {
+                "datasource_id": "ds_test",
+                "schema": "analytics",
+                "table": "jobs",
+                "filters": [{"column": "state", "value": "FAILED"}],
+            }
+        )
 
 
 def test_marivo_mcp_help_flag():

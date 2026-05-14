@@ -241,6 +241,23 @@ def test_delete_semantic_model_tool_schema_is_model_only() -> None:
     assert set(tools["delete_semantic_model"].parameters["properties"]) == {"model"}
 
 
+def test_preview_table_filters_schema_is_structured_object() -> None:
+    server = FastMCP("test")
+    register_tools(server, FakeRuntime(), transport="stdio")
+    tools = {tool.name: tool for tool in server._tool_manager.list_tools()}
+
+    filters_schema = tools["preview_table"].parameters["properties"]["filters"]
+
+    assert filters_schema == {
+        "anyOf": [
+            {"additionalProperties": True, "type": "object"},
+            {"type": "null"},
+        ],
+        "default": None,
+        "title": "Filters",
+    }
+
+
 def test_shared_tools_identical_schema():
     """Tools present in both modes have identical parameter schemas."""
     stdio_server = FastMCP("test-stdio")

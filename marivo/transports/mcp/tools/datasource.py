@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from marivo.transports.mcp.tools._async_bridge import call_runtime
@@ -112,7 +111,7 @@ def register_datasource_tools(server: Any, runtime: Any) -> None:
         table: str,
         limit: int = 100,
         columns: str | None = None,
-        filters: str | None = None,
+        filters: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Preview sample rows from a table via GET /datasources/{datasource_id}/catalog/preview.
 
@@ -122,20 +121,11 @@ def register_datasource_tools(server: Any, runtime: Any) -> None:
             table: Table name to preview
             limit: Max rows (default 100, max 1000)
             columns: Comma-separated column names (optional)
-            filters: JSON object or array of {column,value} equality filters (as string)
+            filters: Equality filters keyed by column name
         """
         col_list: list[str] | None = None
         if columns is not None:
             col_list = [c.strip() for c in columns.split(",") if c.strip()] or None
-
-        filters_dict: dict[str, Any] | None = None
-        if filters is not None:
-            try:
-                parsed = json.loads(filters)
-                if isinstance(parsed, dict):
-                    filters_dict = parsed
-            except (json.JSONDecodeError, TypeError):
-                pass
 
         kwargs: dict[str, Any] = {
             "datasource_id": datasource_id,
@@ -145,7 +135,7 @@ def register_datasource_tools(server: Any, runtime: Any) -> None:
         }
         if col_list is not None:
             kwargs["columns"] = col_list
-        if filters_dict is not None:
-            kwargs["filters"] = filters_dict
+        if filters is not None:
+            kwargs["filters"] = filters
 
         return await call_runtime(svc.preview_table, **kwargs)
