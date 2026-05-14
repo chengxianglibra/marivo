@@ -142,12 +142,7 @@ def run_decompose_intent(
         if resolved_metric is None:
             raise ValueError(f"decompose: metric '{metric_name}' not found or not published")
         _metric_header = resolved_metric.semantic_object.get("header") or {}
-        # Backward compat: old artifacts may have additivity_constraints dict
-        dims_for_gate = _metric_header.get("additive_dimensions", [])
-        if not dims_for_gate:
-            legacy_constraints = _metric_header.get("additivity_constraints")
-            if isinstance(legacy_constraints, dict):
-                dims_for_gate = legacy_constraints.get("additive_dimensions") or []
+        dims_for_gate = _metric_header.get("additive_dimensions") or []
         gate_source = "current_metric_state"
 
     # Resolve metric for aggregation_semantics needed by capability derivation
@@ -543,14 +538,6 @@ def _normalize_decompose_compare_input(compare_artifact: dict[str, Any]) -> dict
     # Extract frozen additive_dimensions from compare artifact's analytical_metadata
     compare_am: dict[str, Any] = compare_artifact.get("analytical_metadata") or {}
     frozen_additive_dimensions: list[str] | None = compare_am.get("additive_dimensions")
-    # Backward compat: old artifacts may store additivity_constraints dict
-    if frozen_additive_dimensions is None and "additivity_constraints" in compare_am:
-        legacy = compare_am["additivity_constraints"]
-        if isinstance(legacy, dict):
-            if legacy.get("dimension_policy") == "none":
-                frozen_additive_dimensions = []
-            else:
-                frozen_additive_dimensions = legacy.get("additive_dimensions")
 
     if comparison_type == "scalar_delta":
         resolved_input: dict[str, Any] = compare_artifact.get("resolved_input_summary") or {}
