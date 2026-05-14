@@ -62,7 +62,7 @@ connection 字段 — duckdb 类型：
 interface Datasource {
   datasource_id: string;                        // 如 "ds_15c11b454309"
   datasource_type: "duckdb" | "trino";          // 类型枚举
-  display_name: string;                         // 如 "Trino - Bilibili"
+  display_name: string;                         // 如 "Trino - Example Analytics"
   connection: TrinoConnection | DuckDbConnection; // 同输入 connection（含 datasource_type）
   owner_user: string | null;                    // 创建者，可能为 null
   status: "active" | "inactive" | "deprecated"; // 状态枚举，默认 "active"
@@ -78,10 +78,10 @@ interface Datasource {
 ```json
 {
   "datasource_type": "trino",
-  "display_name": "Trino - Bilibili",
+  "display_name": "Trino - Example Analytics",
   "connection": {
     "datasource_type": "trino",
-    "host": "trino-bilibili.internal",
+    "host": "trino.example.internal",
     "port": 8080,
     "user": "analytics",
     "catalog": "iceberg",
@@ -97,10 +97,10 @@ interface Datasource {
   "data": {
     "datasource_id": "ds_15c11b454309",
     "datasource_type": "trino",
-    "display_name": "Trino - Bilibili",
+    "display_name": "Trino - Example Analytics",
     "connection": {
       "datasource_type": "trino",
-      "host": "trino-bilibili.internal",
+      "host": "trino.example.internal",
       "port": 8080,
       "user": "analytics",
       "catalog": "iceberg",
@@ -138,8 +138,8 @@ interface Datasource {
     {
       "datasource_id": "ds_15c11b454309",
       "datasource_type": "trino",
-      "display_name": "Trino - Bilibili",
-      "connection": { "datasource_type": "trino", "host": "trino-bilibili.internal", "port": 8080, "user": "analytics", "catalog": "iceberg", "http_scheme": "https", "source": null, "client_tags": null, "session_properties": {} },
+      "display_name": "Trino - Example Analytics",
+      "connection": { "datasource_type": "trino", "host": "trino.example.internal", "port": 8080, "user": "analytics", "catalog": "iceberg", "http_scheme": "https", "source": null, "client_tags": null, "session_properties": {} },
       "owner_user": "lichengxiang",
       "status": "active",
       "readiness_status": "ready",
@@ -195,7 +195,7 @@ interface Datasource {
 ```json
 {
   "datasource_id": "ds_15c11b454309",
-  "display_name": "Trino - Bilibili (Updated)"
+  "display_name": "Trino - Example Analytics (Updated)"
 }
 ```
 
