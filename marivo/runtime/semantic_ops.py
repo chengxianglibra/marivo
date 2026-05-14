@@ -1693,7 +1693,7 @@ def run_metric_query(
         },
     )
     all_rows = normalize_metric_rows(
-        execute_compiled(engine, compiled_query).rows,
+        execute_compiled(engine, compiled_query, session_id=session_id).rows,
         mode=mode,
     )
     if mode == "compare":
@@ -1753,7 +1753,7 @@ def run_profile_table(
 ) -> dict[str, Any]:
     """Profile a table: row count, column stats (null rate, distinct count)."""
     from marivo.core.intent.primitives import new_step_id
-    from marivo.runtime.semantic.executor import execute_compiled
+    from marivo.runtime.semantic.executor import annotate_sql, execute_compiled
 
     table_name = params.get("table_name")
     if not table_name:
@@ -1778,7 +1778,7 @@ def run_profile_table(
     row_count: int | None = None
     row_count_error: str | None = None
     try:
-        row_count_row = execute_compiled(engine, row_count_query).rows[0]
+        row_count_row = execute_compiled(engine, row_count_query, session_id=session_id).rows[0]
         row_count = row_count_row["row_count"]
     except Exception as exc:
         row_count_error = str(exc)
@@ -1795,12 +1795,14 @@ def run_profile_table(
             ),
             engine_type=engine_type,
         )
-        col_rows = execute_compiled(engine, columns_query).rows
+        col_rows = execute_compiled(engine, columns_query, session_id=session_id).rows
         columns = [r["column_name"] for r in col_rows]
     except Exception:
         # Fallback: derive column names from SELECT * LIMIT 0 result schema
         try:
-            schema_rows = engine.query_rows(f"SELECT * FROM {qualified_table} LIMIT 0")
+            schema_rows = engine.query_rows(
+                annotate_sql(f"SELECT * FROM {qualified_table} LIMIT 0", session_id)
+            )
             columns = list(schema_rows[0].keys()) if schema_rows else []
         except Exception as exc:
             columns = []
@@ -1814,7 +1816,9 @@ def run_profile_table(
     for dc in _date_candidates:
         if dc in columns:
             try:
-                max_row = engine.query_rows(f"SELECT MAX({dc}) AS max_date FROM {qualified_table}")
+                max_row = engine.query_rows(
+                    annotate_sql(f"SELECT MAX({dc}) AS max_date FROM {qualified_table}", session_id)
+                )
                 if max_row and max_row[0].get("max_date") is not None:
                     profile_date_column = dc
                     profile_date_value = str(max_row[0]["max_date"])
@@ -1839,7 +1843,7 @@ def run_profile_table(
                 ),
                 engine_type=engine_type,
             )
-            stats = execute_compiled(engine, stats_query).rows[0]
+            stats = execute_compiled(engine, stats_query, session_id=session_id).rows[0]
             entry: dict[str, Any] = {
                 "column": col,
                 "total": stats["total"],
@@ -1933,7 +1937,7 @@ def run_sample_rows(
 ) -> dict[str, Any]:
     """Return a sample of rows from a table."""
     from marivo.core.intent.primitives import new_step_id
-    from marivo.runtime.semantic.executor import execute_compiled
+    from marivo.runtime.semantic.executor import annotate_sql, execute_compiled
 
     table_name = params.get("table_name")
     if not table_name:
@@ -1974,13 +1978,15 @@ def run_sample_rows(
                 ),
                 engine_type=engine_type,
             )
-            col_rows = execute_compiled(engine, col_query).rows
+            col_rows = execute_compiled(engine, col_query, session_id=session_id).rows
             columns_list = [r["column_name"] for r in col_rows]
             for dc in _date_candidates:
                 if dc in columns_list:
                     try:
                         max_row = engine.query_rows(
-                            f"SELECT MAX({dc}) AS max_date FROM {qualified_table}"
+                            annotate_sql(
+                                f"SELECT MAX({dc}) AS max_date FROM {qualified_table}", session_id
+                            )
                         )
                         if max_row and max_row[0].get("max_date") is not None:
                             compiler_params["date_column"] = dc
@@ -2002,7 +2008,7 @@ def run_sample_rows(
         AnalysisStepIR(index=0, step_type=step_type, params=compiler_params),
         engine_type=engine_type,
     )
-    rows = execute_compiled(engine, compiled_query).rows
+    rows = execute_compiled(engine, compiled_query, session_id=session_id).rows
 
     actual_columns = list(rows[0].keys()) if rows else list(params.get("columns") or [])
     col_metadata = _fetch_column_metadata(short_name, actual_columns)
@@ -2083,7 +2089,7 @@ def run_aggregate_query(
         AnalysisStepIR(index=0, step_type=step_type, params=compiler_params),
         engine_type=engine_type,
     )
-    rows = execute_compiled(engine, compiled_query).rows
+    rows = execute_compiled(engine, compiled_query, session_id=session_id).rows
     compare_period = resolved.time_scope.mode == "compare"
 
     artifact_id = _insert_artifact(
@@ -2129,7 +2135,7 @@ def run_attribute_change(
 ) -> dict[str, Any]:
     """Attribute a metric change across candidate dimensions."""
     from marivo.core.intent.primitives import new_step_id
-    from marivo.runtime.semantic.executor import execute_compiled
+    from marivo.runtime.semantic.executor import annotate_sql, execute_compiled
 
     metric_name = params.get("metric_name")
     table_name = params.get("table_name")
@@ -2185,7 +2191,11 @@ def run_attribute_change(
     qualified_table = qualified.get(table_name_str, table_name_str)
 
     try:
-        row = engine.query_rows(f"SELECT MAX({date_column}) AS max_date FROM {qualified_table}")[0]
+        row = engine.query_rows(
+            annotate_sql(
+                f"SELECT MAX({date_column}) AS max_date FROM {qualified_table}", session_id
+            )
+        )[0]
         date_fmt = detect_date_format(row["max_date"])
     except Exception:
         date_fmt = detect_date_format(str(period_end_p))
@@ -2230,7 +2240,7 @@ def run_attribute_change(
             engine_type=engine_type,
             semantic_context={"period_params": period_params},
         )
-        rows = execute_compiled(engine, compiled_query).rows
+        rows = execute_compiled(engine, compiled_query, session_id=session_id).rows
         query_sql_parts.append(compiled_query.sql)
         query_params.extend(compiled_query.params)
         compiled_queries.append(compiled_query)

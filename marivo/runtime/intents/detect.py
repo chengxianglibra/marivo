@@ -235,7 +235,7 @@ def _query_scalar_window_values(
         semantic_context={"metric_execution_context": execution_context},
     )
     result: dict[str, dict[str, Any]] = {}
-    for row in execute_compiled(engine, compiled_query).rows:
+    for row in execute_compiled(engine, compiled_query, session_id=session_id).rows:
         value = _coerce_float(row.get("value"))
         if split_by is None:
             result["__overall__"] = {"slice": None, "value": value}
@@ -510,7 +510,7 @@ def run_detect_intent(
     )
 
     now = datetime.now(UTC).isoformat()
-    rows = list(execute_compiled(engine, compiled_query).rows)
+    rows = list(execute_compiled(engine, compiled_query, session_id=session_id).rows)
     provenance = make_provenance(compiled_query.sql, compiled_query.params, engine_type=engine_type)
 
     # ── Build one or more series from query rows ──────────────────────────────
