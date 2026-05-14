@@ -143,7 +143,7 @@ After removing dead families, 5 active families remain:
 | Marivo Field | Extension Key | Rationale |
 |---|---|---|
 | `metric_family` | `metric_family` | count/sum/rate/average/distribution — intent + safety constraint |
-| `sample_kind` | `sample_kind` | numeric/rate/binary — drives real branching in test/validate |
+| `sample_kind` | `sample_kind` | numeric/rate — drives real branching in test/validate |
 | `observed_entity_ref` | `observed_entity` | Cross-object composition, not derivable |
 | `observation_grain_ref` | `observation_grain` | Grain constraint, not derivable |
 | `population_subject_ref` | `population_subject` | Cross-object composition, heavily used |

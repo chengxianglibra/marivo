@@ -1061,15 +1061,13 @@ def _metric_extension_issues(
     if isinstance(sample_kind, str) and sample_kind not in {
         "numeric",
         "rate",
-        "binary",
-        "survival",
     }:
         issues.append(
             SemanticValidationIssue(
                 code="INVALID_SAMPLE_KIND",
                 message=f"sample_kind '{sample_kind}' is not a valid enum value.",
                 json_pointer=f"{model_pointer}/metrics/{metric_index}/custom_extensions",
-                hint="Valid values: 'numeric', 'rate', 'binary', 'survival'.",
+                hint="Valid values: 'numeric', 'rate'.",
                 context={"sample_kind": sample_kind},
             )
         )

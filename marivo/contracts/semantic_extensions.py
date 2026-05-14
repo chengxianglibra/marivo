@@ -68,7 +68,7 @@ class MarivoMetricFilter(BaseModel):
 
 class MarivoMetricExtension(BaseModel):
     additive_dimensions: list[str] = []
-    sample_kind: Literal["numeric", "rate", "binary", "survival"] = "numeric"
+    sample_kind: Literal["numeric", "rate"] = "numeric"
 
     @model_validator(mode="after")
     def _validate_additive_dimensions(self) -> MarivoMetricExtension:

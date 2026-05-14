@@ -209,7 +209,7 @@ v1 支持 metric 声明的值：
 - `numeric` -> 两个内部 `observe.result_mode = "numeric_sample_summary"`
 - `rate` -> 两个内部 `observe.result_mode = "rate_sample_summary"`
 
-若 metric 声明的 `sample_kind` 不是 `numeric` 或 `rate`（如 `binary`、`survival`），则触发 `SAMPLE_KIND_UNSUPPORTED` 错误。
+若 metric 声明的 `sample_kind` 不是 `numeric` 或 `rate`，则触发 `SAMPLE_KIND_UNSUPPORTED` 错误。
 
 ### hypothesis
 
@@ -463,13 +463,13 @@ type ValidateInferenceResult = {
 
 请求：
 
-- `metric` 的 `MarivoMetricExtension.sample_kind = "binary"`
+- `metric` 的 `MarivoMetricExtension.sample_kind` 不是 `"numeric"` 或 `"rate"`（如使用了已移除的 `"binary"` 值）
 - `left` / `right` 正常提供
 
 含义：
 
 - `validate` 要求 metric 的 `sample_kind` 为 `numeric` 或 `rate`
-- `binary` 不受支持，系统返回 `SAMPLE_KIND_UNSUPPORTED` 错误
+- 不受支持的 `sample_kind`，系统返回 `SAMPLE_KIND_UNSUPPORTED` 错误
 
 ## v1 Scope Limits
 

@@ -262,7 +262,7 @@ class MetricHeader(TypedDict):
     description: NotRequired[str | None]
     observed_dataset: str  # OSI Dataset 引用，替代 observed_entity_ref
     observation_grain: str  # OSI grain 概念，替代 observation_grain_ref
-    sample_kind: Literal["numeric", "rate", "binary", "survival"]
+    sample_kind: Literal["numeric", "rate"]
     value_semantics: Literal[
         "count",
         "sum",
@@ -314,7 +314,7 @@ class AdditivityConstraints(TypedDict):
 |---------|---------|
 | `supports_observe` | 始终为 true |
 | `supports_compare` | `additivity_constraints` 存在 AND `primary_time_field` exists |
-| `supports_test` | `sample_kind` in ["numeric", "rate", "binary"] |
+| `supports_test` | `sample_kind` in ["numeric", "rate"] |
 | `supports_decompose` | `additivity_constraints.dimension_policy` in ["all", "subset"] |
 | `supports_detect` | `primary_time_field` exists |
 | `supports_validate` | `sample_kind` == "rate" AND `primary_time_field` exists |
@@ -799,7 +799,7 @@ class SurvivalMetric(MetricHeader):
 
 它通常要求：
 
-- `sample_kind = survival`
+- `sample_kind` 待定（当前 schema 仅支持 `numeric` / `rate`，survival 尚未实现）
 - 专门 inferential capability
 - Dataset 能稳定提供 cohort / population / time anchor 相关信息
 - event time 与 censor time 必须显式表达，不能只用布尔组件替代
@@ -812,7 +812,7 @@ class SurvivalMetric(MetricHeader):
   "display_name": "Time to Churn",
   "observed_dataset": "dataset.user",
   "observation_grain": "grain.user",
-  "sample_kind": "survival",
+  "sample_kind": "numeric",
   "value_semantics": "survival_probability",
   "aggregation_scope": "subject",
   "primary_time_field": "dataset.user.field.churn_eval_time",

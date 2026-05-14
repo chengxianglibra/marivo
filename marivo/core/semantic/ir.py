@@ -171,7 +171,7 @@ class MeasurementNode(TypedDict):
     metric_ref: str
     observed_entity_ref: str
     observation_grain_ref: str
-    sample_kind: Literal["numeric", "rate", "binary", "survival"]
+    sample_kind: Literal["numeric", "rate"]
     value_semantics: str
     additive_dimensions: list[str]
     depends_on: NotRequired[list[str] | None]

@@ -229,7 +229,7 @@ type MetricContract = {
   description?: string | null;
   observed_dataset: string;  // OSI Dataset 引用
   observation_grain: string;  // OSI grain 概念
-  sample_kind: “numeric” | “rate” | “binary” | “survival”;
+  sample_kind: “numeric” | “rate”;
   value_semantics: “count” | “sum” | “ratio” | “mean” | “percentile” | “score”;
   primary_time_field?: string | null;  // OSI Field 引用
   numerator?: MeasurementComponent | null;

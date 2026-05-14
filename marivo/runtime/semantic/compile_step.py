@@ -759,7 +759,7 @@ def _measurement_node(
 ) -> tuple[MeasurementNode, NormalizedPredicateInput | None]:
     header = dict(resolved_metric.semantic_object.get("header") or {})
     sample_kind = cast(
-        "Literal['numeric', 'rate', 'binary', 'survival']",
+        "Literal['numeric', 'rate']",
         _optional_str(header.get("sample_kind")) or "numeric",
     )
     additive_dimensions = header.get("additive_dimensions", [])

@@ -17,7 +17,7 @@ Covers:
   - run_validate_intent: missing metric → ValueError
   - run_validate_intent: missing left.time_scope → ValueError
   - run_validate_intent: missing right.time_scope → ValueError
-  - run_validate_intent: unsupported sample_kind (binary/survival) → ValueError (SAMPLE_KIND_UNSUPPORTED)
+  - run_validate_intent: unsupported sample_kind → ValueError (SAMPLE_KIND_UNSUPPORTED)
   - run_validate_intent: hypothesis.family = "ratio" → ValueError
   - run_validate_intent: hypothesis.alpha = 0 → ValueError
   - run_validate_intent: method = "badmethod" → ValueError

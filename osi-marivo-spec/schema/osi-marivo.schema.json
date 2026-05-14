@@ -403,9 +403,9 @@
         },
         "sample_kind": {
           "type": "string",
-          "enum": ["numeric", "rate", "binary", "survival"],
+          "enum": ["numeric", "rate"],
           "default": "numeric",
-          "description": "Sample type of the metric. Determines inferential summary mode and which analysis intents are supported."
+          "description": "Sample type of the metric. 'numeric' for continuous-valued metrics (e.g., revenue, latency, duration) — uses Welch's t-test. 'rate' for proportion/ratio metrics (e.g., conversion rate, click-through rate) — uses two-proportion z-test. Determines inferential summary mode and which analysis intents are supported."
         }
       },
       "additionalProperties": false

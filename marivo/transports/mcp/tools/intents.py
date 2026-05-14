@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
+
+from pydantic import Field
 
 from marivo.contracts.generated import aoi
 from marivo.transports.mcp.tools._async_bridge import call_runtime
@@ -256,7 +258,16 @@ def register_test_intent(server: Any, runtime: Any) -> None:
         metric: str,
         left: McpSliceRef,
         right: McpSliceRef,
-        kind: Literal["numeric", "rate"],
+        kind: Annotated[
+            Literal["numeric", "rate"],
+            Field(
+                description=(
+                    "Sample type of the metric being tested. "
+                    "'numeric' for continuous-valued metrics (e.g., revenue, latency, session duration) — uses Welch's t-test. "
+                    "'rate' for proportion/ratio metrics (e.g., conversion rate, click-through rate) — uses two-proportion z-test."
+                ),
+            ),
+        ],
         hypothesis: McpStructuredObject,
     ) -> dict[str, Any]:
         request = to_aoi_test_request(
@@ -369,7 +380,17 @@ def register_validate(server: Any, runtime: Any) -> None:
         left: McpSliceRef,
         right: McpSliceRef,
         hypothesis: McpStructuredObject | None = None,
-        method: Literal["auto", "welch_t", "two_proportion_z"] | None = None,
+        method: Annotated[
+            Literal["auto", "welch_t", "two_proportion_z"] | None,
+            Field(
+                default=None,
+                description=(
+                    "Statistical test method. 'auto' resolves based on the metric's sample_kind. "
+                    "'welch_t' for numeric/continuous metrics (Welch's t-test). "
+                    "'two_proportion_z' for rate/proportion metrics (two-proportion z-test)."
+                ),
+            ),
+        ] = None,
     ) -> dict[str, Any]:
         params: dict[str, Any] = {
             "metric": metric,
