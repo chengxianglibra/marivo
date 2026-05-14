@@ -44,12 +44,15 @@ data/
 Thumbs.db
 
 # Local editor metadata
+.agent/
 marivo-skill/marivo/.obsidian/
 spec/.obsidian/
 spec/semantic/semantic-layer-management-design.zh.md
+TODOS.md
 
 # Playwright
 .playwright/
+.playwrite-cli/
 .playwright-cli/
 frontend/test-results/
 frontend/playwright-report/
@@ -94,5 +97,6 @@ plan/
 
 # Superpowers (working docs — tracked selectively via frontmatter convention)
 # docs/superpowers/ is no longer fully ignored; active specs/plans are tracked
+.superpowers/
 .gitnexus
 .worktrees/
