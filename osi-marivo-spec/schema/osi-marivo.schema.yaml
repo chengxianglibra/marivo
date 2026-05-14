@@ -38,7 +38,7 @@ dataset_extension:
 metric_extension:
   additive_dimensions: # Dimension and time fields across which the metric is additive.
     - string
-  sample_kind: string # numeric | rate. Default: numeric. NOT NULL.
+  aggregation_semantics: string # sum | ratio | weighted_average. Default: sum. NOT NULL.
 
 # Top-level semantic model definition
 semantic_model:

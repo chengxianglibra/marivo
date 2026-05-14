@@ -83,9 +83,7 @@ class DerivedMetricCapabilities:
     supports_compare: bool = False
     supports_decompose: bool = False
     supports_attribute: bool = False
-    supports_test: bool = False
     supports_detect: bool = False
-    supports_validate: bool = False
     additive_dimensions: list[str] = field(default_factory=list)
 
 
@@ -209,12 +207,6 @@ class NormalizedPredicateInput(TypedDict, total=False):
     components: list[NormalizedComponentPredicateInput]
 
 
-class ComponentLoweringInput(TypedDict, total=False):
-    component_ref: str
-    binding_ref: str
-    atoms: list[NormalizedPredicateAtom]
-
-
 class LoweringPrecheckDiagnostic(TypedDict, total=False):
     component_ref: str
     atom_ref: str
@@ -240,10 +232,6 @@ def build_predicate_filter_lineage(*_args: Any, **_kwargs: Any) -> dict[str, Any
 
 def build_normalized_predicate_input(*_args: Any, **_kwargs: Any) -> NormalizedPredicateInput:
     return NormalizedPredicateInput()
-
-
-def build_component_lowering_inputs(*_args: Any, **_kwargs: Any) -> list[ComponentLoweringInput]:
-    return []
 
 
 def run_lowering_precheck(*_args: Any, **_kwargs: Any) -> list[Any]:
@@ -758,10 +746,6 @@ def _measurement_node(
     semantic_repository: Any | None = None,
 ) -> tuple[MeasurementNode, NormalizedPredicateInput | None]:
     header = dict(resolved_metric.semantic_object.get("header") or {})
-    sample_kind = cast(
-        "Literal['numeric', 'rate']",
-        _optional_str(header.get("sample_kind")) or "numeric",
-    )
     additive_dimensions = header.get("additive_dimensions", [])
     node: MeasurementNode = {
         "node_id": f"measurement:{step.index}",
@@ -769,26 +753,21 @@ def _measurement_node(
         "metric_ref": resolved_metric.ref,
         "observed_entity_ref": _optional_str(header.get("observed_entity_ref")) or "",
         "observation_grain_ref": _optional_str(header.get("observation_grain_ref")) or "",
-        "sample_kind": sample_kind,
         "value_semantics": _optional_str(header.get("value_semantics")) or "",
         "additive_dimensions": additive_dimensions,
+        "aggregation_semantics": _optional_str(header.get("aggregation_semantics")) or "sum",
         "output_bindings": [output_binding],
     }
-    inferential_summary_mode = _optional_str(header.get("inferential_summary_mode"))
-    if inferential_summary_mode is not None:
-        node["inferential_summary_mode"] = inferential_summary_mode
     normalized_predicate_input: NormalizedPredicateInput | None = None
     if semantic_repository is not None and resolved_inputs is not None:
         layered_refs = collect_layered_predicate_refs(resolved_inputs)
-        component_fields = collect_component_fields(resolved_inputs)
-        if layered_refs or component_fields:
+        if layered_refs:
             node["predicate_filter_lineage"] = build_predicate_filter_lineage(  # type: ignore[typeddict-item]
-                layered_refs, component_fields=component_fields
+                layered_refs
             )
         normalized_predicate_input = build_normalized_predicate_input(
             layered_refs=layered_refs,
             resolver=semantic_repository,
-            component_fields=component_fields or None,
         )
     return node, normalized_predicate_input
 

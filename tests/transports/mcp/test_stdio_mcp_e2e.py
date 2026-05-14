@@ -224,11 +224,9 @@ def test_stdio_server_registers_tools():
         "decompose",
         "detect",
         "correlate",
-        "test_intent",
         "forecast",
         "attribute",
         "diagnose",
-        "validate",
         # Session tools
         "create_session",
         "list_sessions",

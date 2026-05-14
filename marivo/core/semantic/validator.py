@@ -459,27 +459,10 @@ def gate_intent_specific(
 ) -> list[ValidationIssue]:
     """Check intent-specific compatibility.
 
-    *derived_state* must have ``.metric_capabilities`` (with ``.supports_validate``).
+    *derived_state* must have ``.metric_capabilities``.
     *resolved_inputs* must have ``.resolved_metric`` (with ``.ref``).
     """
     issues: list[ValidationIssue] = []
-    if (
-        step_type == "validate"
-        and derived_state.metric_capabilities is not None
-        and not derived_state.metric_capabilities.supports_validate
-    ):
-        issues.append(
-            ValidationIssue(
-                code="COMPILER_INTENT_UNSUPPORTED",
-                gate="intent_specific",
-                category="compatibility",
-                severity="error",
-                message="Metric/process combination does not support validate intent",
-                subject_ref=resolved_inputs.resolved_metric.ref
-                if resolved_inputs.resolved_metric is not None
-                else None,
-            )
-        )
     return issues
 
 

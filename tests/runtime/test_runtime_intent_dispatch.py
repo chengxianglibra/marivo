@@ -250,21 +250,6 @@ def _detect_request() -> aoi.Detect:
     )
 
 
-def _test_request() -> aoi.Test:
-    return aoi.Test(
-        metric="view_time",
-        left=aoi.Slice(time_scope=_time_scope(), filter=None),
-        right=aoi.Slice(time_scope=_time_scope(), filter=None),
-        kind="numeric",
-        hypothesis=aoi.Hypothesis(
-            family="two_sample_mean",
-            alternative="two_sided",
-            alpha=0.05,
-            label=None,
-        ),
-    )
-
-
 def _forecast_request() -> aoi.Forecast:
     return aoi.Forecast(source_artifact_id="artifact-source", horizon=7, profile=None)
 
@@ -285,11 +270,9 @@ INTENT_METHODS = [
     "decompose",
     "correlate",
     "detect",
-    "test",
     "forecast",
     "attribute",
     "diagnose",
-    "validate",
 ]
 
 ATOMIC_INTENT_REQUESTS = {
@@ -298,14 +281,12 @@ ATOMIC_INTENT_REQUESTS = {
     "decompose": _decompose_request,
     "correlate": _correlate_request,
     "detect": _detect_request,
-    "test": _test_request,
     "forecast": _forecast_request,
 }
 
 DERIVED_INTENT_METHODS = [
     "attribute",
     "diagnose",
-    "validate",
 ]
 
 
@@ -383,14 +364,6 @@ def test_detect_dispatches() -> None:
         mock_fn.assert_called_once_with(rt, SessionId("s1"), request)
 
 
-def test_test_dispatches() -> None:
-    rt = _make_runtime()
-    with patch("marivo.runtime.intent_execution.test", return_value={"status": "ok"}) as mock_fn:
-        request = _test_request()
-        rt.test("s1", request)
-        mock_fn.assert_called_once_with(rt, SessionId("s1"), request)
-
-
 def test_forecast_dispatches() -> None:
     rt = _make_runtime()
     with patch(
@@ -416,15 +389,6 @@ def test_diagnose_dispatches() -> None:
         "marivo.runtime.intent_execution.diagnose", return_value={"status": "ok"}
     ) as mock_fn:
         rt.diagnose("s1", {"metric": "m"})
-        mock_fn.assert_called_once_with(rt, SessionId("s1"), {"metric": "m"})
-
-
-def test_validate_dispatches() -> None:
-    rt = _make_runtime()
-    with patch(
-        "marivo.runtime.intent_execution.validate", return_value={"status": "ok"}
-    ) as mock_fn:
-        rt.validate("s1", {"metric": "m"})
         mock_fn.assert_called_once_with(rt, SessionId("s1"), {"metric": "m"})
 
 

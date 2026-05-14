@@ -201,7 +201,7 @@ def _gate_metric_process_compatibility(
     if metric is None:
         return issues
     if process is None:
-        if resolved_inputs.normalized_request.intent_kind in {"test", "validate"} and (
+        if resolved_inputs.normalized_request.intent_kind == "validate" and (
             requirement.contract_modes
             or requirement.context_kinds
             or requirement.entity_refs
@@ -308,7 +308,7 @@ def _gate_metric_process_compatibility(
             )
         )
     if (
-        resolved_inputs.normalized_request.intent_kind in {"test", "validate"}
+        resolved_inputs.normalized_request.intent_kind == "validate"
         and derived_state.process_capabilities is not None
         and derived_state.process_capabilities.inferential_ready is None
     ):
@@ -420,20 +420,6 @@ def _collect_predicate_refs(
             header.get("default_predicate_refs") or payload.get("default_predicate_refs") or []
         ):
             _add(ref, "metric_qualifier")
-        # Component qualifier_refs live under family-specific payload fields.
-        _component_fields = (
-            "count_target",
-            "measure",
-            "numerator",
-            "denominator",
-            "value_component",
-            "score_source",
-        )
-        for field in _component_fields:
-            component = payload.get(field)
-            if component is not None:
-                for ref in component.get("qualifier_refs") or []:
-                    _add(ref, "metric_qualifier")
 
     request_predicate = resolved_inputs.normalized_request.request_scope_predicate_ref
     _add(request_predicate, "request_scope")
@@ -560,23 +546,6 @@ def _gate_intent_specific(
     derived_state: DerivedCompilerState,
 ) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
-    if (
-        step_type == "validate"
-        and derived_state.metric_capabilities is not None
-        and not derived_state.metric_capabilities.supports_validate
-    ):
-        issues.append(
-            ValidationIssue(
-                code="COMPILER_INTENT_UNSUPPORTED",
-                gate="intent_specific",
-                category="compatibility",
-                severity="error",
-                message="Metric/process combination does not support validate intent",
-                subject_ref=resolved_inputs.resolved_metric.ref
-                if resolved_inputs.resolved_metric is not None
-                else None,
-            )
-        )
     return issues
 
 
@@ -651,25 +620,21 @@ def _gate_lowering_precheck(
     # the duplicate build_normalized_predicate_input call.
     from marivo.runtime.semantic.compile_step import (
         build_normalized_predicate_input,
-        collect_component_fields,
         collect_layered_predicate_refs,
         run_lowering_precheck,
     )
 
     layered_refs = collect_layered_predicate_refs(resolved_inputs)
-    component_fields = collect_component_fields(resolved_inputs)
-    if not layered_refs and not component_fields:
+    if not layered_refs:
         return []
 
     normalized_input = build_normalized_predicate_input(
         layered_refs=layered_refs,
         resolver=semantic_repository,
-        component_fields=component_fields or None,
     )
     return run_lowering_precheck(
         normalized_predicate_input=normalized_input,
         resolved_bindings=[],
-        component_fields=component_fields or [],
         resolved_entity_field_refs=[],
     )
 

@@ -11,7 +11,6 @@ from marivo.core.semantic.validator import (
     _normalize_metric_dimension_ref,
     _optional_str,
     gate_dimension_additivity_condition,
-    gate_intent_specific,
     gate_intent_support,
     gate_profile_integrity,
     gate_request_shape,
@@ -200,7 +199,6 @@ def test_gate_request_shape_time_unresolved() -> None:
 @dataclass
 class _FakeCapabilities:
     supports_compare: bool = True
-    supports_validate: bool = True
     capability_condition: str | None = None
     additive_dimensions: list[str] | None = None
 
@@ -324,24 +322,4 @@ def test_gate_dimension_additivity_wrong_step_type() -> None:
     )
     state = _FakeDerivedState(metric_capabilities=caps)
     issues = gate_dimension_additivity_condition("observe", _FakeResolvedInputs(), state)
-    assert len(issues) == 0
-
-
-# ── gate_intent_specific ───────────────────────────────────────────────
-
-
-def test_gate_intent_specific_validate_not_supported() -> None:
-    caps = _FakeCapabilities(supports_validate=False)
-    state = _FakeDerivedState(metric_capabilities=caps)
-    inputs = _FakeResolvedInputs(resolved_metric=_FakeResolvedObject())
-    issues = gate_intent_specific("validate", inputs, state)
-    assert len(issues) == 1
-    assert issues[0].code == "COMPILER_INTENT_UNSUPPORTED"
-
-
-def test_gate_intent_specific_validate_supported() -> None:
-    caps = _FakeCapabilities(supports_validate=True)
-    state = _FakeDerivedState(metric_capabilities=caps)
-    inputs = _FakeResolvedInputs(resolved_metric=_FakeResolvedObject())
-    issues = gate_intent_specific("validate", inputs, state)
     assert len(issues) == 0

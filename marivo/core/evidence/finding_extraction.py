@@ -323,18 +323,10 @@ def extract_observe_findings(
         return _extract_observe_time_series(artifact_id, payload, step_ref)
     elif obs_type == "segmented":
         return _extract_observe_segmented(artifact_id, payload, step_ref)
-    elif obs_type in ("numeric_sample_summary", "rate_sample_summary"):
-        return _extract_observe_sample_summary(
-            artifact_id,
-            payload,
-            step_ref,
-            sample_kind="numeric" if obs_type == "numeric_sample_summary" else "rate",
-        )
     else:
         raise ValueError(
             f"Unknown observation_type={obs_type!r}. "
-            "Expected one of: scalar, time_series, segmented, "
-            "numeric_sample_summary, rate_sample_summary."
+            "Expected one of: scalar, time_series, segmented."
         )
 
 
@@ -495,51 +487,6 @@ def _extract_observe_segmented(
             )
         )
     return findings
-
-
-def _extract_observe_sample_summary(
-    artifact_id: str,
-    payload: dict[str, Any],
-    step_ref: dict[str, Any],
-    sample_kind: Literal["numeric", "rate"],
-) -> list[dict[str, Any]]:
-    canonical_item_key, item_ref = make_item_identity("result")
-    finding_id = make_finding_id(artifact_id, "observation", canonical_item_key)
-    am = payload.get("analytical_metadata") or {}
-
-    raw_summary = payload.get("sample_summary") or {}
-    summary = {k: to_float_or_none(v) for k, v in raw_summary.items()}
-
-    return [
-        _build_finding(
-            finding_id=finding_id,
-            finding_type="observation",
-            artifact_id=artifact_id,
-            step_ref=step_ref,
-            subject={
-                "metric": payload.get("metric"),
-                "entity": None,
-                "slice": payload.get("scope") or {},
-                "grain": None,
-                "analysis_axis": "scalar",
-            },
-            observed_window=payload.get("time_scope"),
-            quality=_quality_from_am(am),
-            provenance=_make_provenance(
-                step_ref=step_ref,
-                extractor_name="observe_artifact_v1",
-                extractor_version="1.0.0",
-                artifact_schema_version="v1",
-                canonical_item_key=canonical_item_key,
-                item_ref=item_ref,
-            ),
-            payload={
-                "observation_kind": "sample_summary",
-                "sample_kind": sample_kind,
-                "summary": summary,
-            },
-        )
-    ]
 
 
 # ===========================================================================

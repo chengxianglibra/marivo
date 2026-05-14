@@ -15,8 +15,4 @@ class DiagnoseResponse(RootModel[JsonObject]):
     """Response payload for diagnose intent execution."""
 
 
-class ValidateResponse(RootModel[JsonObject]):
-    """Response payload for validate intent execution."""
-
-
 IntentPayload = JsonObject

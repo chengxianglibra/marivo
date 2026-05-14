@@ -18,16 +18,13 @@ class DeriveAdditivityCapabilitiesTests(unittest.TestCase):
     def test_additive_metric_full_capabilities(self) -> None:
         caps = derive_additivity_capabilities(
             additive_dimensions=["country", "date"],
-            sample_kind="numeric",
             process_anchor_time_ref="event_time",
         )
         self.assertTrue(caps.supports_observe)
         self.assertTrue(caps.supports_compare)
         self.assertTrue(caps.supports_decompose)
         self.assertTrue(caps.supports_attribute)
-        self.assertTrue(caps.supports_test)
         self.assertTrue(caps.supports_detect)
-        self.assertFalse(caps.supports_validate)
         self.assertEqual(caps.additive_dimensions, ["country", "date"])
         self.assertIsNone(caps.blocker)
         self.assertIsNone(caps.remediation_hint)
@@ -36,7 +33,6 @@ class DeriveAdditivityCapabilitiesTests(unittest.TestCase):
     def test_additive_without_process_anchor(self) -> None:
         caps = derive_additivity_capabilities(
             additive_dimensions=["country"],
-            sample_kind="numeric",
         )
         self.assertTrue(caps.supports_decompose)
         self.assertTrue(caps.supports_compare)
@@ -48,7 +44,6 @@ class DeriveAdditivityCapabilitiesTests(unittest.TestCase):
     def test_non_additive_metric(self) -> None:
         caps = derive_additivity_capabilities(
             additive_dimensions=[],
-            sample_kind="numeric",
         )
         self.assertTrue(caps.supports_compare)
         self.assertFalse(caps.supports_decompose)
@@ -64,7 +59,6 @@ class DeriveAdditivityCapabilitiesTests(unittest.TestCase):
         # additive_dimensions non-empty -> decompose true, compare always true -> attribute true
         caps = derive_additivity_capabilities(
             additive_dimensions=["country"],
-            sample_kind="numeric",
         )
         self.assertTrue(caps.supports_compare)
         self.assertTrue(caps.supports_decompose)
@@ -73,27 +67,10 @@ class DeriveAdditivityCapabilitiesTests(unittest.TestCase):
         # empty additive_dimensions -> decompose false -> attribute false
         caps = derive_additivity_capabilities(
             additive_dimensions=[],
-            sample_kind="numeric",
         )
         self.assertTrue(caps.supports_compare)
         self.assertFalse(caps.supports_decompose)
         self.assertFalse(caps.supports_attribute)
-
-    # -- supports_test (sample_kind) ------------------------------------------
-
-    def test_supports_test_numeric(self) -> None:
-        caps = derive_additivity_capabilities(
-            additive_dimensions=["country"],
-            sample_kind="numeric",
-        )
-        self.assertTrue(caps.supports_test)
-
-    def test_supports_test_rate(self) -> None:
-        caps = derive_additivity_capabilities(
-            additive_dimensions=["country"],
-            sample_kind="rate",
-        )
-        self.assertTrue(caps.supports_test)
 
     # -- supports_detect (process_anchor_time_ref only) -----------------------
 
@@ -109,31 +86,6 @@ class DeriveAdditivityCapabilitiesTests(unittest.TestCase):
             additive_dimensions=["country"],
         )
         self.assertFalse(caps.supports_detect)
-
-    # -- supports_validate (rate only) ----------------------------------------
-
-    def test_supports_validate_rate_with_process(self) -> None:
-        caps = derive_additivity_capabilities(
-            additive_dimensions=["country"],
-            sample_kind="rate",
-            process_anchor_time_ref="experiment_start",
-        )
-        self.assertTrue(caps.supports_validate)
-
-    def test_supports_validate_rate_without_process(self) -> None:
-        caps = derive_additivity_capabilities(
-            additive_dimensions=["country"],
-            sample_kind="rate",
-        )
-        self.assertTrue(caps.supports_validate)
-
-    def test_no_supports_validate_numeric_with_process(self) -> None:
-        caps = derive_additivity_capabilities(
-            additive_dimensions=["country"],
-            sample_kind="numeric",
-            process_anchor_time_ref="experiment_start",
-        )
-        self.assertFalse(caps.supports_validate)
 
     # -- additive_dimensions always a list (never None) -----------------------
 
@@ -169,7 +121,6 @@ class DeriveAdditivityCapabilitiesTests(unittest.TestCase):
     def test_to_dict_roundtrip(self) -> None:
         caps = derive_additivity_capabilities(
             additive_dimensions=["country"],
-            sample_kind="numeric",
         )
         d = caps.to_dict()
         self.assertIsInstance(d, dict)
@@ -177,9 +128,7 @@ class DeriveAdditivityCapabilitiesTests(unittest.TestCase):
         self.assertEqual(d["supports_compare"], caps.supports_compare)
         self.assertEqual(d["supports_decompose"], caps.supports_decompose)
         self.assertEqual(d["supports_attribute"], caps.supports_attribute)
-        self.assertEqual(d["supports_test"], caps.supports_test)
         self.assertEqual(d["supports_detect"], caps.supports_detect)
-        self.assertEqual(d["supports_validate"], caps.supports_validate)
         self.assertEqual(d["additive_dimensions"], caps.additive_dimensions)
         self.assertEqual(d["blocker"], caps.blocker)
         self.assertEqual(d["remediation_hint"], caps.remediation_hint)
@@ -213,16 +162,12 @@ class DeriveAdditivityCapabilitiesTests(unittest.TestCase):
 
     # -- default parameter values ----------------------------------------------
 
-    def test_defaults_no_sample_kind(self) -> None:
+    def test_defaults_no_process_anchor(self) -> None:
         caps = derive_additivity_capabilities(additive_dimensions=["country"])
         # supports_compare always True (time_scope.field guaranteed at request level)
         self.assertTrue(caps.supports_compare)
-        # supports_test = sample_kind in {"numeric", "rate"} -> True (default "numeric")
-        self.assertTrue(caps.supports_test)
         # supports_detect = bool(process_anchor_time_ref) -> False
         self.assertFalse(caps.supports_detect)
-        # supports_validate = sample_kind == "rate" -> False (default "numeric")
-        self.assertFalse(caps.supports_validate)
 
 
 if __name__ == "__main__":

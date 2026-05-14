@@ -10,9 +10,6 @@ from marivo.core.semantic.metric_resolution import (
     MetricExecutionContext,
     build_metric_query_extractor_context,
     comparison_slice_label,
-    compile_typed_metric_sql,
-    compile_typed_metric_value_sql,
-    dataset_native_metric_input_field_map,
     metric_query_debug_payload,
     metric_query_mode_contract,
     metric_query_quality_builder,
@@ -260,224 +257,6 @@ def test_window_length_hour_grain() -> None:
     assert result == 12
 
 
-# ── compile_typed_metric_sql ─────────────────────────────────────────
-
-
-def test_compile_typed_metric_sql_count() -> None:
-    result = compile_typed_metric_sql(
-        "count_metric",
-        {},
-        "metric.sessions",
-        input_field_map={"count_target": "session_id"},
-    )
-    assert result == "COUNT(session_id)"
-
-
-def test_compile_typed_metric_sql_count_distinct() -> None:
-    payload = {"count_target": {"aggregation": "count_distinct"}}
-    result = compile_typed_metric_sql(
-        "count_metric",
-        payload,
-        "metric.users",
-        input_field_map={"count_target": "user_id"},
-    )
-    assert result == "COUNT(DISTINCT user_id)"
-
-
-def test_compile_typed_metric_sql_sum() -> None:
-    result = compile_typed_metric_sql(
-        "sum_metric",
-        {},
-        "metric.revenue",
-        input_field_map={"measure": "amount"},
-    )
-    assert result == "SUM(amount)"
-
-
-def test_compile_typed_metric_sql_average() -> None:
-    result = compile_typed_metric_sql(
-        "average_metric",
-        {},
-        "metric.duration",
-        input_field_map={"numerator": "duration", "denominator": "session_id"},
-    )
-    assert result == "SUM(duration) / NULLIF(COUNT(session_id), 0)"
-
-
-def test_compile_typed_metric_sql_rate() -> None:
-    result = compile_typed_metric_sql(
-        "rate_metric",
-        {},
-        "metric.crash_rate",
-        input_field_map={"numerator": "crashes", "denominator": "sessions"},
-    )
-    assert result == "SUM(crashes) / NULLIF(SUM(sessions), 0)"
-
-
-def test_compile_typed_metric_sql_distribution_trino() -> None:
-    payload = {"distribution_spec": {"kind": "percentile", "percentile": 0.95}}
-    result = compile_typed_metric_sql(
-        "distribution_metric",
-        payload,
-        "metric.p95_latency",
-        input_field_map={"value_component": "latency_ms"},
-        engine_type="trino",
-    )
-    assert result == "APPROX_PERCENTILE(latency_ms, 0.95)"
-
-
-def test_compile_typed_metric_sql_distribution_duckdb() -> None:
-    payload = {"distribution_spec": {"kind": "quantile", "percentile": 0.5}}
-    result = compile_typed_metric_sql(
-        "distribution_metric",
-        payload,
-        "metric.p50_latency",
-        input_field_map={"value_component": "latency_ms"},
-        engine_type="duckdb",
-    )
-    assert result == "QUANTILE_CONT(latency_ms, 0.5)"
-
-
-def test_compile_typed_metric_sql_distribution_unsupported_engine_raises() -> None:
-    payload = {"distribution_spec": {"kind": "percentile", "percentile": 0.5}}
-    with pytest.raises(ValueError, match="unsupported engine_type"):
-        compile_typed_metric_sql(
-            "distribution_metric",
-            payload,
-            "metric.p50_latency",
-            input_field_map={"value_component": "latency_ms"},
-            engine_type="spark",
-        )
-
-
-def test_compile_typed_metric_sql_distribution_missing_percentile_raises() -> None:
-    payload = {"distribution_spec": {"kind": "percentile"}}
-    with pytest.raises(ValueError, match=r"missing.*percentile"):
-        compile_typed_metric_sql(
-            "distribution_metric",
-            payload,
-            "metric.p50_latency",
-            input_field_map={"value_component": "latency_ms"},
-        )
-
-
-def test_compile_typed_metric_sql_distribution_histogram_ready_raises() -> None:
-    payload = {"distribution_spec": {"kind": "histogram_ready"}}
-    with pytest.raises(ValueError, match="histogram_ready"):
-        compile_typed_metric_sql(
-            "distribution_metric",
-            payload,
-            "metric.hist",
-            input_field_map={"value_component": "value"},
-        )
-
-
-def test_compile_typed_metric_sql_none_input_field_map() -> None:
-    result = compile_typed_metric_sql("count_metric", {}, "metric.x", input_field_map=None)
-    assert result is None
-
-
-def test_compile_typed_metric_sql_unknown_family() -> None:
-    result = compile_typed_metric_sql("unknown_metric", {}, "metric.x", input_field_map={})
-    assert result is None
-
-
-# ── compile_typed_metric_value_sql ───────────────────────────────────
-
-
-def test_compile_typed_metric_value_sql_sum() -> None:
-    result = compile_typed_metric_value_sql(
-        "sum_metric",
-        {},
-        "metric.revenue",
-        input_field_map={"measure": "amount"},
-    )
-    assert result == "amount"
-
-
-def test_compile_typed_metric_value_sql_average_sum_count() -> None:
-    payload = {"numerator": {"aggregation": "sum"}, "denominator": {"aggregation": "count"}}
-    result = compile_typed_metric_value_sql(
-        "average_metric",
-        payload,
-        "metric.duration",
-        input_field_map={"numerator": "duration", "denominator": "session_id"},
-    )
-    assert result == "duration"
-
-
-def test_compile_typed_metric_value_sql_none_input_field_map() -> None:
-    result = compile_typed_metric_value_sql("sum_metric", {}, "metric.x", input_field_map=None)
-    assert result is None
-
-
-# ── dataset_native_metric_input_field_map ────────────────────────────
-
-
-def test_dataset_native_metric_input_field_map_count_with_id() -> None:
-    result = dataset_native_metric_input_field_map(
-        "count_metric", {"dataset_fields": {"id": "int"}}
-    )
-    assert result == {"count_target": "id"}
-
-
-def test_dataset_native_metric_input_field_map_count_without_id() -> None:
-    result = dataset_native_metric_input_field_map(
-        "count_metric", {"dataset_fields": {"name": "string"}}
-    )
-    assert result == {"count_target": "*"}
-
-
-def test_dataset_native_metric_input_field_map_sum() -> None:
-    result = dataset_native_metric_input_field_map(
-        "sum_metric", {"dataset_fields": {"value": "float"}}
-    )
-    assert result == {"measure": "value"}
-
-
-def test_dataset_native_metric_input_field_map_average_average_type() -> None:
-    payload = {
-        "dataset_fields": {"play_duration_seconds": "float", "session_id": "int"},
-        "measure_type": "average",
-    }
-    result = dataset_native_metric_input_field_map("average_metric", payload)
-    assert result["numerator"] == "play_duration_seconds"
-    assert result["denominator"] == "session_id"
-
-
-def test_dataset_native_metric_input_field_map_average_ratio_type() -> None:
-    payload = {"dataset_fields": {"numerator": "float", "denominator": "int"}}
-    result = dataset_native_metric_input_field_map("average_metric", payload)
-    assert result["numerator"] == "numerator"
-    assert result["denominator"] == "denominator"
-
-
-def test_dataset_native_metric_input_field_map_rate() -> None:
-    result = dataset_native_metric_input_field_map(
-        "rate_metric", {"dataset_fields": {"numerator": "int", "denominator": "int"}}
-    )
-    assert result["numerator"] == "numerator"
-
-
-def test_dataset_native_metric_input_field_map_distribution() -> None:
-    result = dataset_native_metric_input_field_map(
-        "distribution_metric", {"dataset_fields": {"value": "float"}}
-    )
-    assert result == {"value_component": "value"}
-
-
-def test_dataset_native_metric_input_field_map_score() -> None:
-    result = dataset_native_metric_input_field_map(
-        "score_metric", {"dataset_fields": {"value": "float"}}
-    )
-    assert result == {"score_source": "value"}
-
-
-def test_dataset_native_metric_input_field_map_unknown() -> None:
-    result = dataset_native_metric_input_field_map("unknown_metric", {"dataset_fields": {}})
-    assert result == {}
-
-
 # ── Data classes ─────────────────────────────────────────────────────
 
 
@@ -489,7 +268,6 @@ def test_metric_execution_context() -> None:
     )
     assert ctx.metric_ref == "metric.sessions"
     assert ctx.carrier_binding_key is None
-    assert ctx.input_field_map is None
 
 
 def test_metric_binding_resolution() -> None:
@@ -504,10 +282,8 @@ def test_metric_binding_resolution() -> None:
         execution_locator=None,
         routing_detail=None,
         table_name="events",
-        input_field_map={"count_target": "session_id"},
     )
     assert res.table_name == "events"
-    assert res.input_field_map["count_target"] == "session_id"
 
 
 def test_metric_carrier_route_preflight() -> None:

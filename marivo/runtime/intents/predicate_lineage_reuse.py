@@ -23,8 +23,6 @@ _VALID_LINEAGE_KEYS: frozenset[str] = frozenset(
     {
         "shared_effective_scope",
         "metric_default_lineage",
-        "component_qualifier_lineages",
-        "component_effective_scopes",
     }
 )
 
@@ -79,18 +77,6 @@ _PREDICATE_LINEAGE_ISSUE_POLICIES: dict[str, _PredicateLineageIssuePolicy] = {
             "Ensure both observations use the same metric (which defines the default predicates)."
         ),
     },
-    "component_structure_mismatch": {
-        "gate_family": "comparability_gate",
-        "severity": "error",
-        "blocking": True,
-        "message_template": (
-            "left and right observations have different component structures, "
-            "so their predicate lineages cannot be aligned"
-        ),
-        "next_action_template": (
-            "Ensure both observations are for the same metric with the same component layout."
-        ),
-    },
     "scope_divergence": {
         "gate_family": "comparability_gate",
         "severity": "warning",
@@ -102,19 +88,6 @@ _PREDICATE_LINEAGE_ISSUE_POLICIES: dict[str, _PredicateLineageIssuePolicy] = {
         "next_action_template": (
             "Verify that the scope divergence is intentional "
             "(e.g., different request_scope or carrier)."
-        ),
-    },
-    "component_scope_fingerprint_divergence": {
-        "gate_family": "comparability_gate",
-        "severity": "warning",
-        "blocking": False,
-        "message_template": (
-            "one or more components have different scope fingerprints between left and "
-            "right observations, indicating different effective filtering per component"
-        ),
-        "next_action_template": (
-            "Review whether the component-level filtering differences are expected "
-            "for this comparison."
         ),
     },
 }
@@ -148,18 +121,6 @@ def normalize_predicate_filter_lineage(
 
     shared_scope = value.get("shared_effective_scope")
     if shared_scope is not None and not isinstance(shared_scope, dict):
-        raise error_factory()
-
-    comp_qual = value.get("component_qualifier_lineages")
-    if comp_qual is not None and not (
-        isinstance(comp_qual, list) and all(isinstance(e, dict) for e in comp_qual)
-    ):
-        raise error_factory()
-
-    comp_scopes = value.get("component_effective_scopes")
-    if comp_scopes is not None and not (
-        isinstance(comp_scopes, list) and all(isinstance(e, dict) for e in comp_scopes)
-    ):
         raise error_factory()
 
     return dict(value)
@@ -225,25 +186,6 @@ def resolve_predicate_lineage_reuse(
         if fatal_message is None:
             fatal_message = issue["message"]
 
-    # component_qualifier_lineages component_fields must match.
-    left_fields = sorted(
-        e.get("component_field", "") for e in (left.get("component_qualifier_lineages") or [])
-    )
-    right_fields = sorted(
-        e.get("component_field", "") for e in (right.get("component_qualifier_lineages") or [])
-    )
-    if left_fields != right_fields:
-        issue = _build_issue(
-            "component_structure_mismatch",
-            details={
-                "left_component_fields": left_fields,
-                "right_component_fields": right_fields,
-            },
-        )
-        issues.append(issue)
-        if fatal_message is None:
-            fatal_message = issue["message"]
-
     # shared_effective_scope divergence: warning only (expected for compare).
     left_shared = _summarize_shared_scope(left.get("shared_effective_scope"))
     right_shared = _summarize_shared_scope(right.get("shared_effective_scope"))
@@ -258,32 +200,11 @@ def resolve_predicate_lineage_reuse(
             )
         )
 
-    # component_effective_scopes fingerprint divergence: warning only.
-    left_fps = _fingerprint_map(left.get("component_effective_scopes") or [])
-    right_fps = _fingerprint_map(right.get("component_effective_scopes") or [])
-    divergent_components = sorted(
-        k for k in left_fps if k in right_fps and left_fps[k] != right_fps[k]
-    )
-    if divergent_components:
-        issues.append(
-            _build_issue(
-                "component_scope_fingerprint_divergence",
-                details={
-                    "divergent_components": divergent_components,
-                    "left_scope_fingerprints": {k: left_fps[k] for k in divergent_components},
-                    "right_scope_fingerprints": {k: right_fps[k] for k in divergent_components},
-                },
-            )
-        )
-
     reuse_summary: dict[str, Any] | None = {
         "reuse_source": "observation_predicate_filter_lineage",
         "metric_default_predicate_refs": left_defaults,
-        "component_fields": left_fields,
         "left_shared_effective_scope": left_shared,
         "right_shared_effective_scope": right_shared,
-        "left_scope_fingerprints": left_fps,
-        "right_scope_fingerprints": right_fps,
     }
     if fatal_message is not None:
         reuse_summary = None
@@ -395,16 +316,3 @@ def _summarize_shared_scope(shared: dict[str, Any] | None) -> dict[str, Any]:
     if shared is None:
         return {}
     return {k: shared.get(k) for k in _SHARED_SCOPE_KEYS if k in shared}
-
-
-def _fingerprint_map(
-    component_scopes: list[dict[str, Any]],
-) -> dict[str, str]:
-    """Map component_field -> scope_fingerprint."""
-    result: dict[str, str] = {}
-    for entry in component_scopes:
-        field = entry.get("component_field")
-        fp = entry.get("scope_fingerprint")
-        if isinstance(field, str) and isinstance(fp, str):
-            result[field] = fp
-    return result

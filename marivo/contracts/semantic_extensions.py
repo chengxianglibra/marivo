@@ -68,7 +68,7 @@ class MarivoMetricFilter(BaseModel):
 
 class MarivoMetricExtension(BaseModel):
     additive_dimensions: list[str] = []
-    sample_kind: Literal["numeric", "rate"] = "numeric"
+    aggregation_semantics: Literal["sum", "ratio", "weighted_average"] = "sum"
 
     @model_validator(mode="after")
     def _validate_additive_dimensions(self) -> MarivoMetricExtension:
@@ -79,13 +79,22 @@ class MarivoMetricExtension(BaseModel):
     def _normalize_legacy_payload(cls, data: object) -> object:
         if not isinstance(data, dict):
             return data
-        if "additive_dimensions" in data:
-            return data
 
         normalized = dict(data)
-        additivity = normalized.get("additivity")
-        if isinstance(additivity, dict) and "additive_dimensions" in additivity:
-            normalized["additive_dimensions"] = additivity.get("additive_dimensions")
+
+        # Legacy: additivity -> additive_dimensions
+        if "additive_dimensions" not in normalized:
+            additivity = normalized.get("additivity")
+            if isinstance(additivity, dict) and "additive_dimensions" in additivity:
+                normalized["additive_dimensions"] = additivity.get("additive_dimensions")
+
+        # Legacy: sample_kind -> aggregation_semantics
+        if "sample_kind" in normalized and "aggregation_semantics" not in normalized:
+            sample_kind = normalized.pop("sample_kind")
+            if sample_kind == "rate":
+                normalized["aggregation_semantics"] = "ratio"
+            # sample_kind="numeric" defaults to aggregation_semantics="sum"
+
         return normalized
 
     @property

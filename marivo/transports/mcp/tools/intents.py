@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any, Literal
-
-from pydantic import Field
+from typing import Any, Literal
 
 from marivo.contracts.generated import aoi
 from marivo.transports.mcp.tools._async_bridge import call_runtime
@@ -124,24 +122,6 @@ def to_aoi_detect_request(
     )
 
 
-def to_aoi_test_request(
-    metric: str,
-    left: McpSliceRef,
-    right: McpSliceRef,
-    kind: Literal["numeric", "rate"],
-    hypothesis: dict[str, Any],
-) -> aoi.Test:
-    return aoi.Test.model_validate(
-        {
-            "metric": metric,
-            "left": _to_aoi_slice(left),
-            "right": _to_aoi_slice(right),
-            "kind": kind,
-            "hypothesis": hypothesis,
-        }
-    )
-
-
 def _to_aoi_slice(slice_ref: McpSliceRef) -> dict[str, Any]:
     return {
         "time_scope": slice_ref.time_scope.model_dump(),
@@ -251,35 +231,6 @@ def register_correlate(server: Any, runtime: Any) -> None:
         return await call_runtime(runtime.correlate, session_id=session_id, request=request)
 
 
-def register_test_intent(server: Any, runtime: Any) -> None:
-    @server.tool()  # type: ignore
-    async def test_intent(
-        session_id: str,
-        metric: str,
-        left: McpSliceRef,
-        right: McpSliceRef,
-        kind: Annotated[
-            Literal["numeric", "rate"],
-            Field(
-                description=(
-                    "Sample type of the metric being tested. "
-                    "'numeric' for continuous-valued metrics (e.g., revenue, latency, session duration) — uses Welch's t-test. "
-                    "'rate' for proportion/ratio metrics (e.g., conversion rate, click-through rate) — uses two-proportion z-test."
-                ),
-            ),
-        ],
-        hypothesis: McpStructuredObject,
-    ) -> dict[str, Any]:
-        request = to_aoi_test_request(
-            metric=metric,
-            left=left,
-            right=right,
-            kind=kind,
-            hypothesis=hypothesis,
-        )
-        return await call_runtime(runtime.test, session_id=session_id, request=request)
-
-
 def register_forecast(server: Any, runtime: Any) -> None:
     @server.tool()  # type: ignore
     async def forecast(
@@ -370,35 +321,3 @@ def register_diagnose(server: Any, runtime: Any) -> None:
         if patterns is not None:
             params["patterns"] = patterns
         return await call_runtime(runtime.diagnose, session_id=session_id, params=params)
-
-
-def register_validate(server: Any, runtime: Any) -> None:
-    @server.tool()  # type: ignore
-    async def validate(
-        session_id: str,
-        metric: str,
-        left: McpSliceRef,
-        right: McpSliceRef,
-        hypothesis: McpStructuredObject | None = None,
-        method: Annotated[
-            Literal["auto", "welch_t", "two_proportion_z"] | None,
-            Field(
-                default=None,
-                description=(
-                    "Statistical test method. 'auto' resolves based on the metric's sample_kind. "
-                    "'welch_t' for numeric/continuous metrics (Welch's t-test). "
-                    "'two_proportion_z' for rate/proportion metrics (two-proportion z-test)."
-                ),
-            ),
-        ] = None,
-    ) -> dict[str, Any]:
-        params: dict[str, Any] = {
-            "metric": metric,
-            "left": left.model_dump(),
-            "right": right.model_dump(),
-        }
-        if hypothesis is not None:
-            params["hypothesis"] = hypothesis
-        if method is not None:
-            params["method"] = method
-        return await call_runtime(runtime.validate, session_id=session_id, params=params)

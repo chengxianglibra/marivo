@@ -694,7 +694,7 @@ class SemanticMergeExecutor:
         txn.execute(
             """
             INSERT INTO semantic_metrics
-                (model_id, name, expression, description, ai_context, additive_dimensions, sample_kind)
+                (model_id, name, expression, description, ai_context, additive_dimensions, aggregation_semantics)
             VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             [
@@ -704,7 +704,7 @@ class SemanticMergeExecutor:
                 metric_storage["description"],
                 metric_storage["ai_context"],
                 metric_storage["additive_dimensions"],
-                metric_storage["sample_kind"],
+                metric_storage.get("aggregation_semantics", "sum"),
             ],
         )
         return _CountDelta(updated=1) if existing is not None else _CountDelta(created=1)
@@ -1057,18 +1057,19 @@ def _metric_extension_issues(
                     json_pointer=f"{model_pointer}/metrics/{metric_index}/custom_extensions",
                 )
             )
-    sample_kind = extension_data.get("sample_kind")
-    if isinstance(sample_kind, str) and sample_kind not in {
-        "numeric",
-        "rate",
+    aggregation_semantics = extension_data.get("aggregation_semantics")
+    if isinstance(aggregation_semantics, str) and aggregation_semantics not in {
+        "sum",
+        "ratio",
+        "weighted_average",
     }:
         issues.append(
             SemanticValidationIssue(
-                code="INVALID_SAMPLE_KIND",
-                message=f"sample_kind '{sample_kind}' is not a valid enum value.",
+                code="INVALID_AGGREGATION_SEMANTICS",
+                message=f"aggregation_semantics '{aggregation_semantics}' is not a valid enum value.",
                 json_pointer=f"{model_pointer}/metrics/{metric_index}/custom_extensions",
-                hint="Valid values: 'numeric', 'rate'.",
-                context={"sample_kind": sample_kind},
+                hint="Valid values: 'sum', 'ratio', 'weighted_average'.",
+                context={"aggregation_semantics": aggregation_semantics},
             )
         )
     return issues

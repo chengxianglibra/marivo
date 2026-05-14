@@ -70,7 +70,7 @@ class StepRef(TypedDict):
 # ---------------------------------------------------------------------------
 
 FindingAnalysisAxis = Literal[
-    "scalar", "time", "segment", "decomposition", "correlation", "test", "forecast"
+    "scalar", "time", "segment", "decomposition", "correlation", "forecast"
 ]
 
 
@@ -190,7 +190,6 @@ FindingType = Literal[
     "decomposition_item",
     "anomaly_candidate",
     "correlation_result",
-    "test_result",
     "forecast_point",
 ]
 
@@ -240,17 +239,8 @@ class SegmentObservationPayload(TypedDict):
     rank: int | None
 
 
-class SampleSummaryObservationPayload(TypedDict):
-    observation_kind: Literal["sample_summary"]
-    sample_kind: Literal["numeric", "rate"]
-    summary: dict[str, float | None]
-
-
 ObservationPayload = (
-    ScalarObservationPayload
-    | TimeBucketObservationPayload
-    | SegmentObservationPayload
-    | SampleSummaryObservationPayload
+    ScalarObservationPayload | TimeBucketObservationPayload | SegmentObservationPayload
 )
 
 
@@ -299,7 +289,6 @@ class CalendarAlignmentReuseSummary(TypedDict):
 class PredicateLineageReuseSummary(TypedDict):
     reuse_source: str
     metric_default_predicate_refs: list[str]
-    component_fields: list[str]
     left_shared_effective_scope: dict[str, Any]
     right_shared_effective_scope: dict[str, Any]
     left_scope_fingerprints: dict[str, str]
@@ -385,31 +374,6 @@ class CorrelationResultPayload(TypedDict):
     p_value: float | None
     n: int | None
     join_basis: str | None
-
-
-# ---------------------------------------------------------------------------
-# Test result payload
-# ---------------------------------------------------------------------------
-
-TestMethod = Literal["welch_t", "two_proportion_z"]
-StatisticName = Literal["t", "z"]
-
-
-class TestResultPayloadBase(TypedDict):
-    left_ref: ArtifactItemRefRef
-    right_ref: ArtifactItemRefRef
-    method: str
-    estimate_value: float | None
-    statistic_name: str
-    statistic_value: float | None
-    p_value: float | None
-    reject_null: bool | None
-    alpha: float
-
-
-class TestResultPayload(TestResultPayloadBase, total=False):
-    comparability: ComparabilitySummary
-    calendar_alignment: CalendarAlignmentReuseSummary
 
 
 # ---------------------------------------------------------------------------
@@ -577,11 +541,6 @@ class CorrelationResultFinding(FindingBase):
     payload: CorrelationResultPayload  # type: ignore[misc]
 
 
-class TestResultFinding(FindingBase):
-    finding_type: Literal["test_result"]  # type: ignore[misc]
-    payload: TestResultPayload  # type: ignore[misc]
-
-
 class ForecastPointFinding(FindingBase):
     finding_type: Literal["forecast_point"]  # type: ignore[misc]
     payload: ForecastPointPayload  # type: ignore[misc]
@@ -598,7 +557,6 @@ AnyFinding = Union[  # noqa: UP007
     DecompositionItemFinding,
     AnomalyCandidateFinding,
     CorrelationResultFinding,
-    TestResultFinding,
     ForecastPointFinding,
 ]
 
@@ -683,17 +641,11 @@ __all__ = [
     "PredictionInterval",
     # Time scope
     "ResolvedTimeScope",
-    "SampleSummaryObservationPayload",
     # Observation payloads
     "ScalarObservationPayload",
     "SegmentObservationPayload",
-    "StatisticName",
     # Step ref
     "StepRef",
-    # Test payload
-    "TestMethod",
-    "TestResultFinding",
-    "TestResultPayload",
     "TimeBucketObservationPayload",
     # Identity helpers
     "make_artifact_item_ref",

@@ -25,7 +25,6 @@ from marivo.transports.http.models.base import (
     ProfileKind,
     ProfileSubjectKind,
     ReadinessStatus,
-    SampleKind,
     SemanticRef,
     StateSpec,
     StepSpec,
@@ -338,10 +337,6 @@ class TestLiteralTypes(unittest.TestCase):
         family = "distribution_metric"
         family = "score_metric"
         family = "survival_metric"
-
-    def test_sample_kind(self):
-        kind: SampleKind = "numeric"
-        kind = "rate"
 
     def test_value_semantics(self):
         semantics: ValueSemantics = "count"

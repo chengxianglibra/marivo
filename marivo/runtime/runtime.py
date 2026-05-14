@@ -258,11 +258,6 @@ class MarivoRuntime:
 
         return semantic_ops.resolve_metric_sql_for_execution(self, *args, **kwargs)
 
-    def resolve_metric_value_sql_for_execution(self, *args: Any, **kwargs: Any) -> str | None:
-        from marivo.runtime import semantic_ops
-
-        return semantic_ops.resolve_metric_value_sql_for_execution(self, *args, **kwargs)
-
     def resolve_scope_constraint_column(self, *args: Any, **kwargs: Any) -> str:
         from marivo.runtime import semantic_ops
 
@@ -305,9 +300,6 @@ class MarivoRuntime:
     def detect(self, session_id: str, request: AoiAtomicRequest) -> dict[str, Any]:
         return intent_execution.detect(self, SessionId(session_id), request)
 
-    def test(self, session_id: str, request: AoiAtomicRequest) -> dict[str, Any]:
-        return intent_execution.test(self, SessionId(session_id), request)
-
     def forecast(self, session_id: str, request: AoiAtomicRequest) -> dict[str, Any]:
         return intent_execution.forecast(self, SessionId(session_id), request)
 
@@ -316,9 +308,6 @@ class MarivoRuntime:
 
     def diagnose(self, session_id: str, params: dict[str, Any]) -> dict[str, Any]:
         return intent_execution.diagnose(self, SessionId(session_id), params)
-
-    def validate(self, session_id: str, params: dict[str, Any]) -> dict[str, Any]:
-        return intent_execution.validate(self, SessionId(session_id), params)
 
     # --- Session lifecycle (delegates to runtime/session) ---
 

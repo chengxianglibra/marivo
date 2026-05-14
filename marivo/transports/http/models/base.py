@@ -41,7 +41,6 @@ MetricFamily = Literal[
     "score_metric",
     "survival_metric",
 ]
-SampleKind = Literal["numeric", "rate"]
 ValueSemantics = Literal[
     "count",
     "sum",
@@ -100,7 +99,6 @@ TargetKind = Literal[
     "population_subject",
     "analysis_window_anchor",
     "process_context",
-    "metric_input",
 ]
 NullabilityPolicy = Literal["reject", "allow", "impute"]
 RepeatedValuePolicy = Literal["take_first", "take_last", "aggregate", "explode"]
@@ -149,7 +147,6 @@ PredicateOperator = Literal[
 ProfileKind = Literal["requirement", "capability"]
 ProfileSubjectKind = Literal["metric", "process", "binding"]
 ProfileSchemaVersion = Literal["v1"]
-InferentialSampleSummary = Literal["numeric_sample_summary", "rate_sample_summary"]
 
 # Lifecycle status
 ObjectStatus = Literal["draft", "published", "deprecated"]

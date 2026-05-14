@@ -155,9 +155,9 @@ class MarivoMetricExtension(BaseModel):
         None,
         description="Field names across which the metric is additive, including ordinary dimensions and time fields. Empty array means the metric is not additive on any dimension.",
     )
-    sample_kind: Literal["numeric", "rate"] = Field(
-        "numeric",
-        description="Sample type of the metric. 'numeric' for continuous-valued metrics (e.g., revenue, latency, duration) — uses Welch's t-test. 'rate' for proportion/ratio metrics (e.g., conversion rate, click-through rate) — uses two-proportion z-test. Determines inferential summary mode and which analysis intents are supported.",
+    aggregation_semantics: Literal["sum", "ratio", "weighted_average"] = Field(
+        "sum",
+        description="Aggregation semantics of the metric. 'sum' for additive continuous-valued metrics (e.g., revenue, latency, duration) — uses Welch's t-test. 'ratio' for proportion/ratio metrics (e.g., conversion rate, click-through rate) — uses two-proportion z-test. 'weighted_average' for ratio-of-sums metrics (e.g., AOV = SUM(revenue)/COUNT(orders)) — uses delta method or weighted-average decomposition. Determines inferential summary mode and which analysis intents are supported.",
     )
 
 

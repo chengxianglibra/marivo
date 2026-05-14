@@ -8,7 +8,6 @@ copy a prepared DuckDB file instead of rebuilding it.
 from __future__ import annotations
 
 import fcntl
-import random
 import shutil
 import sqlite3
 import tempfile
@@ -188,72 +187,6 @@ def _build_forecast_intent_template(db_path: Path) -> None:
         con.close()
 
 
-def _build_test_intent_template(db_path: Path) -> None:
-    _build_default_template(db_path)
-    con = duckdb.connect(str(db_path))
-    try:
-        rng = random.Random(42)
-        con.execute("CREATE SCHEMA IF NOT EXISTS analytics")
-        # Reduced from 200 to 50 rows - sufficient for statistical tests
-        for table_name, mean in (("test_numeric_a", 100.0), ("test_numeric_b", 130.0)):
-            con.execute(
-                f"""
-                CREATE TABLE IF NOT EXISTS analytics.{table_name} (
-                    event_date DATE   NOT NULL,
-                    response_time DOUBLE NOT NULL
-                )
-                """
-            )
-            rows = [("2026-01-15", rng.gauss(mean, 10.0)) for _ in range(50)]
-            con.executemany(f"INSERT INTO analytics.{table_name} VALUES (?, ?)", rows)
-
-        # Reduced from 1000 to 100 rows - sufficient for rate tests
-        for table_name, rate in (("test_rate_a", 0.30), ("test_rate_b", 0.50)):
-            con.execute(
-                f"""
-                CREATE TABLE IF NOT EXISTS analytics.{table_name} (
-                    event_date DATE     NOT NULL,
-                    converted  SMALLINT NOT NULL
-                )
-                """
-            )
-            rows = [("2026-01-15", 1 if rng.random() < rate else 0) for _ in range(100)]
-            con.executemany(f"INSERT INTO analytics.{table_name} VALUES (?, ?)", rows)
-    finally:
-        con.close()
-
-
-def _build_validate_intent_template(db_path: Path) -> None:
-    _build_default_template(db_path)
-    con = duckdb.connect(str(db_path))
-    try:
-        con.execute("CREATE SCHEMA IF NOT EXISTS analytics")
-        con.execute(
-            """
-            CREATE TABLE IF NOT EXISTS analytics.val_events (
-                event_date   DATE   NOT NULL,
-                value        DOUBLE NOT NULL,
-                binary_value DOUBLE NOT NULL
-            )
-            """
-        )
-        rows = [
-            ("2024-01-01", 95.0, 1.0),
-            ("2024-01-02", 98.0, 1.0),
-            ("2024-01-03", 100.0, 1.0),
-            ("2024-01-04", 102.0, 1.0),
-            ("2024-01-05", 105.0, 0.0),
-            ("2024-02-01", 5.0, 0.0),
-            ("2024-02-02", 8.0, 0.0),
-            ("2024-02-03", 10.0, 0.0),
-            ("2024-02-04", 12.0, 0.0),
-            ("2024-02-05", 15.0, 1.0),
-        ]
-        con.executemany("INSERT INTO analytics.val_events VALUES (?, ?, ?)", rows)
-    finally:
-        con.close()
-
-
 def _build_detect_intent_template(db_path: Path) -> None:
     """Pre-seeded detect_events with spike and uniform_events for detect tests."""
     _build_default_template(db_path)
@@ -422,28 +355,6 @@ _TEMPLATE_SPECS: dict[str, _TemplateSpec] = {
         validator=lambda db_path: _all_tables_exist(
             db_path,
             [("analytics", "watch_events"), ("analytics", "forecast_events")],
-        ),
-    ),
-    "test_intent": _TemplateSpec(
-        version="test_intent_v3",
-        builder=_build_test_intent_template,
-        validator=lambda db_path: _all_tables_exist(
-            db_path,
-            [
-                ("analytics", "watch_events"),
-                ("analytics", "test_numeric_a"),
-                ("analytics", "test_numeric_b"),
-                ("analytics", "test_rate_a"),
-                ("analytics", "test_rate_b"),
-            ],
-        ),
-    ),
-    "validate_intent": _TemplateSpec(
-        version="validate_intent_v2",
-        builder=_build_validate_intent_template,
-        validator=lambda db_path: _all_tables_exist(
-            db_path,
-            [("analytics", "watch_events"), ("analytics", "val_events")],
         ),
     ),
     "detect_intent": _TemplateSpec(

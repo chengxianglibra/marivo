@@ -150,7 +150,7 @@ def run_decompose_intent(
                 dims_for_gate = legacy_constraints.get("additive_dimensions") or []
         gate_source = "current_metric_state"
 
-    # Resolve metric for sample_kind needed by capability derivation
+    # Resolve metric for aggregation_semantics needed by capability derivation
     resolved_metric = runtime.resolve_metric(metric_name)
     if resolved_metric is None:
         raise ValueError(f"decompose: metric '{metric_name}' not found or not published")
@@ -158,8 +158,8 @@ def run_decompose_intent(
     _resolved_header = resolved_metric.semantic_object.get("header") or {}
     additivity_caps = derive_additivity_capabilities(
         additive_dimensions=dims_for_gate,
-        sample_kind=_resolved_header.get("sample_kind") or "numeric",
     )
+    metric_aggregation_semantics = _resolved_header.get("aggregation_semantics") or "sum"
 
     # Derive time_rollup_allowed from request-level time_scope.field
     _time_scope_field = str(left_time_scope.get("field") or "").strip() if left_time_scope else None
@@ -396,9 +396,11 @@ def run_decompose_intent(
             }
         )
 
-    # Reconciliation check (reconciliation_expected = True)
+    # Reconciliation check: only for additive (sum) metrics
+    reconciliation_expected = metric_aggregation_semantics == "sum"
     if (
-        unexplained_absolute_delta is not None
+        reconciliation_expected
+        and unexplained_absolute_delta is not None
         and unexplained_absolute_delta != 0.0
         and scope_absolute_delta is not None
         and scope_absolute_delta != 0
@@ -419,6 +421,8 @@ def run_decompose_intent(
             )
         else:
             unexplained_reason = "rounding"
+    elif not reconciliation_expected and unexplained_absolute_delta is not None:
+        unexplained_reason = "non_additive_aggregation"
     else:
         unexplained_reason = None
 
@@ -478,11 +482,11 @@ def run_decompose_intent(
         "unexplained_reason": unexplained_reason,
         "analytical_metadata": {
             "method": "delta_share",
-            "aggregation_semantics": "sum",
+            "aggregation_semantics": metric_aggregation_semantics,
             "additive_dimensions": dims_for_gate,
             "additive_dimensions_source": gate_source,
             "time_rollup_allowed": time_rollup_allowed,
-            "reconciliation_expected": True,
+            "reconciliation_expected": reconciliation_expected,
             "flat_tolerance_relative": _FLAT_TOLERANCE_RELATIVE,
             "left_row_count": len(left_rows),
             "right_row_count": len(right_rows),

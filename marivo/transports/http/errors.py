@@ -76,18 +76,13 @@ _GUIDED_EXAMPLES: dict[tuple[str, str], list[dict[str, Any]]] = {
                     "metric_family": "count_metric",
                     "observed_entity_ref": "entity.user",
                     "observation_grain_ref": "grain.user",
-                    "sample_kind": "numeric",
+                    "aggregation_semantics": "sum",
                     "value_semantics": "count",
                     "additive_dimensions": [],
                     "metric_contract_version": "metric.v1",
                 },
                 "payload": {
                     "metric_family": "count_metric",
-                    "count_target": {
-                        "name": "active_users",
-                        "semantics": "distinct active users",
-                        "aggregation": "count_distinct",
-                    },
                 },
             },
         }
@@ -103,11 +98,6 @@ _GUIDED_EXAMPLES: dict[tuple[str, str], list[dict[str, Any]]] = {
                 "display_name": "Daily Active Users",
                 "payload": {
                     "metric_family": "count_metric",
-                    "count_target": {
-                        "name": "active_users",
-                        "semantics": "distinct active users",
-                        "aggregation": "count_distinct",
-                    },
                 },
             },
         }
@@ -408,11 +398,9 @@ _SCHEMA_NAME_BY_ROUTE: dict[tuple[str, str], str] = {
     ("POST", "/sessions/{session_id}/intents/decompose"): "Decompose",
     ("POST", "/sessions/{session_id}/intents/correlate"): "Correlate",
     ("POST", "/sessions/{session_id}/intents/detect"): "Detect",
-    ("POST", "/sessions/{session_id}/intents/test"): "Test",
     ("POST", "/sessions/{session_id}/intents/forecast"): "Forecast",
     ("POST", "/sessions/{session_id}/intents/attribute"): "AttributeRequest",
     ("POST", "/sessions/{session_id}/intents/diagnose"): "DiagnoseRequest",
-    ("POST", "/sessions/{session_id}/intents/validate"): "ValidateRequest",
 }
 
 

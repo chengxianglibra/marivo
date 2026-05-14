@@ -33,9 +33,7 @@ class AdditivityCapabilityResult:
     supports_compare: bool
     supports_decompose: bool
     supports_attribute: bool
-    supports_test: bool
     supports_detect: bool
-    supports_validate: bool
     additive_dimensions: list[str]
     blocker: str | None
     remediation_hint: str | None
@@ -47,9 +45,7 @@ class AdditivityCapabilityResult:
             "supports_compare": self.supports_compare,
             "supports_decompose": self.supports_decompose,
             "supports_attribute": self.supports_attribute,
-            "supports_test": self.supports_test,
             "supports_detect": self.supports_detect,
-            "supports_validate": self.supports_validate,
             "additive_dimensions": self.additive_dimensions,
             "blocker": self.blocker,
             "remediation_hint": self.remediation_hint,
@@ -60,7 +56,6 @@ class AdditivityCapabilityResult:
 def derive_additivity_capabilities(
     *,
     additive_dimensions: list[str],
-    sample_kind: str = "numeric",
     process_anchor_time_ref: str | None = None,
 ) -> AdditivityCapabilityResult:
     """Derive analysis capabilities from additive_dimensions.
@@ -70,14 +65,10 @@ def derive_additivity_capabilities(
     additive_dimensions:
         List of dimension field names across which the metric is additive.
         Empty list means the metric is not additive on any dimension.
-    sample_kind:
-        The metric sample kind.  Affects supports_test and supports_validate.
     process_anchor_time_ref:
         Optional anchor time ref from an associated process object.
         Affects supports_detect.
     """
-    sample_kind = sample_kind.strip() or "numeric"
-
     if len(additive_dimensions) == 0:
         supports_decompose = False
         blocker = "ADDITIVITY_NONE"
@@ -96,18 +87,14 @@ def derive_additivity_capabilities(
     # Composite capabilities
     supports_compare = True
     supports_attribute = supports_compare and supports_decompose
-    supports_test = sample_kind in {"numeric", "rate"}
     supports_detect = bool(process_anchor_time_ref)
-    supports_validate = sample_kind == "rate"
 
     return AdditivityCapabilityResult(
         supports_observe=True,
         supports_compare=supports_compare,
         supports_decompose=supports_decompose,
         supports_attribute=supports_attribute,
-        supports_test=supports_test,
         supports_detect=supports_detect,
-        supports_validate=supports_validate,
         additive_dimensions=additive_dimensions,
         blocker=blocker,
         remediation_hint=remediation_hint,

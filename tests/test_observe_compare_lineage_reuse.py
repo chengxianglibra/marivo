@@ -89,8 +89,6 @@ def _make_lineage(
     carrier_refs: list[str] | None = None,
     request_scope_ref: str | None = None,
     default_refs: list[str] | None = None,
-    component_lineages: list[dict[str, Any]] | None = None,
-    component_scopes: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     shared: dict[str, Any] = {
         "carrier_row_filter_refs": carrier_refs or [],
@@ -100,32 +98,6 @@ def _make_lineage(
     return {
         "shared_effective_scope": shared,
         "metric_default_lineage": {"default_predicate_refs": default_refs or []},
-        "component_qualifier_lineages": component_lineages or [],
-        "component_effective_scopes": component_scopes or [],
-    }
-
-
-def _make_component_scope(
-    component_field: str,
-    *,
-    effective_scope_refs: list[str] | None = None,
-    fingerprint: str = "abcd1234efgh5678",
-) -> dict[str, Any]:
-    return {
-        "component_field": component_field,
-        "effective_scope_refs": effective_scope_refs or [],
-        "scope_fingerprint": fingerprint,
-    }
-
-
-def _make_component_lineage(
-    component_field: str,
-    *,
-    qualifier_refs: list[str] | None = None,
-) -> dict[str, Any]:
-    return {
-        "component_field": component_field,
-        "qualifier_refs": qualifier_refs or [],
     }
 
 
@@ -192,10 +164,6 @@ class TestCompareReusesObservationLineage(_CompareReuseTestBase):
         lineage = _make_lineage(
             carrier_refs=["predicate.car1"],
             default_refs=["predicate.d1"],
-            component_lineages=[_make_component_lineage("count_target")],
-            component_scopes=[
-                _make_component_scope("count_target", fingerprint="aaaa1111bbbb2222")
-            ],
         )
         cls.left_step_id = f"step_left_{cls.__name__.lower()}"
         cls.right_step_id = f"step_right_{cls.__name__.lower()}"
@@ -238,81 +206,10 @@ class TestCompareReusesObservationLineage(_CompareReuseTestBase):
         pl = result["resolved_input_summary"]["predicate_lineage"]
         assert_predicate_lineage_refs_only(pl, surface="compare_resolved_input_summary")
 
-    def test_compare_fingerprints_match_observations(self) -> None:
-        result = self._compare(self.left_step_id, self.right_step_id)
-        pl = result["resolved_input_summary"]["predicate_lineage"]
-        expected_fp = "aaaa1111bbbb2222"
-        self.assertEqual(pl["left_scope_fingerprints"].get("count_target"), expected_fp)
-        self.assertEqual(pl["right_scope_fingerprints"].get("count_target"), expected_fp)
-
     def test_compare_default_refs_match_observations(self) -> None:
         result = self._compare(self.left_step_id, self.right_step_id)
         pl = result["resolved_input_summary"]["predicate_lineage"]
         self.assertEqual(pl["metric_default_predicate_refs"], ["predicate.d1"])
-
-
-# ---------------------------------------------------------------------------
-# Compare with multi-component (rate metric) lineage
-# ---------------------------------------------------------------------------
-
-
-class TestCompareMultiComponentLineageReuse(_CompareReuseTestBase):
-    """Verify compare reuses multi-component lineage from rate metric observations."""
-
-    @classmethod
-    def setUpClass(cls) -> None:
-        super().setUpClass()
-        svc = cls.client.app.state.services.runtime
-        lineage = _make_lineage(
-            carrier_refs=["predicate.car1"],
-            default_refs=["predicate.d1"],
-            component_lineages=[
-                _make_component_lineage("numerator", qualifier_refs=["predicate.q_num"]),
-                _make_component_lineage("denominator"),
-            ],
-            component_scopes=[
-                _make_component_scope("numerator", fingerprint="num_fp_11112222"),
-                _make_component_scope("denominator", fingerprint="den_fp_33334444"),
-            ],
-        )
-        cls.left_step_id = f"step_mc_left_{cls.__name__.lower()}"
-        cls.right_step_id = f"step_mc_right_{cls.__name__.lower()}"
-        _insert_observe_artifact(
-            svc,
-            session_id=cls.session_id,
-            step_id=cls.left_step_id,
-            metric="metric.rate_reuse_test",
-            observation_type="scalar",
-            time_scope={"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
-            value=0.75,
-            unit="ratio",
-            predicate_filter_lineage=lineage,
-        )
-        _insert_observe_artifact(
-            svc,
-            session_id=cls.session_id,
-            step_id=cls.right_step_id,
-            metric="metric.rate_reuse_test",
-            observation_type="scalar",
-            time_scope={"kind": "range", "start": "2023-12-25", "end": "2024-01-01"},
-            value=0.60,
-            unit="ratio",
-            predicate_filter_lineage=lineage,
-        )
-
-    def test_compare_with_rate_metric_reuses_lineage(self) -> None:
-        result = self._compare(self.left_step_id, self.right_step_id)
-        pl = result["resolved_input_summary"]["predicate_lineage"]
-        self.assertIn("numerator", pl["component_fields"])
-        self.assertIn("denominator", pl["component_fields"])
-
-    def test_compare_rate_metric_fingerprints_match_observations(self) -> None:
-        result = self._compare(self.left_step_id, self.right_step_id)
-        pl = result["resolved_input_summary"]["predicate_lineage"]
-        self.assertEqual(pl["left_scope_fingerprints"]["numerator"], "num_fp_11112222")
-        self.assertEqual(pl["left_scope_fingerprints"]["denominator"], "den_fp_33334444")
-        self.assertEqual(pl["right_scope_fingerprints"]["numerator"], "num_fp_11112222")
-        self.assertEqual(pl["right_scope_fingerprints"]["denominator"], "den_fp_33334444")
 
 
 # ---------------------------------------------------------------------------

@@ -20,8 +20,6 @@ from marivo.transports.mcp.tools.intents import (
     register_diagnose,
     register_forecast,
     register_observe,
-    register_test_intent,
-    register_validate,
 )
 from marivo.transports.mcp.tools.semantic import register_semantic_tools
 from marivo.transports.mcp.tools.session import register_session_tools
@@ -41,11 +39,9 @@ def register_tools(
     register_decompose(server, runtime)
     register_detect(server, runtime)
     register_correlate(server, runtime)
-    register_test_intent(server, runtime)
     register_forecast(server, runtime)
     register_attribute(server, runtime)
     register_diagnose(server, runtime)
-    register_validate(server, runtime)
 
     # Session tools — available in all modes
     register_session_tools(server, runtime)

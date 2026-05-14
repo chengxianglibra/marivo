@@ -17,14 +17,13 @@ Coverage:
    3. ``compare`` empty segmented rows → FamilyEmptyError, no artifact in DB
    4. ``decompose`` empty rows → FamilyEmptyError, no artifact in DB
    5. ``correlate`` valid pairs → success, exactly 1 finding in DB
-   6. ``test`` valid input → success, exactly 1 finding in DB
-   7. ``forecast`` N buckets → success, N findings in DB
+   6. ``forecast`` N buckets → success, N findings in DB
 
  §8.3 identity and replay stability
-   8. success-empty ``observe`` replay (same payload, same artifact_id) →
+   7. success-empty ``observe`` replay (same payload, same artifact_id) →
       still 0 findings; no synthetic finding generated
-   9. success-empty ``detect`` replay → still 0 findings
-  10. finding_id is stable across re-extraction for the same artifact_id
+   8. success-empty ``detect`` replay → still 0 findings
+   9. finding_id is stable across re-extraction for the same artifact_id
       and payload (correlate, observe scalar)
 """
 
@@ -378,36 +377,6 @@ def _correlate_payload(
     }
 
 
-def _test_payload(
-    left_artifact_id: str = "art_obs_left_001",
-    right_artifact_id: str = "art_obs_right_001",
-) -> dict[str, Any]:
-    return {
-        "artifact_schema_version": "v1",
-        "result_type": "hypothesis_test",
-        "left_ref": {
-            "step_type": "observe",
-            "session_id": _SESSION,
-            "step_id": "step_obs_l",
-            "artifact_id": left_artifact_id,
-            "observation_type": "numeric_sample_summary",
-        },
-        "right_ref": {
-            "step_type": "observe",
-            "session_id": _SESSION,
-            "step_id": "step_obs_r",
-            "artifact_id": right_artifact_id,
-            "observation_type": "numeric_sample_summary",
-        },
-        "method": "welch_t",
-        "estimate": {"estimand": "mean_diff", "value": 2.5},
-        "statistic": {"name": "t", "value": 3.14},
-        "p_value": 0.003,
-        "decision": {"reject_null": True},
-        "hypothesis": {"family": "difference", "alternative": "two_sided", "alpha": 0.05},
-    }
-
-
 def _forecast_payload(n_buckets: int = 3) -> dict[str, Any]:
     buckets = [
         {
@@ -663,41 +632,7 @@ class TestCorrelateCommit(unittest.TestCase):
 
 
 # ===========================================================================
-# 6. Test — success with exactly 1 finding
-# ===========================================================================
-
-
-class TestHypothesisTestCommit(unittest.TestCase):
-    """hypothesis_test → committed artifact, exactly 1 finding in DB."""
-
-    def setUp(self) -> None:
-        self.store = _make_store()
-
-        self.artifact_id = _commit_artifact_with_extraction(
-            self.store,
-            _SESSION,
-            _STEP_ID,
-            "hypothesis_test",
-            "test_001",
-            _test_payload(),
-            step_type="test",
-        )
-
-    def test_artifact_committed(self) -> None:
-        self.assertEqual(_artifact_lifecycle(self.store, self.artifact_id), "committed")
-
-    def test_exactly_one_finding(self) -> None:
-        self.assertEqual(_finding_count_in_db(self.store, self.artifact_id), 1)
-
-    def test_finding_type_is_test_result(self) -> None:
-        rows = self.store.query_rows(
-            "SELECT finding_type FROM findings WHERE artifact_id = ?", [self.artifact_id]
-        )
-        self.assertEqual(rows[0]["finding_type"], "test_result")
-
-
-# ===========================================================================
-# 7. Forecast — success with N findings (one per bucket)
+# 6. Forecast — success with N findings (one per bucket)
 # ===========================================================================
 
 
@@ -747,7 +682,7 @@ class TestForecastCommit(unittest.TestCase):
 
 
 # ===========================================================================
-# 8 & 9. Success-empty replay stability (observe, detect)
+# 7. Success-empty replay stability (observe, detect)
 # ===========================================================================
 
 
@@ -812,7 +747,7 @@ class TestSuccessEmptyDetectReplayStability(unittest.TestCase):
 
 
 # ===========================================================================
-# 10. Finding ID replay stability (non-empty families)
+# 8. Finding ID replay stability (non-empty families)
 # ===========================================================================
 
 

@@ -29,8 +29,6 @@ from marivo.transports.http.models import (
     SessionStateView,
     SessionTerminateRequest,
     SessionTerminateResponse,
-    ValidateRequest,
-    ValidateResponse,
 )
 
 router = APIRouter()
@@ -464,15 +462,6 @@ def intent_detect(
     return ExecutionEnvelope.model_validate(_run_intent(session_id, "detect", payload, request))
 
 
-@router.post("/sessions/{session_id}/intents/test", response_model=ExecutionEnvelope)
-def intent_test(
-    session_id: str,
-    payload: aoi.Test,
-    request: Request,
-) -> ExecutionEnvelope:
-    return ExecutionEnvelope.model_validate(_run_intent(session_id, "test", payload, request))
-
-
 @router.post("/sessions/{session_id}/intents/forecast", response_model=ExecutionEnvelope)
 def intent_forecast(
     session_id: str,
@@ -501,15 +490,4 @@ def intent_diagnose(
 ) -> DiagnoseResponse:
     return DiagnoseResponse.model_validate(
         _run_intent(session_id, "diagnose", payload.model_dump(exclude_none=True), request)
-    )
-
-
-@router.post("/sessions/{session_id}/intents/validate", response_model=ValidateResponse)
-def intent_validate(
-    session_id: str,
-    payload: ValidateRequest,
-    request: Request,
-) -> ValidateResponse:
-    return ValidateResponse.model_validate(
-        _run_intent(session_id, "validate", payload.model_dump(exclude_none=True), request)
     )

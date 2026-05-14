@@ -124,7 +124,7 @@ class SemanticRuntimeRepository:
             "metric_family": metric_family,
             "metric_ref": metric_ref,
             "additive_dimensions": additive_dims or [],
-            "sample_kind": metric_row.get("sample_kind") or "numeric",
+            "aggregation_semantics": metric_row.get("aggregation_semantics") or "sum",
         }
         return ResolvedSemanticObject(
             object_kind="metric",

@@ -28,7 +28,6 @@ from marivo.core.evidence.canonical_finding import (
     ForecastPointFinding,
     ObservationFinding,
     StepRef,
-    TestResultFinding,
     make_canonical_item_key,
     make_finding_id,
 )
@@ -355,28 +354,23 @@ class TestConcreteSubtypesAndAnyFinding(unittest.TestCase):
         hints = typing.get_type_hints(CorrelationResultFinding)
         self.assertIn("correlation_result", typing.get_args(hints["finding_type"]))
 
-    def test_test_result_finding_type_annotation(self) -> None:
-        hints = typing.get_type_hints(TestResultFinding)
-        self.assertIn("test_result", typing.get_args(hints["finding_type"]))
-
     def test_forecast_point_finding_type_annotation(self) -> None:
         hints = typing.get_type_hints(ForecastPointFinding)
         self.assertIn("forecast_point", typing.get_args(hints["finding_type"]))
 
-    def test_any_finding_covers_all_seven_subtypes(self) -> None:
+    def test_any_finding_covers_all_six_subtypes(self) -> None:
         expected = {
             ObservationFinding,
             DeltaFinding,
             DecompositionItemFinding,
             AnomalyCandidateFinding,
             CorrelationResultFinding,
-            TestResultFinding,
             ForecastPointFinding,
         }
         self.assertEqual(set(typing.get_args(AnyFinding)), expected)
 
     def test_observation_finding_payload_is_union_not_dict(self) -> None:
-        """payload must be typed as ObservationPayload (a union of 4 subtypes)."""
+        """payload must be typed as ObservationPayload (a union of 3 subtypes)."""
         hints = typing.get_type_hints(ObservationFinding)
         self.assertGreater(len(typing.get_args(hints["payload"])), 1)
 

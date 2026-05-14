@@ -25,7 +25,6 @@ from marivo.core.semantic.compiler import (
 )
 from marivo.core.semantic.ir import AnalysisStepIR
 from marivo.core.semantic.resolution import ResolvedSemanticObject
-from marivo.metric_inputs import required_metric_input_slots
 from marivo.runtime.errors import (
     SemanticRuntimeInvalidRefError,
     SemanticRuntimeNotFoundError,
@@ -60,7 +59,6 @@ class MetricExecutionContext:
     mapping_id: str | None = None
     execution_locator: dict[str, Any] | None = None
     routing_detail: dict[str, Any] | None = None
-    input_field_map: dict[str, str] | None = None
     additive_dimensions: list[str] = field(default_factory=list)
 
 
@@ -76,7 +74,6 @@ class MetricBindingResolution:
     execution_locator: dict[str, Any] | None
     routing_detail: dict[str, Any] | None
     table_name: str | None
-    input_field_map: dict[str, str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -165,49 +162,6 @@ def dataset_source_to_authority_locator(source: str) -> dict[str, Any]:
     if len(parts) == 2:
         return {"catalog": None, "schema": parts[0], "table": parts[1]}
     return {"catalog": None, "schema": None, "table": source}
-
-
-def dataset_native_metric_input_field_map(
-    metric_family: str,
-    payload: dict[str, Any],
-) -> dict[str, str]:
-    """Resolve metric_input slot names from dataset-native payload fields."""
-    fields = payload.get("dataset_fields")
-    available = set(fields) if isinstance(fields, dict) else set()
-    measure_type = _optional_str(payload.get("measure_type"))
-    dimensions = [str(item) for item in list(payload.get("dimensions") or [])]
-
-    def choose(*names: str, default: str) -> str:
-        for name in names:
-            if name in available:
-                return name
-        return default
-
-    if metric_family == "count_metric":
-        return {"count_target": choose("id", "session_id", default="*")}
-    if metric_family == "sum_metric":
-        return {"measure": choose("value", "play_duration_seconds", default="value")}
-    if metric_family == "average_metric":
-        if measure_type == "average":
-            return {
-                "numerator": choose("play_duration_seconds", "value", default="value"),
-                "denominator": choose("session_id", "id", default="id"),
-            }
-        return {
-            "numerator": choose("numerator", "value", default="numerator"),
-            "denominator": choose("denominator", "id", default="denominator"),
-        }
-    if metric_family == "rate_metric":
-        return {
-            "numerator": choose("numerator", "value", default="numerator"),
-            "denominator": choose("denominator", "id", default="denominator"),
-        }
-    if metric_family == "distribution_metric":
-        return {"value_component": choose("value", "play_duration_seconds", default="value")}
-    if metric_family == "score_metric":
-        return {"score_source": choose("value", default="value")}
-    _ = dimensions
-    return {}
 
 
 def table_name_matches_locator(table_name: str, locator: dict[str, Any] | str | None) -> bool:
@@ -654,22 +608,6 @@ def _metric_family_for_ref(runtime: MarivoRuntime, metric_ref: str) -> str | Non
     return _optional_str(header.get("metric_family"))
 
 
-def _metric_input_field_map(runtime: MarivoRuntime, metric_ref: str) -> dict[str, str] | None:
-    """Resolve metric_input slot names from the execution binding chosen for the metric."""
-    metric_ref = _coerce_metric_ref(metric_ref)
-    metric_family = _metric_family_for_ref(runtime, metric_ref)
-    if metric_family is None:
-        return None
-    resolution = _select_metric_binding_resolution(
-        runtime,
-        metric_ref,
-        required_slots=required_metric_input_slots(metric_family),
-    )
-    if resolution is None:
-        return None
-    return dict(resolution.input_field_map)
-
-
 def _select_metric_binding_resolution(
     runtime: MarivoRuntime,
     metric_ref: str,
@@ -705,7 +643,6 @@ def _dataset_native_metric_resolution(
     metric_family = _metric_family_for_ref(runtime, metric_ref)
     if metric_family is None:
         return None
-    input_field_map = dataset_native_metric_input_field_map(metric_family, payload)
     authority_locator = dataset_source_to_authority_locator(dataset_source)
     return MetricExecutionContext(
         metric_ref=metric_ref,
@@ -718,123 +655,10 @@ def _dataset_native_metric_resolution(
         mapping_id=None,
         execution_locator={**authority_locator, "datasource_id": datasource_id},
         routing_detail={"resolution_status": "dataset_native", "datasource_id": datasource_id},
-        input_field_map=input_field_map,
         additive_dimensions=resolved.semantic_object.get("header", {}).get(
             "additive_dimensions", []
         ),
     )
-
-
-def _compile_typed_metric_sql(
-    runtime: MarivoRuntime,
-    metric_family: str,
-    payload: dict[str, Any],
-    metric_ref: str,
-    *,
-    input_field_map: dict[str, str] | None = None,
-    engine_type: str | None = None,
-) -> str | None:
-    """Compile an aggregate SQL expression from a typed metric contract."""
-    input_field_map = input_field_map or _metric_input_field_map(runtime, metric_ref)
-    if input_field_map is None:
-        return None
-
-    if metric_family == "count_metric":
-        count_target = payload.get("count_target") or {}
-        aggregation = _optional_str(count_target.get("aggregation")) or "count"
-        field_name = input_field_map.get("count_target")
-        if aggregation == "count_distinct" and field_name:
-            return f"COUNT(DISTINCT {field_name})"
-        if aggregation == "count" and field_name:
-            return f"COUNT({field_name})"
-        return None
-
-    if metric_family == "sum_metric":
-        field_name = input_field_map.get("measure")
-        if field_name:
-            return f"SUM({field_name})"
-        return None
-
-    if metric_family == "average_metric":
-        num_field = input_field_map.get("numerator")
-        den_field = input_field_map.get("denominator")
-        if num_field and den_field:
-            return f"SUM({num_field}) / NULLIF(COUNT({den_field}), 0)"
-        return None
-
-    if metric_family == "rate_metric":
-        num_field = input_field_map.get("numerator")
-        den_field = input_field_map.get("denominator")
-        if num_field and den_field:
-            return f"SUM({num_field}) / NULLIF(SUM({den_field}), 0)"
-
-    if metric_family == "distribution_metric":
-        value_field = input_field_map.get("value_component")
-        if value_field is None:
-            return None
-        distribution_spec = payload.get("distribution_spec") or {}
-        kind = _optional_str(distribution_spec.get("kind"))
-        if kind in {"percentile", "quantile"}:
-            percentile = distribution_spec.get("percentile")
-            if percentile is None:
-                raise ValueError(
-                    f"Metric '{metric_name_from_ref(metric_ref)}' is missing "
-                    "distribution_spec.percentile for distribution_metric compilation"
-                )
-            try:
-                percentile_value = float(percentile)
-            except (TypeError, ValueError) as error:
-                raise ValueError(
-                    f"Metric '{metric_name_from_ref(metric_ref)}' has a non-numeric "
-                    "distribution_spec.percentile"
-                ) from error
-            if engine_type == "trino":
-                return f"APPROX_PERCENTILE({value_field}, {percentile_value})"
-            if engine_type == "duckdb":
-                return f"QUANTILE_CONT({value_field}, {percentile_value})"
-            raise ValueError(
-                f"Metric '{metric_name_from_ref(metric_ref)}' requires an engine-specific "
-                f"distribution kernel, unsupported engine_type='{engine_type}'"
-            )
-        if kind == "histogram_ready":
-            raise ValueError(
-                f"observe: UNSUPPORTED_OPERATION - metric '{metric_name_from_ref(metric_ref)}' "
-                "uses distribution_spec.kind='histogram_ready', which standard observe does "
-                "not compile in v1"
-            )
-        raise ValueError(
-            f"observe: UNSUPPORTED_OPERATION - metric '{metric_name_from_ref(metric_ref)}' "
-            f"uses unsupported distribution_spec.kind='{kind}'"
-        )
-
-    return None
-
-
-def _compile_typed_metric_value_sql(
-    runtime: MarivoRuntime,
-    metric_family: str,
-    payload: dict[str, Any],
-    metric_ref: str,
-    *,
-    input_field_map: dict[str, str] | None = None,
-) -> str | None:
-    """Compile a per-row value expression from a typed metric contract."""
-    input_field_map = input_field_map or _metric_input_field_map(runtime, metric_ref)
-    if input_field_map is None:
-        return None
-
-    if metric_family == "sum_metric":
-        return input_field_map.get("measure")
-
-    if metric_family == "average_metric":
-        numerator = payload.get("numerator") or {}
-        denominator = payload.get("denominator") or {}
-        if (_optional_str(numerator.get("aggregation")) or "sum") == "sum" and (
-            _optional_str(denominator.get("aggregation")) or "count"
-        ) == "count":
-            return input_field_map.get("numerator")
-
-    return None
 
 
 # ── Public use-case functions ───────────────────────────────────────────
@@ -883,11 +707,9 @@ def resolve_metric_execution_context(
     metric_family = _metric_family_for_ref(runtime, metric_ref)
     if metric_family is None:
         raise ValueError(f"Metric '{metric_name}' is missing metric_family metadata")
-    required_slots = required_metric_input_slots(metric_family)
     resolution = _select_metric_binding_resolution(
         runtime,
         metric_ref,
-        required_slots=required_slots,
         session_id=session_id,
     )
     metric_header = dict(availability.resolved.semantic_object.get("header") or {})
@@ -907,56 +729,15 @@ def resolve_metric_execution_context(
             mapping_id=resolution.mapping_id,
             execution_locator=resolution.execution_locator,
             routing_detail=resolution.routing_detail,
-            input_field_map=dict(resolution.input_field_map),
             additive_dimensions=metric_additive_dimensions,
         )
-    candidate_bindings = _metric_binding_candidates(runtime, metric_ref, session_id=session_id)
-    metric_input_failures = [
-        candidate
-        for candidate in candidate_bindings
-        if candidate.get("failure_stage") == "metric_input_coverage"
-    ]
-    if metric_input_failures:
-        missing_slots = sorted(
-            {
-                str(slot)
-                for candidate in metric_input_failures
-                for slot in list(candidate.get("missing_metric_input_slots") or [])
-                if str(slot).strip()
-            }
-        )
-        raise ValueError(
-            f"Metric execution binding for '{metric_name}' is missing required metric_input "
-            f"coverage ({', '.join(missing_slots)})"
-        )
-    has_mapping_failures = any(
-        candidate.get("failure_stage") == "mapping_route_preflight"
-        for candidate in candidate_bindings
-    )
-
     raise SemanticRuntimeNotReadyError(
         f"Metric execution preflight failed: {metric_ref}",
         semantic_ref=metric_ref,
         object_kind=availability.resolved.object_kind,
         lifecycle_status=availability.lifecycle_status,
         readiness_status=availability.readiness_status,
-        blocking_requirements=[
-            {
-                "code": "METRIC_EXECUTION_BINDING_UNRESOLVED",
-                "message": (
-                    "Metric is ready in the semantic layer, but execution could not resolve "
-                    "any published binding carrier to an execution route."
-                    if has_mapping_failures
-                    else "Metric is ready in the semantic layer, but execution could not "
-                    "resolve any published binding carrier to a synced source object."
-                ),
-                "subject_ref": metric_ref,
-                "details": {
-                    "failure_stage": "metric_execution_preflight",
-                    "candidate_bindings": candidate_bindings,
-                },
-            }
-        ],
+        blocking_requirements=availability.blocking_requirements,
         capabilities=availability.capabilities,
         dependency_refs=availability.dependency_refs,
     )
@@ -1294,25 +1075,9 @@ def resolve_metric_sql(
     resolved = _resolve_runtime_metric_contract(runtime, metric_ref)
     if resolved is None:
         return None
-    semantic_object = resolved.semantic_object
-    header = semantic_object.get("header") or {}
-    payload = semantic_object.get("payload") or {}
-
-    # Legacy: definition_sql in payload
-    definition_sql = payload.get("definition_sql")
+    definition_sql = resolved.semantic_object.get("payload", {}).get("definition_sql")
     if definition_sql is not None:
         return str(definition_sql)
-
-    metric_family = _optional_str(header.get("metric_family"))
-    typed_metric_ref = _optional_str(header.get("metric_ref"))
-    if metric_family is not None and typed_metric_ref is not None:
-        return _compile_typed_metric_sql(
-            runtime,
-            metric_family,
-            payload,
-            typed_metric_ref,
-        )
-
     return None
 
 
@@ -1320,29 +1085,14 @@ def resolve_metric_value_sql(
     runtime: MarivoRuntime,
     metric_ref: str,
 ) -> str | None:
-    """Resolve a per-row value expression for sample-summary style execution."""
+    """Resolve a per-row value expression for a published metric."""
     metric_ref = _coerce_metric_ref(metric_ref)
     resolved = _resolve_runtime_metric_contract(runtime, metric_ref)
     if resolved is None:
         return None
-    semantic_object = resolved.semantic_object
-    header = semantic_object.get("header") or {}
-    payload = semantic_object.get("payload") or {}
-
-    definition_sql = payload.get("definition_sql")
+    definition_sql = resolved.semantic_object.get("payload", {}).get("definition_sql")
     if definition_sql is not None:
         return str(definition_sql)
-
-    metric_family = _optional_str(header.get("metric_family"))
-    typed_metric_ref = _optional_str(header.get("metric_ref"))
-    if metric_family is not None and typed_metric_ref is not None:
-        return _compile_typed_metric_value_sql(
-            runtime,
-            metric_family,
-            payload,
-            typed_metric_ref,
-        )
-
     return None
 
 
@@ -1359,68 +1109,12 @@ def resolve_metric_sql_for_execution(
     resolved = _resolve_runtime_metric_contract(runtime, metric_ref)
     if resolved is None:
         raise ValueError(f"Metric '{metric_name}' not found or not published")
-    header = resolved.semantic_object.get("header") or {}
     payload = resolved.semantic_object.get("payload") or {}
     definition_sql = payload.get("definition_sql")
     if definition_sql is not None:
         return str(definition_sql)
-    metric_family = _optional_str(header.get("metric_family"))
-    typed_metric_ref = _optional_str(header.get("metric_ref"))
-    if metric_family is None or typed_metric_ref is None:
-        raise ValueError(f"Metric '{metric_name}' is missing typed metric metadata")
-    input_field_map = (
-        dict(execution_context.input_field_map)
-        if execution_context is not None and execution_context.input_field_map is not None
-        else _metric_input_field_map(runtime, metric_ref)
-    )
-    sql = _compile_typed_metric_sql(
-        runtime,
-        metric_family,
-        payload,
-        typed_metric_ref,
-        input_field_map=input_field_map,
-        engine_type=engine_type,
-    )
-    if sql is None:
-        required_slots = ", ".join(required_metric_input_slots(metric_family))
-        raise ValueError(
-            f"Metric execution binding for '{metric_name}' is missing required metric_input "
-            f"coverage ({required_slots})"
-        )
-    return sql
-
-
-def resolve_metric_value_sql_for_execution(
-    runtime: MarivoRuntime,
-    metric_ref: str,
-    execution_context: MetricExecutionContext | None = None,
-) -> str | None:
-    """Resolve the per-row value SQL expression for a metric, raising on missing metadata."""
-    metric_ref = _coerce_metric_ref(metric_ref)
-    metric_name = metric_name_from_ref(metric_ref)
-    resolved = _resolve_runtime_metric_contract(runtime, metric_ref)
-    if resolved is None:
-        raise ValueError(f"Metric '{metric_name}' not found or not published")
-    header = resolved.semantic_object.get("header") or {}
-    payload = resolved.semantic_object.get("payload") or {}
-    definition_sql = payload.get("definition_sql")
-    if definition_sql is not None:
-        return str(definition_sql)
-    metric_family = _optional_str(header.get("metric_family"))
-    typed_metric_ref = _optional_str(header.get("metric_ref"))
-    if metric_family is None or typed_metric_ref is None:
-        raise ValueError(f"Metric '{metric_name}' is missing typed metric metadata")
-    input_field_map = (
-        dict(execution_context.input_field_map)
-        if execution_context is not None and execution_context.input_field_map is not None
-        else _metric_input_field_map(runtime, metric_ref)
-    )
-    return _compile_typed_metric_value_sql(
-        runtime,
-        metric_family,
-        payload,
-        typed_metric_ref,
-        input_field_map=input_field_map,
+    raise ValueError(
+        "Metric must have an ANSI SQL expression in its definition_sql or expression field"
     )
 
 

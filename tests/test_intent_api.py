@@ -488,52 +488,6 @@ class LightweightIntentEndpointTests(_SessionBackedIntentEndpointMixin, unittest
         )
         self.assertEqual(r.status_code, 422)
 
-    def test_intent_test_rejects_cross_session_ref(self) -> None:
-        r = self.client.post(
-            f"/sessions/{self.session_id}/intents/test",
-            json={
-                "hypothesis": {"family": "difference", "alternative": "two_sided", "alpha": 0.05},
-                "left_ref": {
-                    "session_id": "sess_x",
-                    "artifact_id": "art_1",
-                    "observation_type": "numeric_sample_summary",
-                    "step_id": "step_1",
-                    "step_type": "observe",
-                },
-                "right_ref": {
-                    "session_id": self.session_id,
-                    "artifact_id": "art_2",
-                    "observation_type": "numeric_sample_summary",
-                    "step_id": "step_2",
-                    "step_type": "observe",
-                },
-            },
-        )
-        self.assertEqual(r.status_code, 422)
-
-    def test_intent_test_rejects_missing_steps(self) -> None:
-        r = self.client.post(
-            f"/sessions/{self.session_id}/intents/test",
-            json={
-                "hypothesis": {"family": "difference", "alternative": "two_sided", "alpha": 0.05},
-                "left_ref": {
-                    "session_id": self.session_id,
-                    "artifact_id": "art_1",
-                    "observation_type": "numeric_sample_summary",
-                    "step_id": "step_1",
-                    "step_type": "observe",
-                },
-                "right_ref": {
-                    "session_id": self.session_id,
-                    "artifact_id": "art_2",
-                    "observation_type": "numeric_sample_summary",
-                    "step_id": "step_2",
-                    "step_type": "observe",
-                },
-            },
-        )
-        self.assertEqual(r.status_code, 422)
-
     def test_forecast_rejects_missing_horizon(self) -> None:
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/forecast",
