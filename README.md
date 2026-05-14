@@ -30,7 +30,7 @@ pip install marivo[all]      # All optional backends
 
 ## Quick Start
 
-### Local Mode (MCP stdio, no daemon)
+### Local Mode (MCP stdio)
 
 Best for individual analysts and AI agent integration. No server process needed.
 
@@ -39,7 +39,7 @@ Best for individual analysts and AI agent integration. No server process needed.
 marivo init -w ~/my-project
 
 # Configure your MCP client (Claude Desktop, Cursor, etc.)
-# Command: marivo mcp stdio
+# Command: marivo mcp
 # Working directory: ~/my-project
 ```
 
@@ -48,7 +48,7 @@ MCP client configuration example:
 ```json
 {
   "command": "marivo",
-  "args": ["mcp", "stdio"],
+  "args": ["mcp"],
   "cwd": "/absolute/path/to/workspace"
 }
 ```
@@ -153,7 +153,7 @@ Configure your MCP client (Claude Desktop, Cursor, etc.):
 ```json
 {
   "command": "marivo",
-  "args": ["mcp", "stdio"],
+  "args": ["mcp"],
   "cwd": "/absolute/path/to/workspace"
 }
 ```
