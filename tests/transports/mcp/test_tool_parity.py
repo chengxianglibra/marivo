@@ -211,9 +211,7 @@ def test_semantic_document_tools_accept_inline_document_or_file_inputs() -> None
     import_props = tools["import_osi_semantic_models"].parameters["$defs"]["McpOsiDocumentInput"][
         "properties"
     ]
-    export_props = tools["export_osi_semantic_models"].parameters["$defs"]["McpOsiExportInput"][
-        "properties"
-    ]
+    export_props = tools["export_osi_semantic_models"].parameters["properties"]
 
     assert set(validate_props) == {"document", "input_path"}
     assert set(import_props) == {"document", "input_path"}

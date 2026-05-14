@@ -8,7 +8,7 @@ from typing import Any
 
 from marivo.identity import require_user, resolve_user
 from marivo.transports.mcp.tools._async_bridge import call_runtime
-from marivo.transports.mcp.tools.schemas import McpOsiDocumentInput, McpOsiExportInput
+from marivo.transports.mcp.tools.schemas import McpOsiDocumentInput
 
 
 def _load_document_input(input_data: McpOsiDocumentInput) -> dict[str, Any]:
@@ -75,13 +75,16 @@ def register_semantic_tools(server: Any, runtime: Any) -> None:
         )
 
     @server.tool()  # type: ignore
-    async def export_osi_semantic_models(input: McpOsiExportInput) -> dict[str, Any]:
+    async def export_osi_semantic_models(
+        semantic_model_name: str | None = None,
+        output_path: str | None = None,
+    ) -> dict[str, Any]:
         """Export an OSI-Marivo semantic document, optionally writing it to a local file."""
         result = await call_runtime(
             svc.export_osi_semantic_models,
-            semantic_model_name=input.semantic_model_name,
+            semantic_model_name=semantic_model_name,
         )
-        return _write_export_output(input.output_path, result)
+        return _write_export_output(output_path, result)
 
     @server.tool()  # type: ignore
     async def delete_semantic_model(model: str) -> dict[str, Any]:
