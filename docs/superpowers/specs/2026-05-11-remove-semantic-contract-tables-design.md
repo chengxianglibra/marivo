@@ -7,7 +7,7 @@ created: 2026-05-11
 
 **Goal:** Completely remove unused legacy semantic contract tables and their dependencies from the codebase. This is a breaking change with no backwards compatibility.
 
-**Context:** The OSI alignment v2 work (completed 2026-05-01) replaced the old contract-based semantic layer with a simpler dataset-native architecture. The old contract tables remain in the schema but are empty (0 rows) and barely used in the code.
+**Context:** The OSI alignment v2 work (completed 2026-05-01) replaced the old contract-based semantic layer with a simpler dataset-native architecture. The active schema/runtime path now uses `semantic_models`, `semantic_datasets`, `semantic_fields`, `semantic_metrics`, and `semantic_relationships`. Remaining `semantic_*_contracts` references are legacy cleanup work.
 
 **Approach:** Surgical removal - drop tables from schema, remove code dependencies, update tests. No migration needed since tables are empty.
 
@@ -17,8 +17,8 @@ created: 2026-05-11
 
 ### Tables to Remove
 
-**Contract tables (all empty, 0 rows):**
-- `semantic_metric_contracts` - 1 query usage in semantic_repository.py (has fallback)
+**Contract tables (legacy cleanup target):**
+- `semantic_metric_contracts` - historical test-fixture usage; metric fixtures have since been migrated to `semantic_metrics`
 - `semantic_dimension_contracts` - 0 runtime usage
 - `semantic_process_objects` - 0 runtime usage
 - `semantic_process_exported_dimension_refs` - 0 runtime usage
@@ -102,18 +102,16 @@ After schema changes, running `sqlite3 .marivo/metadata.sqlite ".tables"` should
 
 ## 3. Code Removal and Replacement
 
-### File: `marivo/runtime/evidence/semantic_repository.py`
+### File: `tests/semantic_test_helpers.py`
 
-**Lines 60-113 (`resolve_metric_ref` method):**
-
-Current code queries `semantic_metric_contracts` table, then falls back to other resolution methods. Since the table is empty and unused:
+`ensure_published_typed_metric(...)` was the last active test fixture writing to `semantic_metric_contracts`; it now writes to `semantic_metrics`.
 
 **Change:**
-- Remove the entire `semantic_metric_contracts` query block (lines 60-79)
-- The method will fail fast with `SemanticRuntimeNotFoundError` instead of querying a non-existent table
-- This is acceptable because the new architecture doesn't use metric contracts
+- Repoint that helper to `semantic_metrics`
+- Ensure the helper also marks the relevant `semantic_fields` rows as runtime-visible dimensions
+- Keep runtime metric resolution aligned with `semantic_metrics` and dataset-native grounding only
 
-**Rationale:** The contract query never returns results (table is empty), so removing it has no functional impact.
+**Rationale:** Runtime metric resolution already reads `semantic_metrics`; the remaining dependency is test-only fixture code.
 
 ---
 
