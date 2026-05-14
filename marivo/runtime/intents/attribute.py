@@ -145,11 +145,9 @@ def run_attribute_intent(
 
     _resolved_header = resolved_metric.semantic_object.get("header") or {}
     additivity_caps = derive_additivity_capabilities(
-        header={
-            "additivity_constraints": _resolved_header.get("additivity_constraints"),
-            "primary_time_ref": _resolved_header.get("primary_time_ref"),
-            "sample_kind": _resolved_header.get("sample_kind"),
-        },
+        additive_dimensions=_resolved_header.get("additive_dimensions", []),
+        primary_time_ref=_resolved_header.get("primary_time_ref"),
+        sample_kind=_resolved_header.get("sample_kind"),
     )
 
     # Gate 1: metric must support compare
@@ -159,8 +157,7 @@ def run_attribute_intent(
             category="compatibility",
             message=(
                 f"attribute: ADDITIVITY_CONSTRAINT - metric '{metric_name}' does not support "
-                f"compare (dimension_policy='{additivity_caps.dimension_policy}', "
-                f"time_axis_policy='{additivity_caps.time_axis_policy}')"
+                f"compare (additive_dimensions={additivity_caps.additive_dimensions})"
                 + (
                     f"; {additivity_caps.remediation_hint}"
                     if additivity_caps.remediation_hint
@@ -172,9 +169,7 @@ def run_attribute_intent(
                     "code": "ADDITIVITY_CONSTRAINT",
                     "gate": "supports_compare",
                     "metric": metric_ref,
-                    "dimension_policy": additivity_caps.dimension_policy,
-                    "time_axis_policy": additivity_caps.time_axis_policy,
-                    "additive_dimensions": additivity_caps.additive_dimensions or [],
+                    "additive_dimensions": additivity_caps.additive_dimensions,
                     "time_rollup_allowed": additivity_caps.time_rollup_allowed,
                     "blocker": additivity_caps.blocker,
                     "remediation_hint": additivity_caps.remediation_hint,
@@ -189,8 +184,7 @@ def run_attribute_intent(
             category="compatibility",
             message=(
                 f"attribute: ADDITIVITY_CONSTRAINT - metric '{metric_name}' does not support "
-                f"decompose (dimension_policy='{additivity_caps.dimension_policy}', "
-                f"time_axis_policy='{additivity_caps.time_axis_policy}')"
+                f"decompose (additive_dimensions={additivity_caps.additive_dimensions})"
                 + (
                     f"; {additivity_caps.remediation_hint}"
                     if additivity_caps.remediation_hint
@@ -202,9 +196,7 @@ def run_attribute_intent(
                     "code": "ADDITIVITY_CONSTRAINT",
                     "gate": "supports_decompose",
                     "metric": metric_ref,
-                    "dimension_policy": additivity_caps.dimension_policy,
-                    "time_axis_policy": additivity_caps.time_axis_policy,
-                    "additive_dimensions": additivity_caps.additive_dimensions or [],
+                    "additive_dimensions": additivity_caps.additive_dimensions,
                     "time_rollup_allowed": additivity_caps.time_rollup_allowed,
                     "blocker": additivity_caps.blocker,
                     "remediation_hint": additivity_caps.remediation_hint,
@@ -213,36 +205,35 @@ def run_attribute_intent(
         )
 
     # Gate 3: every requested dimension must be allowed by constraints
-    if additivity_caps.dimension_policy == "none":
+    if len(additivity_caps.additive_dimensions) == 0:
         raise ExecutionError(
             code="ADDITIVITY_CONSTRAINT_DIMENSION_NOT_ALLOWED",
             category="compatibility",
             message=(
                 f"attribute: ADDITIVITY_CONSTRAINT_DIMENSION_NOT_ALLOWED - metric "
-                f"'{metric_name}' has dimension_policy='none'; no dimensions can be "
+                f"'{metric_name}' has no additive dimensions; no dimensions can be "
                 f"used for attribution. Requested dimensions: {dimensions}"
             ),
             detail={
                 "compatibility_error": {
                     "code": "ADDITIVITY_CONSTRAINT_DIMENSION_NOT_ALLOWED",
                     "metric": metric_ref,
-                    "dimension_policy": additivity_caps.dimension_policy,
-                    "time_axis_policy": additivity_caps.time_axis_policy,
+                    "additive_dimensions": additivity_caps.additive_dimensions,
                     "allowed_dimensions": [],
                     "disallowed_dimensions": list(dimensions),
                     "requested_dimensions": list(dimensions),
                     "time_rollup_allowed": additivity_caps.time_rollup_allowed,
                     "remediation_hint": (
-                        "Metric has dimension_policy='none'. "
-                        "Update additivity_constraints to declare allowed dimensions "
+                        "Metric has no additive_dimensions. "
+                        "Add dimension names to additive_dimensions "
                         "before requesting attribution."
                     ),
                 },
             },
         )
 
-    if additivity_caps.dimension_policy == "subset":
-        allowed_set = set(additivity_caps.additive_dimensions or [])
+    if len(additivity_caps.additive_dimensions) > 0:
+        allowed_set = set(additivity_caps.additive_dimensions)
         disallowed_requested = [d for d in dimensions if d not in allowed_set]
         if disallowed_requested:
             raise ExecutionError(
@@ -250,7 +241,7 @@ def run_attribute_intent(
                 category="compatibility",
                 message=(
                     f"attribute: ADDITIVITY_CONSTRAINT_DIMENSION_NOT_ALLOWED - metric "
-                    f"'{metric_name}' with dimension_policy='subset' does not allow "
+                    f"'{metric_name}' does not allow "
                     f"attribution on {disallowed_requested}. "
                     f"Allowed: {sorted(allowed_set)}, "
                     f"Disallowed: {disallowed_requested}"
@@ -259,9 +250,7 @@ def run_attribute_intent(
                     "compatibility_error": {
                         "code": "ADDITIVITY_CONSTRAINT_DIMENSION_NOT_ALLOWED",
                         "metric": metric_ref,
-                        "dimension_policy": additivity_caps.dimension_policy,
-                        "time_axis_policy": additivity_caps.time_axis_policy,
-                        "allowed_dimensions": sorted(allowed_set),
+                        "additive_dimensions": sorted(allowed_set),
                         "disallowed_dimensions": disallowed_requested,
                         "requested_dimensions": list(dimensions),
                         "time_rollup_allowed": additivity_caps.time_rollup_allowed,
@@ -572,18 +561,9 @@ def run_attribute_intent(
             "dimension_order": "request_order",
             "share_suppression_policy": _SHARE_SUPPRESSION_POLICY,
             "additivity_basis": {
-                "dimension_policy": additivity_caps.dimension_policy,
                 "additive_dimensions": additivity_caps.additive_dimensions,
-                "time_axis_policy": additivity_caps.time_axis_policy,
                 "time_rollup_allowed": additivity_caps.time_rollup_allowed,
-                "capability_condition": (
-                    additivity_caps.capability_condition
-                    or (
-                        "all_dimensions_allowed"
-                        if additivity_caps.dimension_policy == "all"
-                        else None
-                    )
-                ),
+                "capability_condition": additivity_caps.capability_condition,
             },
             "time_boundary_constraint": {
                 "scope": "frozen_compare_window",

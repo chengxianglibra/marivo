@@ -45,16 +45,6 @@ def _extract_ansi_sql(expression_json: str) -> str | None:
     return None
 
 
-def _derive_additivity_constraints(additive_dimensions: list[str] | None) -> dict[str, Any]:
-    if additive_dimensions:
-        return {
-            "dimension_policy": "listed",
-            "listed_dimensions": additive_dimensions,
-            "time_axis_policy": "additive",
-        }
-    return {"dimension_policy": "all", "time_axis_policy": "additive"}
-
-
 class SemanticRuntimeRepository:
     """Resolve runtime-visible semantic refs from the current metadata schema."""
 
@@ -133,7 +123,7 @@ class SemanticRuntimeRepository:
         header: dict[str, Any] = {
             "metric_family": metric_family,
             "metric_ref": metric_ref,
-            "additivity_constraints": _derive_additivity_constraints(additive_dims),
+            "additive_dimensions": additive_dims or [],
         }
         return ResolvedSemanticObject(
             object_kind="metric",

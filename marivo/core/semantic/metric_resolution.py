@@ -7,7 +7,7 @@ responsible for fetching any required data before invoking these functions.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Any
 
@@ -51,7 +51,7 @@ class MetricExecutionContext:
     execution_locator: dict[str, Any] | None = None
     routing_detail: dict[str, Any] | None = None
     input_field_map: dict[str, str] | None = None
-    additivity_constraints: dict[str, Any] | None = None
+    additive_dimensions: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)

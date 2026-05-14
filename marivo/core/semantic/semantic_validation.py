@@ -194,11 +194,7 @@ def _validate_metric_refs(
                 )
 
     # additive_dimensions must reference existing fields when present.
-    # Support both the legacy nested additivity payload and the cutover top-level field.
     additive_dimensions = metric.get("additive_dimensions")
-    additivity = metric.get("additivity")
-    if additive_dimensions is None and isinstance(additivity, dict):
-        additive_dimensions = additivity.get("additive_dimensions")
     if additive_dimensions is not None and not isinstance(additive_dimensions, list):
         errors.append(
             {

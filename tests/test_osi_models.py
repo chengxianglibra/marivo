@@ -241,32 +241,7 @@ def test_marivo_metric_extension_minimal():
     from marivo.transports.http.models.marivo_extensions import MarivoMetricExtension
 
     ext = MarivoMetricExtension()
-    assert ext.additive_dimensions is None
-
-
-def test_marivo_additivity_full():
-    from marivo.transports.http.models.marivo_extensions import MarivoAdditivity
-
-    add = MarivoAdditivity(dimension_policy="all", time_axis_policy="additive")
-    assert add.additive_dimensions is None
-
-
-def test_marivo_additivity_subset_requires_dimensions():
-    from marivo.transports.http.models.marivo_extensions import MarivoAdditivity
-
-    with pytest.raises(ValidationError):
-        MarivoAdditivity(dimension_policy="subset", time_axis_policy="additive")
-
-
-def test_marivo_additivity_subset_with_dimensions():
-    from marivo.transports.http.models.marivo_extensions import MarivoAdditivity
-
-    add = MarivoAdditivity(
-        dimension_policy="subset",
-        time_axis_policy="additive",
-        additive_dimensions=["region", "category"],
-    )
-    assert add.additive_dimensions == ["region", "category"]
+    assert ext.additive_dimensions == []
 
 
 def test_marivo_metric_filter():

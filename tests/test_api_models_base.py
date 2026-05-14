@@ -5,7 +5,6 @@ import unittest
 from pydantic import ValidationError
 
 from marivo.transports.http.models.base import (
-    AdditivityConstraints,
     ApiErrorDetail,
     BindingScope,
     BlockingRequirement,
@@ -417,79 +416,3 @@ class TestLiteralTypes(unittest.TestCase):
         status: ReadinessStatus = "not_ready"
         status = "ready"
         status = "stale"
-
-
-class TestAdditivityConstraints(unittest.TestCase):
-    """Tests for AdditivityConstraints model validation."""
-
-    def test_additive_constraints(self):
-        ac = AdditivityConstraints(dimension_policy="all", time_axis_policy="additive")
-        self.assertEqual(ac.dimension_policy, "all")
-        self.assertEqual(ac.time_axis_policy, "additive")
-        self.assertIsNone(ac.additive_dimensions)
-
-    def test_non_additive_constraints(self):
-        ac = AdditivityConstraints(dimension_policy="none", time_axis_policy="non_additive")
-        self.assertEqual(ac.dimension_policy, "none")
-        self.assertEqual(ac.time_axis_policy, "non_additive")
-        self.assertIsNone(ac.additive_dimensions)
-
-    def test_subset_constraints_with_additive_dimensions(self):
-        ac = AdditivityConstraints(
-            dimension_policy="subset",
-            time_axis_policy="non_additive",
-            additive_dimensions=["dimension.country"],
-        )
-        self.assertEqual(ac.dimension_policy, "subset")
-        self.assertEqual(ac.additive_dimensions, ["dimension.country"])
-
-    def test_subset_constraints_rejects_empty_additive_dimensions(self):
-        with self.assertRaises(ValidationError) as ctx:
-            AdditivityConstraints(
-                dimension_policy="subset",
-                time_axis_policy="non_additive",
-                additive_dimensions=[],
-            )
-        self.assertIn("additive_dimensions must be a non-empty list", str(ctx.exception))
-
-    def test_subset_constraints_rejects_missing_additive_dimensions(self):
-        with self.assertRaises(ValidationError) as ctx:
-            AdditivityConstraints(
-                dimension_policy="subset",
-                time_axis_policy="non_additive",
-            )
-        self.assertIn("additive_dimensions must be a non-empty list", str(ctx.exception))
-
-    def test_all_policy_rejects_additive_dimensions(self):
-        with self.assertRaises(ValidationError) as ctx:
-            AdditivityConstraints(
-                dimension_policy="all",
-                time_axis_policy="additive",
-                additive_dimensions=["dimension.country"],
-            )
-        self.assertIn("additive_dimensions must be null or empty", str(ctx.exception))
-
-    def test_none_policy_rejects_additive_dimensions(self):
-        with self.assertRaises(ValidationError) as ctx:
-            AdditivityConstraints(
-                dimension_policy="none",
-                time_axis_policy="non_additive",
-                additive_dimensions=["dimension.country"],
-            )
-        self.assertIn("additive_dimensions must be null or empty", str(ctx.exception))
-
-    def test_invalid_dimension_policy(self):
-        with self.assertRaises(ValidationError):
-            AdditivityConstraints(dimension_policy="unknown", time_axis_policy="additive")
-
-    def test_invalid_time_axis_policy(self):
-        with self.assertRaises(ValidationError):
-            AdditivityConstraints(dimension_policy="all", time_axis_policy="unknown")
-
-    def test_notes_optional(self):
-        ac = AdditivityConstraints(
-            dimension_policy="all",
-            time_axis_policy="additive",
-            notes="Fully additive metric",
-        )
-        self.assertEqual(ac.notes, "Fully additive metric")

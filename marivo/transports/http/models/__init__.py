@@ -51,7 +51,6 @@ from ._infrastructure import (
     TrinoDatasourceConnection,
 )
 from .base import (
-    AdditivityConstraints,
     AggregationMethod,
     AggregationScope,
     # Base models
@@ -162,7 +161,6 @@ from .json_contract import (
 
 # MARIVO extension models
 from .marivo_extensions import (
-    MarivoAdditivity,
     MarivoDatasetExtension,
     MarivoFieldExtension,
     MarivoMetricExtension,
@@ -215,7 +213,6 @@ from .session_responses import (
 )
 
 __all__ = [  # noqa: RUF022
-    "AdditivityConstraints",
     "AggregateQueryStep",
     "AggregationMethod",
     "AggregationScope",
@@ -282,7 +279,6 @@ __all__ = [  # noqa: RUF022
     "JsonScalarMap",
     "LifecycleStatus",
     "ListResponseBase",
-    "MarivoAdditivity",
     "MarivoDatasetCustomExtension",
     "MarivoDatasetExtension",
     "MarivoFieldExtension",

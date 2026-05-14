@@ -46,22 +46,6 @@ class MarivoRelationshipExtension(BaseModel):
     model_config = {"extra": "forbid"}
 
 
-class MarivoAdditivity(BaseModel):
-    dimension_policy: Literal["all", "subset", "none"]
-    additive_dimensions: list[str] | None = None
-    time_axis_policy: Literal["additive", "non_additive"]
-
-    @model_validator(mode="after")
-    def _subset_requires_dimensions(self) -> MarivoAdditivity:
-        if self.dimension_policy == "subset" and not self.additive_dimensions:
-            raise ValueError("additive_dimensions is required when dimension_policy is subset")
-        if self.dimension_policy != "subset" and self.additive_dimensions:
-            raise ValueError("additive_dimensions must only be set when dimension_policy is subset")
-        return self
-
-    model_config = {"extra": "forbid"}
-
-
 class MarivoMetricFilterExpressionDialect(BaseModel):
     dialect: Literal["ANSI_SQL", "SNOWFLAKE", "MDX", "TABLEAU", "DATABRICKS"]
     expression: str
@@ -83,12 +67,10 @@ class MarivoMetricFilter(BaseModel):
 
 
 class MarivoMetricExtension(BaseModel):
-    additive_dimensions: list[str] | None = None
+    additive_dimensions: list[str] = []
 
     @model_validator(mode="after")
-    def _non_empty_additive_dimensions(self) -> MarivoMetricExtension:
-        if self.additive_dimensions is not None and len(self.additive_dimensions) == 0:
-            raise ValueError("additive_dimensions must be a non-empty list when present")
+    def _validate_additive_dimensions(self) -> MarivoMetricExtension:
         return self
 
     @model_validator(mode="before")
@@ -116,16 +98,6 @@ class MarivoMetricExtension(BaseModel):
     @property
     def primary_time_field(self) -> str | None:
         return getattr(self, "__pydantic_extra__", {}).get("primary_time_field")
-
-    @property
-    def additivity(self) -> MarivoAdditivity | None:
-        if self.additive_dimensions is not None:
-            return MarivoAdditivity(
-                dimension_policy="subset",
-                additive_dimensions=self.additive_dimensions,
-                time_axis_policy="additive",
-            )
-        return getattr(self, "__pydantic_extra__", {}).get("additivity")
 
     @property
     def filters(self) -> list[MarivoMetricFilter] | None:

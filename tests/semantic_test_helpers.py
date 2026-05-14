@@ -421,41 +421,41 @@ def _metric_payload_for_measure_type(metric_name: str, measure_type: str | None)
     }
 
 
-def _metric_header_axes(measure_type: str | None) -> tuple[str, str, str, dict[str, Any]]:
+def _metric_header_axes(measure_type: str | None) -> tuple[str, str, str, list[str]]:
     kind = str(measure_type or "count").strip().lower()
     if kind in {"percentile", "quantile"}:
         return (
             "distribution_metric",
             "numeric",
             "distribution_statistic",
-            {"dimension_policy": "none", "time_axis_policy": "non_additive"},
+            [],
         )
     if kind in {"ratio", "rate"}:
         return (
             "rate_metric",
             "rate",
             "ratio",
-            {"dimension_policy": "none", "time_axis_policy": "non_additive"},
+            [],
         )
     if kind in {"average", "mean"}:
         return (
             "average_metric",
             "numeric",
             "mean",
-            {"dimension_policy": "none", "time_axis_policy": "non_additive"},
+            [],
         )
     if kind == "sum":
         return (
             "sum_metric",
             "numeric",
             "sum",
-            {"dimension_policy": "all", "time_axis_policy": "additive"},
+            ["country", "device", "date"],
         )
     return (
         "count_metric",
         "numeric",
         "count",
-        {"dimension_policy": "all", "time_axis_policy": "additive"},
+        ["country", "device", "date"],
     )
 
 
@@ -644,7 +644,7 @@ def ensure_published_typed_metric(
         elif dimension_name != "event_date":
             ensure_published_typed_dimension(metadata, dimension_name=dimension_name)
 
-    metric_family, sample_kind, value_semantics, additivity_constraints = _metric_header_axes(
+    metric_family, sample_kind, value_semantics, additive_dimensions = _metric_header_axes(
         measure_type
     )
     if existing is None:
@@ -656,7 +656,7 @@ def ensure_published_typed_metric(
                 metric_contract_id, metric_ref, display_name, description,
                 metric_family, observed_entity_ref, observation_grain_ref,
                 sample_kind, value_semantics, aggregation_scope, primary_time_ref,
-                additivity_constraints_json, metric_contract_version,
+                additive_dimensions_json, metric_contract_version,
                 family_payload_json, catalog_metadata_json, status, revision,
                 is_latest_active, created_at, updated_at
             ) VALUES (?, ?, ?, '', ?, ?, ?, ?, ?, 'window', ?, ?, 'metric.v1',
@@ -672,7 +672,7 @@ def ensure_published_typed_metric(
                 sample_kind,
                 value_semantics,
                 primary_time_ref,
-                json.dumps(additivity_constraints),
+                json.dumps(additive_dimensions),
                 json.dumps(
                     _metric_payload_with_default_input_fields(metric_name, measure_type, entity_ref)
                 ),

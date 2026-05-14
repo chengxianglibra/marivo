@@ -249,12 +249,12 @@ class DecomposeHourWindowTests(unittest.TestCase):
 
 
 def _make_compare_artifact(
-    additivity_constraints: dict | None = None,
+    additive_dimensions: list[str] | None = None,
 ) -> dict:
     """Build a minimal scalar_delta compare artifact for decompose gate testing."""
     am: dict = {}
-    if additivity_constraints is not None:
-        am["additivity_constraints"] = additivity_constraints
+    if additive_dimensions is not None:
+        am["additive_dimensions"] = additive_dimensions
     return {
         "comparison_type": "scalar_delta",
         "metric": "m1",
@@ -277,12 +277,12 @@ def _make_compare_artifact(
 
 
 def _make_time_series_compare_artifact(
-    additivity_constraints: dict | None = None,
+    additive_dimensions: list[str] | None = None,
 ) -> dict:
     """Build a minimal time_series_delta compare artifact for decompose gate testing."""
     am: dict = {}
-    if additivity_constraints is not None:
-        am["additivity_constraints"] = additivity_constraints
+    if additive_dimensions is not None:
+        am["additive_dimensions"] = additive_dimensions
     return {
         "comparison_type": "time_series_delta",
         "metric": "m1",
@@ -306,32 +306,40 @@ def _make_time_series_compare_artifact(
 
 
 def _make_mock_metric(
-    additivity_constraints: dict | None = None,
+    additive_dimensions: list[str] | None = None,
     primary_time_ref: str = "time.date",
     sample_kind: str = "numeric",
     dimensions: list[str] | None = None,
 ) -> MagicMock:
     mock = MagicMock()
-    mock.additivity_constraints = additivity_constraints
+    mock.additive_dimensions = additive_dimensions
     mock.primary_time_ref = primary_time_ref
     mock.sample_kind = sample_kind
     dims = dimensions or ["dimension.country"]
     mock.allowed_dimensions = dims
     mock.dimensions = dims
     mock.grain = "day"
+    # Semantic object header carries additive_dimensions for the runtime path
+    header: dict = {
+        "primary_time_ref": primary_time_ref,
+        "sample_kind": sample_kind,
+    }
+    if additive_dimensions is not None:
+        header["additive_dimensions"] = additive_dimensions
+    mock.semantic_object = {"header": header}
     return mock
 
 
 def _build_decompose_success_runtime(
-    additivity_constraints: dict | None,
+    additive_dimensions: list[str] | None,
     primary_time_ref: str = "time.date",
     sample_kind: str = "numeric",
     dimensions: list[str] | None = None,
 ) -> MagicMock:
     """Build mock runtime that allows decompose to succeed through the execution path."""
-    compare_artifact = _make_compare_artifact(additivity_constraints=additivity_constraints)
+    compare_artifact = _make_compare_artifact(additive_dimensions=additive_dimensions)
     mock_metric = _make_mock_metric(
-        additivity_constraints=additivity_constraints,
+        additive_dimensions=additive_dimensions,
         primary_time_ref=primary_time_ref,
         sample_kind=sample_kind,
         dimensions=dimensions,
@@ -355,21 +363,11 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
 
     # ── Error gate tests ────────────────────────────────────────────────────
 
-    def test_none_policy_metric_decompose_fails(self) -> None:
+    def test_empty_additive_dimensions_metric_decompose_fails(self) -> None:
         runtime = MagicMock()
         runtime.core = MagicMock()
-        compare_artifact = _make_compare_artifact(
-            additivity_constraints={
-                "dimension_policy": "none",
-                "time_axis_policy": "non_additive",
-            }
-        )
-        mock_metric = _make_mock_metric(
-            additivity_constraints={
-                "dimension_policy": "none",
-                "time_axis_policy": "non_additive",
-            }
-        )
+        compare_artifact = _make_compare_artifact(additive_dimensions=[])
+        mock_metric = _make_mock_metric(additive_dimensions=[])
         runtime.resolve_artifact_for_ref.return_value = compare_artifact
         runtime.resolve_artifact_id_for_step.return_value = "art_fake"
         runtime.resolve_metric.return_value = mock_metric
@@ -389,11 +387,13 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
         compat = exc.detail["compatibility_error"]
         self.assertIn("blocker", compat)
 
-    def test_missing_additivity_constraints_fails(self) -> None:
+    def test_empty_additive_dimensions_fails(self) -> None:
+        """Missing or empty additive_dimensions both result in non-additive gate failure."""
+        # Case 1: no additive_dimensions key at all in artifact metadata
         runtime = MagicMock()
         runtime.core = MagicMock()
-        compare_artifact = _make_compare_artifact()  # no additivity_constraints in am
-        mock_metric = _make_mock_metric(additivity_constraints=None)
+        compare_artifact = _make_compare_artifact()  # no additive_dimensions in am
+        mock_metric = _make_mock_metric(additive_dimensions=None)
         runtime.resolve_artifact_for_ref.return_value = compare_artifact
         runtime.resolve_artifact_id_for_step.return_value = "art_fake"
         runtime.resolve_metric.return_value = mock_metric
@@ -411,48 +411,38 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
         self.assertEqual(exc.category, "compatibility")
         self.assertEqual(exc.code, "ADDITIVITY_CONSTRAINT")
         compat = exc.detail["compatibility_error"]
-        self.assertIn("ADDITIVITY_CONSTRAINTS_DIMENSION_POLICY_MISSING", compat.get("blocker", ""))
+        self.assertIn("ADDITIVITY_NONE", compat.get("blocker", ""))
 
-    def test_empty_additivity_constraints_fails(self) -> None:
-        runtime = MagicMock()
-        runtime.core = MagicMock()
-        compare_artifact = _make_compare_artifact(additivity_constraints={})
-        mock_metric = _make_mock_metric(additivity_constraints={})
-        runtime.resolve_artifact_for_ref.return_value = compare_artifact
-        runtime.resolve_artifact_id_for_step.return_value = "art_fake"
-        runtime.resolve_metric.return_value = mock_metric
+        # Case 2: empty list = non-additive (same result)
+        runtime2 = MagicMock()
+        runtime2.core = MagicMock()
+        compare_artifact2 = _make_compare_artifact(additive_dimensions=[])
+        mock_metric2 = _make_mock_metric(additive_dimensions=[])
+        runtime2.resolve_artifact_for_ref.return_value = compare_artifact2
+        runtime2.resolve_artifact_id_for_step.return_value = "art_fake"
+        runtime2.resolve_metric.return_value = mock_metric2
 
-        with self.assertRaises(ExecutionError) as ctx:
+        with self.assertRaises(ExecutionError) as ctx2:
             run_decompose_intent(
-                runtime,
+                runtime2,
                 "session_1",
                 {
                     "compare_ref": {"step_id": "step_compare", "session_id": "session_1"},
                     "dimension": "dimension.country",
                 },
             )
-        exc = ctx.exception
-        self.assertEqual(exc.category, "compatibility")
-        self.assertEqual(exc.code, "ADDITIVITY_CONSTRAINT")
-        compat = exc.detail["compatibility_error"]
-        self.assertIn("ADDITIVITY_CONSTRAINTS_DIMENSION_POLICY_MISSING", compat.get("blocker", ""))
+        exc2 = ctx2.exception
+        self.assertEqual(exc2.category, "compatibility")
+        self.assertEqual(exc2.code, "ADDITIVITY_CONSTRAINT")
+        compat2 = exc2.detail["compatibility_error"]
+        self.assertIn("ADDITIVITY_NONE", compat2.get("blocker", ""))
 
     def test_subset_metric_decompose_fails_on_disallowed_dimension(self) -> None:
         runtime = MagicMock()
         runtime.core = MagicMock()
-        compare_artifact = _make_compare_artifact(
-            additivity_constraints={
-                "dimension_policy": "subset",
-                "time_axis_policy": "non_additive",
-                "additive_dimensions": ["dimension.country"],
-            }
-        )
+        compare_artifact = _make_compare_artifact(additive_dimensions=["dimension.country"])
         mock_metric = _make_mock_metric(
-            additivity_constraints={
-                "dimension_policy": "subset",
-                "time_axis_policy": "non_additive",
-                "additive_dimensions": ["dimension.country"],
-            },
+            additive_dimensions=["dimension.country"],
             dimensions=["dimension.country", "dimension.product"],
         )
         runtime.resolve_artifact_for_ref.return_value = compare_artifact
@@ -478,19 +468,9 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
     def test_error_payload_includes_disallowed_dimensions_as_list(self) -> None:
         runtime = MagicMock()
         runtime.core = MagicMock()
-        compare_artifact = _make_compare_artifact(
-            additivity_constraints={
-                "dimension_policy": "subset",
-                "time_axis_policy": "non_additive",
-                "additive_dimensions": ["dimension.country"],
-            }
-        )
+        compare_artifact = _make_compare_artifact(additive_dimensions=["dimension.country"])
         mock_metric = _make_mock_metric(
-            additivity_constraints={
-                "dimension_policy": "subset",
-                "time_axis_policy": "non_additive",
-                "additive_dimensions": ["dimension.country"],
-            },
+            additive_dimensions=["dimension.country"],
             dimensions=["dimension.country", "dimension.product"],
         )
         runtime.resolve_artifact_for_ref.return_value = compare_artifact
@@ -511,22 +491,12 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
         compat = exc.detail["compatibility_error"]
         self.assertEqual(compat["disallowed_dimensions"], ["dimension.product"])
 
-    def test_error_payload_includes_time_axis_policy(self) -> None:
+    def test_error_payload_includes_additive_dimensions(self) -> None:
         runtime = MagicMock()
         runtime.core = MagicMock()
-        compare_artifact = _make_compare_artifact(
-            additivity_constraints={
-                "dimension_policy": "subset",
-                "time_axis_policy": "non_additive",
-                "additive_dimensions": ["dimension.country"],
-            }
-        )
+        compare_artifact = _make_compare_artifact(additive_dimensions=["dimension.country"])
         mock_metric = _make_mock_metric(
-            additivity_constraints={
-                "dimension_policy": "subset",
-                "time_axis_policy": "non_additive",
-                "additive_dimensions": ["dimension.country"],
-            },
+            additive_dimensions=["dimension.country"],
             dimensions=["dimension.country", "dimension.product"],
         )
         runtime.resolve_artifact_for_ref.return_value = compare_artifact
@@ -545,16 +515,13 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
             )
         exc = ctx.exception
         compat = exc.detail["compatibility_error"]
-        self.assertEqual(compat["time_axis_policy"], "non_additive")
+        self.assertEqual(compat["additive_dimensions"], ["dimension.country"])
 
     # ── Success path + artifact metadata tests ─────────────────────────────
 
-    def test_all_policy_metric_decompose_succeeds(self) -> None:
+    def test_all_additive_dimensions_metric_decompose_succeeds(self) -> None:
         runtime = _build_decompose_success_runtime(
-            additivity_constraints={
-                "dimension_policy": "all",
-                "time_axis_policy": "additive",
-            },
+            additive_dimensions=["dimension.country", "time.date"],
             dimensions=["dimension.country"],
         )
         mock_result = MagicMock()
@@ -574,11 +541,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
 
     def test_subset_metric_decompose_succeeds_on_allowed_dimension(self) -> None:
         runtime = _build_decompose_success_runtime(
-            additivity_constraints={
-                "dimension_policy": "subset",
-                "time_axis_policy": "non_additive",
-                "additive_dimensions": ["dimension.country"],
-            },
+            additive_dimensions=["dimension.country"],
             dimensions=["dimension.country"],
         )
         mock_result = MagicMock()
@@ -596,13 +559,9 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
             )
         self.assertIn("rows", result)
 
-    def test_artifact_metadata_includes_dimension_policy_top_level(self) -> None:
+    def test_artifact_metadata_includes_additive_dimensions_top_level(self) -> None:
         runtime = _build_decompose_success_runtime(
-            additivity_constraints={
-                "dimension_policy": "subset",
-                "time_axis_policy": "non_additive",
-                "additive_dimensions": ["dimension.country"],
-            },
+            additive_dimensions=["dimension.country"],
             dimensions=["dimension.country"],
         )
         mock_result = MagicMock()
@@ -619,91 +578,11 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
                 },
             )
         am = result["analytical_metadata"]
-        self.assertEqual(am["dimension_policy"], "subset")
-
-    def test_artifact_metadata_includes_decomposition_constraint(self) -> None:
-        # subset → "dimension_must_be_allowed"
-        runtime = _build_decompose_success_runtime(
-            additivity_constraints={
-                "dimension_policy": "subset",
-                "time_axis_policy": "non_additive",
-                "additive_dimensions": ["dimension.country"],
-            },
-            dimensions=["dimension.country"],
-        )
-        mock_result = MagicMock()
-        mock_result.rows = [{"dimension.country": "US", "current_value": 50.0}]
-        mock_result.metadata.get.return_value = None
-
-        with patch("marivo.runtime.intents.decompose.execute_compiled", return_value=mock_result):
-            result = run_decompose_intent(
-                runtime,
-                "session_1",
-                {
-                    "compare_ref": {"step_id": "step_compare", "session_id": "session_1"},
-                    "dimension": "dimension.country",
-                },
-            )
-        am = result["analytical_metadata"]
-        self.assertEqual(am["decomposition_constraint"], "dimension_must_be_allowed")
-
-        # all → "all_dimensions_allowed"
-        core2, ports2 = _build_decompose_success_runtime(
-            additivity_constraints={
-                "dimension_policy": "all",
-                "time_axis_policy": "additive",
-            },
-            dimensions=["dimension.country"],
-        )
-        mock_result2 = MagicMock()
-        mock_result2.rows = [{"dimension.country": "US", "current_value": 50.0}]
-        mock_result2.metadata.get.return_value = None
-
-        with patch("marivo.runtime.intents.decompose.execute_compiled", return_value=mock_result2):
-            result2 = run_decompose_intent(
-                core2,
-                ports2,
-                "session_1",
-                {
-                    "compare_ref": {"step_id": "step_compare", "session_id": "session_1"},
-                    "dimension": "dimension.country",
-                },
-            )
-        am2 = result2["analytical_metadata"]
-        self.assertEqual(am2["decomposition_constraint"], "all_dimensions_allowed")
-
-    def test_artifact_metadata_includes_allowed_dimension_basis(self) -> None:
-        runtime = _build_decompose_success_runtime(
-            additivity_constraints={
-                "dimension_policy": "subset",
-                "time_axis_policy": "non_additive",
-                "additive_dimensions": ["dimension.country"],
-            },
-            dimensions=["dimension.country"],
-        )
-        mock_result = MagicMock()
-        mock_result.rows = [{"dimension.country": "US", "current_value": 50.0}]
-        mock_result.metadata.get.return_value = None
-
-        with patch("marivo.runtime.intents.decompose.execute_compiled", return_value=mock_result):
-            result = run_decompose_intent(
-                runtime,
-                "session_1",
-                {
-                    "compare_ref": {"step_id": "step_compare", "session_id": "session_1"},
-                    "dimension": "dimension.country",
-                },
-            )
-        basis = result["analytical_metadata"]["allowed_dimension_basis"]
-        self.assertEqual(basis["dimension"], "dimension.country")
-        self.assertEqual(basis["basis"], "additive_dimensions_list")
+        self.assertEqual(am["additive_dimensions"], ["dimension.country"])
 
     def test_artifact_metadata_includes_time_boundary_constraint(self) -> None:
         runtime = _build_decompose_success_runtime(
-            additivity_constraints={
-                "dimension_policy": "all",
-                "time_axis_policy": "additive",
-            },
+            additive_dimensions=["dimension.country", "time.date"],
             dimensions=["dimension.country"],
         )
         mock_result = MagicMock()
@@ -723,27 +602,20 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
         self.assertEqual(tbc["scope"], "frozen_compare_window")
         self.assertFalse(tbc["time_rollup_implied"])
 
-    # ── Frozen additivity_constraints tests ──────────────────────────────────
+    # ── Frozen additive_dimensions tests ────────────────────────────────────
 
-    def test_frozen_constraints_prefer_compare_lineage_over_current_metric(self) -> None:
-        """When compare artifact carries frozen additivity_constraints, decompose
+    def test_frozen_dimensions_prefer_compare_lineage_over_current_metric(self) -> None:
+        """When compare artifact carries frozen additive_dimensions, decompose
         should use those (not the metric's current state) for the gate."""
         runtime = _build_decompose_success_runtime(
-            additivity_constraints={
-                # Metric's CURRENT state is subset with only dimension.country
-                "dimension_policy": "subset",
-                "time_axis_policy": "non_additive",
-                "additive_dimensions": ["dimension.country"],
-            },
+            # Metric's CURRENT state has only dimension.country
+            additive_dimensions=["dimension.country"],
             dimensions=["dimension.country"],
         )
-        # Override the compare artifact to carry FROZEN constraints from lineage
-        # that say dimension_policy=all (the metric state when compare was run)
-        frozen_constraints = {
-            "dimension_policy": "all",
-            "time_axis_policy": "additive",
-        }
-        compare_artifact = _make_compare_artifact(additivity_constraints=frozen_constraints)
+        # Override the compare artifact to carry FROZEN dimensions from lineage
+        # that include dimension.country and time.date (the metric state when compare was run)
+        frozen_dimensions = ["dimension.country", "time.date"]
+        compare_artifact = _make_compare_artifact(additive_dimensions=frozen_dimensions)
         runtime.resolve_artifact_for_ref.return_value = compare_artifact
 
         mock_result = MagicMock()
@@ -760,27 +632,19 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
                 },
             )
         am = result["analytical_metadata"]
-        self.assertEqual(am["additivity_constraints_source"], "compare_artifact_lineage")
-        self.assertEqual(am["additivity_constraints"]["dimension_policy"], "all")
-        self.assertEqual(am["dimension_policy"], "all")
+        self.assertEqual(am["additive_dimensions_source"], "compare_artifact_lineage")
+        self.assertEqual(am["additive_dimensions"], ["dimension.country", "time.date"])
 
-    def test_frozen_none_policy_blocks_decompose_even_if_metric_changed_to_all(self) -> None:
-        """If compare artifact froze dimension_policy=none but metric has since
-        changed to all, decompose must still reject based on frozen constraints."""
+    def test_frozen_empty_dimensions_blocks_decompose_even_if_metric_changed(self) -> None:
+        """If compare artifact froze empty additive_dimensions but metric has since
+        changed to have additive dimensions, decompose must still reject based on
+        frozen dimensions."""
         runtime = MagicMock()
         runtime.core = MagicMock()
-        compare_artifact = _make_compare_artifact(
-            additivity_constraints={
-                "dimension_policy": "none",
-                "time_axis_policy": "non_additive",
-            }
-        )
-        # Metric's CURRENT state is dimension_policy=all
+        compare_artifact = _make_compare_artifact(additive_dimensions=[])
+        # Metric's CURRENT state has additive dimensions
         mock_metric = _make_mock_metric(
-            additivity_constraints={
-                "dimension_policy": "all",
-                "time_axis_policy": "additive",
-            },
+            additive_dimensions=["dimension.country", "time.date"],
         )
         runtime.resolve_artifact_for_ref.return_value = compare_artifact
         runtime.resolve_artifact_id_for_step.return_value = "art_fake"
@@ -801,25 +665,16 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
         compat = exc.detail["compatibility_error"]
         self.assertEqual(compat["gate_source"], "compare_artifact_lineage")
 
-    def test_time_series_delta_compare_propagates_frozen_constraints(self) -> None:
+    def test_time_series_delta_compare_propagates_frozen_dimensions(self) -> None:
         """time_series_delta compare artifacts should also propagate frozen
-        additivity_constraints through the decompose gate."""
+        additive_dimensions through the decompose gate."""
         runtime = _build_decompose_success_runtime(
-            additivity_constraints={
-                "dimension_policy": "subset",
-                "time_axis_policy": "non_additive",
-                "additive_dimensions": ["dimension.country"],
-            },
+            additive_dimensions=["dimension.country"],
             dimensions=["dimension.country"],
         )
-        # Override compare artifact with time_series_delta + frozen constraints
-        frozen_constraints = {
-            "dimension_policy": "all",
-            "time_axis_policy": "additive",
-        }
-        compare_artifact = _make_time_series_compare_artifact(
-            additivity_constraints=frozen_constraints
-        )
+        # Override compare artifact with time_series_delta + frozen dimensions
+        frozen_dimensions = ["dimension.country", "time.date"]
+        compare_artifact = _make_time_series_compare_artifact(additive_dimensions=frozen_dimensions)
         runtime.resolve_artifact_for_ref.return_value = compare_artifact
 
         mock_result = MagicMock()
@@ -836,17 +691,14 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
                 },
             )
         am = result["analytical_metadata"]
-        self.assertEqual(am["additivity_constraints_source"], "compare_artifact_lineage")
-        self.assertEqual(am["additivity_constraints"]["dimension_policy"], "all")
+        self.assertEqual(am["additive_dimensions_source"], "compare_artifact_lineage")
+        self.assertEqual(am["additive_dimensions"], ["dimension.country", "time.date"])
 
     # ── time_rollup_allowed metadata tests ───────────────────────────────────
 
-    def test_time_rollup_allowed_true_when_time_axis_additive(self) -> None:
+    def test_time_rollup_allowed_true_when_time_ref_in_additive_dimensions(self) -> None:
         runtime = _build_decompose_success_runtime(
-            additivity_constraints={
-                "dimension_policy": "all",
-                "time_axis_policy": "additive",
-            },
+            additive_dimensions=["dimension.country", "time.date"],
             dimensions=["dimension.country"],
         )
         mock_result = MagicMock()
@@ -864,12 +716,9 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
             )
         self.assertTrue(result["analytical_metadata"]["time_rollup_allowed"])
 
-    def test_time_rollup_allowed_false_when_time_axis_non_additive(self) -> None:
+    def test_time_rollup_allowed_false_when_time_ref_not_in_additive_dimensions(self) -> None:
         runtime = _build_decompose_success_runtime(
-            additivity_constraints={
-                "dimension_policy": "all",
-                "time_axis_policy": "non_additive",
-            },
+            additive_dimensions=["dimension.country"],
             dimensions=["dimension.country"],
         )
         mock_result = MagicMock()
@@ -887,13 +736,9 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
             )
         self.assertFalse(result["analytical_metadata"]["time_rollup_allowed"])
 
-    def test_subset_policy_time_rollup_false_when_non_additive(self) -> None:
+    def test_subset_policy_time_rollup_false_when_time_ref_not_additive(self) -> None:
         runtime = _build_decompose_success_runtime(
-            additivity_constraints={
-                "dimension_policy": "subset",
-                "time_axis_policy": "non_additive",
-                "additive_dimensions": ["dimension.country"],
-            },
+            additive_dimensions=["dimension.country"],
             dimensions=["dimension.country"],
         )
         mock_result = MagicMock()

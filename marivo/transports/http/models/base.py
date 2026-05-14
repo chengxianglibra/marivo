@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from typing import Any, Generic, Literal, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 # =============================================================================
 # Literal Type Definitions
@@ -51,8 +51,6 @@ ValueSemantics = Literal[
     "score",
     "survival_probability",
 ]
-DimensionPolicy = Literal["all", "subset", "none"]
-TimeAxisPolicy = Literal["additive", "non_additive"]
 AggregationScope = Literal["subject", "event", "session", "window"]
 AggregationMethod = Literal[
     "count",
@@ -289,50 +287,6 @@ def validate_contract_version(value: str, domain: str) -> str:
 
 
 # =============================================================================
-# Additivity Constraints
-# =============================================================================
-
-
-class AdditivityConstraints(BaseModel):
-    """Structured additivity constraints for a metric.
-
-    Single source of truth for which dimensions a metric can be
-    decomposed across and whether time-axis rollup is allowed.
-    """
-
-    dimension_policy: DimensionPolicy = Field(
-        description="Whether the metric is decomposable across dimensions: "
-        "'all' = fully additive, 'subset' = only listed dimensions, 'none' = not decomposable."
-    )
-    additive_dimensions: list[str] | None = Field(
-        default=None,
-        description="Required when dimension_policy='subset': list of declared, bound, groupable "
-        "semantic dimension refs (e.g., 'dimension.country'). Must be null/missing otherwise.",
-    )
-    time_axis_policy: TimeAxisPolicy = Field(
-        description="Whether the metric supports time-axis rollup: "
-        "'additive' = time periods can be summed, 'non_additive' = not summable."
-    )
-    notes: str | None = Field(
-        default=None,
-        description="Optional human-readable notes explaining the constraint rationale.",
-    )
-
-    @model_validator(mode="after")
-    def validate_dimension_policy_consistency(self) -> AdditivityConstraints:
-        if self.dimension_policy == "subset":
-            if not self.additive_dimensions:
-                raise ValueError(
-                    "additive_dimensions must be a non-empty list when dimension_policy='subset'"
-                )
-        elif self.additive_dimensions is not None and len(self.additive_dimensions) > 0:
-            raise ValueError(
-                f"additive_dimensions must be null or empty when dimension_policy="
-                f"'{self.dimension_policy}', got {self.additive_dimensions}"
-            )
-        return self
-
-
 # =============================================================================
 # Base Models
 # =============================================================================

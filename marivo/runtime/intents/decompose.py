@@ -108,8 +108,8 @@ def run_decompose_intent(
     scope_direction: str = normalized_compare["scope_direction"]
     source_observation_type: str = normalized_compare["source_observation_type"]
     source_analytical_metadata: dict[str, Any] = normalized_compare["analytical_metadata"]
-    frozen_additivity_constraints: dict[str, Any] | None = normalized_compare.get(
-        "frozen_additivity_constraints"
+    frozen_additive_dimensions: list[str] | None = normalized_compare.get(
+        "frozen_additive_dimensions"
     )
 
     lineage_info: dict[str, Any] = compare_artifact.get("lineage") or {}
@@ -131,18 +131,23 @@ def run_decompose_intent(
     right_scope: dict[str, Any] = resolved_input.get("right_scope") or {}
 
     # ── Validate metric and dimension ────────────────────────────────────────
-    # Use frozen additivity_constraints from compare artifact lineage for idempotent retries.
+    # Use frozen additive_dimensions from compare artifact lineage for idempotent retries.
     # Fallback to current metric state for older artifacts without frozen metadata.
-    constraints_for_gate: dict[str, Any]
-    if frozen_additivity_constraints is not None:
-        constraints_for_gate = frozen_additivity_constraints
+    dims_for_gate: list[str]
+    if frozen_additive_dimensions is not None:
+        dims_for_gate = frozen_additive_dimensions
         gate_source = "compare_artifact_lineage"
     else:
         resolved_metric = runtime.resolve_metric(metric_name)
         if resolved_metric is None:
             raise ValueError(f"decompose: metric '{metric_name}' not found or not published")
         _metric_header = resolved_metric.semantic_object.get("header") or {}
-        constraints_for_gate = _metric_header.get("additivity_constraints") or {}
+        # Backward compat: old artifacts may have additivity_constraints dict
+        dims_for_gate = _metric_header.get("additive_dimensions", [])
+        if not dims_for_gate:
+            legacy_constraints = _metric_header.get("additivity_constraints")
+            if isinstance(legacy_constraints, dict):
+                dims_for_gate = legacy_constraints.get("additive_dimensions") or []
         gate_source = "current_metric_state"
 
     # Resolve metric for primary_time_ref and sample_kind needed by capability derivation
@@ -152,11 +157,9 @@ def run_decompose_intent(
 
     _resolved_header = resolved_metric.semantic_object.get("header") or {}
     additivity_caps = derive_additivity_capabilities(
-        header={
-            "additivity_constraints": constraints_for_gate,
-            "primary_time_ref": _resolved_header.get("primary_time_ref"),
-            "sample_kind": _resolved_header.get("sample_kind"),
-        },
+        additive_dimensions=dims_for_gate,
+        primary_time_ref=_resolved_header.get("primary_time_ref"),
+        sample_kind=_resolved_header.get("sample_kind"),
     )
     if not additivity_caps.supports_decompose:
         raise ExecutionError(
@@ -164,8 +167,7 @@ def run_decompose_intent(
             category="compatibility",
             message=(
                 f"decompose: ADDITIVITY_CONSTRAINT - metric '{metric_name}' does not support "
-                f"decomposition (dimension_policy='{additivity_caps.dimension_policy}', "
-                f"time_axis_policy='{additivity_caps.time_axis_policy}', "
+                f"decomposition (additive_dimensions={additivity_caps.additive_dimensions}, "
                 f"blocker='{additivity_caps.blocker}', "
                 f"gate_source='{gate_source}')"
                 + (
@@ -178,9 +180,7 @@ def run_decompose_intent(
                 "compatibility_error": {
                     "code": "ADDITIVITY_CONSTRAINT",
                     "metric": metric_name,
-                    "dimension_policy": additivity_caps.dimension_policy,
-                    "time_axis_policy": additivity_caps.time_axis_policy,
-                    "additive_dimensions": additivity_caps.additive_dimensions or [],
+                    "additive_dimensions": additivity_caps.additive_dimensions,
                     "time_rollup_allowed": additivity_caps.time_rollup_allowed,
                     "blocker": additivity_caps.blocker,
                     "gate_source": gate_source,
@@ -190,8 +190,7 @@ def run_decompose_intent(
         )
 
     if (
-        additivity_caps.dimension_policy == "subset"
-        and additivity_caps.additive_dimensions is not None
+        len(additivity_caps.additive_dimensions) > 0
         and dimension not in additivity_caps.additive_dimensions
     ):
         disallowed = [dimension]
@@ -200,11 +199,10 @@ def run_decompose_intent(
             category="compatibility",
             message=(
                 f"decompose: ADDITIVITY_CONSTRAINT_DIMENSION_NOT_ALLOWED - metric "
-                f"'{metric_name}' with dimension_policy='subset' does not allow "
+                f"'{metric_name}' does not allow "
                 f"decomposition on '{dimension}'. "
                 f"Allowed: {sorted(additivity_caps.additive_dimensions)}, "
-                f"Disallowed: {disallowed}, "
-                f"time_axis_policy='{additivity_caps.time_axis_policy}'"
+                f"Disallowed: {disallowed}"
                 + (
                     f"; {additivity_caps.remediation_hint}"
                     if additivity_caps.remediation_hint
@@ -215,8 +213,6 @@ def run_decompose_intent(
                 "compatibility_error": {
                     "code": "ADDITIVITY_CONSTRAINT_DIMENSION_NOT_ALLOWED",
                     "metric": metric_name,
-                    "dimension_policy": additivity_caps.dimension_policy,
-                    "time_axis_policy": additivity_caps.time_axis_policy,
                     "additive_dimensions": sorted(additivity_caps.additive_dimensions),
                     "disallowed_dimensions": disallowed,
                     "requested_dimensions": [dimension],
@@ -480,30 +476,14 @@ def run_decompose_intent(
         "analytical_metadata": {
             "method": "delta_share",
             "aggregation_semantics": "sum",
-            "additivity_constraints": constraints_for_gate,
-            "additivity_constraints_source": gate_source,
+            "additive_dimensions": dims_for_gate,
+            "additive_dimensions_source": gate_source,
             "time_rollup_allowed": additivity_caps.time_rollup_allowed,
             "reconciliation_expected": True,
             "flat_tolerance_relative": _FLAT_TOLERANCE_RELATIVE,
             "left_row_count": len(left_rows),
             "right_row_count": len(right_rows),
             **source_analytical_metadata,
-            "dimension_policy": additivity_caps.dimension_policy,
-            "time_axis_policy": additivity_caps.time_axis_policy,
-            "decomposition_constraint": (
-                additivity_caps.capability_condition
-                or ("all_dimensions_allowed" if additivity_caps.dimension_policy == "all" else None)
-            ),
-            "allowed_dimension_basis": {
-                "dimension": dimension,
-                "basis": (
-                    "additive_dimensions_list"
-                    if additivity_caps.capability_condition == "dimension_must_be_allowed"
-                    else "all_dimensions_policy"
-                    if additivity_caps.dimension_policy == "all"
-                    else None
-                ),
-            },
             "time_boundary_constraint": {
                 "scope": "frozen_compare_window",
                 "time_rollup_implied": False,
@@ -553,9 +533,17 @@ def run_decompose_intent(
 
 def _normalize_decompose_compare_input(compare_artifact: dict[str, Any]) -> dict[str, Any]:
     comparison_type = compare_artifact.get("comparison_type")
-    # Extract frozen additivity_constraints from compare artifact's analytical_metadata
+    # Extract frozen additive_dimensions from compare artifact's analytical_metadata
     compare_am: dict[str, Any] = compare_artifact.get("analytical_metadata") or {}
-    frozen_additivity_constraints: dict[str, Any] | None = compare_am.get("additivity_constraints")
+    frozen_additive_dimensions: list[str] | None = compare_am.get("additive_dimensions")
+    # Backward compat: old artifacts may store additivity_constraints dict
+    if frozen_additive_dimensions is None and "additivity_constraints" in compare_am:
+        legacy = compare_am["additivity_constraints"]
+        if isinstance(legacy, dict):
+            if legacy.get("dimension_policy") == "none":
+                frozen_additive_dimensions = []
+            else:
+                frozen_additive_dimensions = legacy.get("additive_dimensions")
 
     if comparison_type == "scalar_delta":
         resolved_input: dict[str, Any] = compare_artifact.get("resolved_input_summary") or {}
@@ -572,7 +560,7 @@ def _normalize_decompose_compare_input(compare_artifact: dict[str, Any]) -> dict
             "left_time_scope": dict(resolved_input.get("left_time_scope") or {}),
             "right_time_scope": dict(resolved_input.get("right_time_scope") or {}),
             "analytical_metadata": {"decomposition_source": "scalar_delta"},
-            "frozen_additivity_constraints": frozen_additivity_constraints,
+            "frozen_additive_dimensions": frozen_additive_dimensions,
         }
 
     if comparison_type == "time_series_delta":
@@ -613,7 +601,7 @@ def _normalize_decompose_compare_input(compare_artifact: dict[str, Any]) -> dict
                 "source_pairing_basis": analytical.get("pairing_basis"),
                 "source_pairing_rule": analytical.get("pairing_rule"),
             },
-            "frozen_additivity_constraints": frozen_additivity_constraints,
+            "frozen_additive_dimensions": frozen_additive_dimensions,
         }
 
     raise ValueError(
