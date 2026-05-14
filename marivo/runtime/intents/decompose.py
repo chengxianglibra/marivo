@@ -158,7 +158,7 @@ def run_decompose_intent(
     _resolved_header = resolved_metric.semantic_object.get("header") or {}
     additivity_caps = derive_additivity_capabilities(
         additive_dimensions=dims_for_gate,
-        sample_kind=_resolved_header.get("sample_kind"),
+        sample_kind=_resolved_header.get("sample_kind") or "numeric",
     )
 
     # Derive time_rollup_allowed from request-level time_scope.field

@@ -231,11 +231,11 @@ class DeriveAdditivityCapabilitiesTests(unittest.TestCase):
         caps = derive_additivity_capabilities(additive_dimensions=["country"])
         # supports_compare always True (time_scope.field guaranteed at request level)
         self.assertTrue(caps.supports_compare)
-        # supports_test = sample_kind in {"numeric", "rate", "binary"} -> False (None)
-        self.assertFalse(caps.supports_test)
+        # supports_test = sample_kind in {"numeric", "rate", "binary"} -> True (default "numeric")
+        self.assertTrue(caps.supports_test)
         # supports_detect = bool(process_anchor_time_ref) -> False
         self.assertFalse(caps.supports_detect)
-        # supports_validate = sample_kind == "rate" -> False
+        # supports_validate = sample_kind == "rate" -> False (default "numeric")
         self.assertFalse(caps.supports_validate)
 
 

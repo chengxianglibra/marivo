@@ -323,7 +323,7 @@ class ValidateRequest(BaseModel):
     sample_kind: Literal["auto", "numeric", "rate"] | None = Field(
         default=None,
         description=(
-            "Inferential summary mode. 'auto' fails in v1; use 'numeric' or 'rate' explicitly."
+            "Inferential summary mode. 'auto' resolves from the metric's declared sample_kind."
         ),
     )
     hypothesis: ValidateHypothesis | None = Field(default=None)

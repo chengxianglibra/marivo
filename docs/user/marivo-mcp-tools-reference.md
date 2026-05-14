@@ -386,7 +386,7 @@ interface ColumnInfo {
 | table | string | 是 | — | 表名称 |
 | limit | integer | 否 | 100 | 最大行数，上限 1000 |
 | columns | string \| null | 否 | null | 逗号分隔的列名列表，null 返回所有列 |
-| filters | string \| null | 否 | null | JSON 格式的等值过滤条件，如 `"{\"state\":\"FAILED\"}"` |
+| filters | object \| null | 否 | null | 按列名键控的等值过滤条件，如 `{"state":"FAILED"}` |
 
 **输出 — PreviewResult**：
 
@@ -419,7 +419,9 @@ interface ColumnBrief {
   "table": "dwd_olap_trino_query_info_i_hr",
   "limit": 5,
   "columns": "cluster,query_count,state",
-  "filters": "{\"state\":\"FAILED\"}"
+  "filters": {
+    "state": "FAILED"
+  }
 }
 ```
 
@@ -1620,7 +1622,7 @@ interface AssociationResult {
 | 参数 | 类型 | 必填 | 默认 | 说明 |
 |------|------|------|------|------|
 | method | `"auto"` \| `"welch_t"` \| `"two_proportion_z"` \| null | 否 | null | 检验方法，null 由系统自动选择 |
-| sample_kind | `"auto"` \| `"numeric"` \| `"rate"` \| null | 否 | null | 样本类型 |
+| sample_kind | `"auto"` \| `"numeric"` \| `"rate"` \| null | 否 | null | 样本类型；`"auto"` 从 metric 的 MarivoMetricExtension.sample_kind 解析 |
 | hypothesis | object \| null | 否 | null | 假设描述对象（需为结构化对象，不接受 JSON 字符串） |
 
 **输出 — ValidateArtifact**：

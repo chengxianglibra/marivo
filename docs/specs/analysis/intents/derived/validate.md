@@ -35,7 +35,7 @@ v1 明确约束：
 - `left` 与 `right` 都必须由调用方显式提供，不自动推导基线（baseline）
 - 只支持差异假设族（`difference` hypothesis family）
 - 内部只创建两个推断就绪（inferential-ready）`observe` 和一个 `test`
-- `sample_kind = “auto”` 只能在系统能唯一确定推断摘要模式（inferential summary mode）时合法
+- `sample_kind = “auto”` 从 metric 的 `MarivoMetricExtension.sample_kind` 解析；若 metric 未声明 `sample_kind` 或值不唯一，仍触发 `SAMPLE_KIND_AMBIGUOUS`
 - 不输出因果结论、业务建议或自由文本解释作为证据主体
 
 ## 请求形状（Request Shape）

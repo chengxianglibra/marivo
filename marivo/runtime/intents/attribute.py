@@ -147,7 +147,7 @@ def run_attribute_intent(
     _additive_dimensions = _resolved_header.get("additive_dimensions", [])
     additivity_caps = derive_additivity_capabilities(
         additive_dimensions=_additive_dimensions,
-        sample_kind=_resolved_header.get("sample_kind"),
+        sample_kind=_resolved_header.get("sample_kind") or "numeric",
     )
 
     # Derive time_rollup_allowed from request-level time_scope.field

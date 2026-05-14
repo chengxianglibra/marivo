@@ -116,7 +116,7 @@
           "custom_extensions": [
             {
               "vendor_name": "MARIVO",
-              "data": { "additive_dimensions": ["region", "channel", "order_date"] }
+              "data": { "additive_dimensions": ["region", "channel", "order_date"], "sample_kind": "numeric" }
             }
           ]
         },
@@ -127,7 +127,7 @@
           "custom_extensions": [
             {
               "vendor_name": "MARIVO",
-              "data": { "additive_dimensions": ["region", "channel"] }
+              "data": { "additive_dimensions": ["region", "channel"], "sample_kind": "numeric" }
             }
           ]
         },
@@ -138,7 +138,7 @@
           "custom_extensions": [
             {
               "vendor_name": "MARIVO",
-              "data": { "additive_dimensions": ["region", "channel"] }
+              "data": { "additive_dimensions": ["region", "channel"], "sample_kind": "numeric" }
             }
           ]
         }
