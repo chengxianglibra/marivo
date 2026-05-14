@@ -12,8 +12,8 @@ from marivo.ports.analytics import AnalyticsEngine
 from marivo.runtime.runtime import MarivoRuntime
 
 # Stub names for deleted model types — these are no longer functional.
-# The helper functions that use them will raise NotImplementedError at runtime.
-# Task 7 will migrate these helpers to use OSI v2 models.
+# Contract-era entity/time/dimension helpers still target removed tables.
+# Active metric fixtures have been migrated to the OSI v2 storage layout.
 TypedMetricCreateRequest = None  # type: ignore[assignment,misc]
 TimeCreateRequest = None  # type: ignore[assignment,misc]
 DimensionCreateRequest = None  # type: ignore[assignment,misc]
@@ -459,6 +459,77 @@ def _metric_header_axes(measure_type: str | None) -> tuple[str, str, str, list[s
     )
 
 
+def _latest_fixture_dataset(metadata: MetadataStore) -> dict[str, Any] | None:
+    return metadata.query_one(
+        """
+        SELECT dataset_id, model_id, name, source, datasource_id
+        FROM semantic_datasets
+        WHERE datasource_id IS NOT NULL AND datasource_id != ''
+        ORDER BY updated_at DESC, dataset_id DESC
+        LIMIT 1
+        """
+    )
+
+
+def _ensure_dataset_field(
+    metadata: MetadataStore,
+    *,
+    dataset_id: int,
+    field_name: str,
+    expression_name: str,
+    is_time: bool,
+    is_dimension: bool,
+    data_type: str | None,
+) -> None:
+    existing = metadata.query_one(
+        "SELECT field_id, position FROM semantic_fields WHERE dataset_id = ? AND name = ?",
+        [dataset_id, field_name],
+    )
+    expression = json.dumps({"dialects": [{"dialect": "ANSI_SQL", "expression": expression_name}]})
+    if existing is None:
+        position_row = metadata.query_one(
+            "SELECT COALESCE(MAX(position), -1) AS max_position FROM semantic_fields WHERE dataset_id = ?",
+            [dataset_id],
+        )
+        next_position = int(position_row["max_position"]) + 1 if position_row is not None else 0
+        now = datetime.now(UTC).isoformat()
+        metadata.execute(
+            """
+            INSERT INTO semantic_fields (
+                dataset_id, name, expression, is_time, is_dimension,
+                data_type, position, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                dataset_id,
+                field_name,
+                expression,
+                1 if is_time else 0,
+                1 if is_dimension else 0,
+                data_type,
+                next_position,
+                now,
+                now,
+            ],
+        )
+        return
+    metadata.execute(
+        """
+        UPDATE semantic_fields
+        SET expression = ?, is_time = ?, is_dimension = ?, data_type = ?,
+            updated_at = datetime('now')
+        WHERE field_id = ?
+        """,
+        [
+            expression,
+            1 if is_time else 0,
+            1 if is_dimension else 0,
+            data_type,
+            existing["field_id"],
+        ],
+    )
+
+
 def ensure_published_typed_entity(
     metadata: MetadataStore,
     *,
@@ -622,107 +693,97 @@ def ensure_published_typed_metric(
 ) -> str:
     metric_ref = f"metric.{metric_name}"
     existing = metadata.query_one(
-        """
-        SELECT metric_contract_id, status, observed_entity_ref
-        FROM semantic_metric_contracts
-        WHERE metric_ref = ?
-        """,
-        [metric_ref],
+        "SELECT metric_id, model_id FROM semantic_metrics WHERE name = ?",
+        [metric_name],
     )
-    entity_ref = observed_entity_ref or ensure_published_typed_entity(
-        metadata,
-        measure_type=measure_type,
-    )
-    ensure_published_typed_time(metadata)
-    for dimension_name in dimensions or []:
-        if dimension_name.startswith("dimension."):
-            ensure_published_typed_dimension(
-                metadata,
-                dimension_name=dimension_name.removeprefix("dimension."),
-            )
-        elif dimension_name != "event_date":
-            ensure_published_typed_dimension(metadata, dimension_name=dimension_name)
+    dataset_row = _latest_fixture_dataset(metadata)
+    if existing is None and dataset_row is None:
+        raise ValueError(
+            "ensure_published_typed_metric requires a seeded semantic_datasets row "
+            "with datasource_id before inserting semantic_metrics"
+        )
+    model_id = int(existing["model_id"]) if existing is not None else int(dataset_row["model_id"])
+    if dataset_row is None:
+        dataset_row = metadata.query_one(
+            """
+            SELECT dataset_id, model_id, name, source, datasource_id
+            FROM semantic_datasets
+            WHERE model_id = ?
+            ORDER BY updated_at DESC, dataset_id DESC
+            LIMIT 1
+            """,
+            [model_id],
+        )
+    if dataset_row is None:
+        raise ValueError(
+            f"Model {model_id} has no semantic_datasets row for metric '{metric_name}'"
+        )
 
-    metric_family, sample_kind, value_semantics, additive_dimensions = _metric_header_axes(
-        measure_type
+    dimension_names = list(dimensions or [])
+    additive_dimensions = list(allowed_dimensions or dimension_names)
+    _, sample_kind, _, _ = _metric_header_axes(measure_type)
+    metric_sql = definition_sql or "COUNT(*)"
+
+    for dimension_name in dimension_names:
+        physical_name = dimension_name.removeprefix("dimension.")
+        is_time = physical_name == "event_date"
+        _ensure_dataset_field(
+            metadata,
+            dataset_id=int(dataset_row["dataset_id"]),
+            field_name=dimension_name,
+            expression_name=physical_name,
+            is_time=is_time,
+            is_dimension=True,
+            data_type="date" if is_time else None,
+        )
+    metric_expression = json.dumps(
+        {"dialects": [{"dialect": "ANSI_SQL", "expression": metric_sql}]}
     )
+    metric_description_parts = [
+        display_name or metric_name.replace("_", " ").title(),
+        f"grain={grain or 'row'}",
+    ]
+    if measure_type is not None:
+        metric_description_parts.append(f"measure_type={measure_type}")
+    if desired_direction is not None:
+        metric_description_parts.append(f"desired_direction={desired_direction}")
+    if quality_expectations:
+        metric_description_parts.append(
+            f"quality_expectations={json.dumps(quality_expectations, sort_keys=True)}"
+        )
+    description = " | ".join(metric_description_parts)
+    additive_dimensions_json = json.dumps(additive_dimensions)
     if existing is None:
-        metric_contract_id = f"metc_{uuid4().hex[:24]}"
-        now = datetime.now(UTC).isoformat()
         metadata.execute(
             """
-            INSERT INTO semantic_metric_contracts (
-                metric_contract_id, metric_ref, display_name, description,
-                metric_family, observed_entity_ref, observation_grain_ref,
-                sample_kind, value_semantics, aggregation_scope,
-                additive_dimensions_json, metric_contract_version,
-                family_payload_json, catalog_metadata_json, status, revision,
-                is_latest_active, created_at, updated_at
-            ) VALUES (?, ?, ?, '', ?, ?, ?, ?, ?, 'window', ?, 'metric.v1',
-                ?, '{}', 'published', 1, 1, ?, ?)
+            INSERT INTO semantic_metrics (
+                model_id, name, expression, description, additive_dimensions, sample_kind
+            ) VALUES (?, ?, ?, ?, ?, ?)
             """,
             [
-                metric_contract_id,
-                metric_ref,
-                display_name or metric_name.replace("_", " ").title(),
-                metric_family,
-                entity_ref,
-                f"grain.{grain or 'row'}",
+                model_id,
+                metric_name,
+                metric_expression,
+                description,
+                additive_dimensions_json,
                 sample_kind,
-                value_semantics,
-                json.dumps(additive_dimensions),
-                json.dumps(
-                    _metric_payload_with_default_input_fields(metric_name, measure_type, entity_ref)
-                ),
-                now,
-                now,
             ],
         )
     else:
-        metric_contract_id = str(existing["metric_contract_id"])
-
-    row = metadata.query_one(
-        "SELECT family_payload_json FROM semantic_metric_contracts WHERE metric_contract_id = ?",
-        [metric_contract_id],
-    )
-    family_payload = json.loads(row["family_payload_json"] or "{}") if row is not None else {}
-    if definition_sql is not None:
-        family_payload["definition_sql"] = definition_sql
-    if dimensions is not None:
-        family_payload["dimensions"] = list(dimensions)
-    if "observed_dataset" not in family_payload:
-        dataset_row = metadata.query_one(
-            """
-            SELECT name, source, datasource_id
-            FROM semantic_datasets
-            WHERE datasource_id IS NOT NULL
-            ORDER BY updated_at DESC, dataset_id
-            LIMIT 1
-            """
-        )
-        if dataset_row is not None:
-            family_payload["observed_dataset"] = str(dataset_row["name"])
-            family_payload["dataset_source"] = str(dataset_row["source"])
-            family_payload["datasource_id"] = str(dataset_row["datasource_id"])
-    if grain is not None:
-        family_payload["grain"] = grain
-    if measure_type is not None:
-        family_payload["measure_type"] = measure_type
-    if allowed_dimensions is not None:
-        family_payload["allowed_dimensions"] = list(allowed_dimensions)
-    if quality_expectations is not None:
-        family_payload["quality_expectations"] = dict(quality_expectations)
-    if desired_direction is not None:
-        family_payload["desired_direction"] = desired_direction
-    metadata.execute(
-        "UPDATE semantic_metric_contracts SET family_payload_json = ? WHERE metric_contract_id = ?",
-        [json.dumps(family_payload), metric_contract_id],
-    )
-
-    if existing is None or existing["status"] != "published":
         metadata.execute(
-            "UPDATE semantic_metric_contracts SET status = 'published', is_latest_active = 1 WHERE metric_contract_id = ?",
-            [metric_contract_id],
+            """
+            UPDATE semantic_metrics
+            SET expression = ?, description = ?, additive_dimensions = ?, sample_kind = ?,
+                updated_at = datetime('now')
+            WHERE metric_id = ?
+            """,
+            [
+                metric_expression,
+                description,
+                additive_dimensions_json,
+                sample_kind,
+                existing["metric_id"],
+            ],
         )
     return metric_ref
 
@@ -750,9 +811,6 @@ def ensure_published_typed_metric_binding(
         display_name=metric_name,
         dimensions=dimension_names,
     )
-    for dimension_name in dimension_names or []:
-        if dimension_name != "event_date":
-            ensure_published_typed_dimension(metadata, dimension_name=dimension_name)
 
     _ = carrier_locator
     _ = source_object_ref

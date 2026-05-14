@@ -73,5 +73,5 @@ Already cleaned in commit `0002af4`. Verify no residual references in `marivo-mc
 - `sessions` table (investigation sessions) — untouched
 - `step_metadata.typed_semantic_snapshot` — untouched, this is now the sole traceability mechanism
 - `semantic_models.revision` field — untouched
-- Contract-level revision tracking (`semantic_metric_contracts`, etc.) — untouched
+- Legacy contract-level revision tracking tables (`semantic_metric_contracts`, etc.) — outside this change; these tables were later removed from the active schema/runtime path
 - All intent execution paths (observe, compare, decompose, etc.) — untouched
