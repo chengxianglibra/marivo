@@ -151,18 +151,3 @@ class McpOsiDocumentInput(BaseModel):
         if (self.document is None) == (self.input_path is None):
             raise ValueError("Provide exactly one of document or input_path.")
         return self
-
-
-class McpOsiExportInput(BaseModel):
-    """Input for exporting an OSI-Marivo semantic document."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    semantic_model_name: str | None = Field(
-        default=None,
-        description="Optional semantic model name to export; omitted exports the default scope.",
-    )
-    output_path: str | None = Field(
-        default=None,
-        description="Optional local JSON file path to write on the MCP stdio host.",
-    )

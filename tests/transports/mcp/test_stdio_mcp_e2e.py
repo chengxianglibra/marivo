@@ -267,7 +267,7 @@ async def test_stdio_semantic_document_tools_support_local_json_files(tmp_path: 
     await tools["validate_osi_semantic_models"].run({"input": {"input_path": str(input_path)}})
     await tools["import_osi_semantic_models"].run({"input": {"document": doc}})
     export_result = await tools["export_osi_semantic_models"].run(
-        {"input": {"semantic_model_name": "commerce", "output_path": str(output_path)}}
+        {"semantic_model_name": "commerce", "output_path": str(output_path)}
     )
     delete_result = await tools["delete_semantic_model"].run({"model": "commerce"})
 
