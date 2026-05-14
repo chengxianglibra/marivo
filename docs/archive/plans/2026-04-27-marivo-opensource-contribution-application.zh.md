@@ -1,6 +1,6 @@
 # 开源项目申请：Marivo
 
-> 申请人：李呈祥 | 日期：2026-04-27 | 项目：git.bilibili.co/ace-lab/marivo
+> 申请人：李呈祥 | 日期：2026-04-27 | 项目：github.com/example-org/marivo
 
 ## 项目简介
 
