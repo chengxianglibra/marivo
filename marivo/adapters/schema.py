@@ -387,8 +387,6 @@ METADATA_DDL: list[str] = [
         holiday_name               TEXT,
         holiday_group_id           TEXT,
         year_relative_holiday_key  TEXT,
-        event_group_id             TEXT,
-        year_relative_event_key    TEXT,
         PRIMARY KEY (calendar_version, region_code, calendar_date)
     )
     """,

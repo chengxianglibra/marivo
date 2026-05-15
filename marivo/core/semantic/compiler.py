@@ -7,7 +7,6 @@ This module contains only pure computation:
 - Scoped query CTE construction
 - IR snapshot builders for metrics, processes, entity fields, relationships
 - Validation trace/summary construction
-- Calendar alignment coverage serialization
 - Compile error construction helpers
 
 The I/O-bound orchestrator ``compile_step`` remains in the original module;
@@ -22,8 +21,6 @@ Deferred (requires I/O):
   ``semantic_repository`` for predicate filter lineage.
 - ``_measurement_node``: accesses ``semantic_repository`` for predicate
   resolution when available.
-- ``_resolve_calendar_alignment_plan``: calls ``get_calendar_policy`` and
-  ``_read_calendar_alignment_data`` which requires a ``CalendarDataReaderLike``.
 - ``_resolve_imported_dimension_physical_sources``: nominally accepts a
   repository but currently only emits deprecation warnings; extracted as a
   helper once the deprecation path is removed.
@@ -951,8 +948,7 @@ def intent_request_snapshot(
     """Build an IntentRequestSnapshot dict from request and resolved inputs.
 
     *normalized_request* must have ``.intent_kind``, ``.request_class``,
-    ``.request_dimensions``, ``.request_result_mode``,
-    ``.request_calendar_policy_ref``, ``.request_options``.
+    ``.request_dimensions``, ``.request_result_mode``, and ``.request_options``.
     *resolved_inputs* must have ``.resolved_filter_time`` (with ``.ref``).
     """
     options: dict[str, str | int | float | bool | None] = {}
@@ -967,8 +963,6 @@ def intent_request_snapshot(
         snapshot["requested_dimensions"] = list(normalized_request.request_dimensions)
     if normalized_request.request_result_mode is not None:
         snapshot["requested_result_mode"] = normalized_request.request_result_mode
-    if normalized_request.request_calendar_policy_ref is not None:
-        snapshot["requested_calendar_policy_ref"] = normalized_request.request_calendar_policy_ref
     if resolved_inputs.resolved_filter_time is not None:
         snapshot["request_time_scope_ref"] = resolved_inputs.resolved_filter_time.ref
     if options:

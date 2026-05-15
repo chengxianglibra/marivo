@@ -64,7 +64,6 @@ _CALENDAR_ALIGNMENT_REQUIRED_LIST_FIELDS: tuple[str, ...] = (
 _COVERAGE_INSUFFICIENT_CODES = frozenset({"alignment_coverage_insufficient"})
 _DATA_COVERAGE_INSUFFICIENT_CODES = frozenset({"metric_data_coverage_incomplete"})
 _HOLIDAY_ALIGNMENT_FAILURE_CODES = frozenset({"holiday_cluster_unmapped"})
-_EVENT_ALIGNMENT_FAILURE_CODES = frozenset({"event_cluster_unmapped"})
 _WEEKDAY_TIE_FAILURE_CODES = frozenset({"weekday_pairing_tie"})
 # A weekday tie means both the pairing itself is unstable and the tie-breaker
 # failed to remove that ambiguity, so it intentionally fails both requirements.
@@ -580,11 +579,6 @@ def _evaluate_calendar_alignment_requirements(
     else:
         matched_requirement_keys.add("holiday_cluster_alignment_complete")
 
-    if issue_codes & _EVENT_ALIGNMENT_FAILURE_CODES:
-        failed_requirement_keys.add("event_cluster_alignment_complete")
-    else:
-        matched_requirement_keys.add("event_cluster_alignment_complete")
-
     if issue_codes & _WEEKDAY_TIE_FAILURE_CODES:
         failed_requirement_keys.add("weekday_pairing_compatible")
     else:
@@ -730,7 +724,7 @@ def _build_comparability_gap_row(
                 "requirement_params": {
                     "comparability_dimension": "window_alignment",
                     "expected_relation": "calendar_alignment_requirement_met",
-                    "comparison_scope": "resolved_calendar_alignment",
+                    "comparison_scope": "compare_calendar_alignment",
                 },
             }
         ),

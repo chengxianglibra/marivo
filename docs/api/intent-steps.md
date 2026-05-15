@@ -111,7 +111,12 @@ POST /sessions/{session_id}/intents/compare
 }
 ```
 
-`compare_type` defaults to `normal` when omitted.
+`compare_type` defaults to `normal` when omitted. It is the only public calendar
+alignment control: `normal` uses observed bucket intersection, while `yoy`,
+`mom`, `wow`, `weekday_aligned_yoy`, `weekday_aligned_mom`, and
+`holiday_aligned_yoy` are accepted only for time-series compare artifacts.
+`holiday_aligned_yoy` reads configured calendar data and uses holiday keys
+before weekday and natural-date fallback.
 
 ### Decompose
 
@@ -199,8 +204,7 @@ POST /sessions/{session_id}/intents/attribute
       "start": "2026-01-01",
       "end": "2026-02-01"
     },
-    "scope": null,
-    "calendar_policy_ref": null
+    "scope": null
   },
   "right": {
     "time_scope": {
@@ -208,8 +212,7 @@ POST /sessions/{session_id}/intents/attribute
       "start": "2025-01-01",
       "end": "2025-02-01"
     },
-    "scope": null,
-    "calendar_policy_ref": null
+    "scope": null
   },
   "dimensions": ["country"],
   "decomposition_method": "delta_share",

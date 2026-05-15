@@ -192,7 +192,6 @@ def _canonical_diff_key(
 _COVERAGE_INSUFFICIENT_CODES = frozenset({"alignment_coverage_insufficient"})
 _DATA_COVERAGE_INSUFFICIENT_CODES = frozenset({"metric_data_coverage_incomplete"})
 _HOLIDAY_ALIGNMENT_FAILURE_CODES = frozenset({"holiday_cluster_unmapped"})
-_EVENT_ALIGNMENT_FAILURE_CODES = frozenset({"event_cluster_unmapped"})
 _WEEKDAY_TIE_FAILURE_CODES = frozenset({"weekday_pairing_tie"})
 _TIE_BREAKER_FAILURE_CODES = frozenset({"weekday_pairing_tie", "alignment_tie_breaker_unresolved"})
 
@@ -265,11 +264,6 @@ def evaluate_calendar_alignment_requirements(
         failed_requirement_keys.add("holiday_cluster_alignment_complete")
     else:
         matched_requirement_keys.add("holiday_cluster_alignment_complete")
-
-    if issue_codes & _EVENT_ALIGNMENT_FAILURE_CODES:
-        failed_requirement_keys.add("event_cluster_alignment_complete")
-    else:
-        matched_requirement_keys.add("event_cluster_alignment_complete")
 
     if issue_codes & _WEEKDAY_TIE_FAILURE_CODES:
         failed_requirement_keys.add("weekday_pairing_compatible")

@@ -18,8 +18,6 @@ class CalendarDataRow(BaseModel):
     year_relative_holiday_key: str | None = Field(
         default=None, description="Year-relative holiday key"
     )
-    event_group_id: str | None = Field(default=None, description="Event group identifier")
-    year_relative_event_key: str | None = Field(default=None, description="Year-relative event key")
 
 
 class CalendarDataLoadRequest(BaseModel):

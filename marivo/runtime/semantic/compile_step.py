@@ -10,14 +10,8 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import date, datetime
 from typing import Any, Literal, TypedDict, cast
 
-from marivo.core.semantic.calendar import (
-    get_calendar_policy,
-    resolve_calendar_baseline_window,
-    resolve_calendar_bucket_pairing,
-)
 from marivo.core.semantic.compiler import (
     CompiledQuery,
     SemanticCompilerError,
@@ -57,11 +51,6 @@ from marivo.runtime.semantic.analysis_validator import (
     ValidationIssue,
     validate_compiler_inputs,
     validation_error_message,
-)
-from marivo.runtime.semantic.calendar_data_runtime import (
-    CalendarDataReaderLike,
-    CalendarDataReadResult,
-    CalendarDataResolutionError,
 )
 from marivo.runtime.semantic.resolution_orchestrator import (
     NormalizedCompilerRequest,
@@ -289,10 +278,6 @@ _VALIDATION_GATE_ORDER: tuple[
     "lowering_precheck",
 )
 
-
-_CALENDAR_ALIGNMENT_SUPPORTED_GRAINS = frozenset({"day", "week", "month"})
-
-
 # ── I/O-bound helper functions ──
 
 
@@ -425,192 +410,6 @@ def _build_lowering_requirements(
     return requirements
 
 
-def _resolve_calendar_alignment_plan(
-    normalized_request: NormalizedCompilerRequest,
-    *,
-    semantic_context: Mapping[str, Any] | None = None,
-) -> dict[str, Any] | None:
-    semantic_context = semantic_context or {}
-    policy_ref = normalized_request.request_calendar_policy_ref
-    if policy_ref is None:
-        return None
-    request_time_scope = normalized_request.request_time_scope or {}
-    if not request_time_scope:
-        return None
-    mode = str(request_time_scope.get("mode") or "").strip()
-    if mode != "single_window":
-        return None
-    grain = str(request_time_scope.get("grain") or "").strip()
-    if grain == "hour":
-        raise SemanticRequestCompatibilityError(
-            {
-                "message": "Calendar alignment policies do not support hour-grain observe windows",
-                "code": "calendar_policy_hour_grain_unsupported",
-                "category": "compatibility",
-                "issues": [
-                    {
-                        "code": "calendar_policy_hour_grain_unsupported",
-                        "message": (
-                            "calendar_policy_ref requires a day/week/month window; "
-                            "hour-grain observe requests are not supported"
-                        ),
-                        "details": {
-                            "policy_ref": policy_ref,
-                            "request_grain": grain,
-                        },
-                    }
-                ],
-                "request_context": {
-                    "intent_kind": normalized_request.intent_kind,
-                    "calendar_policy_ref": policy_ref,
-                    "request_grain": grain,
-                },
-            }
-        )
-    if grain not in _CALENDAR_ALIGNMENT_SUPPORTED_GRAINS:
-        return None
-
-    current_window = _date_window_from_time_scope(request_time_scope)
-    policy = get_calendar_policy(policy_ref)
-    baseline_window = resolve_calendar_baseline_window(
-        current_window=current_window,
-        rule=policy.resolved_baseline_generation_rule,
-    )
-    calendar_data = _read_calendar_alignment_data(
-        current_window=current_window,
-        baseline_window=baseline_window,
-        semantic_context=semantic_context,
-    )
-    pairing_resolution = resolve_calendar_bucket_pairing(
-        current_window=current_window,
-        baseline_window=baseline_window,
-        matching_strategy=policy.matching_strategy,
-        fallback_strategy=policy.fallback_strategy,
-        annotation_rows=calendar_data.annotation_rows,
-    )
-    bucket_pairing = pairing_resolution.bucket_pairing
-    comparability_warnings = pairing_resolution.comparability_warnings
-    coverage_summary = _build_calendar_alignment_coverage(bucket_pairing)
-    return {
-        "policy_ref": policy.policy_ref,
-        "comparison_basis": policy.comparison_basis,
-        "resolved_calendar_source": calendar_data.resolved_calendar_source,
-        "resolved_calendar_version": calendar_data.resolved_calendar_version,
-        "resolved_baseline_generation_rule": {
-            "strategy": policy.resolved_baseline_generation_rule.strategy,
-            "offset_value": policy.resolved_baseline_generation_rule.offset_value,
-            "offset_unit": policy.resolved_baseline_generation_rule.offset_unit,
-            "fixed_start": None,
-            "fixed_end": None,
-            "named_window_ref": None,
-        },
-        "current_window": _serialize_calendar_window(current_window),
-        "baseline_window": _serialize_calendar_window(baseline_window),
-        "bucket_pairing": bucket_pairing,
-        "rollup_safe": pairing_resolution.rollup_safe,
-        "coverage_summary": coverage_summary,
-        "comparability_warnings": comparability_warnings,
-        "source_lineage": calendar_data.source_lineage,
-    }
-
-
-def _date_window_from_time_scope(time_scope: Mapping[str, Any]) -> tuple[date, date]:
-    current = dict(time_scope.get("current") or {})
-    start = _parse_date_like(str(current.get("start") or ""))
-    end = _parse_date_like(str(current.get("end") or ""))
-    if start >= end:
-        raise ValueError("calendar alignment requires time_scope.current.start < end")
-    return start, end
-
-
-def _parse_date_like(value: str) -> date:
-    if not value:
-        raise ValueError("calendar alignment requires date window boundaries")
-    with_datetime = value.replace(" ", "T")
-    try:
-        return datetime.fromisoformat(with_datetime).date()
-    except ValueError:
-        return date.fromisoformat(value[:10])
-
-
-def _read_calendar_alignment_data(
-    *,
-    current_window: tuple[date, date],
-    baseline_window: tuple[date, date],
-    semantic_context: Mapping[str, Any],
-) -> CalendarDataReadResult:
-    reader = semantic_context.get("calendar_data_reader")
-    if not isinstance(reader, CalendarDataReaderLike):
-        raise SemanticRequestCompatibilityError(
-            {
-                "message": "Calendar alignment requires a configured calendar data reader",
-                "code": "calendar_data_missing",
-                "category": "compatibility",
-                "issues": [
-                    {
-                        "code": "calendar_data_missing",
-                        "message": (
-                            "calendar_policy_ref requires a configured calendar snapshot reader; "
-                            "temporary annotation snapshot injection is no longer supported"
-                        ),
-                        "details": {},
-                    }
-                ],
-                "request_context": {
-                    "current_window": _serialize_calendar_window(current_window),
-                    "baseline_window": _serialize_calendar_window(baseline_window),
-                },
-            }
-        )
-    try:
-        return reader.read_for_alignment(
-            current_window=current_window,
-            baseline_window=baseline_window,
-        )
-    except CalendarDataResolutionError as error:
-        raise SemanticRequestCompatibilityError(
-            {
-                "message": str(error),
-                "code": "calendar_data_missing",
-                "category": "compatibility",
-                "issues": [
-                    {
-                        "code": "calendar_data_missing",
-                        "message": str(error),
-                        "details": dict(error.details),
-                    }
-                ],
-                "request_context": {
-                    "current_window": _serialize_calendar_window(current_window),
-                    "baseline_window": _serialize_calendar_window(baseline_window),
-                },
-            }
-        ) from error
-
-
-def _build_calendar_alignment_coverage(bucket_pairing: list[dict[str, Any]]) -> dict[str, Any]:
-    aligned_bucket_count = sum(
-        1 for bucket in bucket_pairing if bucket.get("baseline_bucket_start") is not None
-    )
-    total_bucket_count = len(bucket_pairing)
-    unpaired_bucket_count = total_bucket_count - aligned_bucket_count
-    aligned_ratio = aligned_bucket_count / total_bucket_count if total_bucket_count else 0.0
-    return {
-        "aligned_bucket_count": aligned_bucket_count,
-        "unpaired_bucket_count": unpaired_bucket_count,
-        "aligned_ratio": aligned_ratio,
-    }
-
-
-def _serialize_calendar_window(window: tuple[date, date] | None) -> dict[str, str] | None:
-    if window is None:
-        return None
-    return {
-        "start": window[0].isoformat(),
-        "end": window[1].isoformat(),
-    }
-
-
 def _stable_plan_id(step: AnalysisStepIR, normalized_request: NormalizedCompilerRequest) -> str:
     raw = "|".join(
         [
@@ -683,8 +482,6 @@ def _intent_request_snapshot(
         snapshot["requested_dimensions"] = list(normalized_request.request_dimensions)
     if normalized_request.request_result_mode is not None:
         snapshot["requested_result_mode"] = normalized_request.request_result_mode
-    if normalized_request.request_calendar_policy_ref is not None:
-        snapshot["requested_calendar_policy_ref"] = normalized_request.request_calendar_policy_ref
     if resolved_inputs.resolved_filter_time is not None:
         snapshot["request_time_scope_ref"] = resolved_inputs.resolved_filter_time.ref
     if options:
@@ -912,17 +709,11 @@ def _build_ir_bundle(
         intent_node_id=intent_node["node_id"],
     )
     validation_trace = _build_validation_trace(validation_result)
-    resolved_calendar_alignment = _resolve_calendar_alignment_plan(
-        normalized_request,
-        semantic_context=semantic_context,
-    )
     compile_report: CompileReport = {
         "validation_trace": validation_trace,
         "validation_summary": _build_validation_summary(validation_result, validation_trace),
         "lowering_requirements": lowering_requirements,
     }
-    if resolved_calendar_alignment is not None:
-        compile_report["resolved_calendar_alignment"] = resolved_calendar_alignment
     profile_usage_trace = _build_profile_usage_trace(derived_state.profile_traces)
     if profile_usage_trace:
         compile_report["profile_usage_trace"] = profile_usage_trace
@@ -1087,9 +878,6 @@ def compile_step(
             for relationship in resolved_inputs.resolved_relationships.values()
         ],
         "compiler_summary": ir_bundle["compile_report"]["validation_summary"],
-        "resolved_calendar_alignment": ir_bundle["compile_report"].get(
-            "resolved_calendar_alignment"
-        ),
     }
     if normalized_predicate_input is not None:
         metadata["normalized_predicate_input"] = normalized_predicate_input

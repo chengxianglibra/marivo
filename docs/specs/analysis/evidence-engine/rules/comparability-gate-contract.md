@@ -262,14 +262,13 @@ comparability gap identity 必须绑定：
 
 - `baseline_calendar_policy_resolved`
 - `holiday_cluster_alignment_complete`
-- `event_cluster_alignment_complete`
 - `weekday_pairing_compatible`
 - `calendar_coverage_sufficient`
 - `metric_data_coverage_sufficient`
 - `alignment_tie_breaker_resolved`
 
 这些 key 在 v1 中都映射到 `comparability_dimension = "window_alignment"`，并消费 compare / test
-finding payload 中已冻结的 `calendar_alignment` 与 `comparability.issues` 字段。
+finding payload 中的 `calendar_alignment` 与 `comparability.issues` 字段。
 
 其中：
 
@@ -277,8 +276,8 @@ finding payload 中已冻结的 `calendar_alignment` 与 `comparability.issues` 
 - `calendar_coverage_sufficient` 在 v1 采用严格满覆盖语义：`aligned_ratio = 1.0` 且 `unpaired_bucket_count = 0`
 - `metric_data_coverage_sufficient` 只消费 `effective_data_coverage_summary.coverage_ratio` 或 `metric_data_coverage_incomplete`；它表达业务 bucket 是否有值，不得与 calendar pairing coverage 混用
 - `weekday_pairing_tie` 可同时导致 `weekday_pairing_compatible` 与 `alignment_tie_breaker_resolved` 失败；这是同一歧义在两个 requirement 维度上的显式映射，不视为重复报错
-- compare/test 复用 frozen alignment metadata 时，产出的 calendar issues 必须显式标注 `gate_family = "comparability_gate"`；同一 code 不得再被 `quality_gate` 以平行 issue 重复报出
-- v1 compare-like 默认分层为：`weekday_pairing_tie` 与 frozen metadata mismatch 为 blocking comparability issues；`holiday_cluster_unmapped`、`event_cluster_unmapped`、`fallback_applied`、`alignment_coverage_insufficient` 为 non-blocking comparability warnings，除非后续 requirement contract 明确升级
+- compare/test 产出的 calendar issues 必须显式标注 `gate_family = "comparability_gate"`；同一 code 不得再被 `quality_gate` 以平行 issue 重复报出
+- v1 compare-like 默认分层为：`weekday_pairing_tie` 为 blocking comparability issue；`holiday_cluster_unmapped`、`fallback_applied`、`alignment_coverage_insufficient` 为 non-blocking comparability warnings，除非后续 requirement contract 明确升级
 
 ### 5. requirement token 必须显式输出
 

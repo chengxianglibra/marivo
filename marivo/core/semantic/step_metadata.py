@@ -25,49 +25,6 @@ def _merge_unique_str(values: list[str | None]) -> list[str]:
     return merged
 
 
-def _build_calendar_policy_binding(
-    resolved_calendar_alignments: list[dict[str, Any]],
-) -> dict[str, Any] | None:
-    if not resolved_calendar_alignments:
-        return None
-
-    def require_string(alignment: dict[str, Any], field: str) -> str:
-        value = alignment.get(field)
-        if not isinstance(value, str) or not value:
-            raise ValueError(f"resolved_calendar_alignment missing {field}")
-        return value
-
-    def require_source_lineage(alignment: dict[str, Any]) -> dict[str, str]:
-        source_lineage = alignment.get("source_lineage")
-        if not isinstance(source_lineage, dict) or not source_lineage:
-            raise ValueError("resolved_calendar_alignment missing source_lineage metadata")
-        normalized: dict[str, str] = {}
-        for field in ("table_fqn", "calendar_version"):
-            value = source_lineage.get(field)
-            if not isinstance(value, str) or not value:
-                raise ValueError(f"resolved_calendar_alignment source_lineage missing {field}")
-            normalized[field] = value
-        return normalized
-
-    bindings: list[dict[str, Any]] = []
-    for alignment in resolved_calendar_alignments:
-        bindings.append(
-            {
-                "policy_ref": require_string(alignment, "policy_ref"),
-                "comparison_basis": require_string(alignment, "comparison_basis"),
-                "resolved_calendar_source": require_string(alignment, "resolved_calendar_source"),
-                "resolved_calendar_version": require_string(alignment, "resolved_calendar_version"),
-                "source_lineage": require_source_lineage(alignment),
-            }
-        )
-
-    first_binding = bindings[0]
-    for binding in bindings[1:]:
-        if binding != first_binding:
-            raise ValueError("conflicting calendar policy bindings in compiled step metadata")
-    return first_binding
-
-
 # ── Public API ───────────────────────────────────────────────────────────
 
 
@@ -166,12 +123,6 @@ def build_step_semantic_metadata(
         for summary in [compiled.metadata.get("compiler_summary")]
         if isinstance(summary, dict)
     ]
-    resolved_calendar_alignments = [
-        dict(summary)
-        for compiled in compiled_list
-        for summary in [compiled.metadata.get("resolved_calendar_alignment")]
-        if isinstance(summary, dict)
-    ]
     metric_execution_contexts = [
         dict(context)
         for compiled in compiled_list
@@ -196,7 +147,6 @@ def build_step_semantic_metadata(
         metric_object_id = compiled.metadata.get("resolved_metric_object_id")
         if metric_object_id:
             resolved["object_id"] = str(metric_object_id)
-    calendar_policy_binding = _build_calendar_policy_binding(resolved_calendar_alignments)
 
     if not any(
         (
@@ -211,10 +161,8 @@ def build_step_semantic_metadata(
             ir_plan_ids,
             request_classes,
             compiler_summaries,
-            resolved_calendar_alignments,
             metric_execution_contexts,
             resolved_refs,
-            calendar_policy_binding,
         )
     ):
         return None
@@ -236,9 +184,7 @@ def build_step_semantic_metadata(
             "ir_plan_ids": ir_plan_ids,
             "compiler_summaries": compiler_summaries,
             "relationship_sources": relationship_sources,
-            "resolved_calendar_alignments": resolved_calendar_alignments,
             "metric_execution_contexts": metric_execution_contexts,
-            "calendar_policy_binding": calendar_policy_binding,
         },
         "resolved_refs": resolved_refs,
     }

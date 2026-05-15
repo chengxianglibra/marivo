@@ -11,15 +11,14 @@ from marivo.core.semantic.calendar import (
     CalendarMatchingStep,
     CalendarPolicyResolutionError,
     build_calendar_annotation_rows,
+    compare_type_to_alignment_plan,
     get_calendar_policy,
     is_rollup_safe,
     list_calendar_policies,
     resolve_calendar_baseline_window,
     resolve_calendar_bucket_pairing,
-    resolve_calendar_policy,
     shift_calendar_date,
     strictness_level_for_bucket,
-    validate_calendar_policy_ref,
 )
 
 # ---------------------------------------------------------------------------
@@ -201,45 +200,25 @@ def test_get_calendar_policy_invalid_raises() -> None:
 
 def test_list_calendar_policies_count() -> None:
     policies = list_calendar_policies()
-    assert len(policies) == 7
+    assert len(policies) == 6
 
 
 # ---------------------------------------------------------------------------
-# validate_calendar_policy_ref
+# compare_type_to_alignment_plan
 # ---------------------------------------------------------------------------
 
 
-def test_validate_calendar_policy_ref_none() -> None:
-    assert validate_calendar_policy_ref(None) is None
+def test_compare_type_to_alignment_plan_normal() -> None:
+    assert compare_type_to_alignment_plan("normal") is None
 
 
-def test_validate_calendar_policy_ref_valid() -> None:
-    assert (
-        validate_calendar_policy_ref("calendar_policy.natural_yoy") == "calendar_policy.natural_yoy"
-    )
+def test_compare_type_to_alignment_plan_holiday_requires_calendar_data() -> None:
+    plan = compare_type_to_alignment_plan("holiday_aligned_yoy")
+    assert plan is not None
+    assert plan.comparison_basis == "yoy"
+    assert plan.requires_calendar_data is True
 
 
-def test_validate_calendar_policy_ref_basis_mismatch() -> None:
-    with pytest.raises(CalendarPolicyResolutionError, match="not valid for comparison_basis"):
-        validate_calendar_policy_ref("calendar_policy.natural_yoy", comparison_basis="wow")
-
-
-# ---------------------------------------------------------------------------
-# resolve_calendar_policy
-# ---------------------------------------------------------------------------
-
-
-def test_resolve_calendar_policy_explicit() -> None:
-    result = resolve_calendar_policy(explicit_policy_ref="calendar_policy.natural_yoy")
-    assert result is not None
-    assert result.resolution_source == "explicit_request"
-
-
-def test_resolve_calendar_policy_none_when_no_sources() -> None:
-    result = resolve_calendar_policy()
-    assert result is None
-
-
-def test_resolve_calendar_policy_required_raises() -> None:
-    with pytest.raises(CalendarPolicyResolutionError, match="required but none could be resolved"):
-        resolve_calendar_policy(required=True)
+def test_compare_type_to_alignment_plan_invalid_raises() -> None:
+    with pytest.raises(CalendarPolicyResolutionError, match="Unknown compare_type"):
+        compare_type_to_alignment_plan("calendar_policy.natural_yoy")

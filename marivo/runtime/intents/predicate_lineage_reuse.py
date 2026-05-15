@@ -1,8 +1,7 @@
 """Predicate filter lineage reuse for compare-like intents.
 
 Validates and summarizes predicate lineage compatibility between two
-upstream observation artifacts, following the same pattern as
-``calendar_alignment_metadata.resolve_calendar_alignment_reuse_for_intent``.
+upstream observation artifacts.
 
 The reuse summary is a refs-only provenance record: it carries predicate
 refs and scope fingerprints, never expression trees or lowering details.

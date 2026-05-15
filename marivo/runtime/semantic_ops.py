@@ -800,7 +800,7 @@ def compile_step_with_feedback(
     """Compile an analysis step IR into a query, with error feedback.
 
     Injects semantic_repository and compatibility_profile_reader from the
-    runtime's ports, plus calendar_data_reader when available.
+    runtime's ports.
     """
     effective_semantic_context = dict(semantic_context or {})
     repo = runtime.semantic_repository
@@ -810,8 +810,6 @@ def compile_step_with_feedback(
             "compatibility_profile_reader",
             lambda subject_ref: None,
         )
-    if runtime.calendar_data_reader is not None:
-        effective_semantic_context.setdefault("calendar_data_reader", runtime.calendar_data_reader)
     try:
         compiled = compile_step(
             step,

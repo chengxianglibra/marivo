@@ -52,8 +52,8 @@ def run_attribute_intent(
 
     Input (from AttributeRequest):
       metric:               published semantic metric
-      left:                 { time_scope, calendar_policy_ref?, scope? } — current / treatment side
-      right:                { time_scope, calendar_policy_ref?, scope? } — baseline / control side
+      left:                 { time_scope, scope? } — current / treatment side
+      right:                { time_scope, scope? } — baseline / control side
       dimensions:           non-empty list of attribution dimensions
       decomposition_method: "delta_share" (only v1 option, default)
       decomposition_limit:  max driver rows per dimension (default 5, max 100)
@@ -101,8 +101,6 @@ def run_attribute_intent(
 
     left_scope: dict[str, Any] | None = left_input.get("scope")
     right_scope: dict[str, Any] | None = right_input.get("scope")
-    left_calendar_policy_ref: str | None = left_input.get("calendar_policy_ref")
-    right_calendar_policy_ref: str | None = right_input.get("calendar_policy_ref")
 
     raw_dimensions = p.get("dimensions")
     dimensions = normalize_dimensions(raw_dimensions)
@@ -247,7 +245,6 @@ def run_attribute_intent(
             {
                 "metric": metric_ref,
                 "time_scope": current_time_scope,
-                "calendar_policy_ref": left_calendar_policy_ref,
                 "scope": left_scope,
                 # no granularity, no dimensions → scalar mode
             },
@@ -270,7 +267,6 @@ def run_attribute_intent(
             {
                 "metric": metric_ref,
                 "time_scope": baseline_time_scope,
-                "calendar_policy_ref": right_calendar_policy_ref,
                 "scope": right_scope,
             },
         )

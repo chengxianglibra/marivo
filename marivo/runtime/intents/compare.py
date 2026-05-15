@@ -1,16 +1,23 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING, Any
 
 from marivo.core.intent.primitives import new_step_id
-from marivo.runtime.intents._helpers import commit_step_result
-from marivo.runtime.intents.calendar_alignment_metadata import (
-    resolve_calendar_alignment_reuse_for_intent,
+from marivo.core.semantic.calendar import (
+    build_calendar_annotation_rows,
+    compare_type_to_alignment_plan,
+    resolve_calendar_baseline_window,
+    resolve_calendar_bucket_pairing,
 )
+from marivo.runtime.intents._helpers import commit_step_result
 from marivo.runtime.intents.predicate_lineage_reuse import (
     resolve_predicate_lineage_reuse_for_intent,
+)
+from marivo.runtime.semantic.calendar_data_runtime import (
+    CalendarDataReaderLike,
+    CalendarDataResolutionError,
 )
 
 if TYPE_CHECKING:
@@ -71,10 +78,23 @@ def _window_start(row: dict[str, Any], *, label: str) -> str:
     return start
 
 
+def _window_start_day(row: dict[str, Any], *, label: str) -> str:
+    return _parse_date_like(_window_start(row, label=label)).isoformat()
+
+
 def _series_map_by_start(series: list[dict[str, Any]], *, label: str) -> dict[str, dict[str, Any]]:
     by_start: dict[str, dict[str, Any]] = {}
     for row in series:
         by_start[_window_start(row, label=label)] = row
+    return by_start
+
+
+def _series_map_by_start_day(
+    series: list[dict[str, Any]], *, label: str
+) -> dict[str, dict[str, Any]]:
+    by_start: dict[str, dict[str, Any]] = {}
+    for row in series:
+        by_start[_window_start_day(row, label=label)] = row
     return by_start
 
 
@@ -88,8 +108,29 @@ def _matched_scope_from_windows(windows: list[tuple[str, str]]) -> dict[str, Any
     }
 
 
+def _parse_date_like(value: str) -> date:
+    text = str(value or "").strip()
+    if not text:
+        raise ValueError("compare: INVALID_ARGUMENT - calendar alignment requires date boundary")
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00").replace(" ", "T")).date()
+    except ValueError:
+        return date.fromisoformat(text[:10])
+
+
+def _time_scope_window(artifact: dict[str, Any], *, label: str) -> tuple[date, date]:
+    time_scope = _require_mapping(artifact.get("time_scope"), label=f"{label}.time_scope")
+    start = _parse_date_like(str(time_scope.get("start") or ""))
+    end = _parse_date_like(str(time_scope.get("end") or ""))
+    if start >= end:
+        raise ValueError(f"compare: INVALID_ARGUMENT - {label}.time_scope.start must be before end")
+    return start, end
+
+
 def _resolve_time_series_pairing_basis(
     *,
+    runtime: MarivoRuntime,
+    compare_type: str,
     left_artifact: dict[str, Any],
     right_artifact: dict[str, Any],
 ) -> dict[str, Any]:
@@ -99,79 +140,111 @@ def _resolve_time_series_pairing_basis(
     right_series_map = {_series_row_key(row): row for row in right_series}
     default_keys = sorted(set(left_series_map) | set(right_series_map))
 
-    left_summary = left_artifact.get("resolved_policy_summary")
-    right_summary = right_artifact.get("resolved_policy_summary")
-    if not isinstance(left_summary, dict) or not isinstance(right_summary, dict):
-        return {
-            "pairing_basis": "observed_series",
-            "pairing_rule": "intersection_by_time_bucket",
-            "series_keys": default_keys,
-            "left_series_map": left_series_map,
-            "right_series_map": right_series_map,
-        }
-
-    left_bucket_pairing = left_summary.get("bucket_pairing")
-    right_bucket_pairing = right_summary.get("bucket_pairing")
-    if not isinstance(left_bucket_pairing, list) or not isinstance(right_bucket_pairing, list):
-        return {
-            "pairing_basis": "observed_series",
-            "pairing_rule": "intersection_by_time_bucket",
-            "series_keys": default_keys,
-            "left_series_map": left_series_map,
-            "right_series_map": right_series_map,
-        }
-
-    left_by_current = _series_map_by_start(left_series, label="left.series.window")
-    right_by_current = _series_map_by_start(right_series, label="right.series.window")
-
-    paired_left: dict[str, dict[str, Any]] = {}
-    paired_right: dict[str, dict[str, Any]] = {}
-    paired_keys: list[str] = []
-    seen_keys: set[str] = set()
-
-    for pairing in left_bucket_pairing:
-        pairing_map = _require_mapping(
-            pairing,
-            label="left.resolved_policy_summary.bucket_pairing[]",
+    alignment_plan = compare_type_to_alignment_plan(compare_type)
+    if alignment_plan is not None:
+        current_window = _time_scope_window(left_artifact, label="left")
+        baseline_window = resolve_calendar_baseline_window(
+            current_window=current_window,
+            rule=alignment_plan.resolved_baseline_generation_rule,
         )
-        current_bucket_start = pairing_map.get("current_bucket_start")
-        baseline_bucket_start = pairing_map.get("baseline_bucket_start")
-        if not isinstance(current_bucket_start, str) or not current_bucket_start:
-            raise ValueError(
-                "compare: INVALID_ARGUMENT - left.resolved_policy_summary.bucket_pairing[].current_bucket_start must be a string"
+        calendar_source: str | None = None
+        calendar_version: str | None = None
+        if alignment_plan.requires_calendar_data:
+            reader = runtime.calendar_data_reader
+            if not isinstance(reader, CalendarDataReaderLike):
+                raise ValueError(
+                    "compare: INVALID_ARGUMENT - compare_type "
+                    f"'{compare_type}' requires configured calendar data"
+                )
+            try:
+                calendar_data = reader.read_for_alignment(
+                    current_window=current_window,
+                    baseline_window=baseline_window,
+                )
+            except CalendarDataResolutionError as exc:
+                raise ValueError(
+                    "compare: INVALID_ARGUMENT - compare_type "
+                    f"'{compare_type}' calendar data unavailable: {exc}"
+                ) from exc
+            annotation_rows = calendar_data.annotation_rows
+            calendar_source = calendar_data.resolved_calendar_source
+            calendar_version = calendar_data.resolved_calendar_version
+        else:
+            annotation_rows = build_calendar_annotation_rows(
+                current_window=current_window,
+                baseline_window=baseline_window,
+                raw_rows=None,
             )
-        if not isinstance(baseline_bucket_start, str) or not baseline_bucket_start:
-            continue
-        left_current_row = left_by_current.get(current_bucket_start)
-        right_baseline_row = right_by_current.get(baseline_bucket_start)
-        if left_current_row is None or right_baseline_row is None:
-            continue
-        key = _series_row_key(left_current_row)
-        paired_left[key] = left_current_row
-        paired_right[key] = {
-            "window": dict(left_current_row.get("window") or {}),
-            "value": right_baseline_row.get("value"),
-            "_matched_window": dict(right_baseline_row.get("window") or {}),
-        }
-        if key not in seen_keys:
+        pairing_resolution = resolve_calendar_bucket_pairing(
+            current_window=current_window,
+            baseline_window=baseline_window,
+            matching_strategy=alignment_plan.matching_strategy,
+            fallback_strategy=alignment_plan.fallback_strategy,
+            annotation_rows=annotation_rows,
+        )
+        left_by_current = _series_map_by_start_day(left_series, label="left.series.window")
+        right_by_baseline = _series_map_by_start_day(right_series, label="right.series.window")
+        paired_left: dict[str, dict[str, Any]] = {}
+        paired_right: dict[str, dict[str, Any]] = {}
+        paired_keys: list[str] = []
+        for pairing in pairing_resolution.bucket_pairing:
+            current_bucket_start = pairing.get("current_bucket_start")
+            baseline_bucket_start = pairing.get("baseline_bucket_start")
+            if not isinstance(current_bucket_start, str) or not current_bucket_start:
+                continue
+            left_current_row = left_by_current.get(current_bucket_start)
+            if left_current_row is None:
+                continue
+            key = _series_row_key(left_current_row)
+            paired_left[key] = left_current_row
+            if isinstance(baseline_bucket_start, str) and baseline_bucket_start:
+                right_baseline_row = right_by_baseline.get(baseline_bucket_start)
+                if right_baseline_row is not None:
+                    paired_right[key] = {
+                        "window": dict(left_current_row.get("window") or {}),
+                        "value": right_baseline_row.get("value"),
+                        "_matched_window": dict(right_baseline_row.get("window") or {}),
+                    }
             paired_keys.append(key)
-            seen_keys.add(key)
-
-    if not paired_keys:
+        if not paired_keys:
+            raise ValueError(
+                "compare: NOT_COMPARABLE - compare_type "
+                f"'{compare_type}' produced no aligned buckets"
+            )
         return {
-            "pairing_basis": "observed_series",
-            "pairing_rule": "intersection_by_time_bucket",
-            "series_keys": default_keys,
-            "left_series_map": left_series_map,
-            "right_series_map": right_series_map,
+            "pairing_basis": "compare_type_calendar_alignment",
+            "pairing_rule": alignment_plan.resolved_alignment_mode,
+            "series_keys": paired_keys,
+            "left_series_map": paired_left,
+            "right_series_map": paired_right,
+            "compare_type": compare_type,
+            "calendar_alignment": {
+                "compare_type": compare_type,
+                "comparison_basis": alignment_plan.comparison_basis,
+                "resolved_alignment_mode": alignment_plan.resolved_alignment_mode,
+                "resolved_calendar_source": calendar_source,
+                "resolved_calendar_version": calendar_version,
+                "current_window": {
+                    "start": current_window[0].isoformat(),
+                    "end": current_window[1].isoformat(),
+                },
+                "baseline_window": {
+                    "start": baseline_window[0].isoformat(),
+                    "end": baseline_window[1].isoformat(),
+                },
+                "bucket_pairing": pairing_resolution.bucket_pairing,
+                "rollup_safe": pairing_resolution.rollup_safe,
+                "comparability_warnings": pairing_resolution.comparability_warnings,
+            },
         }
 
     return {
-        "pairing_basis": "calendar_aligned_observation_windows",
-        "pairing_rule": "calendar_aligned_bucket_pairing",
-        "series_keys": sorted(paired_keys),
-        "left_series_map": paired_left,
-        "right_series_map": paired_right,
+        "pairing_basis": "observed_series",
+        "pairing_rule": "intersection_by_time_bucket",
+        "series_keys": default_keys,
+        "left_series_map": left_series_map,
+        "right_series_map": right_series_map,
+        "compare_type": compare_type,
     }
 
 
@@ -213,6 +286,12 @@ def run_compare_intent(
             "compare: INVALID_ARGUMENT - mode must be one of "
             "'auto', 'scalar', 'segmented', 'time_series'"
         )
+    compare_type_raw = p.get("compare_type")
+    compare_type = str(compare_type_raw or "normal").strip() or "normal"
+    try:
+        alignment_plan = compare_type_to_alignment_plan(compare_type)
+    except ValueError as exc:
+        raise ValueError(f"compare: INVALID_ARGUMENT - {exc}") from exc
 
     if uses_aoi_artifact_refs:
         if not left_artifact_id or not right_artifact_id:
@@ -321,6 +400,11 @@ def run_compare_intent(
                 }
             )
             fatal = True
+    elif not fatal and alignment_plan is not None:
+        raise ValueError(
+            f"compare: INVALID_ARGUMENT - compare_type '{compare_type}' "
+            "requires time_series observations"
+        )
 
     left_unit: str | None = left_artifact.get("unit")
     right_unit: str | None = right_artifact.get("unit")
@@ -338,15 +422,6 @@ def run_compare_intent(
     left_am = left_artifact.get("analytical_metadata") or {}
     right_am = right_artifact.get("analytical_metadata") or {}
 
-    calendar_alignment_summary = resolve_calendar_alignment_reuse_for_intent(
-        intent_name="compare",
-        left_resolved_policy_summary=left_artifact.get("resolved_policy_summary"),
-        right_resolved_policy_summary=right_artifact.get("resolved_policy_summary"),
-    )
-    issues.extend(calendar_alignment_summary["issues"])
-    if calendar_alignment_summary["fatal_message"] is not None:
-        fatal = True
-
     predicate_lineage_summary = resolve_predicate_lineage_reuse_for_intent(
         intent_name="compare",
         left_predicate_filter_lineage=left_artifact.get("predicate_filter_lineage"),
@@ -357,11 +432,7 @@ def run_compare_intent(
         fatal = True
 
     if fatal:
-        fatal_message = (
-            calendar_alignment_summary["fatal_message"]
-            or predicate_lineage_summary["fatal_message"]
-            or issues[0]["message"]
-        )
+        fatal_message = predicate_lineage_summary["fatal_message"] or issues[0]["message"]
         raise ValueError(f"compare: NOT_COMPARABLE - {fatal_message}")
 
     # Explicit mode guard
@@ -420,6 +491,7 @@ def run_compare_intent(
         "right_source_ref": right_ref_out,
         "observation_schema_version": left_artifact.get("schema_version"),
         "derivation_version": "1.0",
+        "compare_type": compare_type,
     }
     resolved_input_summary: dict[str, Any] = {
         "left_time_scope": left_artifact.get("time_scope"),
@@ -427,8 +499,6 @@ def run_compare_intent(
         "left_scope": left_artifact.get("scope") or {},
         "right_scope": right_artifact.get("scope") or {},
     }
-    if calendar_alignment_summary["reuse_summary"] is not None:
-        resolved_input_summary["calendar_alignment"] = calendar_alignment_summary["reuse_summary"]
     if predicate_lineage_summary["reuse_summary"] is not None:
         resolved_input_summary["predicate_lineage"] = predicate_lineage_summary["reuse_summary"]
     analytical_metadata: dict[str, Any] = {
@@ -438,6 +508,7 @@ def run_compare_intent(
         "flat_tolerance_relative": flat_tolerance_relative,
         "left_row_count": left_am.get("row_count"),
         "right_row_count": right_am.get("row_count"),
+        "compare_type": compare_type,
     }
     execution_metadata: dict[str, Any] = {
         "query_hash": None,
@@ -488,6 +559,8 @@ def run_compare_intent(
         left_series: list[dict[str, Any]] = left_artifact.get("series") or []
         right_series: list[dict[str, Any]] = right_artifact.get("series") or []
         pairing_basis = _resolve_time_series_pairing_basis(
+            runtime=runtime,
+            compare_type=compare_type,
             left_artifact=left_artifact,
             right_artifact=right_artifact,
         )
@@ -601,6 +674,22 @@ def run_compare_intent(
                 "matched_right_time_scope": matched_right_time_scope,
             }
         )
+        if "compare_type" in pairing_basis:
+            analytical_metadata["compare_type"] = pairing_basis["compare_type"]
+        calendar_alignment = pairing_basis.get("calendar_alignment")
+        if isinstance(calendar_alignment, dict):
+            resolved_input_summary["calendar_alignment"] = calendar_alignment
+            analytical_metadata["calendar_alignment"] = {
+                key: calendar_alignment.get(key)
+                for key in (
+                    "compare_type",
+                    "comparison_basis",
+                    "resolved_alignment_mode",
+                    "resolved_calendar_source",
+                    "resolved_calendar_version",
+                    "rollup_safe",
+                )
+            }
 
         data_coverage_summary = None
         calendar_alignment = resolved_input_summary.get("calendar_alignment")
