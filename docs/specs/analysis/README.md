@@ -91,7 +91,6 @@ Evidence Engine 的目标态规范链路为：
 - [`forecast` Schema](intents/atomic/forecast.md)
 - [`attribute` Schema](intents/derived/attribute.md)
 - [`diagnose` Schema](intents/derived/diagnose.md)
-- [`validate` Schema](intents/derived/validate.md)
 
 ## 对外 API 与读取绑定
 
@@ -138,7 +137,6 @@ Evidence Engine 的目标态规范链路为：
 - [派生分析意图设计](intents/derived-intent-design.md) — 可执行高层意图如何展开为确定性的原子步骤 DAG
 - [`attribute` 派生意图 Schema](intents/derived/attribute.md) — 规划中的变化归因派生意图类型契约草案
 - [`diagnose` 派生意图 Schema](intents/derived/diagnose.md) — 规划中的异常诊断派生意图类型契约草案
-- [`validate` 派生意图 Schema](intents/derived/validate.md) — 规划中的假设验证派生意图类型契约草案
 
 ## 补充说明
 

@@ -17,7 +17,7 @@ Skip this file if the real task is still datasource setup or semantic modeling.
 | Run a diagnosis on the current hypothesis | `marivo-diagnose` |
 | Compare two observe results | `marivo-compare` |
 | Break down a compare result | `marivo-decompose` |
-| Attribute or validate between slices | `marivo-attribute`, `marivo-validate` |
+| Attribute between slices | `marivo-attribute` |
 | Run correlation or forecasting | `marivo-correlate`, `marivo-forecast` |
 | Read session-level evidence state | `marivo-get_session_state`, `marivo-query_session_state` |
 | Read one proposition closure | `marivo-get_proposition_context` |
@@ -153,7 +153,7 @@ same session. A typical flow can chain:
 
 1. `marivo-observe` or `marivo-detect` to establish the current shape of the problem
 2. `marivo-diagnose`, `marivo-compare`, or `marivo-decompose` to test the leading hypothesis
-3. `marivo-attribute`, `marivo-validate`, `marivo-correlate`, or `marivo-forecast` when the current
+3. `marivo-attribute`, `marivo-test_intent`, `marivo-correlate`, or `marivo-forecast` when the current
    evidence needs a narrower check
 
 Read `marivo-get_session_state` after meaningful branch points. Read

@@ -17,9 +17,9 @@ not contain a top-level `step_type`.
 | `attribute` | `POST /sessions/{session_id}/intents/attribute` | JSON object |
 | `diagnose` | `POST /sessions/{session_id}/intents/diagnose` | JSON object |
 
-`/sessions/{session_id}/intents/test` and
-`/sessions/{session_id}/intents/validate` are not mounted by the current HTTP
-router.
+`/sessions/{session_id}/intents/test` is not mounted by the current HTTP
+router. `validate` is not a derived HTTP analysis intent; semantic-model
+validation remains available through the semantic-model APIs.
 
 ## Common Response Envelope
 

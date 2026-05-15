@@ -71,14 +71,6 @@ INTENT_TAXONOMY: dict[str, dict[str, str]] = {
             "Params: metric, time_scope, scope, sensitivity, top_k_candidates."
         ),
     },
-    "validate": {
-        "category": "derived",
-        "description": (
-            "Derived intent: validate a statistical hypothesis about a metric. "
-            "Expands to observe + test. "
-            "Params: hypothesis, metric, current_time_scope, baseline_time_scope, scope, alternative, alpha."
-        ),
-    },
 }
 
 ATOMIC_INTENT_TYPES: tuple[str, ...] = tuple(

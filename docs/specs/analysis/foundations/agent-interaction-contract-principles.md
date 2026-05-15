@@ -95,7 +95,7 @@ Marivo 面向 agent 的交互接口不应被设计为：
 action surface 的职责是让 agent 选择与调用分析动作，例如：
 
 - atomic intents：`observe`、`compare`、`decompose`、`detect`、`test`
-- derived intents：`attribute`、`diagnose`、`validate`
+- derived intents：`attribute`、`diagnose`
 
 它不应承担：
 
