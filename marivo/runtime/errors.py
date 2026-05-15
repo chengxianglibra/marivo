@@ -1,4 +1,4 @@
-"""Legacy semantic_runtime.errors stubs — preserved for import compatibility."""
+"""Semantic runtime error types."""
 
 from __future__ import annotations
 

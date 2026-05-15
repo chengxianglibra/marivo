@@ -11,14 +11,4 @@ describe("analysis session row helpers", () => {
     expect(sessionGoalText(row)).toBe("Analyze DAU");
     expect(sessionLifecycleStatus(row)).toBe("closed");
   });
-
-  it("keeps legacy flat session rows readable", () => {
-    const row = {
-      goal: "Investigate retention",
-      status: "open",
-    };
-
-    expect(sessionGoalText(row)).toBe("Investigate retention");
-    expect(sessionLifecycleStatus(row)).toBe("open");
-  });
 });

@@ -11,7 +11,7 @@ from .aoi import TimeScope as TimeScope
 
 
 class AIContext(RootModel[str | osi.AIContext1]):
-    """Compatibility wrapper preserving the legacy .root access pattern."""
+    """Root model accepting either a plain string or structured AI context object."""
 
     root: str | osi.AIContext1
 

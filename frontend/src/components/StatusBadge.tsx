@@ -33,11 +33,7 @@ export function FailureTag({ code }: { code?: string | null }) {
 }
 
 export function BlockerPanel({ record }: { record?: EntityRow | JsonRecord | null }) {
-  const blockers =
-    (record?.blocking_requirements as string[] | undefined) ??
-    (record?.readiness_blockers as string[] | undefined) ??
-    (record?.blockers as string[] | undefined) ??
-    [];
+  const blockers = (record?.blocking_requirements as string[] | undefined) ?? [];
   if (!record) return null;
 
   const message = record.failure_code

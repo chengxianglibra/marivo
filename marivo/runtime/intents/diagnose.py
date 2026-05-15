@@ -388,12 +388,7 @@ def run_diagnose_intent(
         validation["guidance"] = validation_guidance
 
     now = datetime.now(UTC).isoformat()
-    bundle: dict[str, Any] = {
-        "result_type": "diagnosis_bundle",
-        "intent_type": "diagnose",
-        "step_type": "diagnose",
-        "artifact_schema_version": "v1",
-        "mode": mode,
+    result_payload: dict[str, Any] = {
         "metric": metric_ref,
         "time_scope": resolved_time_scope,
         "granularity": granularity,
@@ -404,6 +399,11 @@ def run_diagnose_intent(
         "sensitivity": sensitivity,
         "patterns": patterns,
         "baseline_policy": baseline_policy,
+        "mode": mode,
+        "detect_summary": detect_summary,
+        "diagnoses": diagnoses,
+    }
+    product_metadata_payload: dict[str, Any] = {
         "validation": validation,
         "provenance": {
             "artifact_ref": None,
@@ -412,8 +412,6 @@ def run_diagnose_intent(
             "derivation_version": _DERIVED_LOGIC_VERSION,
             "projection_ref": None,
         },
-        "detect_summary": detect_summary,
-        "diagnoses": diagnoses,
         "version": {
             "intent_contract_version": "diagnose.v1",
             "projection_version": _PROJECTION_VERSION,
@@ -455,8 +453,9 @@ def run_diagnose_intent(
         summary=summary_str,
         product_status=product_status,
         issues=top_level_issues,
-        legacy_bundle=bundle,
         provenance=provenance,
+        result_payload=result_payload,
+        product_metadata_payload=product_metadata_payload,
     )
 
 

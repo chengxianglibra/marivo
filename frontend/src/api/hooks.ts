@@ -11,8 +11,7 @@ export const semanticKinds = [
   { key: "time", label: "Time", path: "/semantic/time" },
   { key: "enum-sets", label: "Enum Sets", path: "/semantic/enum-sets" },
   { key: "predicates", label: "Predicates", path: "/semantic/predicates" },
-  { key: "compatibility-profiles", label: "Compiler Profiles", path: "/compiler/compatibility-profiles" },
-] as const;
+  ] as const;
 
 export function unwrapList(payload: unknown): EntityRow[] {
   if (Array.isArray(payload)) return payload as EntityRow[];

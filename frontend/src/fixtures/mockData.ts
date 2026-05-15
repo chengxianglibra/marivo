@@ -111,22 +111,13 @@ export const semantic: Record<string, JsonRecord[]> = {
       readiness_status: "ready",
     },
   ],
-  "compatibility-profiles": [
-    {
-      profile_id: "compiler.duckdb_default",
-      name: "duckdb_default",
-      lifecycle_status: "active",
-      readiness_status: "ready",
-    },
-  ],
-};
+  };
 
 export const sessions = [
   {
     session_id: "sess_growth_review",
-    goal: "Explain why GMV declined year over year",
-    lifecycle_status: "open",
-    status: "open",
+    goal: { question: "Explain why GMV declined year over year" },
+    lifecycle: { status: "open" },
     execution_identity: { session_user: "analyst.li" },
     active_proposition_count: 2,
     blocking_gap_count: 1,
@@ -135,9 +126,8 @@ export const sessions = [
   },
   {
     session_id: "sess_capacity_check",
-    goal: "Investigate abnormal Trino query latency",
-    lifecycle_status: "terminated",
-    status: "closed",
+    goal: { question: "Investigate abnormal Trino query latency" },
+    lifecycle: { status: "terminated" },
     active_proposition_count: 1,
     blocking_gap_count: 0,
     runtime_overall_status: "succeeded",

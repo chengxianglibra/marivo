@@ -43,28 +43,3 @@ class ExecutionEnvelope(BaseModel):
     result: dict[str, Any]
     provenance: dict[str, Any] | None = None
     product_metadata: dict[str, Any] | None = None
-
-    def to_legacy_dict(self) -> dict[str, Any]:
-        """Produce the flat dict shape for explicit migration callers only.
-
-        Merges ``result`` keys at top level alongside step_ref and artifact_id.
-        Target HTTP/MCP/runtime paths must return ``ExecutionEnvelope`` directly
-        and must not call this method.
-
-        Note: ``result`` and ``product_metadata`` keys that collide with envelope
-        fields (intent_type, step_type, step_ref, artifact_id) will silently
-        overwrite the envelope values. AOI artifacts don't contain these keys,
-        so this is safe in practice.
-        """
-        out: dict[str, Any] = {
-            "intent_type": self.intent_type,
-            "step_type": self.step_type,
-            "step_ref": self.step_ref.model_dump(),
-            "artifact_id": self.artifact_id,
-        }
-        out.update(self.result)
-        if self.provenance is not None:
-            out["provenance"] = self.provenance
-        if self.product_metadata is not None:
-            out.update(self.product_metadata)
-        return out
