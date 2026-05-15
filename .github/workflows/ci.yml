@@ -21,13 +21,16 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install ruff mypy types-PyYAML
+          pip install ruff mypy types-PyYAML import-linter
 
       - name: Lint with ruff
         run: ruff check .
 
       - name: Format check with ruff
         run: ruff format --check .
+
+      - name: Import lint
+        run: lint-imports
 
       - name: Type check with mypy
         run: mypy marivo
