@@ -60,7 +60,15 @@ def register_semantic_tools(server: Any, runtime: Any) -> None:
 
     @server.tool()  # type: ignore
     async def validate_osi_semantic_models(input: McpOsiDocumentInput) -> dict[str, Any]:
-        """Validate an inline or local-file OSI-Marivo semantic document."""
+        """Validate an inline or local-file OSI-Marivo semantic document.
+
+        Key field in the MARIVO metric extension: aggregation_semantics
+        (enum: sum | ratio | weighted_average, default: sum).
+        Decision rule:
+        - 'sum' for additive quantities — values sum across groups (revenue, latency).
+        - 'ratio' for proportions / binary-outcome rates (conversion rate, CTR).
+        - 'weighted_average' for ratio-of-sums metrics (AOV = SUM/COUNT).
+        """
         return await call_runtime(
             svc.validate_osi_semantic_models,
             doc_data=_load_document_input(input),
@@ -68,7 +76,15 @@ def register_semantic_tools(server: Any, runtime: Any) -> None:
 
     @server.tool()  # type: ignore
     async def import_osi_semantic_models(input: McpOsiDocumentInput) -> dict[str, Any]:
-        """Import an inline or local-file OSI-Marivo semantic document."""
+        """Import an inline or local-file OSI-Marivo semantic document.
+
+        Key field in the MARIVO metric extension: aggregation_semantics
+        (enum: sum | ratio | weighted_average, default: sum).
+        Decision rule:
+        - 'sum' for additive quantities — values sum across groups (revenue, latency).
+        - 'ratio' for proportions / binary-outcome rates (conversion rate, CTR).
+        - 'weighted_average' for ratio-of-sums metrics (AOV = SUM/COUNT).
+        """
         return await call_runtime(
             svc.import_osi_semantic_models,
             doc_data=_load_document_input(input),
