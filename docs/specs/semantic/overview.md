@@ -65,7 +65,7 @@ calendar schemas -----/--/
 
 | 文档 | 主要主题 | 解决的核心问题 |
 | --- | --- | --- |
-| [`metric-v2-schema.zh.md`](./metric-v2-schema.zh.md) | OSI Metric + MARIVO 扩展 | Metric 作为扁平表达式模型，MARIVO 扩展承载 observed_dataset、observation_grain、primary_time_field、additivity、filters |
+| [`metric-v2-schema.zh.md`](./metric-v2-schema.zh.md) | OSI Metric + MARIVO 扩展 | Metric 作为扁平表达式模型，MARIVO 扩展承载 observed_dataset、observation_grain、additive_dimensions、aggregation_semantics、filters |
 | [`metric-process-contract.zh.md`](./metric-process-contract.zh.md) | Metric 与过程语义的分工 | Metric 直接承担度量语义，过程语义另行设计 |
 | [`entity-schema-contract.zh.md`](./entity-schema-contract.zh.md) | OSI Dataset + Field 模型 | Dataset 直接包含 source 和 fields，物理接地内联，无需独立 binding |
 | [`dimension-schema-contract.zh.md`](./dimension-schema-contract.zh.md) | Dimension 作为 Field 属性 | 维度如何作为 Field.dimension 属性表达，而非独立对象 |

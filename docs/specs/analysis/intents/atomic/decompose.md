@@ -66,6 +66,8 @@ v1 默认：
 
 `decompose` 优先消费 typed artifact reference，而不是裸字符串 step id。
 
+AOI 协议支持通过 `compare_artifact_id` 直接引用 compare artifact，此时 `compare_ref` 可从 artifact 元数据自动解析。
+
 ```ts
 type CompareArtifactRef = {
   step_type: "compare";
@@ -115,6 +117,7 @@ type ObservationArtifactRef = {
 type DecomposeRequest = {
   step_type: "decompose";
   compare_ref: CompareArtifactRef;
+  compare_artifact_id?: string;
   dimension: string;
   method?: "delta_share";
 };
@@ -126,8 +129,8 @@ v1 支持的输入形态如下：
 
 - `compare_ref` 必须解析到已完成的 `compare` artifact
 - 被引用的 compare 输出必须是 `scalar_delta` 或 `time_series_delta`
-- 被比较的 metric 的 `additivity_constraints.dimension_policy` 必须为 `'all'` 或 `'subset'`
-- 该 metric 必须声明自己可按所请求的 `dimension` 做分解
+- 被比较的 metric 的 `additive_dimensions` 必须非空（即 metric 支持至少一个维度的分解）
+- 该 metric 必须声明自己可按所请求的 `dimension` 做分解（`dimension` 必须在 `additive_dimensions` 列表内）
 - 请求的 method 必须受该 metric 支持
 
 输出类型：`delta_decomposition`
@@ -139,7 +142,7 @@ v1 支持的输入形态如下：
 - 以 `segmented_delta` 作为主输入契约
 - 多个 dimensions
 - interaction-effect decomposition
-- `dimension_policy = 'none'` 的 metrics（不支持分解）
+- `additive_dimensions` 为空的 metrics（不支持分解）
 - `shapley`、`anova` 等替代方法
 - projection 参数驱动的执行请求
 
@@ -192,7 +195,7 @@ v1 只支持 `delta_share`。
 - 计算每个 segment 的 delta：`segment_left_value - segment_right_value`
 - 当数学和语义上都成立时，计算该 segment 对 scope delta 的带符号 share
 
-v1 将 `delta_share` 限制在 `dimension_policy` 为 `'all'` 或 `'subset'` 的 metrics 上；`dimension_policy = 'none'` 的 metrics 在 v1 中必须拒绝。
+v1 将 `delta_share` 限制在 `additive_dimensions` 非空的 metrics 上；`additive_dimensions` 为空的 metrics 在 v1 中必须拒绝。
 
 ## Presence 语义
 
@@ -259,12 +262,8 @@ type AttributionMetadata = {
 type DecomposeAnalyticalMetadata = {
   method: "delta_share";
   aggregation_semantics: string;
-  additivity_constraints: {
-    dimension_policy: "all" | "subset";
-    additive_dimensions?: string[];
-    time_axis_policy: "additive" | "non_additive";
-  };
-  decomposition_constraint: "all_dimensions_allowed" | "dimension_must_be_allowed";
+  additive_dimensions: string[];
+  capability_condition: "dimension_must_be_allowed" | null;
   reconciliation_expected: boolean;
   flat_tolerance_relative: number;
   left_row_count: number | null;
@@ -388,10 +387,10 @@ empty semantics：
 ## 校验规则
 
 - `compare_ref` 必须解析到现有且已完成的 `compare`
-- 被引用结果必须是 `scalar_delta`
+- 被引用结果必须是 `scalar_delta` 或 `time_series_delta`
 - `dimension` 必须是单个 semantic dimension 名称
 - v1 中 `method` 只能是 `delta_share`
-- metric 的 `dimension_policy` 必须为 `'all'` 或 `'subset'`；`dimension_policy = 'none'` 在 v1 中必须拒绝
+- metric 的 `additive_dimensions` 必须非空，且被请求的 `dimension` 必须在该列表内；`additive_dimensions` 为空的 metric 在 v1 中必须拒绝
 - one-sided rows 必须显式保留，并通过 `presence` 标记
 - 成功 artifact 必须至少包含一条 contribution row；若当前请求无法形成任何 canonical contribution row，请求必须失败
 - 当 `scope_absolute_delta` 为 `0` 或 `null` 时，`contribution_share` 必须为 `null`
@@ -505,7 +504,7 @@ projection nullability：
 
 ## 下游兼容性说明
 
-- `attribute` 可以展开为 `compare -> decompose`
+- `attribute` 可以展开为 `compare -> decompose`（`attribute` 同时支持 `scalar_delta` 和 rate metric 的归因）
 - `diagnose` 可以展开为 `detect -> compare -> decompose`
 - `synthesize` 应依赖 `attribution.status` 与 `issues`，不要默认所有返回 share 都完全可靠
 - 更高级的 decomposition 未来应使用新契约，而不是过载 `delta_share`

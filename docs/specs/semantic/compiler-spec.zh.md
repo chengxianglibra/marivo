@@ -251,8 +251,7 @@ type NormalizedRequest = {
 - `metric_name`（OSI name）
 - `observed_dataset`
 - `observation_grain`
-- `primary_time_field`
-- `additivity`（dimension_policy, time_axis_policy, additive_dimensions）
+- `additivity`（additive_dimensions, aggregation_semantics）
 - `filters`
 
 以下能力由 compiler 从核心字段推导：
@@ -260,8 +259,12 @@ type NormalizedRequest = {
 | 推导能力 | 推导规则 |
 |---------|---------|
 | `supports_observe` | 始终为 true |
-| `supports_compare` | `primary_time_field` 存在 |
-| `supports_decompose` | `additivity.dimension_policy` in ["all", "subset"] |
+| `supports_compare` | 始终为 true |
+| `supports_decompose` | `additive_dimensions` 非空 |
+| `supports_attribute` | `supports_compare` AND `supports_decompose` |
+| `supports_detect` | process 的 `anchor_time_ref` 存在 |
+
+注：`primary_time_field` 不再作为 metric 字段。时间语义通过 AOI `time_scope.field` 在请求时解析。
 
 ### dataset/field -> normalized grounding contract
 
@@ -326,7 +329,7 @@ Dimension 作为 Field 属性表达，不再是独立对象。compiler 抽取：
 
 校验：
 
-- metric 是否支持该 intent（由 compiler 从 `additivity`、`primary_time_field` 推导）
+- metric 是否支持该 intent（由 compiler 从 `additive_dimensions`、`aggregation_semantics` 推导）
 - dataset grounding 是否足以支撑该 intent
 - ref artifact 类型是否允许被该 intent 消费
 
@@ -339,7 +342,7 @@ Dimension 作为 Field 属性表达，不再是独立对象。compiler 抽取：
 - metric 的 `observed_dataset` 引用的 dataset 是否存在
 - dataset 的 `source` 和 `datasource_id` 是否可解析
 - metric 引用的 field names 是否存在于对应 dataset 中
-- `primary_time_field` 引用的 field 是否声明了 `is_time: true`
+- AOI `time_scope.field` 引用的 field 是否声明了 `is_time: true`（时间语义由 AOI `time_scope.field` 解析，编译时校验该 field 存在于 dataset 中且具有 `is_time: true`）
 - `observation_grain` 中的 field names 是否存在于 observed dataset 中
 - 跨 dataset 查询是否有 relationship 连接声明
 - datasource 是否可达（readiness 检查）
@@ -466,20 +469,19 @@ Dimension 作为 Field 属性表达，不再是独立对象。compiler 抽取：
 - `metric`
 - `left(time_scope, scope)`
 - `right(time_scope, scope)`
-- `sample_kind`
 - `hypothesis`
 - `method`
 
 展开为：
 
-1. 解析 inferential summary mode
+1. 解析 inferential summary mode（`sample_kind` 从 metric 定义解析，不再作为请求参数）
 2. `observe(left, result_mode=inferred_summary_mode)`
 3. `observe(right, result_mode=inferred_summary_mode)`
 4. `test(left_ref, right_ref, hypothesis, method)`
 
 关键 gate：
 
-- `sample_kind = auto` 必须唯一可解，否则失败
+- `sample_kind` 从 metric 定义解析（`aggregation_semantics` 决定统计检验方法），不再接受请求参数
 - 左右侧必须都可归一化为 inferential-ready scalar observe
 - method 兼容性完全继承 `test`
 
@@ -603,7 +605,7 @@ derived intent 需要两层表达：
 ### 编译要求
 
 - 解析 compare artifact 的 delta semantics
-- 校验 metric `additivity_constraints`（`dimension_policy` 决定可分解性，`time_axis_policy` 决定时间轴可加性）
+- 校验 metric `additive_dimensions`（非空列表表示可在列出维度上分解，空列表表示不可分解）和 `aggregation_semantics`
 - 校验 dimension 可归因性
 - 不得依赖 dimension 自声明 `supports_decomposition` 一类跨对象标签；合法性必须由 metric 与 dimension 属性联合推导
 - 生成 `IntentNode(intent_kind="decompose")`

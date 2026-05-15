@@ -576,7 +576,6 @@ Python DSL 方案需要覆盖当前已有的 6 个 assessment families：
 
 最小 obligations：
 
-- `sample_summary_usable`
 - `method_preconditions_satisfied`
 - `significance_threshold_met`
 - `effect_size_semantically_supportive`
@@ -616,7 +615,6 @@ proof case 选择：
 
 最小 obligations：
 
-- `sample_summary_usable`
 - `method_preconditions_satisfied`
 - `significance_threshold_met`
 - `effect_size_semantically_supportive`

@@ -73,6 +73,8 @@ v1 默认：
 
 `forecast` 优先消费 typed artifact reference，而不是裸字符串 step id。
 
+AOI 协议支持通过 `source_artifact_id` 直接引用 observe artifact，此时 `source_ref` 可从 artifact 元数据自动解析。
+
 ```ts
 type ObservationArtifactRef = {
   step_type: "observe";
@@ -116,6 +118,7 @@ type ObservationArtifactRef = {
 type ForecastRequest = {
   step_type: "forecast";
   source_ref: ObservationArtifactRef;
+  source_artifact_id?: string;
   horizon: number;
   profile?: ForecastProfile | null;
   interval_level?: number | null;
@@ -135,6 +138,9 @@ type ForecastProfile =
   | "trend"
   | "seasonal"
   | "seasonal_trend";
+
+// 注：当前实现对 "seasonal" 和 "seasonal_trend" 返回 UNSUPPORTED_OPERATION。
+// 这两个 profile 在文档中保留为合法枚举值，待实现支持后可用。
 ```
 
 ## 输入规则
@@ -179,8 +185,8 @@ v1 支持的输入形态如下：
 - `horizon <= 0`
 - `interval_level != null && (interval_level <= 0 || interval_level >= 1)`
 - `source_ref.session_id` 与当前 step 所在 session 不一致
-- `profile = "seasonal"`，但历史不足以支持季节性预测
-- `profile = "seasonal_trend"`，但当前 granularity 与历史长度不支撑稳定 seasonality
+- `profile = "seasonal"`，当前实现返回 `UNSUPPORTED_OPERATION`
+- `profile = "seasonal_trend"`，当前实现返回 `UNSUPPORTED_OPERATION`
 - `source_ref` 解析到 projection-only、incomplete 或未完成 artifact
 
 推荐错误码：`INVALID_ARGUMENT`。
@@ -210,7 +216,7 @@ v1 支持的输入形态如下：
 - `day` 粒度且 `horizon = 14`，返回 14 个未来日 bucket
 - `week` 粒度且 `horizon = 8`，返回 8 个未来周 bucket
 
-系统必须强制执行最大 horizon 上限；过长请求应失败，接近上限的请求可成功但返回 `long_horizon_warning`。
+系统必须强制执行最大 horizon 上限；v1 上限为 90。过长请求应失败，接近上限的请求可成功但返回 `long_horizon_warning`。
 
 ### profile
 
@@ -221,8 +227,8 @@ v1 支持：
 - `auto`
 - `level`
 - `trend`
-- `seasonal`
-- `seasonal_trend`
+- `seasonal`（当前实现返回 `UNSUPPORTED_OPERATION`，待后续支持）
+- `seasonal_trend`（当前实现返回 `UNSUPPORTED_OPERATION`，待后续支持）
 
 不同执行引擎可以选择不同内部方法，只要响应语义一致。
 

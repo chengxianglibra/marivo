@@ -8,6 +8,8 @@
 
 `test` 用于在两个已定义、且推断就绪（inferential-ready）的观测之上评估结构化统计假设。
 
+> **注**：`test` 的输入依赖 `observe` 产出推断就绪工件（`numeric_sample_summary` 或 `rate_sample_summary`），但当前 `observe` 实现只支持 `result_mode = "standard"`。因此 `test` 意图在当前实现中尚不可执行，本文档描述的是完整设计契约。
+
 设计目标：
 
 - 让 `test` 聚焦假设检验（hypothesis evaluation），不承担数据抽取或业务解释
@@ -112,7 +114,7 @@ type ObservationArtifactRef = {
     "observation_type": "rate_sample_summary"
   },
   "hypothesis": {
-    "family": "difference",
+    "family": "two_sample_proportion",
     "alternative": "two_sided",
     "alpha": 0.05,
     "label": "conversion differs between variant A and variant B"
@@ -133,7 +135,7 @@ type TestRequest = {
 };
 
 type HypothesisContract = {
-  family: "difference";
+  family: "two_sample_mean" | "two_sample_proportion";
   alternative?: "two_sided" | "greater" | "less";
   alpha?: number;
   label?: string | null;
@@ -148,7 +150,7 @@ v1 支持的输入形态如下：
 - `right_ref` 也必须如此，且 observation type 必须与左侧一致
 - 两边应属于同一 semantic metric，或属于被显式标记为 cross-group comparable 的 metric family
 - 两边必须是完整 artifact，而不是 projection-only 结果
-- `hypothesis.family` 必须为 `"difference"`
+- `hypothesis.family` 必须为 `"two_sample_mean"` 或 `"two_sample_proportion"`
 - `hypothesis.alpha` 必须在 `(0, 1)` 内
 - 选择的方法必须与 observation type 兼容
 - 若任一输入 observation 冻结了 `resolved_policy_summary`，另一侧也必须冻结兼容的同一份 calendar alignment metadata；`test` 只能复用该 frozen summary，不得重建第二套 holiday / weekday / event pairing 逻辑
@@ -212,7 +214,8 @@ v1 支持的输入形态如下：
 
 v1 仅支持：
 
-- `family = "difference"`
+- `family = "two_sample_mean"`：数值型均值差异检验
+- `family = "two_sample_proportion"`：比率差异检验
 
 即在请求的 `alternative` 下，评估左右总体是否存在差异。
 
@@ -391,9 +394,9 @@ type HypothesisTestArtifact = {
   left_ref: ObservationArtifactRef;
   right_ref: ObservationArtifactRef;
   source_lineage: TestSourceLineage;
-  sample_kind: "numeric" | "rate";
+  sample_kind: "numeric" | "rate";  // 从 metric 的 MarivoMetricExtension.sample_kind 自动解析
   hypothesis: {
-    family: "difference";
+    family: "two_sample_mean" | "two_sample_proportion";
     alternative: "two_sided" | "greater" | "less";
     alpha: number;
     label: string | null;

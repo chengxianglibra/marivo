@@ -319,7 +319,7 @@ finding payload 中已冻结的 `calendar_alignment` 与 `comparability.issues` 
 - `partial`：compare artifact 的 `comparability.status = needs_attention`，但尚未达到 `not_comparable`
 - `partial`：左右窗口的主时间边界可对齐，但存在非核心 holiday / lag caveat，需要保留结构化约束
 - `miss`：左右输入的 metric / unit / aggregation semantics 不兼容
-- `miss`：test / correlate 方法要求的核心 inferential-ready precondition 不成立，当前结果不应继续作为可比输入
+- `miss`：test / correlate 方法要求的核心 method precondition 不成立，当前结果不应继续作为可比输入
 
 要求：
 
@@ -376,7 +376,7 @@ family-level 要求：
 - `material`：`window_alignment` 的基线与当前窗口可对齐，但存在会明显影响解释稳定性的周期错位
 - `material`：`method_precondition` 仅部分满足，当前结果可作为弱比较线索，但不应无保留支持强结论
 - `severe`：`subject_alignment` 中 metric / unit / aggregation semantics 不兼容
-- `severe`：`method_precondition` 的核心 inferential-ready 输入前提失败，当前结果不应继续作为比较输入
+- `severe`：`method_precondition` 的核心 method 输入前提失败，当前结果不应继续作为比较输入
 
 本文只固定这些 level 的语义边界，不在通用 contract 中定义跨 assessment type 的统一数值阈值。
 

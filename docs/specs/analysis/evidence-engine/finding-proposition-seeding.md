@@ -515,6 +515,7 @@ assessment 是否产生新 snapshot，由 inference/gap engine 决定；seeding 
 - `change_kind`：
   - `scalar_delta -> scalar_change`
   - `segmented_delta -> segment_change`
+  - `time_series_delta ->` 不创建 change proposition（v1 change proposition 限定为 scalar/segment 变化；时序桶级 delta 不 seed proposition）
 - `comparison_window`：从 source compare artifact 的 left/right resolved window 确定性解析
 - `comparison_basis`：
   - 若 source compare contract 显式声明 baseline 语义，则 `current_vs_baseline`

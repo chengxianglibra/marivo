@@ -71,6 +71,7 @@ type DiagnoseRequest = {
   scope?: Scope | null;
   detect_split_by?: string | null;
   candidate_dimensions: string[];
+  patterns?: DetectPattern[] | null;
   profile?: DetectProfile | null;
   sensitivity?: DetectSensitivity | null;
   candidate_limit?: number | null;
@@ -82,6 +83,7 @@ type DetectTimeScope = {
   kind: "range";
   start: string;
   end: string;
+  field?: string;
 };
 
 type DiagnoseObservationInput = {
@@ -127,6 +129,8 @@ type DetectProfile =
   | "level_shift"
   | "seasonal_residual";
 
+type DetectPattern = "point_anomaly" | "period_shift";
+
 type DetectSensitivity = "conservative" | "balanced" | "aggressive";
 ```
 
@@ -136,6 +140,7 @@ v1 支持的输入形态如下：
 
 - `metric` 必须解析到已发布的 semantic metric
 - `mode = "auto_detect"` 时，`time_scope` 必须复用 `detect` 的 range 窗口契约，且必须提供顶层 `granularity`
+- AOI 对齐：通过 AOI 协议调用时，`time_scope` 使用 `{field, start, end}` 形式（`field` 为必填的时间字段名），运行时自动映射为 `kind = "range"`
 - `mode = "explicit_compare"` 时，必须提供 `current.time_scope` 与 `baseline.time_scope`，不运行 `detect`
 - `scope` 若提供，必须遵守统一 non-time scope 契约
 - `detect_split_by` 可选；若提供，只能是单个 semantic dimension
@@ -222,7 +227,7 @@ projection 类型：`diagnose_projection`
 
 固定展开如下：
 
-1. `detect(metric, time_scope, scope, detect_split_by, profile, sensitivity, candidate_limit)`
+1. `detect(metric, time_scope, scope, detect_split_by, patterns, profile, sensitivity, candidate_limit)`
 2. 读取 detect artifact 中按既定排序返回的 candidates
 3. 对前 `followup_limit` 个 candidate 逐个展开：
    - 令 `current_window = candidate.window`
@@ -344,6 +349,7 @@ type ResolvedDetectTimeScope = {
   kind: "range";
   start: string;
   end: string;
+  field?: string;
 };
 
 type DiagnoseIssue = {
@@ -718,5 +724,5 @@ type DiagnoseDriverProjection = {
 - 只支持显式归因维度列表
 - 只支持固定 baseline policy：`previous_adjacent_equal_length`
 - 只支持以 `scalar_delta` 为核心的 follow-up compare
-- 只支持 additive metric 的 `delta_share` 归因
+- 只支持 `additive_dimensions` 非空的 metric 的 `delta_share` 归因
 - 不支持开放式多轮下钻、维度自动推荐或因果解释

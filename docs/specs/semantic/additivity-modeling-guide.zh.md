@@ -1,70 +1,40 @@
-# Additivity Constraints 建模指导
+# Additivity 建模指导
 
-本文指导如何在 Marivo 中为 metric 正确声明 `additivity_constraints`。
+本文指导如何在 Marivo 中为 metric 正确声明 `additive_dimensions` 与 `aggregation_semantics`。
 
 ## 核心概念
 
-`additivity_constraints` 替代了旧的三态 `additivity` 枚举，由两个独立策略轴组成：
+Marivo 使用扁平化的加法性模型替代了旧的 `additivity_constraints` 三态结构（`dimension_policy` + `time_axis_policy`）。当前模型由两个字段组成：
 
-- **`dimension_policy`**：控制维度上的可分解性（decompose / attribute 是否允许、在哪些维度上允许）
-- **`time_axis_policy`**：控制时间轴上的可加性（是否允许跨 time bucket / period 直接聚合）
+- **`additive_dimensions`**：`list[str]`，列出 metric 可加的维度字段名。空列表表示 metric 不在任何维度上可加。非空列表表示 metric 仅在列出的维度上可加。
+- **`aggregation_semantics`**：`"sum" | "ratio" | "weighted_average"`，声明 metric 的聚合语义。默认值为 `"sum"`。
 
-**这两个轴独立，不可互推。**
+**关键变化**：旧的 `dimension_policy`（`"all"` / `"subset"` / `"none"`）和 `time_axis_policy`（`"additive"` / `"non_additive"`）已被删除。能力推导直接基于 `additive_dimensions` 是否为空以及 `aggregation_semantics` 的值。
 
-## 何时使用 `dimension_policy = "all"`
+## 能力推导规则
 
-适用于确认为普通 sum / count 且不存在 distinct / window / 非线性 aggregation 的 metric。
+`additive_dimensions` 和 `aggregation_semantics` 直接决定以下分析能力：
 
-特征：
-- 聚合方式为 `sum` 或 `count`（不含 `count_distinct`）
-- 按任意已声明维度分组后，分组值之和等于整体值
-- 时间轴上也可直接相加
+| 推导能力 | 推导规则 |
+|---------|---------|
+| `supports_observe` | 始终为 true |
+| `supports_compare` | 始终为 true |
+| `supports_decompose` | `additive_dimensions` 非空 |
+| `supports_attribute` | `supports_compare` AND `supports_decompose` |
+| `supports_detect` | process 的 `anchor_time_ref` 存在 |
 
-示例：
-- `gmv`（sum of order amount）
-- `event_count`（count of events）
-- `order_count`（count of orders）
+当 `additive_dimensions` 为空时，`supports_decompose = false`，blocker 为 `ADDITIVITY_NONE`。
 
-声明：
+当 `additive_dimensions` 非空时，`supports_decompose = true`，但运行时需校验请求维度是否在 `additive_dimensions` 列表中（`capability_condition = "dimension_must_be_allowed"`）。
 
-```json
-{
-  "dimension_policy": "all",
-  "time_axis_policy": "additive"
-}
-```
+时间轴可加性由运行时通过 `time_scope.field in additive_dimensions` 检查。
 
-## 何时使用 `dimension_policy = "subset"`
-
-适用于某些维度上可分解但非全部的 metric。
-
-特征：
-- 存在一组已知稳定、互斥、可分组的维度，按这些维度分组后，分组值之和等于整体值
-- 其他维度上不满足此条件
-- 典型场景：半加性指标、按特定维度可分解的 count_distinct 指标
-
-必须同时提供 `additive_dimensions` 列表。
-
-示例：
-- `inventory_balance`（按仓库可加，但按产品不可加）
-- `dau_by_platform`（按平台可加的 DAU 变体，但按国家不可加）
-
-声明：
-
-```json
-{
-  "dimension_policy": "subset",
-  "additive_dimensions": ["dimension.warehouse"],
-  "time_axis_policy": "non_additive"
-}
-```
-
-## 何时使用 `dimension_policy = "none"`
+## 何时 `additive_dimensions` 为空列表
 
 适用于不可在任意维度上做归因分解的 metric。
 
 特征：
-- rate / ratio / average / percentile / score / survival 类指标
+- rate / ratio / average / percentile / score 类指标
 - 未确认稳定互斥维度的 distinct / UV / DAU 类指标
 - 任何分组值之和不等于整体值的指标
 
@@ -79,8 +49,40 @@
 
 ```json
 {
-  "dimension_policy": "none",
-  "time_axis_policy": "non_additive"
+  "additive_dimensions": [],
+  "aggregation_semantics": "ratio"
+}
+```
+
+## 何时 `additive_dimensions` 为非空列表
+
+适用于某些或全部维度上可分解的 metric。
+
+特征：
+- 存在一组已知稳定、互斥、可分组的维度，按这些维度分组后，分组值之和等于整体值
+- 典型场景：全加性指标、半加性指标、按特定维度可分解的指标
+
+示例：
+- `gmv`（全加性，可按任意维度分解）
+- `order_count`（全加性）
+- `inventory_balance`（按仓库可加，但按产品不可加）
+- `dau_by_platform`（按平台可加的 DAU 变体，但按国家不可加）
+
+声明（全加性）：
+
+```json
+{
+  "additive_dimensions": ["platform", "app_version", "country", "network_type"],
+  "aggregation_semantics": "sum"
+}
+```
+
+声明（半加性）：
+
+```json
+{
+  "additive_dimensions": ["warehouse"],
+  "aggregation_semantics": "sum"
 }
 ```
 
@@ -88,12 +90,12 @@
 
 这是最容易误解的点：
 
-- **维度可分解**（`dimension_policy` 为 `all` 或 `subset`）只表示"可以按维度做归因"，不表示"可以跨天/周/月再累计"
-- **时间轴可加**（`time_axis_policy` 为 `additive`）只表示"可以沿时间轴直接聚合"，不表示"对任意维度都可归因"
+- **维度可分解**（`additive_dimensions` 非空）只表示"可以按列出的维度做归因"，不表示"可以跨天/周/月再累计"
+- **时间轴可加**由运行时通过检查 `time_scope.field in additive_dimensions` 判断，不是独立的 schema 声明
 
 反例：
-- 一个 metric 可能 `dimension_policy = "all"` 但 `time_axis_policy = "non_additive"`（如某个按维度可分解但时间窗口不均匀的指标）
-- 一个 metric 可能 `time_axis_policy = "additive"` 但 `dimension_policy = "none"`（如某个时间轴可累加但维度不可分解的指标）
+- 一个 metric 可能在某些维度上可分解，但时间字段不在 `additive_dimensions` 中（时间轴不可加）
+- 一个 metric 可能时间字段在 `additive_dimensions` 中，但其他维度不在（仅时间轴可加，其他维度不可分解）
 
 **不得从 `supports_decompose = true` 或 `supports_attribute = true` 推导出时间轴可加性。**
 
@@ -105,8 +107,8 @@
 
 ```json
 {
-  "dimension_policy": "none",
-  "time_axis_policy": "non_additive"
+  "additive_dimensions": [],
+  "aggregation_semantics": "sum"
 }
 ```
 
@@ -118,37 +120,43 @@
 
 ```json
 {
-  "dimension_policy": "subset",
-  "additive_dimensions": ["dimension.platform", "dimension.region"],
-  "time_axis_policy": "non_additive"
+  "additive_dimensions": ["platform", "region"],
+  "aggregation_semantics": "sum"
 }
 ```
 
-此 metric 仅在 `dimension.platform` 和 `dimension.region` 上支持 decompose / attribute。
+此 metric 仅在 `platform` 和 `region` 上支持 decompose / attribute。
 
-### 反模式：DAU 使用 `dimension_policy = "all"`
+### 反模式：DAU 列出所有维度
 
-**绝不允许。** `count_distinct` 聚合不满足任意维度分组后分组值之和等于整体值。创建请求会被 Pydantic cross-validator 拒绝。
+**需谨慎。** `count_distinct` 聚合不满足任意维度分组后分组值之和等于整体值。仅当业务已确认特定维度上的可分解性时才应将其列入 `additive_dimensions`。
 
 ## count_distinct 规则
 
-1. 任何 payload 中包含 `aggregation = "count_distinct"` 的 metric，不得使用 `dimension_policy = "all"`
-2. 创建时 Pydantic validator 会拒绝此类组合
-3. readiness evaluator 会产生 `ADDITIVITY_CONSTRAINTS_AGGREGATION_CONFLICT` blocker
-4. 允许的组合：`dimension_policy = "none"` 或 `dimension_policy = "subset"`（需提供 `additive_dimensions`）
+1. 对于 `count_distinct` 类聚合的 metric，`additive_dimensions` 应为空或仅包含已确认可分解的维度
+2. 不得在未确认维度可分解性的情况下将维度列入 `additive_dimensions`
+
+## `aggregation_semantics` 选择指南
+
+- `"sum"`：可加连续值指标（如 revenue、latency、duration）— 使用 Welch's t-test
+- `"ratio"`：比例/比率指标（如 conversion rate、click-through rate）— 使用 two-proportion z-test
+- `"weighted_average"`：比率之和指标（如 AOV = SUM(revenue)/COUNT(orders)）— 使用 delta method 或 weighted-average decomposition
+
+`aggregation_semantics` 决定 inferential summary mode 和支持的分析 intent。
 
 ## 建模决策流程
 
-1. metric 的聚合方式是否为 `sum` 或 `count`（不含 `count_distinct`）？
-   - 是 → 考虑 `dimension_policy = "all"`
-   - 否 → `dimension_policy = "none"` 或 `"subset"`
+1. metric 的聚合语义是什么？
+   - 可加连续值 → `aggregation_semantics = "sum"`
+   - 比例/比率 → `aggregation_semantics = "ratio"`
+   - 比率之和 → `aggregation_semantics = "weighted_average"`
 
 2. metric 是否存在一组已知稳定互斥且可分组的维度？
-   - 是 → `dimension_policy = "subset"`，列出这些维度
-   - 否 → `dimension_policy = "none"`
+   - 是 → 将这些维度列入 `additive_dimensions`
+   - 否 → `additive_dimensions = []`
 
-3. metric 在时间轴上是否可直接相加（如日值之和等于周值）？
-   - 是 → `time_axis_policy = "additive"`
-   - 否 → `time_axis_policy = "non_additive"`
+3. 时间字段是否应该可加？
+   - 是 → 将时间字段名加入 `additive_dimensions`
+   - 否 → 不加入
 
-4. 对于 `count_distinct` / DAU / UV 类指标，默认 `time_axis_policy = "non_additive"`
+4. 对于 `count_distinct` / DAU / UV 类指标，除非已确认特定维度可分解，否则 `additive_dimensions` 应为空
