@@ -158,16 +158,16 @@ v1 的回滚与重放边界固定如下：
 推荐 issue 归类：
 
 - `calendar_data_missing`
-- `calendar_policy_missing`
+- `compare_type_calendar_data_missing`
 
-更细的 annotation 缺失、holiday/event unmapped 与 coverage 问题，见 `specs/semantic/calendar-annotation-failure-policy.zh.md`。
+更细的 annotation 缺失、holiday unmapped 与 coverage 问题，见 `specs/semantic/calendar-annotation-failure-policy.zh.md`。
 
 ## 9. 与后续实现的接口
 
 本文为以下任务提供冻结前提：
 
-- 任务 4.2：`observe.time_scope + calendar_policy_ref` 到 resolved plan 的编译入口
-- 任务 5.1 / 5.2：observation artifact 与 lineage 中冻结 `resolved_calendar_version`
-- 任务 6.1：comparability gate 复用已冻结 alignment plan
+- 任务 4.2：`compare.compare_type` 到 resolved plan 的执行入口
+- 任务 5.1 / 5.2：holiday compare metadata 中记录 `resolved_calendar_version`
+- 任务 6.1：comparability gate 消费 compare artifact alignment metadata
 
 如果后续实现无法满足本文规则，应优先修正 source publish / version registry / lineage 设计，而不是引入 runtime “latest”兜底。

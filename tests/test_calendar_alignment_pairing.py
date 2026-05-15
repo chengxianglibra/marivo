@@ -16,8 +16,6 @@ def _annotation(
     *,
     holiday_group_id: str | None = None,
     year_relative_holiday_key: str | None = None,
-    event_group_id: str | None = None,
-    year_relative_event_key: str | None = None,
 ) -> dict[str, object]:
     day_value = date.fromisoformat(day)
     return {
@@ -25,8 +23,6 @@ def _annotation(
         "weekday": day_value.weekday() + 1,
         "holiday_group_id": holiday_group_id,
         "year_relative_holiday_key": year_relative_holiday_key,
-        "event_group_id": event_group_id,
-        "year_relative_event_key": year_relative_event_key,
     }
 
 
@@ -303,81 +299,6 @@ class CalendarAlignmentPairingTests(unittest.TestCase):
         self.assertEqual(
             resolution.comparability_warnings,
             ["holiday_cluster_unmapped", "fallback_applied"],
-        )
-
-    def test_event_policy_uses_event_relative_key(self) -> None:
-        current_window = (date(2026, 6, 15), date(2026, 6, 17))
-        baseline_window = (date(2026, 5, 15), date(2026, 5, 17))
-        policy = get_calendar_policy("calendar_policy.calendar_mom")
-
-        resolution = resolve_calendar_bucket_pairing(
-            current_window=current_window,
-            baseline_window=baseline_window,
-            matching_strategy=policy.matching_strategy,
-            fallback_strategy=policy.fallback_strategy,
-            annotation_rows=build_calendar_annotation_rows(
-                current_window=current_window,
-                baseline_window=baseline_window,
-                raw_rows=[
-                    _annotation(
-                        "2026-06-15",
-                        event_group_id="member_day",
-                        year_relative_event_key="member_day_d-1",
-                    ),
-                    _annotation(
-                        "2026-05-15",
-                        event_group_id="member_day",
-                        year_relative_event_key="member_day_d-1",
-                    ),
-                    _annotation(
-                        "2026-06-16",
-                        event_group_id="member_day",
-                        year_relative_event_key="member_day_d+0",
-                    ),
-                    _annotation(
-                        "2026-05-16",
-                        event_group_id="member_day",
-                        year_relative_event_key="member_day_d+0",
-                    ),
-                ],
-            ),
-        )
-
-        self.assertEqual(
-            [bucket["pairing_reason"] for bucket in resolution.bucket_pairing],
-            ["year_relative_event_key", "year_relative_event_key"],
-        )
-
-    def test_event_policy_records_unmapped_and_fallback_when_event_key_is_missing(
-        self,
-    ) -> None:
-        current_window = (date(2026, 6, 15), date(2026, 6, 16))
-        baseline_window = (date(2026, 5, 15), date(2026, 5, 16))
-        policy = get_calendar_policy("calendar_policy.calendar_mom")
-
-        resolution = resolve_calendar_bucket_pairing(
-            current_window=current_window,
-            baseline_window=baseline_window,
-            matching_strategy=policy.matching_strategy,
-            fallback_strategy=policy.fallback_strategy,
-            annotation_rows=build_calendar_annotation_rows(
-                current_window=current_window,
-                baseline_window=baseline_window,
-                raw_rows=[
-                    _annotation("2026-06-15", event_group_id="member_day"),
-                    _annotation("2026-05-15"),
-                ],
-            ),
-        )
-
-        self.assertEqual(resolution.bucket_pairing[0]["pairing_reason"], "natural_date_shift")
-        self.assertEqual(
-            resolution.bucket_pairing[0]["issues"],
-            ["event_cluster_unmapped", "fallback_applied"],
-        )
-        self.assertEqual(
-            resolution.comparability_warnings,
-            ["event_cluster_unmapped", "fallback_applied"],
         )
 
     def test_weekday_policy_falls_back_to_natural_shift_when_same_weekday_match_exceeds_max_shift(

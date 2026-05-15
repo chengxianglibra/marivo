@@ -57,9 +57,7 @@ def _seed_calendar_table_to_duckdb(db_path: Path) -> None:
                 is_workday BOOLEAN NOT NULL,
                 holiday_name VARCHAR,
                 holiday_group_id VARCHAR,
-                year_relative_holiday_key VARCHAR,
-                event_group_id VARCHAR,
-                year_relative_event_key VARCHAR
+                year_relative_holiday_key VARCHAR
             )
             """
         )
@@ -81,12 +79,10 @@ def _seed_calendar_table_to_duckdb(db_path: Path) -> None:
                         None,
                         None,
                         None,
-                        None,
-                        None,
                     )
                 )
         con.executemany(
-            "INSERT INTO analytics.cn_public_holiday VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO analytics.cn_public_holiday VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             rows,
         )
     finally:
@@ -103,17 +99,15 @@ def _seed_calendar_rows_to_metadata(metadata: SQLiteMetadataStore) -> None:
             wd = _weekday_of(iso)
             is_we = 1 if wd >= 6 else 0
             is_wd = 1 if wd < 6 else 0
-            rows.append(
-                (iso, "CN", _CALENDAR_VERSION, wd, is_we, is_wd, None, None, None, None, None)
-            )
+            rows.append((iso, "CN", _CALENDAR_VERSION, wd, is_we, is_wd, None, None, None))
     with metadata.connect() as con:
         con.executemany(
             """
             INSERT INTO calendar
                 (calendar_date, region_code, calendar_version, weekday,
                  is_weekend, is_workday, holiday_name, holiday_group_id,
-                 year_relative_holiday_key, event_group_id, year_relative_event_key)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 year_relative_holiday_key)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             rows,
         )
@@ -155,10 +149,7 @@ def _insert_observe_artifact(
     segments: list[dict[str, object]] | None = None,
     granularity: str | None = None,
     series: list[dict[str, object]] | None = None,
-    aligned_baseline_series: list[dict[str, object]] | None = None,
-    segmented_yoy: list[dict[str, object]] | None = None,
     unit: str | None = None,
-    resolved_policy_summary: dict[str, object] | None = None,
 ) -> str:
     payload: dict[str, object] = {
         "schema_version": "1.0",
@@ -187,16 +178,10 @@ def _insert_observe_artifact(
     if segments is not None:
         payload["segments"] = segments
         payload["scope_value"] = value
-    if segmented_yoy is not None:
-        payload["segmented_yoy"] = segmented_yoy
     if granularity is not None:
         payload["granularity"] = granularity
     if series is not None:
         payload["series"] = series
-    if aligned_baseline_series is not None:
-        payload["aligned_baseline_series"] = aligned_baseline_series
-    if resolved_policy_summary is not None:
-        payload["resolved_policy_summary"] = resolved_policy_summary
     artifact_id = service._insert_artifact(
         session_id,
         step_id,

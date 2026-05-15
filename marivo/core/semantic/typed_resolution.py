@@ -12,8 +12,7 @@ This module contains only pure computation:
 Deferred (requires I/O via semantic_repository or conditional imports):
 - ``normalize_step_request``: reads step params and calls
   ``normalize_metric_query_request``, ``normalize_aggregate_query_request``,
-  ``validate_calendar_policy_ref``, and conditionally imports
-  ``_normalize_time_scope``.
+  and conditionally imports ``_normalize_time_scope``.
 - ``resolve_compiler_inputs``: calls ``semantic_repository.resolve_*`` methods.
 - ``_resolve_runtime_ref``: calls the resolver callback.
 - ``_resolved_filter_time_ref``: reads from resolved objects (pure data) but
@@ -48,7 +47,6 @@ class NormalizedCompilerRequest:
     request_time_scope: dict[str, Any] | None = None
     request_dimensions: list[str] = field(default_factory=list)
     request_result_mode: str | None = None
-    request_calendar_policy_ref: str | None = None
     request_options: dict[str, Any] = field(default_factory=dict)
 
 

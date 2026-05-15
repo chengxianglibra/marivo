@@ -18,8 +18,6 @@ def _calendar_row(
     *,
     holiday_group_id: str | None = None,
     year_relative_holiday_key: str | None = None,
-    event_group_id: str | None = None,
-    year_relative_event_key: str | None = None,
     calendar_version: str = "cn_2026q2_v1",
 ) -> dict[str, Any]:
     day_value = date.fromisoformat(day)
@@ -33,8 +31,6 @@ def _calendar_row(
         "holiday_name": None,
         "holiday_group_id": holiday_group_id,
         "year_relative_holiday_key": year_relative_holiday_key,
-        "event_group_id": event_group_id,
-        "year_relative_event_key": year_relative_event_key,
     }
 
 
@@ -94,29 +90,21 @@ class CalendarDataReaderTests(unittest.TestCase):
                 "2025-04-01",
                 holiday_group_id="qingming",
                 year_relative_holiday_key="qingming_d-3",
-                event_group_id="member_day",
-                year_relative_event_key="member_day_d-1",
             ),
             _calendar_row(
                 "2025-04-02",
                 holiday_group_id="qingming",
                 year_relative_holiday_key="qingming_d-2",
-                event_group_id="member_day",
-                year_relative_event_key="member_day_d+0",
             ),
             _calendar_row(
                 "2026-04-01",
                 holiday_group_id="qingming",
                 year_relative_holiday_key="qingming_d-3",
-                event_group_id="member_day",
-                year_relative_event_key="member_day_d-1",
             ),
             _calendar_row(
                 "2026-04-02",
                 holiday_group_id="qingming",
                 year_relative_holiday_key="qingming_d-2",
-                event_group_id="member_day",
-                year_relative_event_key="member_day_d+0",
             ),
         ]
         reader = self._make_reader(rows)
@@ -130,7 +118,6 @@ class CalendarDataReaderTests(unittest.TestCase):
         self.assertEqual(result.resolved_calendar_version, "cn_2026q2_v1")
         self.assertEqual(len(result.annotation_rows), 4)
         self.assertEqual(result.annotation_rows[0].holiday_group_id, "qingming")
-        self.assertEqual(result.annotation_rows[0].event_group_id, "member_day")
 
     def test_read_for_alignment_with_pinned_version(self) -> None:
         rows = [
@@ -199,8 +186,6 @@ class CalendarDataReaderTests(unittest.TestCase):
                 "holiday_name": None,
                 "holiday_group_id": None,
                 "year_relative_holiday_key": None,
-                "event_group_id": None,
-                "year_relative_event_key": None,
             },
         ]
         reader = self._make_reader(rows)
@@ -223,8 +208,6 @@ class CalendarDataReaderTests(unittest.TestCase):
                 "holiday_name": None,
                 "holiday_group_id": None,
                 "year_relative_holiday_key": None,
-                "event_group_id": None,
-                "year_relative_event_key": None,
             },
         ]
         reader = self._make_reader(rows)

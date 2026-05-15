@@ -106,8 +106,7 @@ class CalendarDataReader:
         rows = self.metadata.query_rows(
             """
             SELECT calendar_date, weekday, is_weekend, is_workday,
-                   holiday_group_id, year_relative_holiday_key,
-                   event_group_id, year_relative_event_key
+                   holiday_group_id, year_relative_holiday_key
             FROM calendar
             WHERE calendar_version = ?
               AND region_code = ?
@@ -174,8 +173,6 @@ class CalendarDataReader:
                     weekday=int(row.get("weekday") or 0),
                     holiday_group_id=_optional_str(row.get("holiday_group_id")),
                     year_relative_holiday_key=_optional_str(row.get("year_relative_holiday_key")),
-                    event_group_id=_optional_str(row.get("event_group_id")),
-                    year_relative_event_key=_optional_str(row.get("year_relative_event_key")),
                 )
             )
         return annotation_rows

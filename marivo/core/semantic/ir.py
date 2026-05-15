@@ -80,7 +80,6 @@ class IntentRequestSnapshot(TypedDict):
     request_class: Literal["root_metric_process", "typed_ref", "derived_macro"]
     requested_dimensions: NotRequired[list[str] | None]
     requested_result_mode: NotRequired[str | None]
-    requested_calendar_policy_ref: NotRequired[str | None]
     request_time_scope_ref: NotRequired[str | None]
     request_options: NotRequired[dict[str, str | int | float | bool | None] | None]
 
@@ -236,7 +235,6 @@ class ProfileUsageTrace(TypedDict):
 class CompileReport(TypedDict):
     validation_trace: list[ValidationRecord]
     validation_summary: ValidationSummary
-    resolved_calendar_alignment: NotRequired[dict[str, Any] | None]
     profile_usage_trace: NotRequired[list[ProfileUsageTrace] | None]
     compiler_usage_trace: NotRequired[list[dict[str, Any]] | None]
     lowering_requirements: NotRequired[list[LoweringRequirement] | None]

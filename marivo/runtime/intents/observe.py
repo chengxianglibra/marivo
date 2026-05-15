@@ -10,11 +10,9 @@ from marivo.core.semantic.ir import AnalysisStepIR
 from marivo.core.semantic.step_metadata import build_step_semantic_metadata
 from marivo.runtime.evidence.ref_boundary import assert_no_canonical_refs_in_semantic_payload
 from marivo.runtime.intents._helpers import commit_step_result
-from marivo.runtime.intents.calendar_alignment_metadata import normalize_resolved_policy_summary
 from marivo.runtime.intents.normalization import (
     normalize_dimensions,
     normalize_metric_ref,
-    validate_and_normalize_calendar_policy_ref,
     validate_granularity,
     validate_hour_boundaries,
 )
@@ -31,23 +29,6 @@ def _build_step_metadata(compiled_queries: Any) -> dict[str, Any] | None:
     if result is not None:
         assert_no_canonical_refs_in_semantic_payload(result, surface="step_semantic_metadata")
     return result
-
-
-def _malformed_resolved_policy_summary() -> ValueError:
-    return ValueError("observe: INVALID_ARGUMENT - malformed resolved calendar alignment metadata")
-
-
-def _resolved_policy_summary_from_compiled(compiled_query: Any) -> dict[str, Any] | None:
-    metadata = getattr(compiled_query, "metadata", None)
-    if not isinstance(metadata, dict):
-        return None
-    resolved_calendar_alignment = metadata.get("resolved_calendar_alignment")
-    if resolved_calendar_alignment is None:
-        return None
-    return normalize_resolved_policy_summary(
-        resolved_calendar_alignment,
-        error_factory=_malformed_resolved_policy_summary,
-    )
 
 
 def _extract_predicate_filter_lineage(compiled_query: Any) -> dict[str, Any] | None:
@@ -220,102 +201,6 @@ def _require_mapping(value: Any, *, label: str) -> Mapping[str, Any]:
     return value
 
 
-def _build_aligned_time_series_payloads(
-    *,
-    current_series: list[dict[str, Any]],
-    baseline_series: list[dict[str, Any]],
-    resolved_policy_summary: dict[str, Any] | None,
-    granularity: str,
-) -> dict[str, list[dict[str, Any]]]:
-    if resolved_policy_summary is None:
-        return {}
-    if granularity != "day":
-        return {}
-
-    bucket_pairing = resolved_policy_summary.get("bucket_pairing")
-    if not isinstance(bucket_pairing, list):
-        raise ValueError(
-            "observe: INVALID_ARGUMENT - resolved_policy_summary.bucket_pairing must be a list"
-        )
-
-    current_by_start = _series_map(current_series, label="series.window")
-    baseline_by_start = _series_map(baseline_series, label="baseline_series.window")
-
-    aligned_baseline_series: list[dict[str, Any]] = []
-    yoy_series: list[dict[str, Any]] = []
-    for pairing in bucket_pairing:
-        pairing_map = _require_mapping(pairing, label="resolved_policy_summary.bucket_pairing[]")
-        current_bucket_start = pairing_map.get("current_bucket_start")
-        if not isinstance(current_bucket_start, str) or not current_bucket_start:
-            raise ValueError(
-                "observe: INVALID_ARGUMENT - resolved_policy_summary.bucket_pairing[].current_bucket_start must be a string"
-            )
-        current_point = current_by_start.get(current_bucket_start)
-
-        baseline_bucket_start = pairing_map.get("baseline_bucket_start")
-        baseline_point = (
-            baseline_by_start.get(baseline_bucket_start)
-            if isinstance(baseline_bucket_start, str) and baseline_bucket_start
-            else None
-        )
-        current_window = (
-            dict(_require_mapping(current_point.get("window"), label="series.window"))
-            if current_point is not None
-            else bucket_window(current_bucket_start, "day")
-        )
-        current_value = (
-            _coerce_numeric_or_none(current_point.get("value")) if current_point else None
-        )
-        baseline_value = (
-            _coerce_numeric_or_none(baseline_point.get("value"))
-            if baseline_point is not None
-            else None
-        )
-        baseline_value_float = baseline_value
-        baseline_window = (
-            dict(_require_mapping(baseline_point.get("window"), label="baseline_series.window"))
-            if baseline_point is not None
-            else (
-                bucket_window(baseline_bucket_start, "day")
-                if isinstance(baseline_bucket_start, str) and baseline_bucket_start
-                else None
-            )
-        )
-        absolute_delta = (
-            current_value - baseline_value_float
-            if current_value is not None and baseline_value_float is not None
-            else None
-        )
-        relative_delta: float | None = None
-        if (
-            absolute_delta is not None
-            and baseline_value_float is not None
-            and baseline_value_float != 0.0
-        ):
-            relative_delta = absolute_delta / baseline_value_float
-        aligned_baseline_series.append(
-            {
-                "window": current_window,
-                "baseline_window": baseline_window,
-                "value": baseline_value,
-            }
-        )
-        yoy_series.append(
-            {
-                "window": current_window,
-                "baseline_window": baseline_window,
-                "current_value": current_value,
-                "baseline_value": baseline_value,
-                "absolute_delta": absolute_delta,
-                "relative_delta": relative_delta,
-            }
-        )
-    return {
-        "aligned_baseline_series": aligned_baseline_series,
-        "yoy_series": yoy_series,
-    }
-
-
 def _sort_segment_payloads(
     payloads: list[dict[str, Any]], *, dimensions: list[str], value_field: str
 ) -> None:
@@ -325,32 +210,6 @@ def _sort_segment_payloads(
             *[str((item.get("keys") or {}).get(dimension, "")) for dimension in dimensions],
         )
     )
-
-
-def _build_segmented_yoy_payloads(
-    *,
-    rows: list[dict[str, Any]],
-    dimensions: list[str],
-    resolved_policy_summary: dict[str, Any] | None,
-) -> list[dict[str, Any]] | None:
-    if resolved_policy_summary is None:
-        return None
-
-    segmented_yoy: list[dict[str, Any]] = []
-    for row in rows:
-        keys = {dimension: row.get(dimension) for dimension in dimensions if dimension in row}
-        segmented_yoy.append(
-            {
-                "keys": keys,
-                "current_value": _coerce_numeric_or_none(row.get("current_value")),
-                "baseline_value": _coerce_numeric_or_none(row.get("baseline_value")),
-                "absolute_delta": _coerce_numeric_or_none(row.get("absolute_delta")),
-                "relative_delta": _coerce_numeric_or_none(row.get("relative_delta")),
-            }
-        )
-
-    _sort_segment_payloads(segmented_yoy, dimensions=dimensions, value_field="current_value")
-    return segmented_yoy
 
 
 def _build_data_coverage_summary(
@@ -467,6 +326,11 @@ def run_observe_intent(
       - as_of: resolved to a single-day range around the given timestamp
     """
     p = params or {}
+    if "calendar_policy_ref" in p:
+        raise ValueError(
+            "observe: INVALID_ARGUMENT - calendar_policy_ref is no longer supported; "
+            "use compare.compare_type for calendar alignment"
+        )
 
     metric_ref = normalize_metric_ref(p.get("metric"))
     metric_ref = runtime.core.normalize_intent_metric_ref(metric_ref)
@@ -479,13 +343,6 @@ def run_observe_intent(
     result_mode: str = p.get("result_mode") or "standard"
     if result_mode != "standard":
         raise ValueError(f"observe result_mode='{result_mode}' is not valid. Must be 'standard'.")
-
-    try:
-        normalized_calendar_policy_ref = validate_and_normalize_calendar_policy_ref(
-            p.get("calendar_policy_ref")
-        )
-    except ValueError as exc:
-        raise ValueError(f"observe: {exc}") from exc
 
     granularity = validate_granularity(p.get("granularity") or None)
     dimensions = normalize_dimensions(p.get("dimensions"))
@@ -542,9 +399,6 @@ def run_observe_intent(
         mq_params["time_scope_field"] = time_scope_field
     if dimensions:
         mq_params["dimensions"] = dimensions
-    if normalized_calendar_policy_ref is not None:
-        mq_params["calendar_policy_ref"] = normalized_calendar_policy_ref
-
     resolved = normalize_metric_query_request(mq_params)
     all_dimensions = runtime.resolve_metric_dimensions(metric_ref)
     engine_resolution = runtime.resolve_engine_for_session(session_id, [resolved.table])
@@ -595,7 +449,6 @@ def run_observe_intent(
                 params={
                     "table": qualified_table,
                     "time_scope": mq_params["time_scope"],
-                    "calendar_policy_ref": normalized_calendar_policy_ref,
                     "select": [
                         f"{bucket_expr} AS bucket_start",
                         f"{metric_sql} AS value",
@@ -620,86 +473,8 @@ def run_observe_intent(
             end=end_str,
             granularity=granularity_typed,
         )
-        resolved_policy_summary = _resolved_policy_summary_from_compiled(compiled_query)
         predicate_filter_lineage_ts = _extract_predicate_filter_lineage(compiled_query)
-        if normalized_calendar_policy_ref is not None and resolved_policy_summary is None:
-            raise ValueError(
-                "observe: INVALID_ARGUMENT - calendar_policy_ref did not resolve frozen calendar alignment metadata"
-            )
-
-        aligned_series_payload: dict[str, list[dict[str, Any]]] = {}
-        if resolved_policy_summary is not None and granularity == "day":
-            baseline_window = _require_mapping(
-                resolved_policy_summary.get("baseline_window"),
-                label="resolved_policy_summary.baseline_window",
-            )
-            baseline_start = str(baseline_window.get("start") or "")
-            baseline_end = str(baseline_window.get("end") or "")
-            baseline_time_scope = {
-                "mode": "single_window",
-                "grain": grain,
-                "current": {
-                    "start": baseline_start,
-                    "end": baseline_end,
-                },
-            }
-            baseline_scoped_query = _build_scoped_query_for_window(
-                runtime,
-                session_id=session_id,
-                engine_type=engine_type,
-                metric_ref=metric_ref,
-                table=table,
-                start=baseline_start,
-                end=baseline_end,
-                grain=grain,
-                scope_raw=scope_raw,
-                all_dimensions=all_dimensions,
-            )
-            baseline_compiled_query = runtime.compile_step(
-                AnalysisStepIR(
-                    index=0,
-                    step_type="aggregate_query",
-                    params={
-                        "table": qualified_table,
-                        "time_scope": baseline_time_scope,
-                        "select": [
-                            f"{bucket_expr} AS bucket_start",
-                            f"{metric_sql} AS value",
-                        ],
-                        "group_by": ["bucket_start"],
-                        "order_by": "bucket_start",
-                        "scoped_query": baseline_scoped_query,
-                        "limit": 1000,
-                    },
-                ),
-                engine_type=engine_type,
-                semantic_context={"metric_execution_context": execution_context},
-            )
-            baseline_rows = list(
-                execute_compiled(engine, baseline_compiled_query, session_id=session_id).rows
-            )
-            baseline_sparse_series = _series_from_rows(baseline_rows, granularity=granularity_typed)
-            baseline_series = _build_dense_series(
-                sparse_series=baseline_sparse_series,
-                start=baseline_start,
-                end=baseline_end,
-                granularity=granularity_typed,
-            )
-            aligned_series_payload = _build_aligned_time_series_payloads(
-                current_series=series,
-                baseline_series=baseline_series,
-                resolved_policy_summary=resolved_policy_summary,
-                granularity=granularity,
-            )
-        data_coverage_summary = _build_data_coverage_summary(
-            series=series,
-            aligned_yoy_series=aligned_series_payload.get("yoy_series"),
-        )
-        if resolved_policy_summary is not None:
-            resolved_policy_summary = {
-                **resolved_policy_summary,
-                "data_coverage_summary": data_coverage_summary,
-            }
+        data_coverage_summary = _build_data_coverage_summary(series=series)
 
         data_complete = _time_series_data_complete(data_coverage_summary)
         quality_status = _time_series_quality_status(
@@ -713,8 +488,6 @@ def run_observe_intent(
             "observation_type": "time_series",
             "metric": metric_name,
             "time_scope": resolved_time_scope,
-            "calendar_policy_ref": normalized_calendar_policy_ref,
-            "resolved_policy_summary": resolved_policy_summary,
             "scope": scope_raw or {},
             "predicate_filter_lineage": predicate_filter_lineage_ts,
             "unit": None,
@@ -736,7 +509,6 @@ def run_observe_intent(
                 "executed_at": now,
             },
         }
-        observation.update(aligned_series_payload)
         artifact_name = f"{metric_name}_observe_time_series"
         summary = (
             f"observe {metric_name} time_series/{granularity} "
@@ -750,7 +522,6 @@ def run_observe_intent(
             "table": qualified_table,
             "metric": metric_name,
             "time_scope": mq_params["time_scope"],
-            "calendar_policy_ref": normalized_calendar_policy_ref,
             "scoped_query": scoped_query,
         }
         if time_scope_field:
@@ -772,12 +543,7 @@ def run_observe_intent(
         provenance = make_provenance(
             compiled_query.sql, compiled_query.params, engine_type=engine_type
         )
-        resolved_policy_summary = _resolved_policy_summary_from_compiled(compiled_query)
         predicate_filter_lineage_seg = _extract_predicate_filter_lineage(compiled_query)
-        if normalized_calendar_policy_ref is not None and resolved_policy_summary is None:
-            raise ValueError(
-                "observe: INVALID_ARGUMENT - calendar_policy_ref did not resolve frozen calendar alignment metadata"
-            )
 
         segments: list[dict[str, Any]] = []
         for row in rows:
@@ -790,11 +556,6 @@ def run_observe_intent(
             segments.append({"keys": keys, "value": seg_value, "share": None})
 
         _sort_segment_payloads(segments, dimensions=dimensions, value_field="value")
-        segmented_yoy = _build_segmented_yoy_payloads(
-            rows=rows,
-            dimensions=dimensions,
-            resolved_policy_summary=resolved_policy_summary,
-        )
         quality_status = "ready" if rows else "not_ready"
         observation = {
             "schema_version": "1.0",
@@ -803,8 +564,6 @@ def run_observe_intent(
             "observation_type": "segmented",
             "metric": metric_name,
             "time_scope": resolved_time_scope,
-            "calendar_policy_ref": normalized_calendar_policy_ref,
-            "resolved_policy_summary": resolved_policy_summary,
             "scope": scope_raw or {},
             "predicate_filter_lineage": predicate_filter_lineage_seg,
             "unit": None,
@@ -827,8 +586,6 @@ def run_observe_intent(
                 "executed_at": now,
             },
         }
-        if segmented_yoy is not None:
-            observation["segmented_yoy"] = segmented_yoy
         artifact_name = f"{metric_name}_observe_segmented"
         summary = (
             f"observe {metric_name} segmented [{start_str} → {end_str}]: {len(segments)} segments"
@@ -840,7 +597,6 @@ def run_observe_intent(
             "table": qualified_table,
             "metric": metric_name,
             "time_scope": mq_params["time_scope"],
-            "calendar_policy_ref": normalized_calendar_policy_ref,
             "scoped_query": scoped_query,
         }
         if time_scope_field:
@@ -885,7 +641,6 @@ def run_observe_intent(
             "observation_type": "scalar",
             "metric": metric_name,
             "time_scope": resolved_time_scope,
-            "calendar_policy_ref": normalized_calendar_policy_ref,
             "scope": scope_raw or {},
             "predicate_filter_lineage": predicate_filter_lineage_scalar,
             "unit": None,
@@ -910,11 +665,6 @@ def run_observe_intent(
         summary = (
             f"observe {metric_name} [{start_str} → {end_str}]: "
             f"{value if value is not None else 'no data'}"
-        )
-
-    if "resolved_policy_summary" not in observation:
-        observation["resolved_policy_summary"] = _resolved_policy_summary_from_compiled(
-            compiled_query
         )
 
     result = commit_step_result(

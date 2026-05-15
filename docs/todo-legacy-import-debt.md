@@ -239,7 +239,6 @@ but `intents/` as a standalone package is not in the target structure.
 |------|--------|--------|
 | `observe.py` … `validate.py` (10 runners) | Active | Keep as `runtime/intents/` subpackage, or register via `core.intent.IntentRunnerRegistry` |
 | `_helpers.py` | Active — `commit_step_result()` | `runtime/` |
-| `calendar_alignment_metadata.py` | Active — I/O-coupled helper | `runtime/` |
 | `predicate_lineage_reuse.py` | Active — I/O-coupled helper | `runtime/` |
 | `__init__.py` | Re-exports | Update after move |
 

@@ -5,7 +5,6 @@ import unittest
 from marivo.runtime.intents.normalization import (
     normalize_dimensions,
     normalize_metric_ref,
-    validate_and_normalize_calendar_policy_ref,
     validate_granularity,
     validate_hour_boundaries,
 )
@@ -70,16 +69,3 @@ class TestValidateHourBoundaries(unittest.TestCase):
     def test_hour_granularity_with_date_only_raises(self) -> None:
         with self.assertRaises(ValueError):
             validate_hour_boundaries("hour", "2024-01-01", "2024-01-02")
-
-
-class TestCalendarPolicyRef(unittest.TestCase):
-    def test_none_returns_none(self) -> None:
-        self.assertIsNone(validate_and_normalize_calendar_policy_ref(None))
-
-    def test_valid_ref_passes(self) -> None:
-        result = validate_and_normalize_calendar_policy_ref("calendar_policy.natural_yoy")
-        self.assertEqual(result, "calendar_policy.natural_yoy")
-
-    def test_invalid_ref_raises(self) -> None:
-        with self.assertRaises(ValueError):
-            validate_and_normalize_calendar_policy_ref("not_a_valid_ref")

@@ -126,7 +126,6 @@ class ObserveInput(BaseModel):
     dimensions: list[str] | None = None
     scope: ObserveScope | None = None
     result_mode: str | None = None
-    calendar_policy_ref: str | None = None
 
 
 McpOsiDocumentPayload = Annotated[dict[str, Any], BeforeValidator(_reject_json_string)]

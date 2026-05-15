@@ -256,7 +256,7 @@ class _RecomputeBase(unittest.TestCase):
                 }
             ]
             calendar_alignment_payload: dict[str, Any] = {
-                "reuse_source": "observation_resolved_policy_summary",
+                "reuse_source": "compare_type_calendar_alignment",
                 "policy_ref": "calendar_policy.calendar_yoy",
                 "comparison_basis": "yoy",
                 "resolved_calendar_source": "calendar.cn_holidays",
@@ -329,7 +329,7 @@ class _RecomputeBase(unittest.TestCase):
                 }
             ]
             calendar_alignment_payload: dict[str, Any] = {
-                "reuse_source": "observation_resolved_policy_summary",
+                "reuse_source": "compare_type_calendar_alignment",
                 "policy_ref": "calendar_policy.calendar_yoy",
                 "comparison_basis": "yoy",
                 "resolved_calendar_source": "calendar.cn_holidays",
@@ -1159,7 +1159,6 @@ class TestComparabilityGateIntegration(_RecomputeBase):
         matched = compare_irec["justification_json"]["matched_conditions"]
         self.assertIn("comparability_requirement:baseline_calendar_policy_resolved:met", matched)
         self.assertIn("comparability_requirement:holiday_cluster_alignment_complete:met", matched)
-        self.assertIn("comparability_requirement:event_cluster_alignment_complete:met", matched)
         self.assertIn("comparability_requirement:weekday_pairing_compatible:met", matched)
         self.assertIn("comparability_requirement:alignment_tie_breaker_resolved:met", matched)
         self.assertNotIn("comparability_requirement:calendar_coverage_sufficient:met", matched)
@@ -1271,33 +1270,6 @@ class TestComparabilityGateIntegration(_RecomputeBase):
         self.assertEqual(
             gap["missing_requirement_json"]["requirement_key"],
             "holiday_cluster_alignment_complete",
-        )
-
-    def test_event_cluster_unmapped_blocks_gate(self) -> None:
-        self._insert_compare_delta_finding(
-            "fnd_cmp_event_unmapped",
-            comparability_status="needs_attention",
-            issues=[
-                {
-                    "code": "event_cluster_unmapped",
-                    "severity": "error",
-                    "message": "event mapping missing",
-                }
-            ],
-            include_calendar_alignment=True,
-        )
-        result = self._recompute(trigger_ids=["fnd_cmp_event_unmapped"])
-        row = self.assessment_repo.get(result["assessment_id"])
-        compare_irec_id = next(
-            irec_id
-            for irec_id in row["applied_inference_record_ids_json"]
-            if self.ir_repo.get(irec_id)["rule_id"] == "comparability_gate.v1.baseline"
-        )
-        compare_irec = self.ir_repo.get(compare_irec_id)
-        self.assertEqual(compare_irec["result"], "miss")
-        self.assertIn(
-            "comparability_requirement:event_cluster_alignment_complete:failed",
-            compare_irec["justification_json"]["unmatched_conditions"],
         )
 
     def test_weekday_pairing_tie_fails_weekday_and_tie_breaker_requirements(self) -> None:
@@ -1440,7 +1412,6 @@ class TestComparabilityGateIntegration(_RecomputeBase):
         for requirement_key in (
             "baseline_calendar_policy_resolved",
             "holiday_cluster_alignment_complete",
-            "event_cluster_alignment_complete",
             "weekday_pairing_compatible",
             "calendar_coverage_sufficient",
             "alignment_tie_breaker_resolved",

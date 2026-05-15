@@ -13,9 +13,12 @@ _commit_artifact_with_extraction is called with the expected step_type.
 from __future__ import annotations
 
 import unittest
+from datetime import date
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+from marivo.core.semantic.calendar import CalendarAnnotationRow
+from marivo.runtime.semantic.calendar_data_runtime import CalendarDataReadResult
 from marivo.time_scope import ResolvedTimeAxis
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -32,61 +35,6 @@ def _make_compiled_mock() -> MagicMock:
     return m
 
 
-def _make_compiled_mock_with_calendar_alignment() -> MagicMock:
-    m = _make_compiled_mock()
-    m.metadata = {
-        "resolved_calendar_alignment": {
-            "policy_ref": "calendar_policy.weekday_yoy",
-            "comparison_basis": "yoy",
-            "resolved_calendar_source": "calendar_data_cn_assembled",
-            "resolved_calendar_version": "calendar_data_cn_2026q2_v1",
-            "resolved_baseline_generation_rule": {
-                "strategy": "previous_year",
-                "offset_value": 1,
-                "offset_unit": "year",
-                "fixed_start": None,
-                "fixed_end": None,
-                "named_window_ref": None,
-            },
-            "current_window": {"start": "2026-04-01", "end": "2026-04-08"},
-            "baseline_window": {"start": "2025-04-01", "end": "2025-04-08"},
-            "bucket_pairing": [
-                {
-                    "current_bucket_start": "2026-04-01",
-                    "baseline_bucket_start": "2025-04-02",
-                    "pairing_reason": "same_weekday_nearest",
-                    "shift_days": 1,
-                    "issues": [],
-                    "strictness_level": "strict",
-                    "is_reused_baseline_bucket": False,
-                }
-            ],
-            "rollup_safe": True,
-            "coverage_summary": {
-                "aligned_bucket_count": 1,
-                "unpaired_bucket_count": 0,
-                "aligned_ratio": 1.0,
-            },
-            "data_coverage_summary": {
-                "expected_bucket_count": 1,
-                "present_bucket_count": 1,
-                "missing_bucket_count": 0,
-                "coverage_ratio": 1.0,
-                "aligned_expected_bucket_count": 1,
-                "aligned_present_current_bucket_count": 1,
-                "aligned_present_baseline_bucket_count": 1,
-                "aligned_present_both_bucket_count": 1,
-            },
-            "comparability_warnings": [],
-            "source_lineage": {
-                "table_fqn": "calendar",
-                "calendar_version": "cn_2026q2_v1",
-            },
-        }
-    }
-    return m
-
-
 def _set_resolved_time_axis(runtime: MagicMock, expr: str, *, kind: str = "date_field") -> None:
     def _resolve_time_axis(resolved: Any, **_: Any) -> ResolvedTimeAxis:
         axis = ResolvedTimeAxis(
@@ -98,25 +46,6 @@ def _set_resolved_time_axis(runtime: MagicMock, expr: str, *, kind: str = "date_
         return axis
 
     runtime.resolve_windowed_query_time_axis.side_effect = _resolve_time_axis
-
-
-def _make_compiled_mock_with_holiday_only_calendar_alignment() -> MagicMock:
-    m = _make_compiled_mock_with_calendar_alignment()
-    m.metadata["resolved_calendar_alignment"]["policy_ref"] = "calendar_policy.calendar_yoy"
-    m.metadata["resolved_calendar_alignment"]["source_lineage"] = {
-        "table_fqn": "calendar",
-        "calendar_version": "cn_public_holiday_2026_v1",
-    }
-    m.metadata["resolved_calendar_alignment"]["comparability_warnings"] = [
-        "holiday_annotation_missing_fallback_used"
-    ]
-    return m
-
-
-def _make_time_series_compiled_mock_with_calendar_alignment() -> MagicMock:
-    m = _make_compiled_mock_with_calendar_alignment()
-    m.sql = "SELECT bucket_start, value FROM series"
-    return m
 
 
 def _scalar_observation(metric: str = "m1") -> dict[str, Any]:
@@ -171,71 +100,36 @@ def _time_series_observation(
     }
 
 
-def _resolved_policy_summary(
-    *,
-    policy_ref: str = "calendar_policy.weekday_yoy",
-    comparison_basis: str = "yoy",
-    resolved_calendar_source: str = "calendar_data_cn_assembled",
-    resolved_calendar_version: str = "calendar_data_cn_2026q2_v1",
-    current_window_start: str = "2026-04-01",
-    current_window_end: str = "2026-04-08",
-    baseline_window_start: str = "2025-04-01",
-    baseline_window_end: str = "2025-04-08",
-    current_bucket_start: str = "2026-04-01",
-    baseline_bucket_start: str = "2025-04-02",
-    aligned_bucket_count: int = 7,
-    unpaired_bucket_count: int = 0,
-    aligned_ratio: float = 1.0,
-    expected_bucket_count: int = 7,
-    present_bucket_count: int = 7,
-    missing_bucket_count: int = 0,
-    coverage_ratio: float = 1.0,
-    comparability_warnings: list[str] | None = None,
-) -> dict[str, Any]:
-    return {
-        "policy_ref": policy_ref,
-        "comparison_basis": comparison_basis,
-        "resolved_calendar_source": resolved_calendar_source,
-        "resolved_calendar_version": resolved_calendar_version,
-        "resolved_baseline_generation_rule": {
-            "strategy": "previous_year",
-            "offset_value": 1,
-            "offset_unit": "year",
-            "fixed_start": None,
-            "fixed_end": None,
-            "named_window_ref": None,
-        },
-        "current_window": {"start": current_window_start, "end": current_window_end},
-        "baseline_window": {"start": baseline_window_start, "end": baseline_window_end},
-        "bucket_pairing": [
-            {
-                "current_bucket_start": current_bucket_start,
-                "baseline_bucket_start": baseline_bucket_start,
-                "pairing_reason": "same_weekday_nearest",
-                "shift_days": 1,
-                "issues": [],
-                "strictness_level": "strict",
-                "is_reused_baseline_bucket": False,
-            }
-        ],
-        "rollup_safe": True,
-        "coverage_summary": {
-            "aligned_bucket_count": aligned_bucket_count,
-            "unpaired_bucket_count": unpaired_bucket_count,
-            "aligned_ratio": aligned_ratio,
-        },
-        "data_coverage_summary": {
-            "expected_bucket_count": expected_bucket_count,
-            "present_bucket_count": present_bucket_count,
-            "missing_bucket_count": missing_bucket_count,
-            "coverage_ratio": coverage_ratio,
-            "aligned_expected_bucket_count": expected_bucket_count,
-            "aligned_present_current_bucket_count": present_bucket_count,
-            "aligned_present_baseline_bucket_count": present_bucket_count,
-            "aligned_present_both_bucket_count": present_bucket_count,
-        },
-        "comparability_warnings": list(comparability_warnings or []),
-    }
+class _FakeCalendarDataReader:
+    def read_for_alignment(
+        self,
+        *,
+        current_window: tuple[date, date],
+        baseline_window: tuple[date, date],
+        region_code: str | None = None,
+    ) -> CalendarDataReadResult:
+        return CalendarDataReadResult(
+            annotation_rows=[
+                CalendarAnnotationRow(
+                    calendar_date=date(2025, 2, 20),
+                    weekday=6,
+                    holiday_group_id="spring_festival",
+                    year_relative_holiday_key="spring_festival_d+3",
+                ),
+                CalendarAnnotationRow(
+                    calendar_date=date(2026, 2, 20),
+                    weekday=5,
+                    holiday_group_id="spring_festival",
+                    year_relative_holiday_key="spring_festival_d+3",
+                ),
+            ],
+            resolved_calendar_source="calendar",
+            resolved_calendar_version="cn_2026_v1",
+            source_lineage={
+                "table_fqn": "calendar",
+                "calendar_version": "cn_2026_v1",
+            },
+        )
 
 
 # ── observe ───────────────────────────────────────────────────────────────────
@@ -298,13 +192,13 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
         result = self._run_scalar(runtime)
         self.assertEqual(result["artifact_id"], _FAKE_ARTIFACT_ID)
 
-    def test_observe_includes_null_resolved_policy_summary_without_alignment(self) -> None:
+    def test_observe_omits_resolved_policy_summary_without_alignment(self) -> None:
         runtime = self._make_runtime()
         result = self._run_scalar(runtime)
         args, _ = runtime.commit_artifact_with_extraction.call_args
         artifact_payload = args[4]
-        self.assertIsNone(result["resolved_policy_summary"])
-        self.assertIsNone(artifact_payload["resolved_policy_summary"])
+        self.assertNotIn("resolved_policy_summary", result)
+        self.assertNotIn("resolved_policy_summary", artifact_payload)
 
     def test_observe_hour_granularity_rejects_date_only_range(self) -> None:
         from marivo.runtime.intents.observe import run_observe_intent
@@ -323,13 +217,13 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
                 },
             )
 
-    def test_observe_rejects_unknown_calendar_policy_ref(self) -> None:
+    def test_observe_rejects_calendar_policy_ref(self) -> None:
         from marivo.runtime.intents.observe import run_observe_intent
 
         runtime = self._make_runtime()
         with self.assertRaisesRegex(
             ValueError,
-            "observe: INVALID_ARGUMENT - Unknown calendar_policy_ref",
+            "calendar_policy_ref is no longer supported",
         ):
             run_observe_intent(
                 runtime,
@@ -340,554 +234,6 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
                     "calendar_policy_ref": "calendar_policy.not_real",
                 },
             )
-
-    def test_observe_forwards_calendar_policy_ref_to_internal_compile_step(self) -> None:
-        from marivo.runtime.intents.observe import run_observe_intent
-
-        runtime = self._make_runtime()
-        captured: dict[str, Any] = {}
-        runtime.core.normalize_intent_metric_ref.side_effect = lambda metric: metric
-        runtime.core.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix(
-            "metric."
-        )
-        runtime.resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
-        runtime.resolve_metric_sql_for_execution.return_value = "SUM(val)"
-        runtime.resolve_metric_dimensions.return_value = []
-        runtime.resolve_engine.return_value = (
-            MagicMock(),
-            "duckdb",
-            {"src.metrics": "src.metrics"},
-        )
-        _set_resolved_time_axis(runtime, "event_date")
-        runtime.build_scoped_query.return_value = {
-            "mode": "single_window",
-            "analysis_time_expr": "event_date",
-            "analysis_time_kind": "date_field",
-            "current": {"start": "2024-01-01", "end": "2024-01-08"},
-        }
-
-        def _capture_compile(step: Any, *, engine_type: str, semantic_context: Any) -> MagicMock:
-            captured["calendar_policy_ref"] = step.params.get("calendar_policy_ref")
-            captured["time_scope"] = step.params.get("time_scope")
-            return _make_compiled_mock()
-
-        runtime.compile_step.side_effect = _capture_compile
-
-        with patch("marivo.runtime.intents.observe.execute_compiled") as mock_exec:
-            mock_exec.return_value.rows = []
-            run_observe_intent(
-                runtime,
-                _SESSION,
-                {
-                    "metric": "metric.m1",
-                    "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
-                    "calendar_policy_ref": "calendar_policy.weekday_yoy",
-                },
-            )
-
-        self.assertEqual(captured["calendar_policy_ref"], "calendar_policy.weekday_yoy")
-        self.assertEqual(captured["time_scope"]["grain"], "day")
-
-    def test_observe_freezes_resolved_policy_summary_in_artifact(self) -> None:
-        from marivo.runtime.intents.observe import run_observe_intent
-
-        runtime = self._make_runtime()
-        runtime.core.normalize_intent_metric_ref.side_effect = lambda metric: metric
-        runtime.core.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix(
-            "metric."
-        )
-        runtime.resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
-        runtime.resolve_metric_sql_for_execution.return_value = "SUM(val)"
-        runtime.resolve_metric_dimensions.return_value = []
-        runtime.resolve_engine.return_value = (
-            MagicMock(),
-            "duckdb",
-            {"src.metrics": "src.metrics"},
-        )
-        _set_resolved_time_axis(runtime, "CAST(log_date AS DATE)")
-        runtime.build_scoped_query.return_value = {
-            "mode": "single_window",
-            "analysis_time_expr": "event_date",
-            "analysis_time_kind": "date_field",
-            "current": {"start": "2026-04-01", "end": "2026-04-08"},
-        }
-        runtime.compile_step.return_value = _make_compiled_mock_with_calendar_alignment()
-
-        with patch("marivo.runtime.intents.observe.execute_compiled") as mock_exec:
-            mock_exec.return_value.rows = [{"current_value": 42.0}]
-            result = run_observe_intent(
-                runtime,
-                _SESSION,
-                {
-                    "metric": "metric.m1",
-                    "time_scope": {"kind": "range", "start": "2026-04-01", "end": "2026-04-08"},
-                    "calendar_policy_ref": "calendar_policy.weekday_yoy",
-                },
-            )
-
-        args, _ = runtime.commit_artifact_with_extraction.call_args
-        artifact_payload = args[4]
-        self.assertEqual(
-            result["resolved_policy_summary"],
-            artifact_payload["resolved_policy_summary"],
-        )
-        self.assertEqual(
-            result["resolved_policy_summary"]["policy_ref"],
-            "calendar_policy.weekday_yoy",
-        )
-        self.assertEqual(result["resolved_policy_summary"]["comparison_basis"], "yoy")
-        self.assertEqual(
-            result["resolved_policy_summary"]["resolved_calendar_source"],
-            "calendar_data_cn_assembled",
-        )
-        self.assertEqual(
-            result["resolved_policy_summary"]["resolved_calendar_version"],
-            "calendar_data_cn_2026q2_v1",
-        )
-        self.assertEqual(
-            result["resolved_policy_summary"]["resolved_baseline_generation_rule"],
-            {
-                "strategy": "previous_year",
-                "offset_value": 1,
-                "offset_unit": "year",
-                "fixed_start": None,
-                "fixed_end": None,
-                "named_window_ref": None,
-            },
-        )
-        self.assertEqual(
-            result["resolved_policy_summary"]["current_window"],
-            {"start": "2026-04-01", "end": "2026-04-08"},
-        )
-        self.assertEqual(
-            result["resolved_policy_summary"]["baseline_window"],
-            {"start": "2025-04-01", "end": "2025-04-08"},
-        )
-        self.assertEqual(
-            result["resolved_policy_summary"]["coverage_summary"],
-            {
-                "aligned_bucket_count": 1,
-                "unpaired_bucket_count": 0,
-                "aligned_ratio": 1.0,
-            },
-        )
-        self.assertEqual(
-            result["resolved_policy_summary"]["bucket_pairing"][0],
-            {
-                "current_bucket_start": "2026-04-01",
-                "baseline_bucket_start": "2025-04-02",
-                "pairing_reason": "same_weekday_nearest",
-                "shift_days": 1,
-                "issues": [],
-                "strictness_level": "strict",
-                "is_reused_baseline_bucket": False,
-            },
-        )
-        self.assertTrue(result["resolved_policy_summary"]["rollup_safe"])
-        self.assertEqual(result["resolved_policy_summary"]["comparability_warnings"], [])
-
-    def test_observe_accepts_holiday_only_calendar_lineage(self) -> None:
-        from marivo.runtime.intents.observe import run_observe_intent
-
-        runtime = self._make_runtime()
-        runtime.core.normalize_intent_metric_ref.side_effect = lambda metric: metric
-        runtime.core.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix(
-            "metric."
-        )
-        runtime.resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
-        runtime.resolve_metric_sql_for_execution.return_value = "SUM(val)"
-        runtime.resolve_metric_dimensions.return_value = []
-        runtime.resolve_engine.return_value = (
-            MagicMock(),
-            "duckdb",
-            {"src.metrics": "src.metrics"},
-        )
-        _set_resolved_time_axis(runtime, "event_date")
-        runtime.build_scoped_query.return_value = {
-            "mode": "single_window",
-            "analysis_time_expr": "event_date",
-            "analysis_time_kind": "date_field",
-            "current": {"start": "2026-04-01", "end": "2026-04-08"},
-        }
-        runtime.compile_step.return_value = (
-            _make_compiled_mock_with_holiday_only_calendar_alignment()
-        )
-        # build_step_semantic_metadata is now a pure function imported directly
-        # by observe.py from marivo.runtime.semantic.step_metadata; no proxy needed.
-
-        with patch("marivo.runtime.intents.observe.execute_compiled") as mock_exec:
-            mock_exec.return_value.rows = [{"current_value": 42.0}]
-            result = run_observe_intent(
-                runtime,
-                _SESSION,
-                {
-                    "metric": "metric.m1",
-                    "time_scope": {"kind": "range", "start": "2026-04-01", "end": "2026-04-08"},
-                    "calendar_policy_ref": "calendar_policy.calendar_yoy",
-                },
-            )
-
-        args, kwargs = runtime.commit_artifact_with_extraction.call_args
-        artifact_payload = args[4]
-        insert_step_args, insert_step_kwargs = runtime.insert_step.call_args
-        semantic_metadata = insert_step_kwargs["semantic_metadata"]
-        self.assertEqual(
-            result["resolved_policy_summary"], artifact_payload["resolved_policy_summary"]
-        )
-        self.assertEqual(
-            result["resolved_policy_summary"]["policy_ref"], "calendar_policy.calendar_yoy"
-        )
-        self.assertEqual(
-            semantic_metadata["compile_context"]["calendar_policy_binding"]["source_lineage"],
-            {
-                "table_fqn": "calendar",
-                "calendar_version": "cn_public_holiday_2026_v1",
-            },
-        )
-        self.assertEqual(
-            result["resolved_policy_summary"]["comparability_warnings"],
-            ["holiday_annotation_missing_fallback_used"],
-        )
-
-    def test_observe_rejects_malformed_resolved_policy_summary_missing_field(self) -> None:
-        from marivo.runtime.intents.observe import run_observe_intent
-
-        runtime = self._make_runtime()
-        runtime.core.normalize_intent_metric_ref.side_effect = lambda metric: metric
-        runtime.core.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix(
-            "metric."
-        )
-        runtime.resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
-        runtime.resolve_metric_sql_for_execution.return_value = "SUM(val)"
-        runtime.resolve_metric_dimensions.return_value = []
-        runtime.resolve_engine.return_value = (
-            MagicMock(),
-            "duckdb",
-            {"src.metrics": "src.metrics"},
-        )
-        _set_resolved_time_axis(runtime, "event_date")
-        runtime.build_scoped_query.return_value = {
-            "mode": "single_window",
-            "analysis_time_expr": "event_date",
-            "analysis_time_kind": "date_field",
-            "current": {"start": "2026-04-01", "end": "2026-04-08"},
-        }
-        compiled = _make_compiled_mock_with_calendar_alignment()
-        del compiled.metadata["resolved_calendar_alignment"]["comparison_basis"]
-        runtime.compile_step.return_value = compiled
-
-        with (
-            patch("marivo.runtime.intents.observe.execute_compiled") as mock_exec,
-            self.assertRaisesRegex(ValueError, "malformed resolved calendar alignment metadata"),
-        ):
-            mock_exec.return_value.rows = [{"current_value": 42.0}]
-            run_observe_intent(
-                runtime,
-                _SESSION,
-                {
-                    "metric": "metric.m1",
-                    "time_scope": {"kind": "range", "start": "2026-04-01", "end": "2026-04-08"},
-                    "calendar_policy_ref": "calendar_policy.weekday_yoy",
-                },
-            )
-
-    def test_observe_rejects_malformed_resolved_policy_summary_extra_coverage_field(self) -> None:
-        from marivo.runtime.intents.observe import run_observe_intent
-
-        runtime = self._make_runtime()
-        runtime.core.normalize_intent_metric_ref.side_effect = lambda metric: metric
-        runtime.core.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix(
-            "metric."
-        )
-        runtime.resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
-        runtime.resolve_metric_sql_for_execution.return_value = "SUM(val)"
-        runtime.resolve_metric_dimensions.return_value = []
-        runtime.resolve_engine.return_value = (
-            MagicMock(),
-            "duckdb",
-            {"src.metrics": "src.metrics"},
-        )
-        _set_resolved_time_axis(runtime, "event_date")
-        runtime.build_scoped_query.return_value = {
-            "mode": "single_window",
-            "analysis_time_expr": "event_date",
-            "analysis_time_kind": "date_field",
-            "current": {"start": "2026-04-01", "end": "2026-04-08"},
-        }
-        compiled = _make_compiled_mock_with_calendar_alignment()
-        compiled.metadata["resolved_calendar_alignment"]["coverage_summary"][
-            "total_bucket_count"
-        ] = 1
-        runtime.compile_step.return_value = compiled
-
-        with (
-            patch("marivo.runtime.intents.observe.execute_compiled") as mock_exec,
-            self.assertRaisesRegex(ValueError, "malformed resolved calendar alignment metadata"),
-        ):
-            mock_exec.return_value.rows = [{"current_value": 42.0}]
-            run_observe_intent(
-                runtime,
-                _SESSION,
-                {
-                    "metric": "metric.m1",
-                    "time_scope": {"kind": "range", "start": "2026-04-01", "end": "2026-04-08"},
-                    "calendar_policy_ref": "calendar_policy.weekday_yoy",
-                },
-            )
-
-    def test_observe_rejects_malformed_resolved_policy_summary_bucket_pairing(self) -> None:
-        from marivo.runtime.intents.observe import run_observe_intent
-
-        runtime = self._make_runtime()
-        runtime.core.normalize_intent_metric_ref.side_effect = lambda metric: metric
-        runtime.core.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix(
-            "metric."
-        )
-        runtime.resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
-        runtime.resolve_metric_sql_for_execution.return_value = "SUM(val)"
-        runtime.resolve_metric_dimensions.return_value = []
-        runtime.resolve_engine.return_value = (
-            MagicMock(),
-            "duckdb",
-            {"src.metrics": "src.metrics"},
-        )
-        _set_resolved_time_axis(runtime, "CAST(log_date AS DATE)")
-        runtime.build_scoped_query.return_value = {
-            "mode": "single_window",
-            "analysis_time_expr": "event_date",
-            "analysis_time_kind": "date_field",
-            "current": {"start": "2026-04-01", "end": "2026-04-08"},
-        }
-        compiled = _make_compiled_mock_with_calendar_alignment()
-        del compiled.metadata["resolved_calendar_alignment"]["bucket_pairing"][0]["issues"]
-        runtime.compile_step.return_value = compiled
-
-        with (
-            patch("marivo.runtime.intents.observe.execute_compiled") as mock_exec,
-            self.assertRaisesRegex(ValueError, "malformed resolved calendar alignment metadata"),
-        ):
-            mock_exec.return_value.rows = [{"current_value": 42.0}]
-            run_observe_intent(
-                runtime,
-                _SESSION,
-                {
-                    "metric": "metric.m1",
-                    "time_scope": {"kind": "range", "start": "2026-04-01", "end": "2026-04-08"},
-                    "calendar_policy_ref": "calendar_policy.weekday_yoy",
-                },
-            )
-
-    def test_observe_rejects_malformed_resolved_policy_summary_inconsistent_coverage(self) -> None:
-        from marivo.runtime.intents.observe import run_observe_intent
-
-        runtime = self._make_runtime()
-        runtime.core.normalize_intent_metric_ref.side_effect = lambda metric: metric
-        runtime.core.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix(
-            "metric."
-        )
-        runtime.resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
-        runtime.resolve_metric_sql_for_execution.return_value = "SUM(val)"
-        runtime.resolve_metric_dimensions.return_value = []
-        runtime.resolve_engine.return_value = (
-            MagicMock(),
-            "duckdb",
-            {"src.metrics": "src.metrics"},
-        )
-        _set_resolved_time_axis(runtime, "event_date")
-        runtime.build_scoped_query.return_value = {
-            "mode": "single_window",
-            "analysis_time_expr": "event_date",
-            "analysis_time_kind": "date_field",
-            "current": {"start": "2026-04-01", "end": "2026-04-08"},
-        }
-        compiled = _make_compiled_mock_with_calendar_alignment()
-        compiled.metadata["resolved_calendar_alignment"]["coverage_summary"] = {
-            "aligned_bucket_count": 1,
-            "unpaired_bucket_count": 1,
-            "aligned_ratio": 1.0,
-        }
-        runtime.compile_step.return_value = compiled
-
-        with (
-            patch("marivo.runtime.intents.observe.execute_compiled") as mock_exec,
-            self.assertRaisesRegex(ValueError, "malformed resolved calendar alignment metadata"),
-        ):
-            mock_exec.return_value.rows = [{"current_value": 42.0}]
-            run_observe_intent(
-                runtime,
-                _SESSION,
-                {
-                    "metric": "metric.m1",
-                    "time_scope": {"kind": "range", "start": "2026-04-01", "end": "2026-04-08"},
-                    "calendar_policy_ref": "calendar_policy.weekday_yoy",
-                },
-            )
-
-    def test_observe_time_series_returns_aligned_baseline_and_yoy_series_for_day_grain(
-        self,
-    ) -> None:
-        from marivo.runtime.intents.observe import run_observe_intent
-
-        runtime = self._make_runtime()
-        runtime.core.normalize_intent_metric_ref.side_effect = lambda metric: metric
-        runtime.core.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix(
-            "metric."
-        )
-        runtime.resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
-        runtime.resolve_metric_sql_for_execution.return_value = "SUM(val)"
-        runtime.resolve_metric_dimensions.return_value = []
-        runtime.resolve_engine.return_value = (
-            MagicMock(),
-            "duckdb",
-            {"src.metrics": "src.metrics"},
-        )
-        _set_resolved_time_axis(runtime, "event_time", kind="timestamp_field")
-        runtime.build_scoped_query.return_value = {
-            "mode": "single_window",
-            "analysis_time_expr": "event_date",
-            "analysis_time_kind": "date_field",
-            "current": {"start": "2026-04-01", "end": "2026-04-08"},
-        }
-        runtime.compile_step.side_effect = [
-            _make_time_series_compiled_mock_with_calendar_alignment(),
-            _make_compiled_mock(),
-        ]
-
-        with patch("marivo.runtime.intents.observe.execute_compiled") as mock_exec:
-            mock_exec.side_effect = [
-                MagicMock(
-                    rows=[
-                        {"bucket_start": "2026-04-01", "value": 120.0},
-                    ]
-                ),
-                MagicMock(
-                    rows=[
-                        {"bucket_start": "2025-04-02", "value": 100.0},
-                    ]
-                ),
-            ]
-            result = run_observe_intent(
-                runtime,
-                _SESSION,
-                {
-                    "metric": "metric.m1",
-                    "time_scope": {"kind": "range", "start": "2026-04-01", "end": "2026-04-08"},
-                    "calendar_policy_ref": "calendar_policy.weekday_yoy",
-                    "granularity": "day",
-                },
-            )
-
-        self.assertEqual(
-            result["resolved_policy_summary"]["policy_ref"], "calendar_policy.weekday_yoy"
-        )
-        self.assertEqual(
-            result["aligned_baseline_series"],
-            [
-                {
-                    "window": {"start": "2026-04-01", "end": "2026-04-02"},
-                    "baseline_window": {"start": "2025-04-02", "end": "2025-04-03"},
-                    "value": 100.0,
-                }
-            ],
-        )
-        self.assertEqual(
-            result["yoy_series"],
-            [
-                {
-                    "window": {"start": "2026-04-01", "end": "2026-04-02"},
-                    "baseline_window": {"start": "2025-04-02", "end": "2025-04-03"},
-                    "current_value": 120.0,
-                    "baseline_value": 100.0,
-                    "absolute_delta": 20.0,
-                    "relative_delta": 0.2,
-                }
-            ],
-        )
-
-    def test_observe_segmented_returns_segmented_yoy_for_calendar_alignment(self) -> None:
-        from marivo.runtime.intents.observe import run_observe_intent
-
-        runtime = self._make_runtime()
-        runtime.core.normalize_intent_metric_ref.side_effect = lambda metric: metric
-        runtime.core.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix(
-            "metric."
-        )
-        runtime.resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
-        runtime.resolve_metric_sql_for_execution.return_value = "SUM(val)"
-        runtime.resolve_metric_dimensions.return_value = ["platform"]
-        runtime.resolve_engine.return_value = (
-            MagicMock(),
-            "duckdb",
-            {"src.metrics": "src.metrics"},
-        )
-        _set_resolved_time_axis(runtime, "event_date")
-        runtime.build_scoped_query.return_value = {
-            "mode": "single_window",
-            "analysis_time_expr": "event_date",
-            "analysis_time_kind": "date_field",
-            "current": {"start": "2026-04-01", "end": "2026-04-08"},
-        }
-        runtime.compile_step.return_value = _make_compiled_mock_with_calendar_alignment()
-
-        with patch("marivo.runtime.intents.observe.execute_compiled") as mock_exec:
-            mock_exec.return_value = MagicMock(
-                rows=[
-                    {
-                        "platform": "web",
-                        "current_value": 120.0,
-                        "baseline_value": 100.0,
-                        "absolute_delta": 20.0,
-                        "relative_delta": 0.2,
-                    },
-                    {
-                        "platform": "app",
-                        "current_value": 80.0,
-                        "baseline_value": 100.0,
-                        "absolute_delta": -20.0,
-                        "relative_delta": -0.2,
-                    },
-                ]
-            )
-            result = run_observe_intent(
-                runtime,
-                _SESSION,
-                {
-                    "metric": "metric.m1",
-                    "time_scope": {"kind": "range", "start": "2026-04-01", "end": "2026-04-08"},
-                    "calendar_policy_ref": "calendar_policy.weekday_yoy",
-                    "dimensions": ["platform"],
-                },
-            )
-
-        self.assertEqual(
-            result["resolved_policy_summary"]["policy_ref"], "calendar_policy.weekday_yoy"
-        )
-        self.assertEqual(
-            result["segments"],
-            [
-                {"keys": {"platform": "web"}, "value": 120.0, "share": None},
-                {"keys": {"platform": "app"}, "value": 80.0, "share": None},
-            ],
-        )
-        self.assertEqual(
-            result["segmented_yoy"],
-            [
-                {
-                    "keys": {"platform": "web"},
-                    "current_value": 120.0,
-                    "baseline_value": 100.0,
-                    "absolute_delta": 20.0,
-                    "relative_delta": 0.2,
-                },
-                {
-                    "keys": {"platform": "app"},
-                    "current_value": 80.0,
-                    "baseline_value": 100.0,
-                    "absolute_delta": -20.0,
-                    "relative_delta": -0.2,
-                },
-            ],
-        )
 
     def test_observe_segmented_omits_segmented_yoy_without_calendar_alignment(self) -> None:
         from marivo.runtime.intents.observe import run_observe_intent
@@ -927,214 +273,6 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
             )
 
         self.assertNotIn("segmented_yoy", result)
-
-    def test_observe_time_series_rebuilds_baseline_scoped_query_for_partition_pruning(
-        self,
-    ) -> None:
-        from marivo.runtime.intents.observe import run_observe_intent
-
-        runtime = self._make_runtime()
-        runtime.core.normalize_intent_metric_ref.side_effect = lambda metric: metric
-        runtime.core.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix(
-            "metric."
-        )
-        runtime.resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
-        runtime.resolve_metric_sql_for_execution.return_value = "SUM(val)"
-        runtime.resolve_metric_dimensions.return_value = []
-        runtime.resolve_engine.return_value = (
-            MagicMock(),
-            "duckdb",
-            {"src.metrics": "src.metrics"},
-        )
-        _set_resolved_time_axis(runtime, "CAST(log_date AS DATE)")
-
-        scoped_queries: list[dict[str, Any]] = []
-
-        def _capture_scoped_query(
-            session_id: str, resolved: Any, *, engine_type: str
-        ) -> dict[str, Any]:
-            scoped_query = {
-                "mode": "single_window",
-                "analysis_time_expr": "CAST(log_date AS DATE)",
-                "analysis_time_kind": "date_field",
-                "current": {
-                    "start": resolved.time_scope.current.start,
-                    "end": resolved.time_scope.current.end,
-                },
-                "partition_pruning_predicate": (
-                    f"log_date >= '{resolved.time_scope.current.start}' "
-                    f"AND log_date < '{resolved.time_scope.current.end}'"
-                ),
-            }
-            scoped_queries.append(scoped_query)
-            return scoped_query
-
-        runtime.build_scoped_query.side_effect = _capture_scoped_query
-        runtime.compile_step.side_effect = [
-            _make_time_series_compiled_mock_with_calendar_alignment(),
-            _make_compiled_mock(),
-        ]
-
-        with patch("marivo.runtime.intents.observe.execute_compiled") as mock_exec:
-            mock_exec.side_effect = [
-                MagicMock(rows=[{"bucket_start": "2026-04-01", "value": 120.0}]),
-                MagicMock(rows=[{"bucket_start": "2025-04-02", "value": 100.0}]),
-            ]
-            result = run_observe_intent(
-                runtime,
-                _SESSION,
-                {
-                    "metric": "metric.m1",
-                    "time_scope": {"kind": "range", "start": "2026-04-01", "end": "2026-04-08"},
-                    "calendar_policy_ref": "calendar_policy.weekday_yoy",
-                    "granularity": "day",
-                },
-            )
-
-        self.assertEqual(len(scoped_queries), 2)
-        self.assertEqual(
-            scoped_queries[0]["partition_pruning_predicate"],
-            "log_date >= '2026-04-01' AND log_date < '2026-04-08'",
-        )
-        self.assertEqual(
-            scoped_queries[1]["partition_pruning_predicate"],
-            "log_date >= '2025-04-01' AND log_date < '2025-04-08'",
-        )
-        baseline_step_params = runtime.compile_step.call_args_list[1].args[0].params
-        self.assertEqual(
-            baseline_step_params["scoped_query"]["partition_pruning_predicate"],
-            "log_date >= '2025-04-01' AND log_date < '2025-04-08'",
-        )
-        self.assertEqual(result["aligned_baseline_series"][0]["value"], 100.0)
-        self.assertEqual(
-            result["resolved_policy_summary"]["data_coverage_summary"][
-                "aligned_present_baseline_bucket_count"
-            ],
-            1,
-        )
-
-    def test_observe_time_series_backfills_missing_requested_bucket_and_records_data_coverage(
-        self,
-    ) -> None:
-        from marivo.runtime.intents.observe import run_observe_intent
-
-        runtime = self._make_runtime()
-        runtime.core.normalize_intent_metric_ref.side_effect = lambda metric: metric
-        runtime.core.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix(
-            "metric."
-        )
-        runtime.resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
-        runtime.resolve_metric_sql_for_execution.return_value = "SUM(val)"
-        runtime.resolve_metric_dimensions.return_value = []
-        runtime.resolve_engine.return_value = (
-            MagicMock(),
-            "duckdb",
-            {"src.metrics": "src.metrics"},
-        )
-        _set_resolved_time_axis(runtime, "event_date")
-        runtime.build_scoped_query.return_value = {
-            "mode": "single_window",
-            "analysis_time_expr": "event_date",
-            "analysis_time_kind": "date_field",
-            "current": {"start": "2026-04-01", "end": "2026-04-03"},
-        }
-        runtime.compile_step.side_effect = [
-            _make_time_series_compiled_mock_with_calendar_alignment(),
-            _make_compiled_mock(),
-        ]
-
-        with patch("marivo.runtime.intents.observe.execute_compiled") as mock_exec:
-            mock_exec.side_effect = [
-                MagicMock(rows=[{"bucket_start": "2026-04-01", "value": 120.0}]),
-                MagicMock(rows=[{"bucket_start": "2025-04-02", "value": 100.0}]),
-            ]
-            result = run_observe_intent(
-                runtime,
-                _SESSION,
-                {
-                    "metric": "metric.m1",
-                    "time_scope": {"kind": "range", "start": "2026-04-01", "end": "2026-04-03"},
-                    "calendar_policy_ref": "calendar_policy.weekday_yoy",
-                    "granularity": "day",
-                },
-            )
-
-        self.assertEqual(
-            result["series"],
-            [
-                {"window": {"start": "2026-04-01", "end": "2026-04-02"}, "value": 120.0},
-                {"window": {"start": "2026-04-02", "end": "2026-04-03"}, "value": None},
-            ],
-        )
-        self.assertEqual(
-            result["resolved_policy_summary"]["data_coverage_summary"],
-            {
-                "expected_bucket_count": 2,
-                "present_bucket_count": 1,
-                "missing_bucket_count": 1,
-                "coverage_ratio": 0.5,
-                "aligned_expected_bucket_count": 1,
-                "aligned_present_current_bucket_count": 1,
-                "aligned_present_baseline_bucket_count": 1,
-                "aligned_present_both_bucket_count": 1,
-            },
-        )
-        self.assertFalse(result["analytical_metadata"]["data_complete"])
-        self.assertEqual(result["analytical_metadata"]["quality_status"], "needs_attention")
-
-    def test_observe_time_series_sets_data_complete_true_when_all_requested_buckets_present(
-        self,
-    ) -> None:
-        from marivo.runtime.intents.observe import run_observe_intent
-
-        runtime = self._make_runtime()
-        runtime.core.normalize_intent_metric_ref.side_effect = lambda metric: metric
-        runtime.core.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix(
-            "metric."
-        )
-        runtime.resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
-        runtime.resolve_metric_sql_for_execution.return_value = "SUM(val)"
-        runtime.resolve_metric_dimensions.return_value = []
-        runtime.resolve_engine.return_value = (
-            MagicMock(),
-            "duckdb",
-            {"src.metrics": "src.metrics"},
-        )
-        _set_resolved_time_axis(runtime, "event_date")
-        runtime.build_scoped_query.return_value = {
-            "mode": "single_window",
-            "analysis_time_expr": "event_date",
-            "analysis_time_kind": "date_field",
-            "current": {"start": "2026-04-01", "end": "2026-04-03"},
-        }
-        runtime.compile_step.side_effect = [
-            _make_time_series_compiled_mock_with_calendar_alignment(),
-            _make_compiled_mock(),
-        ]
-
-        with patch("marivo.runtime.intents.observe.execute_compiled") as mock_exec:
-            mock_exec.side_effect = [
-                MagicMock(
-                    rows=[
-                        {"bucket_start": "2026-04-01", "value": 120.0},
-                        {"bucket_start": "2026-04-02", "value": 130.0},
-                    ]
-                ),
-                MagicMock(rows=[{"bucket_start": "2025-04-02", "value": 100.0}]),
-            ]
-            result = run_observe_intent(
-                runtime,
-                _SESSION,
-                {
-                    "metric": "metric.m1",
-                    "time_scope": {"kind": "range", "start": "2026-04-01", "end": "2026-04-03"},
-                    "calendar_policy_ref": "calendar_policy.weekday_yoy",
-                    "granularity": "day",
-                },
-            )
-
-        self.assertTrue(result["analytical_metadata"]["data_complete"])
-        self.assertEqual(result["analytical_metadata"]["quality_status"], "ready")
 
     def test_observe_time_series_without_rows_marks_backfilled_buckets_incomplete(self) -> None:
         from marivo.runtime.intents.observe import run_observe_intent
@@ -1276,66 +414,15 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
         args, _ = runtime.commit_artifact_with_extraction.call_args
         self.assertEqual(args[2], "compare_artifact")
 
-    def test_compare_reuses_frozen_calendar_alignment_summary(self) -> None:
+    def test_compare_type_non_normal_rejects_scalar_observations(self) -> None:
         from marivo.runtime.intents.compare import run_compare_intent
 
         runtime = self._make_runtime()
         left = _scalar_observation("m1")
         right = _scalar_observation("m1")
-        left["resolved_policy_summary"] = _resolved_policy_summary()
-        right["resolved_policy_summary"] = _resolved_policy_summary()
         runtime.resolve_artifact_for_ref.side_effect = [left, right]
 
-        result = run_compare_intent(
-            runtime,
-            _SESSION,
-            {
-                "left_ref": {
-                    "step_id": "step_left",
-                    "session_id": _SESSION,
-                    "step_type": "observe",
-                },
-                "right_ref": {
-                    "step_id": "step_right",
-                    "session_id": _SESSION,
-                    "step_type": "observe",
-                },
-            },
-        )
-
-        self.assertEqual(result["comparability"]["status"], "comparable")
-        self.assertEqual(result["comparability"]["issues"], [])
-        self.assertEqual(
-            result["resolved_input_summary"]["calendar_alignment"]["reuse_source"],
-            "observation_resolved_policy_summary",
-        )
-        self.assertEqual(
-            result["resolved_input_summary"]["calendar_alignment"]["policy_ref"],
-            "calendar_policy.weekday_yoy",
-        )
-        self.assertTrue(result["resolved_input_summary"]["calendar_alignment"]["rollup_safe"])
-        self.assertEqual(
-            result["resolved_input_summary"]["calendar_alignment"]["effective_coverage_summary"],
-            {
-                "aligned_bucket_count": 7,
-                "unpaired_bucket_count": 0,
-                "aligned_ratio": 1.0,
-            },
-        )
-
-    def test_compare_requires_alignment_metadata_on_both_sides(self) -> None:
-        from marivo.runtime.intents.compare import run_compare_intent
-
-        runtime = self._make_runtime()
-        left = _scalar_observation("m1")
-        right = _scalar_observation("m1")
-        left["resolved_policy_summary"] = _resolved_policy_summary()
-        runtime.resolve_artifact_for_ref.side_effect = [left, right]
-
-        with self.assertRaisesRegex(
-            ValueError,
-            "calendar alignment metadata is missing on one observation",
-        ):
+        with self.assertRaisesRegex(ValueError, "compare_type 'yoy' requires time_series"):
             run_compare_intent(
                 runtime,
                 _SESSION,
@@ -1350,457 +437,7 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
                         "session_id": _SESSION,
                         "step_type": "observe",
                     },
-                },
-            )
-
-    def test_compare_rejects_calendar_version_mismatch(self) -> None:
-        from marivo.runtime.intents.compare import run_compare_intent
-
-        runtime = self._make_runtime()
-        left = _scalar_observation("m1")
-        right = _scalar_observation("m1")
-        left["resolved_policy_summary"] = _resolved_policy_summary()
-        right["resolved_policy_summary"] = _resolved_policy_summary(
-            resolved_calendar_version="calendar_data_cn_2026q2_v2"
-        )
-        runtime.resolve_artifact_for_ref.side_effect = [left, right]
-
-        with self.assertRaisesRegex(
-            ValueError,
-            "left and right observations freeze different calendar versions",
-        ):
-            run_compare_intent(
-                runtime,
-                _SESSION,
-                {
-                    "left_ref": {
-                        "step_id": "step_left",
-                        "session_id": _SESSION,
-                        "step_type": "observe",
-                    },
-                    "right_ref": {
-                        "step_id": "step_right",
-                        "session_id": _SESSION,
-                        "step_type": "observe",
-                    },
-                },
-            )
-
-    def test_calendar_version_mismatch_issue_keeps_structured_details(self) -> None:
-        from marivo.runtime.intents.calendar_alignment_metadata import (
-            resolve_calendar_alignment_reuse_for_intent,
-        )
-
-        summary = resolve_calendar_alignment_reuse_for_intent(
-            intent_name="compare",
-            left_resolved_policy_summary=_resolved_policy_summary(),
-            right_resolved_policy_summary=_resolved_policy_summary(
-                resolved_calendar_version="calendar_data_cn_2026q2_v2"
-            ),
-        )
-
-        self.assertIsNone(summary["reuse_summary"])
-        self.assertEqual(summary["fatal_message"], summary["issues"][0]["message"])
-        self.assertEqual(summary["issues"][0]["code"], "calendar_version_mismatch")
-        self.assertEqual(
-            summary["issues"][0]["details"],
-            {
-                "field_name": "resolved_calendar_version",
-                "left_value": "calendar_data_cn_2026q2_v1",
-                "right_value": "calendar_data_cn_2026q2_v2",
-            },
-        )
-
-    def test_compare_marks_needs_attention_for_upstream_calendar_warnings(self) -> None:
-        from marivo.runtime.intents.compare import run_compare_intent
-
-        runtime = self._make_runtime()
-        left = _scalar_observation("m1")
-        right = _scalar_observation("m1")
-        left["resolved_policy_summary"] = _resolved_policy_summary(
-            comparability_warnings=["fallback_applied"]
-        )
-        right["resolved_policy_summary"] = _resolved_policy_summary()
-        runtime.resolve_artifact_for_ref.side_effect = [left, right]
-
-        result = run_compare_intent(
-            runtime,
-            _SESSION,
-            {
-                "left_ref": {
-                    "step_id": "step_left",
-                    "session_id": _SESSION,
-                    "step_type": "observe",
-                },
-                "right_ref": {
-                    "step_id": "step_right",
-                    "session_id": _SESSION,
-                    "step_type": "observe",
-                },
-            },
-        )
-
-        self.assertEqual(result["comparability"]["status"], "needs_attention")
-        self.assertEqual(result["comparability"]["issues"][0]["code"], "fallback_applied")
-        self.assertEqual(result["comparability"]["issues"][0]["severity"], "warning")
-        self.assertEqual(
-            result["comparability"]["issues"][0]["gate_family"],
-            "comparability_gate",
-        )
-        self.assertFalse(result["comparability"]["issues"][0]["blocking"])
-        self.assertIn(
-            "calendar alignment required a fallback matcher",
-            result["comparability"]["issues"][0]["message"],
-        )
-        self.assertIn(
-            "Review whether the fallback alignment is acceptable",
-            result["comparability"]["issues"][0]["message"],
-        )
-
-    def test_compare_marks_needs_attention_for_incomplete_calendar_coverage(self) -> None:
-        from marivo.runtime.intents.compare import run_compare_intent
-
-        runtime = self._make_runtime()
-        left = _scalar_observation("m1")
-        right = _scalar_observation("m1")
-        left["resolved_policy_summary"] = _resolved_policy_summary(
-            aligned_bucket_count=6,
-            unpaired_bucket_count=1,
-            aligned_ratio=6 / 7,
-        )
-        right["resolved_policy_summary"] = _resolved_policy_summary()
-        runtime.resolve_artifact_for_ref.side_effect = [left, right]
-
-        result = run_compare_intent(
-            runtime,
-            _SESSION,
-            {
-                "left_ref": {
-                    "step_id": "step_left",
-                    "session_id": _SESSION,
-                    "step_type": "observe",
-                },
-                "right_ref": {
-                    "step_id": "step_right",
-                    "session_id": _SESSION,
-                    "step_type": "observe",
-                },
-            },
-        )
-
-        self.assertEqual(result["comparability"]["status"], "needs_attention")
-        self.assertEqual(
-            result["comparability"]["issues"][-1]["code"],
-            "alignment_coverage_insufficient",
-        )
-        self.assertEqual(
-            result["comparability"]["issues"][-1]["gate_family"],
-            "comparability_gate",
-        )
-        self.assertFalse(result["comparability"]["issues"][-1]["blocking"])
-        self.assertIn(
-            "calendar bucket pairing coverage is incomplete",
-            result["comparability"]["issues"][-1]["message"],
-        )
-        self.assertIn(
-            "shrink the comparison window",
-            result["comparability"]["issues"][-1]["message"],
-        )
-        self.assertEqual(
-            result["comparability"]["issues"][-1]["details"]["effective_coverage_summary"],
-            {
-                "aligned_bucket_count": 6,
-                "unpaired_bucket_count": 1,
-                "aligned_ratio": 6 / 7,
-            },
-        )
-        self.assertEqual(
-            result["comparability"]["issues"][-1]["details"]["next_action_hint"],
-            "shrink_window_or_complete_mapping",
-        )
-        self.assertEqual(
-            result["resolved_input_summary"]["calendar_alignment"]["effective_coverage_summary"],
-            {
-                "aligned_bucket_count": 6,
-                "unpaired_bucket_count": 1,
-                "aligned_ratio": 6 / 7,
-            },
-        )
-
-    def test_compare_warns_on_metric_data_coverage_without_relabeling_alignment_coverage(
-        self,
-    ) -> None:
-        from marivo.runtime.intents.compare import run_compare_intent
-
-        runtime = self._make_runtime()
-        left = _time_series_observation(
-            "m1",
-            series=[
-                {"window": {"start": "2024-01-01", "end": "2024-01-02"}, "value": 10.0},
-                {"window": {"start": "2024-01-02", "end": "2024-01-03"}, "value": None},
-            ],
-        )
-        right = _time_series_observation(
-            "m1",
-            series=[
-                {"window": {"start": "2024-01-01", "end": "2024-01-02"}, "value": 8.0},
-                {"window": {"start": "2024-01-02", "end": "2024-01-03"}, "value": 9.0},
-            ],
-        )
-        left["resolved_policy_summary"] = _resolved_policy_summary(
-            expected_bucket_count=2,
-            present_bucket_count=1,
-            missing_bucket_count=1,
-            coverage_ratio=0.5,
-        )
-        right["resolved_policy_summary"] = _resolved_policy_summary(
-            expected_bucket_count=2,
-            present_bucket_count=2,
-            missing_bucket_count=0,
-            coverage_ratio=1.0,
-        )
-        runtime.resolve_artifact_for_ref.side_effect = [left, right]
-
-        result = run_compare_intent(
-            runtime,
-            _SESSION,
-            {
-                "left_ref": {
-                    "step_id": "step_left",
-                    "session_id": _SESSION,
-                    "step_type": "observe",
-                },
-                "right_ref": {
-                    "step_id": "step_right",
-                    "session_id": _SESSION,
-                    "step_type": "observe",
-                },
-                "mode": "time_series",
-            },
-        )
-
-        self.assertEqual(result["comparability"]["status"], "needs_attention")
-        self.assertIn(
-            "metric_data_coverage_incomplete",
-            [issue["code"] for issue in result["comparability"]["issues"]],
-        )
-        self.assertNotIn(
-            "alignment_coverage_insufficient",
-            [issue["code"] for issue in result["comparability"]["issues"]],
-        )
-        self.assertEqual(
-            result["resolved_input_summary"]["calendar_alignment"][
-                "effective_data_coverage_summary"
-            ],
-            {
-                "expected_bucket_count": 2,
-                "present_bucket_count": 1,
-                "missing_bucket_count": 1,
-                "coverage_ratio": 0.5,
-                "aligned_expected_bucket_count": 2,
-                "aligned_present_current_bucket_count": 1,
-                "aligned_present_baseline_bucket_count": 1,
-                "aligned_present_both_bucket_count": 1,
-            },
-        )
-
-    def test_compare_rejects_unresolved_weekday_pairing_tie(self) -> None:
-        from marivo.runtime.intents.compare import run_compare_intent
-
-        runtime = self._make_runtime()
-        left = _scalar_observation("m1")
-        right = _scalar_observation("m1")
-        left["resolved_policy_summary"] = _resolved_policy_summary(
-            comparability_warnings=["weekday_pairing_tie"]
-        )
-        right["resolved_policy_summary"] = _resolved_policy_summary()
-        runtime.resolve_artifact_for_ref.side_effect = [left, right]
-
-        with self.assertRaisesRegex(
-            ValueError,
-            "compare: NOT_COMPARABLE - weekday alignment produced an unresolved tie",
-        ):
-            run_compare_intent(
-                runtime,
-                _SESSION,
-                {
-                    "left_ref": {
-                        "step_id": "step_left",
-                        "session_id": _SESSION,
-                        "step_type": "observe",
-                    },
-                    "right_ref": {
-                        "step_id": "step_right",
-                        "session_id": _SESSION,
-                        "step_type": "observe",
-                    },
-                },
-            )
-
-    def test_compare_rejects_non_dict_resolved_policy_summary(self) -> None:
-        from marivo.runtime.intents.compare import run_compare_intent
-
-        runtime = self._make_runtime()
-        left = _scalar_observation("m1")
-        right = _scalar_observation("m1")
-        left["resolved_policy_summary"] = "not-an-object"
-        right["resolved_policy_summary"] = _resolved_policy_summary()
-        runtime.resolve_artifact_for_ref.side_effect = [left, right]
-
-        with self.assertRaisesRegex(
-            ValueError,
-            "compare: INVALID_ARGUMENT - malformed resolved calendar alignment metadata",
-        ):
-            run_compare_intent(
-                runtime,
-                _SESSION,
-                {
-                    "left_ref": {
-                        "step_id": "step_left",
-                        "session_id": _SESSION,
-                        "step_type": "observe",
-                    },
-                    "right_ref": {
-                        "step_id": "step_right",
-                        "session_id": _SESSION,
-                        "step_type": "observe",
-                    },
-                },
-            )
-
-    def test_compare_rejects_missing_coverage_summary(self) -> None:
-        from marivo.runtime.intents.compare import run_compare_intent
-
-        runtime = self._make_runtime()
-        left = _scalar_observation("m1")
-        right = _scalar_observation("m1")
-        malformed = _resolved_policy_summary()
-        del malformed["coverage_summary"]
-        left["resolved_policy_summary"] = malformed
-        right["resolved_policy_summary"] = _resolved_policy_summary()
-        runtime.resolve_artifact_for_ref.side_effect = [left, right]
-
-        with self.assertRaisesRegex(
-            ValueError,
-            "compare: INVALID_ARGUMENT - malformed resolved calendar alignment metadata",
-        ):
-            run_compare_intent(
-                runtime,
-                _SESSION,
-                {
-                    "left_ref": {
-                        "step_id": "step_left",
-                        "session_id": _SESSION,
-                        "step_type": "observe",
-                    },
-                    "right_ref": {
-                        "step_id": "step_right",
-                        "session_id": _SESSION,
-                        "step_type": "observe",
-                    },
-                },
-            )
-
-    def test_compare_rejects_non_string_warning_entry(self) -> None:
-        from marivo.runtime.intents.compare import run_compare_intent
-
-        runtime = self._make_runtime()
-        left = _scalar_observation("m1")
-        right = _scalar_observation("m1")
-        malformed = _resolved_policy_summary()
-        malformed["comparability_warnings"] = ["fallback_applied", 1]
-        left["resolved_policy_summary"] = malformed
-        right["resolved_policy_summary"] = _resolved_policy_summary()
-        runtime.resolve_artifact_for_ref.side_effect = [left, right]
-
-        with self.assertRaisesRegex(
-            ValueError,
-            "compare: INVALID_ARGUMENT - malformed resolved calendar alignment metadata",
-        ):
-            run_compare_intent(
-                runtime,
-                _SESSION,
-                {
-                    "left_ref": {
-                        "step_id": "step_left",
-                        "session_id": _SESSION,
-                        "step_type": "observe",
-                    },
-                    "right_ref": {
-                        "step_id": "step_right",
-                        "session_id": _SESSION,
-                        "step_type": "observe",
-                    },
-                },
-            )
-
-    def test_compare_rejects_negative_bucket_counts(self) -> None:
-        from marivo.runtime.intents.compare import run_compare_intent
-
-        runtime = self._make_runtime()
-        left = _scalar_observation("m1")
-        right = _scalar_observation("m1")
-        left["resolved_policy_summary"] = _resolved_policy_summary(
-            aligned_bucket_count=-1,
-            unpaired_bucket_count=0,
-            aligned_ratio=0.0,
-        )
-        right["resolved_policy_summary"] = _resolved_policy_summary()
-        runtime.resolve_artifact_for_ref.side_effect = [left, right]
-
-        with self.assertRaisesRegex(
-            ValueError,
-            "compare: INVALID_ARGUMENT - malformed resolved calendar alignment metadata",
-        ):
-            run_compare_intent(
-                runtime,
-                _SESSION,
-                {
-                    "left_ref": {
-                        "step_id": "step_left",
-                        "session_id": _SESSION,
-                        "step_type": "observe",
-                    },
-                    "right_ref": {
-                        "step_id": "step_right",
-                        "session_id": _SESSION,
-                        "step_type": "observe",
-                    },
-                },
-            )
-
-    def test_compare_rejects_inconsistent_coverage_summary(self) -> None:
-        from marivo.runtime.intents.compare import run_compare_intent
-
-        runtime = self._make_runtime()
-        left = _scalar_observation("m1")
-        right = _scalar_observation("m1")
-        left["resolved_policy_summary"] = _resolved_policy_summary(
-            aligned_bucket_count=7,
-            unpaired_bucket_count=1,
-            aligned_ratio=1.0,
-        )
-        right["resolved_policy_summary"] = _resolved_policy_summary()
-        runtime.resolve_artifact_for_ref.side_effect = [left, right]
-
-        with self.assertRaisesRegex(
-            ValueError,
-            "compare: INVALID_ARGUMENT - malformed resolved calendar alignment metadata",
-        ):
-            run_compare_intent(
-                runtime,
-                _SESSION,
-                {
-                    "left_ref": {
-                        "step_id": "step_left",
-                        "session_id": _SESSION,
-                        "step_type": "observe",
-                    },
-                    "right_ref": {
-                        "step_id": "step_right",
-                        "session_id": _SESSION,
-                        "step_type": "observe",
-                    },
+                    "compare_type": "yoy",
                 },
             )
 
@@ -1853,7 +490,7 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
             result["analytical_metadata"]["pairing_rule"], "intersection_by_time_bucket"
         )
 
-    def test_compare_time_series_reuses_calendar_aligned_pairing_for_summary_basis(self) -> None:
+    def test_compare_type_yoy_aligns_time_series_by_baseline_window(self) -> None:
         from marivo.runtime.intents.compare import run_compare_intent
 
         runtime = self._make_runtime()
@@ -1864,6 +501,7 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
                 {"window": {"start": "2026-02-15", "end": "2026-02-16"}, "value": 12.0},
             ],
         )
+        left["time_scope"] = {"kind": "range", "start": "2026-02-14", "end": "2026-02-16"}
         right = _time_series_observation(
             "m1",
             series=[
@@ -1871,21 +509,65 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
                 {"window": {"start": "2025-02-15", "end": "2025-02-16"}, "value": 11.0},
             ],
         )
-        left["resolved_policy_summary"] = _resolved_policy_summary(
-            current_window_start="2026-02-14",
-            current_window_end="2026-02-21",
-            baseline_window_start="2025-02-14",
-            baseline_window_end="2025-02-21",
-            current_bucket_start="2026-02-14",
-            baseline_bucket_start="2025-02-14",
+        right["time_scope"] = {"kind": "range", "start": "2025-02-14", "end": "2025-02-16"}
+        runtime.resolve_artifact_for_ref.side_effect = [left, right]
+
+        result = run_compare_intent(
+            runtime,
+            _SESSION,
+            {
+                "left_ref": {
+                    "step_id": "step_left",
+                    "session_id": _SESSION,
+                    "step_type": "observe",
+                },
+                "right_ref": {
+                    "step_id": "step_right",
+                    "session_id": _SESSION,
+                    "step_type": "observe",
+                },
+                "mode": "time_series",
+                "compare_type": "yoy",
+            },
         )
-        right["resolved_policy_summary"] = _resolved_policy_summary(
-            current_window_start="2026-02-14",
-            current_window_end="2026-02-21",
-            baseline_window_start="2025-02-14",
-            baseline_window_end="2025-02-21",
-            current_bucket_start="2026-02-14",
-            baseline_bucket_start="2025-02-14",
+
+        self.assertEqual(
+            result["analytical_metadata"]["pairing_basis"], "compare_type_calendar_alignment"
+        )
+        self.assertEqual(result["analytical_metadata"]["pairing_rule"], "natural_date")
+        self.assertEqual(result["analytical_metadata"]["compare_type"], "yoy")
+        self.assertEqual(result["summary_left_value"], 22.0)
+        self.assertEqual(result["summary_right_value"], 20.0)
+        self.assertEqual(result["summary_absolute_delta"], 2.0)
+        self.assertEqual(
+            result["analytical_metadata"]["matched_left_time_scope"],
+            {"kind": "range", "start": "2026-02-14", "end": "2026-02-16"},
+        )
+        self.assertEqual(
+            result["analytical_metadata"]["matched_right_time_scope"],
+            {"kind": "range", "start": "2025-02-14", "end": "2025-02-16"},
+        )
+        self.assertEqual(result["rows"][0]["left_value"], 10.0)
+        self.assertEqual(result["rows"][0]["right_value"], 9.0)
+
+    def test_compare_type_mom_aligns_time_series_to_previous_period(self) -> None:
+        from marivo.runtime.intents.compare import run_compare_intent
+
+        runtime = self._make_runtime()
+        left = _time_series_observation(
+            "m1",
+            series=[
+                {"window": {"start": "2026-04-08", "end": "2026-04-09"}, "value": 30.0},
+                {"window": {"start": "2026-04-09", "end": "2026-04-10"}, "value": 40.0},
+            ],
+        )
+        left["time_scope"] = {"kind": "range", "start": "2026-04-08", "end": "2026-04-10"}
+        right = _time_series_observation(
+            "m1",
+            series=[
+                {"window": {"start": "2026-04-06", "end": "2026-04-07"}, "value": 20.0},
+                {"window": {"start": "2026-04-07", "end": "2026-04-08"}, "value": 25.0},
+            ],
         )
         runtime.resolve_artifact_for_ref.side_effect = [left, right]
 
@@ -1904,28 +586,225 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
                     "step_type": "observe",
                 },
                 "mode": "time_series",
+                "compare_type": "mom",
             },
         )
 
+        self.assertEqual(result["analytical_metadata"]["pairing_rule"], "natural_date")
+        self.assertEqual(result["summary_left_value"], 70.0)
+        self.assertEqual(result["summary_right_value"], 45.0)
         self.assertEqual(
-            result["analytical_metadata"]["pairing_basis"], "calendar_aligned_observation_windows"
+            result["resolved_input_summary"]["calendar_alignment"]["baseline_window"],
+            {"start": "2026-04-06", "end": "2026-04-08"},
         )
-        self.assertEqual(
-            result["analytical_metadata"]["pairing_rule"], "calendar_aligned_bucket_pairing"
+
+    def test_compare_type_wow_aligns_time_series_to_previous_week(self) -> None:
+        from marivo.runtime.intents.compare import run_compare_intent
+
+        runtime = self._make_runtime()
+        left = _time_series_observation(
+            "m1",
+            series=[
+                {"window": {"start": "2026-04-08", "end": "2026-04-09"}, "value": 30.0},
+                {"window": {"start": "2026-04-09", "end": "2026-04-10"}, "value": 40.0},
+            ],
         )
-        self.assertEqual(result["summary_left_value"], 10.0)
-        self.assertEqual(result["summary_right_value"], 9.0)
-        self.assertEqual(result["summary_absolute_delta"], 1.0)
-        self.assertEqual(
-            result["analytical_metadata"]["matched_left_time_scope"],
-            {"kind": "range", "start": "2026-02-14", "end": "2026-02-15"},
+        left["time_scope"] = {"kind": "range", "start": "2026-04-08", "end": "2026-04-10"}
+        right = _time_series_observation(
+            "m1",
+            series=[
+                {"window": {"start": "2026-04-01", "end": "2026-04-02"}, "value": 20.0},
+                {"window": {"start": "2026-04-02", "end": "2026-04-03"}, "value": 25.0},
+            ],
         )
+        runtime.resolve_artifact_for_ref.side_effect = [left, right]
+
+        result = run_compare_intent(
+            runtime,
+            _SESSION,
+            {
+                "left_ref": {
+                    "step_id": "step_left",
+                    "session_id": _SESSION,
+                    "step_type": "observe",
+                },
+                "right_ref": {
+                    "step_id": "step_right",
+                    "session_id": _SESSION,
+                    "step_type": "observe",
+                },
+                "mode": "time_series",
+                "compare_type": "wow",
+            },
+        )
+
+        self.assertEqual(result["analytical_metadata"]["pairing_rule"], "same_weekday")
+        self.assertEqual(result["summary_right_value"], 45.0)
         self.assertEqual(
             result["analytical_metadata"]["matched_right_time_scope"],
-            {"kind": "range", "start": "2025-02-14", "end": "2025-02-15"},
+            {"kind": "range", "start": "2026-04-01", "end": "2026-04-03"},
         )
-        self.assertEqual(result["rows"][0]["left_value"], 10.0)
-        self.assertEqual(result["rows"][0]["right_value"], 9.0)
+
+    def test_compare_type_weekday_aligned_yoy_uses_nearest_weekday(self) -> None:
+        from marivo.runtime.intents.compare import run_compare_intent
+
+        runtime = self._make_runtime()
+        left = _time_series_observation(
+            "m1",
+            series=[{"window": {"start": "2026-04-02", "end": "2026-04-03"}, "value": 120.0}],
+        )
+        left["time_scope"] = {"kind": "range", "start": "2026-04-02", "end": "2026-04-04"}
+        right = _time_series_observation(
+            "m1",
+            series=[{"window": {"start": "2025-04-03", "end": "2025-04-04"}, "value": 100.0}],
+        )
+        runtime.resolve_artifact_for_ref.side_effect = [left, right]
+
+        result = run_compare_intent(
+            runtime,
+            _SESSION,
+            {
+                "left_ref": {
+                    "step_id": "step_left",
+                    "session_id": _SESSION,
+                    "step_type": "observe",
+                },
+                "right_ref": {
+                    "step_id": "step_right",
+                    "session_id": _SESSION,
+                    "step_type": "observe",
+                },
+                "mode": "time_series",
+                "compare_type": "weekday_aligned_yoy",
+            },
+        )
+
+        self.assertEqual(result["analytical_metadata"]["pairing_rule"], "same_weekday")
+        self.assertEqual(result["rows"][0]["right_value"], 100.0)
+        self.assertEqual(
+            result["resolved_input_summary"]["calendar_alignment"]["bucket_pairing"][0][
+                "pairing_reason"
+            ],
+            "same_weekday_nearest",
+        )
+
+    def test_compare_type_weekday_aligned_mom_falls_back_to_natural_date(self) -> None:
+        from marivo.runtime.intents.compare import run_compare_intent
+
+        runtime = self._make_runtime()
+        left = _time_series_observation(
+            "m1",
+            series=[{"window": {"start": "2026-04-08", "end": "2026-04-09"}, "value": 120.0}],
+        )
+        left["time_scope"] = {"kind": "range", "start": "2026-04-08", "end": "2026-04-09"}
+        right = _time_series_observation(
+            "m1",
+            series=[{"window": {"start": "2026-04-07", "end": "2026-04-08"}, "value": 100.0}],
+        )
+        runtime.resolve_artifact_for_ref.side_effect = [left, right]
+
+        result = run_compare_intent(
+            runtime,
+            _SESSION,
+            {
+                "left_ref": {
+                    "step_id": "step_left",
+                    "session_id": _SESSION,
+                    "step_type": "observe",
+                },
+                "right_ref": {
+                    "step_id": "step_right",
+                    "session_id": _SESSION,
+                    "step_type": "observe",
+                },
+                "mode": "time_series",
+                "compare_type": "weekday_aligned_mom",
+            },
+        )
+
+        self.assertEqual(result["rows"][0]["right_value"], 100.0)
+        self.assertEqual(
+            result["resolved_input_summary"]["calendar_alignment"]["bucket_pairing"][0][
+                "pairing_reason"
+            ],
+            "natural_date_shift",
+        )
+
+    def test_compare_type_holiday_aligned_yoy_reads_calendar_data(self) -> None:
+        from marivo.runtime.intents.compare import run_compare_intent
+
+        runtime = self._make_runtime()
+        runtime.calendar_data_reader = _FakeCalendarDataReader()
+        left = _time_series_observation(
+            "m1",
+            series=[{"window": {"start": "2026-02-20", "end": "2026-02-21"}, "value": 120.0}],
+        )
+        left["time_scope"] = {"kind": "range", "start": "2026-02-20", "end": "2026-02-21"}
+        right = _time_series_observation(
+            "m1",
+            series=[{"window": {"start": "2025-02-20", "end": "2025-02-21"}, "value": 100.0}],
+        )
+        runtime.resolve_artifact_for_ref.side_effect = [left, right]
+
+        result = run_compare_intent(
+            runtime,
+            _SESSION,
+            {
+                "left_ref": {
+                    "step_id": "step_left",
+                    "session_id": _SESSION,
+                    "step_type": "observe",
+                },
+                "right_ref": {
+                    "step_id": "step_right",
+                    "session_id": _SESSION,
+                    "step_type": "observe",
+                },
+                "mode": "time_series",
+                "compare_type": "holiday_aligned_yoy",
+            },
+        )
+
+        self.assertEqual(result["rows"][0]["right_value"], 100.0)
+        self.assertEqual(
+            result["resolved_input_summary"]["calendar_alignment"]["resolved_calendar_version"],
+            "cn_2026_v1",
+        )
+        self.assertEqual(
+            result["resolved_input_summary"]["calendar_alignment"]["bucket_pairing"][0][
+                "pairing_reason"
+            ],
+            "holiday_cluster",
+        )
+
+    def test_compare_type_holiday_aligned_yoy_requires_calendar_reader(self) -> None:
+        from marivo.runtime.intents.compare import run_compare_intent
+
+        runtime = self._make_runtime()
+        runtime.calendar_data_reader = None
+        left = _time_series_observation("m1")
+        right = _time_series_observation("m1")
+        runtime.resolve_artifact_for_ref.side_effect = [left, right]
+
+        with self.assertRaisesRegex(ValueError, "requires configured calendar data"):
+            run_compare_intent(
+                runtime,
+                _SESSION,
+                {
+                    "left_ref": {
+                        "step_id": "step_left",
+                        "session_id": _SESSION,
+                        "step_type": "observe",
+                    },
+                    "right_ref": {
+                        "step_id": "step_right",
+                        "session_id": _SESSION,
+                        "step_type": "observe",
+                    },
+                    "mode": "time_series",
+                    "compare_type": "holiday_aligned_yoy",
+                },
+            )
 
     def test_compare_time_series_missing_granularity_fails(self) -> None:
         from marivo.runtime.intents.compare import run_compare_intent

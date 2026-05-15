@@ -410,8 +410,6 @@ def _build_calendar_rows(start: date, end: date, calendar_version: str) -> list[
                 holiday_name,
                 holiday_group_id,
                 year_relative_holiday_key,
-                None,
-                None,
             )
         )
     return rows
@@ -426,8 +424,6 @@ CSV_COLUMNS = (
     "holiday_name",
     "holiday_group_id",
     "year_relative_holiday_key",
-    "event_group_id",
-    "year_relative_event_key",
 )
 
 
@@ -440,7 +436,7 @@ def _write_csv(output_path: Path, calendar_rows: list[tuple[object, ...]]) -> No
         for row in calendar_rows:
             # calendar_rows tuple layout: (calendar_date, region_code, calendar_version,
             #   weekday, is_weekend, is_workday, holiday_name, holiday_group_id,
-            #   year_relative_holiday_key, event_group_id, year_relative_event_key)
+            #   year_relative_holiday_key)
             # CSV excludes calendar_version at index 2.
             writer.writerow(row[:2] + row[3:])
 
@@ -495,16 +491,14 @@ def _write_tables(
                 is_workday BOOLEAN NOT NULL,
                 holiday_name VARCHAR,
                 holiday_group_id VARCHAR,
-                year_relative_holiday_key VARCHAR,
-                event_group_id VARCHAR,
-                year_relative_event_key VARCHAR
+                year_relative_holiday_key VARCHAR
             )
             """
         )
         connection.executemany(
             """
             INSERT INTO analytics.cn_public_holiday VALUES
-                (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             calendar_rows,
         )

@@ -5,17 +5,11 @@ previously scattered across observe.py, detect.py, diagnose.py, attribute.py,
 and validate.py. It runs after AOI structural validation passes but before
 intent handler business logic.
 
-Each function is a pure validator/normalizer with no runtime dependencies
-(except validate_and_normalize_calendar_policy_ref which delegates to the
-calendar module).
+Each function is a pure validator/normalizer with no runtime dependencies.
 """
 
 from __future__ import annotations
 
-from marivo.core.semantic.calendar import (
-    CalendarPolicyResolutionError,
-    validate_calendar_policy_ref,
-)
 from marivo.time_contracts import normalize_hour_boundary
 
 _VALID_GRANULARITIES = frozenset({"hour", "day", "week", "month"})
@@ -71,15 +65,3 @@ def validate_hour_boundaries(granularity: str | None, start: str | None, end: st
         normalize_hour_boundary(str(start), label="time_scope.start")
     if end:
         normalize_hour_boundary(str(end), label="time_scope.end")
-
-
-def validate_and_normalize_calendar_policy_ref(ref: str | None) -> str | None:
-    """Validate calendar policy ref against the known catalog."""
-    if ref is None:
-        return None
-    if not isinstance(ref, str):
-        raise ValueError("calendar_policy_ref must be a string")
-    try:
-        return validate_calendar_policy_ref(ref)
-    except CalendarPolicyResolutionError as error:
-        raise ValueError(f"INVALID_ARGUMENT - {error}") from error

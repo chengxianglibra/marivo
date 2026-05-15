@@ -19,23 +19,30 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 # ---------------------------------------------------------------------------
 # Calendar policy types (from calendar_policy.py)
 # ---------------------------------------------------------------------------
 
 CalendarComparisonBasis = Literal["yoy", "mom", "wow"]
+CompareType = Literal[
+    "normal",
+    "yoy",
+    "mom",
+    "wow",
+    "holiday_aligned_yoy",
+    "weekday_aligned_yoy",
+    "weekday_aligned_mom",
+]
 CalendarPolicyRef = Literal[
     "calendar_policy.natural_yoy",
     "calendar_policy.weekday_yoy",
     "calendar_policy.calendar_yoy",
     "calendar_policy.natural_mom",
     "calendar_policy.weekday_mom",
-    "calendar_policy.calendar_mom",
     "calendar_policy.weekday_wow",
 ]
-ResolutionSource = Literal["explicit_request", "injected_binding", "planner_candidate"]
 CalendarTieBreaker = Literal["prefer_backward", "prefer_forward"]
 
 
@@ -51,8 +58,6 @@ class CalendarMatchingStep:
     matcher: Literal[
         "holiday_cluster",
         "year_relative_holiday_key",
-        "event_cluster",
-        "year_relative_event_key",
         "same_weekday_nearest",
         "natural_date_shift",
     ]
@@ -76,9 +81,14 @@ class CalendarPolicyDefinition:
 
 
 @dataclass(frozen=True, slots=True)
-class ResolvedCalendarPolicyBinding:
-    policy: CalendarPolicyDefinition
-    resolution_source: ResolutionSource
+class CalendarAlignmentPlan:
+    compare_type: CompareType
+    comparison_basis: CalendarComparisonBasis
+    resolved_alignment_mode: str
+    resolved_baseline_generation_rule: CalendarBaselineGenerationRule
+    matching_strategy: tuple[CalendarMatchingStep, ...]
+    fallback_strategy: tuple[str, ...]
+    requires_calendar_data: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -129,8 +139,6 @@ class CalendarAnnotationRow:
     weekday: int
     holiday_group_id: str | None = None
     year_relative_holiday_key: str | None = None
-    event_group_id: str | None = None
-    year_relative_event_key: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -189,7 +197,6 @@ def shift_calendar_date(d: date, *, months: int = 0, years: int = 0) -> date:
 _WARNING_ISSUE_CODES = frozenset(
     {
         "holiday_cluster_unmapped",
-        "event_cluster_unmapped",
         "fallback_applied",
     }
 )
@@ -308,7 +315,7 @@ _POLICIES: tuple[CalendarPolicyDefinition, ...] = (
         comparison_basis="yoy",
         window_tags=("same_weekday",),
         use_when=("工作日效应强", "周一对周一", "周末对周末"),
-        avoid_when=("明确要求节假日窗口", "明确要求活动窗口"),
+        avoid_when=("明确要求节假日窗口",),
         resolved_alignment_mode="same_weekday",
         resolved_baseline_generation_rule=CalendarBaselineGenerationRule(
             strategy="previous_year",
@@ -330,8 +337,8 @@ _POLICIES: tuple[CalendarPolicyDefinition, ...] = (
     CalendarPolicyDefinition(
         policy_ref="calendar_policy.calendar_yoy",
         comparison_basis="yoy",
-        window_tags=("calendar_aware", "event_cluster", "holiday_cluster", "same_weekday_fallback"),
-        use_when=("节假日", "活动窗口", "春节", "618", "双11", "同比需日历对齐"),
+        window_tags=("calendar_aware", "holiday_cluster", "same_weekday_fallback"),
+        use_when=("节假日", "春节", "法定假期", "同比需日历对齐"),
         avoid_when=(),
         resolved_alignment_mode="calendar_aware",
         resolved_baseline_generation_rule=CalendarBaselineGenerationRule(
@@ -340,8 +347,6 @@ _POLICIES: tuple[CalendarPolicyDefinition, ...] = (
             offset_unit="year",
         ),
         matching_strategy=(
-            CalendarMatchingStep("event_cluster", requires_annotation=True),
-            CalendarMatchingStep("year_relative_event_key", requires_annotation=True),
             CalendarMatchingStep("holiday_cluster", requires_annotation=True),
             CalendarMatchingStep("year_relative_holiday_key", requires_annotation=True),
             CalendarMatchingStep(
@@ -360,7 +365,7 @@ _POLICIES: tuple[CalendarPolicyDefinition, ...] = (
         comparison_basis="mom",
         window_tags=("natural_date",),
         use_when=("普通月环比", "上月对本月", "未提活动窗口"),
-        avoid_when=("明确要求周几对齐", "明确要求活动窗口"),
+        avoid_when=("明确要求周几对齐",),
         resolved_alignment_mode="natural_date",
         resolved_baseline_generation_rule=CalendarBaselineGenerationRule(
             strategy="previous_period",
@@ -374,7 +379,7 @@ _POLICIES: tuple[CalendarPolicyDefinition, ...] = (
         comparison_basis="mom",
         window_tags=("same_weekday",),
         use_when=("周几对齐月环比", "工作日效应强"),
-        avoid_when=("明确要求活动窗口",),
+        avoid_when=(),
         resolved_alignment_mode="same_weekday",
         resolved_baseline_generation_rule=CalendarBaselineGenerationRule(
             strategy="previous_period",
@@ -390,32 +395,6 @@ _POLICIES: tuple[CalendarPolicyDefinition, ...] = (
         ),
         fallback_strategy=("natural_date_shift",),
         coverage_behavior="warn_when_weekday_fallback_used",
-    ),
-    CalendarPolicyDefinition(
-        policy_ref="calendar_policy.calendar_mom",
-        comparison_basis="mom",
-        window_tags=("calendar_aware", "event_cluster", "holiday_cluster"),
-        use_when=("活动期月环比", "节假日月环比", "活动窗口对活动窗口"),
-        avoid_when=("普通自然月环比",),
-        resolved_alignment_mode="calendar_aware",
-        resolved_baseline_generation_rule=CalendarBaselineGenerationRule(
-            strategy="previous_period",
-        ),
-        matching_strategy=(
-            CalendarMatchingStep("event_cluster", requires_annotation=True),
-            CalendarMatchingStep("year_relative_event_key", requires_annotation=True),
-            CalendarMatchingStep("holiday_cluster", requires_annotation=True),
-            CalendarMatchingStep("year_relative_holiday_key", requires_annotation=True),
-            CalendarMatchingStep(
-                "same_weekday_nearest",
-                requires_annotation=False,
-                tie_breaker="prefer_backward",
-                max_shift_days=3,
-            ),
-            CalendarMatchingStep("natural_date_shift", requires_annotation=False),
-        ),
-        fallback_strategy=("same_weekday_nearest", "natural_date_shift"),
-        coverage_behavior="warn_when_calendar_annotation_missing_or_fallback_used",
     ),
     CalendarPolicyDefinition(
         policy_ref="calendar_policy.weekday_wow",
@@ -458,7 +437,7 @@ def get_calendar_policy(policy_ref: str) -> CalendarPolicyDefinition:
     policy = _POLICY_BY_REF.get(policy_ref)
     if policy is None:
         raise CalendarPolicyResolutionError(
-            f"Unknown calendar_policy_ref '{policy_ref}'",
+            f"Unknown calendar policy '{policy_ref}'",
             code="calendar_policy_unknown",
             details={
                 "policy_ref": policy_ref,
@@ -473,84 +452,42 @@ def list_calendar_policies() -> tuple[CalendarPolicyDefinition, ...]:
     return _POLICIES
 
 
-def validate_calendar_policy_ref(
-    policy_ref: str | None,
-    *,
-    comparison_basis: CalendarComparisonBasis | None = None,
-) -> str | None:
-    """Validate a calendar policy ref against a comparison basis."""
-    if policy_ref is None:
+def compare_type_to_alignment_plan(compare_type: str | None) -> CalendarAlignmentPlan | None:
+    normalized = str(compare_type or "normal").strip() or "normal"
+    if normalized == "normal":
         return None
+    policy_ref_by_compare_type: dict[str, str] = {
+        "yoy": "calendar_policy.natural_yoy",
+        "mom": "calendar_policy.natural_mom",
+        "wow": "calendar_policy.weekday_wow",
+        "holiday_aligned_yoy": "calendar_policy.calendar_yoy",
+        "weekday_aligned_yoy": "calendar_policy.weekday_yoy",
+        "weekday_aligned_mom": "calendar_policy.weekday_mom",
+    }
+    policy_ref = policy_ref_by_compare_type.get(normalized)
+    if policy_ref is None:
+        raise CalendarPolicyResolutionError(
+            f"Unknown compare_type '{normalized}'",
+            code="compare_type_unknown",
+            details={
+                "compare_type": normalized,
+                "allowed_compare_types": ["normal", *sorted(policy_ref_by_compare_type)],
+            },
+        )
     policy = get_calendar_policy(policy_ref)
-    if comparison_basis is not None and policy.comparison_basis != comparison_basis:
-        raise CalendarPolicyResolutionError(
-            (
-                f"calendar_policy_ref '{policy_ref}' is not valid for comparison_basis "
-                f"'{comparison_basis}'"
-            ),
-            code="calendar_policy_basis_mismatch",
-            details={
-                "policy_ref": policy_ref,
-                "comparison_basis": comparison_basis,
-                "policy_comparison_basis": policy.comparison_basis,
-            },
-        )
-    return policy.policy_ref
+    return CalendarAlignmentPlan(
+        compare_type=cast_compare_type(normalized),
+        comparison_basis=policy.comparison_basis,
+        resolved_alignment_mode=policy.resolved_alignment_mode,
+        resolved_baseline_generation_rule=policy.resolved_baseline_generation_rule,
+        matching_strategy=policy.matching_strategy,
+        fallback_strategy=policy.fallback_strategy,
+        requires_calendar_data=normalized == "holiday_aligned_yoy",
+    )
 
 
-def resolve_calendar_policy(
-    *,
-    explicit_policy_ref: str | None = None,
-    injected_policy_ref: str | None = None,
-    planner_candidate_refs: list[str] | None = None,
-    comparison_basis: CalendarComparisonBasis | None = None,
-    required: bool = False,
-) -> ResolvedCalendarPolicyBinding | None:
-    """Resolve a calendar policy from explicit, injected, or planner sources."""
-    explicit = validate_calendar_policy_ref(explicit_policy_ref, comparison_basis=comparison_basis)
-    if explicit is not None:
-        return ResolvedCalendarPolicyBinding(
-            policy=get_calendar_policy(explicit),
-            resolution_source="explicit_request",
-        )
-
-    injected = validate_calendar_policy_ref(injected_policy_ref, comparison_basis=comparison_basis)
-    if injected is not None:
-        return ResolvedCalendarPolicyBinding(
-            policy=get_calendar_policy(injected),
-            resolution_source="injected_binding",
-        )
-
-    unique_candidates: list[str] = []
-    for candidate in planner_candidate_refs or []:
-        normalized_candidate = validate_calendar_policy_ref(
-            candidate,
-            comparison_basis=comparison_basis,
-        )
-        if normalized_candidate is not None and normalized_candidate not in unique_candidates:
-            unique_candidates.append(normalized_candidate)
-
-    if len(unique_candidates) == 1:
-        return ResolvedCalendarPolicyBinding(
-            policy=get_calendar_policy(unique_candidates[0]),
-            resolution_source="planner_candidate",
-        )
-    if len(unique_candidates) > 1:
-        raise CalendarPolicyResolutionError(
-            "Multiple planner calendar policy candidates are equally valid",
-            code="calendar_policy_ambiguous",
-            details={
-                "comparison_basis": comparison_basis,
-                "candidate_policy_refs": unique_candidates,
-            },
-        )
-    if required:
-        raise CalendarPolicyResolutionError(
-            "A calendar policy is required but none could be resolved",
-            code="calendar_policy_missing",
-            details={"comparison_basis": comparison_basis},
-        )
-    return None
+def cast_compare_type(value: str) -> CompareType:
+    return cast("CompareType", value)
 
 
 def calendar_policy_catalog_entry(policy_ref: str) -> CalendarPolicyCatalogEntry:
@@ -637,8 +574,6 @@ def _coerce_annotation_row(raw_row: Mapping[str, Any]) -> CalendarAnnotationRow:
         weekday=weekday,
         holiday_group_id=_optional_str(raw_row.get("holiday_group_id")),
         year_relative_holiday_key=_optional_str(raw_row.get("year_relative_holiday_key")),
-        event_group_id=_optional_str(raw_row.get("event_group_id")),
-        year_relative_event_key=_optional_str(raw_row.get("year_relative_event_key")),
     )
 
 
@@ -677,14 +612,6 @@ class _CalendarPairingResolver:
         self.baseline_by_holiday_key, _ = self._index_unique(
             self.baseline_rows,
             key_fn=lambda row: row.year_relative_holiday_key,
-        )
-        self.baseline_by_event_group, self.duplicate_event_groups = self._index_unique(
-            self.baseline_rows,
-            key_fn=lambda row: row.event_group_id,
-        )
-        self.baseline_by_event_key, _ = self._index_unique(
-            self.baseline_rows,
-            key_fn=lambda row: row.year_relative_event_key,
         )
 
     def resolve(self) -> CalendarPairingResolution:
@@ -772,22 +699,6 @@ class _CalendarPairingResolver:
                 return None, ["holiday_cluster_unmapped"]
             candidate = self.baseline_by_holiday_key.get(current_row.year_relative_holiday_key)
             return candidate, [] if candidate is not None else ["holiday_cluster_unmapped"]
-        if matcher == "event_cluster":
-            if current_row.event_group_id is None:
-                return None, []
-            candidate = self.baseline_by_event_group.get(current_row.event_group_id)
-            if candidate is not None:
-                return candidate, []
-            if current_row.event_group_id in self.duplicate_event_groups:
-                return None, []
-            return None, ["event_cluster_unmapped"]
-        if matcher == "year_relative_event_key":
-            if current_row.event_group_id is None:
-                return None, []
-            if current_row.year_relative_event_key is None:
-                return None, ["event_cluster_unmapped"]
-            candidate = self.baseline_by_event_key.get(current_row.year_relative_event_key)
-            return candidate, [] if candidate is not None else ["event_cluster_unmapped"]
         if matcher == "same_weekday_nearest":
             target_day = self.baseline_window[0] + timedelta(days=offset)
             candidate = _nearest_same_weekday(

@@ -23,8 +23,6 @@ _CALENDAR_COLUMNS = [
     "holiday_name",
     "holiday_group_id",
     "year_relative_holiday_key",
-    "event_group_id",
-    "year_relative_event_key",
 ]
 
 _INSERT_SQL = (
@@ -69,8 +67,6 @@ def load_calendar_data(
             row.holiday_name,
             row.holiday_group_id,
             row.year_relative_holiday_key,
-            row.event_group_id,
-            row.year_relative_event_key,
         )
         for row in payload.rows
     ]

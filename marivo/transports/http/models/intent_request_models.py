@@ -12,10 +12,6 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from marivo.core.semantic.calendar import (
-    CalendarPolicyResolutionError,
-    validate_calendar_policy_ref,
-)
 from marivo.time_contracts import normalize_hour_boundary
 from marivo.transports.http.models.base import validate_ref_prefix
 from marivo.transports.http.models.json_contract import JsonObject, JsonScalar, ScalarMap
@@ -140,24 +136,7 @@ class AttributeObservationInput(BaseModel):
     """One side of an attribute request — canonical observe scalar profile."""
 
     time_scope: ObserveTimeScope
-    calendar_policy_ref: str | None = Field(
-        default=None,
-        description=(
-            "Optional fixed calendar alignment policy ref for this side's internal observe step. "
-            "Uses the same validation and builtin ref whitelist as observe-derived inputs."
-        ),
-    )
     scope: ObserveScope | None = Field(default=None)
-
-    @field_validator("calendar_policy_ref")
-    @classmethod
-    def _validate_calendar_policy_ref(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        try:
-            return validate_calendar_policy_ref(value)
-        except CalendarPolicyResolutionError as error:
-            raise ValueError(str(error)) from error
 
 
 class AttributeRequest(BaseModel):

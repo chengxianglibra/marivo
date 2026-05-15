@@ -107,7 +107,7 @@ def _calendar_alignment_summary(
         "aligned_ratio": aligned_ratio,
     }
     return {
-        "reuse_source": "observation_resolved_policy_summary",
+        "reuse_source": "compare_type_calendar_alignment",
         "policy_ref": "calendar_policy.calendar_yoy",
         "comparison_basis": "yoy",
         "resolved_calendar_source": "calendar.cn_holidays",
