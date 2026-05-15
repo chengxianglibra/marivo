@@ -50,9 +50,9 @@ class StepRegistryWiringTests(unittest.TestCase):
         )
         self.assertEqual(
             set(DERIVED_INTENT_TYPES),
-            {"attribute", "diagnose", "validate"},
+            {"attribute", "diagnose"},
         )
-        self.assertEqual(len(SUPPORTED_INTENT_TYPES), 10)
+        self.assertEqual(len(SUPPORTED_INTENT_TYPES), 9)
 
     def test_run_step_rejects_unknown_step_type(self) -> None:
         runtime = self.client.app.state.services.runtime

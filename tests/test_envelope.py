@@ -34,14 +34,14 @@ class TestExecutionEnvelope(unittest.TestCase):
 
     def test_construct_with_product_metadata(self) -> None:
         env = ExecutionEnvelope(
-            intent_type="validate",
-            step_type="validate",
-            step_ref=StepRef(session_id="s1", step_id="step_1", step_type="validate"),
+            intent_type="diagnose",
+            step_type="diagnose",
+            step_ref=StepRef(session_id="s1", step_id="step_1", step_type="diagnose"),
             artifact_id="art_1",
-            result={"statistic": 2.1, "p_value": 0.03},
-            product_metadata={"validation": {"status": "pass", "issues": []}},
+            result={"bundle_type": "diagnosis_bundle", "aoi_artifacts": []},
+            product_metadata={"diagnosis": {"status": "diagnosed", "issues": []}},
         )
-        self.assertEqual(env.product_metadata["validation"]["status"], "pass")
+        self.assertEqual(env.product_metadata["diagnosis"]["status"], "diagnosed")
 
     def test_model_dump_does_not_flatten_result(self) -> None:
         env = ExecutionEnvelope(

@@ -501,13 +501,6 @@ class LightweightIntentEndpointTests(_SessionBackedIntentEndpointMixin, unittest
         )
         self.assertEqual(r.status_code, 422)
 
-    def test_validate_invalid_request_returns_422(self) -> None:
-        r = self.client.post(
-            f"/sessions/{self.session_id}/intents/validate",
-            json={"metric": _metric_ref("dau")},
-        )
-        self.assertEqual(r.status_code, 422)
-
     def test_observe_on_nonexistent_session_returns_404(self) -> None:
         r = self.client.post(
             "/sessions/sess_nonexistent/intents/observe",
@@ -601,22 +594,6 @@ class ClosedSessionWriteGuardTests(unittest.TestCase):
                 "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
                 "granularity": "day",
                 "candidate_dimensions": ["region"],
-            },
-        )
-        self.assertEqual(r.status_code, 422)
-        self.assertIn("not open", r.json()["detail"])
-
-    def test_validate_on_closed_session_returns_422(self) -> None:
-        r = self.client.post(
-            f"/sessions/{self.session_id}/intents/validate",
-            json={
-                "metric": _metric_ref("dau"),
-                "left": {
-                    "time_scope": {"kind": "range", "start": "2024-01-08", "end": "2024-01-15"}
-                },
-                "right": {
-                    "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"}
-                },
             },
         )
         self.assertEqual(r.status_code, 422)

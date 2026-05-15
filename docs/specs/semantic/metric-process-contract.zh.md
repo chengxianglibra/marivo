@@ -283,7 +283,7 @@ type MetricContract = {
 
 ```json
 {
-  "intent": "validate",
+  "intent": "test",
   "metric": "conversion_rate"
 }
 ```

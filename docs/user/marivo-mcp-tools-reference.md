@@ -1604,86 +1604,7 @@ interface AssociationResult {
 
 ---
 
-### 3.12 validate
-
-统计显著性验证。对两个时间切片的指标差异进行统计检验。
-
-**输入参数**：
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| session_id | string | 是 | 会话ID |
-| metric | string | 是 | 语义指标名称 |
-| left | McpSliceRef | 是 | 基准切片 |
-| right | McpSliceRef | 是 | 对比切片 |
-
-可选参数：
-
-| 参数 | 类型 | 必填 | 默认 | 说明 |
-|------|------|------|------|------|
-| method | `"auto"` \| `"welch_t"` \| `"two_proportion_z"` \| null | 否 | null | 检验方法，null 由系统自动选择 |
-| hypothesis | object \| null | 否 | null | 假设描述对象（需为结构化对象，不接受 JSON 字符串） |
-
-`sample_kind` 从 metric 的 `MarivoMetricExtension.sample_kind` 自动解析（`"numeric"` 或 `"rate"`），不需要用户指定。
-
-**输出 — ValidateArtifact**：
-
-```typescript
-interface ValidateArtifact {
-  artifact_id: string;
-  result: HypothesisTestResult;
-  failure: AnalysisFailure | null;
-}
-
-interface HypothesisTestResult {
-  statistic: number;                       // 检验统计量（如 t 值、z 值）
-  p_value: number;                         // p-value
-  decision: Decision;                      // 检验决策
-  assumption_notes: object | null;         // 前提条件说明
-}
-
-interface Decision {
-  reject_null: boolean | null;             // 是否拒绝原假设
-}
-```
-
-**输入示例**：
-
-```json
-{
-  "session_id": "ses_abc123",
-  "metric": "total_query_count",
-  "left": {
-    "time_scope": { "field": "create_time", "start": "2025-02-25", "end": "2025-03-04" }
-  },
-  "right": {
-    "time_scope": { "field": "create_time", "start": "2025-03-04", "end": "2025-03-11" }
-  },
-  "method": "welch_t"
-}
-```
-
-**输出示例**：
-
-```json
-{
-  "data": {
-    "artifact_id": "art_validate_1",
-    "result": {
-      "statistic": 3.45,
-      "p_value": 0.002,
-      "decision": { "reject_null": true },
-      "assumption_notes": null
-    },
-    "failure": null
-  },
-  "error": null
-}
-```
-
----
-
-### 3.13 test_intent
+### 3.12 test_intent
 
 定向假设验证。对两个时间切片进行特定假设的统计检验。
 
@@ -1705,7 +1626,7 @@ interface Decision {
 ```typescript
 interface TestIntentArtifact {
   artifact_id: string;
-  result: HypothesisTestResult;            // 结构同 validate 输出
+  result: HypothesisTestResult;            // 统计检验结果
   failure: AnalysisFailure | null;
 }
 ```
@@ -1747,7 +1668,7 @@ interface TestIntentArtifact {
 
 ---
 
-### 3.14 forecast
+### 3.13 forecast
 
 基于历史数据预测指标未来趋势。
 
@@ -1819,7 +1740,7 @@ interface ForecastPoint {
 
 ---
 
-### 3.15 get_session_state
+### 3.14 get_session_state
 
 读取会话级决策视图（session state）。用于判断当前分析进展和下一步方向。state 不是步骤列表或 artifact 清单；state 为空不等于分析失败。
 
@@ -1896,7 +1817,7 @@ interface SessionStateTruncation {
 
 ---
 
-### 3.16 query_session_state
+### 3.15 query_session_state
 
 读取会话 state，支持结构化 slice 过滤。当需要按时间切片等复杂条件过滤时使用。
 
@@ -1941,7 +1862,7 @@ interface SessionStateTruncation {
 
 ---
 
-### 3.17 get_proposition_context
+### 3.16 get_proposition_context
 
 读取单个 proposition 的局部证据闭包。仅在需要解释某个具体 proposition 时调用，不要批量读取。
 
@@ -2089,7 +2010,7 @@ interface AnalysisFailure {
 | 拆解差异的维度贡献 | `decompose`（需先 compare） | grouped observe |
 | 维度归因（直接指定切片） | `attribute` | — |
 | 判断相关性 | `correlate` | 肉眼比较趋势线 |
-| 显著性/假设验证 | `validate` 或 `test_intent` | 只看数值差异 |
+| 显著性/假设验证 | `test_intent` | 只看数值差异 |
 | 预测 | `forecast` | — |
 | 综合诊断（异常+归因） | `diagnose` | detect + 口头解释 |
 
@@ -2099,7 +2020,7 @@ interface AnalysisFailure {
 - metric/dimension 引用使用语义对象名称，不带 `metric.` / `dimension.` 前缀
 - 非可加指标不添加 MARIVO `custom_extension`（`additive_dimensions` 不能为空数组）
 - `compare`、`decompose`、`correlate`、`forecast` 使用 artifact ID 字符串引用，非结构化引用对象
-- `observe`/`detect` 的 `filter_expression` 和 `validate`/`test_intent` 的 `hypothesis` 必须为结构化对象，不接受 JSON 字符串
+- `observe`/`detect` 的 `filter_expression` 和 `test_intent` 的 `hypothesis` 必须为结构化对象，不接受 JSON 字符串
 - `correlate` 仅支持 `"pearson"` 和 `"spearman"` 方法，不支持 `"kendall"`
 - `decompose` 仅支持 `"delta_share"` 方法，无 method 参数
 
