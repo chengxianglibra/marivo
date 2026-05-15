@@ -10,7 +10,10 @@ http://localhost:8000
 
 ## Authentication
 
-Currently unauthenticated. Auth/RBAC is on the roadmap for production deployments.
+HTTP requests may carry `X-Marivo-User` to establish the caller identity for
+private working-copy operations. The current transport trusts this header; it is
+not a production authentication mechanism. Endpoints that create/delete
+user-owned resources may return `401` or `422` when no caller identity is set.
 
 ## Content Type
 
@@ -32,9 +35,7 @@ All resource IDs follow the pattern `{prefix}_{12-char hex}`:
 | `rec_` | Recommendation |
 | `edge_` | Evidence edge |
 | `plan_` | Plan |
-| `src_` | Source |
-| `eng_` | Engine |
-| `bind_` | Source-engine binding |
+| `ds_` | Datasource |
 | `obj_` | Source object (synced catalog item) |
 | `sel_` | Sync selection |
 | `ent_` | Semantic entity |
@@ -66,22 +67,22 @@ Runtime/catalog availability is gated by `lifecycle_status` and `readiness_statu
 
 | Domain | Path prefix | Description |
 |--------|-------------|-------------|
-| [Session Lifecycle](session-lifecycle.md) | `/sessions` | Session root lifecycle: create, read, list, patch, terminate, and rollover |
-| [Intent Step Submission](intent-steps.md) | `/sessions/{id}/intents/*` | Target-state per-intent step submission for atomic and derived analysis intents |
+| [Session Lifecycle](session-lifecycle.md) | `/sessions` | Session root lifecycle: create, read, list, and terminate |
+| [Intent Step Submission](intent-steps.md) | `/sessions/{id}/intents/*` | Current per-intent execution surface for atomic and derived analysis intents |
 | [Session State Surface](session-state.md) | `/sessions/{id}/state` | Canonical session-level decision surface |
 | [Context Surface](context-surface.md) | `/sessions/{id}/propositions/{pid}/context` | Canonical proposition-level minimal closure |
 | [Runtime Status Surface](runtime-status.md) | `/sessions/{id}/**/runtime-status` | Operator-facing runtime stage, attempt, failure, and backlog status |
 | [Progressive OpenAPI Access](openapi.md) | `/openapi/*`, `/openapi.json` | Progressive machine-readable contract retrieval derived from the canonical OpenAPI schema |
 | [Datasources](sources.md) | `/datasources` | Datasource registration, live browse, and preview |
-| [Engines](engines.md) | `/engines` | Analytics engine registration and execution capability surfaces |
-| [Mappings](mappings.md) | `/mappings` | Operator-managed authority-to-execution projection for source-engine routing |
+| [Routing Resolution](engines.md) | `/routing/resolve` | Debug the datasource route selected for table names |
 | [Semantic Layer](semantic.md) | `/semantic-models` | OSI semantic models with dataset-native physical grounding |
+| Calendar Data | `/calendar/data`, `/calendar/versions` | Load and list calendar snapshots used by calendar-aware analysis |
 | [Health & Observability](observability.md) | `/health`, `/metrics` | Service health and operational metrics |
 
 ## Additional Guides
 
-- [Session Lifecycle](session-lifecycle.md) — canonical session root lifecycle HTTP contract
-- [Intent Step Submission](intent-steps.md) — target-state per-intent write contract for atomic and derived analysis intents
+- [Session Lifecycle](session-lifecycle.md) — current session root lifecycle HTTP contract
+- [Intent Step Submission](intent-steps.md) — current per-intent write contract for atomic and derived analysis intents
 - [Session State Surface](session-state.md) — canonical session-level decision surface HTTP contract
 - [Context Surface](context-surface.md) — canonical proposition-level minimal closure HTTP contract
 - [Runtime Status Surface](runtime-status.md) — operator-facing runtime stage and failure HTTP contract
@@ -89,7 +90,7 @@ Runtime/catalog availability is gated by `lifecycle_status` and `readiness_statu
 - [Quickstart](quickstart.md) — end-to-end walkthrough with `curl` examples
 - [Error Reference](errors.md) — HTTP status codes, error formats, and common error scenarios
 
-Target-state step submission wire contracts live under `docs/api/`. Non-HTTP analysis-intent design drafts live under `specs/analysis/`.
+Current HTTP wire contracts live under `docs/api/`. Non-HTTP analysis-intent design drafts live under `specs/analysis/`.
 
 ## Core Concepts
 
@@ -118,16 +119,14 @@ A **step** is a typed analysis operation executed within a session. The target-s
 
 | Step type | Category | Description |
 |-----------|----------|-------------|
-| `observe` | Atomic | Read a semantic metric as a scalar, time series, segmented observation, or inferential-ready sample summary |
+| `observe` | Atomic | Read a semantic metric as a scalar, time series, or segmented observation |
 | `compare` | Atomic | Compute a typed delta between two compatible observations |
 | `decompose` | Atomic | Allocate a scalar delta across a semantic dimension using a typed attribution method |
 | `correlate` | Atomic | Estimate association between two aligned time-series observations |
 | `detect` | Atomic | Scan a bounded time range and return ranked anomaly candidates |
-| `test` | Atomic | Execute a typed statistical hypothesis test on inferential-ready observations |
 | `forecast` | Atomic | Project a bounded time-series observation into future buckets |
 | `attribute` | Derived | Expand `observe -> compare -> decompose` into a deterministic attribution bundle |
 | `diagnose` | Derived | Expand `detect -> compare -> decompose` into a deterministic diagnosis bundle |
-| `validate` | Derived | Expand `observe -> observe -> test` into a deterministic validation bundle |
 
 Step-level analysis constraints belong in typed step requests such as `scope`, `time_scope`, and typed refs; the session root does not carry canonical execution scope.
 

@@ -12,8 +12,8 @@ external datasource directly, then persist physical grounding in the semantic mo
 - `field.expression`: physical column name or computed SQL expression for the field
 
 Datasources do not declare execution-side catalog projection. In the dataset-native runtime,
-execution is resolved from datasource-backed dataset context. `marivo.yaml` does not carry
-datasource inventory; datasources are registered and managed through the HTTP API.
+execution is resolved from datasource-backed dataset context. Datasources are registered and
+managed through the HTTP API.
 
 ## Endpoints
 
@@ -62,10 +62,6 @@ Registers a datasource. The datasource type determines which live catalog adapte
   "display_name": "Analytics DuckDB",
   "connection": {
     "path": "/data/analytics.duckdb"
-  },
-  "policy": {
-    "allow_live_browse": true,
-    "allow_identity_reuse": false
   }
 }
 ```
@@ -83,10 +79,6 @@ Registers a datasource. The datasource type determines which live catalog adapte
     "catalog": "iceberg",
     "http_scheme": "https",
     "session_properties": {}
-  },
-  "policy": {
-    "allow_live_browse": true,
-    "allow_identity_reuse": false
   }
 }
 ```
@@ -96,8 +88,6 @@ Registers a datasource. The datasource type determines which live catalog adapte
 | `datasource_type` | string | yes | Adapter type: `"duckdb"` or `"trino"` |
 | `display_name` | string | yes | Human-readable name |
 | `connection` | object | yes | Datasource connection payload; the service injects `datasource_type` for response validation |
-| `policy.allow_live_browse` | boolean | no | Allows live schema/table/column browse |
-| `policy.allow_identity_reuse` | boolean | no | Operator flag for future identity reuse control |
 
 DuckDB accepts `path`, `database`, or `db_path`; prefer an absolute `path`.
 
@@ -112,10 +102,7 @@ DuckDB accepts `path`, `database`, or `db_path`; prefer an absolute `path`.
     "datasource_type": "duckdb",
     "path": "/data/analytics.duckdb"
   },
-  "policy": {
-    "allow_live_browse": true,
-    "allow_identity_reuse": false
-  },
+  "owner_user": "alice",
   "status": "active",
   "readiness_status": "ready",
   "failure_code": null,
@@ -159,10 +146,6 @@ target datasource type.
   "connection": {
     "datasource_type": "duckdb",
     "path": "/data/prod_analytics.duckdb"
-  },
-  "policy": {
-    "allow_live_browse": true,
-    "allow_identity_reuse": false
   }
 }
 ```
@@ -292,7 +275,8 @@ Optional query parameters:
 5. Put the datasource-local relation FQN in `dataset.source`.
 6. Put column names or computed expressions in each `field.expression`.
 7. Define metrics, dimensions, predicates, and relationships against datasets and fields.
-8. Check semantic model readiness; repair datasource, relation, or field-expression blockers.
+8. Validate/import the OSI document; repair datasource, relation, or field-expression blockers
+   surfaced by the semantic validation result.
 
 Example dataset fragment:
 
@@ -304,7 +288,9 @@ Example dataset fragment:
   "custom_extensions": [
     {
       "vendor_name": "MARIVO",
-      "data": "{\"datasource_id\":\"ds_a1b2c3d4e5f6\"}"
+      "data": {
+        "datasource_id": "ds_a1b2c3d4e5f6"
+      }
     }
   ],
   "fields": [
