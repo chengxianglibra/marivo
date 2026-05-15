@@ -600,14 +600,6 @@ def _resolve_runtime_metric_contract(
         return None
 
 
-def _metric_family_for_ref(runtime: MarivoRuntime, metric_ref: str) -> str | None:
-    resolved = _resolve_runtime_metric_contract(runtime, metric_ref)
-    if resolved is None:
-        return None
-    header = resolved.semantic_object.get("header") or {}
-    return _optional_str(header.get("metric_family"))
-
-
 def _select_metric_binding_resolution(
     runtime: MarivoRuntime,
     metric_ref: str,
@@ -639,9 +631,6 @@ def _dataset_native_metric_resolution(
     dataset_source = _optional_str(payload.get("dataset_source"))
     datasource_id = _optional_str(payload.get("datasource_id"))
     if dataset_source is None or datasource_id is None:
-        return None
-    metric_family = _metric_family_for_ref(runtime, metric_ref)
-    if metric_family is None:
         return None
     authority_locator = dataset_source_to_authority_locator(dataset_source)
     return MetricExecutionContext(
@@ -704,9 +693,6 @@ def resolve_metric_execution_context(
             dependency_refs=availability.dependency_refs,
         )
 
-    metric_family = _metric_family_for_ref(runtime, metric_ref)
-    if metric_family is None:
-        raise ValueError(f"Metric '{metric_name}' is missing metric_family metadata")
     resolution = _select_metric_binding_resolution(
         runtime,
         metric_ref,

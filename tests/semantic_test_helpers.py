@@ -350,7 +350,6 @@ def _metric_payload_for_measure_type(metric_name: str, measure_type: str | None)
     kind = str(measure_type or "count").strip().lower()
     if kind in {"percentile", "quantile"}:
         return {
-            "metric_family": "distribution_metric",
             "value_component": {
                 "name": metric_name,
                 "semantics": f"Distribution value component for {metric_name}",
@@ -363,7 +362,6 @@ def _metric_payload_for_measure_type(metric_name: str, measure_type: str | None)
         }
     if kind in {"ratio", "rate"}:
         return {
-            "metric_family": "rate_metric",
             "numerator": {
                 "name": f"{metric_name}_numerator",
                 "semantics": f"Rate numerator for {metric_name}",
@@ -377,7 +375,6 @@ def _metric_payload_for_measure_type(metric_name: str, measure_type: str | None)
         }
     if kind in {"average", "mean"}:
         return {
-            "metric_family": "average_metric",
             "numerator": {
                 "name": f"{metric_name}_numerator",
                 "semantics": f"Average numerator for {metric_name}",
@@ -391,50 +388,42 @@ def _metric_payload_for_measure_type(metric_name: str, measure_type: str | None)
         }
     if kind == "sum":
         return {
-            "metric_family": "sum_metric",
             "measure": {
                 "name": metric_name,
                 "semantics": f"Summed measure for {metric_name}",
                 "aggregation": "sum",
             },
         }
-    return {
-        "metric_family": "count_metric",
-    }
+    return {}
 
 
-def _metric_header_axes(measure_type: str | None) -> tuple[str, str, str, list[str]]:
+def _metric_header_axes(measure_type: str | None) -> tuple[str, str, list[str]]:
     kind = str(measure_type or "count").strip().lower()
     if kind in {"percentile", "quantile"}:
         return (
-            "distribution_metric",
             "distribution_statistic",
             "distribution_statistic",
             [],
         )
     if kind in {"ratio", "rate"}:
         return (
-            "rate_metric",
             "ratio",
             "ratio",
             [],
         )
     if kind in {"average", "mean"}:
         return (
-            "average_metric",
             "weighted_average",
             "mean",
             [],
         )
     if kind == "sum":
         return (
-            "sum_metric",
             "sum",
             "sum",
             ["country", "device", "date"],
         )
     return (
-        "count_metric",
         "sum",
         "count",
         ["country", "device", "date"],
@@ -703,7 +692,7 @@ def ensure_published_typed_metric(
 
     dimension_names = list(dimensions or [])
     additive_dimensions = list(allowed_dimensions or dimension_names)
-    _, aggregation_semantics, _, _ = _metric_header_axes(measure_type)
+    aggregation_semantics, _, _ = _metric_header_axes(measure_type)
     metric_sql = definition_sql or "COUNT(*)"
 
     for dimension_name in dimension_names:
