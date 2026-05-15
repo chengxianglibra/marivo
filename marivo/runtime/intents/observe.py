@@ -519,6 +519,11 @@ def run_observe_intent(
         )
 
     execution_context = runtime.resolve_metric_execution_context(metric_ref, session_id=session_id)
+    resolved_metric = runtime.resolve_metric(metric_name)
+    _resolved_header = (
+        (resolved_metric.semantic_object.get("header") or {}) if resolved_metric else {}
+    )
+    aggregation_semantics = _resolved_header.get("aggregation_semantics") or "sum"
     table = execution_context.table_name
 
     scope_raw = p.get("scope")
@@ -717,7 +722,7 @@ def run_observe_intent(
             "series": series,
             "analytical_metadata": {
                 "additive_dimensions": execution_context.additive_dimensions,
-                "aggregation_semantics": "sum",
+                "aggregation_semantics": aggregation_semantics,
                 "timezone": None,
                 "data_complete": data_complete,
                 "quality_status": quality_status,
@@ -808,7 +813,7 @@ def run_observe_intent(
             "scope_value": None,
             "analytical_metadata": {
                 "additive_dimensions": execution_context.additive_dimensions,
-                "aggregation_semantics": "sum",
+                "aggregation_semantics": aggregation_semantics,
                 "timezone": None,
                 "data_complete": None,
                 "quality_status": quality_status,
@@ -886,7 +891,7 @@ def run_observe_intent(
             "unit": None,
             "analytical_metadata": {
                 "additive_dimensions": execution_context.additive_dimensions,
-                "aggregation_semantics": "sum",
+                "aggregation_semantics": aggregation_semantics,
                 "timezone": None,
                 "data_complete": None,
                 "quality_status": quality_status,

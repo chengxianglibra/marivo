@@ -322,7 +322,7 @@ type ResolvedTimeScope =
 
 type AnalyticalMetadata = {
   additive_dimensions: string[];
-  aggregation_semantics: string;
+  aggregation_semantics: string; // derived from metric MARIVO extension, default "sum"
   timezone: string | null;
   data_complete: boolean | null;
   quality_status: "ready" | "needs_attention" | "not_ready";

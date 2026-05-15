@@ -141,7 +141,6 @@ v1 支持以下输入对：
 - 相同 `metric`
 - 相同 unit
 - 相同观测类型（`observation_type`）
-- 相同 aggregation semantics
 - 分段对比（segmented compare）下相同 dimension schema
 - 兼容的 temporal semantics
 - 除目标比较轴之外，其余已解析 `scope` 定义兼容
@@ -264,7 +263,6 @@ type ComparabilityIssue = {
     | "time_scope_mismatch"
     | "time_length_mismatch"
     | "scope_divergence"
-    | "aggregation_mismatch"
     | "sample_size_disparity"
     | "data_incomplete"
     | "calendar_alignment_metadata_mismatch"

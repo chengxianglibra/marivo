@@ -334,20 +334,9 @@ def run_compare_intent(
         )
         fatal = True
 
-    # Resolve analytical metadata early so aggregation_semantics can be compared.
+    # Resolve analytical metadata for downstream passthrough.
     left_am = left_artifact.get("analytical_metadata") or {}
     right_am = right_artifact.get("analytical_metadata") or {}
-    left_agg: str | None = left_am.get("aggregation_semantics")
-    right_agg: str | None = right_am.get("aggregation_semantics")
-    if left_agg and right_agg and left_agg != right_agg:
-        issues.append(
-            {
-                "code": "aggregation_mismatch",
-                "severity": "error",
-                "message": f"left aggregation_semantics '{left_agg}' != right '{right_agg}'",
-            }
-        )
-        fatal = True
 
     calendar_alignment_summary = resolve_calendar_alignment_reuse_for_intent(
         intent_name="compare",
