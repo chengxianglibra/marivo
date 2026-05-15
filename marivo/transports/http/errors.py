@@ -73,7 +73,6 @@ _GUIDED_EXAMPLES: dict[tuple[str, str], list[dict[str, Any]]] = {
                 "header": {
                     "metric_ref": "metric.dau",
                     "display_name": "DAU",
-                    "metric_family": "count_metric",
                     "observed_entity_ref": "entity.user",
                     "observation_grain_ref": "grain.user",
                     "aggregation_semantics": "sum",
@@ -81,9 +80,7 @@ _GUIDED_EXAMPLES: dict[tuple[str, str], list[dict[str, Any]]] = {
                     "additive_dimensions": [],
                     "metric_contract_version": "metric.v1",
                 },
-                "payload": {
-                    "metric_family": "count_metric",
-                },
+                "payload": {},
             },
         }
     ],
@@ -96,9 +93,7 @@ _GUIDED_EXAMPLES: dict[tuple[str, str], list[dict[str, Any]]] = {
             "complexity": "minimal",
             "payload": {
                 "display_name": "Daily Active Users",
-                "payload": {
-                    "metric_family": "count_metric",
-                },
+                "payload": {},
             },
         }
     ],

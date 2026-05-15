@@ -3,27 +3,11 @@
 from __future__ import annotations
 
 import json
-import re
 from typing import Any
 
 from marivo.adapters.metadata import MetadataStore
 from marivo.core.semantic.resolution import ResolvedSemanticObject, RuntimeSemanticAvailability
 from marivo.runtime.errors import SemanticRuntimeNotFoundError
-
-
-def _infer_metric_family(definition_sql: str) -> str:
-    sql = definition_sql.strip().upper()
-    if "NULLIF" in sql and "CAST" in sql and "/" in sql:
-        return "rate_metric"
-    if re.search(r"\bAPPROX_PERCENTILE\s*\(", sql):
-        return "distribution_metric"
-    if re.search(r"\bAVG\s*\(", sql):
-        return "average_metric"
-    if re.search(r"\bSUM\s*\(", sql):
-        return "sum_metric"
-    if re.search(r"\bCOUNT\s*\(", sql):
-        return "count_metric"
-    return "count_metric"
 
 
 def _extract_ansi_sql(expression_json: str) -> str | None:
@@ -105,7 +89,6 @@ class SemanticRuntimeRepository:
                 f"Metric ref has no parseable ANSI SQL expression: {metric_ref}",
                 semantic_ref=metric_ref,
             )
-        metric_family = _infer_metric_family(definition_sql)
         additive_dims = None
         if metric_row.get("additive_dimensions"):
             try:
@@ -121,7 +104,6 @@ class SemanticRuntimeRepository:
             payload["dataset_source"] = dataset_info["source"]
             payload["datasource_id"] = dataset_info["datasource_id"]
         header: dict[str, Any] = {
-            "metric_family": metric_family,
             "metric_ref": metric_ref,
             "additive_dimensions": additive_dims or [],
             "aggregation_semantics": metric_row.get("aggregation_semantics") or "sum",

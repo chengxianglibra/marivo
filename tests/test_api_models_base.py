@@ -16,7 +16,6 @@ from marivo.transports.http.models.base import (
     IdStability,
     LifecycleStatus,
     ListResponseBase,
-    MetricFamily,
     ObjectHeaderBase,
     ObjectResponseBase,
     ObjectStatus,
@@ -328,15 +327,6 @@ class TestLiteralTypes(unittest.TestCase):
         stability: IdStability = "stable"
         stability = "reassignable"
         stability = "ephemeral"
-
-    def test_metric_family(self):
-        family: MetricFamily = "count_metric"
-        family = "sum_metric"
-        family = "rate_metric"
-        family = "average_metric"
-        family = "distribution_metric"
-        family = "score_metric"
-        family = "survival_metric"
 
     def test_value_semantics(self):
         semantics: ValueSemantics = "count"

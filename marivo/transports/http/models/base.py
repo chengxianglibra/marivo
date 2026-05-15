@@ -32,15 +32,6 @@ OwnershipSemantics = Literal["belongs_to", "contains", "derives_from"]
 DescriptorCardinality = Literal["one", "many"]
 
 # Metric types
-MetricFamily = Literal[
-    "count_metric",
-    "sum_metric",
-    "rate_metric",
-    "average_metric",
-    "distribution_metric",
-    "score_metric",
-    "survival_metric",
-]
 ValueSemantics = Literal[
     "count",
     "sum",
