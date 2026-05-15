@@ -282,6 +282,7 @@ empty semantics：
 
 - `scalar_delta` artifact -> 1 个 `delta` finding
 - `segmented_delta` artifact -> 每个 delta row 1 个 `delta` finding
+- `time_series_delta` artifact -> 1 个 summary `delta` finding（若有 summary 字段）+ 每个 bucket row 1 个 `delta` finding
 
 payload 必须直接携带：
 
@@ -294,11 +295,12 @@ payload 必须直接携带：
 - `direction`
 - `presence`
 - `unit`
-
-建议的 `canonical_item_key`：
+- `comparability`
+- `calendar_alignment`
 
 - scalar delta: `result`
 - segmented delta: normalized segment key
+- time series delta: `summary` for summary finding, `bucket_start` for per-bucket findings
 
 empty semantics：
 

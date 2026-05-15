@@ -55,12 +55,15 @@ type ObservationRef = {
   session_id: string;
   step_id: string;
   step_type: "observe";
+  artifact_id?: string;
 };
 
 type CompareRequest = {
   step_type: "compare";
   left_ref: ObservationRef;
   right_ref: ObservationRef;
+  left_artifact_id?: string;
+  right_artifact_id?: string;
   mode?: "auto" | "scalar" | "segmented" | "time_series";
 };
 ```
@@ -68,6 +71,8 @@ type CompareRequest = {
 ## 输入规则
 
 `left_ref` 与 `right_ref` 必须指向先前 `observe` 步骤产出的观测工件（observation artifact）。`compare` 不接受重复描述 `metric`、`time_scope`、`scope`、filter 或 `calendar_policy_ref` 的平行输入。
+
+AOI 协议支持通过 `left_artifact_id` / `right_artifact_id` 直接引用 observe artifact，此时 `left_ref` / `right_ref` 中的 `step_id` / `session_id` 可从 artifact 元数据自动解析。
 
 v1 支持以下输入对：
 
@@ -102,7 +107,7 @@ v1 支持以下输入对：
 - `dimensions` 不一致的分段观测
 - `granularity` 不一致的时间序列观测
 
-下游 v1 边界更新如下：原子 `decompose` 可以消费 `time_series_delta`，但只解释其 aligned summary delta；派生 `attribute`、`diagnose` 仍继续只消费 `scalar_delta`，不会直接把 `time_series_delta` 当作归因输入。
+下游 v1 边界更新如下：原子 `decompose` 可以消费 `scalar_delta` 和 `time_series_delta`；派生 `attribute`、`diagnose` 仍继续只消费 `scalar_delta`，不会直接把 `time_series_delta` 当作归因输入。
 
 ## 字段语义
 
@@ -218,6 +223,7 @@ type ObservationRef = {
   session_id: string;
   step_id: string;
   step_type: "observe";
+  artifact_id?: string;
 };
 
 type CompareArtifactLineage = {
@@ -284,12 +290,7 @@ type ComparabilityMetadata = {
 
 type CompareAnalyticalMetadata = {
   aggregation_semantics: string;
-  additivity_constraints: {
-    dimension_policy: "all" | "subset" | "none";
-    additive_dimensions?: string[];
-    time_axis_policy: "additive" | "non_additive";
-    notes?: string | null;
-  };
+  additive_dimensions: string[];
   relative_delta_denominator: "right";
   flat_tolerance_relative: number;
   left_row_count: number | null;
@@ -471,11 +472,11 @@ calendar alignment failure surface：
 
 分段差值行（segmented delta rows）是 compare artifact 的 delta rows，可供 `decompose` 等下游步骤消费，但本身不是归因（attribution）/ 解释（explanation）结论。
 
-对于 `dimension_policy = "all"` 且 `time_axis_policy = "additive"` 的指标：
+对于 `additive_dimensions` 非空且被请求维度在列表内的指标：
 
 - `sum(rows.absolute_delta)` 应与 `scope_absolute_delta` 对账
 
-对于 `dimension_policy = "none"` 或 `time_axis_policy = "non_additive"` 的指标：
+对于 `additive_dimensions` 为空或被请求维度不在列表内的指标：
 
 - 行级差值（delta）只能视为切片内局部变化（slice-local changes）
 - `sum(rows.absolute_delta)` 不应被期待等于 `scope_absolute_delta`

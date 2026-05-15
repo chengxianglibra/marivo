@@ -209,6 +209,18 @@ type ResolvedTimeScope =
   | { kind: "snapshot_now"; observed_at: string }
   | { kind: "latest_available"; data_as_of: string }
   | { kind: "as_of"; at: string };
+
+type CorrelationJoinBasis =
+  | {
+      kind: "time_aligned";
+      grain: "hour" | "day" | "week" | "month";
+      key_fields: string[];
+    }
+  | {
+      kind: "shared_key";
+      key_fields: string[];
+      grain: "hour" | "day" | "week" | "month" | null;
+    };
 ```
 
 ## 公共字段语义
@@ -469,7 +481,7 @@ type SampleSummaryObservationPayload = {
 type DeltaFinding = FindingBase & {
   finding_type: "delta";
   payload: {
-    delta_kind: "scalar_delta" | "segmented_delta";
+    delta_kind: "scalar_delta" | "segmented_delta" | "time_series_delta";
     left_ref: ArtifactItemRefRef;
     right_ref: ArtifactItemRefRef;
     left_value: number | null;
@@ -487,6 +499,7 @@ type DeltaFinding = FindingBase & {
 
 - `compare.comparison_type = "scalar_delta"` 时创建 1 个 delta finding，并固定 `presence = null`
 - `compare.comparison_type = "segmented_delta"` 时每个 row 创建 1 个 delta finding，并把 row `presence` 原样映射到 finding payload
+- `compare.comparison_type = "time_series_delta"` 时创建 1 个 summary delta finding（若有 summary 字段）+ 每个 bucket row 1 个 delta finding；`delta_kind` 固定为 `"time_series_delta"`
 
 ### Decomposition Item Finding
 
@@ -562,11 +575,11 @@ type CorrelationResultFinding = FindingBase & {
   payload: {
     left_ref: ArtifactItemRefRef;
     right_ref: ArtifactItemRefRef;
-    method: "pearson" | "spearman";
+    method: string;
     coefficient: number | null;
     p_value: number | null;
     n: number | null;
-    join_basis: string | null;
+    join_basis: CorrelationJoinBasis | null;
   };
 };
 ```
@@ -589,9 +602,9 @@ type TestResultFinding = FindingBase & {
   payload: {
     left_ref: ArtifactItemRefRef;
     right_ref: ArtifactItemRefRef;
-    method: "welch_t" | "two_proportion_z";
+    method: string;
     estimate_value: number | null;
-    statistic_name: "t" | "z";
+    statistic_name: string;
     statistic_value: number | null;
     p_value: number | null;
     reject_null: boolean | null;

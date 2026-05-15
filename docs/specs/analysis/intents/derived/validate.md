@@ -8,6 +8,8 @@
 
 `validate` 用于把”定义两个待比较总体””准备可检验观测””执行假设检验”固化成一次稳定分析动作。
 
+> **注**：`validate` 的内部展开依赖 `observe` 产出推断就绪工件（`numeric_sample_summary` 或 `rate_sample_summary`），但当前 `observe` 实现只支持 `result_mode = “standard”`。因此 `validate` 意图在当前实现中尚不可执行，本文档描述的是完整设计契约。
+
 它回答一个固定问题：
 
 - 某个已明确的差异假设是否有足够统计证据支持
@@ -33,7 +35,7 @@ v1 明确约束：
 
 - 只围绕单个 metric 的两个显式给定总体展开
 - `left` 与 `right` 都必须由调用方显式提供，不自动推导基线（baseline）
-- 只支持差异假设族（`difference` hypothesis family）
+- 只支持差异假设族（`difference` hypothesis family），在内部映射到原子 `test` 的 `two_sample_mean` 或 `two_sample_proportion`
 - 内部只创建两个推断就绪（inferential-ready）`observe` 和一个 `test`
 - `sample_kind` 从 metric 的 `MarivoMetricExtension.sample_kind` 自动解析；若 metric 声明的值不是 `numeric` 或 `rate`，仍触发 `SAMPLE_KIND_UNSUPPORTED`
 - 不输出因果结论、业务建议或自由文本解释作为证据主体

@@ -231,11 +231,9 @@ type AttributeProjectionMetadata = {
   dimension_order: "request_order";
   share_suppression_policy: "suppress_on_reconciliation_needs_attention";
   additivity_basis: {
-    dimension_policy: "all" | "subset" | "none";
-    additive_dimensions?: string[];
-    time_axis_policy: "additive" | "non_additive";
+    additive_dimensions: string[];
     time_rollup_allowed: boolean;
-    capability_condition: "all_dimensions_allowed" | "dimension_must_be_allowed" | null;
+    capability_condition: "dimension_must_be_allowed" | null;
   };
   time_boundary_constraint: {
     scope: "frozen_compare_window";
@@ -623,7 +621,7 @@ v1 只支持 `delta_share`，语义完全继承 `decompose(method = "delta_share
 
 说明：
 
-- v1 的 `decompose` 只支持 additive metric；如果目标实验指标本身是 non-additive rate，应改为请求其可加和的底层业务量，或等待未来独立契约
+- v1 的 `decompose` 支持 `additive_dimensions` 非空的 metric，包括 rate metric；如果目标实验指标的 `additive_dimensions` 为空，则无法进行归因
 
 ### 例 3：解释预算调整后的 GMV 变化
 
@@ -645,7 +643,7 @@ v1 只支持 `delta_share`，语义完全继承 `decompose(method = "delta_share
 - 只支持调用方显式给定 left / right scope
 - 只支持显式归因维度列表
 - 只支持内部 `scalar` compare
-- 只支持 `dimension_policy` 为 `'all'` 或 `'subset'` 的 metric 的 `delta_share` 归因；`dimension_policy = 'none'` 的 metric 返回结构化 409 错误（`ADDITIVITY_CONSTRAINT`）
+- 只支持 `additive_dimensions` 非空的 metric 的 `delta_share` 归因；`additive_dimensions` 为空的 metric 返回结构化 409 错误（`ADDITIVITY_CONSTRAINT`）
 - 不支持多维交互项、自动维度推荐、开放式下钻或因果解释
 
 ## Additivity Gate 错误
@@ -654,7 +652,7 @@ v1 只支持 `delta_share`，语义完全继承 `decompose(method = "delta_share
 
 ### Gate 1: supports_compare
 
-当 metric 不支持 compare 时（`additivity_constraints` 缺失或 `primary_time_ref` 不存在），返回：
+当 metric 不支持 compare 时（`additive_dimensions` 为空或 additivity capabilities 缺失），返回：
 
 ```json
 {
@@ -664,12 +662,10 @@ v1 只支持 `delta_share`，语义完全继承 `decompose(method = "delta_share
     "compatibility_error": {
       "gate": "supports_compare",
       "metric": "metric.xxx",
-      "dimension_policy": null,
-      "time_axis_policy": null,
-      "additive_dimensions": null,
+      "additive_dimensions": [],
       "time_rollup_allowed": false,
-      "blocker": "ADDITIVITY_CONSTRAINTS_MISSING",
-      "remediation_hint": "..."
+      "blocker": "ADDITIVITY_NONE",
+      "remediation_hint": "additive_dimensions is empty — metric is not additive on any dimension. Add dimension names to enable decompose/attribute."
     }
   }
 }
@@ -677,11 +673,11 @@ v1 只支持 `delta_share`，语义完全继承 `decompose(method = "delta_share
 
 ### Gate 2: supports_decompose
 
-当 metric 不支持 decompose 时（`dimension_policy = "none"`），返回相同结构，`gate` 为 `"supports_decompose"`。
+当 metric 不支持 decompose 时（`additive_dimensions` 为空），返回相同结构，`gate` 为 `"supports_decompose"`。
 
 ### Gate 3: dimension not allowed
 
-当 `dimension_policy = "subset"` 且请求的 dimensions 中存在不在 `additive_dimensions` 中的维度时，返回：
+当 `capability_condition = "dimension_must_be_allowed"` 且请求的 dimensions 中存在不在 `additive_dimensions` 中的维度时，返回：
 
 ```json
 {
@@ -691,9 +687,8 @@ v1 只支持 `delta_share`，语义完全继承 `decompose(method = "delta_share
     "compatibility_error": {
       "gate": "dimension_allowed_check",
       "metric": "metric.xxx",
-      "dimension_policy": "subset",
-      "time_axis_policy": "non_additive",
       "additive_dimensions": ["dimension.country", "dimension.region"],
+      "capability_condition": "dimension_must_be_allowed",
       "disallowed_dimensions": ["dimension.product"],
       "allowed_dimensions": ["dimension.country", "dimension.region"],
       "time_rollup_allowed": false,

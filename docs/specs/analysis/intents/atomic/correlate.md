@@ -62,6 +62,8 @@ v1 默认：
 
 `correlate` 优先消费 typed artifact reference，而不是裸字符串 step id。
 
+AOI 协议支持通过 `left_artifact_id` / `right_artifact_id` 直接引用 observe artifact，此时 `left_ref` / `right_ref` 可从 artifact 元数据自动解析。
+
 ```ts
 type ObservationArtifactRef = {
   step_type: "observe";
@@ -112,6 +114,8 @@ type CorrelateRequest = {
   step_type: "correlate";
   left_ref: ObservationArtifactRef;
   right_ref: ObservationArtifactRef;
+  left_artifact_id?: string;
+  right_artifact_id?: string;
   method?: "pearson" | "spearman";
   min_pairs?: number;
 };

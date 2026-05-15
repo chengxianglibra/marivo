@@ -365,7 +365,7 @@ semantic refs 回答：
 - `FindingRef` = `{ session_id: "sess_01", finding_id: "finding_01" }` — 由 session_id + finding_id 直接构造
 - `metric_ref` = `metric.orders_gmv` — 由 `subject.metric = "orders_gmv"` 添加 `metric.` 前缀推导
 - `dimension.country` — 由 `subject.slice` 中 `"country": "US"` 映射到已定义的 `dimension.country` schema
-- `time.order_created_at` — 由 `observed_window` 结合 Dataset grounding（该 metric 的 `primary_time_field`）推导
+- `time.order_created_at` — 由 `observed_window` 结合 Dataset grounding（时间语义由 AOI `time_scope.field` 解析）推导
 
 **边界强调**：
 - `FindingRef` 不能替代 `metric.orders_gmv`

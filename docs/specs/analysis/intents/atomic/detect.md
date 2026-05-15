@@ -74,6 +74,7 @@ type DetectTimeScope = {
   kind: "range";
   start: string;
   end: string;
+  field?: string;
 };
 
 type TimeWindow = {
@@ -122,6 +123,7 @@ type DetectSensitivity = "conservative" | "balanced" | "aggressive";
 说明：
 
 - `time_scope` 复用 Marivo range 窗口契约；`detect` 仅允许 `kind = "range"`
+- AOI 对齐：通过 AOI 协议调用时，`time_scope` 使用 `{field, start, end}` 形式（`field` 为必填的时间字段名），运行时自动映射为 `kind = "range"`
 - `granularity` 使用与 `observe.granularity` 相同命名
 - `scope` 复用 Marivo 统一 step-level non-time scope 契约；时间条件不得进入 `scope.predicate`
 - `split_by` 是扫描轴，不是额外过滤契约；它定义“按哪个单一 semantic dimension 拆成独立序列扫描”
@@ -434,6 +436,7 @@ type ResolvedDetectTimeScope = {
   kind: "range";
   start: string;
   end: string;
+  field?: string;
 };
 
 type DetectabilityIssue = {

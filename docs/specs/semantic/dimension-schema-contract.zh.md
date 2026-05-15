@@ -436,7 +436,7 @@ class CoreDimensionObject(TypedDict):
 
 例如 `supports_grouping = true` 的意思是“这个轴在维度本体上允许被请求为分组轴”，但最终是否合法仍取决于：
 
-- metric 的 `additivity_constraints`
+- metric 的 `additive_dimensions`
 - process 是否导出该维度
 - entity 是否把它暴露为稳定描述属性
 - compiler 的请求时 gate

@@ -613,7 +613,7 @@ type CorrelationProposition = PropositionBase & {
   payload: {
     left_subject: PropositionSubject;
     right_subject: PropositionSubject;
-    method_family: "pearson" | "spearman" | "auto";
+    method_family: string;
     relationship_of_interest:
       | "any_association"
       | "positive_association"
@@ -658,7 +658,7 @@ type TestHypothesisProposition = PropositionBase & {
     alternative: "two_sided" | "greater" | "less";
     left_subject: PropositionSubject;
     right_subject: PropositionSubject;
-    method_family: "welch_t" | "two_proportion_z" | "auto";
+    method_family: string;
     alpha: number | null;
     hypothesis_label: string | null;
   };
