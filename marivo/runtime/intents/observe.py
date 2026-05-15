@@ -9,7 +9,12 @@ from marivo.core.intent.primitives import make_provenance, new_step_id
 from marivo.core.semantic.ir import AnalysisStepIR
 from marivo.core.semantic.step_metadata import build_step_semantic_metadata
 from marivo.runtime.evidence.ref_boundary import assert_no_canonical_refs_in_semantic_payload
-from marivo.runtime.intents._helpers import commit_step_result
+from marivo.runtime.intents._helpers import (
+    build_scoped_query_for_window,
+    commit_step_result,
+    extract_predicate_filter_lineage,
+    resolve_time_scope,
+)
 from marivo.runtime.intents.normalization import (
     normalize_dimensions,
     normalize_metric_ref,
@@ -29,56 +34,6 @@ def _build_step_metadata(compiled_queries: Any) -> dict[str, Any] | None:
     if result is not None:
         assert_no_canonical_refs_in_semantic_payload(result, surface="step_semantic_metadata")
     return result
-
-
-def _extract_predicate_filter_lineage(compiled_query: Any) -> dict[str, Any] | None:
-    """Extract predicate_filter_lineage from the first MeasurementNode in the IR bundle."""
-    ir_bundle = getattr(compiled_query, "ir_bundle", None)
-    if ir_bundle is None:
-        return None
-    for node in ir_bundle.get("plan", {}).get("nodes") or []:
-        if node.get("node_type") == "measurement":
-            lineage: dict[str, Any] | None = node.get("predicate_filter_lineage")
-            if lineage is not None:
-                return lineage
-    return None
-
-
-def _resolve_observe_time_scope(time_scope_raw: dict[str, Any]) -> tuple[str, str, str | None]:
-    kind = time_scope_raw.get("kind")
-    # AOI-aligned McpTimeScope uses {field, start, end} without kind.
-    # Treat missing kind as "range" when start and end are present.
-    if kind is None and "start" in time_scope_raw and "end" in time_scope_raw:
-        kind = "range"
-    if kind == "range":
-        try:
-            return (
-                str(time_scope_raw["start"]),
-                str(time_scope_raw["end"]),
-                time_scope_raw.get("field"),
-            )
-        except KeyError as exc:
-            raise ValueError(
-                "observe: INVALID_ARGUMENT - range time_scope requires start and end"
-            ) from exc
-
-    if kind in {"snapshot_now", "latest_available"}:
-        start = datetime.now(UTC).date()
-        end = start + timedelta(days=1)
-        return start.isoformat(), end.isoformat(), time_scope_raw.get("field")
-
-    if kind == "as_of":
-        raw_at = time_scope_raw.get("at")
-        if not isinstance(raw_at, str) or not raw_at.strip():
-            raise ValueError("observe: INVALID_ARGUMENT - as_of time_scope requires at")
-        observed_date = datetime.fromisoformat(raw_at.replace("Z", "+00:00")).date()
-        return (
-            observed_date.isoformat(),
-            (observed_date + timedelta(days=1)).isoformat(),
-            time_scope_raw.get("field"),
-        )
-
-    raise ValueError(f"observe: INVALID_ARGUMENT - unsupported time_scope.kind={kind!r}")
 
 
 def _series_from_rows(
@@ -275,46 +230,12 @@ def _time_series_quality_status(*, row_count: int, data_complete: bool | None) -
     return "ready"
 
 
-def _build_scoped_query_for_window(
-    runtime: MarivoRuntime,
-    *,
-    session_id: str,
-    engine_type: str,
-    metric_ref: str,
-    table: str,
-    start: str,
-    end: str,
-    grain: str,
-    scope_raw: Any,
-    all_dimensions: list[str],
-) -> dict[str, Any]:
-    mq_params: dict[str, Any] = {
-        "table": table,
-        "metric": metric_ref,
-        "time_scope": {
-            "mode": "single_window",
-            "grain": grain,
-            "current": {"start": start, "end": end},
-        },
-    }
-    if scope_raw:
-        mq_params["scope"] = scope_raw
-    resolved = normalize_metric_query_request(mq_params)
-    runtime.resolve_windowed_query_time_axis(
-        resolved,
-        engine_type=engine_type,
-        metric_name=metric_ref,
-        fallback_columns=all_dimensions,
-    )
-    return runtime.build_scoped_query(session_id, resolved, engine_type=engine_type)
-
-
 def run_observe_intent(
     runtime: MarivoRuntime, session_id: str, params: dict[str, Any] | None
 ) -> dict[str, Any]:
     """Execute an `observe` intent, producing a typed observation artifact.
 
-    Supported modes (result_mode='standard'):
+    Output modes (inferred from granularity/dimensions):
       - scalar: no granularity, no dimensions
       - time_series: granularity set (hour/day/week/month)
       - segmented: dimensions list set
@@ -340,10 +261,6 @@ def run_observe_intent(
     if not isinstance(time_scope_raw, dict):
         raise ValueError("observe intent requires 'time_scope'")
 
-    result_mode: str = p.get("result_mode") or "standard"
-    if result_mode != "standard":
-        raise ValueError(f"observe result_mode='{result_mode}' is not valid. Must be 'standard'.")
-
     granularity = validate_granularity(p.get("granularity") or None)
     dimensions = normalize_dimensions(p.get("dimensions"))
 
@@ -354,7 +271,7 @@ def run_observe_intent(
         )
 
     # --- Resolve time scope → (start_str, end_str, resolved response shape) ---
-    start_str, end_str, time_scope_field = _resolve_observe_time_scope(time_scope_raw)
+    start_str, end_str, time_scope_field = resolve_time_scope(time_scope_raw)
     resolved_time_scope: dict[str, Any] = {"kind": "range", "start": start_str, "end": end_str}
 
     if granularity == "hour":
@@ -418,7 +335,7 @@ def run_observe_intent(
     )
     if all_dimensions is None:
         raise ValueError(f"Metric '{metric_name}' not found or not published")
-    scoped_query = _build_scoped_query_for_window(
+    scoped_query = build_scoped_query_for_window(
         runtime,
         session_id=session_id,
         engine_type=engine_type,
@@ -473,7 +390,7 @@ def run_observe_intent(
             end=end_str,
             granularity=granularity_typed,
         )
-        predicate_filter_lineage_ts = _extract_predicate_filter_lineage(compiled_query)
+        predicate_filter_lineage_ts = extract_predicate_filter_lineage(compiled_query)
         data_coverage_summary = _build_data_coverage_summary(series=series)
 
         data_complete = _time_series_data_complete(data_coverage_summary)
@@ -481,7 +398,7 @@ def run_observe_intent(
             row_count=len(rows),
             data_complete=data_complete,
         )
-        observation: dict[str, Any] = {
+        observation = {
             "schema_version": "1.0",
             "metric_contract_version": None,
             "derivation_version": "1.0",
@@ -543,7 +460,7 @@ def run_observe_intent(
         provenance = make_provenance(
             compiled_query.sql, compiled_query.params, engine_type=engine_type
         )
-        predicate_filter_lineage_seg = _extract_predicate_filter_lineage(compiled_query)
+        predicate_filter_lineage_seg = extract_predicate_filter_lineage(compiled_query)
 
         segments: list[dict[str, Any]] = []
         for row in rows:
@@ -618,7 +535,7 @@ def run_observe_intent(
         provenance = make_provenance(
             compiled_query.sql, compiled_query.params, engine_type=engine_type
         )
-        predicate_filter_lineage_scalar = _extract_predicate_filter_lineage(compiled_query)
+        predicate_filter_lineage_scalar = extract_predicate_filter_lineage(compiled_query)
 
         value: float | None = None
         sample_size: int | None = None

@@ -20,6 +20,8 @@ from marivo.runtime.intents.detect import run_detect_intent
 from marivo.runtime.intents.diagnose import run_diagnose_intent
 from marivo.runtime.intents.forecast import run_forecast_intent
 from marivo.runtime.intents.observe import run_observe_intent
+from marivo.runtime.intents.test import run_test_intent
+from marivo.runtime.intents.validate import run_validate_intent
 
 if TYPE_CHECKING:
     from marivo.runtime.runtime import MarivoRuntime
@@ -76,6 +78,18 @@ def diagnose(
     return _run_derived(runtime, "diagnose", session_id, params)
 
 
+def test(
+    runtime: MarivoRuntime, session_id: SessionId, request: AoiAtomicRequest
+) -> dict[str, Any]:
+    return _run_aoi(runtime, "test", session_id, request)
+
+
+def validate(
+    runtime: MarivoRuntime, session_id: SessionId, params: dict[str, Any]
+) -> dict[str, Any]:
+    return _run_derived(runtime, "validate", session_id, params)
+
+
 AOI_RUNNERS: dict[str, _IntentRunner] = {
     "observe": run_observe_intent,
     "compare": run_compare_intent,
@@ -83,11 +97,13 @@ AOI_RUNNERS: dict[str, _IntentRunner] = {
     "correlate": run_correlate_intent,
     "detect": run_detect_intent,
     "forecast": run_forecast_intent,
+    "test": run_test_intent,
 }
 
 DERIVED_RUNNERS: dict[str, _IntentRunner] = {
     "attribute": run_attribute_intent,
     "diagnose": run_diagnose_intent,
+    "validate": run_validate_intent,
 }
 
 # Mapping from intent type string to wrapper function.
@@ -101,6 +117,8 @@ for _name, _fn in [
     ("forecast", forecast),
     ("attribute", attribute),
     ("diagnose", diagnose),
+    ("test", test),
+    ("validate", validate),
 ]:
     INTENT_DISPATCHERS[_name] = _fn  # type: ignore[assignment]
 

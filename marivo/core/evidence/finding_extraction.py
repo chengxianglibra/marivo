@@ -312,7 +312,7 @@ def extract_observe_findings(
 ) -> list[dict[str, Any]]:
     """Extract observation findings from an observation artifact payload.
 
-    Pure computation: maps the five ``observation_type`` variants to finding
+    Pure computation: maps the ``observation_type`` variants to finding
     dicts.  Returns an empty list for empty time_series / segmented artifacts.
     """
     obs_type: str = payload.get("observation_type") or ""

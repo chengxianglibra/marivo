@@ -309,6 +309,12 @@ class MarivoRuntime:
     def diagnose(self, session_id: str, params: dict[str, Any]) -> dict[str, Any]:
         return intent_execution.diagnose(self, SessionId(session_id), params)
 
+    def test(self, session_id: str, request: AoiAtomicRequest) -> dict[str, Any]:
+        return intent_execution.test(self, SessionId(session_id), request)
+
+    def validate(self, session_id: str, params: dict[str, Any]) -> dict[str, Any]:
+        return intent_execution.validate(self, SessionId(session_id), params)
+
     # --- Session lifecycle (delegates to runtime/session) ---
 
     def create_session(
