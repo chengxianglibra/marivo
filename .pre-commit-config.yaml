@@ -30,6 +30,12 @@ repos:
 
   - repo: local
     hooks:
+      - id: lint-imports
+        name: lint-imports
+        entry: .venv/bin/lint-imports
+        language: system
+        types: [python]
+        pass_filenames: false
       - id: pytest
         name: pytest
         entry: .venv/bin/pytest
