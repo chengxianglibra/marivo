@@ -10,8 +10,6 @@ from marivo.adapters.dialect import SQLITE_METADATA_DIALECT, MetadataDialect
 from marivo.adapters.metadata import MetadataStore, MetadataTransaction
 from marivo.adapters.schema import metadata_ddl_for_backend, metadata_schema_marker_row
 
-_CATALOG_METADATA_SCHEMA_COLUMNS: tuple[tuple[str, str, str], ...] = ()
-
 
 class SQLiteMetadataStore(MetadataStore):
     """SQLite-backed metadata store for tests and local development."""
@@ -29,10 +27,8 @@ class SQLiteMetadataStore(MetadataStore):
     def initialize(self) -> None:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as con:
-            self._drop_legacy_tables(con)
             for ddl in metadata_ddl_for_backend("sqlite"):
                 con.execute(ddl)
-            self._upgrade_legacy_semantic_schema(con)
             marker = metadata_schema_marker_row("sqlite")
             con.execute(
                 self.dialect.insert_ignore_sql(
@@ -42,34 +38,6 @@ class SQLiteMetadataStore(MetadataStore):
                 [marker["backend"], marker["schema_version"], marker["ddl_fingerprint"]],
             )
             con.commit()
-
-    def _upgrade_legacy_semantic_schema(self, con: sqlite3.Connection) -> None:
-        for table_name, column_name, column_definition in _CATALOG_METADATA_SCHEMA_COLUMNS:
-            columns = self._column_names(con, table_name)
-            if column_name not in columns:
-                con.execute(
-                    f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_definition}"
-                )
-
-    def _column_names(self, con: sqlite3.Connection, table_name: str) -> set[str]:
-        return {str(row["name"]) for row in con.execute(f"PRAGMA table_info({table_name})")}
-
-    def _drop_legacy_tables(self, con: sqlite3.Connection) -> None:
-        # Temporarily disable foreign keys so that legacy tables referenced
-        # by current-schema tables can be dropped without integrity errors.
-        con.execute("PRAGMA foreign_keys=OFF")
-        try:
-            for table_name in (
-                "source_engine_bindings",
-                "sources__legacy",
-                "source_execution_mappings__legacy_fk",
-                "sources",
-                "engines",
-                "source_execution_mappings",
-            ):
-                con.execute(f"DROP TABLE IF EXISTS {table_name}")
-        finally:
-            con.execute("PRAGMA foreign_keys=ON")
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:

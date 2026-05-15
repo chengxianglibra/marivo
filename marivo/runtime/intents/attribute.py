@@ -497,7 +497,7 @@ def run_attribute_intent(
         "comparability_status": comparability_status,
     }
 
-    # ── Step 8: assemble bundle ────────────────────────────────────────────────
+    # ── Step 8: assemble payload ────────────────────────────────────────────────
     now = datetime.now(UTC).isoformat()
     left_resolved: dict[str, Any] = {
         "time_scope": left_obs.get("time_scope") or current_time_scope,
@@ -508,18 +508,11 @@ def run_attribute_intent(
         "scope": right_scope,
     }
 
-    bundle: dict[str, Any] = {
-        "result_type": "attribute_bundle",
-        "intent_type": "attribute",
-        "step_type": "attribute",
+    result_payload: dict[str, Any] = {
         "metric": metric_ref,
         "left": left_resolved,
         "right": right_resolved,
         "dimensions": dimensions,
-        "validation": {
-            "status": validation_status,
-            "issues": validation_issues,
-        },
         "observation_refs": {
             "left_ref": left_ref_typed,
             "right_ref": right_ref_typed,
@@ -528,6 +521,12 @@ def run_attribute_intent(
         "comparison": comparison,
         "drivers": drivers,
         "lineage": lineage,
+    }
+    product_metadata_payload: dict[str, Any] = {
+        "validation": {
+            "status": validation_status,
+            "issues": validation_issues,
+        },
         "version": version,
         "projection_metadata": {
             "decomposition_limit": decomposition_limit,
@@ -581,8 +580,9 @@ def run_attribute_intent(
         summary=summary,
         product_status=product_status,
         issues=validation_issues,
-        legacy_bundle=bundle,
         provenance=provenance,
+        result_payload=result_payload,
+        product_metadata_payload=product_metadata_payload,
     )
 
 

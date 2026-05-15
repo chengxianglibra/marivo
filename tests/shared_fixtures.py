@@ -390,10 +390,6 @@ def _template_lock_path(template_name: str) -> Path:
     return Path(f"/tmp/marivo_test_tpl_{spec.version}.lock")
 
 
-# Backward-compatible aliases used by tests/conftest.py.
-_PERSISTENT_TEMPLATE = _template_db_path("default")
-_LOCK_FILE = _template_lock_path("default")
-
 # In-process flags: skip lock on repeated calls within the same worker.
 _TEMPLATE_READY: set[str] = set()
 
@@ -508,12 +504,6 @@ def _metadata_template_valid(db_path: Path) -> bool:
                 "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('sessions', 'steps', 'artifacts', 'datasources', 'metadata_schema_marker')"
             ).fetchall()
         }
-        legacy_tables = {
-            str(row[0])
-            for row in con.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('source_engine_bindings', 'sources', 'engines', 'source_execution_mappings')"
-            ).fetchall()
-        }
         # OSI v2 tables
         osi_v2_tables = {
             str(row[0])
@@ -568,7 +558,6 @@ def _metadata_template_valid(db_path: Path) -> bool:
             "datasources",
             "metadata_schema_marker",
         }
-        and not legacy_tables
         and osi_v2_tables
         == {
             "semantic_models",

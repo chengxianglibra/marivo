@@ -1,4 +1,4 @@
-"""Legacy semantic_runtime.semantic_metadata stubs — preserved for import compatibility."""
+"""Semantic metadata utilities for runtime ref kind resolution."""
 
 from __future__ import annotations
 

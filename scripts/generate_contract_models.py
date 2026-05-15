@@ -86,7 +86,7 @@ def _write_init(output_dir: Path) -> None:
         "from . import osi as osi\n"
         "from .aoi import TimeScope as TimeScope\n\n\n"
         "class AIContext(RootModel[str | osi.AIContext1]):\n"
-        '    """Compatibility wrapper preserving the legacy .root access pattern."""\n\n'
+        '    """Root model accepting either a plain string or structured AI context object."""\n\n'
         "    root: str | osi.AIContext1\n\n\n"
         "AIContextObject = osi.AIContext1\n"
         "Field = osi.FieldModel\n"

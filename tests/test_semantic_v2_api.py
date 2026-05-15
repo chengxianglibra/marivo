@@ -9,9 +9,9 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from marivo.adapters.server.semantic_service_adapter import SemanticServiceAdapter
+from marivo.contracts.generated import OSI_MARIVO_SPEC_VERSION as OSI_SPEC_VERSION
 from marivo.datasources import DatasourceService
 from marivo.identity import reset_current_user, set_current_user
-from marivo.transports.http.models.osi import OSI_SPEC_VERSION
 from marivo.transports.http.semantic_v2 import router as semantic_v2_router
 from tests.shared_fixtures import ManagedSQLiteMetadataStore, make_temp_metadata_store
 

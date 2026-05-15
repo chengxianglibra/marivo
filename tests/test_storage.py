@@ -149,17 +149,8 @@ class SQLiteMetadataStoreTests(unittest.TestCase):
             WHERE type = 'table' AND name = 'datasources'
             """
         )
-        legacy_row = store.query_one(
-            """
-            SELECT COUNT(*) AS cnt
-            FROM sqlite_master
-            WHERE type = 'table' AND name = 'source_engine_bindings'
-            """
-        )
         self.assertIsNotNone(datasources_row)
         self.assertEqual(datasources_row["cnt"], 1)
-        self.assertIsNotNone(legacy_row)
-        self.assertEqual(legacy_row["cnt"], 0)
 
 
 class DuckDBAnalyticsEngineTests(unittest.TestCase):

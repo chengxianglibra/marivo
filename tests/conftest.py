@@ -62,7 +62,6 @@ collect_ignore_glob = [
     "test_step_metadata.py",
     "test_time_scope_resolution.py",
     "test_time_axis_metadata.py",
-    "test_observe_artifact_lineage.py",
     "test_observe_compare_lineage_reuse.py",
     "test_compiler_executor.py",
     "test_datasources.py",

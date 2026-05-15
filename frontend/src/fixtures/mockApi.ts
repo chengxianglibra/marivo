@@ -4,9 +4,7 @@ import {
   jobs,
   metrics,
   openapiIndex,
-  policies,
   propositionContext,
-  qualityRules,
   runtimeStatus,
   semantic,
   sessionState,
@@ -69,10 +67,8 @@ export function mockGet(path: string, query?: Record<string, unknown>): unknown 
       return (!query?.session_id || job.session_id === query.session_id) && (!query?.status || job.status === query.status);
     });
   }
-  if (clean === "/policies") return policies;
-  if (clean === "/quality-rules") return qualityRules;
-  if (clean === "/sessions") {
-    return { items: sessions.filter((session) => !query?.status || session.status === query.status) };
+    if (clean === "/sessions") {
+    return { items: sessions.filter((session) => !query?.status || session.lifecycle?.status === query.status) };
   }
   if (clean.endsWith("/state")) return sessionState;
   if (clean.endsWith("/runtime-status")) return runtimeStatus;
@@ -80,7 +76,6 @@ export function mockGet(path: string, query?: Record<string, unknown>): unknown 
 
   const semanticMatch = clean.match(/^\/semantic\/([^/]+)$/);
   if (semanticMatch) return { items: semantic[semanticMatch[1]] ?? [] };
-  if (clean === "/compiler/compatibility-profiles") return { items: semantic["compatibility-profiles"] };
 
   return {};
 }
@@ -112,7 +107,7 @@ export function mockPost(path: string, body: unknown): unknown {
         selection_reason: "No ready datasource covers every requested table.",
         routing_detail: {
           candidates: ["ds_lake_trino"],
-          readiness_blockers: ["Fix connection.host", "Confirm live browse access"],
+          blocking_requirements: ["Fix connection.host", "Confirm live browse access"],
         },
       };
     }
@@ -126,7 +121,7 @@ export function mockPost(path: string, body: unknown): unknown {
       routing_detail: { selected_datasource: "ds_sales_duckdb", candidates: ["ds_sales_duckdb"] },
     };
   }
-  if (path.endsWith("/validate")) return { valid: false, readiness_status: "not_ready", blockers: ["source_object_not_ready"] };
+  if (path.endsWith("/validate")) return { valid: false, readiness_status: "not_ready", blocking_requirements: ["source_object_not_ready"] };
   if (path.endsWith("/activate")) return { status: "active", readiness_status: "not_ready" };
   if (path.endsWith("/deprecate")) return { status: "deprecated", readiness_status: "not_ready" };
   return { status: "ok" };

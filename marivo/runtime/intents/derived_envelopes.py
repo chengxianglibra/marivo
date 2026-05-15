@@ -32,8 +32,9 @@ def build_derived_bundle_envelope(
     summary: str,
     product_status: str,
     issues: list[dict[str, Any]],
-    legacy_bundle: dict[str, Any] | None = None,
     provenance: dict[str, Any] | None = None,
+    result_payload: dict[str, Any] | None = None,
+    product_metadata_payload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Persist and return a derived non-AOI bundle envelope.
 
@@ -45,12 +46,16 @@ def build_derived_bundle_envelope(
         "bundle_type": bundle_type,
         "aoi_artifacts": aoi_artifacts,
     }
+    if result_payload is not None:
+        result.update(result_payload)
     product_metadata = {
         "derived_operation": step_type,
         "status": product_status,
         "issues": issues,
         "aoi_artifacts": aoi_artifacts,
     }
+    if product_metadata_payload is not None:
+        product_metadata.update(product_metadata_payload)
     artifact_id = ArtifactId(f"art_{uuid4().hex[:12]}")
     envelope: dict[str, Any] = {
         "intent_type": step_type,
@@ -66,16 +71,6 @@ def build_derived_bundle_envelope(
     }
     if provenance is not None:
         envelope["provenance"] = provenance
-
-    if legacy_bundle is not None:
-        legacy_payload = dict(legacy_bundle)
-        legacy_payload.pop("intent_type", None)
-        legacy_payload.pop("step_type", None)
-        legacy_payload.pop("step_ref", None)
-        legacy_payload.pop("artifact_id", None)
-        legacy_payload.pop("result", None)
-        legacy_payload.pop("product_metadata", None)
-        envelope.update(legacy_payload)
 
     committed_artifact_id = runtime.insert_artifact(
         session_id,

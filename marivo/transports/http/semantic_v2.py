@@ -9,9 +9,10 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from marivo.adapters.server.semantic_service_adapter import SemanticServiceAdapter
+from marivo.contracts.generated import OSI_MARIVO_SPEC_VERSION as OSI_SPEC_VERSION
+from marivo.contracts.generated import OSIDocument
 from marivo.identity import require_user, resolve_user
 from marivo.runtime.semantic.import_export import ImportOsiDocumentReport
-from marivo.transports.http.models.osi import OSI_SPEC_VERSION, OSIDocument
 
 router = APIRouter(prefix="/semantic-models", tags=["semantic-models"])
 

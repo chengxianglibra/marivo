@@ -9,7 +9,7 @@ from pydantic import ValidationError
 
 
 def test_expression_single_dialect():
-    from marivo.transports.http.models.osi import DialectExpression, Expression
+    from marivo.contracts.generated import DialectExpression, Expression
 
     expr = Expression(
         dialects=[DialectExpression(dialect="ANSI_SQL", expression="ss_sold_date_sk")]
@@ -20,21 +20,21 @@ def test_expression_single_dialect():
 
 
 def test_expression_requires_at_least_one_dialect():
-    from marivo.transports.http.models.osi import Expression
+    from marivo.contracts.generated import Expression
 
     with pytest.raises(ValidationError):
         Expression(dialects=[])
 
 
 def test_ai_context_string_form():
-    from marivo.transports.http.models.osi import AIContext
+    from marivo.contracts.generated import AIContext
 
     ctx = AIContext(root="Use this model for retail analytics")
     assert ctx.root == "Use this model for retail analytics"
 
 
 def test_ai_context_object_form():
-    from marivo.transports.http.models.osi import AIContext, AIContextObject
+    from marivo.contracts.generated import AIContext, AIContextObject
 
     ctx = AIContext(
         root={
@@ -48,7 +48,7 @@ def test_ai_context_object_form():
 
 
 def test_field_minimal():
-    from marivo.transports.http.models.osi import DialectExpression, Expression, Field
+    from marivo.contracts.generated import DialectExpression, Expression, Field
 
     field = Field(
         name="ss_sold_date_sk",
@@ -62,7 +62,7 @@ def test_field_minimal():
 
 
 def test_field_with_dimension_is_time():
-    from marivo.transports.http.models.osi import DialectExpression, Dimension, Expression, Field
+    from marivo.contracts.generated import DialectExpression, Dimension, Expression, Field
 
     field = Field(
         name="ss_sold_time",
@@ -76,7 +76,7 @@ def test_field_with_dimension_is_time():
 
 
 def test_dataset_minimal():
-    from marivo.transports.http.models.osi import Dataset
+    from marivo.contracts.generated import Dataset
 
     ds = Dataset(name="store_sales", source="tpcds.public.store_sales")
     assert ds.name == "store_sales"
@@ -84,7 +84,7 @@ def test_dataset_minimal():
 
 
 def test_relationship_requires_columns():
-    from marivo.transports.http.models.osi import Relationship
+    from marivo.contracts.generated import Relationship
 
     rel = Relationship(
         name="store_sales_to_date",
@@ -97,7 +97,7 @@ def test_relationship_requires_columns():
 
 
 def test_metric_minimal():
-    from marivo.transports.http.models.osi import DialectExpression, Expression, Metric
+    from marivo.contracts.generated import DialectExpression, Expression, Metric
 
     metric = Metric(
         name="total_sales",
@@ -109,28 +109,28 @@ def test_metric_minimal():
 
 
 def test_semantic_model_requires_datasets():
-    from marivo.transports.http.models.osi import SemanticModel
+    from marivo.contracts.generated import SemanticModel
 
     with pytest.raises(ValidationError):
         SemanticModel(name="retail", datasets=[])
 
 
 def test_osi_document_structure():
-    from marivo.transports.http.models.osi import OSIDocument
+    from marivo.contracts.generated import OSIDocument
 
     doc = OSIDocument(version="0.1.1", semantic_model=[])
     assert doc.version == "0.1.1"
 
 
 def test_osi_document_version_must_be_011():
-    from marivo.transports.http.models.osi import OSIDocument
+    from marivo.contracts.generated import OSIDocument
 
     with pytest.raises(ValidationError):
         OSIDocument(version="0.2.0", semantic_model=[])
 
 
 def test_custom_extension_structure():
-    from marivo.transports.http.models.osi import CustomExtension
+    from marivo.contracts.generated import CustomExtension
 
     ext = CustomExtension(vendor_name="MARIVO", data={"datasource_id": "ds_001"})
     assert ext.vendor_name == "MARIVO"
@@ -141,7 +141,7 @@ def test_custom_extension_structure():
 
 
 def test_field_forbids_extra_properties():
-    from marivo.transports.http.models.osi import DialectExpression, Expression, Field
+    from marivo.contracts.generated import DialectExpression, Expression, Field
 
     with pytest.raises(ValidationError):
         Field(
@@ -152,7 +152,7 @@ def test_field_forbids_extra_properties():
 
 
 def test_unextended_objects_reject_custom_extensions():
-    from marivo.transports.http.models.osi import (
+    from marivo.contracts.generated import (
         CustomExtension,
         DialectExpression,
         Expression,
@@ -258,9 +258,9 @@ def test_marivo_metric_filter():
 
 
 def test_extract_marivo_extension_from_custom_extensions():
+    from marivo.contracts.generated import CustomExtension
     from marivo.core.semantic.extensions import extract_marivo_extension
     from marivo.transports.http.models.marivo_extensions import MarivoDatasetExtension
-    from marivo.transports.http.models.osi import CustomExtension
 
     exts = [CustomExtension(vendor_name="MARIVO", data={"datasource_id": "tpcds"})]
     result = extract_marivo_extension(exts, MarivoDatasetExtension)

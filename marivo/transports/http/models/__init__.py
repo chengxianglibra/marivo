@@ -4,7 +4,6 @@ This package provides Pydantic models for the Marivo HTTP API.
 
 Modules:
 - base: Shared types, validators, and base classes
-- osi: OSI core models (Dimension, Field, Dataset, Relationship, Metric, SemanticModel, OSIDocument)
 - marivo_extensions: MARIVO extension models
 - intent_request_models: Typed intent request models (observe, compare, detect, etc.)
 - intent_response_models: Typed intent response models
@@ -14,6 +13,24 @@ Modules:
 """
 
 # Infrastructure models (datasource, routing, steps, signals, etc.)
+# OSI core models
+from marivo.contracts.generated import (
+    CustomExtension,
+    Dataset,
+    DialectExpression,
+    Dimension,
+    Expression,
+    Field,
+    Metric,
+    OSIDocument,
+    Relationship,
+    SemanticModel,
+)
+from marivo.contracts.generated.osi import (
+    MarivoDatasetCustomExtension,
+    MarivoMetricCustomExtension,
+)
+
 from ._infrastructure import (
     AggregateQueryStep,
     AnalysisTimeOverride,
@@ -164,26 +181,6 @@ from .marivo_extensions import (
     MarivoSemanticModelExtension,
 )
 
-# OSI core models
-from .osi import (
-    AIContext,
-    AIContextObject,
-    CustomExtension,
-    Dataset,
-    Dialect,
-    DialectExpression,
-    Dimension,
-    Expression,
-    Field,
-    MarivoDatasetCustomExtension,
-    MarivoMetricCustomExtension,
-    Metric,
-    OSIDocument,
-    Relationship,
-    SemanticModel,
-    Vendor,
-)
-
 # Session models
 from .session import (
     SessionBudget,
@@ -209,8 +206,6 @@ __all__ = [  # noqa: RUF022
     "AggregateQueryStep",
     "AggregationMethod",
     "AggregationScope",
-    "AIContext",
-    "AIContextObject",
     "AnalysisSession",
     "AnalysisTimeOverride",
     "ApiErrorDetail",
@@ -247,7 +242,6 @@ __all__ = [  # noqa: RUF022
     "DetectTimeScope",
     "DiagnoseRequest",
     "DiagnoseResponse",
-    "Dialect",
     "DialectExpression",
     "Dimension",
     "DimensionDomainKind",
@@ -358,7 +352,6 @@ __all__ = [  # noqa: RUF022
     "TrinoDatasourceConnection",
     "UniquenessScope",
     "ValueSemantics",
-    "Vendor",
     "WindowOffset",
     "WindowSpec",
     "validate_contract_version",

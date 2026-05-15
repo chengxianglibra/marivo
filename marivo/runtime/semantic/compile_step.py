@@ -151,8 +151,10 @@ def derive_compiler_state(*_args: Any, **_kwargs: Any) -> DerivedCompilerState:
     return DerivedCompilerState()
 
 
-# ── Predicate validator stubs (inlined from analysis_core.predicate_validator) ──
-# These are preserved for import compatibility only — all return empty results.
+# ── Predicate validator stubs ──
+# These stubs currently return empty results. Predicate contract validation,
+# scope validation, conflict validation, and lowering prechecks are effectively
+# disabled until real implementations are provided.
 
 
 @dataclass(slots=True)
