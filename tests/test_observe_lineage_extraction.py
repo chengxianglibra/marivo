@@ -1,11 +1,11 @@
-"""Tests for _extract_predicate_filter_lineage helper in observe.py."""
+"""Tests for extract_predicate_filter_lineage helper."""
 
 from __future__ import annotations
 
 import unittest
 
 from marivo.core.semantic.compiler import CompiledQuery
-from marivo.runtime.intents.observe import _extract_predicate_filter_lineage
+from marivo.runtime.intents._helpers import extract_predicate_filter_lineage
 
 
 def _make_ir_bundle(nodes: list[dict]) -> dict:
@@ -30,25 +30,25 @@ def _intent_node() -> dict:
 class TestExtractPredicateFilterLineage(unittest.TestCase):
     def test_no_ir_bundle_returns_none(self):
         cq = CompiledQuery(sql="SELECT 1")
-        self.assertIsNone(_extract_predicate_filter_lineage(cq))
+        self.assertIsNone(extract_predicate_filter_lineage(cq))
 
     def test_ir_bundle_with_no_nodes_returns_none(self):
         cq = CompiledQuery(sql="SELECT 1", ir_bundle=_make_ir_bundle([]))
-        self.assertIsNone(_extract_predicate_filter_lineage(cq))
+        self.assertIsNone(extract_predicate_filter_lineage(cq))
 
     def test_ir_bundle_with_no_measurement_node_returns_none(self):
         cq = CompiledQuery(
             sql="SELECT 1",
             ir_bundle=_make_ir_bundle([_process_node(), _intent_node()]),
         )
-        self.assertIsNone(_extract_predicate_filter_lineage(cq))
+        self.assertIsNone(extract_predicate_filter_lineage(cq))
 
     def test_measurement_node_without_lineage_returns_none(self):
         cq = CompiledQuery(
             sql="SELECT 1",
             ir_bundle=_make_ir_bundle([_measurement_node(lineage=None)]),
         )
-        self.assertIsNone(_extract_predicate_filter_lineage(cq))
+        self.assertIsNone(extract_predicate_filter_lineage(cq))
 
     def test_measurement_node_with_lineage_returns_lineage(self):
         lineage = {
@@ -63,7 +63,7 @@ class TestExtractPredicateFilterLineage(unittest.TestCase):
             sql="SELECT 1",
             ir_bundle=_make_ir_bundle([_measurement_node(lineage=lineage)]),
         )
-        result = _extract_predicate_filter_lineage(cq)
+        result = extract_predicate_filter_lineage(cq)
         self.assertIsNotNone(result)
         assert result is not None
         self.assertEqual(
@@ -89,7 +89,7 @@ class TestExtractPredicateFilterLineage(unittest.TestCase):
                 ]
             ),
         )
-        result = _extract_predicate_filter_lineage(cq)
+        result = extract_predicate_filter_lineage(cq)
         self.assertIsNotNone(result)
         assert result is not None
         self.assertEqual(
@@ -98,11 +98,11 @@ class TestExtractPredicateFilterLineage(unittest.TestCase):
 
     def test_ir_bundle_with_none_plan_returns_none(self):
         cq = CompiledQuery(sql="SELECT 1", ir_bundle={})
-        self.assertIsNone(_extract_predicate_filter_lineage(cq))
+        self.assertIsNone(extract_predicate_filter_lineage(cq))
 
     def test_ir_bundle_with_none_nodes_returns_none(self):
         cq = CompiledQuery(sql="SELECT 1", ir_bundle={"plan": {}})
-        self.assertIsNone(_extract_predicate_filter_lineage(cq))
+        self.assertIsNone(extract_predicate_filter_lineage(cq))
 
 
 if __name__ == "__main__":

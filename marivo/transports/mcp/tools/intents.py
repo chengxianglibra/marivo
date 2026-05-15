@@ -321,3 +321,67 @@ def register_diagnose(server: Any, runtime: Any) -> None:
         if patterns is not None:
             params["patterns"] = patterns
         return await call_runtime(runtime.diagnose, session_id=session_id, params=params)
+
+
+def register_test_intent(server: Any, runtime: Any) -> None:
+    @server.tool()  # type: ignore
+    async def test_intent(
+        session_id: str,
+        metric: str,
+        left: McpSliceRef,
+        right: McpSliceRef,
+        kind: Literal["numeric", "rate"] = "numeric",
+        hypothesis: McpStructuredObject | None = None,
+        method: Literal["auto", "welch_t"] = "auto",
+    ) -> dict[str, Any]:
+        from marivo.contracts.generated import aoi
+
+        hyp_model = None
+        if hypothesis is not None:
+            hyp_model = aoi.Hypothesis.model_validate(
+                {
+                    "family": hypothesis.get("family", "two_sample_mean"),
+                    "alternative": hypothesis.get("alternative", "two_sided"),
+                    "alpha": hypothesis.get("alpha", 0.05),
+                    "label": hypothesis.get("label"),
+                }
+            )
+
+        request = aoi.Test.model_validate(
+            {
+                "metric": metric,
+                "left": _to_aoi_slice(left),
+                "right": _to_aoi_slice(right),
+                "kind": kind,
+                "hypothesis": hyp_model
+                or aoi.Hypothesis(
+                    family="two_sample_mean",
+                    alternative="two_sided",
+                    alpha=0.05,
+                    label=None,
+                ),
+            }
+        )
+        return await call_runtime(runtime.test, session_id=session_id, request=request)
+
+
+def register_validate(server: Any, runtime: Any) -> None:
+    @server.tool()  # type: ignore
+    async def validate(
+        session_id: str,
+        metric: str,
+        left: McpSliceRef,
+        right: McpSliceRef,
+        hypothesis: McpStructuredObject | None = None,
+        method: Literal["auto", "welch_t"] | None = None,
+    ) -> dict[str, Any]:
+        params: dict[str, Any] = {
+            "metric": metric,
+            "left": left.model_dump(),
+            "right": right.model_dump(),
+        }
+        if hypothesis is not None:
+            params["hypothesis"] = hypothesis
+        if method is not None:
+            params["method"] = method
+        return await call_runtime(runtime.validate, session_id=session_id, params=params)

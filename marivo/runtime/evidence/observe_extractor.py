@@ -8,7 +8,7 @@ Registered via ``_bootstrap_finding_extractors()`` in
 
 Artifact type: ``"observation"``   Schema version: ``"v1"``   Family: ``"observe"``
 
-Maps the three ``observation_type`` variants to :class:`ObservationFinding`:
+Maps the ``observation_type`` variants to :class:`ObservationFinding`:
 
 - ``scalar``               → 1 finding (:class:`ScalarObservationPayload`)
 - ``time_series``          → 1 finding per bucket (:class:`TimeBucketObservationPayload`);
