@@ -392,7 +392,7 @@ def run_decompose_intent(
         )
 
     # Reconciliation check: only for additive (sum) metrics
-    reconciliation_expected = metric_aggregation_semantics == "sum"
+    reconciliation_expected = metric_aggregation_semantics == "sum" and len(dims_for_gate) > 0
     if (
         reconciliation_expected
         and unexplained_absolute_delta is not None
