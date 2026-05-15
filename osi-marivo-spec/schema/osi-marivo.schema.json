@@ -199,7 +199,7 @@
         },
         "source": {
           "type": "string",
-          "description": "Reference to underlying physical table/view (database.schema.table) or query"
+          "description": "Reference to underlying physical table or view as a relation FQN (schema.table or catalog.schema.table)"
         },
         "primary_key": {
           "type": "array",
