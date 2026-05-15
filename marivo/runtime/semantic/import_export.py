@@ -165,6 +165,20 @@ class OsiSemanticDocumentValidator:
                             f"{model_pointer}/datasets/{dataset_index}/fields",
                         )
                     )
+                    source = str(dataset.get("source") or "").strip()
+                    if source and DatasourceBinder._parse_source(source) is None:
+                        errors.append(
+                            SemanticValidationIssue(
+                                code="INVALID_DATASET_SOURCE",
+                                message=f"Dataset source must be a relation FQN (schema.table or catalog.schema.table), got {source!r}.",
+                                json_pointer=f"{model_pointer}/datasets/{dataset_index}/source",
+                                hint="Use a dotted relation FQN such as analytics.orders or public.page_views.",
+                                context={
+                                    "dataset": str(dataset.get("name") or ""),
+                                    "source": source,
+                                },
+                            )
+                        )
             errors.extend(_reference_issues(model, model_pointer))
             if self.datasource_service is not None:
                 errors.extend(self._datasource_issues(model, model_pointer))

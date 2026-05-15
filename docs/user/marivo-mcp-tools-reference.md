@@ -530,7 +530,7 @@ interface AiContext {
 
 interface Dataset {
   name: string;                             // 数据集标识
-  source: string;                           // 物理表引用
+  source: string;                           // 物理表/视图的 relation FQN（schema.table 或 catalog.schema.table），不支持 SQL query
   primary_key: string[];                    // 主键列名数组
   unique_keys: string[][];                  // 唯一键数组
   description: string;                      // 数据集描述
@@ -716,6 +716,8 @@ interface ValidationSummary {
   relationships: integer;
 }
 ```
+
+验证错误码包括：`SCHEMA_VALIDATION_FAILED`、`EMPTY_SEMANTIC_MODEL`、`DUPLICATE_NAME`、`UNKNOWN_DATASET`、`UNKNOWN_FIELD`、`INVALID_AGGREGATION_SEMANTICS`、`INVALID_DATASET_SOURCE`（source 不是合法 relation FQN）等。
 
 **输入示例**（使用 input_path）：
 

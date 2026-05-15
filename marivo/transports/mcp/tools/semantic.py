@@ -62,6 +62,8 @@ def register_semantic_tools(server: Any, runtime: Any) -> None:
     async def validate_osi_semantic_models(input: McpOsiDocumentInput) -> dict[str, Any]:
         """Validate an inline or local-file OSI-Marivo semantic document.
 
+        dataset.source must be a relation FQN (schema.table or catalog.schema.table); SQL queries are not accepted.
+
         Key field in the MARIVO metric extension: aggregation_semantics
         (enum: sum | ratio | weighted_average, default: sum).
         Decision rule:
@@ -77,6 +79,8 @@ def register_semantic_tools(server: Any, runtime: Any) -> None:
     @server.tool()  # type: ignore
     async def import_osi_semantic_models(input: McpOsiDocumentInput) -> dict[str, Any]:
         """Import an inline or local-file OSI-Marivo semantic document.
+
+        dataset.source must be a relation FQN (schema.table or catalog.schema.table); SQL queries are not accepted.
 
         Key field in the MARIVO metric extension: aggregation_semantics
         (enum: sum | ratio | weighted_average, default: sum).
