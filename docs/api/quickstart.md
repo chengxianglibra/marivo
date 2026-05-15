@@ -12,15 +12,12 @@ publish dataset-native semantic grounding, create a session, and run an analysis
 
 ```bash
 curl -s -X POST http://localhost:8000/datasources \
+  -H "X-Marivo-User: alice" \
   -H "Content-Type: application/json" \
   -d '{
     "datasource_type": "duckdb",
     "display_name": "Analytics DB",
-    "connection": {"path": "/data/analytics.duckdb"},
-    "policy": {
-      "allow_live_browse": true,
-      "allow_identity_reuse": false
-    }
+    "connection": {"path": "/data/analytics.duckdb"}
   }' | jq .
 ```
 
@@ -51,7 +48,7 @@ Use the live browse output to choose:
 - `dataset.source`: `analytics.orders`
 - `field.expression`: physical columns such as `order_id`, `order_date`, and `amount`
 
-## Step 3 - Import A Dataset-Native Semantic Model
+## Step 3 - Validate A Dataset-Native Semantic Model
 
 Dataset and Field are the only persisted physical grounding contract:
 
@@ -61,7 +58,7 @@ Dataset and Field are the only persisted physical grounding contract:
 - metrics, dimensions, predicates, and relationships reference datasets and fields
 
 ```bash
-curl -s -X POST http://localhost:8000/semantic-models/import \
+curl -s -X POST http://localhost:8000/semantic-models/validate \
   -H "Content-Type: application/json" \
   -d '{
     "version": "0.1.1",
@@ -72,7 +69,7 @@ curl -s -X POST http://localhost:8000/semantic-models/import \
         "custom_extensions": [
           {
             "vendor_name": "MARIVO",
-            "data": "{\"visibility\":\"private\",\"owner_user\":\"alice\"}"
+            "data": {"visibility": "private", "owner_user": "alice"}
           }
         ],
         "datasets": [
@@ -83,7 +80,7 @@ curl -s -X POST http://localhost:8000/semantic-models/import \
             "custom_extensions": [
               {
                 "vendor_name": "MARIVO",
-                "data": "{\"datasource_id\":\"ds_...\"}"
+                "data": {"datasource_id": "ds_..."}
               }
             ],
             "fields": [
@@ -106,7 +103,7 @@ curl -s -X POST http://localhost:8000/semantic-models/import \
                 "custom_extensions": [
                   {
                     "vendor_name": "MARIVO",
-                    "data": "{\"data_type\":\"date\"}"
+                    "data": {"data_type": "date"}
                   }
                 ]
               },
@@ -120,7 +117,7 @@ curl -s -X POST http://localhost:8000/semantic-models/import \
                 "custom_extensions": [
                   {
                     "vendor_name": "MARIVO",
-                    "data": "{\"data_type\":\"number\"}"
+                    "data": {"data_type": "number"}
                   }
                 ]
               }
@@ -138,7 +135,15 @@ curl -s -X POST http://localhost:8000/semantic-models/import \
             "custom_extensions": [
               {
                 "vendor_name": "MARIVO",
-                "data": "{\"observed_dataset\":\"orders\",\"observation_grain\":[\"day\"],\"primary_time_field\":\"order_date\",\"additivity\":{\"dimension_policy\":\"all\",\"time_axis_policy\":\"additive\"}}"
+                "data": {
+                  "observed_dataset": "orders",
+                  "observation_grain": ["day"],
+                  "primary_time_field": "order_date",
+                  "additivity": {
+                    "dimension_policy": "all",
+                    "time_axis_policy": "additive"
+                  }
+                }
               }
             ]
           }
@@ -148,13 +153,13 @@ curl -s -X POST http://localhost:8000/semantic-models/import \
   }' | jq .
 ```
 
-## Step 4 - Check Semantic Readiness
+## Step 4 - Import The Semantic Model
 
-```bash
-curl -s http://localhost:8000/semantic-models/commerce/readiness | jq .
-```
+After validation returns `"valid": true`, repeat the same request body against
+`POST /semantic-models/import` and include `X-Marivo-User: alice`; imports write
+to the caller's private working copy.
 
-Common readiness blockers:
+Common validation blockers:
 
 | Code | Recovery |
 |------|----------|
@@ -172,11 +177,10 @@ curl -s "http://localhost:8000/datasources/ds_.../catalog/preview?schema=analyti
 
 ```bash
 curl -s -X POST http://localhost:8000/sessions \
+  -H "X-Marivo-User: alice" \
   -H "Content-Type: application/json" \
   -d '{
-    "goal": {
-      "question": "Investigate revenue movement in January 2026"
-    }
+    "goal": "Investigate revenue movement in January 2026"
   }' | jq .
 ```
 
@@ -184,28 +188,22 @@ Save the returned `session_id`.
 
 ## Step 7 - Run Analysis Steps
 
-The examples in this section use currently implemented step endpoints. For the target-state
+The examples in this section use currently implemented intent endpoints. For the full
 per-intent write contract, see [Intent Step Submission](intent-steps.md).
 
 ```bash
-curl -s -X POST http://localhost:8000/sessions/sess_.../steps/metric_query \
+curl -s -X POST http://localhost:8000/sessions/sess_.../intents/observe \
   -H "Content-Type: application/json" \
   -d '{
-    "table": "analytics.orders",
     "metric": "order_revenue",
-    "dimensions": ["order_date"],
     "time_scope": {
-      "mode": "compare",
-      "grain": "day",
-      "current": {
-        "start": "2026-01-01",
-        "end": "2026-02-01"
-      },
-      "baseline": {
-        "start": "2025-01-01",
-        "end": "2025-02-01"
-      }
-    }
+      "field": "order_date",
+      "start": "2026-01-01T00:00:00Z",
+      "end": "2026-02-01T00:00:00Z"
+    },
+    "filter": null,
+    "granularity": "day",
+    "dimensions": null
   }' | jq .
 ```
 

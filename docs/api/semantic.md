@@ -17,7 +17,7 @@ GET /datasources/{datasource_id}/catalog/preview?schema=...&table=...
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `GET` | `/semantic-models` | List visible semantic model summaries. |
+| `GET` | `/semantic-models` | List visible semantic models as an OSI-Marivo document. |
 | `GET` | `/semantic-models/{model}` | Get one stored semantic model as an OSI-Marivo document. |
 | `POST` | `/semantic-models/validate` | Validate a draft OSI-Marivo document without writing it. |
 | `POST` | `/semantic-models/import` | Validate and import a complete OSI-Marivo document. |
@@ -28,6 +28,11 @@ Authoring writes go through `/semantic-models/import`. The import document is th
 for datasets, fields, metrics, and relationships. `DELETE /semantic-models/{model}` is the cleanup
 path for removing the caller's private working copy during modeling; it never deletes official
 public semantic models.
+
+`POST /semantic-models/import`, `GET /semantic-models/export`, and
+`DELETE /semantic-models/{model}` require the transport to set caller identity
+with `X-Marivo-User`. List/get operations use the same identity to decide which
+private models are visible to the caller.
 
 ## Authoring Loop
 
