@@ -56,6 +56,124 @@ def test_version_constants_exist() -> None:
     assert AOI_SPEC_VERSION == "0.2.0"
 
 
+def _aoi_time_scope() -> dict[str, str]:
+    return {
+        "field": "event_time",
+        "start": "2026-05-01T00:00:00Z",
+        "end": "2026-05-08T00:00:00Z",
+    }
+
+
+def test_aoi_observe_accepts_scalar_branch() -> None:
+    from marivo.contracts.generated import aoi
+
+    request = aoi.Observe1.model_validate(
+        {
+            "metric": "metric.revenue",
+            "time_scope": _aoi_time_scope(),
+        }
+    )
+
+    assert request.metric == "metric.revenue"
+    assert request.time_scope.field == "event_time"
+
+
+@pytest.mark.parametrize("granularity", ["hour", "day", "week", "month", "quarter", "year"])
+def test_aoi_observe_accepts_time_series_branch(granularity: str) -> None:
+    from marivo.contracts.generated import aoi
+
+    request = aoi.Observe2.model_validate(
+        {
+            "metric": "metric.revenue",
+            "time_scope": _aoi_time_scope(),
+            "granularity": granularity,
+        }
+    )
+
+    assert request.granularity == granularity
+
+
+def test_aoi_observe_accepts_segmented_branch() -> None:
+    from marivo.contracts.generated import aoi
+
+    request = aoi.Observe3.model_validate(
+        {
+            "metric": "metric.revenue",
+            "time_scope": _aoi_time_scope(),
+            "dimensions": ["region", "platform"],
+        }
+    )
+
+    assert [dimension.root for dimension in request.dimensions] == ["region", "platform"]
+
+
+def test_aoi_observe_preserves_filter_expression() -> None:
+    from marivo.contracts.generated import aoi
+
+    request = aoi.Observe1.model_validate(
+        {
+            "metric": "metric.revenue",
+            "time_scope": _aoi_time_scope(),
+            "filter": {
+                "dialects": [
+                    {"dialect": "ANSI_SQL", "expression": "region = 'US'"},
+                ]
+            },
+        }
+    )
+
+    assert request.filter is not None
+    assert request.filter.model_dump(exclude_none=True) == {
+        "dialects": [{"dialect": "ANSI_SQL", "expression": "region = 'US'"}]
+    }
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {
+            "metric": "metric.revenue",
+            "time_scope": _aoi_time_scope(),
+            "unexpected": True,
+        },
+        {
+            "metric": "metric.revenue",
+            "time_scope": _aoi_time_scope(),
+            "filter": None,
+        },
+        {
+            "metric": "metric.revenue",
+            "time_scope": _aoi_time_scope(),
+            "granularity": None,
+        },
+        {
+            "metric": "metric.revenue",
+            "time_scope": _aoi_time_scope(),
+            "dimensions": None,
+        },
+        {
+            "metric": "metric.revenue",
+            "time_scope": _aoi_time_scope(),
+            "dimensions": [],
+        },
+        {
+            "metric": "metric.revenue",
+            "time_scope": _aoi_time_scope(),
+            "granularity": "day",
+            "dimensions": ["region"],
+        },
+        {"time_scope": _aoi_time_scope()},
+        {"metric": "metric.revenue"},
+    ],
+)
+def test_aoi_observe_rejects_invalid_contract_shapes(payload: dict[str, Any]) -> None:
+    from marivo.contracts.generated import aoi
+
+    for model in (aoi.Observe1, aoi.Observe2, aoi.Observe3):
+        with pytest.raises(ValidationError):
+            model.model_validate(payload)
+
+
 def test_marivo_metric_extension_matches_spec() -> None:
     from marivo.transports.http.models.marivo_extensions import MarivoMetricExtension
 

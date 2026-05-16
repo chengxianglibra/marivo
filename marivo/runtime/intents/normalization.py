@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from marivo.time_contracts import normalize_hour_boundary
 
-_VALID_GRANULARITIES = frozenset({"hour", "day", "week", "month"})
+_VALID_GRANULARITIES = frozenset({"hour", "day", "week", "month", "quarter", "year"})
 
 
 def normalize_metric_ref(metric_ref: str | None) -> str:

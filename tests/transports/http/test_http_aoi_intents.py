@@ -260,20 +260,45 @@ def test_observe_accepts_aoi_request_and_returns_execution_envelope() -> None:
     assert "value" not in body
 
 
-def test_observe_rejects_legacy_time_scope_shape() -> None:
-    response = _client(_FakeRuntime()).post(
+def test_observe_accepts_time_series_aoi_request() -> None:
+    runtime = _FakeRuntime()
+    response = _client(runtime).post(
         "/sessions/sess_1/intents/observe",
         json={
             "metric": "metric.revenue",
             "time_scope": {
-                "kind": "range",
+                "field": "event_time",
                 "start": "2026-01-01T00:00:00Z",
                 "end": "2026-01-08T00:00:00Z",
             },
+            "granularity": "quarter",
         },
     )
 
-    assert response.status_code == 422
+    assert response.status_code == 200, response.text
+    assert isinstance(runtime.observe_payload, aoi.Observe2)
+    assert runtime.observe_payload.granularity == "quarter"
+
+
+def test_observe_accepts_segmented_aoi_request() -> None:
+    runtime = _FakeRuntime()
+    response = _client(runtime).post(
+        "/sessions/sess_1/intents/observe",
+        json={
+            "metric": "metric.revenue",
+            "time_scope": {
+                "field": "event_time",
+                "start": "2026-01-01T00:00:00Z",
+                "end": "2026-01-08T00:00:00Z",
+            },
+            "dimensions": ["region"],
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert isinstance(runtime.observe_payload, aoi.Observe3)
+    assert runtime.observe_payload.dimensions is not None
+    assert [dimension.root for dimension in runtime.observe_payload.dimensions] == ["region"]
 
 
 def test_detect_accepts_aoi_request_with_strategy_and_dimension() -> None:

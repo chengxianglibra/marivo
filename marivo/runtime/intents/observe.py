@@ -91,6 +91,11 @@ def _truncate_bucket_start(start: str, *, granularity: TimeGrain) -> str:
         current_date = current_date - timedelta(days=current_date.weekday())
     elif granularity == "month":
         current_date = current_date.replace(day=1)
+    elif granularity == "quarter":
+        quarter_start_month = ((current_date.month - 1) // 3) * 3 + 1
+        current_date = current_date.replace(month=quarter_start_month, day=1)
+    elif granularity == "year":
+        current_date = current_date.replace(month=1, day=1)
     return current_date.isoformat()
 
 
@@ -104,10 +109,16 @@ def _advance_bucket_start(start: str, *, granularity: TimeGrain) -> str:
         current_date = current_date + timedelta(days=1)
     elif granularity == "week":
         current_date = current_date + timedelta(weeks=1)
-    else:
+    elif granularity == "month":
         year = current_date.year + (1 if current_date.month == 12 else 0)
         month = 1 if current_date.month == 12 else current_date.month + 1
         current_date = date(year, month, 1)
+    elif granularity == "quarter":
+        year = current_date.year + ((current_date.month - 1 + 3) // 12)
+        month = ((current_date.month - 1 + 3) % 12) + 1
+        current_date = date(year, month, 1)
+    else:
+        current_date = date(current_date.year + 1, 1, 1)
     return current_date.isoformat()
 
 

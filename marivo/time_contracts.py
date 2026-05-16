@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 from typing import Any, Literal
 
-TimeGrain = Literal["hour", "day", "week", "month"]
+TimeGrain = Literal["hour", "day", "week", "month", "quarter", "year"]
 
 SEMANTIC_TIMESTAMP_CONVENTIONS: frozenset[str] = frozenset({"native", "iso8601_t_naive"})
 SUPPORTED_STRFTIME_DIRECTIVES: frozenset[str] = frozenset(
@@ -78,8 +78,12 @@ def bucket_window(bucket_raw: object, grain: TimeGrain) -> dict[str, str]:
         bucket_end = bucket_start_date + timedelta(days=1)
     elif grain == "week":
         bucket_end = bucket_start_date + timedelta(weeks=1)
-    else:
+    elif grain == "month":
         bucket_end = _shift_months(bucket_start_date, 1)
+    elif grain == "quarter":
+        bucket_end = _shift_months(bucket_start_date, 3)
+    else:
+        bucket_end = _shift_months(bucket_start_date, 12)
     return {"start": bucket_start_date.isoformat(), "end": bucket_end.isoformat()}
 
 
@@ -118,8 +122,12 @@ def recommended_minimum_window(end: str, *, grain: TimeGrain, bucket_count: int)
         start_date = end_date - timedelta(days=bucket_count)
     elif grain == "week":
         start_date = end_date - timedelta(weeks=bucket_count)
-    else:
+    elif grain == "month":
         start_date = _shift_months(end_date, -bucket_count)
+    elif grain == "quarter":
+        start_date = _shift_months(end_date, -(bucket_count * 3))
+    else:
+        start_date = _shift_months(end_date, -(bucket_count * 12))
     return {"start": start_date.isoformat(), "end": end_date.isoformat()}
 
 

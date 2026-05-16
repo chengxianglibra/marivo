@@ -259,7 +259,8 @@ class DetectIntentEndpointTests(unittest.TestCase):
             json={
                 "metric": _metric_ref("http_detect_metric"),
                 "time_scope": self._time_scope(start="2026-02-07", end="2026-03-08"),
-                "granularity": "quarter",
+                "granularity": "minute",
+                "strategy": "point_anomaly",
             },
         )
         self.assertEqual(r.status_code, 422)

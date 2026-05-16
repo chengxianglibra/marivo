@@ -23,7 +23,37 @@ from marivo.transports.mcp.tools.schemas import (
 )
 
 
-def test_to_aoi_observe_request_builds_observe_model() -> None:
+def test_to_aoi_observe_request_builds_scalar_model() -> None:
+    request = to_aoi_observe_request(
+        metric="view_time",
+        time_scope=McpTimeScope(
+            field="log_time",
+            start="2026-05-01T00:00:00Z",
+            end="2026-05-08T00:00:00Z",
+        ),
+    )
+
+    assert isinstance(request, aoi.Observe1)
+    assert request.metric == "view_time"
+    assert request.time_scope.field == "log_time"
+
+
+def test_to_aoi_observe_request_builds_time_series_model() -> None:
+    request = to_aoi_observe_request(
+        metric="view_time",
+        time_scope=McpTimeScope(
+            field="log_time",
+            start="2026-05-01T00:00:00Z",
+            end="2026-05-08T00:00:00Z",
+        ),
+        granularity="year",
+    )
+
+    assert isinstance(request, aoi.Observe2)
+    assert request.granularity == "year"
+
+
+def test_to_aoi_observe_request_builds_segmented_model() -> None:
     request = to_aoi_observe_request(
         metric="view_time",
         time_scope=McpTimeScope(

@@ -2,19 +2,24 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+import pytest
+
 from marivo.contracts.generated import aoi
 from marivo.runtime.aoi_lowering import lower_aoi_derived_request, lower_aoi_request
 
 
-def test_lowers_observe_request_to_runner_params() -> None:
-    request = aoi.Observe2(
+def _time_scope() -> aoi.TimeScope:
+    return aoi.TimeScope(
+        field="event_time",
+        start=datetime(2026, 5, 1, tzinfo=UTC),
+        end=datetime(2026, 5, 8, tzinfo=UTC),
+    )
+
+
+def test_lowers_scalar_observe_request_to_runner_params() -> None:
+    request = aoi.Observe1(
         metric="view_time",
-        time_scope=aoi.TimeScope(
-            field="event_time",
-            start=datetime(2026, 5, 1, tzinfo=UTC),
-            end=datetime(2026, 5, 8, tzinfo=UTC),
-        ),
-        granularity="day",
+        time_scope=_time_scope(),
     )
 
     assert lower_aoi_request("observe", request) == {
@@ -25,7 +30,48 @@ def test_lowers_observe_request_to_runner_params() -> None:
             "end": "2026-05-08T00:00:00Z",
         },
         "filter": None,
-        "granularity": "day",
+    }
+
+
+@pytest.mark.parametrize("granularity", ["hour", "day", "week", "month", "quarter", "year"])
+def test_lowers_time_series_observe_request_to_runner_params(granularity: str) -> None:
+    request = aoi.Observe2(
+        metric="view_time",
+        time_scope=_time_scope(),
+        granularity=granularity,
+    )
+
+    assert lower_aoi_request("observe", request) == {
+        "metric": "view_time",
+        "time_scope": {
+            "field": "event_time",
+            "start": "2026-05-01T00:00:00Z",
+            "end": "2026-05-08T00:00:00Z",
+        },
+        "filter": None,
+        "granularity": granularity,
+    }
+
+
+def test_lowers_segmented_observe_request_with_filter_to_runner_params() -> None:
+    request = aoi.Observe3(
+        metric="view_time",
+        time_scope=_time_scope(),
+        filter=aoi.Expression(
+            dialects=[aoi.Dialect(dialect="ANSI_SQL", expression="region = 'US'")]
+        ),
+        dimensions=["region", "platform"],
+    )
+
+    assert lower_aoi_request("observe", request) == {
+        "metric": "view_time",
+        "time_scope": {
+            "field": "event_time",
+            "start": "2026-05-01T00:00:00Z",
+            "end": "2026-05-08T00:00:00Z",
+        },
+        "filter": {"dialects": [{"dialect": "ANSI_SQL", "expression": "region = 'US'"}]},
+        "dimensions": ["region", "platform"],
     }
 
 
