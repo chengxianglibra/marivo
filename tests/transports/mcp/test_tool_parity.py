@@ -264,10 +264,16 @@ def test_test_intent_tool_schema_matches_current_aoi_surface() -> None:
     tools = {tool.name: tool for tool in server._tool_manager.list_tools()}
 
     properties = tools["test_intent"].parameters["properties"]
+    slice_schema = tools["test_intent"].parameters["$defs"]["McpAoiSliceRef"]
     hypothesis_schema = tools["test_intent"].parameters["$defs"]["McpTestHypothesis"]
 
     assert "method" not in properties
     assert "kind" not in properties
+    assert properties["left"] == {"$ref": "#/$defs/McpAoiSliceRef"}
+    assert properties["right"] == {"$ref": "#/$defs/McpAoiSliceRef"}
+    assert slice_schema["additionalProperties"] is False
+    assert set(slice_schema["properties"]) == {"time_scope", "filter"}
+    assert "scope" not in slice_schema["properties"]
     assert "hypothesis" in tools["test_intent"].parameters["required"]
     assert properties["hypothesis"] == {"$ref": "#/$defs/McpTestHypothesis"}
     assert hypothesis_schema["additionalProperties"] is False
@@ -283,6 +289,75 @@ def test_test_intent_tool_schema_matches_current_aoi_surface() -> None:
     assert "conservative=0.01" in significance_schema["description"]
     assert "balanced=0.05" in significance_schema["description"]
     assert "aggressive=0.10" in significance_schema["description"]
+
+
+def test_observe_and_detect_filter_schemas_expose_aoi_expression() -> None:
+    server = FastMCP("test")
+    register_tools(server, FakeRuntime(), transport="stdio")
+    tools = {tool.name: tool for tool in server._tool_manager.list_tools()}
+
+    for tool_name in ("observe", "detect"):
+        parameters = tools[tool_name].parameters
+        filter_schema = parameters["properties"]["filter_expression"]
+        expression_schema = parameters["$defs"]["McpExpression"]
+        dialect_schema = parameters["$defs"]["McpDialect"]
+
+        assert filter_schema["anyOf"][0] == {"$ref": "#/$defs/McpExpression"}
+        assert "AOI Expression" in filter_schema["description"]
+        assert expression_schema["additionalProperties"] is False
+        assert expression_schema["required"] == ["dialects"]
+        assert expression_schema["properties"]["dialects"]["items"] == {
+            "$ref": "#/$defs/McpDialect"
+        }
+        assert dialect_schema["required"] == ["expression"]
+        assert dialect_schema["properties"]["dialect"]["default"] == "ANSI_SQL"
+
+    observe_props = tools["observe"].parameters["properties"]
+    assert "without dimensions" in observe_props["granularity"]["description"]
+    assert "without granularity" in observe_props["dimensions"]["description"]
+    assert "scalar observe" in observe_props["granularity"]["description"]
+
+
+def test_validate_hypothesis_schema_omits_fixed_family() -> None:
+    server = FastMCP("test")
+    register_tools(server, FakeRuntime(), transport="stdio")
+    tools = {tool.name: tool for tool in server._tool_manager.list_tools()}
+
+    properties = tools["validate"].parameters["properties"]
+    hypothesis_schema = tools["validate"].parameters["$defs"]["McpValidateHypothesis"]
+
+    assert properties["hypothesis"]["anyOf"][0] == {"$ref": "#/$defs/McpValidateHypothesis"}
+    assert hypothesis_schema["additionalProperties"] is False
+    assert "required" not in hypothesis_schema
+    assert set(hypothesis_schema["properties"]) == {"alternative", "significance"}
+    assert "family" not in hypothesis_schema["properties"]
+    assert hypothesis_schema["properties"]["alternative"]["anyOf"][0]["enum"] == [
+        "two_sided",
+        "greater",
+        "less",
+    ]
+    assert hypothesis_schema["properties"]["significance"]["anyOf"][0]["enum"] == [
+        "conservative",
+        "balanced",
+        "aggressive",
+    ]
+
+
+def test_diagnose_schema_documents_mode_specific_inputs() -> None:
+    server = FastMCP("test")
+    register_tools(server, FakeRuntime(), transport="stdio")
+    tools = {tool.name: tool for tool in server._tool_manager.list_tools()}
+
+    diagnose = tools["diagnose"]
+    properties = diagnose.parameters["properties"]
+
+    assert "auto_detect mode requires time_scope and granularity" in diagnose.description
+    assert "explicit_compare mode requires current and baseline" in diagnose.description
+    assert "auto_detect requires time_scope and granularity" in properties["mode"]["description"]
+    assert "mode='auto_detect'" in properties["time_scope"]["description"]
+    assert "mode='auto_detect'" in properties["granularity"]["description"]
+    assert "mode='explicit_compare'" in properties["current"]["description"]
+    assert "mode='explicit_compare'" in properties["baseline"]["description"]
 
 
 def test_correlate_and_forecast_tool_schemas_document_time_series_artifact_inputs() -> None:

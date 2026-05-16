@@ -163,6 +163,11 @@ class RecordingRuntime(FakeRuntime):
         self.semantic = RecordingSemanticSvc()
         self.datasource = RecordingDatasourceSvc()
         self._services = {"semantic_v2": self.semantic, "datasource": self.datasource}
+        self.intent_calls: list[tuple[str, dict[str, Any]]] = []
+
+    def validate(self, **kw):
+        self.intent_calls.append(("validate", kw))
+        return {"validated": True}
 
 
 def test_marivo_mcp_entry_point_callable():
@@ -371,6 +376,147 @@ async def test_stdio_preview_table_rejects_filter_array() -> None:
                 "schema": "analytics",
                 "table": "jobs",
                 "filters": [{"column": "state", "value": "FAILED"}],
+            }
+        )
+
+
+@pytest.mark.asyncio
+async def test_stdio_validate_injects_fixed_hypothesis_family() -> None:
+    from marivo.transports.mcp.tools import register_tools
+
+    runtime = RecordingRuntime()
+    server = FastMCP("marivo")
+    register_tools(server, runtime, transport="stdio")
+    tools = {t.name: t for t in server._tool_manager.list_tools()}
+
+    result = await tools["validate"].run(
+        {
+            "session_id": "sess_test",
+            "metric": "view_time",
+            "left": {
+                "time_scope": {
+                    "field": "log_time",
+                    "start": "2026-05-01T00:00:00Z",
+                    "end": "2026-05-08T00:00:00Z",
+                }
+            },
+            "right": {
+                "time_scope": {
+                    "field": "log_time",
+                    "start": "2026-04-24T00:00:00Z",
+                    "end": "2026-05-01T00:00:00Z",
+                }
+            },
+            "hypothesis": {"alternative": "greater", "significance": "balanced"},
+        }
+    )
+
+    assert result == {"data": {"validated": True}, "error": None}
+    assert runtime.intent_calls == [
+        (
+            "validate",
+            {
+                "session_id": "sess_test",
+                "params": {
+                    "metric": "view_time",
+                    "left": {
+                        "time_scope": {
+                            "field": "log_time",
+                            "start": "2026-05-01T00:00:00Z",
+                            "end": "2026-05-08T00:00:00Z",
+                        },
+                        "scope": None,
+                    },
+                    "right": {
+                        "time_scope": {
+                            "field": "log_time",
+                            "start": "2026-04-24T00:00:00Z",
+                            "end": "2026-05-01T00:00:00Z",
+                        },
+                        "scope": None,
+                    },
+                    "hypothesis": {
+                        "family": "two_sample_mean",
+                        "alternative": "greater",
+                        "significance": "balanced",
+                    },
+                },
+            },
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_stdio_validate_preserves_partial_hypothesis_defaults() -> None:
+    from marivo.transports.mcp.tools import register_tools
+
+    runtime = RecordingRuntime()
+    server = FastMCP("marivo")
+    register_tools(server, runtime, transport="stdio")
+    tools = {t.name: t for t in server._tool_manager.list_tools()}
+
+    result = await tools["validate"].run(
+        {
+            "session_id": "sess_test",
+            "metric": "view_time",
+            "left": {
+                "time_scope": {
+                    "field": "log_time",
+                    "start": "2026-05-01T00:00:00Z",
+                    "end": "2026-05-08T00:00:00Z",
+                }
+            },
+            "right": {
+                "time_scope": {
+                    "field": "log_time",
+                    "start": "2026-04-24T00:00:00Z",
+                    "end": "2026-05-01T00:00:00Z",
+                }
+            },
+            "hypothesis": {"alternative": "greater"},
+        }
+    )
+
+    assert result == {"data": {"validated": True}, "error": None}
+    assert runtime.intent_calls[0][1]["params"]["hypothesis"] == {
+        "family": "two_sample_mean",
+        "alternative": "greater",
+    }
+
+
+@pytest.mark.asyncio
+async def test_stdio_validate_rejects_hypothesis_family() -> None:
+    from marivo.transports.mcp.tools import register_tools
+
+    runtime = RecordingRuntime()
+    server = FastMCP("marivo")
+    register_tools(server, runtime, transport="stdio")
+    tools = {t.name: t for t in server._tool_manager.list_tools()}
+
+    with pytest.raises(Exception, match="Extra inputs are not permitted"):
+        await tools["validate"].run(
+            {
+                "session_id": "sess_test",
+                "metric": "view_time",
+                "left": {
+                    "time_scope": {
+                        "field": "log_time",
+                        "start": "2026-05-01T00:00:00Z",
+                        "end": "2026-05-08T00:00:00Z",
+                    }
+                },
+                "right": {
+                    "time_scope": {
+                        "field": "log_time",
+                        "start": "2026-04-24T00:00:00Z",
+                        "end": "2026-05-01T00:00:00Z",
+                    }
+                },
+                "hypothesis": {
+                    "family": "two_sample_mean",
+                    "alternative": "greater",
+                    "significance": "balanced",
+                },
             }
         )
 

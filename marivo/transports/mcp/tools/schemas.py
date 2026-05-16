@@ -58,10 +58,38 @@ class McpTimeScope(BaseModel):
 McpTimeScopeValidated = Annotated[McpTimeScope, BeforeValidator(_reject_time_scope_string)]
 
 
-McpStructuredObject = Annotated[
-    JsonObject,
-    BeforeValidator(_reject_json_string),
-]
+class McpDialect(BaseModel):
+    """One SQL expression dialect alternative for AOI Expression."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    dialect: str = Field(
+        default="ANSI_SQL",
+        description="Expression dialect identifier. Defaults to ANSI_SQL.",
+    )
+    expression: str = Field(
+        ...,
+        min_length=1,
+        description="Predicate expression text in the declared dialect.",
+    )
+
+
+class McpExpression(BaseModel):
+    """AOI Expression object used by MCP intent filters."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    dialects: list[McpDialect] = Field(
+        ...,
+        min_length=1,
+        description=(
+            "One or more dialect-specific predicate expressions, e.g. "
+            "[{'dialect': 'ANSI_SQL', 'expression': \"region = 'US'\"}]."
+        ),
+    )
+
+
+McpStructuredObject = Annotated[JsonObject, BeforeValidator(_reject_json_string)]
 
 
 class McpArtifactRef(BaseModel):
@@ -93,12 +121,24 @@ class ObserveScope(BaseModel):
 
 
 class McpSliceRef(BaseModel):
-    """AOI-aligned slice: time_scope + optional scope (mirrors AOI Slice)."""
+    """Derived-intent slice: time_scope + optional population scope."""
 
     model_config = ConfigDict(extra="allow")
 
     time_scope: McpTimeScope
     scope: ObserveScope | None = None
+
+
+class McpAoiSliceRef(BaseModel):
+    """AOI-aligned slice for source-type atomic intents."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    time_scope: McpTimeScope
+    filter: McpExpression | None = Field(
+        default=None,
+        description="Optional AOI Expression filter for this time slice.",
+    )
 
 
 class McpTestHypothesis(BaseModel):
@@ -114,6 +154,21 @@ class McpTestHypothesis(BaseModel):
             "uses a stricter threshold to reduce false positives; balanced=0.05 "
             "is the default statistical threshold; aggressive=0.10 is more "
             "exploratory and more likely to reject the null hypothesis."
+        ),
+    )
+
+
+class McpValidateHypothesis(BaseModel):
+    """MCP-visible validate hypothesis choices; family is fixed internally."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    alternative: Literal["two_sided", "greater", "less"] | None = None
+    significance: Literal["conservative", "balanced", "aggressive"] | None = Field(
+        default=None,
+        description=(
+            "Significance preset for the validation test: conservative=0.01, "
+            "balanced=0.05, aggressive=0.10."
         ),
     )
 

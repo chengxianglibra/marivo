@@ -1059,9 +1059,11 @@ interface SessionListResponse {
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| granularity | `"hour"` \| `"day"` \| `"week"` \| `"month"` \| `"quarter"` \| `"year"` | 否 | 时间粒度；不用时省略，不传 `null` |
-| dimensions | string[] | 否 | 按维度分组，如 `["cluster", "department"]`；不用时省略，不传 `null` |
-| filter_expression | object | 否 | 过滤表达式对象（需为结构化对象，不接受 JSON 字符串）；不用时省略，不传 `null` |
+| granularity | `"hour"` \| `"day"` \| `"week"` \| `"month"` \| `"quarter"` \| `"year"` | 否 | 时间序列 selector；只传 `granularity`、不传 `dimensions` |
+| dimensions | string[] | 否 | 分组 selector，如 `["cluster", "department"]`；只传 `dimensions`、不传 `granularity` |
+| filter_expression | McpExpression | 否 | AOI 过滤表达式对象；不用时省略，不传 `null` |
+
+模式约束：`granularity` 和 `dimensions` 都省略时返回 scalar；只传 `granularity` 返回 time_series；只传 `dimensions` 返回 segmented。
 
 **输出 — ObserveArtifact**：
 
@@ -1161,7 +1163,7 @@ interface AnalysisFailure {
 
 | 参数 | 类型 | 必填 | 默认 | 说明 |
 |------|------|------|------|------|
-| filter_expression | object | 否 | 省略 | 过滤表达式对象（需为结构化对象）；不用时省略，不传 `null` |
+| filter_expression | McpExpression | 否 | 省略 | AOI 过滤表达式对象；不用时省略，不传 `null` |
 | dimension | string | 否 | 省略 | 按单个维度拆成独立序列扫描，如 `"cluster"` |
 | sensitivity | `"conservative"` \| `"balanced"` \| `"aggressive"` | 否 | `"aggressive"` | 检测灵敏度档位 |
 | limit | integer | 否 | 省略 | 返回异常点数量上限；不用时省略，不传 `null` |
@@ -1475,11 +1477,11 @@ interface AttributeArtifact {
 | 参数 | 类型 | 必填 | 默认 | 说明 |
 |------|------|------|------|------|
 | mode | `"auto_detect"` \| `"explicit_compare"` | 否 | `"auto_detect"` | 诊断模式 |
-| time_scope | McpTimeScope \| null | 否 | null | auto_detect 模式的时间范围 |
-| current | McpSliceRef \| null | 否 | null | explicit_compare 模式的当前切片 |
-| baseline | McpSliceRef \| null | 否 | null | explicit_compare 模式的基线切片 |
+| time_scope | McpTimeScope \| null | 否 | null | auto_detect 模式必填；explicit_compare 模式省略 |
+| current | McpSliceRef \| null | 否 | null | explicit_compare 模式必填；auto_detect 模式省略 |
+| baseline | McpSliceRef \| null | 否 | null | explicit_compare 模式必填；auto_detect 模式省略 |
 | baseline_policy | `"previous_adjacent_equal_length"` | 否 | `"previous_adjacent_equal_length"` | 基线策略 |
-| granularity | `"hour"` \| `"day"` \| `"week"` \| `"month"` \| null | 否 | null | 时间粒度 |
+| granularity | `"hour"` \| `"day"` \| `"week"` \| `"month"` \| null | 否 | null | auto_detect 模式必填；explicit_compare 模式省略 |
 | scope | ObserveScope \| null | 否 | null | 人口限定 |
 | detect_dimension | string \| null | 否 | null | detect 阶段的单维扫描维度 |
 | strategy | `"point_anomaly"` \| `"period_shift"` | 是 | - | detect 阶段的检测策略 |
@@ -1617,11 +1619,11 @@ interface AssociationResult {
 |------|------|------|------|
 | session_id | string | 是 | 会话ID |
 | metric | string | 是 | 语义指标名称 |
-| left | McpSliceRef | 是 | 左侧时间切片 |
-| right | McpSliceRef | 是 | 右侧时间切片 |
+| left | McpAoiSliceRef | 是 | 左侧时间切片 |
+| right | McpAoiSliceRef | 是 | 右侧时间切片 |
 | hypothesis | object | 是 | 假设描述对象，仅包含 `alternative`、`significance` |
 
-注意：MCP 适配层内部固定使用 AOI `kind="numeric"` 和 `hypothesis.family="two_sample_mean"`；用户只需提供 `metric`、左右切片和 `hypothesis` 中的 `alternative`、`significance`。`hypothesis.significance` 支持 `"conservative"`（严格，内部 alpha=0.01）、`"balanced"`（默认，内部 alpha=0.05）、`"aggressive"`（探索性，内部 alpha=0.10）。`hypothesis` 需为结构化对象，不接受 JSON 字符串，且不支持 `family`、`alpha` 或 `label` 字段。`test_intent` 无 `kind` 或 `method` 参数。
+注意：MCP 适配层内部固定使用 AOI `kind="numeric"` 和 `hypothesis.family="two_sample_mean"`；用户只需提供 `metric`、左右切片和 `hypothesis` 中的 `alternative`、`significance`。`hypothesis.significance` 支持 `"conservative"`（严格，内部 alpha=0.01）、`"balanced"`（默认，内部 alpha=0.05）、`"aggressive"`（探索性，内部 alpha=0.10）。`left/right` 可带 `filter`，不可带 derived intent 的 `scope`。`hypothesis` 需为结构化对象，不接受 JSON 字符串，且不支持 `family`、`alpha` 或 `label` 字段。`test_intent` 无 `kind` 或 `method` 参数。
 
 **输出 — TestIntentArtifact**：
 
@@ -1664,6 +1666,46 @@ interface TestIntentArtifact {
     "failure": null
   },
   "error": null
+}
+```
+
+---
+
+### 3.12.1 validate
+
+派生验证 intent。包装一次固定 family 的数值假设检验，并返回 validation bundle。
+
+**输入参数**：
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| session_id | string | 是 | 会话ID |
+| metric | string | 是 | 语义指标名称 |
+| left | McpSliceRef | 是 | 左侧时间切片，支持 derived intent `scope` |
+| right | McpSliceRef | 是 | 右侧时间切片，支持 derived intent `scope` |
+
+可选参数：
+
+| 参数 | 类型 | 必填 | 默认 | 说明 |
+|------|------|------|------|------|
+| hypothesis | object | 否 | 省略 | 可包含 `alternative`、`significance`；不暴露 `family`，未传字段沿用运行时默认值 |
+| method | `"auto"` \| `"welch_t"` \| null | 否 | null | 验证方法 |
+
+注意：MCP 层不暴露 `hypothesis.family`；适配层内部固定为 `"two_sample_mean"`。`hypothesis` 不支持 `family`、`alpha` 或 `label` 字段。
+
+**输入示例**：
+
+```json
+{
+  "session_id": "ses_abc123",
+  "metric": "total_query_count",
+  "left": {
+    "time_scope": { "field": "create_time", "start": "2025-02-25", "end": "2025-03-04" }
+  },
+  "right": {
+    "time_scope": { "field": "create_time", "start": "2025-03-04", "end": "2025-03-11" }
+  },
+  "hypothesis": { "alternative": "greater", "significance": "balanced" }
 }
 ```
 
@@ -1942,7 +1984,7 @@ interface McpTimeScope {
 
 ### 4.2 McpSliceRef
 
-AOI-aligned 切片引用：时间范围 + 可选人口限定。
+派生 intent 切片引用：时间范围 + 可选人口限定。用于 `attribute`、`diagnose`、`validate`。
 
 ```typescript
 interface McpSliceRef {
@@ -1960,7 +2002,48 @@ interface McpSliceRef {
 }
 ```
 
-### 4.3 ObserveScope
+### 4.3 McpAoiSliceRef
+
+AOI-aligned 切片引用：时间范围 + 可选 AOI 过滤表达式。用于 `test_intent`。
+
+```typescript
+interface McpAoiSliceRef {
+  time_scope: McpTimeScope;     // 时间范围（必填）
+  filter: McpExpression | null; // AOI 过滤表达式（可选）
+}
+```
+
+**示例**：
+
+```json
+{
+  "time_scope": { "field": "create_time", "start": "2025-03-04", "end": "2025-03-11" },
+  "filter": { "dialects": [{ "dialect": "ANSI_SQL", "expression": "cluster = 'jscs-ai-offline'" }] }
+}
+```
+
+### 4.4 McpExpression
+
+AOI 过滤表达式对象。用于 `observe.filter_expression`、`detect.filter_expression` 和 `McpAoiSliceRef.filter`。
+
+```typescript
+interface McpExpression {
+  dialects: McpDialect[];       // 至少一个 dialect 表达式
+}
+
+interface McpDialect {
+  dialect: string;              // 默认 "ANSI_SQL"
+  expression: string;           // 过滤表达式文本
+}
+```
+
+**示例**：
+
+```json
+{ "dialects": [{ "dialect": "ANSI_SQL", "expression": "region = 'US'" }] }
+```
+
+### 4.5 ObserveScope
 
 非时间维度的人口限定。
 
@@ -1977,7 +2060,7 @@ interface ObserveScope {
 { "constraints": { "cluster": "jscs-ai-offline", "state": "SUCCEED" } }
 ```
 
-### 4.4 AnalysisFailure
+### 4.6 AnalysisFailure
 
 分析失败时的错误结构。
 
@@ -2007,7 +2090,7 @@ interface AnalysisFailure {
 | 拆解差异的维度贡献 | `decompose`（需先 compare） | grouped observe |
 | 维度归因（直接指定切片） | `attribute` | — |
 | 判断相关性 | `correlate` | 肉眼比较趋势线 |
-| 显著性/假设验证 | `test_intent` | 只看数值差异 |
+| 显著性/假设验证 | `test_intent` 或 `validate` | 只看数值差异 |
 | 预测 | `forecast` | — |
 | 综合诊断（异常+归因） | `diagnose` | detect + 口头解释 |
 
@@ -2017,8 +2100,10 @@ interface AnalysisFailure {
 - metric/dimension 引用使用语义对象名称，不带 `metric.` / `dimension.` 前缀
 - 非可加指标不添加 MARIVO `custom_extension`（`additive_dimensions` 不能为空数组）
 - `compare`、`decompose`、`correlate`、`forecast` 使用 artifact ID 字符串引用，非结构化引用对象
-- `observe`/`detect` 的 `filter_expression` 和 `test_intent` 的 `hypothesis` 必须为结构化对象，不接受 JSON 字符串
+- `observe`/`detect` 的 `filter_expression` 必须为 `McpExpression` 结构化对象，不接受 JSON 字符串
 - `test_intent` 在 MCP 层不暴露固定的 `kind` 或 `hypothesis.family`；适配层内部固定为 AOI `kind="numeric"` 和 `hypothesis.family="two_sample_mean"`，使用 `hypothesis.significance` 选择显著性档位，无 `method`、`hypothesis.alpha` 或 `hypothesis.label` 参数
+- `test_intent.left/right` 使用 `McpAoiSliceRef`，支持 `filter`，不支持 derived intent 的 `scope`
+- `validate.hypothesis` 不暴露 `family`；适配层内部固定为 `"two_sample_mean"`，不支持 `alpha` 或 `label`
 - `correlate` 仅支持 `"pearson"` 和 `"spearman"` 方法，不支持 `"kendall"`
 - `decompose` 仅支持 `"delta_share"` 方法，无 method 参数
 
