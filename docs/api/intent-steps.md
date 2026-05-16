@@ -175,8 +175,7 @@ POST /sessions/{session_id}/intents/forecast
 ```json
 {
   "source_artifact_id": "art_timeseries",
-  "horizon": 14,
-  "profile": "auto"
+  "horizon": 14
 }
 ```
 

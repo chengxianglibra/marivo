@@ -466,9 +466,6 @@
             "type": "integer",
             "minimum": 1
           },
-          "profile": {
-            "type": "string"
-          },
           "source_artifact_id": {
             "type": "string",
             "minLength": 1

@@ -226,9 +226,6 @@ forecast:
   # Required: number of future buckets to forecast, range [1, +infinity).
   horizon: integer
 
-  # Optional: implementation-defined forecasting profile name.
-  profile: string
-
 # Artifact envelope and result variants
 
 # Shared artifact envelope returned by every AOI operation.

@@ -34,7 +34,6 @@ class Forecast(BaseModel):
         extra="forbid",
     )
     horizon: int = Field(..., ge=1)
-    profile: str = None  # type: ignore[assignment]
     source_artifact_id: str = Field(..., min_length=1)
 
 

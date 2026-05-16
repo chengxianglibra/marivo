@@ -165,8 +165,7 @@ Forecast from one earlier time-series observe artifact:
 marivo-forecast(
   session_id="sess_123",
   source_artifact_id="art_obs_watch_time_daily",
-  horizon=7,
-  profile="auto"
+  horizon=7
 )
 ```
 
