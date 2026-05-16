@@ -29,4 +29,4 @@ Relationship = osi.Relationship
 SemanticModel = osi.SemanticModel
 
 OSI_MARIVO_SPEC_VERSION = "0.1.1"
-AOI_SPEC_VERSION = "0.1.0"
+AOI_SPEC_VERSION = "0.2.0"

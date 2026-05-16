@@ -1,5 +1,17 @@
 # AOI Changelog
 
+## 0.2.0 - 2026-05-16
+
+### Added
+
+- Derived request namespace at `$defs.derived_requests`.
+- `validate` derived request contract using AOI `Slice` and `Hypothesis`.
+- Validate request example under `examples/validate/`.
+
+### Changed
+
+- AOI scope now includes seven atomic requests plus the derived `validate` request contract.
+
 ## 0.1.0 - 2026-05-08
 
 Initial draft publication.

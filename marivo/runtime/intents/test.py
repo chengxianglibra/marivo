@@ -1,4 +1,4 @@
-"""Test atomic intent runner — Welch's t-test only (source-type per AOI v0.1).
+"""Test atomic intent runner — Welch's t-test only (source-type per AOI).
 
 Evaluates a typed statistical hypothesis over two data slices.
 Accepts metric + left/right slices (not artifact refs) per the AOI spec,
@@ -124,7 +124,7 @@ def _p_value_from_t(t: float, df: float, alternative: str) -> float:
 def run_test_intent(
     runtime: MarivoRuntime, session_id: str, params: dict[str, Any] | None
 ) -> dict[str, Any]:
-    """Source-type test intent per AOI v0.1.
+    """Source-type test intent per AOI.
 
     Computes sample summaries internally and returns a hypothesis_test
     artifact conforming to the AOI hypothesis_test_result contract.

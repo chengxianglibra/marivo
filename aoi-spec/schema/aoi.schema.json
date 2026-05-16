@@ -1,9 +1,9 @@
 {
-  "version": "0.1.0",
+  "version": "0.2.0",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://aoi.dev/schemas/0.1.0/aoi.schema.json",
-  "title": "AOI v0.1",
-  "description": "Analysis Operation Interface v0.1 canonical schema.",
+  "$id": "https://aoi.dev/schemas/0.2.0/aoi.schema.json",
+  "title": "AOI v0.2",
+  "description": "Analysis Operation Interface v0.2 canonical schema.",
   "oneOf": [
     {
       "$ref": "#/$defs/requests/observe"
@@ -25,6 +25,9 @@
     },
     {
       "$ref": "#/$defs/requests/forecast"
+    },
+    {
+      "$ref": "#/$defs/derived_requests/validate"
     },
     {
       "$ref": "#/$defs/artifacts/Artifact"
@@ -469,6 +472,34 @@
           "source_artifact_id": {
             "type": "string",
             "minLength": 1
+          }
+        }
+      }
+    },
+    "derived_requests": {
+      "validate": {
+        "title": "Validate",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "metric",
+          "left",
+          "right",
+          "hypothesis"
+        ],
+        "properties": {
+          "metric": {
+            "type": "string",
+            "minLength": 1
+          },
+          "left": {
+            "$ref": "#/$defs/primitives/Slice"
+          },
+          "right": {
+            "$ref": "#/$defs/primitives/Slice"
+          },
+          "hypothesis": {
+            "$ref": "#/$defs/primitives/Hypothesis"
           }
         }
       }

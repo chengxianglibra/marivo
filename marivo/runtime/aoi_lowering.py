@@ -9,6 +9,8 @@ from pydantic import BaseModel, RootModel
 
 from marivo.contracts.aoi_runtime import (
     AoiAtomicRequest,
+    AoiDerivedRequest,
+    assert_derived_request_matches_intent,
     assert_request_matches_intent,
 )
 from marivo.contracts.generated import aoi
@@ -53,6 +55,19 @@ def lower_aoi_request(intent_type: str, request: AoiAtomicRequest) -> dict[str, 
     raise TypeError(f"Unsupported AOI request type: {type(request).__name__}")
 
 
+def lower_aoi_derived_request(intent_type: str, request: AoiDerivedRequest) -> dict[str, Any]:
+    assert_derived_request_matches_intent(intent_type, request)
+
+    if isinstance(request, aoi.Validate):
+        return {
+            "metric": request.metric,
+            "left": _dump_slice(request.left),
+            "right": _dump_slice(request.right),
+            "hypothesis": request.hypothesis.model_dump(exclude_none=True),
+        }
+    raise TypeError(f"Unsupported AOI derived request type: {type(request).__name__}")
+
+
 def _lower_observe(
     request: aoi.Observe1 | aoi.Observe2 | aoi.Observe3,
 ) -> dict[str, Any]:
@@ -74,6 +89,15 @@ def _dump_time_scope(time_scope: aoi.TimeScope) -> dict[str, Any]:
         "start": _iso_z(time_scope.start),
         "end": _iso_z(time_scope.end),
     }
+
+
+def _dump_slice(slice_ref: aoi.Slice) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "time_scope": _dump_time_scope(slice_ref.time_scope),
+    }
+    if slice_ref.filter is not None:
+        payload["filter"] = _dump_model(slice_ref.filter)
+    return payload
 
 
 def _iso_z(value: datetime) -> str:

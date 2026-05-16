@@ -3,8 +3,8 @@
 Orchestrates the source-type test intent with metric + slices,
 then builds a validation_bundle artifact wrapping the test result.
 
-Per AOI v0.1 §8.6, validate is a private product composition
-(not part of the AOI atomic surface).
+Per AOI v0.2, validate is a derived request contract under AOI's
+derived namespace. The response bundle remains Marivo-owned.
 """
 
 from __future__ import annotations
@@ -44,8 +44,8 @@ def run_validate_intent(
     if not right_time_scope:
         raise ValueError("validate: INVALID_ARGUMENT - right.time_scope is required")
 
-    left_scope: Any = left_raw.get("scope") or left_raw.get("filter")
-    right_scope: Any = right_raw.get("scope") or right_raw.get("filter")
+    left_filter: Any = left_raw.get("filter")
+    right_filter: Any = right_raw.get("filter")
 
     hypothesis_raw: dict[str, Any] = p.get("hypothesis") or {}
     unexpected_hypothesis_keys = set(hypothesis_raw) - {"family", "alternative", "significance"}
@@ -71,8 +71,8 @@ def run_validate_intent(
     # ── Build test params (source-type) ──────────────────────────────────
     test_params: dict[str, Any] = {
         "metric": metric_ref,
-        "left": {"time_scope": left_time_scope, "filter": left_scope},
-        "right": {"time_scope": right_time_scope, "filter": right_scope},
+        "left": {"time_scope": left_time_scope, "filter": left_filter},
+        "right": {"time_scope": right_time_scope, "filter": right_filter},
         "kind": "numeric",
         "hypothesis": {
             "family": "two_sample_mean",
@@ -153,8 +153,8 @@ def run_validate_intent(
         "artifact_schema_version": "v1",
         "derivation_version": _DERIVED_LOGIC_VERSION,
         "metric": metric_ref,
-        "left": {"time_scope": left_time_scope, "scope": left_scope},
-        "right": {"time_scope": right_time_scope, "scope": right_scope},
+        "left": {"time_scope": left_time_scope, "filter": left_filter},
+        "right": {"time_scope": right_time_scope, "filter": right_filter},
         "kind": "numeric",
         "hypothesis": hypothesis_out,
         "method": resolved_method,

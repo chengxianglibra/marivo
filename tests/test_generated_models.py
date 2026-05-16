@@ -44,16 +44,16 @@ def aoi_example(request: pytest.FixtureRequest) -> dict[str, Any]:
 
 
 def test_aoi_example_validates(aoi_example: dict[str, Any]) -> None:
-    from marivo.contracts.generated.aoi import AoiV01
+    from marivo.contracts.generated.aoi import AoiV02
 
-    AoiV01.model_validate(aoi_example)
+    AoiV02.model_validate(aoi_example)
 
 
 def test_version_constants_exist() -> None:
     from marivo.contracts.generated import AOI_SPEC_VERSION, OSI_MARIVO_SPEC_VERSION
 
     assert OSI_MARIVO_SPEC_VERSION == "0.1.1"
-    assert AOI_SPEC_VERSION == "0.1.0"
+    assert AOI_SPEC_VERSION == "0.2.0"
 
 
 def test_marivo_metric_extension_matches_spec() -> None:
@@ -156,6 +156,18 @@ def test_aoi_request_optional_fields_may_be_omitted() -> None:
         {"left_artifact_id": "artifact_left", "right_artifact_id": "artifact_right"}
     )
     aoi.Forecast.model_validate({"source_artifact_id": "artifact_source", "horizon": 7})
+    aoi.Validate.model_validate(
+        {
+            "metric": "revenue",
+            "left": {"time_scope": time_scope},
+            "right": {"time_scope": time_scope},
+            "hypothesis": {
+                "family": "two_sample_mean",
+                "alternative": "two_sided",
+                "significance": "balanced",
+            },
+        }
+    )
 
 
 @pytest.mark.parametrize(
@@ -231,6 +243,32 @@ def test_aoi_request_optional_fields_may_be_omitted() -> None:
                 "filter": None,
             },
         ),
+        (
+            "Validate",
+            {
+                "metric": "revenue",
+                "left": {
+                    "time_scope": {
+                        "field": "event_time",
+                        "start": "2026-01-01T00:00:00Z",
+                        "end": "2026-01-02T00:00:00Z",
+                    },
+                    "filter": None,
+                },
+                "right": {
+                    "time_scope": {
+                        "field": "event_time",
+                        "start": "2026-01-01T00:00:00Z",
+                        "end": "2026-01-02T00:00:00Z",
+                    }
+                },
+                "hypothesis": {
+                    "family": "two_sample_mean",
+                    "alternative": "two_sided",
+                    "significance": "balanced",
+                },
+            },
+        ),
     ],
 )
 def test_aoi_request_optional_fields_reject_explicit_null(
@@ -243,6 +281,81 @@ def test_aoi_request_optional_fields_reject_explicit_null(
 
     with pytest.raises(ValidationError):
         model.model_validate(payload)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {
+            "metric": "revenue",
+            "left": {
+                "time_scope": {
+                    "field": "event_time",
+                    "start": "2026-01-01T00:00:00Z",
+                    "end": "2026-01-02T00:00:00Z",
+                },
+                "scope": {"constraints": {"region": "US"}},
+            },
+            "right": {
+                "time_scope": {
+                    "field": "event_time",
+                    "start": "2026-01-01T00:00:00Z",
+                    "end": "2026-01-02T00:00:00Z",
+                }
+            },
+            "hypothesis": {
+                "family": "two_sample_mean",
+                "alternative": "two_sided",
+                "significance": "balanced",
+            },
+        },
+        {
+            "metric": "revenue",
+            "left": {
+                "time_scope": {
+                    "field": "event_time",
+                    "start": "2026-01-01T00:00:00Z",
+                    "end": "2026-01-02T00:00:00Z",
+                }
+            },
+            "right": {
+                "time_scope": {
+                    "field": "event_time",
+                    "start": "2026-01-01T00:00:00Z",
+                    "end": "2026-01-02T00:00:00Z",
+                }
+            },
+            "hypothesis": {
+                "family": "two_sample_mean",
+                "alternative": "two_sided",
+                "significance": "balanced",
+            },
+            "method": "welch_t",
+        },
+        {
+            "metric": "revenue",
+            "left": {
+                "time_scope": {
+                    "field": "event_time",
+                    "start": "2026-01-01T00:00:00Z",
+                    "end": "2026-01-02T00:00:00Z",
+                }
+            },
+            "right": {
+                "time_scope": {
+                    "field": "event_time",
+                    "start": "2026-01-01T00:00:00Z",
+                    "end": "2026-01-02T00:00:00Z",
+                }
+            },
+        },
+    ],
+)
+def test_aoi_validate_rejects_non_contract_fields(payload: dict[str, Any]) -> None:
+    from marivo.contracts.generated import aoi
+
+    with pytest.raises(ValidationError):
+        aoi.Validate.model_validate(payload)
 
 
 def test_aoi_result_nullable_fields_still_accept_explicit_null() -> None:

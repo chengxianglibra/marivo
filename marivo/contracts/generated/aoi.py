@@ -16,6 +16,10 @@ class Requests(RootModel[Any]):
     root: Any
 
 
+class DerivedRequests(RootModel[Any]):
+    root: Any
+
+
 class Artifacts(RootModel[Any]):
     root: Any
 
@@ -392,6 +396,16 @@ class Artifact2(BaseModel):
     failure: AnalysisFailure
 
 
+class Validate(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    metric: str = Field(..., min_length=1)
+    left: Slice
+    right: Slice
+    hypothesis: Hypothesis
+
+
 class Test(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -403,7 +417,7 @@ class Test(BaseModel):
     hypothesis: Hypothesis
 
 
-class AoiV01(
+class AoiV02(
     RootModel[
         Compare
         | Decompose
@@ -411,6 +425,7 @@ class AoiV01(
         | Detect
         | Test
         | Forecast
+        | Validate
         | Observe1
         | Observe2
         | Observe3
@@ -425,6 +440,7 @@ class AoiV01(
         | Detect
         | Test
         | Forecast
+        | Validate
         | Observe1
         | Observe2
         | Observe3
@@ -432,6 +448,6 @@ class AoiV01(
         | Artifact2
     ) = Field(
         ...,
-        description="Analysis Operation Interface v0.1 canonical schema.",
-        title="AOI v0.1",
+        description="Analysis Operation Interface v0.2 canonical schema.",
+        title="AOI v0.2",
     )

@@ -1,6 +1,6 @@
-version: 0.1.0
+version: 0.2.0
 
-# AOI - Analysis Operation Interface v0.1 readable schema
+# AOI - Analysis Operation Interface v0.2 readable schema
 #
 # This YAML file follows the OSI core-spec style: enumerations are top-level
 # fields, schema sections use snake_case names, and object shapes are written
@@ -225,6 +225,22 @@ forecast:
 
   # Required: number of future buckets to forecast, range [1, +infinity).
   horizon: integer
+
+# Derived requests
+
+# Validate a metric difference by wrapping a fixed-family hypothesis test.
+validate:
+  # Required: metric identifier to validate.
+  metric: string
+
+  # Required: left/current source slice.
+  left: slice
+
+  # Required: right/baseline source slice.
+  right: slice
+
+  # Required: hypothesis configuration.
+  hypothesis: hypothesis
 
 # Artifact envelope and result variants
 
