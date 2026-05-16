@@ -129,24 +129,18 @@ class _CompareReuseTestBase(unittest.TestCase):
     def _service(self) -> Any:
         return self.client.app.state.services.runtime
 
-    def _compare(self, left_step_id: str, right_step_id: str) -> dict[str, Any]:
+    def _compare(self, left_artifact_id: str, right_artifact_id: str) -> dict[str, Any]:
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/compare",
             json={
-                "left_ref": {
-                    "session_id": self.session_id,
-                    "step_id": left_step_id,
-                    "step_type": "observe",
-                },
-                "right_ref": {
-                    "session_id": self.session_id,
-                    "step_id": right_step_id,
-                    "step_type": "observe",
-                },
+                "left_artifact_id": left_artifact_id,
+                "right_artifact_id": right_artifact_id,
             },
         )
         self.assertEqual(r.status_code, 200, r.text)
-        return r.json()
+        artifact = self._service().resolve_artifact_by_id(self.session_id, r.json()["artifact_id"])
+        self.assertIsNotNone(artifact)
+        return artifact
 
 
 # ---------------------------------------------------------------------------
@@ -167,7 +161,7 @@ class TestCompareReusesObservationLineage(_CompareReuseTestBase):
         )
         cls.left_step_id = f"step_left_{cls.__name__.lower()}"
         cls.right_step_id = f"step_right_{cls.__name__.lower()}"
-        _insert_observe_artifact(
+        cls.left_artifact_id = _insert_observe_artifact(
             svc,
             session_id=cls.session_id,
             step_id=cls.left_step_id,
@@ -178,7 +172,7 @@ class TestCompareReusesObservationLineage(_CompareReuseTestBase):
             unit="users",
             predicate_filter_lineage=lineage,
         )
-        _insert_observe_artifact(
+        cls.right_artifact_id = _insert_observe_artifact(
             svc,
             session_id=cls.session_id,
             step_id=cls.right_step_id,
@@ -191,23 +185,23 @@ class TestCompareReusesObservationLineage(_CompareReuseTestBase):
         )
 
     def test_compare_artifact_contains_predicate_lineage_in_resolved_input_summary(self) -> None:
-        result = self._compare(self.left_step_id, self.right_step_id)
+        result = self._compare(self.left_artifact_id, self.right_artifact_id)
         summary = result.get("resolved_input_summary", {})
         self.assertIn("predicate_lineage", summary)
         self.assertIsNotNone(summary["predicate_lineage"])
 
     def test_compare_reuse_source_is_observation_lineage(self) -> None:
-        result = self._compare(self.left_step_id, self.right_step_id)
+        result = self._compare(self.left_artifact_id, self.right_artifact_id)
         pl = result["resolved_input_summary"]["predicate_lineage"]
         self.assertEqual(pl["reuse_source"], "observation_predicate_filter_lineage")
 
     def test_compare_does_not_recalculate_predicate_semantics(self) -> None:
-        result = self._compare(self.left_step_id, self.right_step_id)
+        result = self._compare(self.left_artifact_id, self.right_artifact_id)
         pl = result["resolved_input_summary"]["predicate_lineage"]
         assert_predicate_lineage_refs_only(pl, surface="compare_resolved_input_summary")
 
     def test_compare_default_refs_match_observations(self) -> None:
-        result = self._compare(self.left_step_id, self.right_step_id)
+        result = self._compare(self.left_artifact_id, self.right_artifact_id)
         pl = result["resolved_input_summary"]["predicate_lineage"]
         self.assertEqual(pl["metric_default_predicate_refs"], ["predicate.d1"])
 
@@ -230,7 +224,7 @@ class TestCompareLineageMismatchRejection(_CompareReuseTestBase):
             default_refs=["predicate.d1"],
         )
         cls.left_step_id = f"step_mismatch_left_{cls.__name__.lower()}"
-        _insert_observe_artifact(
+        cls.left_artifact_id = _insert_observe_artifact(
             svc,
             session_id=cls.session_id,
             step_id=cls.left_step_id,
@@ -243,7 +237,7 @@ class TestCompareLineageMismatchRejection(_CompareReuseTestBase):
         )
         # Right: no lineage
         cls.right_step_id = f"step_mismatch_right_{cls.__name__.lower()}"
-        _insert_observe_artifact(
+        cls.right_artifact_id = _insert_observe_artifact(
             svc,
             session_id=cls.session_id,
             step_id=cls.right_step_id,
@@ -259,16 +253,8 @@ class TestCompareLineageMismatchRejection(_CompareReuseTestBase):
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/compare",
             json={
-                "left_ref": {
-                    "session_id": self.session_id,
-                    "step_id": self.left_step_id,
-                    "step_type": "observe",
-                },
-                "right_ref": {
-                    "session_id": self.session_id,
-                    "step_id": self.right_step_id,
-                    "step_type": "observe",
-                },
+                "left_artifact_id": self.left_artifact_id,
+                "right_artifact_id": self.right_artifact_id,
             },
         )
         self.assertEqual(r.status_code, 422)
@@ -280,7 +266,7 @@ class TestCompareLineageMismatchRejection(_CompareReuseTestBase):
         # Left: carrier car1
         left_lineage = _make_lineage(carrier_refs=["predicate.car1"])
         left_id = f"step_div_left_{self.__class__.__name__.lower()}"
-        _insert_observe_artifact(
+        left_artifact_id = _insert_observe_artifact(
             svc,
             session_id=self.session_id,
             step_id=left_id,
@@ -294,7 +280,7 @@ class TestCompareLineageMismatchRejection(_CompareReuseTestBase):
         # Right: carrier car2 (different)
         right_lineage = _make_lineage(carrier_refs=["predicate.car2"])
         right_id = f"step_div_right_{self.__class__.__name__.lower()}"
-        _insert_observe_artifact(
+        right_artifact_id = _insert_observe_artifact(
             svc,
             session_id=self.session_id,
             step_id=right_id,
@@ -308,20 +294,13 @@ class TestCompareLineageMismatchRejection(_CompareReuseTestBase):
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/compare",
             json={
-                "left_ref": {
-                    "session_id": self.session_id,
-                    "step_id": left_id,
-                    "step_type": "observe",
-                },
-                "right_ref": {
-                    "session_id": self.session_id,
-                    "step_id": right_id,
-                    "step_type": "observe",
-                },
+                "left_artifact_id": left_artifact_id,
+                "right_artifact_id": right_artifact_id,
             },
         )
         self.assertEqual(r.status_code, 200, r.text)
-        result = r.json()
+        result = svc.resolve_artifact_by_id(self.session_id, r.json()["artifact_id"])
+        self.assertIsNotNone(result)
         comparability = result.get("comparability", {})
         self.assertEqual(comparability.get("status"), "needs_attention")
         issue_codes = [i["code"] for i in comparability.get("issues", [])]
