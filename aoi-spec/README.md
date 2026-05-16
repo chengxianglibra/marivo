@@ -8,7 +8,7 @@ Version: 0.2.0
 
 Status: draft
 
-AOI v0.2 defines foundation primitives, seven atomic intents, two derived request contracts (`validate`, `attribute`), artifact contracts, and failure contracts. It does not define transport, runtime sessions, private metadata, arbitrary DAG composition, capability subsets, or a conformance test suite.
+AOI v0.2 defines foundation primitives, seven atomic intents, three derived request contracts (`validate`, `attribute`, `diagnose`), artifact contracts, and failure contracts. It does not define transport, runtime sessions, private metadata, arbitrary DAG composition, capability subsets, or a conformance test suite.
 
 ## Layout
 
@@ -31,6 +31,7 @@ aoi-spec/
     forecast/
     validate/
     attribute/
+    diagnose/
 ```
 
 `schema/aoi.schema.json` is the canonical validation entry point. It keeps all reusable types under `$defs` so the public schema can be copied, reviewed, and validated without resolving cross-file references. `schema/aoi.schema.yaml` is an OSI-style readable contract view with top-level enumerations and snake_case schema names.
@@ -53,12 +54,12 @@ Included:
 
 - Foundation primitives: `Expression`, `TimeScope`, `TimeGranularity`, `CompareType`, `AnalysisFailure`, `Hypothesis`
 - Atomic requests: `observe`, `compare`, `decompose`, `correlate`, `detect`, `test`, `forecast`
-- Derived requests: `validate`, `attribute`
+- Derived requests: `validate`, `attribute`, `diagnose`
 - Artifact types: `scalar_observation`, `time_series_observation`, `segmented_observation`, `scalar_delta`, `time_series_delta`, `segmented_delta`, `delta_decomposition`, `anomaly_candidates`, `association_result`, `hypothesis_test_result`, `forecast_series`
 
 Excluded from v0.2:
 
-- Derived intents other than `validate` and `attribute`, such as `diagnose`
+- Derived intents other than `validate`, `attribute`, and `diagnose`
 - Composition or DAG schemas
 - Transport bindings
 - Runtime sessions, evidence graphs, planning, and caching

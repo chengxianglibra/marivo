@@ -19,6 +19,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, cast
 
+from marivo.runtime.intents._helpers import aoi_filter_to_scope
 from marivo.runtime.intents.compare import run_compare_intent
 from marivo.runtime.intents.decompose import run_decompose_intent
 from marivo.runtime.intents.derived_envelopes import (
@@ -120,6 +121,11 @@ def run_diagnose_intent(
             "diagnose: INVALID_ARGUMENT - mode must be 'auto_detect' or 'explicit_compare'"
         )
     scope: dict[str, Any] | None = p.get("scope") or None
+    if scope is None:
+        try:
+            scope = aoi_filter_to_scope(p.get("filter"), label="filter")
+        except ValueError as exc:
+            raise ValueError(f"diagnose: INVALID_ARGUMENT - {exc}") from exc
     detect_dimension: str | None = (p.get("detect_dimension") or "").strip() or None
     strategy = _normalize_strategy(p.get("strategy"))
     sensitivity: str = str(p.get("sensitivity") or "aggressive").lower()
@@ -184,8 +190,17 @@ def run_diagnose_intent(
                 "diagnose: INVALID_ARGUMENT - current and baseline are required "
                 "when mode='explicit_compare'"
             )
-        current_scope = current_input.get("scope") or scope
-        baseline_scope = baseline_input.get("scope") or scope
+        try:
+            current_filter_scope = aoi_filter_to_scope(
+                current_input.get("filter"), label="current.filter"
+            )
+            baseline_filter_scope = aoi_filter_to_scope(
+                baseline_input.get("filter"), label="baseline.filter"
+            )
+        except ValueError as exc:
+            raise ValueError(f"diagnose: INVALID_ARGUMENT - {exc}") from exc
+        current_scope = current_input.get("scope") or current_filter_scope or scope
+        baseline_scope = baseline_input.get("scope") or baseline_filter_scope or scope
         if current_scope != baseline_scope:
             raise ValueError(
                 "diagnose: INVALID_ARGUMENT - explicit_compare current.scope and "

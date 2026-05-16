@@ -65,7 +65,7 @@ def test_aoi_operation_registry_contains_atomic_operations() -> None:
 
 
 def test_aoi_derived_operation_registry_contains_derived_operations() -> None:
-    assert set(AOI_DERIVED_OPERATION_REGISTRY) == {"attribute", "validate"}
+    assert set(AOI_DERIVED_OPERATION_REGISTRY) == {"attribute", "diagnose", "validate"}
 
 
 def test_runtime_intent_envelope_accepts_generated_validate_request() -> None:
@@ -95,6 +95,24 @@ def test_runtime_intent_envelope_accepts_generated_attribute_request() -> None:
         left=aoi.Slice(time_scope=_time_scope()),
         right=aoi.Slice(time_scope=_time_scope()),
         dimensions=["region"],
+    )
+
+    envelope = RuntimeIntentEnvelope(
+        session_id="session_1",
+        actor="alice",
+        request=request,
+    )
+
+    assert envelope.request is request
+
+
+def test_runtime_intent_envelope_accepts_generated_diagnose_request() -> None:
+    request = aoi.Diagnose(
+        metric="view_time",
+        time_scope=_time_scope(),
+        granularity="day",
+        candidate_dimensions=["region"],
+        strategy="point_anomaly",
     )
 
     envelope = RuntimeIntentEnvelope(

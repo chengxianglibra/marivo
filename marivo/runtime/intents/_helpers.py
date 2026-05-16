@@ -17,6 +17,34 @@ if TYPE_CHECKING:
     from marivo.runtime.runtime import MarivoRuntime
 
 
+def aoi_filter_to_scope(filter_raw: Any, *, label: str) -> dict[str, str] | None:
+    """Convert AOI Expression filters to the runtime's predicate scope shape."""
+    if filter_raw is None:
+        return None
+    if not isinstance(filter_raw, dict):
+        raise ValueError(f"{label} must be an AOI Expression object")
+    dialects = filter_raw.get("dialects")
+    if not isinstance(dialects, list) or not dialects:
+        raise ValueError(f"{label}.dialects must be non-empty")
+
+    selected_expression: str | None = None
+    for dialect in dialects:
+        if not isinstance(dialect, dict):
+            continue
+        expression = dialect.get("expression")
+        if not isinstance(expression, str) or not expression.strip():
+            continue
+        if selected_expression is None:
+            selected_expression = expression.strip()
+        if str(dialect.get("dialect") or "ANSI_SQL").upper() == "ANSI_SQL":
+            selected_expression = expression.strip()
+            break
+
+    if selected_expression is None:
+        raise ValueError(f"{label}.dialects must include an expression")
+    return {"predicate": selected_expression}
+
+
 def resolve_time_scope(time_scope_raw: dict[str, Any]) -> tuple[str, str, str | None]:
     """Resolve a time scope dict into (start_str, end_str, field).
 

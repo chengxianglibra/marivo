@@ -45,6 +45,21 @@ def _validate_request() -> aoi.Validate:
     )
 
 
+def _diagnose_request() -> aoi.Diagnose:
+    return aoi.Diagnose(
+        metric="view_time",
+        time_scope=aoi.TimeScope(
+            field="event_time",
+            start=datetime(2026, 5, 1, tzinfo=UTC),
+            end=datetime(2026, 5, 8, tzinfo=UTC),
+        ),
+        granularity="day",
+        candidate_dimensions=["region"],
+        strategy="point_anomaly",
+        followup_limit=2,
+    )
+
+
 def test_observe_accepts_aoi_request_and_dispatches_lowered_params(monkeypatch) -> None:
     runtime = object()
     calls: list[tuple[object, str, dict[str, object]]] = []
@@ -140,6 +155,45 @@ def test_validate_accepts_aoi_request_and_dispatches_lowered_params(monkeypatch)
                     "alternative": "greater",
                     "significance": "balanced",
                 },
+            },
+        )
+    ]
+
+
+def test_diagnose_accepts_aoi_request_and_dispatches_lowered_params(monkeypatch) -> None:
+    runtime = object()
+    calls: list[tuple[object, str, dict[str, object]]] = []
+    expected = {"status": "ok"}
+
+    monkeypatch.setattr(intent_execution, "_assert_session_is_open", lambda *_: None)
+
+    def runner(runtime_arg, session_id, params):
+        calls.append((runtime_arg, session_id, params))
+        return expected
+
+    monkeypatch.setitem(intent_execution.DERIVED_RUNNERS, "diagnose", runner)
+
+    result = intent_execution.diagnose(runtime, "s1", _diagnose_request())
+
+    assert result is expected
+    assert calls == [
+        (
+            runtime,
+            "s1",
+            {
+                "metric": "view_time",
+                "mode": "auto_detect",
+                "time_scope": {
+                    "field": "event_time",
+                    "start": "2026-05-01T00:00:00Z",
+                    "end": "2026-05-08T00:00:00Z",
+                },
+                "granularity": "day",
+                "candidate_dimensions": ["region"],
+                "strategy": "point_anomaly",
+                "sensitivity": "aggressive",
+                "followup_limit": 2,
+                "decomposition_limit": 5,
             },
         )
     ]

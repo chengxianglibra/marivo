@@ -28,6 +28,10 @@ class Dimension(RootModel[str]):
     root: str = Field(..., min_length=1)
 
 
+class CandidateDimension(RootModel[str]):
+    root: str = Field(..., min_length=1)
+
+
 class Decompose(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -408,6 +412,50 @@ class Attribute(BaseModel):
     decomposition_limit: int = Field(5, ge=1)
 
 
+class Diagnose(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    mode: Literal["auto_detect", "explicit_compare"] = "auto_detect"
+    metric: str = Field(..., min_length=1)
+    time_scope: TimeScope = None  # type: ignore[assignment]
+    granularity: Literal["hour", "day", "week", "month"] | None = None
+    filter: Expression = None  # type: ignore[assignment]
+    current: Slice = None  # type: ignore[assignment]
+    baseline: Slice = None  # type: ignore[assignment]
+    detect_dimension: str = Field(None, min_length=1)  # type: ignore[assignment]
+    candidate_dimensions: list[CandidateDimension] = Field(..., min_length=1)
+    strategy: Literal["point_anomaly", "period_shift"]
+    sensitivity: Literal["conservative", "balanced", "aggressive"] = "aggressive"
+    candidate_limit: int = Field(None, ge=1)  # type: ignore[assignment]
+    followup_limit: int = Field(3, ge=1)
+    decomposition_limit: int = Field(5, ge=1)
+
+    @model_validator(mode="after")
+    def _validate_mode_inputs(self) -> Diagnose:
+        if self.mode == "auto_detect":
+            if self.time_scope is None:
+                raise ValueError("diagnose auto_detect requests require time_scope")
+            if self.granularity is None:
+                raise ValueError("diagnose auto_detect requests require granularity")
+            if self.current is not None or self.baseline is not None:
+                raise ValueError("diagnose auto_detect requests must omit current and baseline")
+            return self
+        if self.current is None or self.baseline is None:
+            raise ValueError("diagnose explicit_compare requests require current and baseline")
+        if self.time_scope is not None or self.granularity is not None:
+            raise ValueError(
+                "diagnose explicit_compare requests must omit time_scope and granularity"
+            )
+        if self.filter is not None or self.detect_dimension is not None:
+            raise ValueError(
+                "diagnose explicit_compare requests must omit filter and detect_dimension"
+            )
+        if self.candidate_limit is not None:
+            raise ValueError("diagnose explicit_compare requests must omit candidate_limit")
+        return self
+
+
 class Validate(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -439,6 +487,7 @@ class AoiV02(
         | Forecast
         | Validate
         | Attribute
+        | Diagnose
         | Observe1
         | Observe2
         | Observe3
@@ -455,6 +504,7 @@ class AoiV02(
         | Forecast
         | Validate
         | Attribute
+        | Diagnose
         | Observe1
         | Observe2
         | Observe3

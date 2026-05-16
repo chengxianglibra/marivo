@@ -178,6 +178,31 @@ def test_aoi_request_optional_fields_may_be_omitted() -> None:
     )
     assert attribute.decomposition_method == "delta_share"
     assert attribute.decomposition_limit == 5
+    diagnose = aoi.Diagnose.model_validate(
+        {
+            "metric": "revenue",
+            "time_scope": time_scope,
+            "granularity": "day",
+            "candidate_dimensions": ["region"],
+            "strategy": "point_anomaly",
+        }
+    )
+    assert diagnose.mode == "auto_detect"
+    assert diagnose.sensitivity == "aggressive"
+    assert diagnose.followup_limit == 3
+    assert diagnose.decomposition_limit == 5
+    explicit = aoi.Diagnose.model_validate(
+        {
+            "mode": "explicit_compare",
+            "metric": "revenue",
+            "current": {"time_scope": time_scope},
+            "baseline": {"time_scope": time_scope},
+            "candidate_dimensions": ["region"],
+            "strategy": "period_shift",
+        }
+    )
+    assert explicit.current is not None
+    assert explicit.baseline is not None
 
 
 @pytest.mark.parametrize(
@@ -345,6 +370,51 @@ def test_aoi_request_optional_fields_may_be_omitted() -> None:
                 "decomposition_limit": None,
             },
         ),
+        (
+            "Diagnose",
+            {
+                "metric": "revenue",
+                "time_scope": {
+                    "field": "event_time",
+                    "start": "2026-01-01T00:00:00Z",
+                    "end": "2026-01-02T00:00:00Z",
+                },
+                "granularity": "day",
+                "filter": None,
+                "candidate_dimensions": ["region"],
+                "strategy": "point_anomaly",
+            },
+        ),
+        (
+            "Diagnose",
+            {
+                "metric": "revenue",
+                "time_scope": {
+                    "field": "event_time",
+                    "start": "2026-01-01T00:00:00Z",
+                    "end": "2026-01-02T00:00:00Z",
+                },
+                "granularity": "day",
+                "detect_dimension": None,
+                "candidate_dimensions": ["region"],
+                "strategy": "point_anomaly",
+            },
+        ),
+        (
+            "Diagnose",
+            {
+                "metric": "revenue",
+                "time_scope": {
+                    "field": "event_time",
+                    "start": "2026-01-01T00:00:00Z",
+                    "end": "2026-01-02T00:00:00Z",
+                },
+                "granularity": "day",
+                "candidate_dimensions": ["region"],
+                "strategy": "point_anomaly",
+                "candidate_limit": None,
+            },
+        ),
     ],
 )
 def test_aoi_request_optional_fields_reject_explicit_null(
@@ -500,6 +570,127 @@ def test_aoi_attribute_rejects_non_contract_fields(payload: dict[str, Any]) -> N
 
     with pytest.raises(ValidationError):
         aoi.Attribute.model_validate(payload)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {
+            "metric": "revenue",
+            "candidate_dimensions": ["region"],
+            "strategy": "point_anomaly",
+        },
+        {
+            "mode": "explicit_compare",
+            "metric": "revenue",
+            "current": {
+                "time_scope": {
+                    "field": "event_time",
+                    "start": "2026-01-01T00:00:00Z",
+                    "end": "2026-01-02T00:00:00Z",
+                }
+            },
+            "candidate_dimensions": ["region"],
+            "strategy": "point_anomaly",
+        },
+        {
+            "mode": "explicit_compare",
+            "metric": "revenue",
+            "current": {
+                "time_scope": {
+                    "field": "event_time",
+                    "start": "2026-01-01T00:00:00Z",
+                    "end": "2026-01-02T00:00:00Z",
+                }
+            },
+            "baseline": {
+                "time_scope": {
+                    "field": "event_time",
+                    "start": "2026-01-01T00:00:00Z",
+                    "end": "2026-01-02T00:00:00Z",
+                }
+            },
+            "time_scope": {
+                "field": "event_time",
+                "start": "2026-01-01T00:00:00Z",
+                "end": "2026-01-02T00:00:00Z",
+            },
+            "candidate_dimensions": ["region"],
+            "strategy": "point_anomaly",
+        },
+        {
+            "metric": "revenue",
+            "time_scope": {
+                "field": "event_time",
+                "start": "2026-01-01T00:00:00Z",
+                "end": "2026-01-02T00:00:00Z",
+            },
+            "granularity": "day",
+            "scope": {"constraints": {"region": "US"}},
+            "candidate_dimensions": ["region"],
+            "strategy": "point_anomaly",
+        },
+        {
+            "metric": "revenue",
+            "time_scope": {
+                "field": "event_time",
+                "start": "2026-01-01T00:00:00Z",
+                "end": "2026-01-02T00:00:00Z",
+            },
+            "granularity": "day",
+            "baseline_policy": "previous_adjacent_equal_length",
+            "candidate_dimensions": ["region"],
+            "strategy": "point_anomaly",
+        },
+    ],
+)
+def test_aoi_diagnose_rejects_non_contract_fields_and_bad_mode_shapes(
+    payload: dict[str, Any],
+) -> None:
+    from marivo.contracts.generated import aoi
+
+    with pytest.raises(ValidationError):
+        aoi.Diagnose.model_validate(payload)
+
+
+@pytest.mark.parametrize("granularity", ["quarter", "year"])
+def test_aoi_diagnose_rejects_unsupported_granularity(granularity: str) -> None:
+    from marivo.contracts.generated import aoi
+
+    with pytest.raises(ValidationError):
+        aoi.Diagnose.model_validate(
+            {
+                "metric": "revenue",
+                "time_scope": {
+                    "field": "event_time",
+                    "start": "2026-01-01T00:00:00Z",
+                    "end": "2026-01-02T00:00:00Z",
+                },
+                "granularity": granularity,
+                "candidate_dimensions": ["region"],
+                "strategy": "point_anomaly",
+            }
+        )
+
+
+@pytest.mark.parametrize("granularity", ["quarter", "year"])
+def test_aoi_detect_keeps_generic_time_granularities(granularity: str) -> None:
+    from marivo.contracts.generated import aoi
+
+    request = aoi.Detect.model_validate(
+        {
+            "metric": "revenue",
+            "time_scope": {
+                "field": "event_time",
+                "start": "2026-01-01T00:00:00Z",
+                "end": "2026-01-02T00:00:00Z",
+            },
+            "granularity": granularity,
+            "strategy": "point_anomaly",
+        }
+    )
+
+    assert request.granularity == granularity
 
 
 def test_aoi_result_nullable_fields_still_accept_explicit_null() -> None:

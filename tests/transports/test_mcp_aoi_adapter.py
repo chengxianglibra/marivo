@@ -8,6 +8,7 @@ from marivo.transports.mcp.tools.intents import (
     to_aoi_compare_request,
     to_aoi_decompose_request,
     to_aoi_detect_request,
+    to_aoi_diagnose_request,
     to_aoi_forecast_request,
     to_aoi_observe_request,
     to_aoi_test_request,
@@ -231,6 +232,53 @@ def test_to_aoi_attribute_request_preserves_aoi_slice_filter() -> None:
     assert [dimension.root for dimension in request.dimensions] == ["region"]
     assert request.decomposition_method == "delta_share"
     assert request.decomposition_limit == 10
+
+
+def test_to_aoi_diagnose_request_builds_auto_detect_model() -> None:
+    request = to_aoi_diagnose_request(
+        metric="view_time",
+        time_scope=McpTimeScope(
+            field="log_time",
+            start="2026-05-01T00:00:00Z",
+            end="2026-05-08T00:00:00Z",
+        ),
+        granularity="day",
+        filter_expression=McpExpression(
+            dialects=[{"dialect": "ANSI_SQL", "expression": "region = 'US'"}]
+        ),
+        detect_dimension="region",
+        candidate_dimensions=["region"],
+        strategy="point_anomaly",
+        candidate_limit=5,
+    )
+
+    assert isinstance(request, aoi.Diagnose)
+    assert request.mode == "auto_detect"
+    assert request.time_scope is not None
+    assert request.time_scope.field == "log_time"
+    assert request.filter is not None
+    assert request.filter.model_dump(exclude_none=True) == {
+        "dialects": [{"dialect": "ANSI_SQL", "expression": "region = 'US'"}]
+    }
+    assert [dimension.root for dimension in request.candidate_dimensions] == ["region"]
+    assert request.candidate_limit == 5
+
+
+def test_to_aoi_diagnose_request_builds_explicit_compare_model() -> None:
+    request = to_aoi_diagnose_request(
+        metric="view_time",
+        mode="explicit_compare",
+        current=_slice("2026-05-01T00:00:00Z", "2026-05-08T00:00:00Z"),
+        baseline=_slice("2026-04-24T00:00:00Z", "2026-05-01T00:00:00Z"),
+        candidate_dimensions=["region"],
+        strategy="period_shift",
+    )
+
+    assert isinstance(request, aoi.Diagnose)
+    assert request.mode == "explicit_compare"
+    assert request.current is not None
+    assert request.baseline is not None
+    assert "time_scope" not in request.model_dump(exclude_none=True)
 
 
 def test_to_aoi_test_request_preserves_aoi_slice_filter() -> None:

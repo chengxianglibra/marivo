@@ -152,3 +152,91 @@ def test_lowers_attribute_request_to_runner_params() -> None:
         "decomposition_method": "delta_share",
         "decomposition_limit": 10,
     }
+
+
+def test_lowers_diagnose_auto_detect_request_to_runner_params() -> None:
+    request = aoi.Diagnose(
+        metric="view_time",
+        time_scope=aoi.TimeScope(
+            field="event_time",
+            start=datetime(2026, 5, 1, tzinfo=UTC),
+            end=datetime(2026, 5, 8, tzinfo=UTC),
+        ),
+        granularity="day",
+        filter=aoi.Expression(
+            dialects=[aoi.Dialect(dialect="ANSI_SQL", expression="region = 'US'")]
+        ),
+        detect_dimension="region",
+        candidate_dimensions=["region"],
+        strategy="point_anomaly",
+        sensitivity="balanced",
+        candidate_limit=10,
+        followup_limit=2,
+        decomposition_limit=7,
+    )
+
+    assert lower_aoi_derived_request("diagnose", request) == {
+        "metric": "view_time",
+        "mode": "auto_detect",
+        "time_scope": {
+            "field": "event_time",
+            "start": "2026-05-01T00:00:00Z",
+            "end": "2026-05-08T00:00:00Z",
+        },
+        "granularity": "day",
+        "filter": {"dialects": [{"dialect": "ANSI_SQL", "expression": "region = 'US'"}]},
+        "detect_dimension": "region",
+        "candidate_dimensions": ["region"],
+        "strategy": "point_anomaly",
+        "sensitivity": "balanced",
+        "candidate_limit": 10,
+        "followup_limit": 2,
+        "decomposition_limit": 7,
+    }
+
+
+def test_lowers_diagnose_explicit_compare_request_to_runner_params() -> None:
+    request = aoi.Diagnose(
+        mode="explicit_compare",
+        metric="view_time",
+        current=aoi.Slice(
+            time_scope=aoi.TimeScope(
+                field="event_time",
+                start=datetime(2026, 5, 1, tzinfo=UTC),
+                end=datetime(2026, 5, 8, tzinfo=UTC),
+            )
+        ),
+        baseline=aoi.Slice(
+            time_scope=aoi.TimeScope(
+                field="event_time",
+                start=datetime(2026, 4, 24, tzinfo=UTC),
+                end=datetime(2026, 5, 1, tzinfo=UTC),
+            )
+        ),
+        candidate_dimensions=["region"],
+        strategy="point_anomaly",
+    )
+
+    assert lower_aoi_derived_request("diagnose", request) == {
+        "metric": "view_time",
+        "mode": "explicit_compare",
+        "current": {
+            "time_scope": {
+                "field": "event_time",
+                "start": "2026-05-01T00:00:00Z",
+                "end": "2026-05-08T00:00:00Z",
+            }
+        },
+        "baseline": {
+            "time_scope": {
+                "field": "event_time",
+                "start": "2026-04-24T00:00:00Z",
+                "end": "2026-05-01T00:00:00Z",
+            }
+        },
+        "candidate_dimensions": ["region"],
+        "strategy": "point_anomaly",
+        "sensitivity": "aggressive",
+        "followup_limit": 3,
+        "decomposition_limit": 5,
+    }
