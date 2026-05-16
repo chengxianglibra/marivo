@@ -15,7 +15,6 @@ from marivo.transports.http.deps import get_services, http_error
 from marivo.transports.http.models import (
     ArtifactRuntimeStatusResponse,
     AttributeResponse,
-    DiagnoseRequest,
     DiagnoseResponse,
     PropositionContextView,
     PropositionRuntimeStatusResponse,
@@ -491,9 +490,7 @@ def intent_attribute(
 @router.post("/sessions/{session_id}/intents/diagnose", response_model=DiagnoseResponse)
 def intent_diagnose(
     session_id: str,
-    payload: DiagnoseRequest,
+    payload: aoi.Diagnose,
     request: Request,
 ) -> DiagnoseResponse:
-    return DiagnoseResponse.model_validate(
-        _run_intent(session_id, "diagnose", payload.model_dump(exclude_none=True), request)
-    )
+    return DiagnoseResponse.model_validate(_run_intent(session_id, "diagnose", payload, request))

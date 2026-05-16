@@ -1,0 +1,26 @@
+{
+  "metric": "order_revenue",
+  "time_scope": {
+    "field": "order_date",
+    "start": "2026-01-01T00:00:00Z",
+    "end": "2026-02-01T00:00:00Z"
+  },
+  "granularity": "day",
+  "filter": {
+    "dialects": [
+      {
+        "dialect": "ANSI_SQL",
+        "expression": "country = 'US'"
+      }
+    ]
+  },
+  "detect_dimension": "country",
+  "candidate_dimensions": [
+    "country"
+  ],
+  "strategy": "point_anomaly",
+  "sensitivity": "balanced",
+  "candidate_limit": 10,
+  "followup_limit": 3,
+  "decomposition_limit": 5
+}

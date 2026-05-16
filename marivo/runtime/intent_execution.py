@@ -77,9 +77,9 @@ def attribute(
 
 
 def diagnose(
-    runtime: MarivoRuntime, session_id: SessionId, params: dict[str, Any]
+    runtime: MarivoRuntime, session_id: SessionId, request: AoiDerivedRequest
 ) -> dict[str, Any]:
-    return _run_derived(runtime, "diagnose", session_id, params)
+    return _run_aoi_derived(runtime, "diagnose", session_id, request)
 
 
 def test(

@@ -21,7 +21,7 @@ AoiAtomicRequest: TypeAlias = (  # noqa: UP040 - mypy hook does not support PEP 
     | aoi.Observe2
     | aoi.Observe3
 )
-AoiDerivedRequest: TypeAlias = aoi.Validate | aoi.Attribute  # noqa: UP040
+AoiDerivedRequest: TypeAlias = aoi.Validate | aoi.Attribute | aoi.Diagnose  # noqa: UP040
 AoiArtifact: TypeAlias = aoi.Artifact1 | aoi.Artifact2  # noqa: UP040
 
 
@@ -70,6 +70,7 @@ AOI_OPERATION_REGISTRY: dict[str, AoiOperationDefinition] = {
 
 AOI_DERIVED_OPERATION_REGISTRY: dict[str, AoiOperationDefinition] = {
     "attribute": AoiOperationDefinition("attribute", (aoi.Attribute,)),
+    "diagnose": AoiOperationDefinition("diagnose", (aoi.Diagnose,)),
     "validate": AoiOperationDefinition("validate", (aoi.Validate,)),
 }
 

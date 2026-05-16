@@ -7,12 +7,14 @@
 - Derived request namespace at `$defs.derived_requests`.
 - `validate` derived request contract using AOI `Slice` and `Hypothesis`.
 - `attribute` derived request contract using AOI `Slice`, non-empty `dimensions`, fixed `decomposition_method`, and bounded `decomposition_limit`.
+- `diagnose` derived request contract using AOI `TimeScope`, `Expression`, `Slice`, explicit `candidate_dimensions`, and bounded follow-up/decomposition limits.
 - Validate request example under `examples/validate/`.
 - Attribute request example under `examples/attribute/`.
+- Diagnose request examples under `examples/diagnose/`.
 
 ### Changed
 
-- AOI scope now includes seven atomic requests plus the derived `validate` and `attribute` request contracts.
+- AOI scope now includes seven atomic requests plus the derived `validate`, `attribute`, and `diagnose` request contracts.
 
 ## 0.1.0 - 2026-05-08
 

@@ -259,6 +259,16 @@ def _attribute_request() -> aoi.Attribute:
     )
 
 
+def _diagnose_request() -> aoi.Diagnose:
+    return aoi.Diagnose(
+        metric="view_time",
+        time_scope=_time_scope(),
+        granularity="day",
+        candidate_dimensions=["region"],
+        strategy="point_anomaly",
+    )
+
+
 def _make_runtime() -> MarivoRuntime:
     ports = _make_ports()
     core = CoreEngine()
@@ -315,15 +325,12 @@ def test_intent_dispatches_to_intent_execution() -> None:
         mock_fn.assert_called_once_with(rt, SessionId("sess_123"), attribute_request)
         assert result == {"status": "ok"}
 
-    diagnose_params = {
-        "metric": "revenue",
-        "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-02-01"},
-    }
+    diagnose_request = _diagnose_request()
     with patch(
         "marivo.runtime.intent_execution.diagnose", return_value={"status": "ok"}
     ) as mock_fn:
-        result = rt.diagnose("sess_123", diagnose_params)
-        mock_fn.assert_called_once_with(rt, SessionId("sess_123"), diagnose_params)
+        result = rt.diagnose("sess_123", diagnose_request)
+        mock_fn.assert_called_once_with(rt, SessionId("sess_123"), diagnose_request)
         assert result == {"status": "ok"}
 
 
@@ -396,8 +403,9 @@ def test_diagnose_dispatches() -> None:
     with patch(
         "marivo.runtime.intent_execution.diagnose", return_value={"status": "ok"}
     ) as mock_fn:
-        rt.diagnose("s1", {"metric": "m"})
-        mock_fn.assert_called_once_with(rt, SessionId("s1"), {"metric": "m"})
+        request = _diagnose_request()
+        rt.diagnose("s1", request)
+        mock_fn.assert_called_once_with(rt, SessionId("s1"), request)
 
 
 def test_intent_returns_service_result() -> None:

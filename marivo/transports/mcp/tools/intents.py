@@ -11,12 +11,10 @@ from marivo.transports.mcp.tools._async_bridge import call_runtime
 from marivo.transports.mcp.tools.schemas import (
     McpAoiSliceRef,
     McpExpression,
-    McpSliceRef,
     McpTestHypothesis,
     McpTimeScope,
     McpTimeScopeValidated,
     McpValidateHypothesis,
-    ObserveScope,
 )
 
 TimeSeriesObserveArtifactId = Annotated[
@@ -242,6 +240,44 @@ def to_aoi_attribute_request(
     )
 
 
+def to_aoi_diagnose_request(
+    metric: str,
+    candidate_dimensions: list[str],
+    strategy: Literal["point_anomaly", "period_shift"],
+    mode: Literal["auto_detect", "explicit_compare"] = "auto_detect",
+    time_scope: McpTimeScope | None = None,
+    granularity: Literal["hour", "day", "week", "month"] | None = None,
+    filter_expression: McpExpression | dict[str, Any] | None = None,
+    current: McpAoiSliceRef | None = None,
+    baseline: McpAoiSliceRef | None = None,
+    detect_dimension: str | None = None,
+    sensitivity: Literal["conservative", "balanced", "aggressive"] = "aggressive",
+    candidate_limit: int | None = None,
+    followup_limit: int = 3,
+    decomposition_limit: int = 5,
+) -> aoi.Diagnose:
+    return aoi.Diagnose.model_validate(
+        _omit_none(
+            {
+                "metric": metric,
+                "mode": mode,
+                "time_scope": time_scope.model_dump() if time_scope is not None else None,
+                "granularity": granularity,
+                "filter": _dump_expression(filter_expression),
+                "current": _to_aoi_slice(current) if current is not None else None,
+                "baseline": _to_aoi_slice(baseline) if baseline is not None else None,
+                "detect_dimension": detect_dimension,
+                "candidate_dimensions": candidate_dimensions,
+                "strategy": strategy,
+                "sensitivity": sensitivity,
+                "candidate_limit": candidate_limit,
+                "followup_limit": followup_limit,
+                "decomposition_limit": decomposition_limit,
+            }
+        )
+    )
+
+
 def register_observe(server: Any, runtime: Any) -> None:
     @server.tool()  # type: ignore
     async def observe(
@@ -453,51 +489,46 @@ def register_diagnose(server: Any, runtime: Any) -> None:
             Literal["hour", "day", "week", "month"] | None,
             Field(description="Required when mode='auto_detect'; omit for explicit_compare."),
         ] = None,
+        filter_expression: Annotated[
+            McpExpression | None,
+            Field(
+                description=(
+                    "Optional AOI Expression filter for auto_detect mode; omit for "
+                    "explicit_compare."
+                )
+            ),
+        ] = None,
         current: Annotated[
-            McpSliceRef | None,
+            McpAoiSliceRef | None,
             Field(description="Required when mode='explicit_compare'; omit for auto_detect."),
         ] = None,
         baseline: Annotated[
-            McpSliceRef | None,
+            McpAoiSliceRef | None,
             Field(description="Required when mode='explicit_compare'; omit for auto_detect."),
         ] = None,
-        scope: ObserveScope | None = None,
         detect_dimension: str | None = None,
         sensitivity: Literal["conservative", "balanced", "aggressive"] = "aggressive",
         candidate_limit: int | None = None,
         followup_limit: int | None = 3,
         decomposition_limit: int | None = 5,
-        baseline_policy: Literal[
-            "previous_adjacent_equal_length"
-        ] = "previous_adjacent_equal_length",
     ) -> dict[str, Any]:
-        params: dict[str, Any] = {
-            "metric": metric,
-            "candidate_dimensions": candidate_dimensions,
-            "mode": mode,
-            "strategy": strategy,
-            "sensitivity": sensitivity,
-            "baseline_policy": baseline_policy,
-        }
-        if time_scope is not None:
-            params["time_scope"] = time_scope.model_dump()
-        if granularity is not None:
-            params["granularity"] = granularity
-        if current is not None:
-            params["current"] = current.model_dump()
-        if baseline is not None:
-            params["baseline"] = baseline.model_dump()
-        if scope is not None:
-            params["scope"] = scope.model_dump()
-        if detect_dimension is not None:
-            params["detect_dimension"] = detect_dimension
-        if candidate_limit is not None:
-            params["candidate_limit"] = candidate_limit
-        if followup_limit is not None:
-            params["followup_limit"] = followup_limit
-        if decomposition_limit is not None:
-            params["decomposition_limit"] = decomposition_limit
-        return await call_runtime(runtime.diagnose, session_id=session_id, params=params)
+        request = to_aoi_diagnose_request(
+            metric=metric,
+            candidate_dimensions=candidate_dimensions,
+            strategy=strategy,
+            mode=mode,
+            time_scope=time_scope,
+            granularity=granularity,
+            filter_expression=filter_expression,
+            current=current,
+            baseline=baseline,
+            detect_dimension=detect_dimension,
+            sensitivity=sensitivity,
+            candidate_limit=candidate_limit,
+            followup_limit=followup_limit if followup_limit is not None else 3,
+            decomposition_limit=decomposition_limit if decomposition_limit is not None else 5,
+        )
+        return await call_runtime(runtime.diagnose, session_id=session_id, request=request)
 
 
 def register_test_intent(server: Any, runtime: Any) -> None:

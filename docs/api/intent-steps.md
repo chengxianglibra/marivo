@@ -220,8 +220,8 @@ POST /sessions/{session_id}/intents/test
 
 ## Derived Intents
 
-`validate` and `attribute` use generated AOI request models as runtime
-contracts. `diagnose` remains a transport-local compatibility DTO.
+`validate`, `attribute`, and `diagnose` use generated AOI request models as
+runtime contracts.
 
 ### Attribute
 
@@ -276,11 +276,19 @@ Auto-detect mode:
   "mode": "auto_detect",
   "metric": "metric.order_revenue",
   "time_scope": {
-    "kind": "range",
+    "field": "order_date",
     "start": "2026-01-01",
     "end": "2026-02-01"
   },
   "granularity": "day",
+  "filter": {
+    "dialects": [
+      {
+        "dialect": "ANSI_SQL",
+        "expression": "country = 'US'"
+      }
+    ]
+  },
   "candidate_dimensions": ["country"],
   "candidate_limit": 5,
   "followup_limit": 3,
@@ -289,7 +297,9 @@ Auto-detect mode:
 ```
 
 Explicit-compare mode uses `current` and `baseline` observe-shaped inputs
-instead of `time_scope` / `granularity`.
+instead of `time_scope` / `granularity`; those inputs are AOI `Slice` objects
+with `time_scope` and optional `filter`. `baseline_policy` is fixed by the
+runtime and is not a request field.
 
 ### Validate
 

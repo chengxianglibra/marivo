@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 from marivo.contracts.errors import ExecutionError
 from marivo.core.semantic.additivity import derive_additivity_capabilities
+from marivo.runtime.intents._helpers import aoi_filter_to_scope
 from marivo.runtime.intents.compare import run_compare_intent
 from marivo.runtime.intents.decompose import run_decompose_intent
 from marivo.runtime.intents.derived_envelopes import (
@@ -41,35 +42,6 @@ _RECONCILIATION_ISSUE_CODES = frozenset(
         "scope_recomputation_failed",
     }
 )
-
-
-def _aoi_filter_to_scope(filter_raw: Any, *, label: str) -> dict[str, str] | None:
-    if filter_raw is None:
-        return None
-    if not isinstance(filter_raw, dict):
-        raise ValueError(f"attribute: INVALID_ARGUMENT - {label} must be an AOI Expression object")
-    dialects = filter_raw.get("dialects")
-    if not isinstance(dialects, list) or not dialects:
-        raise ValueError(f"attribute: INVALID_ARGUMENT - {label}.dialects must be non-empty")
-
-    selected_expression: str | None = None
-    for dialect in dialects:
-        if not isinstance(dialect, dict):
-            continue
-        expression = dialect.get("expression")
-        if not isinstance(expression, str) or not expression.strip():
-            continue
-        if selected_expression is None:
-            selected_expression = expression.strip()
-        if str(dialect.get("dialect") or "ANSI_SQL").upper() == "ANSI_SQL":
-            selected_expression = expression.strip()
-            break
-
-    if selected_expression is None:
-        raise ValueError(
-            f"attribute: INVALID_ARGUMENT - {label}.dialects must include an expression"
-        )
-    return {"predicate": selected_expression}
 
 
 def run_attribute_intent(
@@ -130,10 +102,16 @@ def run_attribute_intent(
 
     left_scope: dict[str, Any] | None = left_input.get("scope")
     if left_scope is None:
-        left_scope = _aoi_filter_to_scope(left_input.get("filter"), label="left.filter")
+        try:
+            left_scope = aoi_filter_to_scope(left_input.get("filter"), label="left.filter")
+        except ValueError as exc:
+            raise ValueError(f"attribute: INVALID_ARGUMENT - {exc}") from exc
     right_scope: dict[str, Any] | None = right_input.get("scope")
     if right_scope is None:
-        right_scope = _aoi_filter_to_scope(right_input.get("filter"), label="right.filter")
+        try:
+            right_scope = aoi_filter_to_scope(right_input.get("filter"), label="right.filter")
+        except ValueError as exc:
+            raise ValueError(f"attribute: INVALID_ARGUMENT - {exc}") from exc
 
     raw_dimensions = p.get("dimensions")
     dimensions = normalize_dimensions(raw_dimensions)

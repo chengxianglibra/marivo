@@ -80,7 +80,20 @@ _ANOMALY_VALUE = 700.0
 
 
 def _detect_time_scope(start: str = _SCAN_START, end: str = _SCAN_END) -> dict[str, str]:
-    return {"kind": "range", "start": start, "end": end}
+    return {"field": "event_date", "start": start, "end": end}
+
+
+def _aoi_detect_time_scope(start: str = _SCAN_START, end: str = _SCAN_END) -> dict[str, str]:
+    def _as_utc_datetime(value: str) -> str:
+        if "T" in value:
+            return value if value.endswith("Z") else f"{value}Z"
+        return f"{value}T00:00:00Z"
+
+    return {
+        "field": "event_date",
+        "start": _as_utc_datetime(start),
+        "end": _as_utc_datetime(end),
+    }
 
 
 # ── Seeding helpers ────────────────────────────────────────────────────────────
@@ -332,18 +345,8 @@ class DiagnoseRunnerServiceTests(unittest.TestCase):
             {
                 "mode": "explicit_compare",
                 "metric": _METRIC,
-                "current": {
-                    "time_scope": {
-                        **_detect_time_scope(_ANOMALY_DATE, _ANOMALY_DATE_END),
-                        "field": "event_date",
-                    }
-                },
-                "baseline": {
-                    "time_scope": {
-                        **_detect_time_scope(_BASELINE_DATE, _BASELINE_DATE_END),
-                        "field": "event_date",
-                    }
-                },
+                "current": {"time_scope": _detect_time_scope(_ANOMALY_DATE, _ANOMALY_DATE_END)},
+                "baseline": {"time_scope": _detect_time_scope(_BASELINE_DATE, _BASELINE_DATE_END)},
                 "candidate_dimensions": ["channel"],
                 "strategy": "point_anomaly",
                 "decomposition_limit": 5,
@@ -488,7 +491,7 @@ class DiagnoseHTTPTests(unittest.TestCase):
             f"/sessions/{self.session_id}/intents/diagnose",
             json={
                 "metric": _metric_ref(_METRIC),
-                "time_scope": _detect_time_scope(),
+                "time_scope": _aoi_detect_time_scope(),
                 "granularity": "day",
                 "candidate_dimensions": ["channel"],
                 "strategy": "point_anomaly",
@@ -505,7 +508,7 @@ class DiagnoseHTTPTests(unittest.TestCase):
             f"/sessions/{self.session_id}/intents/diagnose",
             json={
                 "metric": _metric_ref(_METRIC),
-                "time_scope": _detect_time_scope(),
+                "time_scope": _aoi_detect_time_scope(),
                 "granularity": "day",
                 # no candidate_dimensions
             },
@@ -518,7 +521,7 @@ class DiagnoseHTTPTests(unittest.TestCase):
             "/sessions/sess_nonexistent/intents/diagnose",
             json={
                 "metric": _metric_ref(_METRIC),
-                "time_scope": _detect_time_scope(),
+                "time_scope": _aoi_detect_time_scope(),
                 "granularity": "day",
                 "candidate_dimensions": ["channel"],
                 "strategy": "point_anomaly",

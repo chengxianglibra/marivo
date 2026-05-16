@@ -74,6 +74,31 @@ def lower_aoi_derived_request(intent_type: str, request: AoiDerivedRequest) -> d
             "decomposition_method": request.decomposition_method,
             "decomposition_limit": request.decomposition_limit,
         }
+    if isinstance(request, aoi.Diagnose):
+        payload: dict[str, Any] = {
+            "metric": request.metric,
+            "mode": request.mode,
+            "candidate_dimensions": _dump_model(request.candidate_dimensions),
+            "strategy": request.strategy,
+            "sensitivity": request.sensitivity,
+            "followup_limit": request.followup_limit,
+            "decomposition_limit": request.decomposition_limit,
+        }
+        if request.time_scope is not None:
+            payload["time_scope"] = _dump_time_scope(request.time_scope)
+        if request.granularity is not None:
+            payload["granularity"] = request.granularity
+        if request.filter is not None:
+            payload["filter"] = _dump_model(request.filter)
+        if request.current is not None:
+            payload["current"] = _dump_slice(request.current)
+        if request.baseline is not None:
+            payload["baseline"] = _dump_slice(request.baseline)
+        if request.detect_dimension is not None:
+            payload["detect_dimension"] = request.detect_dimension
+        if request.candidate_limit is not None:
+            payload["candidate_limit"] = request.candidate_limit
+        return payload
     raise TypeError(f"Unsupported AOI derived request type: {type(request).__name__}")
 
 

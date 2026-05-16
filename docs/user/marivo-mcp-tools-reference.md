@@ -1482,11 +1482,10 @@ interface AttributeArtifact {
 |------|------|------|------|------|
 | mode | `"auto_detect"` \| `"explicit_compare"` | 否 | `"auto_detect"` | 诊断模式 |
 | time_scope | McpTimeScope \| null | 否 | null | auto_detect 模式必填；explicit_compare 模式省略 |
-| current | McpSliceRef \| null | 否 | null | explicit_compare 模式必填；auto_detect 模式省略 |
-| baseline | McpSliceRef \| null | 否 | null | explicit_compare 模式必填；auto_detect 模式省略 |
-| baseline_policy | `"previous_adjacent_equal_length"` | 否 | `"previous_adjacent_equal_length"` | 基线策略 |
+| current | McpAoiSliceRef \| null | 否 | null | explicit_compare 模式必填；auto_detect 模式省略 |
+| baseline | McpAoiSliceRef \| null | 否 | null | explicit_compare 模式必填；auto_detect 模式省略 |
 | granularity | `"hour"` \| `"day"` \| `"week"` \| `"month"` \| null | 否 | null | auto_detect 模式必填；explicit_compare 模式省略 |
-| scope | ObserveScope \| null | 否 | null | 人口限定 |
+| filter_expression | McpExpression \| null | 否 | null | auto_detect 模式可选 AOI 过滤表达式；explicit_compare 模式省略 |
 | detect_dimension | string \| null | 否 | null | detect 阶段的单维扫描维度 |
 | strategy | `"point_anomaly"` \| `"period_shift"` | 是 | - | detect 阶段的检测策略 |
 | sensitivity | `"conservative"` \| `"balanced"` \| `"aggressive"` | 否 | `"aggressive"` | detect 阶段的灵敏度 |
@@ -1986,7 +1985,7 @@ interface McpTimeScope {
 
 ### 4.2 McpSliceRef
 
-派生 intent 切片引用：时间范围 + 可选人口限定。用于 `diagnose`。
+派生 intent 切片引用：时间范围 + 可选人口限定。已从 `diagnose` 切走，不再用于该 intent。
 
 ```typescript
 interface McpSliceRef {
@@ -2006,7 +2005,7 @@ interface McpSliceRef {
 
 ### 4.3 McpAoiSliceRef
 
-AOI-aligned 切片引用：时间范围 + 可选 AOI 过滤表达式。用于 `test_intent`、`validate`、`attribute`。
+AOI-aligned 切片引用：时间范围 + 可选 AOI 过滤表达式。用于 `test_intent`、`validate`、`attribute`、`diagnose`。
 
 ```typescript
 interface McpAoiSliceRef {
@@ -2107,6 +2106,7 @@ interface AnalysisFailure {
 - `test_intent.left/right` 使用 `McpAoiSliceRef`，支持 `filter`，不支持 derived intent 的 `scope`
 - `validate.left/right` 使用 `McpAoiSliceRef`，进入 runtime 前会构造 generated AOI `Validate` 模型；`validate.hypothesis` 不暴露 `family`，不支持 `alpha`、`label` 或 `method`
 - `attribute.left/right` 使用 `McpAoiSliceRef`，进入 runtime 前会构造 generated AOI `Attribute` 模型；不支持 derived intent 的 `scope`
+- `diagnose.current/baseline` 使用 `McpAoiSliceRef`，auto_detect 使用 `filter_expression`；进入 runtime 前会构造 generated AOI `Diagnose` 模型，granularity 仅接受 `hour`、`day`、`week`、`month`
 - `correlate` 仅支持 `"pearson"` 和 `"spearman"` 方法，不支持 `"kendall"`
 - `decompose` 仅支持 `"delta_share"` 方法，无 method 参数
 

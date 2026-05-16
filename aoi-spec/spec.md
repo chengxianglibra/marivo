@@ -14,11 +14,11 @@ AOI (Analysis Operation Interface) is a schema-only standard that defines the ty
 
 - **Foundation primitives package** (shared across all intents)
 - **7 atomic intents**: `observe`, `compare`, `decompose`, `correlate`, `detect`, `test`, `forecast`
-- **2 derived requests**: `validate`, `attribute`
+- **3 derived requests**: `validate`, `attribute`, `diagnose`
 
 The filter and expression model reuses OSI's multi-dialect `Expression` pattern (`{dialects: [{dialect, expression}]}`). AOI is positioned as a sibling standard to OSI; reusing OSI's expression conventions is part of the consolidation strategy, not a parallel reinvention.
 
-**Explicitly out of scope for v0.2**: derived intents other than `validate` and `attribute` (`diagnose`), composition / DAG meta-schema, session state, evidence-engine objects, transport binding, conformance test suite (deferred), governance ceremony.
+**Explicitly out of scope for v0.2**: derived intents other than `validate`, `attribute`, and `diagnose`, composition / DAG meta-schema, session state, evidence-engine objects, transport binding, conformance test suite (deferred), governance ceremony.
 
 **Strategy**: Spec-first. The spec is published as an artifact independent of any implementation. Marivo serves as the reference implementation but its alignment refactor is a separate downstream project; spec quality is not gated on Marivo refactor completeness.
 
@@ -42,8 +42,8 @@ The filter and expression model reuses OSI's multi-dialect `Expression` pattern 
 │  │  detect · test · forecast                    │           │
 │  └──────────────────────────────────────────────┘           │
 │  ┌──────────────────────────────────────────────┐           │
-│  │ Derived Requests (2)                         │           │
-│  │  validate · attribute                        │           │
+│  │ Derived Requests (3)                         │           │
+│  │  validate · attribute · diagnose             │           │
 │  └──────────────────────────────────────────────┘           │
 │                                                              │
 │  All schemas: additionalProperties: false                    │
@@ -59,7 +59,7 @@ The filter and expression model reuses OSI's multi-dialect `Expression` pattern 
 
 1. **AOI is schema-only.** It does not specify transport (HTTP / MCP / RPC), storage, or runtime architecture. Any implementation that emits and accepts JSON conforming to AOI schemas is conformant.
 2. **No private-field surface in v0.2.** Core schemas use `additionalProperties: false`; all v0.2 wire fields must be defined by AOI core. Implementation-specific metadata stays outside AOI artifacts and requests.
-3. **Atomic plus derived namespace.** The seven atomic intents remain in `$defs.requests`. Derived request contracts live in `$defs.derived_requests`; v0.2 standardizes `validate` and `attribute`.
+3. **Atomic plus derived namespace.** The seven atomic intents remain in `$defs.requests`. Derived request contracts live in `$defs.derived_requests`; v0.2 standardizes `validate`, `attribute`, and `diagnose`.
 4. **No transport.** Wire format is JSON. Transport binding (HTTP path, RPC method, streaming) is implementation-defined.
 5. **No runtime model.** Sessions, evidence graphs, planning, caching are out of scope.
 
@@ -67,7 +67,7 @@ The filter and expression model reuses OSI's multi-dialect `Expression` pattern 
 
 | Says | Doesn't say |
 |------|-------------|
-| Shape of every atomic-intent request, the validate and attribute derived requests, and artifacts | How to transport requests |
+| Shape of every atomic-intent request, the validate, attribute, and diagnose derived requests, and artifacts | How to transport requests |
 | Blocking failure structure (`failure.code` + `message`) | When implementations should re-evaluate failures |
 | `artifact_id` resolution protocol (logical) | How implementations store or look up artifacts |
 | No private metadata envelope in v0.2 | How implementations expose private metadata outside AOI |
@@ -255,16 +255,19 @@ Schema enforces the three branches with `oneOf`. `granularity` and `dimensions` 
 
 #### 4.1.3 Derived request namespace
 
-Derived requests live under `$defs.derived_requests` so they do not blur the atomic intent set. v0.2 defines `validate` and `attribute`:
+Derived requests live under `$defs.derived_requests` so they do not blur the atomic intent set. v0.2 defines `validate`, `attribute`, and `diagnose`:
 
 | Derived request | Required inputs |
 | ---------------- | --------------- |
 | `validate` | `metric`, `left: { time_scope, filter? }`, `right: { time_scope, filter? }`, `hypothesis: Hypothesis` |
 | `attribute` | `metric`, `left: { time_scope, filter? }`, `right: { time_scope, filter? }`, `dimensions` |
+| `diagnose` | `metric`, `strategy`, `candidate_dimensions`, plus either `time_scope` + `granularity` for `auto_detect` or `current: Slice` + `baseline: Slice` for `explicit_compare` |
 
 `validate` wraps a fixed-family numeric hypothesis validation workflow. It reuses the same `Slice` and `Hypothesis` primitives as atomic `test`; it does not define `kind`, `method`, `scope`, or private derivation metadata in the AOI request contract. Response bundles remain implementation-owned execution artifacts outside the AOI artifact result catalog for v0.2.
 
 `attribute` wraps a fixed change-attribution workflow that expands to scalar observations, compare, and decompose operations. It reuses AOI `Slice` for the left/right source inputs, so filters use `filter: Expression`; there is no separate `scope` wrapper. `dimensions` is a non-empty string list. `decomposition_method` is optional and fixed to `"delta_share"` when present; `decomposition_limit` is optional and defaults to `5`. Attribute response bundles remain implementation-owned execution artifacts outside the AOI artifact result catalog for v0.2.
+
+`diagnose` wraps a fixed anomaly-diagnosis workflow that expands to detect, scalar observations, compare, and decompose operations. In `auto_detect` mode it takes `time_scope`, `granularity` (`hour`, `day`, `week`, or `month`), optional `filter`, optional `detect_dimension`, and optional `candidate_limit`; omitted `mode` means `auto_detect`. In `explicit_compare` mode it takes `current` and `baseline` AOI `Slice` inputs and must omit auto-detect-only fields. `candidate_dimensions` is a non-empty string list. `followup_limit` is optional and defaults to `3`; `decomposition_limit` is optional and defaults to `5`. Baseline policy is fixed by implementations as derived workflow logic and is not an AOI request field. Diagnose response bundles remain implementation-owned execution artifacts outside the AOI artifact result catalog for v0.2.
 
 ### 4.2 Response (Artifact) Contract
 
@@ -479,13 +482,13 @@ The spec document annotates each primitive and intent with `since` and `stabilit
 | Stability | Meaning | v0.2 assignment |
 |-----------|---------|-----------------|
 | `stable` | Field semantics fixed; minor bumps may only add fields or enum values | `observe`, `compare`, `decompose`, `detect` |
-| `experimental` | Minor bumps may break | `correlate`, `test`, `forecast`, `validate` |
+| `experimental` | Minor bumps may break | `correlate`, `test`, `forecast`, `validate`, `diagnose` |
 
 `since` and `stability` are spec-document metadata. They do not appear on the wire.
 
 ### 6.3 Full conformance requirement
 
-AOI v0.2 does not define a capability declaration manifest or partial-support matrix. A conforming implementation follows the full v0.2 standard: all seven atomic intents, the `validate` derived request, all core artifact contracts, all core `CompareType` values, and the expression wire shape defined by AOI. Implementations may expose product-specific readiness or feature discovery outside AOI, but those surfaces are not AOI contracts.
+AOI v0.2 does not define a capability declaration manifest or partial-support matrix. A conforming implementation follows the full v0.2 standard: all seven atomic intents, the `validate`, `attribute`, and `diagnose` derived requests, all core artifact contracts, all core `CompareType` values, and the expression wire shape defined by AOI. Implementations may expose product-specific readiness or feature discovery outside AOI, but those surfaces are not AOI contracts.
 
 ### 6.4 Compatibility promises
 
@@ -538,6 +541,11 @@ aoi-spec/
       top-contributors-success.json
     validate/
       request.json
+    attribute/
+      request.json
+    diagnose/
+      request-auto-detect.json
+      request-explicit-compare.json
 
 ```
 
@@ -547,7 +555,7 @@ aoi-spec/
 |-----------------|----------|
 | `primitives` | `Expression`, `TimeScope`, `TimeGranularity`, `CompareType`, `AnalysisFailure`, `Hypothesis` |
 | `requests` | `observe`, `compare`, `decompose`, `correlate`, `detect`, `test`, `forecast` |
-| `derived_requests` | `validate` |
+| `derived_requests` | `validate`, `attribute`, `diagnose` |
 | `artifacts` | All eleven artifact envelope/result shapes |
 
 This keeps the public artifact easy to copy, validate, and review while preserving internal navigation through `$defs` anchors.
@@ -650,7 +658,7 @@ Concrete evidence of consolidation. This table is also the input list for Marivo
 |---------|----------|
 | `validate` typed intent | Standardized as `$defs.derived_requests.validate`, using `metric`, AOI `Slice` left/right inputs, and `Hypothesis`. |
 | `attribute` typed intent | Standardized as `$defs.derived_requests.attribute`, using `metric`, AOI `Slice` left/right inputs, non-empty `dimensions`, fixed `decomposition_method`, and bounded `decomposition_limit`. |
-| `diagnose` typed intent | **Not in v0.2 spec.** Marivo may retain it as a private product composition; it is not AOI standard. |
+| `diagnose` typed intent | Standardized as `$defs.derived_requests.diagnose`, using AOI `TimeScope`, `Expression`, and `Slice` inputs with explicit `candidate_dimensions` and bounded follow-up/decomposition limits. |
 | `AttributeBundleVersion` (triple version), `DiagnoseProjection` separate top-level type, validate response bundle metadata, `share_suppression_policy`, `additivity_basis.capability_condition` | Not in AOI artifacts; Marivo internal. |
 
 ### 8.7 Compare type / calendar / additivity
@@ -699,7 +707,7 @@ Section 5 explains why implementation-private metadata stays outside AOI v0.2. T
 | Comparability issue codes | 18 | typically 4–6 blocking codes; warnings encoded in result body | -67%+ |
 | Test validation issue codes | 19 | typically 4–6 blocking codes; assumption signals in result body | -68%+ |
 | Distinct artifact reference shapes | 5+ | 1 (`artifact_id`) | -80% |
-| Top-level intent surface | 7 atomic + 3 derived | 7 atomic + validate + attribute derived requests | -10% |
+| Top-level intent surface | 7 atomic + 3 derived | 7 atomic + validate + attribute + diagnose derived requests | 0% |
 | Result schema catalog | 13 (incl. numeric/rate sample summaries) | 11 (sample summaries folded into `test`) | -15% |
 | Observation sub-types | 5 | 3 (scalar / time_series / segmented; sample summaries removed) | -40% |
 | Result-body fields duplicating request | metric / time_scope / filter / unit / direction / presence echoed in every observation and delta artifact | 0 (request and response contracts separated; implementation resolves producing-step context outside the artifact body) | full lift |
@@ -743,9 +751,9 @@ AOI v0.2 is a schema-only standard for analysis operations. Its v0.2 surface is 
 ```
 foundation primitives package
 + 7 atomic intents (observe, compare, decompose, correlate, detect, test, forecast)
-+ 2 derived requests (validate, attribute)
++ 3 derived requests (validate, attribute, diagnose)
 ```
 
-That is the entire standard. No derived requests beyond `validate` and `attribute`, no composition recipes, no transport binding, no governance ceremony, no private metadata envelope, no per-artifact provenance, no truncation envelope, no artifact status vocabulary, no Direction or Presence enum, no unit echo. Consolidation against current Marivo schemas eliminates all 11 version fields from AOI artifacts, all artifact status keywords (replaced by a result-vs-failure invariant), all derived enums whose values can be computed from data (`Direction`, `Presence`), and the four heavy validation envelopes (`Gate`, `Status`, `Truncation`, `Provenance` collapse into a single optional `AnalysisFailure`). `observe` derives its output type from mutually exclusive top-level selectors: `granularity`, `dimensions`, or neither. Comparison mode is core via `compare_type`; detailed calendar/additivity audit metadata stays out of AOI artifacts, and blocked-execution diagnostics use `failure.message`. Filter expressions reuse OSI's multi-dialect `Expression` shape directly.
+That is the entire standard. No derived requests beyond `validate`, `attribute`, and `diagnose`, no composition recipes, no transport binding, no governance ceremony, no private metadata envelope, no per-artifact provenance, no truncation envelope, no artifact status vocabulary, no Direction or Presence enum, no unit echo. Consolidation against current Marivo schemas eliminates all 11 version fields from AOI artifacts, all artifact status keywords (replaced by a result-vs-failure invariant), all derived enums whose values can be computed from data (`Direction`, `Presence`), and the four heavy validation envelopes (`Gate`, `Status`, `Truncation`, `Provenance` collapse into a single optional `AnalysisFailure`). `observe` derives its output type from mutually exclusive top-level selectors: `granularity`, `dimensions`, or neither. Comparison mode is core via `compare_type`; detailed calendar/additivity audit metadata stays out of AOI artifacts, and blocked-execution diagnostics use `failure.message`. Filter expressions reuse OSI's multi-dialect `Expression` shape directly.
 
 The result is a small, consolidated, defensible v0.2 that can be published independently of any implementation refactor.
