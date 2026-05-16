@@ -7,7 +7,6 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from marivo.adapters.local.sqlite_metadata import SQLiteMetadataStore
-from marivo.datasources import DatasourceService
 from marivo.main import create_app
 from tests.shared_fixtures import get_seeded_duckdb_path
 
@@ -47,6 +46,8 @@ class DatasourceServiceUnitTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
+        from marivo.datasources import DatasourceService
+
         cls.temp_dir = tempfile.TemporaryDirectory()
         meta_path = Path(cls.temp_dir.name) / "test_datasources.meta.sqlite"
         cls.metadata = SQLiteMetadataStore(meta_path)
@@ -259,7 +260,10 @@ class DatasourceAPITests(unittest.TestCase):
         cls.meta_path = Path(cls.temp_dir.name) / "test_datasources_api.meta.sqlite"
         get_seeded_duckdb_path(cls.db_path)
         cls.metadata_store = SQLiteMetadataStore(cls.meta_path)
-        cls.client = TestClient(create_app(cls.db_path, metadata_store=cls.metadata_store))
+        cls.client = TestClient(
+            create_app(cls.db_path, metadata_store=cls.metadata_store),
+            headers={"X-Marivo-User": "test_user"},
+        )
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -421,7 +425,8 @@ class DatasourcePreviewTests(unittest.TestCase):
         cls.meta_path = Path(cls.temp_dir.name) / "preview_test.meta.sqlite"
         get_seeded_duckdb_path(cls.db_path)
         cls.client = TestClient(
-            create_app(cls.db_path, metadata_store=SQLiteMetadataStore(cls.meta_path))
+            create_app(cls.db_path, metadata_store=SQLiteMetadataStore(cls.meta_path)),
+            headers={"X-Marivo-User": "test_user"},
         )
 
     @classmethod

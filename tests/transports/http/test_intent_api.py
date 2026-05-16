@@ -600,7 +600,11 @@ class ClosedSessionWriteGuardTests(unittest.TestCase):
             f"/sessions/{self.session_id}/intents/diagnose",
             json={
                 "metric": _metric_ref("dau"),
-                "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+                "time_scope": {
+                    "field": "event_time",
+                    "start": "2024-01-01T00:00:00Z",
+                    "end": "2024-01-08T00:00:00Z",
+                },
                 "granularity": "day",
                 "candidate_dimensions": ["region"],
                 "strategy": "point_anomaly",

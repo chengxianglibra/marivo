@@ -12,7 +12,6 @@ from fastapi.testclient import TestClient
 from marivo.adapters.local.duckdb_analytics import DuckDBAnalyticsEngine
 from marivo.adapters.local.sqlite_metadata import SQLiteMetadataStore
 from marivo.config import MarivoConfig, load_config
-from marivo.datasources import DatasourceService
 from marivo.transports.http.app_factory import create_app
 from tests.shared_fixtures import get_seeded_duckdb_path
 
@@ -200,6 +199,8 @@ class LoadConfigTests(unittest.TestCase):
 
 class EnsureDatasourceTests(unittest.TestCase):
     def setUp(self) -> None:
+        from marivo.datasources import DatasourceService
+
         self.temp_dir = tempfile.TemporaryDirectory()
         meta_path = Path(self.temp_dir.name) / "meta.sqlite"
         self.metadata = SQLiteMetadataStore(meta_path)
