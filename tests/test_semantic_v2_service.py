@@ -6,6 +6,7 @@ import json
 import unittest
 from pathlib import Path
 
+from marivo.contracts.errors import ValidationError as DomainValidationError
 from marivo.identity import reset_current_user, set_current_user
 from marivo.runtime.semantic.semantic_service import SemanticModelV2Service
 from tests.shared_fixtures import ManagedSQLiteMetadataStore, make_temp_metadata_store
@@ -159,10 +160,8 @@ class TestSemanticDocumentService(unittest.TestCase):
         svc = _make_svc()
 
         with _as_user("alice"):
-            result = svc.import_osi_semantic_models(_doc(_model()))
+            svc.import_osi_semantic_models(_doc(_model()))
 
-        self.assertTrue(result["valid"])
-        self.assertEqual(result["import_report"]["models"][0]["name"], "commerce")
         row = svc.store.query_one(
             "SELECT visibility, owner_user FROM semantic_models WHERE name = ?",
             ["commerce"],
@@ -174,10 +173,9 @@ class TestSemanticDocumentService(unittest.TestCase):
         invalid = _model()
         invalid["datasets"][0]["primary_key"] = ["missing"]
 
-        with _as_user("alice"):
-            result = svc.import_osi_semantic_models(_doc(invalid))
+        with _as_user("alice"), self.assertRaises(DomainValidationError):
+            svc.import_osi_semantic_models(_doc(invalid))
 
-        self.assertFalse(result["valid"])
         self.assertIsNone(
             svc.store.query_one("SELECT * FROM semantic_models WHERE name = 'commerce'")
         )

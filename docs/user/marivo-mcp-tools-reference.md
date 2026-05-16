@@ -752,20 +752,12 @@ interface ValidationSummary {
 
 **输入参数**：同 2.4 validate。
 
-**输出 — ImportResult**：
+**输出**：
 
-```typescript
-interface ImportResult {
-  imported_models: string[];               // 成功导入的模型名称数组
-  status: string;                          // "success" | "partial" | "failed"
-  errors: ImportError[];                   // 导入错误列表，成功时为空数组
-}
+- 成功：`{"data": null, "error": null}`
+- 验证失败：`{"data": null, "error": {"code": "VALIDATION", "message": "..."}}`
 
-interface ImportError {
-  model_name: string;
-  message: string;
-}
-```
+验证详情请先调用 `validate_osi_semantic_models`（2.4）获取。
 
 **输入示例**：
 
@@ -781,11 +773,7 @@ interface ImportError {
 
 ```json
 {
-  "data": {
-    "imported_models": ["trino_query_analysis"],
-    "status": "success",
-    "errors": []
-  },
+  "data": null,
   "error": null
 }
 ```

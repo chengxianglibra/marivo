@@ -9,10 +9,16 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from marivo.adapters.server.semantic_service_adapter import SemanticServiceAdapter
+from marivo.contracts.errors import (
+    ConflictError,
+    DomainError,
+    ForbiddenError,
+    NotFoundError,
+    ValidationError,
+)
 from marivo.contracts.generated import OSI_MARIVO_SPEC_VERSION as OSI_SPEC_VERSION
 from marivo.contracts.generated import OSIDocument
 from marivo.identity import require_user, resolve_user
-from marivo.runtime.semantic.import_export import ImportOsiDocumentReport
 
 router = APIRouter(prefix="/semantic-models", tags=["semantic-models"])
 
@@ -55,10 +61,6 @@ class SemanticValidationResultResponse(BaseModel):
     summary: dict[str, int] = Field(default_factory=dict)
 
 
-class SemanticImportResponse(SemanticValidationResultResponse):
-    import_report: ImportOsiDocumentReport | None = None
-
-
 def _get_service(request: Request) -> SemanticServiceAdapter:
     return cast("SemanticServiceAdapter", request.app.state.semantic_v2_service)
 
@@ -80,6 +82,16 @@ def _run(fn: Callable[[], _T]) -> _T:  # noqa: UP047
         return fn()
     except HTTPException:
         raise
+    except NotFoundError as exc:
+        raise HTTPException(status_code=404, detail=exc.message) from exc
+    except ForbiddenError as exc:
+        raise HTTPException(status_code=403, detail=exc.message) from exc
+    except ConflictError as exc:
+        raise HTTPException(status_code=409, detail=exc.message) from exc
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.message) from exc
+    except DomainError as exc:
+        raise HTTPException(status_code=400, detail=exc.message) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -110,15 +122,14 @@ async def validate_osi_semantic_models(request: Request) -> SemanticValidationRe
     return SemanticValidationResultResponse.model_validate(result)
 
 
-@router.post("/import", response_model=SemanticImportResponse)
-async def import_osi_semantic_models(request: Request) -> SemanticImportResponse:
+@router.post("/import", status_code=204)
+async def import_osi_semantic_models(request: Request) -> None:
     """Validate and import an OSI document into the caller's private working copy."""
     svc = _get_service(request)
     payload = await request.json()
     if not isinstance(payload, dict):
         raise HTTPException(status_code=422, detail="Request body must be a JSON object")
-    result = _run(lambda: svc.import_osi_semantic_models(payload))
-    return SemanticImportResponse.model_validate(result)
+    _run(lambda: svc.import_osi_semantic_models(payload))
 
 
 @router.get("/export", response_model=OSIDocument)

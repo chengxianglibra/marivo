@@ -65,8 +65,8 @@ class SemanticServiceAdapter:
     def validate_osi_semantic_models(self, doc_data: dict[str, Any]) -> dict[str, Any]:
         return _translate(lambda: self._service.validate_osi_semantic_models(doc_data))
 
-    def import_osi_semantic_models(self, doc_data: dict[str, Any]) -> dict[str, Any]:
-        return _translate(lambda: self._service.import_osi_semantic_models(doc_data))
+    def import_osi_semantic_models(self, doc_data: dict[str, Any]) -> None:
+        _translate(lambda: self._service.import_osi_semantic_models(doc_data))
 
     def export_osi_semantic_models(self, semantic_model_name: str | None = None) -> dict[str, Any]:
         return _translate(lambda: self._service.export_osi_semantic_models(semantic_model_name))

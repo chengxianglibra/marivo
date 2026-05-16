@@ -88,10 +88,6 @@ class OsiSemanticValidationResult(BaseModel):
     summary: dict[str, int] = Field(default_factory=dict)
 
 
-class ImportOsiSemanticModelsResponse(OsiSemanticValidationResult):
-    import_report: ImportOsiDocumentReport | None = None
-
-
 class OsiSemanticDocumentValidator:
     """Validate OSI-Marivo semantic model documents before import."""
 

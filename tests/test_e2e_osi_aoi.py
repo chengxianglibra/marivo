@@ -84,12 +84,11 @@ def _make_model_payload() -> dict:
 def test_import_semantic_model_with_generated_osi(service: SemanticModelV2Service) -> None:
     try:
         with _as_user("test_user"):
-            result = service.import_osi_semantic_models(
+            service.import_osi_semantic_models(
                 {"version": "0.1.1", "semantic_model": [_make_model_payload()]}
             )
             imported = service.export_osi_semantic_models("test_model")["semantic_model"][0]
 
-        assert result["valid"] is True
         assert imported["name"] == "test_model"
         assert len(imported["datasets"]) == 1
         assert len(imported.get("metrics", [])) == 1

@@ -22,7 +22,7 @@ class _FakeSvc:
         return {}
 
     def import_osi_semantic_models(self, **kw):
-        return {}
+        return None
 
     def export_osi_semantic_models(self, **kw):
         return {}
@@ -135,7 +135,7 @@ class RecordingSemanticSvc:
 
     def import_osi_semantic_models(self, **kw):
         self.calls.append(("import", kw))
-        return {"imported": True}
+        return None
 
     def export_osi_semantic_models(self, **kw):
         self.calls.append(("export", kw))
