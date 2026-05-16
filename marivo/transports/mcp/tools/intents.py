@@ -9,11 +9,13 @@ from pydantic import Field
 from marivo.contracts.generated import aoi
 from marivo.transports.mcp.tools._async_bridge import call_runtime
 from marivo.transports.mcp.tools.schemas import (
+    McpAoiSliceRef,
+    McpExpression,
     McpSliceRef,
-    McpStructuredObject,
     McpTestHypothesis,
     McpTimeScope,
     McpTimeScopeValidated,
+    McpValidateHypothesis,
     ObserveScope,
 )
 
@@ -33,18 +35,26 @@ def _omit_none(payload: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in payload.items() if value is not None}
 
 
+def _dump_expression(expression: McpExpression | dict[str, Any] | None) -> dict[str, Any] | None:
+    if expression is None:
+        return None
+    if isinstance(expression, McpExpression):
+        return expression.model_dump(exclude_none=True)
+    return expression
+
+
 def to_aoi_observe_request(
     metric: str,
     time_scope: McpTimeScope,
-    granularity: Literal["hour", "day", "week", "month", "quarter", "year"] = None,  # type: ignore[assignment]  # noqa: RUF013
-    dimensions: list[str] = None,  # type: ignore[assignment]  # noqa: RUF013
-    filter_expression: dict[str, Any] = None,  # type: ignore[assignment]  # noqa: RUF013
+    granularity: Literal["hour", "day", "week", "month", "quarter", "year"] | None = None,
+    dimensions: list[str] | None = None,
+    filter_expression: McpExpression | dict[str, Any] | None = None,
 ) -> aoi.Observe1 | aoi.Observe2 | aoi.Observe3:
     payload = _omit_none(
         {
             "metric": metric,
             "time_scope": time_scope.model_dump(),
-            "filter": filter_expression,
+            "filter": _dump_expression(filter_expression),
             "granularity": granularity,
             "dimensions": dimensions,
         }
@@ -131,7 +141,7 @@ def to_aoi_detect_request(
     time_scope: McpTimeScope,
     granularity: Literal["hour", "day", "week", "month", "quarter", "year"],
     strategy: Literal["point_anomaly", "period_shift"],
-    filter_expression: dict[str, Any] = None,  # type: ignore[assignment]  # noqa: RUF013
+    filter_expression: McpExpression | dict[str, Any] | None = None,
     dimension: str = None,  # type: ignore[assignment]  # noqa: RUF013
     sensitivity: Literal["conservative", "balanced", "aggressive"] = "aggressive",
     limit: int = None,  # type: ignore[assignment]  # noqa: RUF013
@@ -142,7 +152,7 @@ def to_aoi_detect_request(
                 "metric": metric,
                 "time_scope": time_scope.model_dump(),
                 "granularity": granularity,
-                "filter": filter_expression,
+                "filter": _dump_expression(filter_expression),
                 "dimension": dimension,
                 "strategy": strategy,
                 "sensitivity": sensitivity,
@@ -152,16 +162,19 @@ def to_aoi_detect_request(
     )
 
 
-def _to_aoi_slice(slice_ref: McpSliceRef) -> dict[str, Any]:
-    return {
+def _to_aoi_slice(slice_ref: McpAoiSliceRef) -> dict[str, Any]:
+    payload = {
         "time_scope": slice_ref.time_scope.model_dump(),
     }
+    if slice_ref.filter is not None:
+        payload["filter"] = slice_ref.filter.model_dump(exclude_none=True)
+    return payload
 
 
 def to_aoi_test_request(
     metric: str,
-    left: McpSliceRef,
-    right: McpSliceRef,
+    left: McpAoiSliceRef,
+    right: McpAoiSliceRef,
     hypothesis: McpTestHypothesis | dict[str, Any],
 ) -> aoi.Test:
     hypothesis_model = (
@@ -190,9 +203,33 @@ def register_observe(server: Any, runtime: Any) -> None:
         session_id: str,
         metric: str,
         time_scope: McpTimeScopeValidated,
-        granularity: Literal["hour", "day", "week", "month", "quarter", "year"] = None,  # type: ignore[assignment]  # noqa: RUF013
-        dimensions: list[str] = None,  # type: ignore[assignment]  # noqa: RUF013
-        filter_expression: McpStructuredObject = None,  # type: ignore[assignment]
+        granularity: Annotated[
+            Literal["hour", "day", "week", "month", "quarter", "year"] | None,
+            Field(
+                description=(
+                    "Time-series observe selector. Provide this without dimensions; omit both "
+                    "granularity and dimensions for scalar observe."
+                )
+            ),
+        ] = None,
+        dimensions: Annotated[
+            list[str] | None,
+            Field(
+                description=(
+                    "Segmented observe selector. Provide this without granularity; omit both "
+                    "dimensions and granularity for scalar observe."
+                )
+            ),
+        ] = None,
+        filter_expression: Annotated[
+            McpExpression | None,
+            Field(
+                description=(
+                    "Optional AOI Expression filter object, e.g. "
+                    "{'dialects': [{'dialect': 'ANSI_SQL', 'expression': \"region = 'US'\"}]}."
+                )
+            ),
+        ] = None,
     ) -> dict[str, Any]:
         request = to_aoi_observe_request(
             metric=metric,
@@ -252,7 +289,15 @@ def register_detect(server: Any, runtime: Any) -> None:
         time_scope: McpTimeScope,
         granularity: Literal["hour", "day", "week", "month", "quarter", "year"],
         strategy: Literal["point_anomaly", "period_shift"],
-        filter_expression: McpStructuredObject = None,  # type: ignore[assignment]
+        filter_expression: Annotated[
+            McpExpression | None,
+            Field(
+                description=(
+                    "Optional AOI Expression filter object, e.g. "
+                    "{'dialects': [{'dialect': 'ANSI_SQL', 'expression': \"region = 'US'\"}]}."
+                )
+            ),
+        ] = None,
         dimension: str = None,  # type: ignore[assignment]  # noqa: RUF013
         sensitivity: Literal["conservative", "balanced", "aggressive"] = "aggressive",
         limit: int = None,  # type: ignore[assignment]  # noqa: RUF013
@@ -335,17 +380,42 @@ def register_attribute(server: Any, runtime: Any) -> None:
 
 
 def register_diagnose(server: Any, runtime: Any) -> None:
-    @server.tool()  # type: ignore
+    @server.tool(  # type: ignore
+        description=(
+            "Run a bounded diagnosis. auto_detect mode requires time_scope and granularity; "
+            "explicit_compare mode requires current and baseline slices."
+        )
+    )
     async def diagnose(
         session_id: str,
         metric: str,
         candidate_dimensions: list[str],
         strategy: Literal["point_anomaly", "period_shift"],
-        mode: Literal["auto_detect", "explicit_compare"] = "auto_detect",
-        time_scope: McpTimeScope | None = None,
-        granularity: Literal["hour", "day", "week", "month"] | None = None,
-        current: McpSliceRef | None = None,
-        baseline: McpSliceRef | None = None,
+        mode: Annotated[
+            Literal["auto_detect", "explicit_compare"],
+            Field(
+                description=(
+                    "auto_detect requires time_scope and granularity; explicit_compare "
+                    "requires current and baseline."
+                )
+            ),
+        ] = "auto_detect",
+        time_scope: Annotated[
+            McpTimeScope | None,
+            Field(description="Required when mode='auto_detect'; omit for explicit_compare."),
+        ] = None,
+        granularity: Annotated[
+            Literal["hour", "day", "week", "month"] | None,
+            Field(description="Required when mode='auto_detect'; omit for explicit_compare."),
+        ] = None,
+        current: Annotated[
+            McpSliceRef | None,
+            Field(description="Required when mode='explicit_compare'; omit for auto_detect."),
+        ] = None,
+        baseline: Annotated[
+            McpSliceRef | None,
+            Field(description="Required when mode='explicit_compare'; omit for auto_detect."),
+        ] = None,
         scope: ObserveScope | None = None,
         detect_dimension: str | None = None,
         sensitivity: Literal["conservative", "balanced", "aggressive"] = "aggressive",
@@ -390,8 +460,8 @@ def register_test_intent(server: Any, runtime: Any) -> None:
     async def test_intent(
         session_id: str,
         metric: str,
-        left: McpSliceRef,
-        right: McpSliceRef,
+        left: McpAoiSliceRef,
+        right: McpAoiSliceRef,
         hypothesis: McpTestHypothesis,
     ) -> dict[str, Any]:
         request = to_aoi_test_request(
@@ -410,7 +480,7 @@ def register_validate(server: Any, runtime: Any) -> None:
         metric: str,
         left: McpSliceRef,
         right: McpSliceRef,
-        hypothesis: McpStructuredObject | None = None,
+        hypothesis: McpValidateHypothesis | None = None,
         method: Literal["auto", "welch_t"] | None = None,
     ) -> dict[str, Any]:
         params: dict[str, Any] = {
@@ -419,7 +489,10 @@ def register_validate(server: Any, runtime: Any) -> None:
             "right": right.model_dump(),
         }
         if hypothesis is not None:
-            params["hypothesis"] = hypothesis
+            params["hypothesis"] = {
+                "family": "two_sample_mean",
+                **hypothesis.model_dump(exclude_none=True),
+            }
         if method is not None:
             params["method"] = method
         return await call_runtime(runtime.validate, session_id=session_id, params=params)

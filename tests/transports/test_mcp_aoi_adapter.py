@@ -11,7 +11,13 @@ from marivo.transports.mcp.tools.intents import (
     to_aoi_observe_request,
     to_aoi_test_request,
 )
-from marivo.transports.mcp.tools.schemas import McpSliceRef, McpTestHypothesis, McpTimeScope
+from marivo.transports.mcp.tools.schemas import (
+    McpAoiSliceRef,
+    McpExpression,
+    McpTestHypothesis,
+    McpTimeScope,
+    McpValidateHypothesis,
+)
 
 
 def test_to_aoi_observe_request_builds_observe_model() -> None:
@@ -138,13 +144,14 @@ def test_to_aoi_forecast_request_builds_forecast_model() -> None:
     assert "profile" not in request.model_dump()
 
 
-def _slice(start: str, end: str) -> McpSliceRef:
-    return McpSliceRef(
+def _slice(start: str, end: str, filter_expression: McpExpression | None = None) -> McpAoiSliceRef:
+    return McpAoiSliceRef(
         time_scope=McpTimeScope(
             field="log_time",
             start=start,
             end=end,
-        )
+        ),
+        filter=filter_expression,
     )
 
 
@@ -164,6 +171,61 @@ def test_to_aoi_test_request_builds_test_model() -> None:
     assert request.hypothesis.family == "two_sample_mean"
     assert "filter" not in request.model_dump(exclude_none=True)["left"]
     assert request.hypothesis.alternative == "greater"
+
+
+def test_to_aoi_test_request_preserves_aoi_slice_filter() -> None:
+    request = to_aoi_test_request(
+        metric="view_time",
+        left=_slice(
+            "2026-05-01T00:00:00Z",
+            "2026-05-08T00:00:00Z",
+            McpExpression(dialects=[{"dialect": "ANSI_SQL", "expression": "region = 'US'"}]),
+        ),
+        right=_slice("2026-04-24T00:00:00Z", "2026-05-01T00:00:00Z"),
+        hypothesis=McpTestHypothesis(
+            alternative="greater",
+            significance="balanced",
+        ),
+    )
+
+    assert request.left.filter is not None
+    assert request.left.filter.model_dump(exclude_none=True) == {
+        "dialects": [{"dialect": "ANSI_SQL", "expression": "region = 'US'"}]
+    }
+
+
+def test_aoi_slice_ref_rejects_derived_scope() -> None:
+    try:
+        McpAoiSliceRef.model_validate(
+            {
+                "time_scope": {
+                    "field": "log_time",
+                    "start": "2026-05-01T00:00:00Z",
+                    "end": "2026-05-08T00:00:00Z",
+                },
+                "scope": {"constraints": {"region": "US"}},
+            }
+        )
+    except ValueError as error:
+        assert "scope" in str(error)
+    else:
+        raise AssertionError("expected AOI slice DTO to reject derived scope")
+
+
+def test_validate_hypothesis_rejects_non_mcp_fields() -> None:
+    for field in ("family", "alpha", "label"):
+        try:
+            McpValidateHypothesis.model_validate(
+                {
+                    "alternative": "greater",
+                    "significance": "balanced",
+                    field: "two_sample_mean" if field == "family" else "extra",
+                }
+            )
+        except ValueError as error:
+            assert field in str(error)
+        else:
+            raise AssertionError(f"expected validate hypothesis DTO to reject {field}")
 
 
 def test_to_aoi_test_request_rejects_hypothesis_label() -> None:
