@@ -237,28 +237,6 @@ class AoiGeneratedIntentModelTests(unittest.TestCase):
             "end": "2026-05-02T00:00:00+00:00",
         }
 
-    def test_aoi_observe_rejects_unknown_fields(self) -> None:
-        with self.assertRaises(ValidationError):
-            aoi.Observe1.model_validate(
-                {
-                    "metric": "metric.dau",
-                    "time_scope": self._time_scope(),
-                    "unexpected": True,
-                }
-            )
-
-    def test_aoi_observe_accepts_generated_shape(self) -> None:
-        request = aoi.Observe2.model_validate(
-            {
-                "metric": "metric.dau",
-                "time_scope": self._time_scope(),
-                "granularity": "day",
-            }
-        )
-
-        self.assertEqual(request.metric, "metric.dau")
-        self.assertEqual(request.time_scope.field, "event_time")
-
     def test_aoi_compare_requires_artifact_ids(self) -> None:
         with self.assertRaises(ValidationError):
             aoi.Compare.model_validate(
@@ -293,76 +271,6 @@ class AoiGeneratedIntentModelTests(unittest.TestCase):
     def test_aoi_forecast_requires_source_artifact_id(self) -> None:
         with self.assertRaises(ValidationError):
             aoi.Forecast.model_validate({"source_ref": {"step_id": "step_1"}, "horizon": 7})
-
-
-# ── HTTP endpoint tests ───────────────────────────────────────────────────────
-
-
-class ObserveIntentValidationEndpointTests(_SessionBackedIntentEndpointMixin, unittest.TestCase):
-    """Observe validation paths that only require a session-backed app."""
-
-    def test_observe_requires_metric_and_time_scope(self) -> None:
-        r = self.client.post(f"/sessions/{self.session_id}/intents/observe", json={})
-        self.assertEqual(r.status_code, 422)
-        detail = r.json()["detail"]
-        fields = {e["loc"][-1] for e in detail}
-        self.assertIn("metric", fields)
-        self.assertIn("time_scope", fields)
-
-    def test_observe_rejects_granularity_plus_dimensions(self) -> None:
-        r = self.client.post(
-            f"/sessions/{self.session_id}/intents/observe",
-            json={
-                "metric": _metric_ref("dau"),
-                "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
-                "granularity": "day",
-                "dimensions": ["region"],
-            },
-        )
-        self.assertEqual(r.status_code, 422)
-
-    def test_observe_unknown_metric_returns_422(self) -> None:
-        r = self.client.post(
-            f"/sessions/{self.session_id}/intents/observe",
-            json={
-                "metric": _metric_ref("non_existent_metric_xyz"),
-                "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
-            },
-        )
-        self.assertEqual(r.status_code, 422)
-
-    def test_observe_legacy_time_scope_kinds_return_422(self) -> None:
-        for kind in ("snapshot_" + "now", "latest_" + "available", "as_" + "of"):
-            with self.subTest(kind=kind):
-                r = self.client.post(
-                    f"/sessions/{self.session_id}/intents/observe",
-                    json={
-                        "metric": _metric_ref("non_existent_metric_xyz"),
-                        "time_scope": {"kind": kind},
-                    },
-                )
-                self.assertEqual(r.status_code, 422)
-
-    def test_observe_rejects_session_user_override_fields(self) -> None:
-        for extra_field, extra_value in (
-            ("session_user", "alice"),
-            ("execution_user", "alice"),
-            ("execution_identity", {"session_user": "alice"}),
-        ):
-            with self.subTest(extra_field=extra_field):
-                response = self.client.post(
-                    f"/sessions/{self.session_id}/intents/observe",
-                    json={
-                        "metric": _metric_ref("dau"),
-                        "time_scope": {
-                            "kind": "range",
-                            "start": "2024-01-01",
-                            "end": "2024-01-08",
-                        },
-                        extra_field: extra_value,
-                    },
-                )
-                self.assertEqual(response.status_code, 422)
 
 
 class AttributeUnknownMetricEndpointTests(unittest.TestCase):

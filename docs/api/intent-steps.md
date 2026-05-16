@@ -89,6 +89,8 @@ Time-series observation request:
 }
 ```
 
+`granularity` accepts `hour`, `day`, `week`, `month`, `quarter`, or `year`.
+
 Segmented observation request:
 
 ```json

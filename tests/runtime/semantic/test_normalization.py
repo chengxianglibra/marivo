@@ -47,7 +47,7 @@ class TestNormalizeDimensions(unittest.TestCase):
 
 class TestValidateGranularity(unittest.TestCase):
     def test_valid_values(self) -> None:
-        for g in ("hour", "day", "week", "month"):
+        for g in ("hour", "day", "week", "month", "quarter", "year"):
             self.assertEqual(validate_granularity(g), g)
 
     def test_none_passes(self) -> None:
@@ -55,7 +55,7 @@ class TestValidateGranularity(unittest.TestCase):
 
     def test_invalid_raises(self) -> None:
         with self.assertRaises(ValueError) as ctx:
-            validate_granularity("year")
+            validate_granularity("minute")
         self.assertIn("not valid", str(ctx.exception))
 
 
