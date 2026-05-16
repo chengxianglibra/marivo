@@ -141,6 +141,9 @@ def test_to_aoi_detect_request_builds_detect_model() -> None:
     assert request.time_scope.field == "log_time"
     assert request.granularity == "day"
     assert request.filter is not None
+    assert request.filter.model_dump(exclude_none=True) == {
+        "dialects": [{"dialect": "ANSI_SQL", "expression": "region = 'US'"}]
+    }
     assert request.dimension == "region"
     assert request.strategy == "period_shift"
     assert request.sensitivity == "balanced"

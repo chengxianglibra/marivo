@@ -101,6 +101,36 @@ def test_lowers_forecast_request_to_runner_params() -> None:
     }
 
 
+def test_lowers_detect_request_with_all_options_to_runner_params() -> None:
+    request = aoi.Detect(
+        metric="view_time",
+        time_scope=_time_scope(),
+        granularity="day",
+        filter=aoi.Expression(
+            dialects=[aoi.Dialect(dialect="ANSI_SQL", expression="region = 'US'")]
+        ),
+        dimension="region",
+        strategy="period_shift",
+        sensitivity="balanced",
+        limit=5,
+    )
+
+    assert lower_aoi_request("detect", request) == {
+        "metric": "view_time",
+        "time_scope": {
+            "field": "event_time",
+            "start": "2026-05-01T00:00:00Z",
+            "end": "2026-05-08T00:00:00Z",
+        },
+        "granularity": "day",
+        "filter": {"dialects": [{"dialect": "ANSI_SQL", "expression": "region = 'US'"}]},
+        "dimension": "region",
+        "strategy": "period_shift",
+        "sensitivity": "balanced",
+        "limit": 5,
+    }
+
+
 def test_lowers_validate_request_to_runner_params() -> None:
     request = aoi.Validate(
         metric="view_time",

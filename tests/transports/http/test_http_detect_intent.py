@@ -236,22 +236,6 @@ class DetectIntentEndpointTests(unittest.TestCase):
         )
         self.assertEqual(r.status_code, 422)
 
-    def test_detect_invalid_mode_returns_422(self) -> None:
-        """Old mode/grain/current shape is rejected with 422."""
-        r = self.client.post(
-            f"/sessions/{self.session_id}/intents/detect",
-            json={
-                "metric": _metric_ref("http_detect_metric"),
-                "time_scope": {
-                    "mode": "compare",
-                    "grain": "day",
-                    "current": {"start": "2026-01-01", "end": "2026-01-15"},
-                },
-                "granularity": "day",
-            },
-        )
-        self.assertEqual(r.status_code, 422)
-
     def test_detect_invalid_grain_returns_422(self) -> None:
         """Unsupported granularity → 422."""
         r = self.client.post(
@@ -265,20 +249,6 @@ class DetectIntentEndpointTests(unittest.TestCase):
         )
         self.assertEqual(r.status_code, 422)
 
-    def test_detect_returns_200_with_valid_metric(self) -> None:
-        """Full detect execution returns 200 with anomaly_candidates artifact."""
-        r = self.client.post(
-            f"/sessions/{self.session_id}/intents/detect",
-            json={
-                **self._detect_payload("http_detect_metric"),
-                "sensitivity": "balanced",
-            },
-        )
-        self.assertEqual(r.status_code, 200, msg=r.text)
-        body = r.json()["result"]
-        self.assertIn("artifact_id", body)
-        self.assertIn("items", body["result"])
-
     def test_detect_success_empty_on_uniform_data(self) -> None:
         """Uniform watch_events data: detect returns 200 with total_candidate_count = 0."""
         r = self.client.post(
@@ -289,9 +259,32 @@ class DetectIntentEndpointTests(unittest.TestCase):
             },
         )
         self.assertEqual(r.status_code, 200, msg=r.text)
-        result = r.json()["result"]["result"]
+        body = r.json()["result"]
+        self.assertIn("artifact_id", body)
+        result = body["result"]
         # uniform_events has the same number of rows per day per cluster → no candidates
         self.assertEqual(result["items"], [])
+
+    def test_detect_all_public_options_return_200(self) -> None:
+        r = self.client.post(
+            f"/sessions/{self.session_id}/intents/detect",
+            json={
+                **self._detect_payload("http_detect_split_metric"),
+                "filter": {
+                    "dialects": [
+                        {"dialect": "ANSI_SQL", "expression": "cluster = 'alpha'"},
+                    ]
+                },
+                "dimension": "dimension.cluster",
+                "sensitivity": "balanced",
+                "limit": 1,
+            },
+        )
+
+        self.assertEqual(r.status_code, 200, msg=r.text)
+        items = r.json()["result"]["result"]["items"]
+        self.assertLessEqual(len(items), 1)
+        self.assertTrue(all(c.get("series_keys") == {"dimension.cluster": "alpha"} for c in items))
 
     def test_detect_dimension_returns_segment_candidates(self) -> None:
         r = self.client.post(

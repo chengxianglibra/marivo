@@ -9,6 +9,7 @@ from marivo.core.intent.primitives import make_provenance, new_step_id
 from marivo.core.semantic.ir import AnalysisStepIR
 from marivo.core.semantic.step_metadata import build_step_semantic_metadata
 from marivo.runtime.evidence.ref_boundary import assert_no_canonical_refs_in_semantic_payload
+from marivo.runtime.intents._helpers import aoi_filter_to_scope
 from marivo.runtime.intents.normalization import (
     normalize_metric_ref,
     validate_granularity,
@@ -383,6 +384,11 @@ def run_detect_intent(
 
     # ── Scope passthrough ─────────────────────────────────────────────────────
     scope_raw = p.get("scope") or None
+    if not scope_raw:
+        try:
+            scope_raw = aoi_filter_to_scope(p.get("filter"), label="filter")
+        except ValueError as exc:
+            raise ValueError(f"detect: INVALID_ARGUMENT - {exc}") from exc
 
     # ── Resolve metric ─────────────────────────────────────────────────────────
     execution_context = runtime.resolve_metric_execution_context(metric_ref, session_id=session_id)

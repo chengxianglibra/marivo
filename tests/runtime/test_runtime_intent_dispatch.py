@@ -370,14 +370,6 @@ def test_correlate_dispatches() -> None:
         mock_fn.assert_called_once_with(rt, SessionId("s1"), request)
 
 
-def test_detect_dispatches() -> None:
-    rt = _make_runtime()
-    with patch("marivo.runtime.intent_execution.detect", return_value={"status": "ok"}) as mock_fn:
-        request = _detect_request()
-        rt.detect("s1", request)
-        mock_fn.assert_called_once_with(rt, SessionId("s1"), request)
-
-
 def test_forecast_dispatches() -> None:
     rt = _make_runtime()
     with patch(

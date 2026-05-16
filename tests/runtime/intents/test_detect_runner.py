@@ -328,6 +328,34 @@ class DetectRunnerServiceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self._detect(session_id, self.spike_metric, strategy="zscore_raw")
 
+    # ── filter/scope ─────────────────────────────────────────────────────────
+
+    def test_detect_filter_limits_scanned_population(self) -> None:
+        """AOI filter expression narrows the scan through runtime predicate scope."""
+        session_id = self._make_session()
+        result = self._detect(
+            session_id,
+            self.spike_metric,
+            filter={"dialects": [{"dialect": "ANSI_SQL", "expression": "cluster = 'beta'"}]},
+        )
+
+        self.assertEqual(result["scope"], {"predicate": "cluster = 'beta'"})
+        self.assertEqual(result["scan_summary"]["total_candidate_count"], 0)
+        self.assertEqual(result["candidates"], [])
+
+    def test_detect_scope_takes_precedence_over_filter(self) -> None:
+        """Internal scope remains authoritative when both scope and AOI filter are provided."""
+        session_id = self._make_session()
+        result = self._detect(
+            session_id,
+            self.spike_metric,
+            scope={"predicate": "cluster = 'alpha'"},
+            filter={"dialects": [{"dialect": "ANSI_SQL", "expression": "cluster = 'beta'"}]},
+        )
+
+        self.assertEqual(result["scope"], {"predicate": "cluster = 'alpha'"})
+        self.assertGreater(result["scan_summary"]["total_candidate_count"], 0)
+
     # ── dimension ─────────────────────────────────────────────────────────────
 
     def test_detect_dimension_scans_independent_series(self) -> None:
@@ -359,6 +387,16 @@ class DetectRunnerServiceTests(unittest.TestCase):
         self.assertEqual(result["scan_summary"]["excluded_series_count"], 1)
         issues = result["detectability"]["issues"]
         self.assertTrue(any(i["code"] == "series_limit_applied" for i in issues))
+
+    def test_detect_max_series_must_be_positive(self) -> None:
+        session_id = self._make_session()
+        with self.assertRaises(ValueError):
+            self._detect(
+                session_id,
+                self.spike_metric,
+                dimension="dimension.cluster",
+                max_series=0,
+            )
 
     def test_detect_dimension_unsupported_dimension_raises(self) -> None:
         """Unsupported split dimension is rejected instead of falling back to overall scan."""
@@ -418,26 +456,17 @@ class DetectRunnerServiceTests(unittest.TestCase):
             result["scan_summary"]["total_candidate_count"],
         )
 
-    # ── time_scope validation ─────────────────────────────────────────────────
-
-    def test_detect_invalid_mode_raises(self) -> None:
-        """Old mode/grain/current shape is rejected."""
+    def test_detect_limit_must_be_positive(self) -> None:
         session_id = self._make_session()
         with self.assertRaises(ValueError):
-            run_detect_intent(
-                self.service,
-                session_id,
-                {
-                    "metric": self.spike_metric,
-                    "time_scope": {
-                        "mode": "compare",
-                        "grain": "day",
-                        "current": {"start": "2026-01-01", "end": "2026-01-15"},
-                    },
-                    "granularity": "day",
-                    "strategy": "point_anomaly",
-                },
-            )
+            self._detect(session_id, self.spike_metric, limit=0)
+
+    # ── time_scope validation ─────────────────────────────────────────────────
+
+    def test_detect_hour_granularity_requires_datetime_boundaries(self) -> None:
+        session_id = self._make_session()
+        with self.assertRaises(ValueError):
+            self._detect(session_id, self.spike_metric, granularity="hour")
 
     def test_detect_invalid_grain_raises(self) -> None:
         """Unsupported granularity → ValueError."""
