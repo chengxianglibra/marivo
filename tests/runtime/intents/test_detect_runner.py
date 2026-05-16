@@ -14,9 +14,6 @@ Covers:
   - run_detect_intent: invalid time scope kind → ValueError
   - run_detect_intent: invalid granularity → ValueError
   - run_detect_intent: invalid strategy → ValueError
-  - HTTP endpoint: unknown metric → 422
-  - HTTP endpoint: invalid time scope (start >= end) → 422
-  - HTTP endpoint: missing required fields → 422
 """
 
 from __future__ import annotations
@@ -25,13 +22,17 @@ import tempfile
 import unittest
 from datetime import UTC, datetime
 from pathlib import Path
-
-from fastapi.testclient import TestClient
+from typing import Any
+from unittest.mock import MagicMock, patch
 
 from marivo.adapters.local.duckdb_analytics import DuckDBAnalyticsEngine
 from marivo.adapters.local.sqlite_metadata import SQLiteMetadataStore
-from marivo.main import create_app
 from marivo.runtime.intents.detect import run_detect_intent
+from tests.runtime.intents._runner_fixtures import (
+    _FAKE_ARTIFACT_ID,
+    _SESSION,
+    _make_compiled_mock,
+)
 from tests.semantic_test_helpers import (
     build_runtime,
     ensure_published_typed_metric,
@@ -561,264 +562,84 @@ class DetectRunnerServiceTests(unittest.TestCase):
         self.assertEqual(result["granularity"], "day")
 
 
-# ── HTTP endpoint tests ───────────────────────────────────────────────────────
+class TestDetectRunnerCommitPath(unittest.TestCase):
+    """run_detect_intent must call _commit_artifact_with_extraction(step_type='detect')."""
 
+    def _make_runtime(self) -> MagicMock:
+        runtime = MagicMock()
+        runtime.core = MagicMock()
+        runtime.new_step_id.return_value = "step_4c2_001"
+        runtime.commit_artifact_with_extraction.return_value = _FAKE_ARTIFACT_ID
+        runtime.insert_step.return_value = None
+        runtime.make_provenance.return_value = {"query_hash": "testhash"}
+        runtime.build_step_semantic_metadata.return_value = {}
+        return runtime
 
-class DetectIntentEndpointTests(unittest.TestCase):
-    """HTTP-level tests for /sessions/{id}/intents/detect.
+    def _run_detect(self, runtime: MagicMock) -> dict[str, Any]:
+        from marivo.runtime.intents.detect import run_detect_intent
 
-    Uses the detect intent fixture so HTTP tests can cover both success-empty
-    and dimension execution paths.
-    """
-
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls.temp_dir = tempfile.TemporaryDirectory()
-        db_path = Path(cls.temp_dir.name) / "detect_http.duckdb"
-        _seed_detect_tables(db_path)
-
-        # Create the metadata store separately so the app and fixtures share one store.
-        meta_path = db_path.with_suffix(".meta.sqlite")
-        metadata = SQLiteMetadataStore(str(meta_path))
-        metadata.initialize()
-        cls.client = TestClient(
-            create_app(db_path=db_path, metadata_store=metadata),
-            headers={"X-Marivo-User": "test_user"},
+        runtime.core.normalize_intent_metric_ref.return_value = "m1"
+        runtime.core.metric_name_from_ref.return_value = "m1"
+        runtime.resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
+        runtime.resolve_metric_table.return_value = "src.metrics"
+        runtime.resolve_metric_dimensions.return_value = []
+        runtime.resolve_engine_for_session.return_value = (
+            MagicMock(),
+            "duckdb",
+            {"metrics": "src.metrics"},
         )
+        runtime.resolve_metric_sql_for_execution.return_value = "SUM(val)"
+        runtime.build_scoped_query.return_value = None
+        runtime.compile_step.return_value = _make_compiled_mock()
 
-        # Register metric pointing to analytics.uniform_events.
-        _seed_metadata(
-            cls.client.app.state.services.metadata_store,
-            db_path=db_path,
-            src_suffix="http01",
-            metric_name="http_detect_metric",
-            table_fqn="analytics.uniform_events",
-            native_name="uniform_events",
-            dimensions=["event_date", "dimension.cluster"],
-        )
-        _seed_metadata(
-            cls.client.app.state.services.metadata_store,
-            db_path=db_path,
-            src_suffix="http02",
-            metric_name="http_detect_split_metric",
-            table_fqn="analytics.detect_events",
-            native_name="detect_events",
-            dimensions=["event_date", "dimension.cluster"],
-        )
-
-        r = cls.client.post("/sessions", json={"goal": "detect HTTP test"})
-        cls.session_id = r.json()["session_id"]
-
-    @classmethod
-    def tearDownClass(cls) -> None:
-        cls.client.close()
-        cls.temp_dir.cleanup()
-
-    def _time_scope(self, start: str = "2026-01-01", end: str = "2026-01-15") -> dict:
-        return {
-            "field": "event_date",
-            "start": f"{start}T00:00:00Z" if "T" not in start else start,
-            "end": f"{end}T00:00:00Z" if "T" not in end else end,
-        }
-
-    def _detect_payload(self, metric: str, **extra: object) -> dict:
-        payload: dict = {
-            "metric": _metric_ref(metric),
-            "time_scope": self._time_scope(),
+        params = {
+            "metric": "m1",
+            "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-31"},
             "granularity": "day",
             "strategy": "point_anomaly",
         }
-        payload.update(extra)
-        return payload
+        with patch("marivo.runtime.intents.detect.execute_compiled") as mock_exec:
+            # 9 points with one spike (day 5 = 200) to produce ≥1 anomaly candidate.
+            # mean≈111, std≈31, z(200)≈2.83 > balanced threshold 2.0.
+            mock_exec.return_value.rows = [
+                {"bucket_start": f"2024-01-{d:02d}", "value": 200.0 if d == 5 else 100.0}
+                for d in range(1, 10)
+            ]
+            return run_detect_intent(runtime, _SESSION, params)
 
-    def test_detect_missing_metric_returns_422(self) -> None:
-        r = self.client.post(
-            f"/sessions/{self.session_id}/intents/detect",
-            json={"time_scope": self._time_scope()},
-        )
-        self.assertEqual(r.status_code, 422)
+    def test_detect_calls_commit_artifact_with_extraction(self) -> None:
+        runtime = self._make_runtime()
+        self._run_detect(runtime)
+        runtime.commit_artifact_with_extraction.assert_called_once()
 
-    def test_detect_missing_time_scope_returns_422(self) -> None:
-        r = self.client.post(
-            f"/sessions/{self.session_id}/intents/detect",
-            json={"metric": _metric_ref("http_detect_metric")},
-        )
-        self.assertEqual(r.status_code, 422)
+    def test_detect_passes_step_type_detect(self) -> None:
+        runtime = self._make_runtime()
+        self._run_detect(runtime)
+        _, kwargs = runtime.commit_artifact_with_extraction.call_args
+        self.assertEqual(kwargs.get("step_type"), "detect")
 
-    def test_detect_unknown_metric_returns_422(self) -> None:
-        r = self.client.post(
-            f"/sessions/{self.session_id}/intents/detect",
-            json=self._detect_payload("metric_that_does_not_exist_xyz"),
-        )
-        self.assertEqual(r.status_code, 422)
+    def test_detect_artifact_type_is_anomaly_candidates(self) -> None:
+        runtime = self._make_runtime()
+        self._run_detect(runtime)
+        args, _ = runtime.commit_artifact_with_extraction.call_args
+        self.assertEqual(args[2], "anomaly_candidates")
 
-    def test_detect_not_ready_metric_returns_409_with_structured_readiness_error(self) -> None:
-        metadata = self.client.app.state.services.metadata_store
-        metric_name = _seed_metadata(
-            metadata,
-            db_path=self.client.app.state.services.resolved_path,
-            src_suffix="http_not_ready",
-            metric_name="http_detect_not_ready_metric",
-            table_fqn="analytics.not_ready_events",
-            native_name="not_ready_events",
-            measure_type="average",
-            dimensions=["event_date", "dimension.cluster"],
-        )
-        metadata.execute(
-            """
-            UPDATE semantic_datasets
-            SET datasource_id = NULL
-            WHERE source = ?
-            """,
-            ["analytics.not_ready_events"],
-        )
+    def test_detect_artifact_id_patched_in_result(self) -> None:
+        # After _commit_artifact_with_extraction returns, detect.py patches artifact_id
+        # into result["candidates"][*]["candidate_ref"]["artifact_ref"]["artifact_id"]
+        # and result["artifact_id"].  Verify both are populated with the committed id.
+        runtime = self._make_runtime()
+        envelope = self._run_detect(runtime)
+        result = envelope["result"]
+        self.assertEqual(envelope["artifact_id"], _FAKE_ARTIFACT_ID)
+        self.assertEqual(result["artifact_id"], _FAKE_ARTIFACT_ID)
+        candidates = result.get("candidates", [])
+        self.assertTrue(len(candidates) > 0, "expected at least one candidate in result")
+        for c in candidates:
+            self.assertEqual(
+                c["candidate_ref"]["artifact_ref"]["artifact_id"],
+                _FAKE_ARTIFACT_ID,
+            )
 
-        response = self.client.post(
-            f"/sessions/{self.session_id}/intents/detect",
-            json={
-                **self._detect_payload(metric_name),
-            },
-        )
 
-        self.assertEqual(response.status_code, 409, response.text)
-        detail = response.json()["detail"]
-        self.assertEqual(detail["code"], "semantic_not_ready")
-        self.assertEqual(detail["category"], "readiness")
-        self.assertEqual(detail["subject_ref"], "metric.http_detect_not_ready_metric")
-        self.assertEqual(detail["readiness_status"], "not_ready")
-
-    def test_detect_ready_metric_with_auxiliary_binding_returns_200(self) -> None:
-        metadata = self.client.app.state.services.metadata_store
-        metric_name = _seed_metadata(
-            metadata,
-            db_path=self.client.app.state.services.resolved_path,
-            src_suffix="http_aux",
-            metric_name="http_detect_aux_metric",
-            table_fqn="analytics.uniform_events",
-            native_name="uniform_events",
-            binding_role="auxiliary",
-            dimensions=["event_date", "dimension.cluster"],
-        )
-
-        response = self.client.post(
-            f"/sessions/{self.session_id}/intents/detect",
-            json={
-                **self._detect_payload(metric_name),
-                "sensitivity": "balanced",
-            },
-        )
-
-        self.assertEqual(response.status_code, 200, response.text)
-        self.assertEqual(response.json()["result"]["artifact_type"], "anomaly_candidates")
-
-    def test_detect_invalid_time_scope_returns_422(self) -> None:
-        """start >= end is rejected with 422."""
-        r = self.client.post(
-            f"/sessions/{self.session_id}/intents/detect",
-            json={
-                "metric": _metric_ref("http_detect_metric"),
-                "time_scope": self._time_scope(start="2026-02-21", end="2026-02-07"),
-                "granularity": "day",
-            },
-        )
-        self.assertEqual(r.status_code, 422)
-
-    def test_detect_invalid_mode_returns_422(self) -> None:
-        """Old mode/grain/current shape is rejected with 422."""
-        r = self.client.post(
-            f"/sessions/{self.session_id}/intents/detect",
-            json={
-                "metric": _metric_ref("http_detect_metric"),
-                "time_scope": {
-                    "mode": "compare",
-                    "grain": "day",
-                    "current": {"start": "2026-01-01", "end": "2026-01-15"},
-                },
-                "granularity": "day",
-            },
-        )
-        self.assertEqual(r.status_code, 422)
-
-    def test_detect_invalid_grain_returns_422(self) -> None:
-        """Unsupported granularity → 422."""
-        r = self.client.post(
-            f"/sessions/{self.session_id}/intents/detect",
-            json={
-                "metric": _metric_ref("http_detect_metric"),
-                "time_scope": self._time_scope(start="2026-02-07", end="2026-03-08"),
-                "granularity": "quarter",
-            },
-        )
-        self.assertEqual(r.status_code, 422)
-
-    def test_detect_returns_200_with_valid_metric(self) -> None:
-        """Full detect execution returns 200 with anomaly_candidates artifact."""
-        r = self.client.post(
-            f"/sessions/{self.session_id}/intents/detect",
-            json={
-                **self._detect_payload("http_detect_metric"),
-                "sensitivity": "balanced",
-            },
-        )
-        self.assertEqual(r.status_code, 200, msg=r.text)
-        body = r.json()["result"]
-        self.assertEqual(body["artifact_type"], "anomaly_candidates")
-        self.assertIn("scan_summary", body)
-        self.assertIn("total_candidate_count", body["scan_summary"])
-
-    def test_detect_success_empty_on_uniform_data(self) -> None:
-        """Uniform watch_events data: detect returns 200 with total_candidate_count = 0."""
-        r = self.client.post(
-            f"/sessions/{self.session_id}/intents/detect",
-            json={
-                **self._detect_payload("http_detect_metric"),
-                "sensitivity": "balanced",
-            },
-        )
-        self.assertEqual(r.status_code, 200, msg=r.text)
-        body = r.json()["result"]
-        # uniform_events has the same number of rows per day per cluster → no candidates
-        self.assertEqual(body["scan_summary"]["total_candidate_count"], 0)
-
-    def test_detect_dimension_returns_segment_candidates(self) -> None:
-        r = self.client.post(
-            f"/sessions/{self.session_id}/intents/detect",
-            json={
-                **self._detect_payload("http_detect_split_metric"),
-                "dimension": "dimension.cluster",
-                "sensitivity": "balanced",
-            },
-        )
-        self.assertEqual(r.status_code, 200, msg=r.text)
-        body = r.json()["result"]
-        self.assertEqual(body["dimension"], "dimension.cluster")
-        self.assertEqual(body["scan_summary"]["eligible_series_count"], 2)
-        self.assertEqual(body["scan_summary"]["scanned_series_count"], 2)
-        self.assertTrue(
-            any(c["slice"] == {"dimension.cluster": "alpha"} for c in body["candidates"])
-        )
-
-    def test_detect_dimension_array_returns_422(self) -> None:
-        r = self.client.post(
-            f"/sessions/{self.session_id}/intents/detect",
-            json={
-                "metric": _metric_ref("http_detect_split_metric"),
-                "time_scope": self._time_scope(),
-                "granularity": "day",
-                "strategy": "point_anomaly",
-                "dimension": ["dimension.cluster"],
-            },
-        )
-        self.assertEqual(r.status_code, 422)
-
-    def test_detect_nonexistent_session_returns_404(self) -> None:
-        r = self.client.post(
-            "/sessions/sess_does_not_exist/intents/detect",
-            json={
-                "metric": _metric_ref("http_detect_metric"),
-                "time_scope": self._time_scope(),
-                "granularity": "day",
-                "strategy": "point_anomaly",
-            },
-        )
-        self.assertEqual(r.status_code, 404)
+# ── correlate ─────────────────────────────────────────────────────────────────

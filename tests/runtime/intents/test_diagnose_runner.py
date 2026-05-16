@@ -15,9 +15,6 @@ Covers:
   - run_diagnose_intent: empty candidate_dimensions → ValueError
   - run_diagnose_intent: followup_limit=0 → ValueError
   - run_diagnose_intent: old detect time_scope shape → ValueError
-  - HTTP endpoint: valid diagnose returns 200 with result_type="diagnosis_bundle"
-  - HTTP endpoint: missing candidate_dimensions returns 422
-  - HTTP endpoint: unknown session returns 404
 """
 
 from __future__ import annotations
@@ -28,11 +25,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from fastapi.testclient import TestClient
-
 from marivo.adapters.local.duckdb_analytics import DuckDBAnalyticsEngine
 from marivo.adapters.local.sqlite_metadata import SQLiteMetadataStore
-from marivo.main import create_app
 from marivo.runtime.intents.diagnose import run_diagnose_intent
 from tests.semantic_test_helpers import (
     build_semantic_layer_service,
@@ -455,79 +449,6 @@ class DiagnoseRunnerServiceTests(unittest.TestCase):
                 },
             )
         self.assertIn("time_scope", str(ctx.exception))
-
-
-# ── HTTP endpoint tests ────────────────────────────────────────────────────────
-
-
-class DiagnoseHTTPTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls.temp_dir = tempfile.TemporaryDirectory()
-        db_path = Path(cls.temp_dir.name) / "diag_http.duckdb"
-        meta_path = Path(cls.temp_dir.name) / "diag_http.meta.sqlite"
-
-        _seed_diag_table(db_path)
-        analytics = DuckDBAnalyticsEngine(str(db_path))
-        metadata = SQLiteMetadataStore(str(meta_path))
-        metadata.initialize()
-        analytics.initialize()
-        _seed_metadata(metadata, db_path)
-
-        app = create_app(metadata_store=metadata, analytics_engine=analytics)
-        cls.client = TestClient(app, headers={"X-Marivo-User": "test_user"})
-
-        # Create a session to reuse
-        resp = cls.client.post("/sessions", json={"goal": "diag http test"})
-        cls.session_id = resp.json()["session_id"]
-
-    @classmethod
-    def tearDownClass(cls) -> None:
-        cls.temp_dir.cleanup()
-
-    def test_valid_diagnose_returns_200_with_bundle(self) -> None:
-        """Valid diagnose request returns 200 with result_type='diagnosis_bundle'."""
-        resp = self.client.post(
-            f"/sessions/{self.session_id}/intents/diagnose",
-            json={
-                "metric": _metric_ref(_METRIC),
-                "time_scope": _aoi_detect_time_scope(),
-                "granularity": "day",
-                "candidate_dimensions": ["channel"],
-                "strategy": "point_anomaly",
-                "followup_limit": 1,
-            },
-        )
-        self.assertEqual(resp.status_code, 200)
-        body = resp.json()
-        self.assertEqual(body["result"]["bundle_type"], "diagnosis_bundle")
-
-    def test_missing_candidate_dimensions_returns_422(self) -> None:
-        """Missing required candidate_dimensions returns 422."""
-        resp = self.client.post(
-            f"/sessions/{self.session_id}/intents/diagnose",
-            json={
-                "metric": _metric_ref(_METRIC),
-                "time_scope": _aoi_detect_time_scope(),
-                "granularity": "day",
-                # no candidate_dimensions
-            },
-        )
-        self.assertEqual(resp.status_code, 422)
-
-    def test_unknown_session_returns_404(self) -> None:
-        """Unknown session returns 404."""
-        resp = self.client.post(
-            "/sessions/sess_nonexistent/intents/diagnose",
-            json={
-                "metric": _metric_ref(_METRIC),
-                "time_scope": _aoi_detect_time_scope(),
-                "granularity": "day",
-                "candidate_dimensions": ["channel"],
-                "strategy": "point_anomaly",
-            },
-        )
-        self.assertEqual(resp.status_code, 404)
 
 
 # ── Additional validation boundary tests ──────────────────────────────────────

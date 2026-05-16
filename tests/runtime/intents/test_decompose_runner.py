@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 from marivo.contracts.errors import ExecutionError
@@ -11,6 +12,11 @@ from marivo.runtime.intents.decompose import (
     _normalize_decompose_compare_input,
     _run_segmented_query,
     run_decompose_intent,
+)
+from tests.runtime.intents._runner_fixtures import (
+    _FAKE_ARTIFACT_ID,
+    _SESSION,
+    _make_compiled_mock,
 )
 
 
@@ -764,3 +770,188 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
                 },
             )
         self.assertFalse(result["analytical_metadata"]["time_rollup_allowed"])
+
+
+class TestDecomposeRunnerCommitPath(unittest.TestCase):
+    """run_decompose_intent must call _commit_artifact_with_extraction(step_type='decompose')."""
+
+    def _make_runtime(self) -> MagicMock:
+        runtime = MagicMock()
+        runtime.core = MagicMock()
+        runtime.new_step_id.return_value = "step_4c2_001"
+        runtime.commit_artifact_with_extraction.return_value = _FAKE_ARTIFACT_ID
+        runtime.insert_step.return_value = None
+        return runtime
+
+    def _run_decompose(
+        self, runtime: MagicMock, compare_artifact: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        from marivo.runtime.intents.decompose import run_decompose_intent
+
+        if compare_artifact is None:
+            compare_artifact = {
+                "comparison_type": "scalar_delta",
+                "metric": "m1",
+                "unit": None,
+                "left_value": 100.0,
+                "right_value": 90.0,
+                "absolute_delta": 10.0,
+                "relative_delta": 0.111,
+                "direction": "increase",
+                "lineage": {
+                    "left_source_ref": {"step_id": "step_obs_left", "session_id": _SESSION},
+                    "right_source_ref": {"step_id": "step_obs_right", "session_id": _SESSION},
+                },
+                "resolved_input_summary": {
+                    "left_time_scope": {
+                        "kind": "range",
+                        "start": "2024-01-01",
+                        "end": "2024-01-08",
+                    },
+                    "right_time_scope": {
+                        "kind": "range",
+                        "start": "2023-12-25",
+                        "end": "2024-01-01",
+                    },
+                    "left_scope": {},
+                    "right_scope": {},
+                },
+            }
+        runtime.resolve_artifact_for_ref.return_value = compare_artifact
+        runtime.resolve_artifact_id_for_step.return_value = "art_fake_ref001"
+
+        # Configure resolved_metric with real values so validation passes
+        resolved_metric = MagicMock()
+        resolved_metric.semantic_object = {
+            "header": {
+                "additive_dimensions": ["dim1", "time.default"],
+                "aggregation_semantics": "ratio",
+            },
+            "payload": {
+                "allowed_dimensions": ["dim1"],
+                "dimensions": ["dim1"],
+            },
+        }
+        resolved_metric.additive_dimensions = ["dim1", "time.default"]
+        resolved_metric.aggregation_semantics = "ratio"
+        resolved_metric.allowed_dimensions = ["dim1"]
+        resolved_metric.dimensions = ["dim1"]
+        resolved_metric.grain = "day"
+        runtime.resolve_metric.return_value = resolved_metric
+        runtime.resolve_metric_dimensions.return_value = ["dim1"]
+        runtime.resolve_metric_sql_for_execution.return_value = "SUM(val)"
+
+        runtime.resolve_metric_table.return_value = "src.metrics"
+        runtime.resolve_engine.return_value = (
+            MagicMock(),
+            "duckdb",
+            {"metrics": "src.metrics"},
+        )
+
+        # _run_segmented_query calls _compile_step_with_feedback + execute_compiled
+        runtime.compile_step.return_value = _make_compiled_mock()
+        runtime.build_scoped_query.return_value = None
+
+        params = {
+            "compare_ref": {"step_id": "step_compare", "session_id": _SESSION},
+            "dimension": "dim1",
+        }
+        with patch("marivo.runtime.intents.decompose.execute_compiled") as mock_exec:
+            # Return 1 row for both left and right segmented queries.
+            # Configure metadata.get() to return None so the query_hash branch skips.
+            mock_result = MagicMock()
+            mock_result.rows = [{"dim1": "segment_a", "current_value": 50.0}]
+            mock_result.metadata.get.return_value = None
+            mock_exec.return_value = mock_result
+            return run_decompose_intent(runtime, _SESSION, params)
+
+    def test_decompose_calls_commit_artifact_with_extraction(self) -> None:
+        runtime = self._make_runtime()
+        self._run_decompose(runtime)
+        runtime.commit_artifact_with_extraction.assert_called_once()
+
+    def test_decompose_passes_step_type_decompose(self) -> None:
+        runtime = self._make_runtime()
+        self._run_decompose(runtime)
+        _, kwargs = runtime.commit_artifact_with_extraction.call_args
+        self.assertEqual(kwargs.get("step_type"), "decompose")
+
+    def test_decompose_artifact_type_is_delta_decomposition(self) -> None:
+        runtime = self._make_runtime()
+        self._run_decompose(runtime)
+        args, _ = runtime.commit_artifact_with_extraction.call_args
+        self.assertEqual(args[2], "delta_decomposition")
+
+    def test_decompose_time_series_delta_commits_summary_delta_decomposition(self) -> None:
+        runtime = self._make_runtime()
+        result = self._run_decompose(
+            runtime,
+            {
+                "comparison_type": "time_series_delta",
+                "metric": "m1",
+                "unit": None,
+                "granularity": "day",
+                "summary_left_value": 120.0,
+                "summary_right_value": 90.0,
+                "summary_absolute_delta": 30.0,
+                "summary_relative_delta": 0.333,
+                "summary_direction": "increase",
+                "lineage": {
+                    "left_source_ref": {"step_id": "step_obs_left", "session_id": _SESSION},
+                    "right_source_ref": {"step_id": "step_obs_right", "session_id": _SESSION},
+                },
+                "resolved_input_summary": {
+                    "left_time_scope": {
+                        "kind": "range",
+                        "start": "2024-01-01",
+                        "end": "2024-01-08",
+                    },
+                    "right_time_scope": {
+                        "kind": "range",
+                        "start": "2023-01-01",
+                        "end": "2023-01-08",
+                    },
+                    "left_scope": {},
+                    "right_scope": {},
+                },
+                "analytical_metadata": {
+                    "pairing_basis": "calendar_aligned_observation_windows",
+                    "pairing_rule": "calendar_aligned_bucket_pairing",
+                    "matched_bucket_count": 7,
+                    "dropped_left_buckets": 0,
+                    "dropped_right_buckets": 0,
+                    "matched_time_scope": {
+                        "kind": "range",
+                        "start": "2024-01-01",
+                        "end": "2024-01-08",
+                    },
+                    "matched_left_time_scope": {
+                        "kind": "range",
+                        "start": "2024-01-01",
+                        "end": "2024-01-08",
+                    },
+                    "matched_right_time_scope": {
+                        "kind": "range",
+                        "start": "2023-01-01",
+                        "end": "2023-01-08",
+                    },
+                },
+            },
+        )
+
+        self.assertEqual(result["compare_ref"]["comparison_type"], "time_series_delta")
+        self.assertEqual(result["left_ref"]["observation_type"], "time_series")
+        self.assertEqual(result["right_ref"]["observation_type"], "time_series")
+        self.assertEqual(result["scope_absolute_delta"], 30.0)
+        self.assertEqual(
+            result["analytical_metadata"]["decomposition_source"],
+            "time_series_summary_delta",
+        )
+        self.assertEqual(result["analytical_metadata"]["source_granularity"], "day")
+        self.assertEqual(
+            result["analytical_metadata"]["source_pairing_basis"],
+            "calendar_aligned_observation_windows",
+        )
+
+
+# ── detect ────────────────────────────────────────────────────────────────────
