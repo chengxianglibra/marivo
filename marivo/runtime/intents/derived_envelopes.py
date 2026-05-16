@@ -15,9 +15,23 @@ def aoi_artifact_dump(result: dict[str, Any]) -> dict[str, Any]:
     raw = result.get("result")
     if isinstance(raw, dict) and raw.get("artifact_id"):
         return raw
+    if not isinstance(raw, dict):
+        raw = {
+            key: value
+            for key, value in result.items()
+            if key
+            not in {
+                "intent_type",
+                "step_type",
+                "step_ref",
+                "artifact_id",
+                "provenance",
+                "product_metadata",
+            }
+        }
     return {
         "artifact_id": result.get("artifact_id"),
-        "result": raw if isinstance(raw, dict) else {},
+        "result": raw,
     }
 
 

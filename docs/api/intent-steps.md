@@ -8,19 +8,16 @@ not contain a top-level `step_type`.
 
 | Intent | Endpoint | Response model |
 |--------|----------|----------------|
-| `observe` | `POST /sessions/{session_id}/intents/observe` | `ExecutionEnvelope` |
-| `compare` | `POST /sessions/{session_id}/intents/compare` | `ExecutionEnvelope` |
-| `decompose` | `POST /sessions/{session_id}/intents/decompose` | `ExecutionEnvelope` |
-| `correlate` | `POST /sessions/{session_id}/intents/correlate` | `ExecutionEnvelope` |
-| `detect` | `POST /sessions/{session_id}/intents/detect` | `ExecutionEnvelope` |
-| `forecast` | `POST /sessions/{session_id}/intents/forecast` | `ExecutionEnvelope` |
-| `test` | `POST /sessions/{session_id}/intents/test` | `ExecutionEnvelope` |
-| `attribute` | `POST /sessions/{session_id}/intents/attribute` | JSON object |
-| `diagnose` | `POST /sessions/{session_id}/intents/diagnose` | JSON object |
-
-`validate` is currently an MCP/runtime derived analysis intent rather than an
-HTTP endpoint. Semantic-model validation remains available through the
-semantic-model APIs.
+| `observe` | `POST /sessions/{session_id}/intents/observe` | `ObserveResponse` |
+| `compare` | `POST /sessions/{session_id}/intents/compare` | `CompareResponse` |
+| `decompose` | `POST /sessions/{session_id}/intents/decompose` | `DecomposeResponse` |
+| `correlate` | `POST /sessions/{session_id}/intents/correlate` | `CorrelateResponse` |
+| `detect` | `POST /sessions/{session_id}/intents/detect` | `DetectResponse` |
+| `forecast` | `POST /sessions/{session_id}/intents/forecast` | `ForecastResponse` |
+| `test` | `POST /sessions/{session_id}/intents/test` | `TestResponse` |
+| `validate` | `POST /sessions/{session_id}/intents/validate` | `ValidateResponse` |
+| `attribute` | `POST /sessions/{session_id}/intents/attribute` | `AttributeResponse` |
+| `diagnose` | `POST /sessions/{session_id}/intents/diagnose` | `DiagnoseResponse` |
 
 ## Common Response Envelope
 
@@ -36,14 +33,26 @@ Atomic AOI-backed intents return:
     "step_type": "observe"
   },
   "artifact_id": "art_123",
-  "result": {},
+  "result": {
+    "artifact_id": "art_123",
+    "result": {
+      "value": 42.0
+    }
+  },
   "provenance": {},
   "product_metadata": null
 }
 ```
 
-`result` contains the AOI artifact payload. `provenance` and
-`product_metadata` carry Marivo runtime metadata.
+For atomic intents, the top-level envelope fields remain stable. The nested
+`result` is the AOI artifact wrapper, and the generated AOI artifact result
+class is under `result.result`. Marivo query/provenance/product metadata stays
+outside the AOI result, in sibling envelope fields such as `provenance` and
+`product_metadata`.
+
+For derived intents, the top-level `result` remains a Marivo bundle. AOI-typed
+sub-artifacts are carried in `result.aoi_artifacts` as AOI `Artifact1` or
+`Artifact2` values.
 
 ## Atomic AOI Intents
 
@@ -303,8 +312,12 @@ runtime and is not a request field.
 
 ### Validate
 
-`validate` is not exposed as an HTTP intent endpoint today. MCP validate calls
-must cross into runtime as the generated AOI `Validate` model:
+```http
+POST /sessions/{session_id}/intents/validate
+```
+
+HTTP and MCP validate calls cross into runtime as the generated AOI `Validate`
+model:
 
 ```json
 {

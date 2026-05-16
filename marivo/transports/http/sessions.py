@@ -5,7 +5,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
-from marivo.contracts.envelope import ExecutionEnvelope
+from marivo.contracts.aoi_projection import project_aoi_artifact, project_aoi_artifact_from_any
 from marivo.contracts.errors import ExecutionError, ForbiddenError, NotFoundError, ValidationError
 from marivo.contracts.generated import aoi
 from marivo.contracts.ids import SessionId, UserId
@@ -15,7 +15,13 @@ from marivo.transports.http.deps import get_services, http_error
 from marivo.transports.http.models import (
     ArtifactRuntimeStatusResponse,
     AttributeResponse,
+    CompareResponse,
+    CorrelateResponse,
+    DecomposeResponse,
+    DetectResponse,
     DiagnoseResponse,
+    ForecastResponse,
+    ObserveResponse,
     PropositionContextView,
     PropositionRuntimeStatusResponse,
     SessionCreateRequest,
@@ -27,6 +33,8 @@ from marivo.transports.http.models import (
     SessionStateView,
     SessionTerminateRequest,
     SessionTerminateResponse,
+    TestResponse,
+    ValidateResponse,
 )
 
 router = APIRouter()
@@ -415,67 +423,154 @@ def _run_intent(session_id: str, intent_type: str, params: Any, request: Request
         raise HTTPException(status_code=502, detail=f"Intent execution error: {error}") from error
 
 
-@router.post("/sessions/{session_id}/intents/observe", response_model=ExecutionEnvelope)
+def _atomic_intent_response(intent_type: str, result: dict[str, Any]) -> dict[str, Any]:
+    response = {
+        "intent_type": result.get("intent_type") or intent_type,
+        "step_type": result.get("step_type") or intent_type,
+        "step_ref": result.get("step_ref"),
+        "artifact_id": result.get("artifact_id"),
+        "result": project_aoi_artifact(intent_type, str(result.get("artifact_id")), result),
+        "provenance": result.get("provenance"),
+        "product_metadata": result.get("product_metadata"),
+    }
+    return response
+
+
+def _normalize_aoi_artifacts(value: Any) -> Any:
+    if not isinstance(value, list):
+        return value
+    return [
+        project_aoi_artifact_from_any(item) if isinstance(item, dict) else item for item in value
+    ]
+
+
+def _derived_intent_response(result: dict[str, Any]) -> dict[str, Any]:
+    response = dict(result)
+    bundle = response.get("result")
+    if isinstance(bundle, dict):
+        response["result"] = {
+            **bundle,
+            "aoi_artifacts": _normalize_aoi_artifacts(bundle.get("aoi_artifacts")),
+        }
+    product_metadata = response.get("product_metadata")
+    if isinstance(product_metadata, dict) and "aoi_artifacts" in product_metadata:
+        response["product_metadata"] = {
+            **product_metadata,
+            "aoi_artifacts": _normalize_aoi_artifacts(product_metadata.get("aoi_artifacts")),
+        }
+    return response
+
+
+@router.post(
+    "/sessions/{session_id}/intents/observe",
+    response_model=ObserveResponse,
+    response_model_exclude_none=True,
+)
 def intent_observe(
     session_id: str,
     payload: aoi.Observe1 | aoi.Observe2 | aoi.Observe3,
     request: Request,
-) -> ExecutionEnvelope:
-    return ExecutionEnvelope.model_validate(_run_intent(session_id, "observe", payload, request))
+) -> ObserveResponse:
+    result = _run_intent(session_id, "observe", payload, request)
+    return ObserveResponse.model_validate(_atomic_intent_response("observe", result))
 
 
-@router.post("/sessions/{session_id}/intents/compare", response_model=ExecutionEnvelope)
+@router.post(
+    "/sessions/{session_id}/intents/compare",
+    response_model=CompareResponse,
+    response_model_exclude_none=True,
+)
 def intent_compare(
     session_id: str,
     payload: aoi.Compare,
     request: Request,
-) -> ExecutionEnvelope:
-    return ExecutionEnvelope.model_validate(_run_intent(session_id, "compare", payload, request))
+) -> CompareResponse:
+    result = _run_intent(session_id, "compare", payload, request)
+    return CompareResponse.model_validate(_atomic_intent_response("compare", result))
 
 
-@router.post("/sessions/{session_id}/intents/decompose", response_model=ExecutionEnvelope)
+@router.post(
+    "/sessions/{session_id}/intents/decompose",
+    response_model=DecomposeResponse,
+    response_model_exclude_none=True,
+)
 def intent_decompose(
     session_id: str,
     payload: aoi.Decompose,
     request: Request,
-) -> ExecutionEnvelope:
-    return ExecutionEnvelope.model_validate(_run_intent(session_id, "decompose", payload, request))
+) -> DecomposeResponse:
+    result = _run_intent(session_id, "decompose", payload, request)
+    return DecomposeResponse.model_validate(_atomic_intent_response("decompose", result))
 
 
-@router.post("/sessions/{session_id}/intents/correlate", response_model=ExecutionEnvelope)
+@router.post(
+    "/sessions/{session_id}/intents/correlate",
+    response_model=CorrelateResponse,
+    response_model_exclude_none=True,
+)
 def intent_correlate(
     session_id: str,
     payload: aoi.Correlate,
     request: Request,
-) -> ExecutionEnvelope:
-    return ExecutionEnvelope.model_validate(_run_intent(session_id, "correlate", payload, request))
+) -> CorrelateResponse:
+    result = _run_intent(session_id, "correlate", payload, request)
+    return CorrelateResponse.model_validate(_atomic_intent_response("correlate", result))
 
 
-@router.post("/sessions/{session_id}/intents/detect", response_model=ExecutionEnvelope)
+@router.post(
+    "/sessions/{session_id}/intents/detect",
+    response_model=DetectResponse,
+    response_model_exclude_none=True,
+)
 def intent_detect(
     session_id: str,
     payload: aoi.Detect,
     request: Request,
-) -> ExecutionEnvelope:
-    return ExecutionEnvelope.model_validate(_run_intent(session_id, "detect", payload, request))
+) -> DetectResponse:
+    result = _run_intent(session_id, "detect", payload, request)
+    return DetectResponse.model_validate(_atomic_intent_response("detect", result))
 
 
-@router.post("/sessions/{session_id}/intents/forecast", response_model=ExecutionEnvelope)
+@router.post(
+    "/sessions/{session_id}/intents/forecast",
+    response_model=ForecastResponse,
+    response_model_exclude_none=True,
+)
 def intent_forecast(
     session_id: str,
     payload: aoi.Forecast,
     request: Request,
-) -> ExecutionEnvelope:
-    return ExecutionEnvelope.model_validate(_run_intent(session_id, "forecast", payload, request))
+) -> ForecastResponse:
+    result = _run_intent(session_id, "forecast", payload, request)
+    return ForecastResponse.model_validate(_atomic_intent_response("forecast", result))
 
 
-@router.post("/sessions/{session_id}/intents/test", response_model=ExecutionEnvelope)
+@router.post(
+    "/sessions/{session_id}/intents/test",
+    response_model=TestResponse,
+    response_model_exclude_none=True,
+)
 def intent_test(
     session_id: str,
     payload: aoi.Test,
     request: Request,
-) -> ExecutionEnvelope:
-    return ExecutionEnvelope.model_validate(_run_intent(session_id, "test", payload, request))
+) -> TestResponse:
+    result = _run_intent(session_id, "test", payload, request)
+    return TestResponse.model_validate(_atomic_intent_response("test", result))
+
+
+@router.post(
+    "/sessions/{session_id}/intents/validate",
+    response_model=ValidateResponse,
+    response_model_exclude_none=True,
+)
+def intent_validate(
+    session_id: str,
+    payload: aoi.Validate,
+    request: Request,
+) -> ValidateResponse:
+    result = _run_intent(session_id, "validate", payload, request)
+    return ValidateResponse.model_validate(_derived_intent_response(result))
 
 
 @router.post("/sessions/{session_id}/intents/attribute", response_model=AttributeResponse)
@@ -484,7 +579,8 @@ def intent_attribute(
     payload: aoi.Attribute,
     request: Request,
 ) -> AttributeResponse:
-    return AttributeResponse.model_validate(_run_intent(session_id, "attribute", payload, request))
+    result = _run_intent(session_id, "attribute", payload, request)
+    return AttributeResponse.model_validate(_derived_intent_response(result))
 
 
 @router.post("/sessions/{session_id}/intents/diagnose", response_model=DiagnoseResponse)
@@ -493,4 +589,5 @@ def intent_diagnose(
     payload: aoi.Diagnose,
     request: Request,
 ) -> DiagnoseResponse:
-    return DiagnoseResponse.model_validate(_run_intent(session_id, "diagnose", payload, request))
+    result = _run_intent(session_id, "diagnose", payload, request)
+    return DiagnoseResponse.model_validate(_derived_intent_response(result))

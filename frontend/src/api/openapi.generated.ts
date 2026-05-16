@@ -4,158 +4,6 @@
  */
 
 export interface paths {
-    "/calendar/data": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Load Calendar Data
-         * @description Load calendar data rows into the metadata store.
-         *
-         *     Returns 409 if the calendar_version already exists.
-         */
-        post: operations["load_calendar_data_calendar_data_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/calendar/versions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List Calendar Versions
-         * @description List loaded calendar versions with their region codes.
-         */
-        get: operations["list_calendar_versions_calendar_versions_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/datasources": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Datasources */
-        get: operations["list_datasources_datasources_get"];
-        put?: never;
-        /** Register Datasource */
-        post: operations["register_datasource_datasources_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/datasources/{datasource_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Datasource */
-        get: operations["get_datasource_datasources__datasource_id__get"];
-        /** Update Datasource */
-        put: operations["update_datasource_datasources__datasource_id__put"];
-        post?: never;
-        /** Delete Datasource */
-        delete: operations["delete_datasource_datasources__datasource_id__delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/datasources/{datasource_id}/browse/columns": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Browse Catalog Columns */
-        get: operations["browse_catalog_columns_datasources__datasource_id__browse_columns_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/datasources/{datasource_id}/browse/schemas": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Browse Catalog Schemas */
-        get: operations["browse_catalog_schemas_datasources__datasource_id__browse_schemas_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/datasources/{datasource_id}/browse/tables": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Browse Catalog Tables */
-        get: operations["browse_catalog_tables_datasources__datasource_id__browse_tables_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/datasources/{datasource_id}/catalog/preview": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Preview Table
-         * @description Preview sample rows from a datasource table (live query, no persistence).
-         *
-         *     The limit is clamped to a maximum of 1000 rows at the adapter level.
-         */
-        get: operations["preview_table_datasources__datasource_id__catalog_preview_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/health": {
         parameters: {
             query?: never;
@@ -165,40 +13,6 @@ export interface paths {
         };
         /** Health */
         get: operations["health_health_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/metrics": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Metrics */
-        get: operations["get_metrics_metrics_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/openapi/fragment": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Openapi Fragment */
-        get: operations["get_openapi_fragment_openapi_fragment_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -258,122 +72,18 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/routing/resolve": {
+    "/openapi/fragment": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get?: never;
-        put?: never;
-        /** Routing Resolve */
-        post: operations["routing_resolve_routing_resolve_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/semantic-models": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List Semantic Models
-         * @description List semantic models as an OSI document envelope.
-         */
-        get: operations["list_semantic_models_semantic_models_get"];
+        /** Get Openapi Fragment */
+        get: operations["get_openapi_fragment_openapi_fragment_get"];
         put?: never;
         post?: never;
         delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/semantic-models/export": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Export Osi Semantic Models
-         * @description Export the caller's private working copy as an OSI document.
-         */
-        get: operations["export_osi_semantic_models_semantic_models_export_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/semantic-models/import": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Import Osi Semantic Models
-         * @description Validate and import an OSI document into the caller's private working copy.
-         */
-        post: operations["import_osi_semantic_models_semantic_models_import_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/semantic-models/validate": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Validate Osi Semantic Models
-         * @description Validate an OSI semantic document without writing it.
-         */
-        post: operations["validate_osi_semantic_models_semantic_models_validate_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/semantic-models/{model}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Semantic Model
-         * @description Get a semantic model as an OSI document.
-         */
-        get: operations["get_semantic_model_semantic_models__model__get"];
-        put?: never;
-        post?: never;
-        /**
-         * Delete Semantic Model
-         * @description Delete the caller's private semantic model working copy.
-         */
-        delete: operations["delete_semantic_model_semantic_models__model__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -414,6 +124,90 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/sessions/{session_id}/runtime-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Session Runtime Status */
+        get: operations["get_session_runtime_status_sessions__session_id__runtime_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{session_id}/terminate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Terminate Session
+         * @description Terminate a session, preventing further intent write operations.
+         */
+        post: operations["terminate_session_sessions__session_id__terminate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{session_id}/state": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Session State
+         * @description Return the canonical SessionStateView for a session.
+         *
+         *     ``slice`` is intentionally not supported on this endpoint.
+         *     Use ``POST /sessions/{session_id}/state/query`` when ``slice`` filtering
+         *     is required.
+         */
+        get: operations["get_session_state_sessions__session_id__state_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{session_id}/state/query": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Query Session State
+         * @description Return the canonical SessionStateView with a structured query body.
+         *
+         *     Use this endpoint when ``slice`` filtering or multi-axis query composition
+         *     is required.  Supports all ``SessionStateQuery`` fields.
+         */
+        post: operations["query_session_state_sessions__session_id__state_query_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sessions/{session_id}/artifacts/{artifact_id}/runtime-status": {
         parameters: {
             query?: never;
@@ -432,159 +226,6 @@ export interface paths {
         get: operations["get_artifact_runtime_status_sessions__session_id__artifacts__artifact_id__runtime_status_get"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/sessions/{session_id}/intents/attribute": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Intent Attribute */
-        post: operations["intent_attribute_sessions__session_id__intents_attribute_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/sessions/{session_id}/intents/compare": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Intent Compare */
-        post: operations["intent_compare_sessions__session_id__intents_compare_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/sessions/{session_id}/intents/correlate": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Intent Correlate */
-        post: operations["intent_correlate_sessions__session_id__intents_correlate_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/sessions/{session_id}/intents/decompose": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Intent Decompose */
-        post: operations["intent_decompose_sessions__session_id__intents_decompose_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/sessions/{session_id}/intents/detect": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Intent Detect */
-        post: operations["intent_detect_sessions__session_id__intents_detect_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/sessions/{session_id}/intents/diagnose": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Intent Diagnose */
-        post: operations["intent_diagnose_sessions__session_id__intents_diagnose_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/sessions/{session_id}/intents/forecast": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Intent Forecast */
-        post: operations["intent_forecast_sessions__session_id__intents_forecast_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/sessions/{session_id}/intents/observe": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Intent Observe */
-        post: operations["intent_observe_sessions__session_id__intents_observe_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/sessions/{session_id}/intents/test": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Intent Test */
-        post: operations["intent_test_sessions__session_id__intents_test_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -642,15 +283,222 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/sessions/{session_id}/runtime-status": {
+    "/sessions/{session_id}/intents/observe": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Get Session Runtime Status */
-        get: operations["get_session_runtime_status_sessions__session_id__runtime_status_get"];
+        get?: never;
+        put?: never;
+        /** Intent Observe */
+        post: operations["intent_observe_sessions__session_id__intents_observe_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{session_id}/intents/compare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Intent Compare */
+        post: operations["intent_compare_sessions__session_id__intents_compare_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{session_id}/intents/decompose": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Intent Decompose */
+        post: operations["intent_decompose_sessions__session_id__intents_decompose_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{session_id}/intents/correlate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Intent Correlate */
+        post: operations["intent_correlate_sessions__session_id__intents_correlate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{session_id}/intents/detect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Intent Detect */
+        post: operations["intent_detect_sessions__session_id__intents_detect_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{session_id}/intents/forecast": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Intent Forecast */
+        post: operations["intent_forecast_sessions__session_id__intents_forecast_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{session_id}/intents/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Intent Test */
+        post: operations["intent_test_sessions__session_id__intents_test_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{session_id}/intents/validate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Intent Validate */
+        post: operations["intent_validate_sessions__session_id__intents_validate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{session_id}/intents/attribute": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Intent Attribute */
+        post: operations["intent_attribute_sessions__session_id__intents_attribute_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{session_id}/intents/diagnose": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Intent Diagnose */
+        post: operations["intent_diagnose_sessions__session_id__intents_diagnose_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/datasources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Datasources */
+        get: operations["list_datasources_datasources_get"];
+        put?: never;
+        /** Register Datasource */
+        post: operations["register_datasource_datasources_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/datasources/{datasource_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Datasource */
+        get: operations["get_datasource_datasources__datasource_id__get"];
+        /** Update Datasource */
+        put: operations["update_datasource_datasources__datasource_id__put"];
+        post?: never;
+        /** Delete Datasource */
+        delete: operations["delete_datasource_datasources__datasource_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/datasources/{datasource_id}/browse/schemas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Browse Catalog Schemas */
+        get: operations["browse_catalog_schemas_datasources__datasource_id__browse_schemas_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -659,7 +507,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/sessions/{session_id}/state": {
+    "/datasources/{datasource_id}/browse/tables": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Browse Catalog Tables */
+        get: operations["browse_catalog_tables_datasources__datasource_id__browse_tables_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/datasources/{datasource_id}/browse/columns": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Browse Catalog Columns */
+        get: operations["browse_catalog_columns_datasources__datasource_id__browse_columns_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/datasources/{datasource_id}/catalog/preview": {
         parameters: {
             query?: never;
             header?: never;
@@ -667,14 +549,12 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Session State
-         * @description Return the canonical SessionStateView for a session.
+         * Preview Table
+         * @description Preview sample rows from a datasource table (live query, no persistence).
          *
-         *     ``slice`` is intentionally not supported on this endpoint.
-         *     Use ``POST /sessions/{session_id}/state/query`` when ``slice`` filtering
-         *     is required.
+         *     The limit is clamped to a maximum of 1000 rows at the adapter level.
          */
-        get: operations["get_session_state_sessions__session_id__state_get"];
+        get: operations["preview_table_datasources__datasource_id__catalog_preview_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -683,7 +563,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/sessions/{session_id}/state/query": {
+    "/routing/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Routing Resolve */
+        post: operations["routing_resolve_routing_resolve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/semantic-models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Semantic Models
+         * @description List semantic models as an OSI document envelope.
+         */
+        get: operations["list_semantic_models_semantic_models_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/semantic-models/validate": {
         parameters: {
             query?: never;
             header?: never;
@@ -693,20 +610,17 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Query Session State
-         * @description Return the canonical SessionStateView with a structured query body.
-         *
-         *     Use this endpoint when ``slice`` filtering or multi-axis query composition
-         *     is required.  Supports all ``SessionStateQuery`` fields.
+         * Validate Osi Semantic Models
+         * @description Validate an OSI semantic document without writing it.
          */
-        post: operations["query_session_state_sessions__session_id__state_query_post"];
+        post: operations["validate_osi_semantic_models_semantic_models_validate_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/sessions/{session_id}/terminate": {
+    "/semantic-models/import": {
         parameters: {
             query?: never;
             header?: never;
@@ -716,10 +630,113 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Terminate Session
-         * @description Terminate a session, preventing further intent write operations.
+         * Import Osi Semantic Models
+         * @description Validate and import an OSI document into the caller's private working copy.
          */
-        post: operations["terminate_session_sessions__session_id__terminate_post"];
+        post: operations["import_osi_semantic_models_semantic_models_import_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/semantic-models/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export Osi Semantic Models
+         * @description Export the caller's private working copy as an OSI document.
+         */
+        get: operations["export_osi_semantic_models_semantic_models_export_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/semantic-models/{model}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Semantic Model
+         * @description Get a semantic model as an OSI document.
+         */
+        get: operations["get_semantic_model_semantic_models__model__get"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete Semantic Model
+         * @description Delete the caller's private semantic model working copy.
+         */
+        delete: operations["delete_semantic_model_semantic_models__model__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/metrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Metrics */
+        get: operations["get_metrics_metrics_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/calendar/data": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Load Calendar Data
+         * @description Load calendar data rows into the metadata store.
+         *
+         *     Returns 409 if the calendar_version already exists.
+         */
+        post: operations["load_calendar_data_calendar_data_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/calendar/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Calendar Versions
+         * @description List loaded calendar versions with their region codes.
+         */
+        get: operations["list_calendar_versions_calendar_versions_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -728,10 +745,6 @@ export interface paths {
     };
 }
 export type webhooks = Record<string, never>;
-export type JsonValue = string | number | boolean | null | JsonValue[] | {
-    [key: string]: JsonValue;
-};
-
 export interface components {
     schemas: {
         /**
@@ -739,11 +752,6 @@ export interface components {
          * @description Additional context for AI tools
          */
         AIContext1: {
-            /**
-             * Examples
-             * @description Sample questions or use cases
-             */
-            examples?: string[] | null;
             /**
              * Instructions
              * @description Instructions for AI on how to use this entity
@@ -754,74 +762,123 @@ export interface components {
              * @description Alternative names and terms
              */
             synonyms?: string[] | null;
+            /**
+             * Examples
+             * @description Sample questions or use cases
+             */
+            examples?: string[] | null;
         };
         /** AdditiveDimension */
         AdditiveDimension: string;
+        /** AnalysisFailure */
+        AnalysisFailure: {
+            /** Code */
+            code: string;
+            /** Message */
+            message: string;
+        };
         /** AnalysisSession */
         AnalysisSession: {
-            /** Created At */
-            created_at: string;
-            goal: components["schemas"]["SessionGoal"];
-            lifecycle: components["schemas"]["SessionLifecycle"];
-            /** Owner User */
-            owner_user?: string | null;
-            /** Schema Version */
-            schema_version: string;
-            scope: components["schemas"]["SessionScope"];
             /** Session Id */
             session_id: string;
+            goal: components["schemas"]["SessionGoal"];
+            scope: components["schemas"]["SessionScope"];
+            /** Owner User */
+            owner_user?: string | null;
+            lifecycle: components["schemas"]["SessionLifecycle"];
             state_summary: components["schemas"]["SessionStateSummary"];
+            /** Created At */
+            created_at: string;
             /** Updated At */
             updated_at: string;
+            /** Schema Version */
+            schema_version: string;
+        };
+        /** AnomalyCandidate */
+        AnomalyCandidate: {
+            /** Item Id */
+            item_id: string;
+            /**
+             * Bucket Start
+             * Format: date-time
+             */
+            bucket_start: string;
+            /** Value */
+            value: number;
+            /** Score */
+            score: number;
+            /** Series Keys */
+            series_keys: {
+                [key: string]: string;
+            } | null;
+        };
+        /** AnomalyCandidatesResult */
+        AnomalyCandidatesResult: {
+            /** Items */
+            items: components["schemas"]["AnomalyCandidate"][];
+        };
+        /** Artifact1 */
+        Artifact1: {
+            /** Artifact Id */
+            artifact_id: string;
+            /** Result */
+            result: components["schemas"]["ScalarObservationResult"] | components["schemas"]["TimeSeriesObservationResult"] | components["schemas"]["SegmentedObservationResult"] | components["schemas"]["ScalarDeltaResult"] | components["schemas"]["TimeSeriesDeltaResult"] | components["schemas"]["SegmentedDeltaResult"] | components["schemas"]["DeltaDecompositionResult"] | components["schemas"]["AnomalyCandidatesResult"] | components["schemas"]["AssociationResult"] | components["schemas"]["HypothesisTestResult"] | components["schemas"]["ForecastSeriesResult"];
+            failure?: components["schemas"]["AnalysisFailure"] | null;
+        };
+        /** Artifact2 */
+        Artifact2: {
+            /** Artifact Id */
+            artifact_id: string;
+            /** Result */
+            result?: components["schemas"]["ScalarObservationResult"] | components["schemas"]["TimeSeriesObservationResult"] | components["schemas"]["SegmentedObservationResult"] | components["schemas"]["ScalarDeltaResult"] | components["schemas"]["TimeSeriesDeltaResult"] | components["schemas"]["SegmentedDeltaResult"] | components["schemas"]["DeltaDecompositionResult"] | components["schemas"]["AnomalyCandidatesResult"] | components["schemas"]["AssociationResult"] | components["schemas"]["HypothesisTestResult"] | components["schemas"]["ForecastSeriesResult"] | null;
+            failure: components["schemas"]["AnalysisFailure"];
         };
         /** ArtifactExtractorKey */
         ArtifactExtractorKey: {
-            /** Artifact Schema Version */
-            artifact_schema_version?: string | null;
             /** Artifact Type */
             artifact_type: string;
+            /** Artifact Schema Version */
+            artifact_schema_version?: string | null;
             /** Extractor Version */
             extractor_version?: string | null;
         };
         /** ArtifactRuntimeStatusResponse */
         ArtifactRuntimeStatusResponse: {
+            /** Session Id */
+            session_id: string;
             /** Artifact Id */
             artifact_id: string;
             /** Artifact Stage */
             artifact_stage: string;
-            /** Attempt Id */
-            attempt_id?: string | null;
+            extractor_key: components["schemas"]["ArtifactExtractorKey"];
             /** Correlation Id */
             correlation_id: string;
-            extractor_key: components["schemas"]["ArtifactExtractorKey"];
-            /** Last Failure At */
-            last_failure_at?: string | null;
+            /** Attempt Id */
+            attempt_id?: string | null;
             /** Last Failure Reason */
             last_failure_reason?: string | null;
+            /** Last Failure At */
+            last_failure_at?: string | null;
             /** Schema Version */
             schema_version: string;
-            /** Session Id */
-            session_id: string;
         };
-        /**
-         * AttributeObservationInput
-         * @description One side of an attribute request — canonical observe scalar profile.
-         */
-        AttributeObservationInput: {
-            scope?: components["schemas"]["ObserveScope"] | null;
-            /** Time Scope */
-            time_scope: components["schemas"]["ObserveTimeScopeRange"] | components["schemas"]["ObserveTimeScopeSnapshotNow"] | components["schemas"]["ObserveTimeScopeLatestAvailable"] | components["schemas"]["ObserveTimeScopeAsOf"];
+        /** AssociationResult */
+        AssociationResult: {
+            /** Coefficient */
+            coefficient: number;
+            p_value: components["schemas"]["PValue"] | null;
+            /** N Pairs */
+            n_pairs: number;
+            matched_time_scope: components["schemas"]["TimeScope"] | null;
         };
-        /**
-         * AttributeRequest
-         * @description Derived intent: attribute a metric change (expands to observe+observe+compare+decompose).
-         */
-        AttributeRequest: {
-            /**
-             * Decomposition Limit
-             * @default 5
-             */
-            decomposition_limit: number;
+        /** Attribute */
+        Attribute: {
+            /** Metric */
+            metric: string;
+            left: components["schemas"]["Slice"];
+            right: components["schemas"]["Slice"];
+            /** Dimensions */
+            dimensions: components["schemas"]["Dimension-Input"][];
             /**
              * Decomposition Method
              * @default delta_share
@@ -829,26 +886,29 @@ export interface components {
              */
             decomposition_method: "delta_share";
             /**
-             * Dimensions
-             * @description Attribution dimensions (deduped in order).
+             * Decomposition Limit
+             * @default 5
              */
-            dimensions: string[];
-            /** @description Current / treatment side observation scope. */
-            left: components["schemas"]["AttributeObservationInput"];
-            /**
-             * Metric
-             * @description Canonical semantic metric ref to attribute (e.g., 'metric.watch_time').
-             */
-            metric: string;
-            /** @description Baseline / control side observation scope. */
-            right: components["schemas"]["AttributeObservationInput"];
+            decomposition_limit: number;
         };
-        /**
-         * AttributeResponse
-         * @description Response payload for attribute intent execution.
-         */
+        /** AttributeResponse */
         AttributeResponse: {
-            [key: string]: components["schemas"]["JsonValue"];
+            /** Intent Type */
+            intent_type: string;
+            /** Step Type */
+            step_type: string;
+            step_ref: components["schemas"]["StepRef"];
+            /** Artifact Id */
+            artifact_id: string;
+            /** Provenance */
+            provenance?: {
+                [key: string]: unknown;
+            } | null;
+            /** Product Metadata */
+            product_metadata?: {
+                [key: string]: unknown;
+            } | null;
+            result: components["schemas"]["DerivedBundleResult"];
         };
         /** BrowseSchemaItem */
         BrowseSchemaItem: {
@@ -859,14 +919,14 @@ export interface components {
         };
         /** BrowseTableItem */
         BrowseTableItem: {
-            /** Column Count */
-            column_count?: number | null;
-            /** Row Count */
-            row_count?: number | null;
-            /** Schema Name */
-            schema_name: string;
             /** Table Name */
             table_name: string;
+            /** Schema Name */
+            schema_name: string;
+            /** Row Count */
+            row_count?: number | null;
+            /** Column Count */
+            column_count?: number | null;
         };
         /**
          * CalendarDataLoadRequest
@@ -889,12 +949,12 @@ export interface components {
          * @description Response body for POST /calendar/data.
          */
         CalendarDataLoadResponse: {
+            /** Status */
+            status: string;
             /** Calendar Version */
             calendar_version: string;
             /** Row Count */
             row_count: number;
-            /** Status */
-            status: string;
         };
         /**
          * CalendarDataRow
@@ -907,15 +967,16 @@ export interface components {
              */
             calendar_date: string;
             /**
-             * Holiday Group Id
-             * @description Holiday group identifier
+             * Region Code
+             * @description Region code (e.g. CN)
+             * @default CN
              */
-            holiday_group_id?: string | null;
+            region_code: string;
             /**
-             * Holiday Name
-             * @description Holiday name, if applicable
+             * Weekday
+             * @description Day of week, 1=Monday .. 7=Sunday
              */
-            holiday_name?: string | null;
+            weekday: number;
             /**
              * Is Weekend
              * @description 1 if weekend, 0 otherwise
@@ -927,16 +988,15 @@ export interface components {
              */
             is_workday: number;
             /**
-             * Region Code
-             * @description Region code (e.g. CN)
-             * @default CN
+             * Holiday Name
+             * @description Holiday name, if applicable
              */
-            region_code: string;
+            holiday_name?: string | null;
             /**
-             * Weekday
-             * @description Day of week, 1=Monday .. 7=Sunday
+             * Holiday Group Id
+             * @description Holiday group identifier
              */
-            weekday: number;
+            holiday_group_id?: string | null;
             /**
              * Year Relative Holiday Key
              * @description Year-relative holiday key
@@ -953,6 +1013,8 @@ export interface components {
             /** Region Code */
             region_code: string;
         };
+        /** CandidateDimension */
+        CandidateDimension: string;
         /** Compare */
         Compare: {
             /**
@@ -966,17 +1028,57 @@ export interface components {
             /** Right Artifact Id */
             right_artifact_id: string;
         };
+        /** CompareResponse */
+        CompareResponse: {
+            /** Intent Type */
+            intent_type: string;
+            /** Step Type */
+            step_type: string;
+            step_ref: components["schemas"]["StepRef"];
+            /** Artifact Id */
+            artifact_id: string;
+            /** Provenance */
+            provenance?: {
+                [key: string]: unknown;
+            } | null;
+            /** Product Metadata */
+            product_metadata?: {
+                [key: string]: unknown;
+            } | null;
+            /** Result */
+            result: components["schemas"]["_CompareArtifact"] | components["schemas"]["_CompareFailureArtifact"];
+        };
         /** Correlate */
         Correlate: {
-            /** Left Artifact Id */
-            left_artifact_id: string;
             /**
              * Method
              * @enum {string}
              */
             method?: "pearson" | "spearman";
+            /** Left Artifact Id */
+            left_artifact_id: string;
             /** Right Artifact Id */
             right_artifact_id: string;
+        };
+        /** CorrelateResponse */
+        CorrelateResponse: {
+            /** Intent Type */
+            intent_type: string;
+            /** Step Type */
+            step_type: string;
+            step_ref: components["schemas"]["StepRef"];
+            /** Artifact Id */
+            artifact_id: string;
+            /** Provenance */
+            provenance?: {
+                [key: string]: unknown;
+            } | null;
+            /** Product Metadata */
+            product_metadata?: {
+                [key: string]: unknown;
+            } | null;
+            /** Result */
+            result: components["schemas"]["_CorrelateArtifact"] | components["schemas"]["_CorrelateFailureArtifact"];
         };
         /**
          * Dataset
@@ -984,66 +1086,54 @@ export interface components {
          */
         Dataset: {
             /**
-             * Ai Context
-             * @description Additional context for AI tools
-             */
-            ai_context?: string | components["schemas"]["AIContext1"] | null;
-            /** Custom Extensions */
-            custom_extensions?: components["schemas"]["MarivoDatasetCustomExtension"][] | null;
-            /**
-             * Description
-             * @description Human-readable description
-             */
-            description?: string | null;
-            /** Fields */
-            fields?: components["schemas"]["FieldModel"][] | null;
-            /**
              * Name
              * @description Unique identifier for the dataset
              */
             name: string;
-            /**
-             * Primary Key
-             * @description Primary key columns (single or composite)
-             */
-            primary_key?: string[] | null;
             /**
              * Source
              * @description Reference to underlying physical table or view as a relation FQN (schema.table or catalog.schema.table)
              */
             source: string;
             /**
+             * Primary Key
+             * @description Primary key columns (single or composite)
+             */
+            primary_key?: string[] | null;
+            /**
              * Unique Keys
              * @description Array of unique key definitions (each can be single or composite)
              */
             unique_keys?: string[][] | null;
-        };
-        /** DatasourceBindingReport */
-        DatasourceBindingReport: {
-            /** Dataset */
-            dataset: string;
-            /** Datasource Id */
-            datasource_id: string;
             /**
-             * Selection
-             * @default first_accessible_candidate
+             * Description
+             * @description Human-readable description
              */
-            selection: string;
+            description?: string | null;
+            /**
+             * Ai Context
+             * @description Additional context for AI tools
+             */
+            ai_context?: string | components["schemas"]["AIContext1"] | null;
+            /** Fields */
+            fields?: components["schemas"]["FieldModel"][] | null;
+            /** Custom Extensions */
+            custom_extensions?: components["schemas"]["MarivoDatasetCustomExtension"][] | null;
         };
         /** DatasourceColumnResponse */
         DatasourceColumnResponse: {
-            /** Data Type */
-            data_type?: string | null;
             /** Name */
             name: string;
-            /** Properties */
-            properties?: {
-                [key: string]: string | number | boolean | null;
-            };
             /** Schema Name */
             schema_name: string;
             /** Table Name */
             table_name: string;
+            /** Data Type */
+            data_type?: string | null;
+            /** Properties */
+            properties?: {
+                [key: string]: string | number | boolean | null;
+            };
         };
         /** DatasourceDeleteResponse */
         DatasourceDeleteResponse: {
@@ -1057,8 +1147,6 @@ export interface components {
         };
         /** DatasourceRegisterRequest */
         DatasourceRegisterRequest: {
-            /** Connection */
-            connection: components["schemas"]["DuckDbDatasourceConnection"] | components["schemas"]["TrinoDatasourceConnection"];
             /**
              * Datasource Type
              * @enum {string}
@@ -1066,16 +1154,11 @@ export interface components {
             datasource_type: "duckdb" | "trino";
             /** Display Name */
             display_name: string;
+            /** Connection */
+            connection: components["schemas"]["DuckDbDatasourceConnection"] | components["schemas"]["TrinoDatasourceConnection"];
         };
         /** DatasourceResponse */
         DatasourceResponse: {
-            /** Connection */
-            connection: components["schemas"]["DuckDbDatasourceConnection"] | components["schemas"]["TrinoDatasourceConnection"];
-            /**
-             * Created At
-             * @default
-             */
-            created_at: string;
             /** Datasource Id */
             datasource_id: string;
             /**
@@ -1085,22 +1168,29 @@ export interface components {
             datasource_type: "duckdb" | "trino";
             /** Display Name */
             display_name: string;
-            /** Failure Code */
-            failure_code?: string | null;
+            /** Connection */
+            connection: components["schemas"]["DuckDbDatasourceConnection"] | components["schemas"]["TrinoDatasourceConnection"];
             /** Owner User */
             owner_user?: string | null;
-            /**
-             * Readiness Status
-             * @default not_ready
-             * @enum {string}
-             */
-            readiness_status: "not_ready" | "ready";
             /**
              * Status
              * @default active
              * @enum {string}
              */
             status: "active" | "inactive" | "deprecated";
+            /**
+             * Readiness Status
+             * @default not_ready
+             * @enum {string}
+             */
+            readiness_status: "not_ready" | "ready";
+            /** Failure Code */
+            failure_code?: string | null;
+            /**
+             * Created At
+             * @default
+             */
+            created_at: string;
             /**
              * Updated At
              * @default
@@ -1109,154 +1199,196 @@ export interface components {
         };
         /** DatasourceUpdateRequest */
         DatasourceUpdateRequest: {
+            /** Display Name */
+            display_name?: string | null;
             /**
              * Connection
              * @description Full connection object including datasource_type; required when provided.
              */
             connection?: (components["schemas"]["DuckDbDatasourceConnection"] | components["schemas"]["TrinoDatasourceConnection"]) | null;
-            /** Display Name */
-            display_name?: string | null;
+        };
+        /** Decision */
+        Decision: {
+            /** Reject Null */
+            reject_null: boolean | null;
         };
         /** Decompose */
         Decompose: {
-            /** Compare Artifact Id */
-            compare_artifact_id: string;
             /** Dimension */
             dimension: string;
             /** Limit */
             limit?: number;
+            /** Compare Artifact Id */
+            compare_artifact_id: string;
+        };
+        /** DecomposeResponse */
+        DecomposeResponse: {
+            /** Intent Type */
+            intent_type: string;
+            /** Step Type */
+            step_type: string;
+            step_ref: components["schemas"]["StepRef"];
+            /** Artifact Id */
+            artifact_id: string;
+            /** Provenance */
+            provenance?: {
+                [key: string]: unknown;
+            } | null;
+            /** Product Metadata */
+            product_metadata?: {
+                [key: string]: unknown;
+            } | null;
+            /** Result */
+            result: components["schemas"]["_DecomposeArtifact"] | components["schemas"]["_DecomposeFailureArtifact"];
+        };
+        /** DecompositionItem */
+        DecompositionItem: {
+            /** Item Id */
+            item_id: string;
+            /** Key */
+            key: string | number | boolean | null;
+            /** Contribution */
+            contribution: number;
+            /** Share */
+            share: number;
+        };
+        /** DeltaDecompositionResult */
+        DeltaDecompositionResult: {
+            /** Items */
+            items: components["schemas"]["DecompositionItem"][];
+        };
+        /** DeltaPoint */
+        DeltaPoint: {
+            /**
+             * Bucket Start
+             * Format: date-time
+             */
+            bucket_start: string;
+            /** Left Value */
+            left_value: number | null;
+            /** Right Value */
+            right_value: number | null;
+            /** Delta */
+            delta: number | null;
+        };
+        /** DerivedBundleResult */
+        DerivedBundleResult: {
+            /** Bundle Type */
+            bundle_type: string;
+            /** Aoi Artifacts */
+            aoi_artifacts: (components["schemas"]["Artifact1"] | components["schemas"]["Artifact2"])[];
+        } & {
+            [key: string]: unknown;
         };
         /** Detect */
         Detect: {
-            /** Dimension */
-            dimension?: string;
-            filter?: components["schemas"]["Expression-Input"];
+            /** Metric */
+            metric: string;
+            time_scope: components["schemas"]["TimeScope"];
             /**
              * Granularity
              * @enum {string}
              */
             granularity: "hour" | "day" | "week" | "month" | "quarter" | "year";
-            /** Limit */
-            limit?: number;
-            /** Metric */
-            metric: string;
+            filter?: components["schemas"]["Expression-Input"];
+            /** Dimension */
+            dimension?: string;
+            /**
+             * Strategy
+             * @enum {string}
+             */
+            strategy: "point_anomaly" | "period_shift";
             /**
              * Sensitivity
              * @default aggressive
              * @enum {string}
              */
             sensitivity: "conservative" | "balanced" | "aggressive";
-            /**
-             * Strategy
-             * @enum {string}
-             */
-            strategy: "point_anomaly" | "period_shift";
-            time_scope: components["schemas"]["TimeScope"];
+            /** Limit */
+            limit?: number;
         };
-        /**
-         * DetectTimeScope
-         * @description Range-only time_scope for auto-detect diagnose.
-         */
-        DetectTimeScope: {
-            /**
-             * End
-             * @description Exclusive end of the range (ISO-8601 date or datetime).
-             */
-            end: string;
-            /**
-             * Kind
-             * @constant
-             */
-            kind: "range";
-            /**
-             * Start
-             * @description Inclusive start of the range (ISO-8601 date or datetime).
-             */
-            start: string;
+        /** DetectResponse */
+        DetectResponse: {
+            /** Intent Type */
+            intent_type: string;
+            /** Step Type */
+            step_type: string;
+            step_ref: components["schemas"]["StepRef"];
+            /** Artifact Id */
+            artifact_id: string;
+            /** Provenance */
+            provenance?: {
+                [key: string]: unknown;
+            } | null;
+            /** Product Metadata */
+            product_metadata?: {
+                [key: string]: unknown;
+            } | null;
+            /** Result */
+            result: components["schemas"]["_DetectArtifact"] | components["schemas"]["_DetectFailureArtifact"];
         };
-        /**
-         * DiagnoseRequest
-         * @description Derived intent: diagnose anomalies or known current-vs-baseline degradation.
-         */
-        DiagnoseRequest: {
-            /** @description Required baseline side when mode='explicit_compare'. */
-            baseline?: components["schemas"]["AttributeObservationInput"] | null;
-            /**
-             * Baseline Policy
-             * @description Baseline policy for auto-detect follow-up candidates.
-             * @default previous_adjacent_equal_length
-             * @constant
-             */
-            baseline_policy: "previous_adjacent_equal_length";
-            /**
-             * Candidate Dimensions
-             * @description Attribution dimensions to decompose each followed candidate over.
-             */
-            candidate_dimensions: string[];
-            /**
-             * Candidate Limit
-             * @description Maximum number of candidates returned by the internal detect step.
-             */
-            candidate_limit?: number | null;
-            /** @description Required current side when mode='explicit_compare'. */
-            current?: components["schemas"]["AttributeObservationInput"] | null;
-            /**
-             * Decomposition Limit
-             * @description Maximum driver rows per dimension per candidate.
-             * @default 5
-             */
-            decomposition_limit: number | null;
-            /**
-             * Detect Dimension
-             * @description Optional semantic dimension to split detect into independent series.
-             */
-            detect_dimension?: string | null;
-            /**
-             * Followup Limit
-             * @description Number of top-ranked candidates to follow up with compare+decompose.
-             * @default 3
-             */
-            followup_limit: number | null;
-            /**
-             * Granularity
-             * @description Required when mode='auto_detect'.
-             */
-            granularity?: ("hour" | "day" | "week" | "month") | null;
-            /**
-             * Metric
-             * @description Canonical semantic metric ref to diagnose (e.g., 'metric.watch_time').
-             */
-            metric: string;
+        /** Diagnose */
+        Diagnose: {
             /**
              * Mode
-             * @description auto_detect expands detect+follow-up; explicit_compare expands observe+compare+decompose directly.
              * @default auto_detect
              * @enum {string}
              */
             mode: "auto_detect" | "explicit_compare";
-            scope?: components["schemas"]["ObserveScope"] | null;
+            /** Metric */
+            metric: string;
+            time_scope?: components["schemas"]["TimeScope"];
+            /** Granularity */
+            granularity?: ("hour" | "day" | "week" | "month") | null;
+            filter?: components["schemas"]["Expression-Input"];
+            current?: components["schemas"]["Slice"];
+            baseline?: components["schemas"]["Slice"];
+            /** Detect Dimension */
+            detect_dimension?: string;
+            /** Candidate Dimensions */
+            candidate_dimensions: components["schemas"]["CandidateDimension"][];
+            /**
+             * Strategy
+             * @enum {string}
+             */
+            strategy: "point_anomaly" | "period_shift";
             /**
              * Sensitivity
-             * @description Detection sensitivity preset.
              * @default aggressive
              * @enum {string}
              */
             sensitivity: "conservative" | "balanced" | "aggressive";
+            /** Candidate Limit */
+            candidate_limit?: number;
             /**
-             * Strategy
-             * @description Detection strategy.
-             * @enum {string}
+             * Followup Limit
+             * @default 3
              */
-            strategy: "point_anomaly" | "period_shift";
-            /** @description Required when mode='auto_detect'. */
-            time_scope?: components["schemas"]["DetectTimeScope"] | null;
+            followup_limit: number;
+            /**
+             * Decomposition Limit
+             * @default 5
+             */
+            decomposition_limit: number;
         };
-        /**
-         * DiagnoseResponse
-         * @description Response payload for diagnose intent execution.
-         */
+        /** DiagnoseResponse */
         DiagnoseResponse: {
-            [key: string]: components["schemas"]["JsonValue"];
+            /** Intent Type */
+            intent_type: string;
+            /** Step Type */
+            step_type: string;
+            step_ref: components["schemas"]["StepRef"];
+            /** Artifact Id */
+            artifact_id: string;
+            /** Provenance */
+            provenance?: {
+                [key: string]: unknown;
+            } | null;
+            /** Product Metadata */
+            product_metadata?: {
+                [key: string]: unknown;
+            } | null;
+            result: components["schemas"]["DerivedBundleResult"];
         };
         /** Dialect */
         Dialect: {
@@ -1300,76 +1432,43 @@ export interface components {
         };
         /** DuckDbDatasourceConnection */
         DuckDbDatasourceConnection: {
-            /** Database */
-            database?: string | null;
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
             datasource_type: "duckdb";
-            /** Db Path */
-            db_path?: string | null;
             /** Path */
             path?: string | null;
-        };
-        /**
-         * ExecutionEnvelope
-         * @description Marivo execution envelope.
-         *
-         *     Wraps an AOI artifact result with platform metadata needed for
-         *     lineage, composition, and product-level semantics.
-         *
-         *     - ``result``: AOI artifact payload (the analysis output)
-         *     - ``provenance``: execution trace metadata (query hash, timing, etc.)
-         *     - ``product_metadata``: derived-intent product semantics
-         *       (e.g. validation.status, issues) — lives here, not in AOI result
-         */
-        ExecutionEnvelope: {
-            /** Artifact Id */
-            artifact_id: string;
-            /** Intent Type */
-            intent_type: string;
-            /** Product Metadata */
-            product_metadata?: {
-                [key: string]: unknown;
-            } | null;
-            /** Provenance */
-            provenance?: {
-                [key: string]: unknown;
-            } | null;
-            /** Result */
-            result: {
-                [key: string]: unknown;
-            };
-            step_ref: components["schemas"]["StepRef"];
-            /** Step Type */
-            step_type: string;
+            /** Database */
+            database?: string | null;
+            /** Db Path */
+            db_path?: string | null;
         };
         /** ExecutionLocatorEntry */
         ExecutionLocatorEntry: {
-            /** Authority Catalog */
-            authority_catalog?: string | null;
-            /** Authority Locator */
-            authority_locator?: {
-                [key: string]: string | null;
-            } | null;
             /** Catalog */
             catalog?: string | null;
+            /** Schema */
+            schema?: string | null;
+            /** Table */
+            table?: string | null;
+            /** Mapping Id */
+            mapping_id?: string | null;
+            /** Authority Catalog */
+            authority_catalog?: string | null;
+            /** Execution Catalog */
+            execution_catalog?: string | null;
             /**
              * Default Schema Applied
              * @default false
              */
             default_schema_applied: boolean;
-            /** Execution Catalog */
-            execution_catalog?: string | null;
-            /** Mapping Id */
-            mapping_id?: string | null;
             /** Readiness Blockers */
             readiness_blockers?: string[];
-            /** Schema */
-            schema?: string | null;
-            /** Table */
-            table?: string | null;
+            /** Authority Locator */
+            authority_locator?: {
+                [key: string]: string | null;
+            } | null;
         };
         /** Expression */
         "Expression-Input": {
@@ -1390,6 +1489,23 @@ export interface components {
          */
         FieldModel: {
             /**
+             * Name
+             * @description Unique identifier for the field within the dataset
+             */
+            name: string;
+            expression: components["schemas"]["Expression-Output"];
+            dimension?: components["schemas"]["Dimension-Output"] | null;
+            /**
+             * Label
+             * @description Label for categorization
+             */
+            label?: string | null;
+            /**
+             * Description
+             * @description Human-readable description
+             */
+            description?: string | null;
+            /**
              * Ai Context
              * @description Additional context for AI tools
              */
@@ -1399,23 +1515,6 @@ export interface components {
              * @description No MARIVO custom extensions are defined for fields.
              */
             custom_extensions?: unknown[] | null;
-            /**
-             * Description
-             * @description Human-readable description
-             */
-            description?: string | null;
-            dimension?: components["schemas"]["Dimension-Output"] | null;
-            expression: components["schemas"]["Expression-Output"];
-            /**
-             * Label
-             * @description Label for categorization
-             */
-            label?: string | null;
-            /**
-             * Name
-             * @description Unique identifier for the field within the dataset
-             */
-            name: string;
         };
         /** Forecast */
         Forecast: {
@@ -1423,6 +1522,31 @@ export interface components {
             horizon: number;
             /** Source Artifact Id */
             source_artifact_id: string;
+        };
+        /** ForecastResponse */
+        ForecastResponse: {
+            /** Intent Type */
+            intent_type: string;
+            /** Step Type */
+            step_type: string;
+            step_ref: components["schemas"]["StepRef"];
+            /** Artifact Id */
+            artifact_id: string;
+            /** Provenance */
+            provenance?: {
+                [key: string]: unknown;
+            } | null;
+            /** Product Metadata */
+            product_metadata?: {
+                [key: string]: unknown;
+            } | null;
+            /** Result */
+            result: components["schemas"]["_ForecastArtifact"] | components["schemas"]["_ForecastFailureArtifact"];
+        };
+        /** ForecastSeriesResult */
+        ForecastSeriesResult: {
+            /** Points */
+            points: components["schemas"]["Point"][];
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -1432,87 +1556,46 @@ export interface components {
         /** Hypothesis */
         Hypothesis: {
             /**
-             * Alternative
-             * @enum {string}
-             */
-            alternative: "two_sided" | "greater" | "less";
-            /**
              * Family
              * @constant
              */
             family: "two_sample_mean";
+            /**
+             * Alternative
+             * @enum {string}
+             */
+            alternative: "two_sided" | "greater" | "less";
             /**
              * Significance
              * @enum {string}
              */
             significance: "conservative" | "balanced" | "aggressive";
         };
-        /** ImportCounter */
-        ImportCounter: {
-            /**
-             * Created
-             * @default 0
-             */
-            created: number;
-            /**
-             * Unchanged
-             * @default 0
-             */
-            unchanged: number;
-            /**
-             * Updated
-             * @default 0
-             */
-            updated: number;
+        /** HypothesisTestResult */
+        HypothesisTestResult: {
+            /** Statistic */
+            statistic: number;
+            /** P Value */
+            p_value: number;
+            decision: components["schemas"]["Decision"];
+            /** Assumption Notes */
+            assumption_notes: string[];
         };
-        /** ImportErrorReport */
-        ImportErrorReport: {
-            /** Code */
-            code: string;
-            /** Dataset */
-            dataset?: string | null;
-            /** Message */
-            message: string;
-            /** Model */
-            model?: string | null;
-        };
-        /** ImportModelReport */
-        ImportModelReport: {
-            /** Created */
-            created: boolean;
-            datasets?: components["schemas"]["ImportCounter"];
-            /** Datasource Bindings */
-            datasource_bindings?: components["schemas"]["DatasourceBindingReport"][];
-            fields?: components["schemas"]["ImportCounter"];
-            metrics?: components["schemas"]["ImportCounter"];
-            /** Name */
-            name: string;
-            relationships?: components["schemas"]["ImportCounter"];
-            /** Updated */
-            updated: boolean;
-        };
-        /** ImportOsiDocumentReport */
-        ImportOsiDocumentReport: {
-            /** Errors */
-            errors?: components["schemas"]["ImportErrorReport"][];
-            /** Models */
-            models: components["schemas"]["ImportModelReport"][];
-        };
-        /** JsonValidationValue */
-        JsonValidationValue: JsonValue;
         /** JsonValue */
-        JsonValue: JsonValue;
+        JsonValue: string | number | boolean | null | unknown[] | {
+            [key: string]: unknown;
+        };
         /**
          * MarivoDatasetCustomExtension
          * @description MARIVO custom extension for Dataset.
          */
         MarivoDatasetCustomExtension: {
-            data: components["schemas"]["MarivoDatasetExtension"];
             /**
              * Vendor Name
              * @constant
              */
             vendor_name: "MARIVO";
+            data: components["schemas"]["MarivoDatasetExtension"];
         };
         /**
          * MarivoDatasetExtension
@@ -1530,12 +1613,12 @@ export interface components {
          * @description MARIVO custom extension for Metric.
          */
         MarivoMetricCustomExtension: {
-            data: components["schemas"]["MarivoMetricExtension"];
             /**
              * Vendor Name
              * @constant
              */
             vendor_name: "MARIVO";
+            data: components["schemas"]["MarivoMetricExtension"];
         };
         /**
          * MarivoMetricExtension
@@ -1561,136 +1644,85 @@ export interface components {
          */
         Metric: {
             /**
+             * Name
+             * @description Unique identifier for the metric
+             */
+            name: string;
+            expression: components["schemas"]["Expression-Output"];
+            /**
+             * Description
+             * @description Human-readable description of what the metric measures
+             */
+            description?: string | null;
+            /**
              * Ai Context
              * @description Additional context for AI tools
              */
             ai_context?: string | components["schemas"]["AIContext1"] | null;
             /** Custom Extensions */
             custom_extensions?: components["schemas"]["MarivoMetricCustomExtension"][] | null;
-            /**
-             * Description
-             * @description Human-readable description of what the metric measures
-             */
-            description?: string | null;
-            expression: components["schemas"]["Expression-Output"];
-            /**
-             * Name
-             * @description Unique identifier for the metric
-             */
-            name: string;
         };
         /** Observe1 */
         Observe1: {
-            /** Dimensions */
-            dimensions?: components["schemas"]["Dimension-Input"][];
+            /** Metric */
+            metric: string;
+            time_scope: components["schemas"]["TimeScope"];
             filter?: components["schemas"]["Expression-Input"];
             /**
              * Granularity
              * @enum {string}
              */
             granularity?: "hour" | "day" | "week" | "month" | "quarter" | "year";
-            /** Metric */
-            metric: string;
-            time_scope: components["schemas"]["TimeScope"];
+            /** Dimensions */
+            dimensions?: components["schemas"]["Dimension-Input"][];
         };
         /** Observe2 */
         Observe2: {
-            /** Dimensions */
-            dimensions?: components["schemas"]["Dimension-Input"][];
+            /** Metric */
+            metric: string;
+            time_scope: components["schemas"]["TimeScope"];
             filter?: components["schemas"]["Expression-Input"];
             /**
              * Granularity
              * @enum {string}
              */
             granularity: "hour" | "day" | "week" | "month" | "quarter" | "year";
-            /** Metric */
-            metric: string;
-            time_scope: components["schemas"]["TimeScope"];
+            /** Dimensions */
+            dimensions?: components["schemas"]["Dimension-Input"][];
         };
         /** Observe3 */
         Observe3: {
-            /** Dimensions */
-            dimensions: components["schemas"]["Dimension-Input"][];
+            /** Metric */
+            metric: string;
+            time_scope: components["schemas"]["TimeScope"];
             filter?: components["schemas"]["Expression-Input"];
             /**
              * Granularity
              * @enum {string}
              */
             granularity?: "hour" | "day" | "week" | "month" | "quarter" | "year";
-            /** Metric */
-            metric: string;
-            time_scope: components["schemas"]["TimeScope"];
+            /** Dimensions */
+            dimensions: components["schemas"]["Dimension-Input"][];
         };
-        /**
-         * ObserveScope
-         * @description Non-time population scope for an observe intent.
-         *
-         *     `constraints` holds scalar equality filters; `predicate` holds a
-         *     structured predicate AST (dict) or raw SQL WHERE clause string.
-         *     Time conditions must not appear here.
-         */
-        ObserveScope: {
-            /**
-             * Constraints
-             * @description Scalar equality constraints on semantic dimensions.
-             */
-            constraints?: {
-                [key: string]: string | number | boolean | null;
+        /** ObserveResponse */
+        ObserveResponse: {
+            /** Intent Type */
+            intent_type: string;
+            /** Step Type */
+            step_type: string;
+            step_ref: components["schemas"]["StepRef"];
+            /** Artifact Id */
+            artifact_id: string;
+            /** Provenance */
+            provenance?: {
+                [key: string]: unknown;
             } | null;
-            /**
-             * Predicate
-             * @description Structured non-time predicate AST or raw SQL WHERE clause string. Must not contain time conditions.
-             */
-            predicate?: components["schemas"]["PredicateComparison"] | {
-                [key: string]: components["schemas"]["JsonValue"];
-            } | string | null;
-        };
-        /** ObserveTimeScopeAsOf */
-        ObserveTimeScopeAsOf: {
-            /**
-             * At
-             * @description Point-in-time snapshot (ISO-8601 datetime).
-             */
-            at: string;
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            kind: "as_of";
-        };
-        /** ObserveTimeScopeLatestAvailable */
-        ObserveTimeScopeLatestAvailable: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            kind: "latest_available";
-        };
-        /** ObserveTimeScopeRange */
-        ObserveTimeScopeRange: {
-            /**
-             * End
-             * @description Exclusive end of the range (ISO-8601 date or datetime).
-             */
-            end: string;
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            kind: "range";
-            /**
-             * Start
-             * @description Inclusive start of the range (ISO-8601 date or datetime).
-             */
-            start: string;
-        };
-        /** ObserveTimeScopeSnapshotNow */
-        ObserveTimeScopeSnapshotNow: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            kind: "snapshot_now";
+            /** Product Metadata */
+            product_metadata?: {
+                [key: string]: unknown;
+            } | null;
+            /** Result */
+            result: components["schemas"]["_ObserveArtifact"] | components["schemas"]["_ObserveFailureArtifact"];
         };
         /**
          * OsiCoreMetadataSpecificationWithMarivoVendorExtensions
@@ -1698,113 +1730,137 @@ export interface components {
          */
         OsiCoreMetadataSpecificationWithMarivoVendorExtensions: {
             /**
+             * Version
+             * @description OSI specification version
+             * @constant
+             */
+            version: "0.1.1";
+            /**
              * Dialects
              * @description Supported expression language dialects (enumeration definition)
              */
             dialects?: ("ANSI_SQL" | "SNOWFLAKE" | "MDX" | "TABLEAU" | "DATABRICKS")[] | null;
-            /**
-             * Semantic Model
-             * @description Collection of semantic model definitions
-             */
-            semantic_model: components["schemas"]["SemanticModel"][];
             /**
              * Vendors
              * @description Supported vendors for custom extensions (MARIVO only)
              */
             vendors?: "MARIVO"[] | null;
             /**
-             * Version
-             * @description OSI specification version
-             * @constant
+             * Semantic Model
+             * @description Collection of semantic model definitions
              */
-            version: "0.1.1";
+            semantic_model: components["schemas"]["SemanticModel"][];
         };
-        /**
-         * PredicateComparison
-         * @description Deprecated inline predicate comparison shape.
-         */
-        PredicateComparison: {
-            /** Field */
-            field: string;
+        /** PValue */
+        PValue: number;
+        /** Point */
+        Point: {
             /**
-             * Operator
-             * @enum {string}
+             * Bucket Start
+             * Format: date-time
              */
-            operator: "eq" | "neq" | "gt" | "gte" | "lt" | "lte" | "in";
+            bucket_start: string;
             /** Value */
-            value?: string | number | boolean | null;
-            /** Values */
-            values?: (string | number | boolean | null)[] | null;
+            value: number;
+            /** Ci Low */
+            ci_low: number | null;
+            /** Ci High */
+            ci_high: number | null;
         };
         /** PropositionContextView */
         PropositionContextView: {
-            /** Applied Inference Records */
-            applied_inference_records: {
+            /** Proposition */
+            proposition: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
+            /** Seed Entries */
+            seed_entries: {
                 [key: string]: components["schemas"]["JsonValue"];
             }[];
-            /** Artifact Refs */
-            artifact_refs: {
-                [key: string]: components["schemas"]["JsonValue"];
-            }[];
-            /** Assessment Dependencies */
-            assessment_dependencies: {
-                [key: string]: components["schemas"]["JsonValue"];
-            }[];
-            /** Blocking Gaps */
-            blocking_gaps: {
+            /** Relevant Findings */
+            relevant_findings: {
                 [key: string]: components["schemas"]["JsonValue"];
             }[];
             /** Latest Assessment */
             latest_assessment?: {
                 [key: string]: components["schemas"]["JsonValue"];
             } | null;
+            /** Blocking Gaps */
+            blocking_gaps: {
+                [key: string]: components["schemas"]["JsonValue"];
+            }[];
             /** Non Blocking Gaps */
             non_blocking_gaps: {
                 [key: string]: components["schemas"]["JsonValue"];
             }[];
-            /** Proposition */
-            proposition: {
+            /** Applied Inference Records */
+            applied_inference_records: {
                 [key: string]: components["schemas"]["JsonValue"];
-            };
-            /** Relevant Findings */
-            relevant_findings: {
+            }[];
+            /** Assessment Dependencies */
+            assessment_dependencies: {
+                [key: string]: components["schemas"]["JsonValue"];
+            }[];
+            /** Artifact Refs */
+            artifact_refs: {
                 [key: string]: components["schemas"]["JsonValue"];
             }[];
             /** Schema Version */
             schema_version: string;
-            /** Seed Entries */
-            seed_entries: {
-                [key: string]: components["schemas"]["JsonValue"];
-            }[];
         };
         /** PropositionRuntimeStatusResponse */
         PropositionRuntimeStatusResponse: {
-            /** Backlog State */
-            backlog_state: string;
+            /** Session Id */
+            session_id: string;
+            /** Proposition Id */
+            proposition_id: string;
+            /** Current Stage */
+            current_stage: string;
+            /** Last Successful Stage */
+            last_successful_stage?: string | null;
             /** Current Assessment Id */
             current_assessment_id?: string | null;
             /** Current Attempt */
             current_attempt?: number | null;
-            /** Current Stage */
-            current_stage: string;
-            /** Last Failure At */
-            last_failure_at?: string | null;
+            /** Backlog State */
+            backlog_state: string;
             /** Last Failure Reason */
             last_failure_reason: string;
-            /** Last Successful Stage */
-            last_successful_stage?: string | null;
-            /** Proposition Id */
-            proposition_id: string;
+            /** Last Failure At */
+            last_failure_at?: string | null;
             /** Schema Version */
             schema_version: string;
-            /** Session Id */
-            session_id: string;
         };
         /**
          * Relationship
          * @description Foreign key relationship between datasets
          */
         Relationship: {
+            /**
+             * Name
+             * @description Unique identifier for the relationship
+             */
+            name: string;
+            /**
+             * From
+             * @description Dataset on the many side of the relationship
+             */
+            from: string;
+            /**
+             * To
+             * @description Dataset on the one side of the relationship
+             */
+            to: string;
+            /**
+             * From Columns
+             * @description Foreign key columns in the 'from' dataset
+             */
+            from_columns: string[];
+            /**
+             * To Columns
+             * @description Primary/unique key columns in the 'to' dataset
+             */
+            to_columns: string[];
             /**
              * Ai Context
              * @description Additional context for AI tools
@@ -1815,31 +1871,6 @@ export interface components {
              * @description No MARIVO custom extensions are defined for relationships.
              */
             custom_extensions?: unknown[] | null;
-            /**
-             * From
-             * @description Dataset on the many side of the relationship
-             */
-            from: string;
-            /**
-             * From Columns
-             * @description Foreign key columns in the 'from' dataset
-             */
-            from_columns: string[];
-            /**
-             * Name
-             * @description Unique identifier for the relationship
-             */
-            name: string;
-            /**
-             * To
-             * @description Dataset on the one side of the relationship
-             */
-            to: string;
-            /**
-             * To Columns
-             * @description Primary/unique key columns in the 'to' dataset
-             */
-            to_columns: string[];
         };
         /** RouteCapabilityProfileResponse */
         RouteCapabilityProfileResponse: {
@@ -1848,36 +1879,36 @@ export interface components {
              * @description Engine type associated with this capability profile.
              */
             engine_type: string;
-            /**
-             * Federation Support
-             * @description Federation capability advertised by the engine.
-             */
-            federation_support: string;
+            /** Supported Sql Features */
+            supported_sql_features?: string[];
+            /** Supported Step Types */
+            supported_step_types?: string[];
             /**
              * Materialization Support
              * @description Materialization mode advertised by the engine.
              */
             materialization_support: string;
-            /** Metadata */
-            metadata?: {
-                [key: string]: string;
-            };
+            /** Policy Support */
+            policy_support?: string[];
+            /**
+             * Performance Class
+             * @description Performance class used during routing.
+             */
+            performance_class: string;
             /**
              * Min Staleness Minutes
              * @description Minimum freshness lag tolerated by the engine profile.
              */
             min_staleness_minutes?: number | null;
             /**
-             * Performance Class
-             * @description Performance class used during routing.
+             * Federation Support
+             * @description Federation capability advertised by the engine.
              */
-            performance_class: string;
-            /** Policy Support */
-            policy_support?: string[];
-            /** Supported Sql Features */
-            supported_sql_features?: string[];
-            /** Supported Step Types */
-            supported_step_types?: string[];
+            federation_support: string;
+            /** Metadata */
+            metadata?: {
+                [key: string]: string;
+            };
         };
         /** RouteEngineResponse */
         RouteEngineResponse: {
@@ -1899,36 +1930,44 @@ export interface components {
         };
         /** RouteIntentRequest */
         RouteIntentRequest: {
+            /** Step Type */
+            step_type?: string | null;
+            /** Metric Names */
+            metric_names?: string[];
+            /** Requested Dimensions */
+            requested_dimensions?: string[];
             /** Compatible Dimensions */
             compatible_dimensions?: string[];
             /** Legal Grains */
             legal_grains?: string[];
-            /** Metric Names */
-            metric_names?: string[];
             /** Policy Hints */
             policy_hints?: string[];
-            /** Requested Dimensions */
-            requested_dimensions?: string[];
-            /** Step Type */
-            step_type?: string | null;
         };
         /** RouteResolveRequest */
         RouteResolveRequest: {
-            routing_intent?: components["schemas"]["RouteIntentRequest"] | null;
             /** Table Names */
             table_names: string[];
+            routing_intent?: components["schemas"]["RouteIntentRequest"] | null;
         };
         /** RouteResolveResponse */
         RouteResolveResponse: {
-            /** @description Capability profile of the resolved engine when routing succeeds. */
-            capability_profile?: components["schemas"]["RouteCapabilityProfileResponse"] | null;
-            /** @description Resolved engine summary when routing succeeds. */
-            engine?: components["schemas"]["RouteEngineResponse"] | null;
+            /**
+             * Resolved
+             * @description Whether routing resolved to a concrete execution engine.
+             */
+            resolved: boolean;
             /**
              * Failure Code
              * @description Stable routing blocker code when resolution fails.
              */
             failure_code?: string | null;
+            /**
+             * Table Names
+             * @description Original table names supplied to the routing request.
+             */
+            table_names?: string[];
+            /** @description Resolved engine summary when routing succeeds. */
+            engine?: components["schemas"]["RouteEngineResponse"] | null;
             /**
              * Qualified Names
              * @description Execution-qualified table names keyed by the requested table name.
@@ -1937,46 +1976,30 @@ export interface components {
                 [key: string]: string;
             };
             /**
-             * Resolved
-             * @description Whether routing resolved to a concrete execution engine.
-             */
-            resolved: boolean;
-            /** @description Structured routing evidence covering mappings, candidates, and blockers. */
-            routing_detail?: components["schemas"]["RoutingDetail"];
-            /**
              * Selection Reason
              * @description Primary explanation for the selected engine or routing failure.
              */
             selection_reason?: string | null;
-            /**
-             * Table Names
-             * @description Original table names supplied to the routing request.
-             */
-            table_names?: string[];
+            /** @description Structured routing evidence covering mappings, candidates, and blockers. */
+            routing_detail?: components["schemas"]["RoutingDetail"];
+            /** @description Capability profile of the resolved engine when routing succeeds. */
+            capability_profile?: components["schemas"]["RouteCapabilityProfileResponse"] | null;
         };
         /** RoutingCandidate */
         RoutingCandidate: {
-            /** Covered Sources */
-            covered_sources?: string[];
-            /** Eligible */
-            eligible: boolean;
             /** Engine Id */
             engine_id: string;
-            /** Mapping Ids */
-            mapping_ids?: string[];
+            /** Eligible */
+            eligible: boolean;
+            /** Covered Sources */
+            covered_sources?: string[];
             /** Missing Sources */
             missing_sources?: string[];
+            /** Mapping Ids */
+            mapping_ids?: string[];
         };
         /** RoutingDetail */
         RoutingDetail: {
-            /** Candidates */
-            candidates?: components["schemas"]["RoutingCandidate"][];
-            /** Execution Locators */
-            execution_locators?: {
-                [key: string]: components["schemas"]["ExecutionLocatorEntry"];
-            };
-            /** Readiness Blockers */
-            readiness_blockers?: string[];
             /**
              * Resolution Status
              * @default
@@ -1984,10 +2007,18 @@ export interface components {
             resolution_status: string;
             /** Selected Mapping Ids */
             selected_mapping_ids?: string[];
+            /** Execution Locators */
+            execution_locators?: {
+                [key: string]: components["schemas"]["ExecutionLocatorEntry"];
+            };
             /** Sources */
             sources?: {
                 [key: string]: components["schemas"]["RoutingSourceSummary"];
             };
+            /** Candidates */
+            candidates?: components["schemas"]["RoutingCandidate"][];
+            /** Readiness Blockers */
+            readiness_blockers?: string[];
             /** Unresolved Tables */
             unresolved_tables?: string[];
         };
@@ -1995,42 +2026,75 @@ export interface components {
         RoutingSourceSummary: {
             /** Candidate Engine Ids */
             candidate_engine_ids?: string[];
+            /** Ready Mapping Ids */
+            ready_mapping_ids?: string[];
             /** Failed Mappings */
             failed_mappings?: string[];
             /** Readiness Blockers */
             readiness_blockers?: string[];
-            /** Ready Mapping Ids */
-            ready_mapping_ids?: string[];
         };
         /** RuntimeBacklogSummary */
         RuntimeBacklogSummary: {
-            /** Backpressured Propositions */
-            backpressured_propositions: number;
-            /** Failed Items */
-            failed_items: number;
             /** Queued Artifacts */
             queued_artifacts: number;
             /** Queued Propositions */
             queued_propositions: number;
+            /** Backpressured Propositions */
+            backpressured_propositions: number;
+            /** Failed Items */
+            failed_items: number;
         };
-        /** SemanticImportResponse */
-        SemanticImportResponse: {
-            /** Errors */
-            errors?: components["schemas"]["SemanticValidationIssueResponse"][];
-            import_report?: components["schemas"]["ImportOsiDocumentReport"] | null;
-            /**
-             * Schema Version
-             * @default 0.1.1
-             */
-            schema_version: string;
-            /** Summary */
-            summary?: {
-                [key: string]: number;
+        /** ScalarDeltaResult */
+        ScalarDeltaResult: {
+            /** Left Value */
+            left_value: number | null;
+            /** Right Value */
+            right_value: number | null;
+            /** Delta */
+            delta: number | null;
+            matched_time_scope: components["schemas"]["TimeScope"] | null;
+        };
+        /** ScalarObservationResult */
+        ScalarObservationResult: {
+            /** Value */
+            value: number | null;
+        };
+        /** SegmentedDeltaResult */
+        SegmentedDeltaResult: {
+            /** Rows */
+            rows: components["schemas"]["SegmentedDeltaRow"][];
+            matched_time_scope: components["schemas"]["TimeScope"] | null;
+        };
+        /** SegmentedDeltaRow */
+        SegmentedDeltaRow: {
+            /** Item Id */
+            item_id: string;
+            /** Keys */
+            keys: {
+                [key: string]: string;
             };
-            /** Valid */
-            valid: boolean;
-            /** Warnings */
-            warnings?: components["schemas"]["SemanticValidationIssueResponse"][];
+            /** Left Value */
+            left_value: number | null;
+            /** Right Value */
+            right_value: number | null;
+            /** Delta */
+            delta: number | null;
+        };
+        /** SegmentedObservationResult */
+        SegmentedObservationResult: {
+            /** Rows */
+            rows: components["schemas"]["SegmentedObservationRow"][];
+        };
+        /** SegmentedObservationRow */
+        SegmentedObservationRow: {
+            /** Item Id */
+            item_id: string;
+            /** Keys */
+            keys: {
+                [key: string]: string;
+            };
+            /** Value */
+            value: number | null;
         };
         /**
          * SemanticModel
@@ -2038,114 +2102,114 @@ export interface components {
          */
         SemanticModel: {
             /**
-             * Ai Context
-             * @description Additional context for AI tools
+             * Name
+             * @description Unique identifier for the semantic model
              */
-            ai_context?: string | components["schemas"]["AIContext1"] | null;
-            /**
-             * Custom Extensions
-             * @description No MARIVO custom extensions are defined for semantic models.
-             */
-            custom_extensions?: unknown[] | null;
-            /**
-             * Datasets
-             * @description Collection of logical datasets
-             */
-            datasets: components["schemas"]["Dataset"][];
+            name: string;
             /**
              * Description
              * @description Human-readable description
              */
             description?: string | null;
             /**
-             * Metrics
-             * @description Quantifiable measures spanning datasets
+             * Ai Context
+             * @description Additional context for AI tools
              */
-            metrics?: components["schemas"]["Metric"][] | null;
+            ai_context?: string | components["schemas"]["AIContext1"] | null;
             /**
-             * Name
-             * @description Unique identifier for the semantic model
+             * Datasets
+             * @description Collection of logical datasets
              */
-            name: string;
+            datasets: components["schemas"]["Dataset"][];
             /**
              * Relationships
              * @description Defines how datasets are connected
              */
             relationships?: components["schemas"]["Relationship"][] | null;
+            /**
+             * Metrics
+             * @description Quantifiable measures spanning datasets
+             */
+            metrics?: components["schemas"]["Metric"][] | null;
+            /**
+             * Custom Extensions
+             * @description No MARIVO custom extensions are defined for semantic models.
+             */
+            custom_extensions?: unknown[] | null;
         };
         /** SemanticValidationIssueContextResponse */
         SemanticValidationIssueContextResponse: {
-            /** Column */
-            column?: string | null;
             /** Dataset */
             dataset?: string | null;
             /** Datasource Id */
             datasource_id?: string | null;
+            /** Schema */
+            schema?: string | null;
+            /** Table */
+            table?: string | null;
+            /** Column */
+            column?: string | null;
             /** Field */
             field?: string | null;
             /** Name */
             name?: string | null;
-            /** Schema */
-            schema?: string | null;
             /** Source */
             source?: string | null;
-            /** Table */
-            table?: string | null;
         };
         /** SemanticValidationIssueResponse */
         SemanticValidationIssueResponse: {
             /** Code */
             code: string;
-            context?: components["schemas"]["SemanticValidationIssueContextResponse"];
-            /** Hint */
-            hint?: string | null;
-            /** Json Pointer */
-            json_pointer: string;
             /** Message */
             message: string;
+            /** Json Pointer */
+            json_pointer: string;
             /**
              * Severity
              * @default error
              */
             severity: string;
+            /** Hint */
+            hint?: string | null;
+            context?: components["schemas"]["SemanticValidationIssueContextResponse"];
         };
         /** SemanticValidationResultResponse */
         SemanticValidationResultResponse: {
-            /** Errors */
-            errors?: components["schemas"]["SemanticValidationIssueResponse"][];
+            /** Valid */
+            valid: boolean;
             /**
              * Schema Version
              * @default 0.1.1
              */
             schema_version: string;
+            /** Errors */
+            errors?: components["schemas"]["SemanticValidationIssueResponse"][];
+            /** Warnings */
+            warnings?: components["schemas"]["SemanticValidationIssueResponse"][];
             /** Summary */
             summary?: {
                 [key: string]: number;
             };
-            /** Valid */
-            valid: boolean;
-            /** Warnings */
-            warnings?: components["schemas"]["SemanticValidationIssueResponse"][];
         };
         /** SessionBudget */
         SessionBudget: {
-            /**
-             * Max Latency Sec
-             * @default 120
-             */
-            max_latency_sec: number;
             /**
              * Max Scan Bytes
              * @default 500000000000
              */
             max_scan_bytes: number;
+            /**
+             * Max Latency Sec
+             * @default 120
+             */
+            max_latency_sec: number;
         };
         /** SessionCreateRequest */
         SessionCreateRequest: {
-            /** @description Hard resource limits enforced by Marivo. Steps that would exceed max_scan_bytes or max_latency_sec are blocked before execution. This is a system decision constraint, not a suggestion. */
-            budget?: components["schemas"]["SessionBudget"];
             /** Goal */
             goal: string;
+            /** @description Hard resource limits enforced by Marivo. Steps that would exceed max_scan_bytes or max_latency_sec are blocked before execution. This is a system decision constraint, not a suggestion. */
+            budget?: components["schemas"]["SessionBudget"];
         };
         /** SessionGoal */
         SessionGoal: {
@@ -2154,14 +2218,14 @@ export interface components {
         };
         /** SessionLifecycle */
         SessionLifecycle: {
-            /** Ended At */
-            ended_at?: string | null;
-            /** Rollover From Session Id */
-            rollover_from_session_id?: string | null;
             /** Status */
             status: string;
             /** Terminal Reason */
             terminal_reason?: string | null;
+            /** Ended At */
+            ended_at?: string | null;
+            /** Rollover From Session Id */
+            rollover_from_session_id?: string | null;
         };
         /** SessionListResponse */
         SessionListResponse: {
@@ -2172,19 +2236,19 @@ export interface components {
         };
         /** SessionRuntimeStatusResponse */
         SessionRuntimeStatusResponse: {
-            backlog_summary: components["schemas"]["RuntimeBacklogSummary"];
-            /** Blocked Reason */
-            blocked_reason: string;
-            /** Last Successful Stage */
-            last_successful_stage?: string | null;
-            /** Overall Status */
-            overall_status: string;
-            /** Schema Version */
-            schema_version: string;
             /** Session Id */
             session_id: string;
+            /** Overall Status */
+            overall_status: string;
+            /** Last Successful Stage */
+            last_successful_stage?: string | null;
+            /** Blocked Reason */
+            blocked_reason: string;
+            backlog_summary: components["schemas"]["RuntimeBacklogSummary"];
             /** Updated At */
             updated_at: string;
+            /** Schema Version */
+            schema_version: string;
         };
         /** SessionScope */
         SessionScope: {
@@ -2206,39 +2270,39 @@ export interface components {
          *     will be a separate HTTP query parameter on both GET and POST endpoints.
          */
         SessionStateQueryRequest: {
-            /** Assessment Presence */
-            assessment_presence?: ("assessed" | "unassessed") | null;
-            /** Assessment Statuses */
-            assessment_statuses?: string[] | null;
-            /** Entity */
-            entity?: string | null;
-            /** Has Blocking Gaps */
-            has_blocking_gaps?: boolean | null;
-            /** Limit */
-            limit?: number | null;
             /** Metric */
             metric?: string | null;
-            /** Origin Kinds */
-            origin_kinds?: string[] | null;
-            /** Proposition Types */
-            proposition_types?: string[] | null;
+            /** Entity */
+            entity?: string | null;
             /** Slice */
             slice?: components["schemas"]["SessionStateSlice"] | {
                 [key: string]: string | number | boolean | null;
             } | null;
+            /** Proposition Types */
+            proposition_types?: string[] | null;
+            /** Origin Kinds */
+            origin_kinds?: string[] | null;
+            /** Assessment Presence */
+            assessment_presence?: ("assessed" | "unassessed") | null;
+            /** Assessment Statuses */
+            assessment_statuses?: string[] | null;
+            /** Has Blocking Gaps */
+            has_blocking_gaps?: boolean | null;
+            /** Limit */
+            limit?: number | null;
         };
         /** SessionStateSlice */
         SessionStateSlice: {
-            /** Constraints */
-            constraints?: {
-                [key: string]: string | number | boolean | null;
-            } | null;
+            /** Metric */
+            metric?: string | null;
             /** Entity */
             entity?: string | null;
             /** Grain */
             grain?: string | null;
-            /** Metric */
-            metric?: string | null;
+            /** Constraints */
+            constraints?: {
+                [key: string]: string | number | boolean | null;
+            } | null;
         };
         /** SessionStateSummary */
         SessionStateSummary: {
@@ -2246,25 +2310,23 @@ export interface components {
         };
         /** SessionStateTruncation */
         SessionStateTruncation: {
-            /** Applies To */
-            applies_to: string;
             /** Is Truncated */
             is_truncated: boolean;
             /** Returned Count */
             returned_count: number;
-            /** Sort Key */
-            sort_key: string;
             /** Total Count */
             total_count: number;
+            /** Sort Key */
+            sort_key: string;
+            /** Applies To */
+            applies_to: string;
         };
         /** SessionStateView */
         SessionStateView: {
+            /** Session Id */
+            session_id: string;
             /** Active Propositions */
             active_propositions: {
-                [key: string]: components["schemas"]["JsonValue"];
-            }[];
-            /** Artifact Refs */
-            artifact_refs: {
                 [key: string]: components["schemas"]["JsonValue"];
             }[];
             /** Backing Findings */
@@ -2275,17 +2337,19 @@ export interface components {
             blocking_gaps: {
                 [key: string]: components["schemas"]["JsonValue"];
             }[];
+            /** Artifact Refs */
+            artifact_refs: {
+                [key: string]: components["schemas"]["JsonValue"];
+            }[];
             /** Focus Subjects */
             focus_subjects: {
                 [key: string]: components["schemas"]["JsonValue"];
             }[];
-            /** Next Page Token */
-            next_page_token?: string | null;
+            truncation: components["schemas"]["SessionStateTruncation"];
             /** Schema Version */
             schema_version: string;
-            /** Session Id */
-            session_id: string;
-            truncation: components["schemas"]["SessionStateTruncation"];
+            /** Next Page Token */
+            next_page_token?: string | null;
         };
         /** SessionStateViewRef */
         SessionStateViewRef: {
@@ -2304,8 +2368,8 @@ export interface components {
         };
         /** Slice */
         Slice: {
-            filter?: components["schemas"]["Expression-Input"];
             time_scope: components["schemas"]["TimeScope"];
+            filter?: components["schemas"]["Expression-Input"];
         };
         /**
          * StepRef
@@ -2328,51 +2392,66 @@ export interface components {
         };
         /** TablePreviewResponse */
         TablePreviewResponse: {
-            /** Columns */
-            columns: components["schemas"]["TablePreviewColumn"][];
             /** Datasource Id */
             datasource_id: string;
-            /** Filters Applied */
-            filters_applied?: {
-                [key: string]: string | number | boolean | null;
-            } | null;
-            /** Limit Applied */
-            limit_applied: number;
-            /** Limit Requested */
-            limit_requested: number;
-            /** Row Count */
-            row_count: number;
-            /** Rows */
-            rows: {
-                [key: string]: string | number | boolean | null;
-            }[];
             /** Schema Name */
             schema_name: string;
             /** Table Name */
             table_name: string;
+            /** Columns */
+            columns: components["schemas"]["TablePreviewColumn"][];
+            /** Rows */
+            rows: {
+                [key: string]: string | number | boolean | null;
+            }[];
+            /** Row Count */
+            row_count: number;
             /** Truncated */
             truncated: boolean;
+            /** Limit Requested */
+            limit_requested: number;
+            /** Limit Applied */
+            limit_applied: number;
+            /** Filters Applied */
+            filters_applied?: {
+                [key: string]: string | number | boolean | null;
+            } | null;
         };
         /** Test */
         Test: {
-            hypothesis: components["schemas"]["Hypothesis"];
+            /** Metric */
+            metric: string;
+            left: components["schemas"]["Slice"];
+            right: components["schemas"]["Slice"];
             /**
              * Kind
              * @constant
              */
             kind: "numeric";
-            left: components["schemas"]["Slice"];
-            /** Metric */
-            metric: string;
-            right: components["schemas"]["Slice"];
+            hypothesis: components["schemas"]["Hypothesis"];
+        };
+        /** TestResponse */
+        TestResponse: {
+            /** Intent Type */
+            intent_type: string;
+            /** Step Type */
+            step_type: string;
+            step_ref: components["schemas"]["StepRef"];
+            /** Artifact Id */
+            artifact_id: string;
+            /** Provenance */
+            provenance?: {
+                [key: string]: unknown;
+            } | null;
+            /** Product Metadata */
+            product_metadata?: {
+                [key: string]: unknown;
+            } | null;
+            /** Result */
+            result: components["schemas"]["_TestArtifact"] | components["schemas"]["_TestFailureArtifact"];
         };
         /** TimeScope */
         TimeScope: {
-            /**
-             * End
-             * Format: date-time
-             */
-            end: string;
             /** Field */
             field: string;
             /**
@@ -2380,13 +2459,35 @@ export interface components {
              * Format: date-time
              */
             start: string;
+            /**
+             * End
+             * Format: date-time
+             */
+            end: string;
+        };
+        /** TimeSeriesDeltaResult */
+        TimeSeriesDeltaResult: {
+            /** Points */
+            points: components["schemas"]["DeltaPoint"][];
+            matched_time_scope: components["schemas"]["TimeScope"] | null;
+        };
+        /** TimeSeriesObservationResult */
+        TimeSeriesObservationResult: {
+            /** Points */
+            points: components["schemas"]["TimeSeriesPoint"][];
+        };
+        /** TimeSeriesPoint */
+        TimeSeriesPoint: {
+            /**
+             * Bucket Start
+             * Format: date-time
+             */
+            bucket_start: string;
+            /** Value */
+            value: number | null;
         };
         /** TrinoDatasourceConnection */
         TrinoDatasourceConnection: {
-            /** Catalog */
-            catalog?: string | null;
-            /** Client Tags */
-            client_tags?: string | null;
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -2395,38 +2496,175 @@ export interface components {
             /** Host */
             host: string;
             /**
+             * Port
+             * @default 8080
+             */
+            port: number;
+            /** User */
+            user?: string | null;
+            /** Catalog */
+            catalog?: string | null;
+            /**
              * Http Scheme
              * @default http
              * @enum {string}
              */
             http_scheme: "http" | "https";
-            /**
-             * Port
-             * @default 8080
-             */
-            port: number;
+            /** Source */
+            source?: string | null;
+            /** Client Tags */
+            client_tags?: string | null;
             /** Session Properties */
             session_properties?: {
                 [key: string]: string;
             };
-            /** Source */
-            source?: string | null;
-            /** User */
-            user?: string | null;
+        };
+        /** Validate */
+        Validate: {
+            /** Metric */
+            metric: string;
+            left: components["schemas"]["Slice"];
+            right: components["schemas"]["Slice"];
+            hypothesis: components["schemas"]["Hypothesis"];
+        };
+        /** ValidateResponse */
+        ValidateResponse: {
+            /** Intent Type */
+            intent_type: string;
+            /** Step Type */
+            step_type: string;
+            step_ref: components["schemas"]["StepRef"];
+            /** Artifact Id */
+            artifact_id: string;
+            /** Provenance */
+            provenance?: {
+                [key: string]: unknown;
+            } | null;
+            /** Product Metadata */
+            product_metadata?: {
+                [key: string]: unknown;
+            } | null;
+            result: components["schemas"]["DerivedBundleResult"];
         };
         /** ValidationError */
         ValidationError: {
-            /** Context */
-            ctx?: {
-                [key: string]: components["schemas"]["JsonValidationValue"];
-            };
-            input?: components["schemas"]["JsonValidationValue"];
             /** Location */
             loc: (string | number)[];
             /** Message */
             msg: string;
             /** Error Type */
             type: string;
+            input?: components["schemas"]["JsonValidationValue"];
+            /** Context */
+            ctx?: {
+                [key: string]: components["schemas"]["JsonValidationValue"];
+            };
+        };
+        /** _CompareArtifact */
+        _CompareArtifact: {
+            /** Artifact Id */
+            artifact_id: string;
+            /** Result */
+            result: components["schemas"]["ScalarDeltaResult"] | components["schemas"]["TimeSeriesDeltaResult"] | components["schemas"]["SegmentedDeltaResult"];
+            failure?: components["schemas"]["AnalysisFailure"] | null;
+        };
+        /** _CompareFailureArtifact */
+        _CompareFailureArtifact: {
+            /** Artifact Id */
+            artifact_id: string;
+            /** Result */
+            result?: components["schemas"]["ScalarDeltaResult"] | components["schemas"]["TimeSeriesDeltaResult"] | components["schemas"]["SegmentedDeltaResult"] | null;
+            failure: components["schemas"]["AnalysisFailure"];
+        };
+        /** _CorrelateArtifact */
+        _CorrelateArtifact: {
+            /** Artifact Id */
+            artifact_id: string;
+            result: components["schemas"]["AssociationResult"];
+            failure?: components["schemas"]["AnalysisFailure"] | null;
+        };
+        /** _CorrelateFailureArtifact */
+        _CorrelateFailureArtifact: {
+            /** Artifact Id */
+            artifact_id: string;
+            result?: components["schemas"]["AssociationResult"] | null;
+            failure: components["schemas"]["AnalysisFailure"];
+        };
+        /** _DecomposeArtifact */
+        _DecomposeArtifact: {
+            /** Artifact Id */
+            artifact_id: string;
+            result: components["schemas"]["DeltaDecompositionResult"];
+            failure?: components["schemas"]["AnalysisFailure"] | null;
+        };
+        /** _DecomposeFailureArtifact */
+        _DecomposeFailureArtifact: {
+            /** Artifact Id */
+            artifact_id: string;
+            result?: components["schemas"]["DeltaDecompositionResult"] | null;
+            failure: components["schemas"]["AnalysisFailure"];
+        };
+        /** _DetectArtifact */
+        _DetectArtifact: {
+            /** Artifact Id */
+            artifact_id: string;
+            result: components["schemas"]["AnomalyCandidatesResult"];
+            failure?: components["schemas"]["AnalysisFailure"] | null;
+        };
+        /** _DetectFailureArtifact */
+        _DetectFailureArtifact: {
+            /** Artifact Id */
+            artifact_id: string;
+            result?: components["schemas"]["AnomalyCandidatesResult"] | null;
+            failure: components["schemas"]["AnalysisFailure"];
+        };
+        /** _ForecastArtifact */
+        _ForecastArtifact: {
+            /** Artifact Id */
+            artifact_id: string;
+            result: components["schemas"]["ForecastSeriesResult"];
+            failure?: components["schemas"]["AnalysisFailure"] | null;
+        };
+        /** _ForecastFailureArtifact */
+        _ForecastFailureArtifact: {
+            /** Artifact Id */
+            artifact_id: string;
+            result?: components["schemas"]["ForecastSeriesResult"] | null;
+            failure: components["schemas"]["AnalysisFailure"];
+        };
+        /** _ObserveArtifact */
+        _ObserveArtifact: {
+            /** Artifact Id */
+            artifact_id: string;
+            /** Result */
+            result: components["schemas"]["ScalarObservationResult"] | components["schemas"]["TimeSeriesObservationResult"] | components["schemas"]["SegmentedObservationResult"];
+            failure?: components["schemas"]["AnalysisFailure"] | null;
+        };
+        /** _ObserveFailureArtifact */
+        _ObserveFailureArtifact: {
+            /** Artifact Id */
+            artifact_id: string;
+            /** Result */
+            result?: components["schemas"]["ScalarObservationResult"] | components["schemas"]["TimeSeriesObservationResult"] | components["schemas"]["SegmentedObservationResult"] | null;
+            failure: components["schemas"]["AnalysisFailure"];
+        };
+        /** _TestArtifact */
+        _TestArtifact: {
+            /** Artifact Id */
+            artifact_id: string;
+            result: components["schemas"]["HypothesisTestResult"];
+            failure?: components["schemas"]["AnalysisFailure"] | null;
+        };
+        /** _TestFailureArtifact */
+        _TestFailureArtifact: {
+            /** Artifact Id */
+            artifact_id: string;
+            result?: components["schemas"]["HypothesisTestResult"] | null;
+            failure: components["schemas"]["AnalysisFailure"];
+        };
+        /** JsonValidationValue */
+        JsonValidationValue: string | number | boolean | null | components["schemas"]["JsonValue"][] | {
+            [key: string]: components["schemas"]["JsonValue"];
         };
     };
     responses: never;
@@ -2437,40 +2675,7 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    load_calendar_data_calendar_data_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CalendarDataLoadRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CalendarDataLoadResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_calendar_versions_calendar_versions_get: {
+    health_health_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -2485,7 +2690,824 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CalendarVersionItem"][];
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
+            };
+        };
+    };
+    get_openapi_index_openapi_index_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    get_openapi_path_fragment_openapi_paths__encoded_path__get: {
+        parameters: {
+            query?: {
+                expand?: string[] | null;
+                depth?: number;
+            };
+            header?: never;
+            path: {
+                encoded_path: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_openapi_component_schema_openapi_schemas__schema_name__get: {
+        parameters: {
+            query?: {
+                depth?: number;
+            };
+            header?: never;
+            path: {
+                schema_name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_openapi_fragment_openapi_fragment_get: {
+        parameters: {
+            query: {
+                path: string;
+                operation?: string | null;
+                expand?: string[] | null;
+                depth?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_sessions_sessions_get: {
+        parameters: {
+            query?: {
+                status?: string | null;
+                session_id?: string | null;
+                limit?: number | null;
+                page_token?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_session_sessions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SessionCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisSession"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_session_sessions__session_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisSession"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_session_runtime_status_sessions__session_id__runtime_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionRuntimeStatusResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    terminate_session_sessions__session_id__terminate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SessionTerminateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisSession"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_session_state_sessions__session_id__state_get: {
+        parameters: {
+            query?: {
+                metric?: string | null;
+                entity?: string | null;
+                proposition_type?: string[] | null;
+                origin_kind?: string[] | null;
+                assessment_presence?: string | null;
+                assessment_status?: string[] | null;
+                has_blocking_gaps?: boolean | null;
+                limit?: number | null;
+                page_token?: string | null;
+            };
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionStateView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    query_session_state_sessions__session_id__state_query_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SessionStateQueryRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionStateView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_artifact_runtime_status_sessions__session_id__artifacts__artifact_id__runtime_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+                artifact_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtifactRuntimeStatusResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_proposition_context_sessions__session_id__propositions__proposition_id__context_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+                proposition_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PropositionContextView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_proposition_runtime_status_sessions__session_id__propositions__proposition_id__runtime_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+                proposition_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PropositionRuntimeStatusResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    intent_observe_sessions__session_id__intents_observe_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Observe1"] | components["schemas"]["Observe2"] | components["schemas"]["Observe3"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObserveResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    intent_compare_sessions__session_id__intents_compare_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Compare"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompareResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    intent_decompose_sessions__session_id__intents_decompose_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Decompose"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DecomposeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    intent_correlate_sessions__session_id__intents_correlate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Correlate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CorrelateResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    intent_detect_sessions__session_id__intents_detect_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Detect"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DetectResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    intent_forecast_sessions__session_id__intents_forecast_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Forecast"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ForecastResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    intent_test_sessions__session_id__intents_test_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Test"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TestResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    intent_validate_sessions__session_id__intents_validate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Validate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidateResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    intent_attribute_sessions__session_id__intents_attribute_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Attribute"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttributeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    intent_diagnose_sessions__session_id__intents_diagnose_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Diagnose"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiagnoseResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -2640,40 +3662,6 @@ export interface operations {
             };
         };
     };
-    browse_catalog_columns_datasources__datasource_id__browse_columns_get: {
-        parameters: {
-            query?: {
-                schema_name?: string | null;
-                table_name?: string | null;
-            };
-            header?: never;
-            path: {
-                datasource_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DatasourceColumnResponse"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     browse_catalog_schemas_datasources__datasource_id__browse_schemas_get: {
         parameters: {
             query?: never;
@@ -2738,6 +3726,40 @@ export interface operations {
             };
         };
     };
+    browse_catalog_columns_datasources__datasource_id__browse_columns_get: {
+        parameters: {
+            query?: {
+                schema_name?: string | null;
+                table_name?: string | null;
+            };
+            header?: never;
+            path: {
+                datasource_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DatasourceColumnResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     preview_table_datasources__datasource_id__catalog_preview_get: {
         parameters: {
             query: {
@@ -2767,188 +3789,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TablePreviewResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    health_health_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: string;
-                    };
-                };
-            };
-        };
-    };
-    get_metrics_metrics_get: {
-        parameters: {
-            query?: {
-                format?: string | null;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_openapi_fragment_openapi_fragment_get: {
-        parameters: {
-            query: {
-                path: string;
-                operation?: string | null;
-                expand?: string[] | null;
-                depth?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_openapi_index_openapi_index_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-        };
-    };
-    get_openapi_path_fragment_openapi_paths__encoded_path__get: {
-        parameters: {
-            query?: {
-                expand?: string[] | null;
-                depth?: number;
-            };
-            header?: never;
-            path: {
-                encoded_path: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_openapi_component_schema_openapi_schemas__schema_name__get: {
-        parameters: {
-            query?: {
-                depth?: number;
-            };
-            header?: never;
-            path: {
-                schema_name: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
                 };
             };
             /** @description Validation Error */
@@ -3015,6 +3855,44 @@ export interface operations {
             };
         };
     };
+    validate_osi_semantic_models_semantic_models_validate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SemanticValidationResultResponse"];
+                };
+            };
+        };
+    };
+    import_osi_semantic_models_semantic_models_import_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     export_osi_semantic_models_semantic_models_export_get: {
         parameters: {
             query?: {
@@ -3042,46 +3920,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    import_osi_semantic_models_semantic_models_import_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SemanticImportResponse"];
-                };
-            };
-        };
-    };
-    validate_osi_semantic_models_semantic_models_validate_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SemanticValidationResultResponse"];
                 };
             };
         };
@@ -3146,13 +3984,10 @@ export interface operations {
             };
         };
     };
-    list_sessions_sessions_get: {
+    get_metrics_metrics_get: {
         parameters: {
             query?: {
-                status?: string | null;
-                session_id?: string | null;
-                limit?: number | null;
-                page_token?: string | null;
+                format?: string | null;
             };
             header?: never;
             path?: never;
@@ -3166,7 +4001,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SessionListResponse"];
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */
@@ -3180,7 +4015,7 @@ export interface operations {
             };
         };
     };
-    create_session_sessions_post: {
+    load_calendar_data_calendar_data_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -3189,7 +4024,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["SessionCreateRequest"];
+                "application/json": components["schemas"]["CalendarDataLoadRequest"];
             };
         };
         responses: {
@@ -3199,7 +4034,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AnalysisSession"];
+                    "application/json": components["schemas"]["CalendarDataLoadResponse"];
                 };
             };
             /** @description Validation Error */
@@ -3213,13 +4048,11 @@ export interface operations {
             };
         };
     };
-    get_session_sessions__session_id__get: {
+    list_calendar_versions_calendar_versions_get: {
         parameters: {
             query?: never;
             header?: never;
-            path: {
-                session_id: string;
-            };
+            path?: never;
             cookie?: never;
         };
         requestBody?: never;
@@ -3230,569 +4063,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AnalysisSession"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_artifact_runtime_status_sessions__session_id__artifacts__artifact_id__runtime_status_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                session_id: string;
-                artifact_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ArtifactRuntimeStatusResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    intent_attribute_sessions__session_id__intents_attribute_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                session_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AttributeRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AttributeResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    intent_compare_sessions__session_id__intents_compare_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                session_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["Compare"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ExecutionEnvelope"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    intent_correlate_sessions__session_id__intents_correlate_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                session_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["Correlate"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ExecutionEnvelope"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    intent_decompose_sessions__session_id__intents_decompose_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                session_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["Decompose"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ExecutionEnvelope"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    intent_detect_sessions__session_id__intents_detect_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                session_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["Detect"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ExecutionEnvelope"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    intent_diagnose_sessions__session_id__intents_diagnose_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                session_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["DiagnoseRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DiagnoseResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    intent_forecast_sessions__session_id__intents_forecast_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                session_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["Forecast"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ExecutionEnvelope"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    intent_observe_sessions__session_id__intents_observe_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                session_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["Observe1"] | components["schemas"]["Observe2"] | components["schemas"]["Observe3"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ExecutionEnvelope"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    intent_test_sessions__session_id__intents_test_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                session_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["Test"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ExecutionEnvelope"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_proposition_context_sessions__session_id__propositions__proposition_id__context_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                session_id: string;
-                proposition_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PropositionContextView"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_proposition_runtime_status_sessions__session_id__propositions__proposition_id__runtime_status_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                session_id: string;
-                proposition_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PropositionRuntimeStatusResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_session_runtime_status_sessions__session_id__runtime_status_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                session_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SessionRuntimeStatusResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_session_state_sessions__session_id__state_get: {
-        parameters: {
-            query?: {
-                metric?: string | null;
-                entity?: string | null;
-                proposition_type?: string[] | null;
-                origin_kind?: string[] | null;
-                assessment_presence?: string | null;
-                assessment_status?: string[] | null;
-                has_blocking_gaps?: boolean | null;
-                limit?: number | null;
-                page_token?: string | null;
-            };
-            header?: never;
-            path: {
-                session_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SessionStateView"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    query_session_state_sessions__session_id__state_query_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                session_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SessionStateQueryRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SessionStateView"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    terminate_session_sessions__session_id__terminate_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                session_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SessionTerminateRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AnalysisSession"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["CalendarVersionItem"][];
                 };
             };
         };
