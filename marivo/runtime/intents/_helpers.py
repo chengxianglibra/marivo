@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import contextlib
-from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
@@ -48,8 +47,7 @@ def aoi_filter_to_scope(filter_raw: Any, *, label: str) -> dict[str, str] | None
 def resolve_time_scope(time_scope_raw: dict[str, Any]) -> tuple[str, str, str | None]:
     """Resolve a time scope dict into (start_str, end_str, field).
 
-    Handles AOI-aligned McpTimeScope ({field, start, end}) and legacy
-    kind-based scopes (range, snapshot_now, latest_available, as_of).
+    Handles AOI-aligned McpTimeScope ({field, start, end}) and range scopes.
     """
     kind = time_scope_raw.get("kind")
     # AOI-aligned McpTimeScope uses {field, start, end} without kind.
@@ -65,22 +63,6 @@ def resolve_time_scope(time_scope_raw: dict[str, Any]) -> tuple[str, str, str | 
             )
         except KeyError as exc:
             raise ValueError("INVALID_ARGUMENT - range time_scope requires start and end") from exc
-
-    if kind in {"snapshot_now", "latest_available"}:
-        start = datetime.now(UTC).date()
-        end = start + timedelta(days=1)
-        return start.isoformat(), end.isoformat(), time_scope_raw.get("field")
-
-    if kind == "as_of":
-        raw_at = time_scope_raw.get("at")
-        if not isinstance(raw_at, str) or not raw_at.strip():
-            raise ValueError("INVALID_ARGUMENT - as_of time_scope requires at")
-        observed_date = datetime.fromisoformat(raw_at.replace("Z", "+00:00")).date()
-        return (
-            observed_date.isoformat(),
-            (observed_date + timedelta(days=1)).isoformat(),
-            time_scope_raw.get("field"),
-        )
 
     raise ValueError(f"INVALID_ARGUMENT - unsupported time_scope.kind={kind!r}")
 

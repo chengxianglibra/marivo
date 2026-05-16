@@ -204,11 +204,7 @@ type ArtifactItemRefRef = {
   item_ref: ArtifactItemRef;
 };
 
-type ResolvedTimeScope =
-  | { kind: "range"; start: string; end: string }
-  | { kind: "snapshot_now"; observed_at: string }
-  | { kind: "latest_available"; data_as_of: string }
-  | { kind: "as_of"; at: string };
+type ResolvedTimeScope = { kind: "range"; start: string; end: string };
 
 type CorrelationJoinBasis =
   | {
@@ -790,7 +786,7 @@ type FindingFocusQuery = {
 - `finding_types`：只返回指定 subtype
 - `artifact_ids`：限制来源 artifact 范围
 - `step_types`：限制来源意图家族
-- `observed_window_overlap`：仅 `range` 与 `range` 使用区间相交；其他 `kind` 只在 kind 相同且 canonical timestamp 完全相等时匹配，不做跨 kind 隐式归一化
+- `observed_window_overlap`：使用 range 与 range 的区间相交，不做隐式时间归一化
 
 推荐默认排序规则：
 
@@ -798,11 +794,7 @@ type FindingFocusQuery = {
 2. `subject.slice` canonicalized lexical order
 3. `finding_type` lexical order
 4. `observed_window.kind` lexical order，nulls last
-5. 各 `observed_window.kind` 的 canonical time key ascending：
-   - `range.start`
-   - `snapshot_now.observed_at`
-   - `latest_available.data_as_of`
-   - `as_of.at`
+5. `observed_window.start` ascending
 6. `finding_id` ascending
 
 若调用方请求 top-k，应在上述排序基础上做稳定截断，并返回 truncation metadata。

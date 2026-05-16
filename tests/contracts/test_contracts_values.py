@@ -15,10 +15,7 @@ from marivo.contracts.values import (
     SourceRef,
     SourceSchema,
     TelemetryEvent,
-    TimeScopeAsOf,
-    TimeScopeLatestAvailable,
     TimeScopeRange,
-    TimeScopeSnapshotNow,
 )
 
 # --- TimeScopeRange ---
@@ -37,25 +34,6 @@ def test_time_scope_range_round_trip() -> None:
     ts = TimeScopeRange(start="2024-03-01", end="2024-04-01")
     restored = TimeScopeRange.model_validate(ts.model_dump())
     assert restored == ts
-
-
-# --- TimeScope variants ---
-
-
-def test_time_scope_snapshot_now() -> None:
-    ts = TimeScopeSnapshotNow()
-    assert ts.kind == "snapshot_now"
-
-
-def test_time_scope_latest_available() -> None:
-    ts = TimeScopeLatestAvailable()
-    assert ts.kind == "latest_available"
-
-
-def test_time_scope_as_of() -> None:
-    ts = TimeScopeAsOf(at="2024-06-15T00:00:00")
-    assert ts.kind == "as_of"
-    assert ts.at == "2024-06-15T00:00:00"
 
 
 # --- Granularity ---

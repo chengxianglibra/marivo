@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from marivo.contracts.errors import ExecutionError
@@ -709,28 +709,14 @@ def _time_scope_has_datetime_boundary(time_scope: dict[str, Any]) -> bool:
 
 
 def _extract_date_range(time_scope: dict[str, Any]) -> tuple[str, str]:
-    """Extract (start_str, end_str) from any resolved time_scope dict."""
+    """Extract (start_str, end_str) from a range time_scope dict."""
     kind = time_scope.get("kind")
     if kind == "range":
         return time_scope["start"], time_scope["end"]
-    if kind == "snapshot_now":
-        d = time_scope.get("observed_at") or datetime.now(UTC).date().isoformat()
-        return d, _next_day(d)
-    if kind == "latest_available":
-        d = time_scope.get("data_as_of") or datetime.now(UTC).date().isoformat()
-        return d, _next_day(d)
-    if kind == "as_of":
-        d = time_scope.get("at") or datetime.now(UTC).date().isoformat()
-        d = d[:10]  # trim to date if datetime string
-        return d, _next_day(d)
     # Fallback: treat as range if keys present
     if "start" in time_scope and "end" in time_scope:
         return time_scope["start"], time_scope["end"]
     raise ValueError(f"decompose: cannot extract date range from time_scope with kind='{kind}'")
-
-
-def _next_day(date_str: str) -> str:
-    return (date.fromisoformat(date_str[:10]) + timedelta(days=1)).isoformat()
 
 
 def _safe_float(v: Any) -> float | None:

@@ -25,10 +25,7 @@ from marivo.contracts import (
     SessionState,
     StepId,
     TimeScope,
-    TimeScopeAsOf,
-    TimeScopeLatestAvailable,
     TimeScopeRange,
-    TimeScopeSnapshotNow,
     UserId,
 )
 
@@ -52,17 +49,8 @@ def test_key_value_objects_importable() -> None:
     ts = TimeScopeRange(start="2024-01-01", end="2024-02-01")
     assert ts.kind == "range"
 
-    assert TimeScopeSnapshotNow().kind == "snapshot_now"
-    assert TimeScopeLatestAvailable().kind == "latest_available"
-    assert TimeScopeAsOf(at="2024-01-01").kind == "as_of"
-
-    # TimeScope union accepts all variants
-    _: list[TimeScope] = [
-        ts,
-        TimeScopeSnapshotNow(),
-        TimeScopeLatestAvailable(),
-        TimeScopeAsOf(at="2024-01-01"),
-    ]
+    # TimeScope is range-only.
+    _: TimeScope = ts
 
     # Granularity is a Literal type alias; confirm it is importable and usable as annotation
     day: Granularity = "day"
