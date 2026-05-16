@@ -435,7 +435,8 @@
           "metric",
           "time_scope",
           "granularity",
-          "filter"
+          "filter",
+          "strategy"
         ],
         "properties": {
           "metric": {
@@ -458,45 +459,43 @@
               }
             ]
           },
-          "split_by": {
+          "dimension": {
             "anyOf": [
               {
-                "type": "array",
-                "items": {
-                  "type": "string",
-                  "minLength": 1
-                }
+                "type": "string",
+                "minLength": 1
               },
               {
                 "type": "null"
               }
             ]
           },
-          "profile": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
+          "strategy": {
+            "type": "string",
+            "enum": [
+              "point_anomaly",
+              "period_shift"
             ]
           },
           "sensitivity": {
+            "type": "string",
+            "default": "aggressive",
+            "enum": [
+              "conservative",
+              "balanced",
+              "aggressive"
+            ]
+          },
+          "limit": {
             "anyOf": [
               {
-                "type": "number",
-                "minimum": 0,
-                "maximum": 1
+                "type": "integer",
+                "minimum": 1
               },
               {
                 "type": "null"
               }
             ]
-          },
-          "limit": {
-            "type": "integer",
-            "minimum": 1
           }
         }
       },

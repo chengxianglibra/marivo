@@ -26,6 +26,10 @@ OUTPUT_DIR = ROOT / "marivo" / "contracts" / "generated"
 
 OSI_EXAMPLES = ROOT / "osi-marivo-spec" / "examples"
 AOI_EXAMPLES = ROOT / "aoi-spec" / "examples"
+AOI_CURRENT_EXAMPLE_FILES = [
+    AOI_EXAMPLES / "detect" / "basic-request.json",
+    AOI_EXAMPLES / "detect" / "dimension-period-shift-request.json",
+]
 
 
 def _run_codegen(schema: Path, output: Path, module_name: str) -> None:
@@ -162,35 +166,41 @@ def _validate_osi_examples() -> None:
         root_model.model_validate(payload)
 
 
-def _validate_aoi_examples() -> None:
-    aoi_models = importlib.import_module("marivo.contracts.generated.aoi")
-    root_model = None
-    for cls in _generated_model_classes(aoi_models):
-        root = getattr(cls, "model_fields", None)
-        if root is None and hasattr(cls, "model_validate"):
-            try:
-                if cls.__name__ == "AoiV01":
-                    root_model = cls
-                    break
-            except Exception:
-                continue
-    if root_model is None:
-        for cls in _generated_model_classes(aoi_models):
-            if cls.__name__ == "AoiV01":
-                root_model = cls
-                break
-    if root_model is None:
-        raise RuntimeError("No AOI root model was generated")
+def _import_generated_module(module_name: str, *, generated_root: Path | None = None) -> ModuleType:
+    if generated_root is None:
+        return importlib.import_module(module_name)
 
-    for example_path in sorted(AOI_EXAMPLES.rglob("*.json")):
+    module_path = generated_root / f"{module_name.rsplit('.', 1)[-1]}.py"
+    spec = importlib.util.spec_from_file_location(module_name, module_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Could not import generated module from {module_path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _validate_aoi_examples(*, generated_root: Path | None = None) -> None:
+    aoi_models = _import_generated_module(
+        "marivo.contracts.generated.aoi", generated_root=generated_root
+    )
+    detect_model = _find_model_with_fields(
+        aoi_models,
+        {"metric", "time_scope", "granularity", "filter", "strategy"},
+    )
+    detect_model.model_rebuild(_types_namespace=vars(aoi_models))
+
+    for example_path in AOI_CURRENT_EXAMPLE_FILES:
+        if not example_path.exists():
+            continue
         with example_path.open(encoding="utf-8") as f:
             payload = json.load(f)
-        root_model.model_validate(payload)
+        detect_model.model_validate(payload)
 
 
-def _validate_examples() -> None:
+def _validate_examples(*, generated_root: Path | None = None) -> None:
     _validate_osi_examples()
-    _validate_aoi_examples()
+    _validate_aoi_examples(generated_root=generated_root)
     print("All examples validated successfully.")
 
 
@@ -228,7 +238,7 @@ def _check_generation_freshness() -> None:
         temp_output.parent.parent.mkdir(parents=True, exist_ok=True)
         _write_generated_package(temp_output)
         _check_generated_files(temp_output)
-    _validate_examples()
+        _validate_examples(generated_root=temp_output)
 
 
 def main() -> None:
@@ -243,7 +253,7 @@ def main() -> None:
 
     _write_generated_package(OUTPUT_DIR)
     if not args.skip_validation:
-        _validate_examples()
+        _validate_examples(generated_root=OUTPUT_DIR)
 
 
 if __name__ == "__main__":

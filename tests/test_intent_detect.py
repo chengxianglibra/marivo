@@ -8,12 +8,12 @@ Covers:
   - run_detect_intent: insufficient points → detectability needs_attention
   - run_detect_intent: artifact schema required fields present
   - run_detect_intent: limit truncation
-  - run_detect_intent: split_by scans independent series
-  - run_detect_intent: profile echoed in response
+  - run_detect_intent: dimension scans independent series
+  - run_detect_intent: strategy echoed in response
   - run_detect_intent: invalid sensitivity → ValueError
   - run_detect_intent: invalid time scope kind → ValueError
   - run_detect_intent: invalid granularity → ValueError
-  - run_detect_intent: invalid profile → ValueError
+  - run_detect_intent: invalid strategy → ValueError
   - HTTP endpoint: unknown metric → 422
   - HTTP endpoint: invalid time scope (start >= end) → 422
   - HTTP endpoint: missing required fields → 422
@@ -31,6 +31,7 @@ from fastapi.testclient import TestClient
 from marivo.adapters.local.duckdb_analytics import DuckDBAnalyticsEngine
 from marivo.adapters.local.sqlite_metadata import SQLiteMetadataStore
 from marivo.main import create_app
+from marivo.runtime.intents.detect import run_detect_intent
 from tests.semantic_test_helpers import (
     build_runtime,
     ensure_published_typed_metric,
@@ -145,8 +146,10 @@ class DetectRunnerServiceTests(unittest.TestCase):
         cls.temp_dir.cleanup()
 
     def _make_session(self) -> str:
-        r = self.service.create_session("detect test session", {}, {}, {})
-        return r["session_id"]
+        r = self.service.create_session("detect test session")
+        if isinstance(r, dict):
+            return str(r["session_id"])
+        return str(r.session_id)
 
     def _detect(
         self,
@@ -154,17 +157,20 @@ class DetectRunnerServiceTests(unittest.TestCase):
         metric: str,
         start: str = "2026-01-01",
         end: str = "2026-01-15",
-        sensitivity: str = "balanced",
+        sensitivity: str | None = None,
         **extra: object,
     ) -> dict:
         params: dict = {
             "metric": _metric_ref(metric),
-            "time_scope": {"kind": "range", "start": start, "end": end},
+            "time_scope": {"field": "event_date", "start": start, "end": end},
             "granularity": "day",
-            "sensitivity": sensitivity,
+            "strategy": "point_anomaly",
         }
+        if sensitivity is not None:
+            params["sensitivity"] = sensitivity
         params.update(extra)
-        return self.service.run_intent(session_id, "detect", params)
+        envelope = run_detect_intent(self.service, session_id, params)
+        return envelope["result"]
 
     # ── Schema fields ─────────────────────────────────────────────────────────
 
@@ -191,8 +197,8 @@ class DetectRunnerServiceTests(unittest.TestCase):
         self.assertIn("artifact_id", result)
         self.assertIsNotNone(result["artifact_id"])
         # v1 required fields
-        self.assertIn("split_by", result)
-        self.assertIn("profile", result)
+        self.assertIn("dimension", result)
+        self.assertIn("strategy", result)
 
     # ── Empty semantics ────────────────────────────────────────────────────────
 
@@ -264,19 +270,19 @@ class DetectRunnerServiceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self._detect(session_id, self.spike_metric, sensitivity="extreme")
 
-    # ── Profile ───────────────────────────────────────────────────────────────
+    # ── Strategy ──────────────────────────────────────────────────────────────
 
-    def test_detect_profile_echoed_in_response(self) -> None:
-        """Explicitly requested profile is stored in the artifact."""
+    def test_detect_strategy_echoed_in_response(self) -> None:
+        """Explicitly requested strategy is stored in the artifact."""
         session_id = self._make_session()
-        result = self._detect(session_id, self.spike_metric, profile="spike_dip")
-        self.assertEqual(result["profile"], "spike_dip")
+        result = self._detect(session_id, self.spike_metric, strategy="period_shift")
+        self.assertEqual(result["strategy"], "period_shift")
 
-    def test_detect_profile_defaults_to_auto(self) -> None:
-        """Omitted profile normalises to 'auto'."""
+    def test_detect_sensitivity_defaults_to_aggressive(self) -> None:
+        """Omitted sensitivity normalises to 'aggressive'."""
         session_id = self._make_session()
         result = self._detect(session_id, self.spike_metric)
-        self.assertEqual(result["profile"], "auto")
+        self.assertEqual(result["sensitivity"], "aggressive")
 
     def test_detect_period_shift_finds_structural_degradation(self) -> None:
         """period_shift compares the whole range to previous adjacent baseline."""
@@ -286,10 +292,10 @@ class DetectRunnerServiceTests(unittest.TestCase):
             self.spike_metric,
             start="2026-01-09",
             end="2026-01-15",
-            patterns=["period_shift"],
+            strategy="period_shift",
         )
 
-        self.assertEqual(result["patterns"], ["period_shift"])
+        self.assertEqual(result["strategy"], "period_shift")
         self.assertEqual(result["scan_summary"]["total_candidate_count"], 1)
         candidate = result["candidates"][0]
         self.assertEqual(candidate["candidate_type"], "period_shift")
@@ -309,26 +315,26 @@ class DetectRunnerServiceTests(unittest.TestCase):
             self.spike_metric,
             start="2026-01-09",
             end="2026-01-15",
-            patterns=["point_anomaly"],
+            strategy="point_anomaly",
         )
 
-        self.assertEqual(result["patterns"], ["point_anomaly"])
+        self.assertEqual(result["strategy"], "point_anomaly")
         self.assertEqual(result["scan_summary"]["total_candidate_count"], 0)
 
-    def test_detect_invalid_profile_raises(self) -> None:
-        """Unknown profile → ValueError."""
+    def test_detect_invalid_strategy_raises(self) -> None:
+        """Unknown strategy → ValueError."""
         session_id = self._make_session()
         with self.assertRaises(ValueError):
-            self._detect(session_id, self.spike_metric, profile="zscore_raw")
+            self._detect(session_id, self.spike_metric, strategy="zscore_raw")
 
-    # ── split_by ──────────────────────────────────────────────────────────────
+    # ── dimension ─────────────────────────────────────────────────────────────
 
-    def test_detect_split_by_scans_independent_series(self) -> None:
-        """split_by scans each dimension value as an independent series."""
+    def test_detect_dimension_scans_independent_series(self) -> None:
+        """dimension scans each dimension value as an independent series."""
         session_id = self._make_session()
-        result = self._detect(session_id, self.spike_metric, split_by="dimension.cluster")
+        result = self._detect(session_id, self.spike_metric, dimension="dimension.cluster")
 
-        self.assertEqual(result["split_by"], "dimension.cluster")
+        self.assertEqual(result["dimension"], "dimension.cluster")
         self.assertEqual(result["scan_summary"]["eligible_series_count"], 2)
         self.assertEqual(result["scan_summary"]["scanned_series_count"], 2)
         self.assertEqual(result["scan_summary"]["excluded_series_count"], 0)
@@ -337,13 +343,13 @@ class DetectRunnerServiceTests(unittest.TestCase):
             any(c["slice"] == {"dimension.cluster": "alpha"} for c in result["candidates"])
         )
 
-    def test_detect_split_by_max_series_limits_scan(self) -> None:
-        """max_series limits split_by fan-out and records excluded series."""
+    def test_detect_dimension_max_series_limits_scan(self) -> None:
+        """max_series limits dimension fan-out and records excluded series."""
         session_id = self._make_session()
         result = self._detect(
             session_id,
             self.spike_metric,
-            split_by="dimension.cluster",
+            dimension="dimension.cluster",
             max_series=1,
         )
 
@@ -353,13 +359,13 @@ class DetectRunnerServiceTests(unittest.TestCase):
         issues = result["detectability"]["issues"]
         self.assertTrue(any(i["code"] == "series_limit_applied" for i in issues))
 
-    def test_detect_split_by_unsupported_dimension_raises(self) -> None:
+    def test_detect_dimension_unsupported_dimension_raises(self) -> None:
         """Unsupported split dimension is rejected instead of falling back to overall scan."""
         session_id = self._make_session()
         with self.assertRaises(ValueError):
-            self._detect(session_id, self.spike_metric, split_by="dimension.missing_cluster")
+            self._detect(session_id, self.spike_metric, dimension="dimension.missing_cluster")
 
-    def test_detect_split_by_declared_dimension_without_physical_column_raises(self) -> None:
+    def test_detect_dimension_declared_dimension_without_physical_column_raises(self) -> None:
         """Declared split dimension must resolve to an executable column."""
         metric_name = _seed_metadata(
             self.metadata,
@@ -372,19 +378,19 @@ class DetectRunnerServiceTests(unittest.TestCase):
         )
         session_id = self._make_session()
         with self.assertRaises(ValueError):
-            self._detect(session_id, metric_name, split_by="dimension.cluster_missing")
+            self._detect(session_id, metric_name, dimension="dimension.cluster_missing")
 
-    def test_detect_split_by_non_string_raises(self) -> None:
-        """Only a single split_by string is supported."""
+    def test_detect_dimension_non_string_raises(self) -> None:
+        """Only a single dimension string is supported."""
         session_id = self._make_session()
         with self.assertRaises(ValueError):
-            self._detect(session_id, self.spike_metric, split_by=["dimension.cluster"])
+            self._detect(session_id, self.spike_metric, dimension=["dimension.cluster"])
 
-    def test_detect_split_by_null_when_omitted(self) -> None:
-        """Omitted split_by is null in the artifact."""
+    def test_detect_dimension_null_when_omitted(self) -> None:
+        """Omitted dimension is null in the artifact."""
         session_id = self._make_session()
         result = self._detect(session_id, self.spike_metric)
-        self.assertIsNone(result["split_by"])
+        self.assertIsNone(result["dimension"])
 
     # ── limit truncation ──────────────────────────────────────────────────────
 
@@ -417,9 +423,9 @@ class DetectRunnerServiceTests(unittest.TestCase):
         """Old mode/grain/current shape is rejected."""
         session_id = self._make_session()
         with self.assertRaises(ValueError):
-            self.service.run_intent(
+            run_detect_intent(
+                self.service,
                 session_id,
-                "detect",
                 {
                     "metric": self.spike_metric,
                     "time_scope": {
@@ -428,6 +434,7 @@ class DetectRunnerServiceTests(unittest.TestCase):
                         "current": {"start": "2026-01-01", "end": "2026-01-15"},
                     },
                     "granularity": "day",
+                    "strategy": "point_anomaly",
                 },
             )
 
@@ -435,13 +442,18 @@ class DetectRunnerServiceTests(unittest.TestCase):
         """Unsupported granularity → ValueError."""
         session_id = self._make_session()
         with self.assertRaises(ValueError):
-            self.service.run_intent(
+            run_detect_intent(
+                self.service,
                 session_id,
-                "detect",
                 {
                     "metric": self.spike_metric,
-                    "time_scope": {"kind": "range", "start": "2026-01-01", "end": "2026-01-15"},
+                    "time_scope": {
+                        "field": "event_date",
+                        "start": "2026-01-01",
+                        "end": "2026-01-15",
+                    },
                     "granularity": "quarter",
+                    "strategy": "point_anomaly",
                 },
             )
 
@@ -449,13 +461,18 @@ class DetectRunnerServiceTests(unittest.TestCase):
         """start >= end → ValueError."""
         session_id = self._make_session()
         with self.assertRaises(ValueError):
-            self.service.run_intent(
+            run_detect_intent(
+                self.service,
                 session_id,
-                "detect",
                 {
                     "metric": self.spike_metric,
-                    "time_scope": {"kind": "range", "start": "2026-01-15", "end": "2026-01-01"},
+                    "time_scope": {
+                        "field": "event_date",
+                        "start": "2026-01-15",
+                        "end": "2026-01-01",
+                    },
                     "granularity": "day",
+                    "strategy": "point_anomaly",
                 },
             )
 
@@ -516,13 +533,18 @@ class DetectRunnerServiceTests(unittest.TestCase):
         """Unresolved metric → ValueError."""
         session_id = self._make_session()
         with self.assertRaises(ValueError, msg="expect ValueError for unknown metric"):
-            self.service.run_intent(
+            run_detect_intent(
+                self.service,
                 session_id,
-                "detect",
                 {
                     "metric": _metric_ref("nonexistent_metric_xyz_abc"),
-                    "time_scope": {"kind": "range", "start": "2026-01-01", "end": "2026-01-15"},
+                    "time_scope": {
+                        "field": "event_date",
+                        "start": "2026-01-01",
+                        "end": "2026-01-15",
+                    },
                     "granularity": "day",
+                    "strategy": "point_anomaly",
                 },
             )
 
@@ -546,7 +568,7 @@ class DetectIntentEndpointTests(unittest.TestCase):
     """HTTP-level tests for /sessions/{id}/intents/detect.
 
     Uses the detect intent fixture so HTTP tests can cover both success-empty
-    and split_by execution paths.
+    and dimension execution paths.
     """
 
     @classmethod
@@ -593,13 +615,19 @@ class DetectIntentEndpointTests(unittest.TestCase):
         cls.temp_dir.cleanup()
 
     def _time_scope(self, start: str = "2026-01-01", end: str = "2026-01-15") -> dict:
-        return {"kind": "range", "start": start, "end": end}
+        return {
+            "field": "event_date",
+            "start": f"{start}T00:00:00Z" if "T" not in start else start,
+            "end": f"{end}T00:00:00Z" if "T" not in end else end,
+        }
 
     def _detect_payload(self, metric: str, **extra: object) -> dict:
         payload: dict = {
             "metric": _metric_ref(metric),
             "time_scope": self._time_scope(),
             "granularity": "day",
+            "filter": None,
+            "strategy": "point_anomaly",
         }
         payload.update(extra)
         return payload
@@ -682,7 +710,7 @@ class DetectIntentEndpointTests(unittest.TestCase):
         )
 
         self.assertEqual(response.status_code, 200, response.text)
-        self.assertEqual(response.json()["artifact_type"], "anomaly_candidates")
+        self.assertEqual(response.json()["result"]["artifact_type"], "anomaly_candidates")
 
     def test_detect_invalid_time_scope_returns_422(self) -> None:
         """start >= end is rejected with 422."""
@@ -734,7 +762,7 @@ class DetectIntentEndpointTests(unittest.TestCase):
             },
         )
         self.assertEqual(r.status_code, 200, msg=r.text)
-        body = r.json()
+        body = r.json()["result"]
         self.assertEqual(body["artifact_type"], "anomaly_candidates")
         self.assertIn("scan_summary", body)
         self.assertIn("total_candidate_count", body["scan_summary"])
@@ -749,36 +777,38 @@ class DetectIntentEndpointTests(unittest.TestCase):
             },
         )
         self.assertEqual(r.status_code, 200, msg=r.text)
-        body = r.json()
+        body = r.json()["result"]
         # uniform_events has the same number of rows per day per cluster → no candidates
         self.assertEqual(body["scan_summary"]["total_candidate_count"], 0)
 
-    def test_detect_split_by_returns_segment_candidates(self) -> None:
+    def test_detect_dimension_returns_segment_candidates(self) -> None:
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/detect",
             json={
                 **self._detect_payload("http_detect_split_metric"),
-                "split_by": "dimension.cluster",
+                "dimension": "dimension.cluster",
                 "sensitivity": "balanced",
             },
         )
         self.assertEqual(r.status_code, 200, msg=r.text)
-        body = r.json()
-        self.assertEqual(body["split_by"], "dimension.cluster")
+        body = r.json()["result"]
+        self.assertEqual(body["dimension"], "dimension.cluster")
         self.assertEqual(body["scan_summary"]["eligible_series_count"], 2)
         self.assertEqual(body["scan_summary"]["scanned_series_count"], 2)
         self.assertTrue(
             any(c["slice"] == {"dimension.cluster": "alpha"} for c in body["candidates"])
         )
 
-    def test_detect_split_by_array_returns_422(self) -> None:
+    def test_detect_dimension_array_returns_422(self) -> None:
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/detect",
             json={
                 "metric": _metric_ref("http_detect_split_metric"),
                 "time_scope": self._time_scope(),
                 "granularity": "day",
-                "split_by": ["dimension.cluster"],
+                "filter": None,
+                "strategy": "point_anomaly",
+                "dimension": ["dimension.cluster"],
             },
         )
         self.assertEqual(r.status_code, 422)
@@ -790,6 +820,8 @@ class DetectIntentEndpointTests(unittest.TestCase):
                 "metric": _metric_ref("http_detect_metric"),
                 "time_scope": self._time_scope(),
                 "granularity": "day",
+                "filter": None,
+                "strategy": "point_anomaly",
             },
         )
         self.assertEqual(r.status_code, 404)

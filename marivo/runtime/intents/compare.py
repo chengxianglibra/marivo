@@ -24,9 +24,6 @@ if TYPE_CHECKING:
     from marivo.runtime.runtime import MarivoRuntime
 
 
-_VALID_COMPARE_MODES = frozenset({"auto", "scalar", "segmented", "time_series"})
-
-
 def _normalize_window(window: dict[str, Any]) -> tuple[str, str]:
     start = str(window.get("start") or "")
     end = str(window.get("end") or start)
@@ -280,12 +277,6 @@ def run_compare_intent(
     right_session_id: str = (
         session_id if uses_aoi_artifact_refs else right_ref_raw.get("session_id") or session_id
     )
-    mode: str = p.get("mode") or "auto"
-    if mode not in _VALID_COMPARE_MODES:
-        raise ValueError(
-            "compare: INVALID_ARGUMENT - mode must be one of "
-            "'auto', 'scalar', 'segmented', 'time_series'"
-        )
     compare_type_raw = p.get("compare_type")
     compare_type = str(compare_type_raw or "normal").strip() or "normal"
     try:
@@ -434,21 +425,6 @@ def run_compare_intent(
     if fatal:
         fatal_message = predicate_lineage_summary["fatal_message"] or issues[0]["message"]
         raise ValueError(f"compare: NOT_COMPARABLE - {fatal_message}")
-
-    # Explicit mode guard
-    if mode == "scalar" and left_obs_type != "scalar":
-        raise ValueError(
-            f"compare: INVALID_ARGUMENT - mode='scalar' but observation_type is '{left_obs_type}'"
-        )
-    if mode == "segmented" and left_obs_type != "segmented":
-        raise ValueError(
-            f"compare: INVALID_ARGUMENT - mode='segmented' but observation_type is '{left_obs_type}'"
-        )
-    if mode == "time_series" and left_obs_type != "time_series":
-        raise ValueError(
-            "compare: INVALID_ARGUMENT - mode='time_series' but observation_type is "
-            f"'{left_obs_type}'"
-        )
 
     # Pre-flight null check for scalar: both null means all delta fields will be null.
     # This is valid per spec (delta fields become null); surface as data_incomplete.

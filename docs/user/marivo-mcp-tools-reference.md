@@ -1155,15 +1155,15 @@ interface AnalysisFailure {
 | metric | string | 是 | 语义指标名称 |
 | time_scope | McpTimeScope | 是 | 时间范围定义 |
 | granularity | `"hour"` \| `"day"` \| `"week"` \| `"month"` \| `"quarter"` \| `"year"` | 是 | 时间粒度 |
+| strategy | `"point_anomaly"` \| `"period_shift"` | 是 | 检测策略 |
 
 可选参数：
 
 | 参数 | 类型 | 必填 | 默认 | 说明 |
 |------|------|------|------|------|
 | filter_expression | object \| null | 否 | null | 过滤表达式对象（需为结构化对象） |
-| split_by | string[] \| null | 否 | null | 按维度列表拆分检测，如 `["cluster"]` |
-| profile | string \| null | 否 | null | 检测轮廓，如 `"spike_dip"` / `"level_shift"` / `"seasonal_residual"` |
-| sensitivity | float \| null | 否 | null | 检测灵敏度数值 |
+| dimension | string \| null | 否 | null | 按单个维度拆成独立序列扫描，如 `"cluster"` |
+| sensitivity | `"conservative"` \| `"balanced"` \| `"aggressive"` | 否 | `"aggressive"` | 检测灵敏度档位 |
 | limit | integer \| null | 否 | null | 返回异常点数量上限 |
 
 **输出 — DetectArtifact**：
@@ -1184,7 +1184,7 @@ interface AnomalyCandidate {
   bucket_start: string;                    // 异常发生的时间桶，ISO-8601
   value: number | null;                    // 实际观测值
   score: number;                           // 异常偏离评分
-  series_keys: object | null;              // split_by 维度的键值对
+  series_keys: object | null;              // dimension 维度的键值对
 }
 ```
 
@@ -1200,8 +1200,8 @@ interface AnomalyCandidate {
     "end": "2025-03-08"
   },
   "granularity": "day",
-  "profile": "spike_dip",
-  "sensitivity": 0.8
+  "strategy": "point_anomaly",
+  "sensitivity": "aggressive"
 }
 ```
 
@@ -1481,10 +1481,9 @@ interface AttributeArtifact {
 | baseline_policy | `"previous_adjacent_equal_length"` | 否 | `"previous_adjacent_equal_length"` | 基线策略 |
 | granularity | `"hour"` \| `"day"` \| `"week"` \| `"month"` \| null | 否 | null | 时间粒度 |
 | scope | ObserveScope \| null | 否 | null | 人口限定 |
-| detect_split_by | string \| null | 否 | null | detect 阶段的 split_by 维度 |
-| profile | `"auto"` \| `"spike_dip"` \| `"level_shift"` \| `"seasonal_residual"` | 否 | `"auto"` | detect 阶段的轮廓 |
-| sensitivity | `"conservative"` \| `"balanced"` \| `"aggressive"` | 否 | `"balanced"` | detect 阶段的灵敏度 |
-| patterns | `["point_anomaly"]` \| `["period_shift"]` \| 两者组合 \| null | 否 | null | detect 阶段的模式 |
+| detect_dimension | string \| null | 否 | null | detect 阶段的单维扫描维度 |
+| strategy | `"point_anomaly"` \| `"period_shift"` | 是 | - | detect 阶段的检测策略 |
+| sensitivity | `"conservative"` \| `"balanced"` \| `"aggressive"` | 否 | `"aggressive"` | detect 阶段的灵敏度 |
 | decomposition_limit | integer \| null | 否 | 5 | 归因拆解返回的维度值上限 |
 | candidate_limit | integer \| null | 否 | null | 候选维度数量上限 |
 | followup_limit | integer \| null | 否 | 3 | follow-up 维度数量上限 |
@@ -1513,8 +1512,8 @@ interface DiagnoseArtifact {
     "end": "2025-03-08"
   },
   "granularity": "day",
-  "profile": "spike_dip",
-  "sensitivity": "balanced"
+  "strategy": "point_anomaly",
+  "sensitivity": "aggressive"
 }
 ```
 

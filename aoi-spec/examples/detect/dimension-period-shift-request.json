@@ -14,10 +14,8 @@
       }
     ]
   },
-  "split_by": [
-    "channel"
-  ],
-  "profile": "seasonal_daily",
-  "sensitivity": 0.8,
+  "dimension": "channel",
+  "strategy": "period_shift",
+  "sensitivity": "balanced",
   "limit": 10
 }

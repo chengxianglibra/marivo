@@ -50,6 +50,17 @@ correlation_methods:
   - pearson   # Linear correlation coefficient.
   - spearman  # Rank correlation coefficient.
 
+# Supported anomaly detection strategies.
+detect_strategies:
+  - point_anomaly  # Detect anomalous buckets within the scan window.
+  - period_shift   # Detect whole-period level shifts against the previous adjacent window.
+
+# Supported anomaly detection sensitivity presets.
+detect_sensitivities:
+  - conservative  # Stricter candidate inclusion.
+  - balanced      # Balanced candidate inclusion.
+  - aggressive    # Broader candidate inclusion; default.
+
 # Foundation primitives
 
 # Multi-dialect boolean filter expression, following the OSI Expression shape.
@@ -178,16 +189,16 @@ detect:
   # Required, nullable: filter expression. Null means no filter.
   filter: expression
 
-  # Optional, nullable: string list of dimensions used to split independent anomaly series.
-  split_by: string[]
+  # Optional, nullable: single dimension used to split independent anomaly series.
+  dimension: string
 
-  # Optional, nullable: implementation-defined detection profile name.
-  profile: string
+  # Required: detection strategy, one of detect_strategies.
+  strategy: detect_strategies
 
-  # Optional, nullable: detection sensitivity, range [0, 1]. Higher returns more candidate anomalies; lower is stricter.
-  sensitivity: number
+  # Optional: detection sensitivity preset, one of detect_sensitivities. Omitted means aggressive.
+  sensitivity: detect_sensitivities
 
-  # Optional: maximum number of anomaly candidates to return, range [1, +infinity).
+  # Optional, nullable: maximum number of anomaly candidates to return, range [1, +infinity).
   limit: integer
 
 # Run a statistical test between two source slices.

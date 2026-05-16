@@ -64,21 +64,6 @@ McpStructuredObject = Annotated[
 ]
 
 
-class McpObservationRef(BaseModel):
-    """Legacy MCP-visible ref shape retained for derived compatibility callers."""
-
-    model_config = ConfigDict(extra="allow")
-
-    session_id: str | None = Field(
-        default=None,
-        description="Session containing the upstream observe step. Defaults to path session.",
-    )
-    step_id: str = Field(description='Required upstream observe step id, e.g. "step_obs_current".')
-    step_type: Literal["observe"] = Field(
-        description='Required literal "observe"; compare consumes observe step refs.',
-    )
-
-
 class McpArtifactRef(BaseModel):
     """MCP-visible generic artifact ref for downstream intent inputs."""
 

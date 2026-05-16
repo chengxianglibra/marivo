@@ -97,7 +97,7 @@ class SemanticRuntimeRepository:
                 additive_dims = None
         payload: dict[str, Any] = {
             "definition_sql": definition_sql,
-            "_dataset_grounding_ready": True,
+            "_dataset_grounding_ready": dataset_info is not None,
             "dimensions": dimensions,
         }
         if dataset_info is not None:
