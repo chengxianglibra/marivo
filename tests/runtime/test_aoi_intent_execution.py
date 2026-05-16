@@ -8,17 +8,15 @@ from marivo.contracts.generated import aoi
 from marivo.runtime import intent_execution
 
 
-def _observe_request() -> aoi.Observe1:
-    return aoi.Observe1(
+def _observe_request() -> aoi.Observe2:
+    return aoi.Observe2(
         metric="view_time",
         time_scope=aoi.TimeScope(
             field="event_time",
             start=datetime(2026, 5, 1, tzinfo=UTC),
             end=datetime(2026, 5, 8, tzinfo=UTC),
         ),
-        filter=None,
         granularity="day",
-        dimensions=None,
     )
 
 
@@ -59,7 +57,7 @@ def test_observe_accepts_aoi_request_and_dispatches_lowered_params(monkeypatch) 
 def test_compare_rejects_mismatched_aoi_request_before_runner(monkeypatch) -> None:
     runtime = object()
     called = False
-    request = aoi.Forecast(source_artifact_id="artifact_1", horizon=7, profile=None)
+    request = aoi.Forecast(source_artifact_id="artifact_1", horizon=7)
 
     monkeypatch.setattr(intent_execution, "_assert_session_is_open", lambda *_: None)
 

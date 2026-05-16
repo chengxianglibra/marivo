@@ -201,9 +201,7 @@ curl -s -X POST http://localhost:8000/sessions/sess_.../intents/observe \
       "start": "2026-01-01T00:00:00Z",
       "end": "2026-02-01T00:00:00Z"
     },
-    "filter": null,
-    "granularity": "day",
-    "dimensions": null
+    "granularity": "day"
   }' | jq .
 ```
 

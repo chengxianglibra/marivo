@@ -13,6 +13,5 @@
       }
     ]
   },
-  "granularity": "day",
-  "dimensions": null
+  "granularity": "day"
 }

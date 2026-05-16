@@ -420,7 +420,7 @@ def _run_intent(session_id: str, intent_type: str, params: Any, request: Request
 @router.post("/sessions/{session_id}/intents/observe", response_model=ExecutionEnvelope)
 def intent_observe(
     session_id: str,
-    payload: aoi.Observe1 | aoi.Observe2 | aoi.Observe3 | aoi.Observe4,
+    payload: aoi.Observe1 | aoi.Observe2 | aoi.Observe3,
     request: Request,
 ) -> ExecutionEnvelope:
     return ExecutionEnvelope.model_validate(_run_intent(session_id, "observe", payload, request))

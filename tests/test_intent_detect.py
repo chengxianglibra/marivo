@@ -626,7 +626,6 @@ class DetectIntentEndpointTests(unittest.TestCase):
             "metric": _metric_ref(metric),
             "time_scope": self._time_scope(),
             "granularity": "day",
-            "filter": None,
             "strategy": "point_anomaly",
         }
         payload.update(extra)
@@ -806,7 +805,6 @@ class DetectIntentEndpointTests(unittest.TestCase):
                 "metric": _metric_ref("http_detect_split_metric"),
                 "time_scope": self._time_scope(),
                 "granularity": "day",
-                "filter": None,
                 "strategy": "point_anomaly",
                 "dimension": ["dimension.cluster"],
             },
@@ -820,7 +818,6 @@ class DetectIntentEndpointTests(unittest.TestCase):
                 "metric": _metric_ref("http_detect_metric"),
                 "time_scope": self._time_scope(),
                 "granularity": "day",
-                "filter": None,
                 "strategy": "point_anomaly",
             },
         )

@@ -20,7 +20,6 @@ AoiAtomicRequest: TypeAlias = (  # noqa: UP040 - mypy hook does not support PEP 
     | aoi.Observe1
     | aoi.Observe2
     | aoi.Observe3
-    | aoi.Observe4
 )
 AoiArtifact: TypeAlias = aoi.Artifact1 | aoi.Artifact2  # noqa: UP040
 
@@ -63,7 +62,7 @@ AOI_OPERATION_REGISTRY: dict[str, AoiOperationDefinition] = {
     "forecast": AoiOperationDefinition("forecast", (aoi.Forecast,)),
     "observe": AoiOperationDefinition(
         "observe",
-        (aoi.Observe1, aoi.Observe2, aoi.Observe3, aoi.Observe4),
+        (aoi.Observe1, aoi.Observe2, aoi.Observe3),
     ),
     "test": AoiOperationDefinition("test", (aoi.Test,)),
 }

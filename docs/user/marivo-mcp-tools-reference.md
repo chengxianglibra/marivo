@@ -1059,9 +1059,9 @@ interface SessionListResponse {
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| granularity | `"hour"` \| `"day"` \| `"week"` \| `"month"` \| `"quarter"` \| `"year"` \| null | 否 | 时间粒度 |
-| dimensions | string[] \| null | 否 | 按维度分组，如 `["cluster", "department"]` |
-| filter_expression | object \| null | 否 | 过滤表达式对象（需为结构化对象，不接受 JSON 字符串） |
+| granularity | `"hour"` \| `"day"` \| `"week"` \| `"month"` \| `"quarter"` \| `"year"` | 否 | 时间粒度；不用时省略，不传 `null` |
+| dimensions | string[] | 否 | 按维度分组，如 `["cluster", "department"]`；不用时省略，不传 `null` |
+| filter_expression | object | 否 | 过滤表达式对象（需为结构化对象，不接受 JSON 字符串）；不用时省略，不传 `null` |
 
 **输出 — ObserveArtifact**：
 
@@ -1161,10 +1161,10 @@ interface AnalysisFailure {
 
 | 参数 | 类型 | 必填 | 默认 | 说明 |
 |------|------|------|------|------|
-| filter_expression | object \| null | 否 | null | 过滤表达式对象（需为结构化对象） |
-| dimension | string \| null | 否 | null | 按单个维度拆成独立序列扫描，如 `"cluster"` |
+| filter_expression | object | 否 | 省略 | 过滤表达式对象（需为结构化对象）；不用时省略，不传 `null` |
+| dimension | string | 否 | 省略 | 按单个维度拆成独立序列扫描，如 `"cluster"` |
 | sensitivity | `"conservative"` \| `"balanced"` \| `"aggressive"` | 否 | `"aggressive"` | 检测灵敏度档位 |
-| limit | integer \| null | 否 | null | 返回异常点数量上限 |
+| limit | integer | 否 | 省略 | 返回异常点数量上限；不用时省略，不传 `null` |
 
 **输出 — DetectArtifact**：
 
@@ -1334,7 +1334,7 @@ interface SegmentedDeltaRow {
 
 | 参数 | 类型 | 必填 | 默认 | 说明 |
 |------|------|------|------|------|
-| limit | integer \| null | 否 | null | 返回 top N 维度值数量 |
+| limit | integer | 否 | 省略 | 返回 top N 维度值数量；不用时省略，不传 `null` |
 
 注意：参数为字符串 artifact ID，非 CompareArtifactRef 对象。无 `method` 参数（仅支持 delta_share）。
 
@@ -1553,7 +1553,7 @@ interface DiagnoseArtifact {
 
 | 参数 | 类型 | 必填 | 默认 | 说明 |
 |------|------|------|------|------|
-| method | `"pearson"` \| `"spearman"` \| null | 否 | null | 相关性方法（不支持 "kendall"） |
+| method | `"pearson"` \| `"spearman"` | 否 | 省略 | 相关性方法（不支持 "kendall"）；不用时省略，不传 `null` |
 
 注意：参数为字符串 artifact ID，非引用对象。无 `min_pairs` 参数。
 
@@ -1683,7 +1683,7 @@ interface TestIntentArtifact {
 
 | 参数 | 类型 | 必填 | 默认 | 说明 |
 |------|------|------|------|------|
-| profile | string \| null | 否 | null | 预测轮廓 |
+| profile | string | 否 | 省略 | 预测轮廓；不用时省略，不传 `null` |
 
 注意：参数为字符串 artifact ID（如 `"art_obs_1"`），非引用对象。无 `interval_level` 参数。
 

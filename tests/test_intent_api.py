@@ -243,19 +243,16 @@ class AoiGeneratedIntentModelTests(unittest.TestCase):
                 {
                     "metric": "metric.dau",
                     "time_scope": self._time_scope(),
-                    "filter": None,
                     "unexpected": True,
                 }
             )
 
     def test_aoi_observe_accepts_generated_shape(self) -> None:
-        request = aoi.Observe1.model_validate(
+        request = aoi.Observe2.model_validate(
             {
                 "metric": "metric.dau",
                 "time_scope": self._time_scope(),
-                "filter": None,
                 "granularity": "day",
-                "dimensions": None,
             }
         )
 
@@ -474,7 +471,6 @@ class LightweightIntentEndpointTests(_SessionBackedIntentEndpointMixin, unittest
                     "end": "2024-01-08T00:00:00Z",
                 },
                 "granularity": "day",
-                "filter": None,
                 "strategy": "point_anomaly",
             },
         )
@@ -518,7 +514,6 @@ class LightweightIntentEndpointTests(_SessionBackedIntentEndpointMixin, unittest
                     "start": "2024-01-01T00:00:00Z",
                     "end": "2024-01-08T00:00:00Z",
                 },
-                "filter": None,
             },
         )
         self.assertEqual(r.status_code, 404)
@@ -553,7 +548,6 @@ class ClosedSessionWriteGuardTests(unittest.TestCase):
                     "start": "2024-01-01T00:00:00Z",
                     "end": "2024-01-08T00:00:00Z",
                 },
-                "filter": None,
             },
         )
         self.assertEqual(r.status_code, 422)
@@ -570,7 +564,6 @@ class ClosedSessionWriteGuardTests(unittest.TestCase):
                     "end": "2024-01-08T00:00:00Z",
                 },
                 "granularity": "day",
-                "filter": None,
                 "strategy": "point_anomaly",
             },
         )

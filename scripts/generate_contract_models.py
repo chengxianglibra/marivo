@@ -13,6 +13,7 @@ import argparse
 import importlib
 import inspect
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -116,11 +117,89 @@ def _display_path(path: Path) -> str:
         return str(path)
 
 
+def _patch_aoi_optional_non_null_fields(output: Path) -> None:
+    """Preserve omittable-but-non-null AOI request fields in generated models.
+
+    datamodel-code-generator currently renders optional JSON Schema properties
+    as ``T | None = None`` even when the property schema itself is non-nullable.
+    AOI request optionals intentionally mean "may be omitted"; explicit JSON
+    null must still fail Pydantic/FastAPI validation.
+    """
+
+    text = output.read_text(encoding="utf-8")
+    text = text.replace(
+        "from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel\n",
+        "from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel, model_validator\n",
+    )
+    text = text.replace("\n        | None\n    ) = 'normal'", "\n    ) = 'normal'")
+    replacements = {
+        "    limit: int | None = Field(None, ge=1)": (
+            "    limit: int = Field(None, ge=1)  # type: ignore[assignment]"
+        ),
+        "    profile: str | None = None": ("    profile: str = None  # type: ignore[assignment]"),
+        "    method: Literal['pearson', 'spearman'] | None = None": (
+            "    method: Literal['pearson', 'spearman'] = None  # type: ignore[assignment]"
+        ),
+        "    filter: Expression | None = None": (
+            "    filter: Expression = None  # type: ignore[assignment]"
+        ),
+        "    dimension: str | None = Field(None, min_length=1)": (
+            "    dimension: str = Field(None, min_length=1)  # type: ignore[assignment]"
+        ),
+        "    dimensions: list[Dimension] | None = Field(None, min_length=1)": (
+            "    dimensions: list[Dimension] = Field(None, min_length=1)  # type: ignore[arg-type]"
+        ),
+    }
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+    text = re.sub(
+        r"    granularity: (Literal\[[^\n]+\]) \| None = \(\n        None\n    \)",
+        r"    granularity: \1 = None  # type: ignore[assignment]",
+        text,
+    )
+    text = text.replace(
+        "    dimensions: list[Dimension] = Field(None, min_length=1)  # type: ignore[arg-type]\n\n\nclass Observe2",
+        "    dimensions: list[Dimension] = Field(None, min_length=1)  # type: ignore[arg-type]\n\n"
+        "    @model_validator(mode='after')\n"
+        "    def _validate_scalar_branch(self) -> Observe1:\n"
+        "        if self.granularity is not None or self.dimensions is not None:\n"
+        "            raise ValueError('observe scalar requests must omit granularity and dimensions')\n"
+        "        return self\n\n\n"
+        "class Observe2",
+        1,
+    )
+    text = text.replace(
+        "    dimensions: list[Dimension] = Field(None, min_length=1)  # type: ignore[arg-type]\n\n\nclass Observe3",
+        "    dimensions: list[Dimension] = Field(None, min_length=1)  # type: ignore[arg-type]\n\n"
+        "    @model_validator(mode='after')\n"
+        "    def _validate_time_series_branch(self) -> Observe2:\n"
+        "        if self.dimensions is not None:\n"
+        "            raise ValueError('observe time-series requests must omit dimensions')\n"
+        "        return self\n\n\n"
+        "class Observe3",
+        1,
+    )
+    text = text.replace(
+        "    dimensions: list[Dimension] = Field(..., min_length=1)\n\n\nclass AnomalyCandidatesResult",
+        "    dimensions: list[Dimension] = Field(..., min_length=1)\n\n"
+        "    @model_validator(mode='after')\n"
+        "    def _validate_segmented_branch(self) -> Observe3:\n"
+        "        if self.granularity is not None:\n"
+        "            raise ValueError('observe segmented requests must omit granularity')\n"
+        "        return self\n\n\n"
+        "class AnomalyCandidatesResult",
+        1,
+    )
+    output.write_text(text, encoding="utf-8")
+
+
 def _write_generated_package(output_dir: Path) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     osi_output = output_dir / "osi.py"
     _run_codegen(OSI_SCHEMA, osi_output, "OSI")
-    _run_codegen(AOI_SCHEMA, output_dir / "aoi.py", "AOI")
+    aoi_output = output_dir / "aoi.py"
+    _run_codegen(AOI_SCHEMA, aoi_output, "AOI")
+    _patch_aoi_optional_non_null_fields(aoi_output)
     _write_init(output_dir)
     _format_generated_package(output_dir)
 

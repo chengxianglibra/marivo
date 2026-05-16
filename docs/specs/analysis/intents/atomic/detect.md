@@ -43,11 +43,8 @@ v1 明确排除：
     "end": "2024-04-01T00:00:00Z"
   },
   "granularity": "day",
-  "filter": null,
-  "dimension": null,
   "strategy": "point_anomaly",
-  "sensitivity": "aggressive",
-  "limit": null
+  "sensitivity": "aggressive"
 }
 ```
 
@@ -59,11 +56,11 @@ type DetectRequest = {
   metric: string;
   time_scope: DetectTimeScope;
   granularity: TimeGranularity;
-  filter?: Expression | null;
-  dimension?: string | null;
+  filter?: Expression;
+  dimension?: string;
   strategy: DetectStrategy;
-  sensitivity?: DetectSensitivity | null;
-  limit?: number | null;
+  sensitivity?: DetectSensitivity;
+  limit?: number;
 };
 
 type DetectTimeScope = {

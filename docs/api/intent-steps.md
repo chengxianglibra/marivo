@@ -61,8 +61,7 @@ Scalar observation request:
     "field": "order_date",
     "start": "2026-01-01T00:00:00Z",
     "end": "2026-02-01T00:00:00Z"
-  },
-  "filter": null
+  }
 }
 ```
 
@@ -76,9 +75,7 @@ Time-series observation request:
     "start": "2026-01-01T00:00:00Z",
     "end": "2026-02-01T00:00:00Z"
   },
-  "filter": null,
-  "granularity": "day",
-  "dimensions": null
+  "granularity": "day"
 }
 ```
 
@@ -92,7 +89,6 @@ Segmented observation request:
     "start": "2026-01-01T00:00:00Z",
     "end": "2026-02-01T00:00:00Z"
   },
-  "filter": null,
   "dimensions": ["country"]
 }
 ```
@@ -163,7 +159,6 @@ POST /sessions/{session_id}/intents/detect
     "end": "2026-02-01T00:00:00Z"
   },
   "granularity": "day",
-  "filter": null,
   "dimension": "country",
   "strategy": "point_anomaly",
   "sensitivity": "aggressive",
@@ -199,16 +194,14 @@ POST /sessions/{session_id}/intents/test
       "field": "order_date",
       "start": "2026-01-01T00:00:00Z",
       "end": "2026-02-01T00:00:00Z"
-    },
-    "filter": null
+    }
   },
   "right": {
     "time_scope": {
       "field": "order_date",
       "start": "2025-12-01T00:00:00Z",
       "end": "2026-01-01T00:00:00Z"
-    },
-    "filter": null
+    }
   },
   "kind": "numeric",
   "hypothesis": {

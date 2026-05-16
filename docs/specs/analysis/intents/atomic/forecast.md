@@ -120,7 +120,7 @@ type ForecastRequest = {
   source_ref: ObservationArtifactRef;
   source_artifact_id?: string;
   horizon: number;
-  profile?: ForecastProfile | null;
+  profile?: ForecastProfile;
   interval_level?: number | null;
 };
 

@@ -16,14 +16,18 @@ from marivo.transports.mcp.tools.schemas import (
 )
 
 
+def _omit_none(payload: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in payload.items() if value is not None}
+
+
 def to_aoi_observe_request(
     metric: str,
     time_scope: McpTimeScope,
-    granularity: Literal["hour", "day", "week", "month", "quarter", "year"] | None = None,
-    dimensions: list[str] | None = None,
-    filter_expression: dict[str, Any] | None = None,
-) -> aoi.Observe1:
-    return aoi.Observe1.model_validate(
+    granularity: Literal["hour", "day", "week", "month", "quarter", "year"] = None,  # type: ignore[assignment]  # noqa: RUF013
+    dimensions: list[str] = None,  # type: ignore[assignment]  # noqa: RUF013
+    filter_expression: dict[str, Any] = None,  # type: ignore[assignment]  # noqa: RUF013
+) -> aoi.Observe1 | aoi.Observe2 | aoi.Observe3:
+    payload = _omit_none(
         {
             "metric": metric,
             "time_scope": time_scope.model_dump(),
@@ -32,6 +36,11 @@ def to_aoi_observe_request(
             "dimensions": dimensions,
         }
     )
+    if dimensions is not None:
+        return aoi.Observe3.model_validate(payload)
+    if granularity is not None:
+        return aoi.Observe2.model_validate(payload)
+    return aoi.Observe1.model_validate(payload)
 
 
 def to_aoi_compare_request(
@@ -45,57 +54,64 @@ def to_aoi_compare_request(
         "holiday_aligned_yoy",
         "weekday_aligned_yoy",
         "weekday_aligned_mom",
-    ]
-    | None = "normal",
+    ] = "normal",
 ) -> aoi.Compare:
     return aoi.Compare.model_validate(
-        {
-            "left_artifact_id": left_artifact_id,
-            "right_artifact_id": right_artifact_id,
-            "compare_type": compare_type,
-        }
+        _omit_none(
+            {
+                "left_artifact_id": left_artifact_id,
+                "right_artifact_id": right_artifact_id,
+                "compare_type": compare_type,
+            }
+        )
     )
 
 
 def to_aoi_decompose_request(
     compare_artifact_id: str,
     dimension: str,
-    limit: int | None = None,
+    limit: int = None,  # type: ignore[assignment]  # noqa: RUF013
 ) -> aoi.Decompose:
     return aoi.Decompose.model_validate(
-        {
-            "compare_artifact_id": compare_artifact_id,
-            "dimension": dimension,
-            "limit": limit,
-        }
+        _omit_none(
+            {
+                "compare_artifact_id": compare_artifact_id,
+                "dimension": dimension,
+                "limit": limit,
+            }
+        )
     )
 
 
 def to_aoi_forecast_request(
     source_artifact_id: str,
     horizon: int,
-    profile: str | None = None,
+    profile: str = None,  # type: ignore[assignment]  # noqa: RUF013
 ) -> aoi.Forecast:
     return aoi.Forecast.model_validate(
-        {
-            "source_artifact_id": source_artifact_id,
-            "horizon": horizon,
-            "profile": profile,
-        }
+        _omit_none(
+            {
+                "source_artifact_id": source_artifact_id,
+                "horizon": horizon,
+                "profile": profile,
+            }
+        )
     )
 
 
 def to_aoi_correlate_request(
     left_artifact_id: str,
     right_artifact_id: str,
-    method: Literal["pearson", "spearman"] | None = None,
+    method: Literal["pearson", "spearman"] = None,  # type: ignore[assignment]  # noqa: RUF013
 ) -> aoi.Correlate:
     return aoi.Correlate.model_validate(
-        {
-            "left_artifact_id": left_artifact_id,
-            "right_artifact_id": right_artifact_id,
-            "method": method,
-        }
+        _omit_none(
+            {
+                "left_artifact_id": left_artifact_id,
+                "right_artifact_id": right_artifact_id,
+                "method": method,
+            }
+        )
     )
 
 
@@ -104,29 +120,30 @@ def to_aoi_detect_request(
     time_scope: McpTimeScope,
     granularity: Literal["hour", "day", "week", "month", "quarter", "year"],
     strategy: Literal["point_anomaly", "period_shift"],
-    filter_expression: dict[str, Any] | None = None,
-    dimension: str | None = None,
+    filter_expression: dict[str, Any] = None,  # type: ignore[assignment]  # noqa: RUF013
+    dimension: str = None,  # type: ignore[assignment]  # noqa: RUF013
     sensitivity: Literal["conservative", "balanced", "aggressive"] = "aggressive",
-    limit: int | None = None,
+    limit: int = None,  # type: ignore[assignment]  # noqa: RUF013
 ) -> aoi.Detect:
     return aoi.Detect.model_validate(
-        {
-            "metric": metric,
-            "time_scope": time_scope.model_dump(),
-            "granularity": granularity,
-            "filter": filter_expression,
-            "dimension": dimension,
-            "strategy": strategy,
-            "sensitivity": sensitivity,
-            "limit": limit,
-        }
+        _omit_none(
+            {
+                "metric": metric,
+                "time_scope": time_scope.model_dump(),
+                "granularity": granularity,
+                "filter": filter_expression,
+                "dimension": dimension,
+                "strategy": strategy,
+                "sensitivity": sensitivity,
+                "limit": limit,
+            }
+        )
     )
 
 
 def _to_aoi_slice(slice_ref: McpSliceRef) -> dict[str, Any]:
     return {
         "time_scope": slice_ref.time_scope.model_dump(),
-        "filter": None,
     }
 
 
@@ -162,9 +179,9 @@ def register_observe(server: Any, runtime: Any) -> None:
         session_id: str,
         metric: str,
         time_scope: McpTimeScopeValidated,
-        granularity: Literal["hour", "day", "week", "month", "quarter", "year"] | None = None,
-        dimensions: list[str] | None = None,
-        filter_expression: McpStructuredObject | None = None,
+        granularity: Literal["hour", "day", "week", "month", "quarter", "year"] = None,  # type: ignore[assignment]  # noqa: RUF013
+        dimensions: list[str] = None,  # type: ignore[assignment]  # noqa: RUF013
+        filter_expression: McpStructuredObject = None,  # type: ignore[assignment]
     ) -> dict[str, Any]:
         request = to_aoi_observe_request(
             metric=metric,
@@ -206,7 +223,7 @@ def register_decompose(server: Any, runtime: Any) -> None:
         session_id: str,
         compare_artifact_id: str,
         dimension: str,
-        limit: int | None = None,
+        limit: int = None,  # type: ignore[assignment]  # noqa: RUF013
     ) -> dict[str, Any]:
         request = to_aoi_decompose_request(
             compare_artifact_id=compare_artifact_id,
@@ -224,10 +241,10 @@ def register_detect(server: Any, runtime: Any) -> None:
         time_scope: McpTimeScope,
         granularity: Literal["hour", "day", "week", "month", "quarter", "year"],
         strategy: Literal["point_anomaly", "period_shift"],
-        filter_expression: McpStructuredObject | None = None,
-        dimension: str | None = None,
+        filter_expression: McpStructuredObject = None,  # type: ignore[assignment]
+        dimension: str = None,  # type: ignore[assignment]  # noqa: RUF013
         sensitivity: Literal["conservative", "balanced", "aggressive"] = "aggressive",
-        limit: int | None = None,
+        limit: int = None,  # type: ignore[assignment]  # noqa: RUF013
     ) -> dict[str, Any]:
         request = to_aoi_detect_request(
             metric=metric,
@@ -248,7 +265,7 @@ def register_correlate(server: Any, runtime: Any) -> None:
         session_id: str,
         left_artifact_id: str,
         right_artifact_id: str,
-        method: Literal["pearson", "spearman"] | None = None,
+        method: Literal["pearson", "spearman"] = None,  # type: ignore[assignment]  # noqa: RUF013
     ) -> dict[str, Any]:
         request = to_aoi_correlate_request(
             left_artifact_id=left_artifact_id,
@@ -264,7 +281,7 @@ def register_forecast(server: Any, runtime: Any) -> None:
         session_id: str,
         source_artifact_id: str,
         horizon: int,
-        profile: str | None = None,
+        profile: str = None,  # type: ignore[assignment]  # noqa: RUF013
     ) -> dict[str, Any]:
         request = to_aoi_forecast_request(
             source_artifact_id=source_artifact_id,
