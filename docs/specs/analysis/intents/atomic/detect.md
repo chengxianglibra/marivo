@@ -11,7 +11,7 @@
 设计目标：
 
 - 让 `detect` 聚焦候选发现（candidate discovery），不承担诊断（diagnosis）或解释（explanation）
-- 复用 Marivo 统一的 `time_scope` / `scope` 契约，而不是自定义平行过滤形状
+- 复用 AOI 统一的 `time_scope` / `filter` 契约，而不是自定义平行过滤形状
 - 暴露稳定的产品契约，而不是泄漏建模内部细节
 - 显式表达可检测性（detectability）、截断（truncation）、扫描边界（scan boundary）与谱系（lineage）
 - 区分候选标记（candidate flags）与已确认证据（confirmed evidence），维持确定性下游推理边界
@@ -38,18 +38,16 @@ v1 明确排除：
   "step_type": "detect",
   "metric": "dau",
   "time_scope": {
-    "kind": "range",
-    "start": "2024-03-01T00:00:00",
-    "end": "2024-04-01T00:00:00"
+    "field": "event_date",
+    "start": "2024-03-01T00:00:00Z",
+    "end": "2024-04-01T00:00:00Z"
   },
   "granularity": "day",
-  "scope": null,
-  "split_by": null,
-  "patterns": ["point_anomaly"],
-  "profile": "auto",
-  "sensitivity": "balanced",
-  "limit": null,
-  "max_series": null
+  "filter": null,
+  "dimension": null,
+  "strategy": "point_anomaly",
+  "sensitivity": "aggressive",
+  "limit": null
 }
 ```
 
@@ -61,125 +59,86 @@ type DetectRequest = {
   metric: string;
   time_scope: DetectTimeScope;
   granularity: TimeGranularity;
-  scope?: Scope | null;
-  split_by?: string | null;
-  patterns?: DetectPattern[] | null;
-  profile?: DetectProfile | null;
+  filter?: Expression | null;
+  dimension?: string | null;
+  strategy: DetectStrategy;
   sensitivity?: DetectSensitivity | null;
   limit?: number | null;
-  max_series?: number | null;
 };
 
 type DetectTimeScope = {
-  kind: "range";
-  start: string;
-  end: string;
-  field?: string;
-};
-
-type TimeWindow = {
+  field: string;
   start: string;
   end: string;
 };
 
-type Scope = {
-  constraints?: Record<string, string | number | boolean | null> | null;
-  predicate?: Predicate | null;
+type Expression = {
+  dialects: Array<{ dialect: string; expression: string }>;
 };
-
-type Predicate =
-  | { op: "and"; items: Predicate[] }
-  | { op: "or"; items: Predicate[] }
-  | {
-      field: string;
-      op:
-        | "eq"
-        | "neq"
-        | "in"
-        | "not_in"
-        | "gt"
-        | "gte"
-        | "lt"
-        | "lte"
-        | "between"
-        | "is_null"
-        | "is_not_null";
-      value?: string | number | boolean | string[] | number[];
-    };
 
 type TimeGranularity = "hour" | "day" | "week" | "month";
 
-type DetectPattern = "point_anomaly" | "period_shift";
-
-type DetectProfile =
-  | "auto"
-  | "spike_dip"
-  | "level_shift"
-  | "seasonal_residual";
+type DetectStrategy = "point_anomaly" | "period_shift";
 
 type DetectSensitivity = "conservative" | "balanced" | "aggressive";
 ```
 
 说明：
 
-- `time_scope` 复用 Marivo range 窗口契约；`detect` 仅允许 `kind = "range"`
-- AOI 对齐：通过 AOI 协议调用时，`time_scope` 使用 `{field, start, end}` 形式（`field` 为必填的时间字段名），运行时自动映射为 `kind = "range"`
-- `granularity` 使用与 `observe.granularity` 相同命名
-- `scope` 复用 Marivo 统一 step-level non-time scope 契约；时间条件不得进入 `scope.predicate`
-- `split_by` 是扫描轴，不是额外过滤契约；它定义“按哪个单一 semantic dimension 拆成独立序列扫描”
-- `patterns` 控制候选形态：`point_anomaly` 为窗口内 z-score，`period_shift` 为当前窗口与 previous-adjacent baseline 的整体变化
+- AOI 协议的 `time_scope` 使用 `{field, start, end}` 形式，`field` 为必填时间字段名；Marivo runtime 内部可映射为 range 窗口。
+- `granularity` 使用与 `observe.granularity` 相同命名。
+- `filter` 使用 AOI/OSI 风格的结构化表达式；时间条件不得进入 `filter`。
+- `dimension` 是可选的单维扫描轴，不是过滤条件；它定义“按哪个 semantic dimension 拆成独立序列扫描”。
+- `strategy` 必填，控制候选形态：`point_anomaly` 为窗口内 z-score 点异常，`period_shift` 为当前窗口与 previous-adjacent baseline 的整体变化。
+- `sensitivity` 是三档枚举，省略时默认 `aggressive`。
 
 ## 输入规则
 
 v1 支持的输入形态如下：
 
-- `metric` 必须解析到已发布的 semantic metric
-- `time_scope.kind` 必须为 `"range"`
-- `time_scope.start/end` 必须是合法半开区间 `[start, end)`
-- `granularity` 必须来自受支持的时间粒度
-- `scope` 若提供，必须遵守统一 scope 契约
-- `split_by` 可选；若提供，则必须是单个 semantic dimension
-- `profile` 必须来自受支持的 detect profiles
-- `sensitivity` 控制在既定 profile 下的候选纳入严格度
-- `limit` 限制 artifact 中返回的候选数量
-- `max_series` 在 `split_by != null` 时限制独立扫描的序列数
+- `metric` 必须解析到已发布的 semantic metric。
+- `time_scope.field/start/end` 必须存在，`start/end` 必须是合法半开区间 `[start, end)`。
+- `granularity` 必须来自受支持的时间粒度。
+- `filter` 若提供，必须是结构化表达式。
+- `dimension` 可选；若提供，则必须是单个 semantic dimension 字符串。
+- `strategy` 必须是 `point_anomaly` 或 `period_shift`。
+- `sensitivity` 若提供，必须是 `conservative`、`balanced`、`aggressive` 之一。
+- `limit` 限制 artifact 中返回的候选数量。
 
 输出类型：`anomaly_candidates`
 
 ## v1 不支持的输入
 
-- `time_scope.kind != "range"`
-- `snapshot_now`、`latest_available`、`as_of`
-- 多个 `split_by` dimensions
-- 显式指定任意 baseline window
-- 直接暴露算法名，如 `zscore`、`iqr`、`stl`
-- 用户定义 seasonality、holiday、changepoint 等参数
-- 多指标请求
-- 需要 claim-level anomaly confirmation 的请求
+- legacy `time_scope.kind` / `mode` / `current` 形状。
+- `snapshot_now`、`latest_available`、`as_of`。
+- 多个 `dimension`。
+- 旧字段 `split_by`、`profile`、`patterns`。
+- 显式指定任意 baseline window。
+- 直接暴露算法名，如 `zscore`、`iqr`、`stl`。
+- 用户定义 seasonality、holiday、changepoint 等参数。
+- 多指标请求。
+- 需要 claim-level anomaly confirmation 的请求。
 
 推荐错误码：`INVALID_ARGUMENT`。
 
 ## 非法组合
 
-- `time_scope.kind != "range"`
-- `time_scope.current.start >= time_scope.current.end`
-- `scope.predicate` 包含时间轴条件
-- `split_by` 以数组形式提供
-- `limit != null && limit <= 0`
-- `max_series != null && max_series <= 0`
-- `profile = "seasonal_residual"`，但 metric 或 `granularity` 无法支持季节性扫描
-- 指标不支持按请求的 `split_by` 拆分
+- `time_scope.start >= time_scope.end`。
+- `filter` 包含时间轴条件。
+- `dimension` 以数组形式提供。
+- `limit != null && limit <= 0`。
+- 指标不支持按请求的 `dimension` 拆分。
+- `strategy = "period_shift"` 但无法构造 previous-adjacent baseline。
 
 推荐错误码：`INVALID_ARGUMENT`。
 
 ## 归一化规则
 
-- `profile = null` 归一化为 `"auto"`
-- `sensitivity = null` 归一化为 `"balanced"`
-- `scope = null` 表示 no-extra non-time scope
-- `split_by = ""` 归一化为 `null`
-- `limit = null` 归一化为系统默认值，推荐 `10`
-- `max_series = null` 且 `split_by != null` 时，归一化为系统默认值，推荐 `20`
+- `sensitivity = null` 归一化为 `"aggressive"`。
+- `filter = null` 表示 no-extra non-time filter。
+- `dimension = ""` 归一化为 `null`。
+- `limit = null` 表示由实现决定默认返回数量。
+- `dimension != null` 时，runtime 可使用内部默认 `max_series` 控制有界扇出，但 `max_series` 不属于公开 AOI/MCP detect contract。
 
 ## 字段语义
 
@@ -189,12 +148,12 @@ v1 支持的输入形态如下：
 
 这是刻意设计：
 
-- 多指标异常筛查属于 workflow concern，不属于原子步骤
-- 单指标范围让校验、排序、provenance 与 candidate lineage 更稳定
+- 多指标异常筛查属于 workflow concern，不属于原子步骤。
+- 单指标范围让校验、排序、provenance 与 candidate lineage 更稳定。
 
 ### time_scope
 
-必须复用统一 range 窗口契约，并限制为 `kind = "range"`。
+AOI request 使用 `{field, start, end}`，表示用于扫描的时间字段和绝对时间范围。
 
 `detect` 回答的问题是：
 
@@ -202,46 +161,36 @@ v1 支持的输入形态如下：
 
 它不回答：
 
-- 应该与哪个显式基线窗比较？
 - 为什么会发生？
+- 是否已形成 confirmed anomaly fact？
 
 顶层 `granularity` 定义扫描粒度。粒度是异常定义的一部分。
 
 同一个点在 `day` 粒度下可能异常，在 `week` 粒度下可能正常。
 
-### scope
+### filter
 
-可选的统一 non-time scope。
+可选的结构化 non-time filter。它只负责约束要扫描的总体，例如 region、平台或实体子集。
 
-它只负责约束要扫描的总体，例如：
+它不负责表达“按哪个维度拆成独立序列”。该职责属于 `dimension`。
 
-- 某个 region
-- 某个平台
-- 某个实体子集
+### dimension
 
-它不负责表达“按哪个维度拆成独立序列”。该职责属于 `split_by`。
-
-### split_by
-
-可选的单个 semantic dimension，用来把 metric 在请求 scope 内拆成独立子序列。
+可选的单个 semantic dimension，用来把 metric 在请求 filter 内拆成独立子序列。
 
 v1 只支持一个维度，因为：
 
-- 单维拆分仍具有稳定的 truncation 与 provenance 语义
-- 多维拆分会引入组合爆炸与交互语义，应另立契约
+- 单维拆分仍具有稳定的 truncation 与 provenance 语义。
+- 多维拆分会引入组合爆炸与交互语义，应另立契约。
 
-### profile
+### strategy
 
-稳定的用户语义 profile，而不是底层算法选择器。
+必填的检测策略。
 
-v1 支持：
+- `point_anomaly`：在请求窗口内按时间桶扫描点异常。
+- `period_shift`：把整个请求窗口和 previous-adjacent 等长基线窗口比较，定位整体水平变化。
 
-- `auto`
-- `spike_dip`
-- `level_shift`
-- `seasonal_residual`
-
-不同执行引擎可以采用不同内部方法，只要响应语义保持一致即可。
+`strategy` 是面向 agent 的语义选择，不暴露底层算法参数。
 
 ### sensitivity
 
@@ -253,21 +202,17 @@ v1 支持：
 - `balanced`
 - `aggressive`
 
+默认值：`aggressive`。
+
 契约要求：
 
-- 在固定 `metric + time_scope + scope + split_by + profile` 下，灵敏度越高，candidate set 只能变大不能变小
-- `conservative` 必须是 `balanced` 的子集
-- `balanced` 必须是 `aggressive` 的子集
+- 在固定 `metric + time_scope + filter + dimension + strategy` 下，灵敏度越高，candidate set 只能变大不能变小。
+- `conservative` 必须是 `balanced` 的子集。
+- `balanced` 必须是 `aggressive` 的子集。
 
 ### limit
 
 用于限制 artifact 中返回的候选行数量。被截断候选必须在响应中显式交代。
-
-### max_series
-
-仅在 `split_by != null` 时有意义。
-
-若某个维度会产生超过 `max_series` 条合格序列，系统必须先应用确定性的筛选策略，再执行扫描；响应中必须明确披露这一点。
 
 ## 校验语义
 
@@ -279,10 +224,10 @@ v1 支持：
 
 - metric 不存在
 - metric 不支持所请求的 `granularity`
-- metric 不支持所请求的 `split_by`
-- `time_scope` range 对目标 profile 来说过短
+- metric 不支持所请求的 `dimension`
+- `time_scope` range 对目标 strategy 来说过短
 - 请求无法被 bounded fan-out（有界扇出）
-- profile 与指标时间语义不兼容
+- strategy 与指标时间语义不兼容
 
 推荐错误码：
 
@@ -298,7 +243,7 @@ v1 支持：
 - `limit` 导致候选截断
 - 某些候选序列因为点数不足被跳过
 - 扫描基于部分不完整数据
-- `profile = "auto"` 触发了回退策略
+- `strategy` 触发了内部回退策略
 
 这些 warning 必须进入 `detectability.issues`。
 
@@ -309,11 +254,11 @@ v1 支持：
 系统至少要检查：
 
 - metric 支持所请求的 `granularity`
-- metric 支持所请求的 `split_by`
-- 解析出的序列对目标 profile 拥有足够点数
+- metric 支持所请求的 `dimension`
+- 解析出的序列对目标 strategy 拥有足够点数
 - 数据完整性足以支撑扫描
 - 请求没有突破 bounded fan-out 规则
-- profile 与序列形态兼容
+- strategy 与序列形态兼容
 
 系统应返回：
 
@@ -339,7 +284,7 @@ Marivo 推荐默认行为是对不可检测请求直接报错，而不是返回 
 
 结果必须始终包含：
 
-- 被扫描的 metric、`time_scope`、`scope` 与 `split_by`
+- 被扫描的 metric、`time_scope`、`filter` 与 `dimension`
 - scan summary
 - 每个候选的 machine-readable `candidate_ref`
 - 每个候选的 `window`
@@ -360,7 +305,7 @@ Marivo 推荐默认行为是对不可检测请求直接报错，而不是返回 
 定义：
 
 - `observed_value`：候选 bucket 或窗口中的实际指标值
-- `expected_value`：与当前 profile 一致的基线估计
+- `expected_value`：与当前 strategy 一致的基线估计
 - `deviation_abs = observed_value - expected_value`
 - `deviation_pct = deviation_abs / expected_value`
 
@@ -385,7 +330,7 @@ direction 属于 candidate payload 的一部分，而不是请求时过滤条件
 - `medium`
 - `high`
 
-`high` 仅表示在当前 profile 与 sensitivity 下优先级高，不表示统一统计强度。
+`high` 仅表示在当前 strategy 与 sensitivity 下优先级高，不表示统一统计强度。
 
 ### Candidate Ranking Contract
 
@@ -400,7 +345,7 @@ direction 属于 candidate payload 的一部分，而不是请求时过滤条件
 
 ### Excluded Series
 
-在 `split_by != null` 时，系统不一定能扫描所有可能序列。
+在 `dimension != null` 时，系统不一定能扫描所有可能序列。
 
 响应必须区分：
 
@@ -419,9 +364,9 @@ type DetectCandidatesArtifact = {
   metric: string;
   time_scope: ResolvedDetectTimeScope;
   granularity: TimeGranularity;
-  scope: Scope | null;
-  split_by: string | null;
-  profile: DetectProfile;
+  filter: Expression | null;
+  dimension: string | null;
+  strategy: DetectStrategy;
   sensitivity: DetectSensitivity;
   detectability: DetectabilityMetadata;
   scan_summary: DetectScanSummary;
@@ -447,7 +392,7 @@ type DetectabilityIssue = {
     | "insufficient_history"
     | "insufficient_points"
     | "data_incomplete"
-    | "profile_incompatible"
+    | "strategy_incompatible"
     | "series_limit_applied";
   severity: "error" | "warning";
   message: string;
@@ -511,8 +456,8 @@ type DetectAnalyticalMetadata = {
   timezone: string | null;
   data_complete: boolean | null;
   baseline_method: {
-    patterns: DetectPattern[];
-    methods: Record<DetectPattern, string>;
+    strategy: DetectStrategy;
+    methods: Record<DetectStrategy, string>;
   };
 };
 
@@ -534,11 +479,11 @@ type ExecutionMetadata = {
 
 本契约中的 nullable / empty 字段必须遵守单义语义：
 
-- `scope = null`：no-extra non-time scope
-- `split_by = null`：整体序列扫描，不做按维度拆分
+- `filter = null`：no-extra non-time filter
+- `dimension = null`：整体序列扫描，不做按维度拆分
 - `candidate.slice = null`：该 candidate 对应整体序列，而不是“未知 slice”
 - `observed_value = null`：该 candidate 的 observed value 在 artifact contract 下不可定义或未能可靠解析；不得同时表示 “0”
-- `expected_value = null`：当前 profile 下无法形成可辩护 expected baseline；不得同时表示 “0”
+- `expected_value = null`：当前 strategy 下无法形成可辩护 expected baseline；不得同时表示 “0”
 - `deviation_abs = null`：由于 `observed_value` 或 `expected_value` 不可定义，绝对偏差不可定义
 - `deviation_pct = null`：相对偏差不可定义；唯一允许原因是 `expected_value = null` 或 `expected_value = 0`
 - `analytical_metadata.timezone = null`：timezone 对该 artifact 不适用或未被 canonical contract 定义；不得同时表示 consumer 尚未读取
@@ -565,8 +510,8 @@ agent 直接消费 `detect` artifact 时，最小读取闭包至少包括：
 
 - 顶层 `metric`
 - 顶层 `time_scope`
-- 顶层 `scope`
-- 顶层 `split_by`
+- 顶层 `filter`
+- 顶层 `dimension`
 - 顶层 `detectability`
 - 顶层 `scan_summary`
 - 顶层 `truncation`
@@ -576,9 +521,9 @@ agent 直接消费 `detect` artifact 时，最小读取闭包至少包括：
 推荐可查询轴：
 
 - `metric`
-- `time_scope.current`
-- `scope.constraints`
-- `split_by`
+- `time_scope`
+- `filter`
+- `dimension`
 - `candidate.window`
 - `candidate.slice`
 - `candidate.flag_level`
@@ -599,7 +544,7 @@ agent 直接消费 `detect` artifact 时，最小读取闭包至少包括：
 - `INVALID_ARGUMENT`
   请求形状非法或组合不支持
 - `UNSUPPORTED_OPERATION`
-  metric 存在，但不支持对应 profile / grain / split_by
+  metric 存在，但不支持对应 strategy / grain / dimension
 - `INSUFFICIENT_HISTORY`
   历史长度不足，无法进行可辩护检测
 

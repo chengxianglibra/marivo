@@ -29,12 +29,12 @@ class Decompose(BaseModel):
     compare_artifact_id: str = Field(..., min_length=1)
 
 
-class SplitByItem(RootModel[str]):
+class Dimension(RootModel[str]):
     root: str = Field(..., min_length=1)
 
 
-class Sensitivity(RootModel[float]):
-    root: float = Field(..., ge=0.0, le=1.0)
+class Limit(RootModel[int]):
+    root: int = Field(..., ge=1)
 
 
 class Forecast(BaseModel):
@@ -44,10 +44,6 @@ class Forecast(BaseModel):
     horizon: int = Field(..., ge=1)
     profile: str | None = None
     source_artifact_id: str = Field(..., min_length=1)
-
-
-class Dimension(RootModel[str]):
-    root: str = Field(..., min_length=1)
 
 
 class Dimensions(RootModel[list[Dimension]]):
@@ -260,10 +256,10 @@ class Detect(BaseModel):
     time_scope: TimeScope
     granularity: Literal["hour", "day", "week", "month", "quarter", "year"]
     filter: Expression | None
-    split_by: list[SplitByItem] | None = None
-    profile: str | None = None
-    sensitivity: Sensitivity | None = None
-    limit: int | None = Field(None, ge=1)
+    dimension: Dimension | None = None
+    strategy: Literal["point_anomaly", "period_shift"]
+    sensitivity: Literal["conservative", "balanced", "aggressive"] = "aggressive"
+    limit: Limit | None = None
 
 
 class Observe1(BaseModel):

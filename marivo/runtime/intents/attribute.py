@@ -299,7 +299,6 @@ def run_attribute_intent(
                     "session_id": session_id,
                     "step_type": "observe",
                 },
-                "mode": "scalar",
             },
         )
     except Exception as exc:

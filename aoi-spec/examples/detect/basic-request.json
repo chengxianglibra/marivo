@@ -7,5 +7,5 @@
   },
   "granularity": "day",
   "filter": null,
-  "split_by": null
+  "strategy": "point_anomaly"
 }

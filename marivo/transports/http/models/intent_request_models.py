@@ -191,7 +191,7 @@ class DiagnoseRequest(BaseModel):
         description="Required baseline side when mode='explicit_compare'.",
     )
     scope: ObserveScope | None = Field(default=None)
-    detect_split_by: str | None = Field(
+    detect_dimension: str | None = Field(
         default=None,
         description="Optional semantic dimension to split detect into independent series.",
     )
@@ -199,12 +199,11 @@ class DiagnoseRequest(BaseModel):
         min_length=1,
         description="Attribution dimensions to decompose each followed candidate over.",
     )
-    profile: Literal["auto", "spike_dip", "level_shift", "seasonal_residual"] = Field(
-        default="auto",
-        description="Detection profile preset.",
+    strategy: Literal["point_anomaly", "period_shift"] = Field(
+        description="Detection strategy.",
     )
     sensitivity: Literal["conservative", "balanced", "aggressive"] = Field(
-        default="balanced",
+        default="aggressive",
         description="Detection sensitivity preset.",
     )
     candidate_limit: int | None = Field(
@@ -221,10 +220,6 @@ class DiagnoseRequest(BaseModel):
         default=5,
         ge=1,
         description="Maximum driver rows per dimension per candidate.",
-    )
-    patterns: list[Literal["point_anomaly", "period_shift"]] | None = Field(
-        default=None,
-        description="Candidate patterns passed to detect when mode='auto_detect'.",
     )
     baseline_policy: Literal["previous_adjacent_equal_length"] = Field(
         default="previous_adjacent_equal_length",
@@ -253,6 +248,4 @@ class DiagnoseRequest(BaseModel):
                 raise ValueError("current and baseline are required when mode='explicit_compare'")
             if self.time_scope is not None or self.granularity is not None:
                 raise ValueError("time_scope/granularity are only valid when mode='auto_detect'")
-            if self.patterns is not None:
-                raise ValueError("patterns are only valid when mode='auto_detect'")
         return self

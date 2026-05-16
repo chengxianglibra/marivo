@@ -170,7 +170,10 @@ curl -s http://127.0.0.1:8000/sessions -X POST \
 curl -s http://127.0.0.1:8000/sessions/<id>/intents/detect -X POST \
   -H "Content-Type: application/json" \
   -d '{"metric": "metric.watch_time",
-       "time_scope": {"kind": "range", "start": "2026-03-01", "end": "2026-03-08"}}'
+       "time_scope": {"field": "event_time", "start": "2026-03-01T00:00:00Z", "end": "2026-03-08T00:00:00Z"},
+       "granularity": "day",
+       "filter": null,
+       "strategy": "point_anomaly"}'
 
 # Typed intent metric params use canonical refs only
 # Example: "metric.watch_time" (not "watch_time")

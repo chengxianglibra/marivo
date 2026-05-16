@@ -476,7 +476,6 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
                     "session_id": _SESSION,
                     "step_type": "observe",
                 },
-                "mode": "time_series",
             },
         )
 
@@ -526,7 +525,6 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
                     "session_id": _SESSION,
                     "step_type": "observe",
                 },
-                "mode": "time_series",
                 "compare_type": "yoy",
             },
         )
@@ -585,7 +583,6 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
                     "session_id": _SESSION,
                     "step_type": "observe",
                 },
-                "mode": "time_series",
                 "compare_type": "mom",
             },
         )
@@ -633,7 +630,6 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
                     "session_id": _SESSION,
                     "step_type": "observe",
                 },
-                "mode": "time_series",
                 "compare_type": "wow",
             },
         )
@@ -674,7 +670,6 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
                     "session_id": _SESSION,
                     "step_type": "observe",
                 },
-                "mode": "time_series",
                 "compare_type": "weekday_aligned_yoy",
             },
         )
@@ -717,7 +712,6 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
                     "session_id": _SESSION,
                     "step_type": "observe",
                 },
-                "mode": "time_series",
                 "compare_type": "weekday_aligned_mom",
             },
         )
@@ -760,7 +754,6 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
                     "session_id": _SESSION,
                     "step_type": "observe",
                 },
-                "mode": "time_series",
                 "compare_type": "holiday_aligned_yoy",
             },
         )
@@ -801,7 +794,6 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
                         "session_id": _SESSION,
                         "step_type": "observe",
                     },
-                    "mode": "time_series",
                     "compare_type": "holiday_aligned_yoy",
                 },
             )
@@ -832,7 +824,6 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
                         "session_id": _SESSION,
                         "step_type": "observe",
                     },
-                    "mode": "time_series",
                 },
             )
 
@@ -862,41 +853,11 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
                         "session_id": _SESSION,
                         "step_type": "observe",
                     },
-                    "mode": "time_series",
                 },
             )
         runtime.commit_artifact_with_extraction.assert_not_called()
 
-    def test_compare_time_series_mode_rejects_scalar_artifacts(self) -> None:
-        from marivo.runtime.intents.compare import run_compare_intent
-
-        runtime = self._make_runtime()
-        runtime.resolve_artifact_for_ref.side_effect = [
-            _scalar_observation("m1"),
-            _scalar_observation("m1"),
-        ]
-
-        with self.assertRaisesRegex(ValueError, "mode='time_series'"):
-            run_compare_intent(
-                runtime,
-                _SESSION,
-                {
-                    "left_ref": {
-                        "step_id": "step_left",
-                        "session_id": _SESSION,
-                        "step_type": "observe",
-                    },
-                    "right_ref": {
-                        "step_id": "step_right",
-                        "session_id": _SESSION,
-                        "step_type": "observe",
-                    },
-                    "mode": "time_series",
-                },
-            )
-
-
-# ── decompose ─────────────────────────────────────────────────────────────────
+    # ── decompose ─────────────────────────────────────────────────────────────────
 
 
 class TestDecomposeRunnerCommitPath(unittest.TestCase):
@@ -1118,6 +1079,7 @@ class TestDetectRunnerCommitPath(unittest.TestCase):
             "metric": "m1",
             "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-31"},
             "granularity": "day",
+            "strategy": "point_anomaly",
         }
         with patch("marivo.runtime.intents.detect.execute_compiled") as mock_exec:
             # 9 points with one spike (day 5 = 200) to produce ≥1 anomaly candidate.
@@ -1150,7 +1112,9 @@ class TestDetectRunnerCommitPath(unittest.TestCase):
         # into result["candidates"][*]["candidate_ref"]["artifact_ref"]["artifact_id"]
         # and result["artifact_id"].  Verify both are populated with the committed id.
         runtime = self._make_runtime()
-        result = self._run_detect(runtime)
+        envelope = self._run_detect(runtime)
+        result = envelope["result"]
+        self.assertEqual(envelope["artifact_id"], _FAKE_ARTIFACT_ID)
         self.assertEqual(result["artifact_id"], _FAKE_ARTIFACT_ID)
         candidates = result.get("candidates", [])
         self.assertTrue(len(candidates) > 0, "expected at least one candidate in result")

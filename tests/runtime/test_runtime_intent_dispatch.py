@@ -243,9 +243,9 @@ def _detect_request() -> aoi.Detect:
         time_scope=_time_scope(),
         granularity="day",
         filter=None,
-        split_by=None,
-        profile=None,
-        sensitivity=None,
+        dimension=None,
+        strategy="point_anomaly",
+        sensitivity="aggressive",
         limit=10,
     )
 

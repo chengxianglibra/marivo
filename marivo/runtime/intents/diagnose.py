@@ -42,7 +42,7 @@ _DEFAULT_DECOMPOSITION_LIMIT = 5
 _MAX_DECOMPOSITION_LIMIT = 100
 _DERIVED_LOGIC_VERSION = "1.0"
 _PROJECTION_VERSION = "diagnosis_bundle.v1"
-_VALID_PATTERNS = frozenset({"point_anomaly", "period_shift"})
+_VALID_STRATEGIES = frozenset({"point_anomaly", "period_shift"})
 
 
 def _normalize_range_time_scope(
@@ -86,22 +86,14 @@ def _normalize_granularity(raw: Any) -> TimeGrain:
     return cast("TimeGrain", granularity)
 
 
-def _normalize_patterns(raw_patterns: Any) -> list[str] | None:
-    if raw_patterns is None:
-        return None
-    if not isinstance(raw_patterns, list) or not raw_patterns:
-        raise ValueError("diagnose: INVALID_ARGUMENT - patterns must be a non-empty list")
-    patterns: list[str] = []
-    for raw in raw_patterns:
-        pattern = str(raw).strip()
-        if pattern not in _VALID_PATTERNS:
-            raise ValueError(
-                f"diagnose: INVALID_ARGUMENT - pattern '{pattern}' is not valid. "
-                f"Must be one of: {sorted(_VALID_PATTERNS)}"
-            )
-        if pattern not in patterns:
-            patterns.append(pattern)
-    return patterns
+def _normalize_strategy(raw_strategy: Any) -> str:
+    strategy = str(raw_strategy or "point_anomaly").strip().lower()
+    if strategy not in _VALID_STRATEGIES:
+        raise ValueError(
+            f"diagnose: INVALID_ARGUMENT - strategy '{strategy}' is not valid. "
+            f"Must be one of: {sorted(_VALID_STRATEGIES)}"
+        )
+    return strategy
 
 
 def run_diagnose_intent(
@@ -128,10 +120,9 @@ def run_diagnose_intent(
             "diagnose: INVALID_ARGUMENT - mode must be 'auto_detect' or 'explicit_compare'"
         )
     scope: dict[str, Any] | None = p.get("scope") or None
-    detect_split_by: str | None = (p.get("detect_split_by") or "").strip() or None
-    profile: str = str(p.get("profile") or "auto").lower()
-    sensitivity: str = str(p.get("sensitivity") or "balanced").lower()
-    patterns = _normalize_patterns(p.get("patterns"))
+    detect_dimension: str | None = (p.get("detect_dimension") or "").strip() or None
+    strategy = _normalize_strategy(p.get("strategy"))
+    sensitivity: str = str(p.get("sensitivity") or "aggressive").lower()
     baseline_policy = str(p.get("baseline_policy") or "previous_adjacent_equal_length")
     if baseline_policy != "previous_adjacent_equal_length":
         raise ValueError(
@@ -259,14 +250,12 @@ def run_diagnose_intent(
             "time_scope": resolved_time_scope,
             "granularity": granularity,
             "sensitivity": sensitivity,
-            "profile": profile,
+            "strategy": strategy,
         }
-        if patterns is not None:
-            detect_params["patterns"] = patterns
         if scope is not None:
             detect_params["scope"] = scope
-        if detect_split_by:
-            detect_params["split_by"] = detect_split_by
+        if detect_dimension:
+            detect_params["dimension"] = detect_dimension
         if candidate_limit is not None:
             detect_params["limit"] = candidate_limit
 
@@ -393,11 +382,10 @@ def run_diagnose_intent(
         "time_scope": resolved_time_scope,
         "granularity": granularity,
         "scope": scope,
-        "detect_split_by": detect_split_by,
+        "detect_dimension": detect_dimension,
         "candidate_dimensions": dimensions,
-        "profile": profile,
+        "strategy": strategy,
         "sensitivity": sensitivity,
-        "patterns": patterns,
         "baseline_policy": baseline_policy,
         "mode": mode,
         "detect_summary": detect_summary,
@@ -664,7 +652,6 @@ def _follow_up_candidate(
                         "session_id": session_id,
                         "step_type": "observe",
                     },
-                    "mode": "scalar",
                 },
             )
             compare_step_id = compare_result["step_ref"]["step_id"]

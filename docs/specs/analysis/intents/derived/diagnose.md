@@ -41,16 +41,16 @@ v1 明确约束：
   "mode": "auto_detect",
   "metric": "dau",
   "time_scope": {
-    "kind": "range",
-    "start": "2024-03-01T00:00:00",
-    "end": "2024-04-01T00:00:00"
+    "field": "event_date",
+    "start": "2024-03-01T00:00:00Z",
+    "end": "2024-04-01T00:00:00Z"
   },
   "granularity": "day",
   "scope": null,
-  "detect_split_by": null,
+  "detect_dimension": null,
+  "strategy": "point_anomaly",
+  "sensitivity": "aggressive",
   "candidate_dimensions": ["channel", "region"],
-  "profile": "auto",
-  "sensitivity": "balanced",
   "candidate_limit": 10,
   "followup_limit": 3,
   "decomposition_limit": 5
@@ -69,21 +69,19 @@ type DiagnoseRequest = {
   current?: DiagnoseObservationInput | null;
   baseline?: DiagnoseObservationInput | null;
   scope?: Scope | null;
-  detect_split_by?: string | null;
-  candidate_dimensions: string[];
-  patterns?: DetectPattern[] | null;
-  profile?: DetectProfile | null;
+  detect_dimension?: string | null;
+  strategy: DetectStrategy;
   sensitivity?: DetectSensitivity | null;
+  candidate_dimensions: string[];
   candidate_limit?: number | null;
   followup_limit?: number | null;
   decomposition_limit?: number | null;
 };
 
 type DetectTimeScope = {
-  kind: "range";
+  field: string;
   start: string;
   end: string;
-  field?: string;
 };
 
 type DiagnoseObservationInput = {
@@ -93,43 +91,7 @@ type DiagnoseObservationInput = {
 
 type TimeGranularity = "hour" | "day" | "week" | "month";
 
-type TimeWindow = {
-  start: string;
-  end: string;
-};
-
-type Scope = {
-  constraints?: Record<string, string | number | boolean | null> | null;
-  predicate?: Predicate | null;
-};
-
-type Predicate =
-  | { op: "and"; items: Predicate[] }
-  | { op: "or"; items: Predicate[] }
-  | {
-      field: string;
-      op:
-        | "eq"
-        | "neq"
-        | "in"
-        | "not_in"
-        | "gt"
-        | "gte"
-        | "lt"
-        | "lte"
-        | "between"
-        | "is_null"
-        | "is_not_null";
-      value?: string | number | boolean | string[] | number[];
-    };
-
-type DetectProfile =
-  | "auto"
-  | "spike_dip"
-  | "level_shift"
-  | "seasonal_residual";
-
-type DetectPattern = "point_anomaly" | "period_shift";
+type DetectStrategy = "point_anomaly" | "period_shift";
 
 type DetectSensitivity = "conservative" | "balanced" | "aggressive";
 ```
@@ -138,17 +100,17 @@ type DetectSensitivity = "conservative" | "balanced" | "aggressive";
 
 v1 支持的输入形态如下：
 
-- `metric` 必须解析到已发布的 semantic metric
-- `mode = "auto_detect"` 时，`time_scope` 必须复用 `detect` 的 range 窗口契约，且必须提供顶层 `granularity`
-- AOI 对齐：通过 AOI 协议调用时，`time_scope` 使用 `{field, start, end}` 形式（`field` 为必填的时间字段名），运行时自动映射为 `kind = "range"`
-- `mode = "explicit_compare"` 时，必须提供 `current.time_scope` 与 `baseline.time_scope`，不运行 `detect`
-- `scope` 若提供，必须遵守统一 non-time scope 契约
-- `detect_split_by` 可选；若提供，只能是单个 semantic dimension
-- `candidate_dimensions` 必须是非空的单维度名称列表，且去重后仍非空
-- `profile`、`sensitivity` 继承 `detect` 的合法取值
-- `candidate_limit` 控制内部 `detect` 返回的候选数
-- `followup_limit` 控制实际进入 compare/decompose follow-up 的候选数
-- `decomposition_limit` 控制每个维度分解返回的 contribution rows 数量
+- `metric` 必须解析到已发布的 semantic metric。
+- `mode = "auto_detect"` 时，`time_scope` 必须使用 `detect` 的 `{field, start, end}` 时间范围契约，且必须提供顶层 `granularity`。
+- `mode = "explicit_compare"` 时，必须提供 `current.time_scope` 与 `baseline.time_scope`，不运行 `detect`。
+- `scope` 若提供，必须遵守统一 non-time scope 契约。
+- `detect_dimension` 可选；若提供，只能是单个 semantic dimension。
+- `strategy` 必填，并传递给内部 `detect`。
+- `sensitivity` 继承 `detect` 的三档枚举，省略时默认 `aggressive`。
+- `candidate_dimensions` 必须是非空的单维度名称列表，且去重后仍非空。
+- `candidate_limit` 控制内部 `detect` 返回的候选数。
+- `followup_limit` 控制实际进入 compare/decompose follow-up 的候选数。
+- `decomposition_limit` 控制每个维度分解返回的 contribution rows 数量。
 
 artifact 类型：`diagnosis_bundle`
 
@@ -184,7 +146,7 @@ projection 类型：`diagnose_projection`
 
 供内部 `detect` 和后续 follow-up `observe` 共享的统一 non-time scope。
 
-### detect_split_by
+### detect_dimension
 
 控制 `detect` 是否在整体时间序列之上扫描，还是先按一个 semantic dimension 拆成独立子序列再扫描。
 
@@ -227,7 +189,7 @@ projection 类型：`diagnose_projection`
 
 固定展开如下：
 
-1. `detect(metric, time_scope, scope, detect_split_by, patterns, profile, sensitivity, candidate_limit)`
+1. `detect(metric, time_scope, scope, detect_dimension, strategy, sensitivity, candidate_limit)`
 2. 读取 detect artifact 中按既定排序返回的 candidates
 3. 对前 `followup_limit` 个 candidate 逐个展开：
    - 令 `current_window = candidate.window`
@@ -270,7 +232,7 @@ v1 baseline policy 固定为 `previous_adjacent_equal_length`：
 - `candidate_limit != null && candidate_limit <= 0`
 - `followup_limit != null && followup_limit <= 0`
 - `decomposition_limit != null && decomposition_limit <= 0`
-- `detect_split_by` 或任一 `candidate_dimensions` 不是合法 semantic dimension
+- `detect_dimension` 或任一 `candidate_dimensions` 不是合法 semantic dimension
 
 ### 2. 展开校验
 
@@ -318,9 +280,9 @@ type DiagnoseArtifact = {
   time_scope: ResolvedDetectTimeScope | null;
   granularity: TimeGranularity | null;
   scope: Scope | null;
-  detect_split_by: string | null;
+  detect_dimension: string | null;
   candidate_dimensions: string[];
-  profile: DetectProfile;
+  strategy: DetectStrategy;
   sensitivity: DetectSensitivity;
   validation: DiagnoseValidation;
   provenance: DiagnoseArtifactProvenance;
@@ -335,9 +297,9 @@ type DiagnoseProjection = {
   metric: string;
   time_scope: ResolvedDetectTimeScope;
   scope: Scope | null;
-  detect_split_by: string | null;
+  detect_dimension: string | null;
   candidate_dimensions: string[];
-  profile: DetectProfile;
+  strategy: DetectStrategy;
   sensitivity: DetectSensitivity;
   validation: DiagnoseValidation;
   detect_summary: DiagnoseDetectSummary;
@@ -581,7 +543,7 @@ type DiagnoseDriverProjection = {
 本契约中的 nullable / empty 字段必须遵守单义语义：
 
 - `scope = null`：no-extra non-time scope
-- `detect_split_by = null`：整体序列扫描，不做 split
+- `detect_dimension = null`：整体序列扫描，不做维度拆分
 - `candidate.slice = null`：该 candidate 对应整体序列，而不是“未知 slice”
 - `baseline_derivation.baseline_window = null`：固定 baseline policy 对该 candidate 无法定义合法 baseline；不得同时表示“尚未读取”
 - `current_ref = null`：current-side observe artifact 未产生；唯一允许原因是上游校验或执行失败已在 `issues` 中披露
@@ -692,7 +654,7 @@ type DiagnoseDriverProjection = {
 请求：
 
 - `metric = "dau"`
-- `detect_split_by = null`
+- `detect_dimension = null`
 - `candidate_dimensions = ["channel", "region"]`
 
 含义：
@@ -708,7 +670,7 @@ type DiagnoseDriverProjection = {
 
 - `metric = "gmv"`
 - `granularity = "week"`
-- `detect_split_by = "channel"`
+- `detect_dimension = "channel"`
 - `candidate_dimensions = ["category", "province"]`
 
 含义：
@@ -720,7 +682,7 @@ type DiagnoseDriverProjection = {
 ## v1 Scope Limits
 
 - 只支持单指标诊断
-- 只支持单个 detect split dimension
+- 只支持单个 detect dimension
 - 只支持显式归因维度列表
 - 只支持固定 baseline policy：`previous_adjacent_equal_length`
 - 只支持以 `scalar_delta` 为核心的 follow-up compare

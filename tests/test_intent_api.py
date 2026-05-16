@@ -436,9 +436,10 @@ class LightweightIntentEndpointTests(_SessionBackedIntentEndpointMixin, unittest
         self.assertEqual(payload["error"]["code"], "request_validation_error")
         self.assertIn("/openapi/schemas/", payload["guidance"]["schema_url"])
         example_time_scope = payload["guidance"]["examples"][0]["payload"]["time_scope"]
-        self.assertEqual(example_time_scope["kind"], "range")
-        self.assertEqual(set(example_time_scope), {"kind", "start", "end"})
+        self.assertEqual(example_time_scope["field"], "event_time")
+        self.assertEqual(set(example_time_scope), {"field", "start", "end"})
         self.assertEqual(payload["guidance"]["examples"][0]["payload"]["granularity"], "day")
+        self.assertEqual(payload["guidance"]["examples"][0]["payload"]["strategy"], "point_anomaly")
 
     def test_compare_nonexistent_ref_returns_422(self) -> None:
         r = self.client.post(
@@ -467,8 +468,14 @@ class LightweightIntentEndpointTests(_SessionBackedIntentEndpointMixin, unittest
             f"/sessions/{self.session_id}/intents/detect",
             json={
                 "metric": _metric_ref("dau"),
-                "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+                "time_scope": {
+                    "field": "event_time",
+                    "start": "2024-01-01T00:00:00Z",
+                    "end": "2024-01-08T00:00:00Z",
+                },
                 "granularity": "day",
+                "filter": None,
+                "strategy": "point_anomaly",
             },
         )
         self.assertEqual(r.status_code, 422)
@@ -564,6 +571,7 @@ class ClosedSessionWriteGuardTests(unittest.TestCase):
                 },
                 "granularity": "day",
                 "filter": None,
+                "strategy": "point_anomaly",
             },
         )
         self.assertEqual(r.status_code, 422)
@@ -594,6 +602,7 @@ class ClosedSessionWriteGuardTests(unittest.TestCase):
                 "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
                 "granularity": "day",
                 "candidate_dimensions": ["region"],
+                "strategy": "point_anomaly",
             },
         )
         self.assertEqual(r.status_code, 422)

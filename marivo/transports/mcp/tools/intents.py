@@ -102,10 +102,10 @@ def to_aoi_detect_request(
     metric: str,
     time_scope: McpTimeScope,
     granularity: Literal["hour", "day", "week", "month", "quarter", "year"],
+    strategy: Literal["point_anomaly", "period_shift"],
     filter_expression: dict[str, Any] | None = None,
-    split_by: list[str] | None = None,
-    profile: str | None = None,
-    sensitivity: float | None = None,
+    dimension: str | None = None,
+    sensitivity: Literal["conservative", "balanced", "aggressive"] = "aggressive",
     limit: int | None = None,
 ) -> aoi.Detect:
     return aoi.Detect.model_validate(
@@ -114,8 +114,8 @@ def to_aoi_detect_request(
             "time_scope": time_scope.model_dump(),
             "granularity": granularity,
             "filter": filter_expression,
-            "split_by": split_by,
-            "profile": profile,
+            "dimension": dimension,
+            "strategy": strategy,
             "sensitivity": sensitivity,
             "limit": limit,
         }
@@ -196,10 +196,10 @@ def register_detect(server: Any, runtime: Any) -> None:
         metric: str,
         time_scope: McpTimeScope,
         granularity: Literal["hour", "day", "week", "month", "quarter", "year"],
+        strategy: Literal["point_anomaly", "period_shift"],
         filter_expression: McpStructuredObject | None = None,
-        split_by: list[str] | None = None,
-        profile: str | None = None,
-        sensitivity: float | None = None,
+        dimension: str | None = None,
+        sensitivity: Literal["conservative", "balanced", "aggressive"] = "aggressive",
         limit: int | None = None,
     ) -> dict[str, Any]:
         request = to_aoi_detect_request(
@@ -207,8 +207,8 @@ def register_detect(server: Any, runtime: Any) -> None:
             time_scope=time_scope,
             granularity=granularity,
             filter_expression=filter_expression,
-            split_by=split_by,
-            profile=profile,
+            dimension=dimension,
+            strategy=strategy,
             sensitivity=sensitivity,
             limit=limit,
         )
@@ -275,19 +275,18 @@ def register_diagnose(server: Any, runtime: Any) -> None:
         session_id: str,
         metric: str,
         candidate_dimensions: list[str],
+        strategy: Literal["point_anomaly", "period_shift"],
         mode: Literal["auto_detect", "explicit_compare"] = "auto_detect",
         time_scope: McpTimeScope | None = None,
         granularity: Literal["hour", "day", "week", "month"] | None = None,
         current: McpSliceRef | None = None,
         baseline: McpSliceRef | None = None,
         scope: ObserveScope | None = None,
-        detect_split_by: str | None = None,
-        profile: Literal["auto", "spike_dip", "level_shift", "seasonal_residual"] = "auto",
-        sensitivity: Literal["conservative", "balanced", "aggressive"] = "balanced",
+        detect_dimension: str | None = None,
+        sensitivity: Literal["conservative", "balanced", "aggressive"] = "aggressive",
         candidate_limit: int | None = None,
         followup_limit: int | None = 3,
         decomposition_limit: int | None = 5,
-        patterns: list[Literal["point_anomaly", "period_shift"]] | None = None,
         baseline_policy: Literal[
             "previous_adjacent_equal_length"
         ] = "previous_adjacent_equal_length",
@@ -296,7 +295,7 @@ def register_diagnose(server: Any, runtime: Any) -> None:
             "metric": metric,
             "candidate_dimensions": candidate_dimensions,
             "mode": mode,
-            "profile": profile,
+            "strategy": strategy,
             "sensitivity": sensitivity,
             "baseline_policy": baseline_policy,
         }
@@ -310,16 +309,14 @@ def register_diagnose(server: Any, runtime: Any) -> None:
             params["baseline"] = baseline.model_dump()
         if scope is not None:
             params["scope"] = scope.model_dump()
-        if detect_split_by is not None:
-            params["detect_split_by"] = detect_split_by
+        if detect_dimension is not None:
+            params["detect_dimension"] = detect_dimension
         if candidate_limit is not None:
             params["candidate_limit"] = candidate_limit
         if followup_limit is not None:
             params["followup_limit"] = followup_limit
         if decomposition_limit is not None:
             params["decomposition_limit"] = decomposition_limit
-        if patterns is not None:
-            params["patterns"] = patterns
         return await call_runtime(runtime.diagnose, session_id=session_id, params=params)
 
 

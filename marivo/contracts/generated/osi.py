@@ -157,7 +157,7 @@ class MarivoMetricExtension(BaseModel):
     )
     aggregation_semantics: Literal["sum", "ratio", "weighted_average"] = Field(
         "sum",
-        description="Aggregation semantics of the metric. 'sum' for additive continuous-valued metrics (e.g., revenue, latency, duration) — uses Welch's t-test. 'ratio' for proportion/ratio metrics (e.g., conversion rate, click-through rate) — uses two-proportion z-test. 'weighted_average' for ratio-of-sums metrics (e.g., AOV = SUM(revenue)/COUNT(orders)) — uses delta method or weighted-average decomposition. Determines inferential summary mode and which analysis intents are supported.",
+        description="Aggregation semantics of the metric. Determines inferential summary mode, statistical test method, and which analysis intents are supported. Decision rule: (1) 'sum' if the metric measures an additive quantity — values sum across groups (e.g. revenue, latency, duration, inventory balance) — uses Welch's t-test and expects reconcileable delta decomposition. (2) 'ratio' if the metric is a proportion or binary-outcome rate (e.g. conversion rate, click-through rate, signup rate) — uses two-proportion z-test. (3) 'weighted_average' if the metric is a ratio of two additive sums, i.e. numerator SUM / denominator COUNT (e.g. AOV = SUM(revenue)/COUNT(orders), avg_latency) — uses delta method / weighted-average decomposition, delta is NOT expected to reconcile.",
     )
 
 
@@ -196,7 +196,7 @@ class Dataset(BaseModel):
     name: str = Field(..., description="Unique identifier for the dataset")
     source: str = Field(
         ...,
-        description="Reference to underlying physical table/view (database.schema.table) or query",
+        description="Reference to underlying physical table or view as a relation FQN (schema.table or catalog.schema.table)",
     )
     primary_key: list[str] | None = Field(
         None, description="Primary key columns (single or composite)"

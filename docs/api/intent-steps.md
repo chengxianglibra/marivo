@@ -164,9 +164,9 @@ POST /sessions/{session_id}/intents/detect
   },
   "granularity": "day",
   "filter": null,
-  "split_by": ["country"],
-  "profile": null,
-  "sensitivity": null,
+  "dimension": "country",
+  "strategy": "point_anomaly",
+  "sensitivity": "aggressive",
   "limit": 20
 }
 ```

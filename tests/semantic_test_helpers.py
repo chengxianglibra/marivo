@@ -166,24 +166,76 @@ def build_runtime(
     so that ``runtime.create_session(...)`` operates against the real metadata
     store.
     """
-    from unittest.mock import MagicMock
-
     from marivo.adapters.server.artifact_store import (
         MetadataArtifactStoreAdapter,
         MetadataStepStoreAdapter,
     )
+    from marivo.adapters.server.audit_log import FileAuditLogAdapter
+    from marivo.adapters.server.authz import NoopAuthZAdapter
+    from marivo.adapters.server.cache_store import InMemoryCacheStore
+    from marivo.adapters.server.data_source import RoutingDataSource
     from marivo.adapters.server.session_store import SqlSessionStoreAdapter
+    from marivo.adapters.server.telemetry import LocalTelemetryAdapter
+    from marivo.config import MarivoConfig
     from marivo.core.engine import CoreEngine
+    from marivo.datasources import DatasourceService
+    from marivo.routing import QueryRouter
+    from marivo.runtime.evidence.semantic_repository import SemanticRuntimeRepository
     from marivo.runtime.ports import RuntimePorts
+    from marivo.time_axis_metadata import TimeAxisMetadataProvider
 
-    ports = MagicMock(spec=RuntimePorts)  # type: ignore[assignment]
-    ports.artifact_store = MetadataArtifactStoreAdapter(metadata)
-    ports.session_store = SqlSessionStoreAdapter(metadata)
-    ports.step_store = MetadataStepStoreAdapter(metadata)
+    class _NoopModelStore:
+        def get(self, selector: object) -> None:
+            _ = selector
+            return None
+
+        def save(self, model: object, *, actor: object) -> int:
+            _ = (model, actor)
+            return 1
+
+        def list(self, query: object) -> list[object]:
+            _ = query
+            return []
+
+    class _NoopEvidenceStore:
+        def write(self, evidence: object) -> str:
+            _ = evidence
+            return "evidence.test"
+
+        def read(self, ref: object) -> object:
+            raise KeyError(ref)
+
+    datasource_service = DatasourceService(metadata)
+    query_router = QueryRouter(metadata, datasource_service)
+    ports = RuntimePorts(
+        model_store=_NoopModelStore(),
+        session_store=SqlSessionStoreAdapter(metadata),
+        evidence_store=_NoopEvidenceStore(),
+        data_source=RoutingDataSource(
+            registry=datasource_service,
+            query_router=query_router,
+            default_engine=analytics,
+        ),
+        cache_store=InMemoryCacheStore(),
+        authz=NoopAuthZAdapter(),
+        audit_log=FileAuditLogAdapter(),
+        telemetry=LocalTelemetryAdapter(),
+        runtime_config=type(
+            "_TestRuntimeConfig",
+            (),
+            {"get": lambda self, key: getattr(MarivoConfig(), key, None)},
+        )(),
+        artifact_store=MetadataArtifactStoreAdapter(metadata),
+        step_store=MetadataStepStoreAdapter(metadata),
+    )
     core = CoreEngine()
     runtime = MarivoRuntime(ports, core)
+    runtime.register_service("datasource", datasource_service)
+    runtime.register_service("query_router", query_router)
+    runtime.register_service("semantic_repository", SemanticRuntimeRepository(metadata))
     runtime.wire_metadata(metadata)
     runtime.wire_analytics(analytics)
+    runtime.wire_time_axis_metadata_provider(TimeAxisMetadataProvider(metadata))
     return runtime
 
 

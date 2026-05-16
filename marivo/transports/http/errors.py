@@ -348,7 +348,7 @@ _GUIDED_EXAMPLES: dict[tuple[str, str], list[dict[str, Any]]] = {
             "payload": {
                 "left_artifact_id": "art_obs_current",
                 "right_artifact_id": "art_obs_baseline",
-                "mode": "auto",
+                "compare_type": "normal",
             },
         }
     ],
@@ -361,8 +361,14 @@ _GUIDED_EXAMPLES: dict[tuple[str, str], list[dict[str, Any]]] = {
             "complexity": "minimal",
             "payload": {
                 "metric": "metric.watch_time",
-                "time_scope": {"kind": "range", "start": "2026-04-01", "end": "2026-04-08"},
+                "time_scope": {
+                    "field": "event_time",
+                    "start": "2026-04-01T00:00:00Z",
+                    "end": "2026-04-08T00:00:00Z",
+                },
                 "granularity": "day",
+                "filter": None,
+                "strategy": "point_anomaly",
             },
         }
     ],
