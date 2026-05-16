@@ -115,27 +115,25 @@ class SemanticImportExportServiceTests(unittest.TestCase):
     def test_import_creates_current_users_private_working_copy(self) -> None:
         token = set_current_user("alice")
         try:
-            report = self.service.import_osi_document(_doc())
+            self.service.import_osi_semantic_models(_doc())
+            row = self.store.query_one(
+                "SELECT visibility, owner_user FROM semantic_models WHERE name = ?",
+                ["commerce"],
+            )
+            self.assertEqual(row, {"visibility": "private", "owner_user": "alice"})
+            exported = self.service.export_osi_semantic_models("commerce")
+            model = exported["semantic_model"][0]
+            self.assertEqual(model["name"], "commerce")
+            self.assertEqual(len(model["datasets"][0]["fields"]), 1)
         finally:
             reset_current_user(token)
-
-        self.assertEqual(report["models"][0]["name"], "commerce")
-        self.assertTrue(report["models"][0]["created"])
-        self.assertFalse(report["models"][0]["updated"])
-        self.assertEqual(report["models"][0]["datasets"]["created"], 1)
-        self.assertEqual(report["models"][0]["fields"]["created"], 1)
-        row = self.store.query_one(
-            "SELECT visibility, owner_user FROM semantic_models WHERE name = ?",
-            ["commerce"],
-        )
-        self.assertEqual(row, {"visibility": "private", "owner_user": "alice"})
 
     def test_import_replaces_whole_model_graph(
         self,
     ) -> None:
         token = set_current_user("alice")
         try:
-            self.service.import_osi_document(
+            self.service.import_osi_semantic_models(
                 _doc(
                     description="original",
                     datasets=[
@@ -149,7 +147,7 @@ class SemanticImportExportServiceTests(unittest.TestCase):
                     relationships=[_relationship()],
                 )
             )
-            report = self.service.import_osi_document(
+            self.service.import_osi_semantic_models(
                 _doc(
                     description="updated",
                     datasets=[
@@ -163,24 +161,16 @@ class SemanticImportExportServiceTests(unittest.TestCase):
                     relationships=[],
                 )
             )
-            exported = self.service.export_osi_document("commerce")
+            exported = self.service.export_osi_semantic_models("commerce")
         finally:
             reset_current_user(token)
 
         model = exported["semantic_model"][0]
-        self.assertEqual(report["models"][0]["datasets"]["created"], 1)
-        self.assertEqual(
-            report["models"][0]["fields"],
-            {"created": 2, "updated": 0, "unchanged": 0},
-        )
-        self.assertEqual(report["models"][0]["metrics"]["created"], 1)
-        self.assertEqual(
-            report["models"][0]["relationships"], {"created": 0, "updated": 0, "unchanged": 0}
-        )
         self.assertEqual(model["description"], "updated")
         datasets = {dataset["name"]: dataset for dataset in model["datasets"]}
         self.assertEqual(datasets["orders"]["source"], "analytics.orders_v2")
         self.assertNotIn("customers", datasets)
+        self.assertEqual(len(datasets["orders"]["fields"]), 2)
         self.assertEqual(
             [field["name"] for field in datasets["orders"]["fields"]],
             ["amount", "created_at"],
@@ -194,19 +184,19 @@ class SemanticImportExportServiceTests(unittest.TestCase):
     def test_export_without_name_returns_only_current_users_private_models(self) -> None:
         token = set_current_user("alice")
         try:
-            self.service.import_osi_document(_doc("alice_model"))
+            self.service.import_osi_semantic_models(_doc("alice_model"))
         finally:
             reset_current_user(token)
 
         token = set_current_user("bob")
         try:
-            self.service.import_osi_document(_doc("bob_model"))
+            self.service.import_osi_semantic_models(_doc("bob_model"))
         finally:
             reset_current_user(token)
 
         token = set_current_user("alice")
         try:
-            exported = self.service.export_osi_document()
+            exported = self.service.export_osi_semantic_models()
         finally:
             reset_current_user(token)
 
@@ -218,8 +208,8 @@ class SemanticImportExportServiceTests(unittest.TestCase):
     def test_import_replaces_existing_model_description_when_omitted(self) -> None:
         token = set_current_user("alice")
         try:
-            self.service.import_osi_document(_doc(description="Retained model description"))
-            self.service.import_osi_document(
+            self.service.import_osi_semantic_models(_doc(description="Retained model description"))
+            self.service.import_osi_semantic_models(
                 _doc(
                     description=None,
                     datasets=[
@@ -231,7 +221,7 @@ class SemanticImportExportServiceTests(unittest.TestCase):
                     ],
                 )
             )
-            exported = self.service.export_osi_document("commerce")
+            exported = self.service.export_osi_semantic_models("commerce")
         finally:
             reset_current_user(token)
 
@@ -242,7 +232,7 @@ class SemanticImportExportServiceTests(unittest.TestCase):
     def test_import_replaces_existing_dataset_optional_attributes_when_omitted(self) -> None:
         token = set_current_user("alice")
         try:
-            self.service.import_osi_document(
+            self.service.import_osi_semantic_models(
                 _doc(
                     datasets=[
                         _dataset(
@@ -254,7 +244,7 @@ class SemanticImportExportServiceTests(unittest.TestCase):
                     ]
                 )
             )
-            self.service.import_osi_document(
+            self.service.import_osi_semantic_models(
                 _doc(
                     datasets=[
                         _dataset(
@@ -265,7 +255,7 @@ class SemanticImportExportServiceTests(unittest.TestCase):
                     ]
                 )
             )
-            exported = self.service.export_osi_document("commerce")
+            exported = self.service.export_osi_semantic_models("commerce")
         finally:
             reset_current_user(token)
 
@@ -281,7 +271,7 @@ class SemanticImportExportServiceTests(unittest.TestCase):
     def test_import_rolls_back_existing_model_when_mid_replace_field_insert_fails(self) -> None:
         token = set_current_user("alice")
         try:
-            self.service.import_osi_document(
+            self.service.import_osi_semantic_models(
                 _doc(
                     description="original",
                     datasets=[
@@ -300,7 +290,7 @@ class SemanticImportExportServiceTests(unittest.TestCase):
                 )
             )
             with self.assertRaises(RuntimeError):
-                failing_service.import_osi_document(
+                failing_service.import_osi_semantic_models(
                     _doc(
                         description="mutated",
                         datasets=[
@@ -313,7 +303,7 @@ class SemanticImportExportServiceTests(unittest.TestCase):
                         ],
                     )
                 )
-            exported = self.service.export_osi_document("commerce")
+            exported = self.service.export_osi_semantic_models("commerce")
         finally:
             reset_current_user(token)
 
@@ -333,7 +323,7 @@ class SemanticImportExportServiceTests(unittest.TestCase):
         token = set_current_user("alice")
         try:
             with self.assertRaises(Exception) as raised:
-                self.service.export_osi_document("missing_model")
+                self.service.export_osi_semantic_models("missing_model")
         finally:
             reset_current_user(token)
 
@@ -344,7 +334,7 @@ class SemanticImportExportServiceTests(unittest.TestCase):
         token = set_current_user(None)
         try:
             with self.assertRaises(RuntimeError):
-                self.service.import_osi_document(_doc())
+                self.service.import_osi_semantic_models(_doc())
         finally:
             reset_current_user(token)
 
@@ -352,7 +342,7 @@ class SemanticImportExportServiceTests(unittest.TestCase):
         token = set_current_user(None)
         try:
             with self.assertRaises(RuntimeError):
-                self.service.export_osi_document()
+                self.service.export_osi_semantic_models()
         finally:
             reset_current_user(token)
 

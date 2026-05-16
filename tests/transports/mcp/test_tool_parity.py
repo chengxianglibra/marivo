@@ -26,7 +26,7 @@ class _FakeSvc:
         return {}
 
     def import_osi_semantic_models(self, **kw):
-        return {}
+        return None
 
     def export_osi_semantic_models(self, **kw):
         return {}

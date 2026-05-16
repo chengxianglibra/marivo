@@ -9,6 +9,8 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from marivo.adapters.server.semantic_service_adapter import SemanticServiceAdapter
+from marivo.contracts.errors import ErrorCode
+from marivo.contracts.errors import ValidationError as DomainValidationError
 from marivo.contracts.generated import OSI_MARIVO_SPEC_VERSION as OSI_SPEC_VERSION
 from marivo.datasources import DatasourceService
 from marivo.identity import reset_current_user, set_current_user
@@ -125,30 +127,12 @@ class FakeSemanticDocumentService:
         self.calls.append(("validate", doc_data))
         return self.validation_result
 
-    def import_osi_semantic_models(self, doc_data: dict[str, Any]) -> dict[str, Any]:
+    def import_osi_semantic_models(self, doc_data: dict[str, Any]) -> None:
         self.calls.append(("import", doc_data))
         if not self.validation_result["valid"]:
-            return {**self.validation_result, "import_report": None}
+            raise DomainValidationError(code=ErrorCode.VALIDATION, message="validation failed")
         model = doc_data["semantic_model"][0]
         self.models[model["name"]] = model
-        return {
-            **self.validation_result,
-            "import_report": {
-                "models": [
-                    {
-                        "name": model["name"],
-                        "created": True,
-                        "updated": False,
-                        "datasets": {"created": 1, "updated": 0, "unchanged": 0},
-                        "fields": {"created": 3, "updated": 0, "unchanged": 0},
-                        "metrics": {"created": 1, "updated": 0, "unchanged": 0},
-                        "relationships": {"created": 0, "updated": 0, "unchanged": 0},
-                        "datasource_bindings": [],
-                    }
-                ],
-                "errors": [],
-            },
-        }
 
     def export_osi_semantic_models(self, semantic_model_name: str | None = None) -> dict[str, Any]:
         self.calls.append(("export", semantic_model_name))
@@ -208,31 +192,23 @@ class TestSemanticDocumentSurface(unittest.TestCase):
         self.assertEqual(body["summary"]["models"], 1)
         self.assertEqual(service.calls[-1], ("validate", _make_document()))
 
-    def test_import_success_returns_validation_and_import_report(self) -> None:
+    def test_import_success_returns_204(self) -> None:
         client, service = _make_app()
         doc = _make_document(name="growth")
 
         resp = client.post("/semantic-models/import", json=doc)
 
-        self.assertEqual(resp.status_code, 200)
-        body = resp.json()
-        self.assertEqual(body["valid"], True)
-        self.assertEqual(body["import_report"]["models"][0]["name"], "growth")
-        self.assertEqual(body["import_report"]["models"][0]["datasets"]["created"], 1)
+        self.assertEqual(resp.status_code, 204)
         self.assertEqual(service.calls[-1], ("import", doc))
 
-    def test_import_validation_failure_omits_import_report(self) -> None:
+    def test_import_validation_failure_returns_422(self) -> None:
         service = FakeSemanticDocumentService()
         service.validation_result = _invalid_validation_result()
         client, _ = _make_app(service)
 
         resp = client.post("/semantic-models/import", json=_make_document())
 
-        self.assertEqual(resp.status_code, 200)
-        body = resp.json()
-        self.assertEqual(body["valid"], False)
-        self.assertEqual(body["errors"][0]["code"], "DUPLICATE_NAME")
-        self.assertIsNone(body["import_report"])
+        self.assertEqual(resp.status_code, 422)
 
     def test_validate_schema_failure_returns_structured_result(self) -> None:
         service = FakeSemanticDocumentService()
@@ -410,7 +386,7 @@ def _make_real_app() -> _ManagedTestClient:
 
 
 class TestSemanticRealHttpIntegration(unittest.TestCase):
-    def test_import_uses_real_service_flat_response_shape(self) -> None:
+    def test_import_uses_real_service_returns_204(self) -> None:
         client = _make_real_app()
         try:
             resp = client.post(
@@ -421,10 +397,7 @@ class TestSemanticRealHttpIntegration(unittest.TestCase):
         finally:
             client.close()
 
-        self.assertEqual(resp.status_code, 200)
-        body = resp.json()
-        self.assertTrue(body["valid"])
-        self.assertEqual(body["import_report"]["models"][0]["name"], "commerce")
+        self.assertEqual(resp.status_code, 204)
 
     def test_requesting_user_query_does_not_select_other_private_models(self) -> None:
         client = _make_real_app()

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any
 
 from pydantic import ValidationError as PydanticValidationError
 
@@ -13,7 +13,6 @@ from marivo.contracts.generated import OSIDocument
 from marivo.identity import require_user
 from marivo.runtime.semantic.import_export import (
     DatasourceBinder,
-    ImportOsiSemanticModelsResponse,
     OsiDocumentExporter,
     OsiSemanticDocumentValidator,
     SemanticImportExecutor,
@@ -164,13 +163,17 @@ class SemanticModelV2Service:
         )
         return result.model_dump()
 
-    def import_osi_semantic_models(self, doc_data: dict[str, Any]) -> dict[str, Any]:
+    def import_osi_semantic_models(self, doc_data: dict[str, Any]) -> None:
         """Validate and import an OSI document into current-user private models."""
         validation = OsiSemanticDocumentValidator(
             datasource_service=self.datasource_service
         ).validate(doc_data)
         if not validation.valid:
-            return validation.model_dump()
+            raise DomainValidationError(
+                code=ErrorCode.VALIDATION,
+                message="OSI semantic document validation failed",
+                detail={"errors": [issue.model_dump() for issue in validation.errors]},
+            )
 
         owner_user = require_user()
         doc = OSIDocument.model_validate(doc_data)
@@ -181,16 +184,11 @@ class SemanticModelV2Service:
             else None
         )
         plan = SemanticImportPlanner(binder).preflight(document)
-        report = SemanticImportExecutor(self.store).execute(
+        SemanticImportExecutor(self.store).execute(
             document=plan.document,
             owner_user=owner_user,
             bindings=plan.bindings,
         )
-        response = ImportOsiSemanticModelsResponse(
-            **validation.model_dump(),
-            import_report=report,
-        )
-        return response.model_dump()
 
     def export_osi_semantic_models(self, semantic_model_name: str | None = None) -> dict[str, Any]:
         """Export the current user's private semantic working copies."""
@@ -216,18 +214,3 @@ class SemanticModelV2Service:
             "DELETE FROM semantic_models WHERE model_id = ?",
             [model_row["model_id"]],
         )
-
-    def import_osi_document(self, doc_data: dict[str, Any]) -> dict[str, Any]:
-        """Compatibility wrapper for in-process callers while tests migrate."""
-        response = self.import_osi_semantic_models(doc_data)
-        if not response["valid"]:
-            raise DomainValidationError(
-                code=ErrorCode.VALIDATION,
-                message="OSI semantic document validation failed",
-                detail={"errors": response["errors"]},
-            )
-        return cast("dict[str, Any]", response["import_report"])
-
-    def export_osi_document(self, semantic_model_name: str | None = None) -> dict[str, Any]:
-        """Compatibility wrapper for in-process callers while tests migrate."""
-        return self.export_osi_semantic_models(semantic_model_name)
