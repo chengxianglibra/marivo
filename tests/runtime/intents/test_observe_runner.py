@@ -267,3 +267,87 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
             run_observe_intent(runtime, _SESSION, params)
 
         self.assertEqual(captured["grain"], "hour")
+
+    def test_observe_aoi_filter_is_consumed_as_scope_predicate(self) -> None:
+        from marivo.runtime.intents.observe import run_observe_intent
+
+        runtime = self._make_runtime()
+        captured: dict[str, Any] = {}
+        runtime.core.normalize_intent_metric_ref.side_effect = lambda metric: metric
+        runtime.core.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix(
+            "metric."
+        )
+        runtime.resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
+        runtime.resolve_metric_sql_for_execution.return_value = "SUM(val)"
+        runtime.resolve_metric_dimensions.return_value = []
+        runtime.resolve_engine.return_value = (
+            MagicMock(),
+            "duckdb",
+            {"src.metrics": "src.metrics"},
+        )
+        _set_resolved_time_axis(runtime, "event_date")
+
+        def _capture_scoped_query(
+            session_id: str, resolved: Any, *, engine_type: str
+        ) -> dict[str, Any]:
+            captured["scope_predicate"] = resolved.scope.predicate
+            return {
+                "mode": resolved.time_scope.mode,
+                "engine_type": engine_type,
+                "analysis_time_expr": "event_date",
+                "scope_predicate_filter": resolved.scope.predicate,
+                "current": {
+                    "start": resolved.time_scope.current.start,
+                    "end": resolved.time_scope.current.end,
+                },
+            }
+
+        runtime.build_scoped_query.side_effect = _capture_scoped_query
+        runtime.compile_step.return_value = _make_compiled_mock()
+
+        params = {
+            "metric": "metric.m1",
+            "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+            "filter": {
+                "dialects": [
+                    {"dialect": "ANSI_SQL", "expression": "region = 'US'"},
+                ]
+            },
+        }
+        with patch("marivo.runtime.intents.observe.execute_compiled") as mock_exec:
+            mock_exec.return_value.rows = [{"current_value": 42.0}]
+            run_observe_intent(runtime, _SESSION, params)
+
+        self.assertEqual(captured["scope_predicate"], "region = 'US'")
+        args, _ = runtime.commit_artifact_with_extraction.call_args
+        artifact_payload = args[4]
+        self.assertEqual(artifact_payload["scope"], {"predicate": "region = 'US'"})
+
+    def test_observe_malformed_aoi_filter_raises_invalid_argument(self) -> None:
+        from marivo.runtime.intents.observe import run_observe_intent
+
+        runtime = self._make_runtime()
+        runtime.core.normalize_intent_metric_ref.side_effect = lambda metric: metric
+        runtime.core.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix(
+            "metric."
+        )
+        runtime.resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
+        runtime.resolve_metric.return_value = None
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "observe: INVALID_ARGUMENT - filter.dialects must be non-empty",
+        ):
+            run_observe_intent(
+                runtime,
+                _SESSION,
+                {
+                    "metric": "metric.m1",
+                    "time_scope": {
+                        "kind": "range",
+                        "start": "2024-01-01",
+                        "end": "2024-01-08",
+                    },
+                    "filter": {"dialects": []},
+                },
+            )
