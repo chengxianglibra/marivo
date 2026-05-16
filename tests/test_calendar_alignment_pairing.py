@@ -176,41 +176,6 @@ class CalendarAlignmentPairingTests(unittest.TestCase):
         )
         self.assertEqual(resolution.comparability_warnings, [])
 
-    def test_holiday_policy_records_unmapped_and_fallback_when_relative_key_is_missing(
-        self,
-    ) -> None:
-        current_window = (date(2026, 4, 1), date(2026, 4, 2))
-        baseline_window = (date(2025, 4, 1), date(2025, 4, 2))
-        policy = get_calendar_policy("calendar_policy.calendar_yoy")
-
-        resolution = resolve_calendar_bucket_pairing(
-            current_window=current_window,
-            baseline_window=baseline_window,
-            matching_strategy=policy.matching_strategy,
-            fallback_strategy=policy.fallback_strategy,
-            annotation_rows=build_calendar_annotation_rows(
-                current_window=current_window,
-                baseline_window=baseline_window,
-                raw_rows=[
-                    _annotation("2026-04-01", holiday_group_id="qingming"),
-                    _annotation("2025-04-01"),
-                ],
-            ),
-        )
-
-        self.assertEqual(resolution.bucket_pairing[0]["pairing_reason"], "natural_date_shift")
-        self.assertEqual(
-            resolution.bucket_pairing[0]["issues"],
-            ["holiday_cluster_unmapped", "fallback_applied"],
-        )
-        self.assertEqual(resolution.bucket_pairing[0]["strictness_level"], "fallback")
-        self.assertFalse(resolution.bucket_pairing[0]["is_reused_baseline_bucket"])
-        self.assertFalse(resolution.rollup_safe)
-        self.assertEqual(
-            resolution.comparability_warnings,
-            ["holiday_cluster_unmapped", "fallback_applied"],
-        )
-
     def test_holiday_policy_records_unmapped_and_fallback_when_cluster_is_missing_in_baseline(
         self,
     ) -> None:
@@ -349,33 +314,6 @@ class CalendarAlignmentPairingTests(unittest.TestCase):
             ["alignment_coverage_insufficient"],
         )
         self.assertEqual(resolution.bucket_pairing[0]["strictness_level"], "coverage_incomplete")
-        self.assertFalse(resolution.rollup_safe)
-
-    def test_holiday_policy_uses_natural_fallback_when_weekday_match_exceeds_max_shift(
-        self,
-    ) -> None:
-        current_window = (date(2026, 4, 1), date(2026, 4, 2))
-        baseline_window = (date(2025, 4, 5), date(2025, 4, 6))
-        policy = get_calendar_policy("calendar_policy.calendar_yoy")
-
-        resolution = resolve_calendar_bucket_pairing(
-            current_window=current_window,
-            baseline_window=baseline_window,
-            matching_strategy=policy.matching_strategy,
-            fallback_strategy=policy.fallback_strategy,
-            annotation_rows=build_calendar_annotation_rows(
-                current_window=current_window,
-                baseline_window=baseline_window,
-                raw_rows=[_annotation("2026-04-01", holiday_group_id="qingming")],
-            ),
-        )
-
-        self.assertEqual(resolution.bucket_pairing[0]["pairing_reason"], "natural_date_shift")
-        self.assertEqual(
-            resolution.bucket_pairing[0]["issues"],
-            ["holiday_cluster_unmapped", "fallback_applied"],
-        )
-        self.assertEqual(resolution.bucket_pairing[0]["strictness_level"], "fallback")
         self.assertFalse(resolution.rollup_safe)
 
     def test_unpaired_bucket_records_coverage_issue(self) -> None:

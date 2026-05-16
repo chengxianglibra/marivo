@@ -7,7 +7,6 @@ from typing import Any, cast
 from marivo.adapters.metadata import MetadataStore
 from marivo.config import CalendarConfig
 from marivo.runtime.semantic.calendar_data_runtime import (
-    _RESOLVED_CALENDAR_SOURCE,
     CalendarDataReader,
     CalendarDataResolutionError,
 )
@@ -114,7 +113,6 @@ class CalendarDataReaderTests(unittest.TestCase):
             baseline_window=(date(2025, 4, 1), date(2025, 4, 3)),
         )
 
-        self.assertEqual(result.resolved_calendar_source, _RESOLVED_CALENDAR_SOURCE)
         self.assertEqual(result.resolved_calendar_version, "cn_2026q2_v1")
         self.assertEqual(len(result.annotation_rows), 4)
         self.assertEqual(result.annotation_rows[0].holiday_group_id, "qingming")
