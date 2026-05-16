@@ -394,16 +394,16 @@ class DatasourceBinder:
 
 
 @dataclass(frozen=True)
-class SemanticMergePlan:
+class SemanticImportPlan:
     document: dict[str, Any]
     bindings: list[DatasetBinding] = field(default_factory=list)
 
 
-class SemanticMergePlanner:
+class SemanticImportPlanner:
     def __init__(self, binder: DatasourceBinder | None = None) -> None:
         self.binder = binder
 
-    def preflight(self, document: dict[str, Any]) -> SemanticMergePlan:
+    def preflight(self, document: dict[str, Any]) -> SemanticImportPlan:
         semantic_models = document.get("semantic_model")
         if not isinstance(semantic_models, list) or not semantic_models:
             raise ValidationError(
@@ -443,7 +443,7 @@ class SemanticMergePlanner:
         if self.binder is not None:
             bindings = self._bind_datasets(semantic_models)
 
-        return SemanticMergePlan(document=document, bindings=bindings)
+        return SemanticImportPlan(document=document, bindings=bindings)
 
     def _bind_datasets(self, semantic_models: list[object]) -> list[DatasetBinding]:
         assert self.binder is not None
@@ -466,7 +466,7 @@ class SemanticMergePlanner:
         return bindings
 
 
-class SemanticMergeExecutor:
+class SemanticImportExecutor:
     """Apply a validated OSI document to private semantic working copies."""
 
     def __init__(self, store: MetadataStore) -> None:
@@ -486,7 +486,7 @@ class SemanticMergeExecutor:
         with self.store.transaction() as txn:
             for model_data in document.get("semantic_model") or []:
                 model = SemanticModel.model_validate(model_data)
-                report = self._merge_model(
+                report = self._replace_model(
                     txn,
                     model,
                     owner_user=owner_user,
@@ -495,7 +495,7 @@ class SemanticMergeExecutor:
                 reports.append(report)
         return ImportOsiDocumentReport(models=reports)
 
-    def _merge_model(
+    def _replace_model(
         self,
         txn: MetadataTransaction,
         model: SemanticModel,
@@ -545,7 +545,7 @@ class SemanticMergeExecutor:
         self._delete_model_children(txn, model_id)
         report = ImportModelReport(name=model.name, created=created, updated=not created)
         for dataset in model.datasets:
-            dataset_report = self._merge_dataset(txn, dataset, model_id=model_id)
+            dataset_report = self._replace_dataset(txn, dataset, model_id=model_id)
             _add_counter(report.datasets, dataset_report)
             _add_counter(report.fields, dataset_report.fields)
             binding = binding_lookup.get((model.name, dataset.name))
@@ -584,9 +584,9 @@ class SemanticMergeExecutor:
         txn.execute("DELETE FROM semantic_relationships WHERE model_id = ?", [model_id])
         txn.execute("DELETE FROM semantic_datasets WHERE model_id = ?", [model_id])
 
-    def _merge_dataset(
+    def _replace_dataset(
         self, txn: MetadataTransaction, dataset: Dataset, *, model_id: int
-    ) -> _DatasetMergeResult:
+    ) -> _DatasetReplaceResult:
         existing = txn.query_one(
             "SELECT * FROM semantic_datasets WHERE model_id = ? AND name = ?",
             [model_id, dataset.name],
@@ -645,7 +645,7 @@ class SemanticMergeExecutor:
                 fields,
                 self._replace_field(txn, field_model, dataset_id=dataset_id, position=pos),
             )
-        return _DatasetMergeResult(
+        return _DatasetReplaceResult(
             created=count.created,
             updated=count.updated,
             unchanged=count.unchanged,
@@ -1156,7 +1156,7 @@ class _CountDelta:
 
 
 @dataclass
-class _DatasetMergeResult(_CountDelta):
+class _DatasetReplaceResult(_CountDelta):
     fields: _CountDelta = field(default_factory=_CountDelta)
 
 
