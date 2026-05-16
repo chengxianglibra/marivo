@@ -471,6 +471,15 @@ def intent_forecast(
     return ExecutionEnvelope.model_validate(_run_intent(session_id, "forecast", payload, request))
 
 
+@router.post("/sessions/{session_id}/intents/test", response_model=ExecutionEnvelope)
+def intent_test(
+    session_id: str,
+    payload: aoi.Test,
+    request: Request,
+) -> ExecutionEnvelope:
+    return ExecutionEnvelope.model_validate(_run_intent(session_id, "test", payload, request))
+
+
 @router.post("/sessions/{session_id}/intents/attribute", response_model=AttributeResponse)
 def intent_attribute(
     session_id: str,

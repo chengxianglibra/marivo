@@ -184,10 +184,9 @@ class Hypothesis(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    family: Literal["two_sample_mean", "two_sample_proportion", "paired_mean"]
+    family: Literal["two_sample_mean"]
     alternative: Literal["two_sided", "greater", "less"]
-    alpha: float = Field(..., gt=0.0, lt=1.0)
-    label: str | None
+    significance: Literal["conservative", "balanced", "aggressive"]
 
 
 class TimeScope(BaseModel):
@@ -421,7 +420,7 @@ class Test(BaseModel):
     metric: str = Field(..., min_length=1)
     left: Slice
     right: Slice
-    kind: Literal["numeric", "rate"]
+    kind: Literal["numeric"]
     hypothesis: Hypothesis
 
 

@@ -101,6 +101,23 @@ class McpSliceRef(BaseModel):
     scope: ObserveScope | None = None
 
 
+class McpTestHypothesis(BaseModel):
+    """MCP-visible test hypothesis choices for the fixed AOI test family."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    alternative: Literal["two_sided", "greater", "less"]
+    significance: Literal["conservative", "balanced", "aggressive"] = Field(
+        ...,
+        description=(
+            "Significance preset for the hypothesis test: conservative=0.01 "
+            "uses a stricter threshold to reduce false positives; balanced=0.05 "
+            "is the default statistical threshold; aggressive=0.10 is more "
+            "exploratory and more likely to reject the null hypothesis."
+        ),
+    )
+
+
 class ObserveInput(BaseModel):
     """Input model for the observe MCP tool."""
 

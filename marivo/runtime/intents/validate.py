@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Any
 
 from marivo.core.intent.primitives import new_step_id
 from marivo.runtime.intents._helpers import commit_step_result
-from marivo.runtime.intents.test import run_test_intent
+from marivo.runtime.intents.test import _SIGNIFICANCE_ALPHA, run_test_intent
 
 if TYPE_CHECKING:
     from marivo.runtime.runtime import MarivoRuntime
@@ -48,20 +48,24 @@ def run_validate_intent(
     right_scope: Any = right_raw.get("scope") or right_raw.get("filter")
 
     hypothesis_raw: dict[str, Any] = p.get("hypothesis") or {}
+    unexpected_hypothesis_keys = set(hypothesis_raw) - {"family", "alternative", "significance"}
+    if unexpected_hypothesis_keys:
+        raise ValueError(
+            "validate: INVALID_ARGUMENT - unsupported hypothesis field(s): "
+            f"{sorted(unexpected_hypothesis_keys)}"
+        )
+    family: str = str(hypothesis_raw.get("family") or "two_sample_mean").lower()
+    if family != "two_sample_mean":
+        raise ValueError("validate: INVALID_ARGUMENT - hypothesis.family must be 'two_sample_mean'")
     alternative: str = str(hypothesis_raw.get("alternative") or "two_sided").lower()
-    alpha_raw = hypothesis_raw.get("alpha")
-    alpha: float = 0.05
-    if alpha_raw is not None:
-        try:
-            alpha = float(alpha_raw)
-        except (TypeError, ValueError) as exc:
-            raise ValueError(
-                "validate: INVALID_ARGUMENT - hypothesis.alpha must be a number"
-            ) from exc
-    hyp_label: str | None = hypothesis_raw.get("label") or None
-
-    method_raw: str = str(p.get("method") or "auto").lower()
-
+    significance = str(hypothesis_raw.get("significance") or "balanced").lower()
+    try:
+        alpha = _SIGNIFICANCE_ALPHA[significance]
+    except KeyError as exc:
+        raise ValueError(
+            "validate: INVALID_ARGUMENT - hypothesis.significance must be one of "
+            f"{sorted(_SIGNIFICANCE_ALPHA)}, got '{significance}'"
+        ) from exc
     metric_name = runtime.core.metric_name_from_ref(metric_ref)
 
     # ── Build test params (source-type) ──────────────────────────────────
@@ -73,10 +77,8 @@ def run_validate_intent(
         "hypothesis": {
             "family": "two_sample_mean",
             "alternative": alternative,
-            "alpha": alpha,
-            "label": hyp_label,
+            "significance": significance,
         },
-        "method": method_raw,
     }
 
     # ── Run test ─────────────────────────────────────────────────────────
@@ -140,8 +142,8 @@ def run_validate_intent(
     hypothesis_out: dict[str, Any] = {
         "family": "two_sample_mean",
         "alternative": alternative,
+        "significance": significance,
         "alpha": alpha,
-        "label": hyp_label,
     }
 
     bundle: dict[str, Any] = {

@@ -84,9 +84,7 @@
       "HypothesisFamily": {
         "type": "string",
         "enum": [
-          "two_sample_mean",
-          "two_sample_proportion",
-          "paired_mean"
+          "two_sample_mean"
         ]
       },
       "HypothesisAlternative": {
@@ -97,11 +95,18 @@
           "less"
         ]
       },
+      "HypothesisSignificance": {
+        "type": "string",
+        "enum": [
+          "conservative",
+          "balanced",
+          "aggressive"
+        ]
+      },
       "TestKind": {
         "type": "string",
         "enum": [
-          "numeric",
-          "rate"
+          "numeric"
         ]
       },
       "CorrelationMethod": {
@@ -198,8 +203,7 @@
         "required": [
           "family",
           "alternative",
-          "alpha",
-          "label"
+          "significance"
         ],
         "properties": {
           "family": {
@@ -208,20 +212,8 @@
           "alternative": {
             "$ref": "#/$defs/primitives/HypothesisAlternative"
           },
-          "alpha": {
-            "type": "number",
-            "exclusiveMinimum": 0,
-            "exclusiveMaximum": 1
-          },
-          "label": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
+          "significance": {
+            "$ref": "#/$defs/primitives/HypothesisSignificance"
           }
         }
       },

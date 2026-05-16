@@ -5,8 +5,8 @@ Accepts metric + left/right slices (not artifact refs) per the AOI spec,
 and computes sample summaries internally without creating intermediate
 observe artifacts.
 
-Only the ``welch_t`` method and ``numeric`` kind are supported in this
-version; two-proportion z-test and rate kind are deferred.
+Requests only support ``numeric`` kind with ``two_sample_mean`` hypotheses.
+The implementation computes Welch's t-test; there is no request method selector.
 
 Statistical helpers use only the standard library (math module); no
 external numeric dependencies are introduced.
@@ -33,9 +33,14 @@ from marivo.runtime.intents.predicate_lineage_reuse import (
 if TYPE_CHECKING:
     from marivo.runtime.runtime import MarivoRuntime
 
-_VALID_KINDS: frozenset[str] = frozenset({"numeric", "rate"})
+_VALID_KINDS: frozenset[str] = frozenset({"numeric"})
+_VALID_FAMILIES: frozenset[str] = frozenset({"two_sample_mean"})
 _VALID_ALTERNATIVES: frozenset[str] = frozenset({"two_sided", "greater", "less"})
-_VALID_METHODS: frozenset[str] = frozenset({"auto", "welch_t"})
+_SIGNIFICANCE_ALPHA: dict[str, float] = {
+    "conservative": 0.01,
+    "balanced": 0.05,
+    "aggressive": 0.10,
+}
 
 
 # ── Statistical helpers (pure Python, no external deps) ──────────────────────
@@ -128,6 +133,9 @@ def run_test_intent(
     now = datetime.now(UTC).isoformat()
 
     # ── Input validation ─────────────────────────────────────────────────
+    if "method" in p:
+        raise ValueError("test: INVALID_ARGUMENT - method is not a supported test parameter")
+
     metric_ref: str = normalize_metric_ref(p.get("metric") or "")
     metric_ref = runtime.core.normalize_intent_metric_ref(metric_ref)
     metric_name = runtime.core.metric_name_from_ref(metric_ref)
@@ -139,11 +147,6 @@ def run_test_intent(
     if kind not in _VALID_KINDS:
         raise ValueError(
             f"test: INVALID_ARGUMENT - kind must be one of {sorted(_VALID_KINDS)}, got '{kind}'"
-        )
-    if kind != "numeric":
-        raise ValueError(
-            f"test: INVALID_ARGUMENT - kind='{kind}' is not supported; "
-            f"only 'numeric' is available in this version"
         )
 
     left_raw: dict[str, Any] = p.get("left") or {}
@@ -162,7 +165,18 @@ def run_test_intent(
 
     # ── Hypothesis validation ────────────────────────────────────────────
     hypothesis_raw: dict[str, Any] = p.get("hypothesis") or {}
+    unexpected_hypothesis_keys = set(hypothesis_raw) - {"family", "alternative", "significance"}
+    if unexpected_hypothesis_keys:
+        raise ValueError(
+            "test: INVALID_ARGUMENT - unsupported hypothesis field(s): "
+            f"{sorted(unexpected_hypothesis_keys)}"
+        )
     family: str = str(hypothesis_raw.get("family") or "two_sample_mean").lower()
+    if family not in _VALID_FAMILIES:
+        raise ValueError(
+            f"test: INVALID_ARGUMENT - hypothesis.family must be one of "
+            f"{sorted(_VALID_FAMILIES)}, got '{family}'"
+        )
     alternative: str = str(hypothesis_raw.get("alternative") or "two_sided").lower()
     if alternative not in _VALID_ALTERNATIVES:
         raise ValueError(
@@ -170,26 +184,14 @@ def run_test_intent(
             f"{sorted(_VALID_ALTERNATIVES)}, got '{alternative}'"
         )
 
-    alpha_raw = hypothesis_raw.get("alpha")
-    alpha: float = 0.05
-    if alpha_raw is not None:
-        try:
-            alpha = float(alpha_raw)
-        except (TypeError, ValueError) as exc:
-            raise ValueError("test: INVALID_ARGUMENT - hypothesis.alpha must be a number") from exc
-    if not (0.0 < alpha < 1.0):
+    significance = str(hypothesis_raw.get("significance") or "balanced").lower()
+    try:
+        alpha = _SIGNIFICANCE_ALPHA[significance]
+    except KeyError as exc:
         raise ValueError(
-            f"test: INVALID_ARGUMENT - hypothesis.alpha must be in (0, 1), got {alpha}"
-        )
-
-    hyp_label: str | None = hypothesis_raw.get("label") or None
-
-    # ── Method resolution ────────────────────────────────────────────────
-    method_raw: str = str(p.get("method") or "auto").lower()
-    if method_raw not in _VALID_METHODS:
-        raise ValueError(
-            f"test: INVALID_ARGUMENT - method must be 'auto' or 'welch_t', got '{method_raw}'"
-        )
+            "test: INVALID_ARGUMENT - hypothesis.significance must be one of "
+            f"{sorted(_SIGNIFICANCE_ALPHA)}, got '{significance}'"
+        ) from exc
 
     # ── Compute sample summaries (internal, no intermediate artifacts) ──
     left_ss = compute_numeric_sample_summary(
@@ -316,8 +318,8 @@ def run_test_intent(
         "hypothesis": {
             "family": family,
             "alternative": alternative,
+            "significance": significance,
             "alpha": alpha,
-            "label": hyp_label,
         },
         "statistic": t_stat,
         "p_value": p_value,

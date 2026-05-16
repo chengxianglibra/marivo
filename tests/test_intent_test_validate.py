@@ -161,7 +161,7 @@ class TestTestIntentSourceValidation(unittest.TestCase):
             )
         self.assertIn("rate", str(ctx.exception))
 
-    def test_invalid_alpha_rejected(self) -> None:
+    def test_invalid_significance_rejected(self) -> None:
         from unittest.mock import MagicMock
 
         from marivo.runtime.intents.test import run_test_intent
@@ -180,13 +180,12 @@ class TestTestIntentSourceValidation(unittest.TestCase):
                         "time_scope": {"kind": "range", "start": "2026-01-08", "end": "2026-01-15"}
                     },
                     "kind": "numeric",
-                    "hypothesis": {"alternative": "two_sided", "alpha": 1.5},
-                    "method": "welch_t",
+                    "hypothesis": {"alternative": "two_sided", "significance": "loose"},
                 },
             )
-        self.assertIn("alpha", str(ctx.exception))
+        self.assertIn("significance", str(ctx.exception))
 
-    def test_invalid_method_rejected(self) -> None:
+    def test_method_parameter_rejected(self) -> None:
         from unittest.mock import MagicMock
 
         from marivo.runtime.intents.test import run_test_intent
@@ -205,11 +204,106 @@ class TestTestIntentSourceValidation(unittest.TestCase):
                         "time_scope": {"kind": "range", "start": "2026-01-08", "end": "2026-01-15"}
                     },
                     "kind": "numeric",
-                    "hypothesis": {"alternative": "two_sided", "alpha": 0.05},
+                    "hypothesis": {"alternative": "two_sided", "significance": "balanced"},
                     "method": "two_proportion_z",
                 },
             )
-        self.assertIn("two_proportion_z", str(ctx.exception))
+        self.assertIn("method", str(ctx.exception))
+
+    def test_unsupported_hypothesis_families_rejected(self) -> None:
+        from unittest.mock import MagicMock
+
+        from marivo.runtime.intents.test import run_test_intent
+
+        for family in ("two_sample_proportion", "paired_mean"):
+            runtime = MagicMock()
+            with self.subTest(family=family):
+                with self.assertRaises(ValueError) as ctx:
+                    run_test_intent(
+                        runtime,
+                        "session-1",
+                        {
+                            "metric": "metric.test",
+                            "left": {
+                                "time_scope": {
+                                    "kind": "range",
+                                    "start": "2026-01-01",
+                                    "end": "2026-01-08",
+                                }
+                            },
+                            "right": {
+                                "time_scope": {
+                                    "kind": "range",
+                                    "start": "2026-01-08",
+                                    "end": "2026-01-15",
+                                }
+                            },
+                            "kind": "numeric",
+                            "hypothesis": {
+                                "family": family,
+                                "alternative": "two_sided",
+                                "significance": "balanced",
+                            },
+                        },
+                    )
+                self.assertIn("hypothesis.family", str(ctx.exception))
+
+    def test_hypothesis_label_rejected(self) -> None:
+        from unittest.mock import MagicMock
+
+        from marivo.runtime.intents.test import run_test_intent
+
+        runtime = MagicMock()
+        with self.assertRaises(ValueError) as ctx:
+            run_test_intent(
+                runtime,
+                "session-1",
+                {
+                    "metric": "metric.test",
+                    "left": {
+                        "time_scope": {"kind": "range", "start": "2026-01-01", "end": "2026-01-08"}
+                    },
+                    "right": {
+                        "time_scope": {"kind": "range", "start": "2026-01-08", "end": "2026-01-15"}
+                    },
+                    "kind": "numeric",
+                    "hypothesis": {
+                        "family": "two_sample_mean",
+                        "alternative": "two_sided",
+                        "significance": "balanced",
+                        "label": "legacy label",
+                    },
+                },
+            )
+        self.assertIn("label", str(ctx.exception))
+
+    def test_hypothesis_alpha_rejected(self) -> None:
+        from unittest.mock import MagicMock
+
+        from marivo.runtime.intents.test import run_test_intent
+
+        runtime = MagicMock()
+        with self.assertRaises(ValueError) as ctx:
+            run_test_intent(
+                runtime,
+                "session-1",
+                {
+                    "metric": "metric.test",
+                    "left": {
+                        "time_scope": {"kind": "range", "start": "2026-01-01", "end": "2026-01-08"}
+                    },
+                    "right": {
+                        "time_scope": {"kind": "range", "start": "2026-01-08", "end": "2026-01-15"}
+                    },
+                    "kind": "numeric",
+                    "hypothesis": {
+                        "family": "two_sample_mean",
+                        "alternative": "two_sided",
+                        "alpha": 0.05,
+                    },
+                },
+            )
+        self.assertIn("alpha", str(ctx.exception))
 
 
 class TestTestArtifactStructure(unittest.TestCase):
@@ -261,9 +355,8 @@ class TestTestArtifactStructure(unittest.TestCase):
                             "hypothesis": {
                                 "family": "two_sample_mean",
                                 "alternative": "two_sided",
-                                "alpha": 0.05,
+                                "significance": "balanced",
                             },
-                            "method": "welch_t",
                         },
                     )
                     # Extract the artifact payload from commit_step_result
@@ -278,6 +371,15 @@ class TestTestArtifactStructure(unittest.TestCase):
     def test_hypothesis_family_is_two_sample_mean(self) -> None:
         artifact = self._run_test_with_mock_data()
         self.assertEqual(artifact["hypothesis"]["family"], "two_sample_mean")
+
+    def test_hypothesis_has_no_label(self) -> None:
+        artifact = self._run_test_with_mock_data()
+        self.assertNotIn("label", artifact["hypothesis"])
+
+    def test_hypothesis_records_significance_and_resolved_alpha(self) -> None:
+        artifact = self._run_test_with_mock_data()
+        self.assertEqual(artifact["hypothesis"]["significance"], "balanced")
+        self.assertEqual(artifact["hypothesis"]["alpha"], 0.05)
 
     def test_assumption_notes_is_list_of_strings(self) -> None:
         artifact = self._run_test_with_mock_data()

@@ -1,5 +1,5 @@
 {
-  "metric": "conversion_rate",
+  "metric": "conversion_value",
   "left": {
     "time_scope": {
       "field": "event_time",
@@ -30,11 +30,10 @@
       ]
     }
   },
-  "kind": "rate",
+  "kind": "numeric",
   "hypothesis": {
-    "family": "two_sample_proportion",
+    "family": "two_sample_mean",
     "alternative": "two_sided",
-    "alpha": 0.01,
-    "label": null
+    "significance": "conservative"
   }
 }

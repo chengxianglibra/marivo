@@ -180,13 +180,15 @@ This collapses four previously named primitives into a single, narrowly-scoped `
 ```jsonc
 // Hypothesis — used by `test`
 {
-  "family": "two_sample_mean" | "two_sample_proportion"
-          | "paired_mean",
+  "family": "two_sample_mean",
   "alternative": "two_sided" | "greater" | "less",
-  "alpha": number,
-  "label": "string" | null
+  "significance": "conservative" | "balanced" | "aggressive"
 }
 ```
+
+`significance` is an agent-facing preset: `conservative` resolves to
+`alpha=0.01`, `balanced` resolves to `alpha=0.05`, and `aggressive` resolves to
+`alpha=0.10`.
 
 ## 4. Atomic Intent Contract Pattern
 
@@ -209,13 +211,13 @@ The request contract is per-intent. Every request is either **source-type** (tak
 | ----------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | `observe`   | source          | `metric`, `time_scope`, `filter?`, `granularity?`, `dimensions?` (mutually exclusive mode selectors, see 4.1.2)                            |
 | `detect`    | source          | `metric`, `time_scope`, `granularity: TimeGranularity`, `filter?`, `dimension?`, `strategy: "point_anomaly" \| "period_shift"`, `sensitivity?`, `limit?` |
-| `test`      | source (paired) | `metric`, `left: { time_scope, filter? }`, `right: { time_scope, filter? }`, `kind: "numeric" \| "rate"`, `hypothesis: Hypothesis` |
+| `test`      | source (paired) | `metric`, `left: { time_scope, filter? }`, `right: { time_scope, filter? }`, `kind: "numeric"`, `hypothesis: Hypothesis` |
 | `forecast`  | ref             | `source_artifact_id: string`, `horizon`, `profile?`                                                                             |
 | `compare`   | ref             | `left_artifact_id: string`, `right_artifact_id: string`, `compare_type?: CompareType`                                                             |
 | `decompose` | ref             | `compare_artifact_id: string`, `dimension`, `limit?`                                                                                          |
 | `correlate` | ref             | `left_artifact_id: string`, `right_artifact_id: string` (both time_series), `method?`                                                            |
 
-`test` is source-type with a *paired* slice spec: it embeds two slices directly rather than referencing upstream observations. Sample-summary statistics (count, mean, std_dev for numeric kind; numerator, denominator, rate for rate kind) are computed inside `test` from the underlying data — they are not exposed as a separate AOI artifact. This keeps the standard from carrying a primitive whose only consumer is `test`.
+`test` is source-type with a *paired* slice spec: it embeds two slices directly rather than referencing upstream observations. Sample-summary statistics (count, mean, std_dev) are computed inside `test` from the underlying data — they are not exposed as a separate AOI artifact. This keeps the standard from carrying a primitive whose only consumer is `test`.
 
 #### 4.1.2 `observe` output mode inference
 
@@ -371,7 +373,7 @@ Numeric result semantics:
 | `anomaly_candidates_result.items[].score` | Non-negative number, `[0, +infinity)`. | Higher means more anomalous within the same implementation and scoring profile. Scores are not portable severity labels. |
 | `association_result.coefficient` | `[-1, 1]`. | Higher positive values mean stronger positive association; values near `0` mean weak/no association under the chosen method; lower negative values mean stronger inverse association. |
 | `p_value` fields | `[0, 1]`. | Lower means stronger evidence against the relevant null model; higher means weaker evidence. |
-| `hypothesis_test_result.statistic` | Hypothesis-family specific finite number. | Sign and magnitude are interpreted by `hypothesis.family` and `alternative`; larger absolute values usually mean stronger separation from the null model. |
+| `hypothesis_test_result.statistic` | Finite statistic for the two-sample mean test. | Sign and magnitude are interpreted with `hypothesis.alternative`; larger absolute values usually mean stronger separation from the null model. |
 | `association_result.n_pairs` | Integer `[0, +infinity)`. | Higher usually means a more stable estimate, subject to data quality. |
 | Forecast `ci_low` / `ci_high` | Metric domain or `null`; when both are present, `ci_low <= ci_high`. | Wider intervals mean more forecast uncertainty; bounds represent lower and upper plausible outcomes in metric units. |
 

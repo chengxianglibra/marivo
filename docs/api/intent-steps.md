@@ -14,12 +14,12 @@ not contain a top-level `step_type`.
 | `correlate` | `POST /sessions/{session_id}/intents/correlate` | `ExecutionEnvelope` |
 | `detect` | `POST /sessions/{session_id}/intents/detect` | `ExecutionEnvelope` |
 | `forecast` | `POST /sessions/{session_id}/intents/forecast` | `ExecutionEnvelope` |
+| `test` | `POST /sessions/{session_id}/intents/test` | `ExecutionEnvelope` |
 | `attribute` | `POST /sessions/{session_id}/intents/attribute` | JSON object |
 | `diagnose` | `POST /sessions/{session_id}/intents/diagnose` | JSON object |
 
-`/sessions/{session_id}/intents/test` is not mounted by the current HTTP
-router. `validate` is not a derived HTTP analysis intent; semantic-model
-validation remains available through the semantic-model APIs.
+`validate` is not a derived HTTP analysis intent; semantic-model validation
+remains available through the semantic-model APIs.
 
 ## Common Response Envelope
 
@@ -184,6 +184,46 @@ POST /sessions/{session_id}/intents/forecast
   "profile": "auto"
 }
 ```
+
+### Test
+
+```http
+POST /sessions/{session_id}/intents/test
+```
+
+```json
+{
+  "metric": "order_revenue",
+  "left": {
+    "time_scope": {
+      "field": "order_date",
+      "start": "2026-01-01T00:00:00Z",
+      "end": "2026-02-01T00:00:00Z"
+    },
+    "filter": null
+  },
+  "right": {
+    "time_scope": {
+      "field": "order_date",
+      "start": "2025-12-01T00:00:00Z",
+      "end": "2026-01-01T00:00:00Z"
+    },
+    "filter": null
+  },
+  "kind": "numeric",
+  "hypothesis": {
+    "family": "two_sample_mean",
+    "alternative": "greater",
+    "significance": "balanced"
+  }
+}
+```
+
+`kind` only accepts `numeric`. `hypothesis.family` only accepts
+`two_sample_mean`; `hypothesis` has no label field and `test` has no request
+`method` parameter. `hypothesis.significance` accepts `conservative`,
+`balanced`, or `aggressive`; these resolve internally to alpha thresholds
+`0.01`, `0.05`, and `0.10`.
 
 ## Derived Intents
 
