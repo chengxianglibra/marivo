@@ -76,6 +76,10 @@ marivo-observe(
 
 Do not send `granularity` and `dimensions` together.
 
+`marivo-correlate` and `marivo-forecast` only accept committed `observe(time_series)` artifact IDs.
+Produce those by calling `marivo-observe` with `granularity` and without `dimensions`; scalar and
+grouped observe artifacts are invalid for correlation or forecasting.
+
 ## Minimal `detect` Example
 
 ```text
@@ -121,16 +125,16 @@ marivo-diagnose(
 )
 ```
 
-## Ref-Chaining Examples
+## Artifact-Chaining Examples
 
-Compare two earlier observe steps:
+Compare two earlier observe artifacts:
 
 ```text
 marivo-compare(
   session_id="sess_123",
-  left_ref={"step_id": "step_obs_current", "step_type": "observe"},
-  right_ref={"step_id": "step_obs_baseline", "step_type": "observe"},
-  mode="scalar"
+  left_artifact_id="art_obs_current",
+  right_artifact_id="art_obs_baseline",
+  compare_type="normal"
 )
 ```
 
@@ -139,12 +143,34 @@ Decompose the resulting comparison:
 ```text
 marivo-decompose(
   session_id="sess_123",
-  compare_ref={"step_id": "step_compare_1", "step_type": "compare"},
+  compare_artifact_id="art_compare_1",
   dimension="platform"
 )
 ```
 
-Use the actual returned step ids from the previous tool result. Do not invent them.
+Correlate two earlier time-series observe artifacts:
+
+```text
+marivo-correlate(
+  session_id="sess_123",
+  left_artifact_id="art_obs_watch_time_daily",
+  right_artifact_id="art_obs_errors_daily",
+  method="spearman"
+)
+```
+
+Forecast from one earlier time-series observe artifact:
+
+```text
+marivo-forecast(
+  session_id="sess_123",
+  source_artifact_id="art_obs_watch_time_daily",
+  horizon=7,
+  profile="auto"
+)
+```
+
+Use the actual returned artifact IDs from previous tool results. Do not invent them.
 
 ## Planner-Led Investigation Loop
 
@@ -193,5 +219,6 @@ marivo-terminate_session(
 - using the analysis session to settle reusable metric definitions that should have been approved in
   the semantic layer
 - trying to use datasource browse output as evidence for an investigation conclusion
+- passing scalar or grouped observe artifacts into `marivo-correlate` or `marivo-forecast`
 - skipping `marivo-get_session_state` and jumping straight to proposition context without knowing
   which proposition matters

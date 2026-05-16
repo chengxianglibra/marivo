@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
+
+from pydantic import Field
 
 from marivo.contracts.generated import aoi
 from marivo.transports.mcp.tools._async_bridge import call_runtime
@@ -14,6 +16,17 @@ from marivo.transports.mcp.tools.schemas import (
     McpTimeScopeValidated,
     ObserveScope,
 )
+
+TimeSeriesObserveArtifactId = Annotated[
+    str,
+    Field(
+        description=(
+            "Committed observe(time_series) artifact ID from this session. Produce it with "
+            "observe(granularity=...) and no dimensions; scalar, segmented, datasource, and "
+            "forecast artifacts are not valid."
+        )
+    ),
+]
 
 
 def _omit_none(payload: dict[str, Any]) -> dict[str, Any]:
@@ -260,11 +273,17 @@ def register_detect(server: Any, runtime: Any) -> None:
 
 
 def register_correlate(server: Any, runtime: Any) -> None:
-    @server.tool()  # type: ignore
+    @server.tool(  # type: ignore
+        description=(
+            "Correlate two committed observe(time_series) artifacts from the same session. "
+            "Use artifact IDs returned by observe calls with granularity; scalar or segmented "
+            "observe artifacts are invalid."
+        )
+    )
     async def correlate(
         session_id: str,
-        left_artifact_id: str,
-        right_artifact_id: str,
+        left_artifact_id: TimeSeriesObserveArtifactId,
+        right_artifact_id: TimeSeriesObserveArtifactId,
         method: Literal["pearson", "spearman"] = None,  # type: ignore[assignment]  # noqa: RUF013
     ) -> dict[str, Any]:
         request = to_aoi_correlate_request(
@@ -276,10 +295,16 @@ def register_correlate(server: Any, runtime: Any) -> None:
 
 
 def register_forecast(server: Any, runtime: Any) -> None:
-    @server.tool()  # type: ignore
+    @server.tool(  # type: ignore
+        description=(
+            "Forecast from one committed observe(time_series) artifact from the same session. "
+            "source_artifact_id must come from observe(granularity=...), not from datasource, "
+            "scalar observe, segmented observe, or forecast output."
+        )
+    )
     async def forecast(
         session_id: str,
-        source_artifact_id: str,
+        source_artifact_id: TimeSeriesObserveArtifactId,
         horizon: int,
         profile: str = None,  # type: ignore[assignment]  # noqa: RUF013
     ) -> dict[str, Any]:

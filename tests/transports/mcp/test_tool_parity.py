@@ -285,6 +285,25 @@ def test_test_intent_tool_schema_matches_current_aoi_surface() -> None:
     assert "aggressive=0.10" in significance_schema["description"]
 
 
+def test_correlate_and_forecast_tool_schemas_document_time_series_artifact_inputs() -> None:
+    server = FastMCP("test")
+    register_tools(server, FakeRuntime(), transport="stdio")
+    tools = {tool.name: tool for tool in server._tool_manager.list_tools()}
+
+    correlate_props = tools["correlate"].parameters["properties"]
+    forecast_props = tools["forecast"].parameters["properties"]
+
+    for name in ("left_artifact_id", "right_artifact_id"):
+        description = correlate_props[name]["description"]
+        assert "observe(time_series)" in description
+        assert "granularity" in description
+
+    forecast_description = forecast_props["source_artifact_id"]["description"]
+    assert "observe(time_series)" in forecast_description
+    assert "granularity" in forecast_description
+    assert "datasource" in forecast_description
+
+
 def test_shared_tools_identical_schema():
     """Tools present in both modes have identical parameter schemas."""
     stdio_server = FastMCP("test-stdio")

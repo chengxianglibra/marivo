@@ -1546,8 +1546,8 @@ interface DiagnoseArtifact {
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | session_id | string | 是 | 会话ID |
-| left_artifact_id | string | 是 | 左侧 observe artifact ID |
-| right_artifact_id | string | 是 | 右侧 observe artifact ID |
+| left_artifact_id | string | 是 | 左侧 `observe(time_series)` artifact ID |
+| right_artifact_id | string | 是 | 右侧 `observe(time_series)` artifact ID |
 
 可选参数：
 
@@ -1555,7 +1555,9 @@ interface DiagnoseArtifact {
 |------|------|------|------|------|
 | method | `"pearson"` \| `"spearman"` | 否 | 省略 | 相关性方法（不支持 "kendall"）；不用时省略，不传 `null` |
 
-注意：参数为字符串 artifact ID，非引用对象。无 `min_pairs` 参数。
+注意：参数为字符串 artifact ID，非引用对象。无 `min_pairs` 参数。左右输入都必须是同一
+session 内已提交的 `observe(time_series)` artifact：先调用 `observe` 并设置 `granularity`，
+不要同时传 `dimensions`；不要传 scalar/segmented observe artifact。
 
 **输出 — CorrelateArtifact**：
 
@@ -1676,7 +1678,7 @@ interface TestIntentArtifact {
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | session_id | string | 是 | 会话ID |
-| source_artifact_id | string | 是 | 数据源 artifact ID（observe 步骤产生的 artifact ID） |
+| source_artifact_id | string | 是 | `observe(time_series)` artifact ID |
 | horizon | integer | 是 | 预测步数（向前预测多少个 granularity 单位） |
 
 可选参数：
@@ -1686,6 +1688,9 @@ interface TestIntentArtifact {
 | profile | string | 否 | 省略 | 预测轮廓；不用时省略，不传 `null` |
 
 注意：参数为字符串 artifact ID（如 `"art_obs_1"`），非引用对象。无 `interval_level` 参数。
+`source_artifact_id` 必须是同一 session 内已提交的 `observe(time_series)` artifact：先调用
+`observe` 并设置 `granularity`，不要同时传 `dimensions`；不要传 datasource ID、
+scalar/segmented observe artifact，或 forecast 输出 artifact。
 
 **输出 — ForecastArtifact**：
 
