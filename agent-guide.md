@@ -44,6 +44,16 @@ every coding task.
 - Canonical contract schemas live in
   `osi-marivo-spec/schema/osi-marivo.schema.json` and
   `aoi-spec/schema/aoi.schema.json`.
+- OSI/AOI spec-generated Pydantic models are an architecture constraint layer,
+  not optional validation helpers. Contract-facing runtime, HTTP, MCP, adapter,
+  and test code must use or conform to `marivo/contracts/generated/` for OSI/AOI
+  payload shapes instead of defining parallel permissive models or accepting
+  untyped `dict`/`Any` structures.
+- Do not bypass generated model constraints by allowing extra fields, silently
+  rewriting invalid payloads outside the spec, duplicating generated classes by
+  hand, or adding compatibility shims that accept shapes rejected by the current
+  OSI/AOI schemas. If the shape should be valid, update the spec first and
+  regenerate the models.
 - Static Python contract models under `marivo/contracts/generated/` are
   generated output. Do not edit them manually; update the relevant spec schema
   and regenerate with `.venv/bin/python scripts/generate_contract_models.py`.
