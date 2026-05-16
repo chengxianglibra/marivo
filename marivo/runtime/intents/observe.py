@@ -10,6 +10,7 @@ from marivo.core.semantic.ir import AnalysisStepIR
 from marivo.core.semantic.step_metadata import build_step_semantic_metadata
 from marivo.runtime.evidence.ref_boundary import assert_no_canonical_refs_in_semantic_payload
 from marivo.runtime.intents._helpers import (
+    aoi_filter_to_scope,
     build_scoped_query_for_window,
     commit_step_result,
     extract_predicate_filter_lineage,
@@ -298,6 +299,11 @@ def run_observe_intent(
     table = execution_context.table_name
 
     scope_raw = p.get("scope")
+    if not scope_raw:
+        try:
+            scope_raw = aoi_filter_to_scope(p.get("filter"), label="filter")
+        except ValueError as exc:
+            raise ValueError(f"observe: INVALID_ARGUMENT - {exc}") from exc
     mq_params: dict[str, Any] = {
         "table": table,
         "metric": metric_ref,
