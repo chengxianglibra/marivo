@@ -72,12 +72,7 @@ calendar schemas -----/--/
 | [`predicate-v1-scope-note.zh.md`](./predicate-v1-scope-note.zh.md) | 过滤语义的范围说明 | v1 过滤语义如何通过 Metric.filters 和数据集级约束表达 |
 | [`predicate-governance-note.zh.md`](./predicate-governance-note.zh.md) | 过滤语义治理 | 过滤条件的命名、复用和治理边界 |
 | [`time-schema-contract.zh.md`](./time-schema-contract.zh.md) | Time 作为 Field 属性 | 时间语义如何通过 Field.dimension.is_time 表达，而非独立对象 |
-| [`calendar-alignment-policy.zh.md`](./calendar-alignment-policy.zh.md) | 节假日 / weekday / 交易日对齐策略 contract | 可比期如何生成、bucket 如何配对、calendar data 与 policy 如何分层 |
-| [`calendar-data-contract.zh.md`](./calendar-data-contract.zh.md) | `calendar data` 逻辑输入契约 | resolver 依赖哪些稳定字段、唯一性约束、weekday/workday/annotation 如何表达 |
-| [`calendar-data-v1-source-note.zh.md`](./calendar-data-v1-source-note.zh.md) | `calendar data` v1 source 与 version 冻结 | `CN` 节假日和业务活动各自从哪里来、如何冻结版本 |
-| [`calendar-version-freeze-policy.zh.md`](./calendar-version-freeze-policy.zh.md) | `calendar version` 冻结与发布流程 | 哪些 snapshot 允许被 resolver 使用、如何发布与回滚 |
-| [`calendar-annotation-generation-policy.zh.md`](./calendar-annotation-generation-policy.zh.md) | holiday / event 注释生成规则 | `group_id` 与 relative key 如何生成 |
-| [`calendar-annotation-failure-policy.zh.md`](./calendar-annotation-failure-policy.zh.md) | annotation 缺失处理规则 | 何时 fail、何时 warning、何时允许 fallback |
+| [`calendar.zh.md`](./calendar.zh.md) | Calendar alignment 与 calendar data | compare_type 对齐策略、calendar data 契约、annotation 生成、故障处理、版本冻结与 bucket pairing |
 | [`additivity-modeling-guide.zh.md`](./additivity-modeling-guide.zh.md) | 加法性建模指南 | 加法性如何建模、dimension policy 与 time axis policy 如何选择 |
 | [`evidence-integration.zh.md`](./evidence-integration.zh.md) | Evidence 与 Semantic 的集成边界 | canonical refs 与 semantic refs 如何分层、关联与禁止互相替代 |
 | [`compiler-spec.zh.md`](./compiler-spec.zh.md) | semantic compiler 规范 | OSI 对象如何被归一化、校验、编译成 IR |
@@ -110,13 +105,8 @@ calendar schemas -----/--/
 
 ### 3. 再看 Calendar 与过滤
 
-1. [`calendar-alignment-policy.zh.md`](./calendar-alignment-policy.zh.md)
-2. [`calendar-data-contract.zh.md`](./calendar-data-contract.zh.md)
-3. [`calendar-data-v1-source-note.zh.md`](./calendar-data-v1-source-note.zh.md)
-4. [`calendar-version-freeze-policy.zh.md`](./calendar-version-freeze-policy.zh.md)
-5. [`calendar-annotation-generation-policy.zh.md`](./calendar-annotation-generation-policy.zh.md)
-6. [`calendar-annotation-failure-policy.zh.md`](./calendar-annotation-failure-policy.zh.md)
-7. [`predicate-v1-scope-note.zh.md`](./predicate-v1-scope-note.zh.md)
+1. [`calendar.zh.md`](./calendar.zh.md)
+2. [`predicate-v1-scope-note.zh.md`](./predicate-v1-scope-note.zh.md)
 8. [`predicate-governance-note.zh.md`](./predicate-governance-note.zh.md)
 
 ### 4. 最后看编译与 IR
@@ -134,7 +124,7 @@ calendar schemas -----/--/
 | 设计 Dataset / Field 模型的人 | `entity-schema-contract` |
 | 设计 dimension / time 属性的人 | `dimension-schema-contract`、`time-schema-contract` |
 | 设计 compiler、IR、lowering 边界的人 | `compiler-spec`、`ir-schema-contract` |
-| 设计 calendar 对齐策略的人 | `calendar-alignment-policy`、`calendar-data-contract` |
+| 设计 calendar 对齐策略的人 | `calendar` |
 
 ## 核心共识
 
