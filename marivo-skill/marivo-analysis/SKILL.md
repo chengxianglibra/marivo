@@ -15,8 +15,8 @@ close-out. It does not own datasource discovery or reusable semantic authoring.
 - creating or continuing a session
 - checking semantic preflight before formal analysis starts
 - choosing the first analysis intent
-- chaining follow-up intents with returned refs
-- planning and executing a multi-step investigation with those refs
+- chaining follow-up intents with returned artifact IDs
+- planning and executing a multi-step investigation with those artifact IDs
 - reading session state and proposition context
 - terminating the session after final writes
 
@@ -36,7 +36,7 @@ close-out. It does not own datasource discovery or reusable semantic authoring.
 2. Run semantic preflight: approved metric definition, approved time semantics, and ready semantic
    model.
 3. Choose the first analysis intent.
-4. Plan and execute a bounded multi-step investigation using returned refs and session state.
+4. Plan and execute a bounded multi-step investigation using returned artifact IDs and session state.
 5. Read state after each meaningful branch point.
 6. Read proposition context only for the proposition that matters.
 7. If the investigation exposes a semantic gap or contract conflict, bounce back to
@@ -48,9 +48,11 @@ close-out. It does not own datasource discovery or reusable semantic authoring.
 - `time_scope.end` is exclusive.
 - Formal analysis starts only after semantic preflight passes.
 - For `marivo-observe`, choose **either** `granularity` **or** `dimensions`.
+- `marivo-correlate` and `marivo-forecast` require committed `observe(time_series)` artifact IDs
+  produced by `marivo-observe(granularity=...)`; scalar or segmented observe artifacts are invalid.
 - Read state first, then proposition context only when a specific claim needs explanation.
-- Use returned refs for downstream tools such as `marivo-compare` or `marivo-decompose`; do not
-  invent ad hoc step ids.
+- Use returned artifact IDs for downstream tools such as `marivo-compare` or `marivo-decompose`;
+  do not invent ad hoc IDs.
 - Do not rewrite approved metric meaning, join logic, or exclusions inside the investigation loop.
 - Terminate the session explicitly with `marivo-terminate_session` after the final write step.
 
@@ -59,6 +61,7 @@ close-out. It does not own datasource discovery or reusable semantic authoring.
 - starting a fresh session for every tiny follow-up instead of continuing the active one
 - entering formal analysis before the metric contract or time semantics were approved
 - mixing grouped and time-series output in one `marivo-observe` call
+- passing scalar or segmented observe artifacts into `marivo-correlate` or `marivo-forecast`
 - using the investigation loop to improvise reusable metric definitions
 - treating session lists or runtime-ish status as a substitute for state or proposition context
 - finishing the reasoning mentally but forgetting to terminate the active session
