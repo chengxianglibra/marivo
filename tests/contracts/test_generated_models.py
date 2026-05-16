@@ -323,6 +323,74 @@ def test_aoi_request_optional_fields_may_be_omitted() -> None:
     assert explicit.baseline is not None
 
 
+def test_aoi_detect_defaults_and_optional_fields() -> None:
+    from marivo.contracts.generated import aoi
+
+    request = aoi.Detect.model_validate(
+        {
+            "metric": "revenue",
+            "time_scope": _aoi_time_scope(),
+            "granularity": "day",
+            "filter": {
+                "dialects": [
+                    {"dialect": "ANSI_SQL", "expression": "region = 'US'"},
+                ]
+            },
+            "dimension": "region",
+            "strategy": "point_anomaly",
+            "limit": 10,
+        }
+    )
+
+    assert request.sensitivity == "aggressive"
+    assert request.filter is not None
+    assert request.dimension == "region"
+    assert request.limit == 10
+
+
+@pytest.mark.parametrize(
+    "payload_patch",
+    [
+        {"metric": ""},
+        {"granularity": "minute"},
+        {"strategy": "zscore_raw"},
+        {"sensitivity": "extreme"},
+        {"limit": 0},
+        {"dimension": ""},
+        {"scope": {"predicate": "region = 'US'"}},
+    ],
+)
+def test_aoi_detect_rejects_invalid_contract_fields(payload_patch: dict[str, Any]) -> None:
+    from marivo.contracts.generated import aoi
+
+    payload = {
+        "metric": "revenue",
+        "time_scope": _aoi_time_scope(),
+        "granularity": "day",
+        "strategy": "point_anomaly",
+    }
+    payload.update(payload_patch)
+
+    with pytest.raises(ValidationError):
+        aoi.Detect.model_validate(payload)
+
+
+@pytest.mark.parametrize("missing_field", ["metric", "time_scope", "granularity", "strategy"])
+def test_aoi_detect_requires_public_required_fields(missing_field: str) -> None:
+    from marivo.contracts.generated import aoi
+
+    payload = {
+        "metric": "revenue",
+        "time_scope": _aoi_time_scope(),
+        "granularity": "day",
+        "strategy": "point_anomaly",
+    }
+    payload.pop(missing_field)
+
+    with pytest.raises(ValidationError):
+        aoi.Detect.model_validate(payload)
+
+
 @pytest.mark.parametrize(
     ("model_name", "payload"),
     [
