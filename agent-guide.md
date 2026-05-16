@@ -26,6 +26,8 @@ every coding task.
 - New or modified Python code must satisfy typing for the touched modules.
 - Do not introduce new implicit `Any`, broad `cast(...)`, or `# type: ignore`
   unless it is strictly necessary and locally justified.
+- MCP DTOs must not expose ambiguous structures such as bare `dict`, `object`,
+  or untyped mappings; define explicit typed DTO models instead.
 - When changing schemas, API models, or service contracts, update type
   annotations end-to-end in the same change.
 
