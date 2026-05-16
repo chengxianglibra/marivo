@@ -105,3 +105,50 @@ def test_lowers_validate_request_to_runner_params() -> None:
             "significance": "balanced",
         },
     }
+
+
+def test_lowers_attribute_request_to_runner_params() -> None:
+    request = aoi.Attribute(
+        metric="view_time",
+        left=aoi.Slice(
+            time_scope=aoi.TimeScope(
+                field="event_time",
+                start=datetime(2026, 5, 1, tzinfo=UTC),
+                end=datetime(2026, 5, 8, tzinfo=UTC),
+            ),
+            filter=aoi.Expression(
+                dialects=[aoi.Dialect(dialect="ANSI_SQL", expression="region = 'US'")]
+            ),
+        ),
+        right=aoi.Slice(
+            time_scope=aoi.TimeScope(
+                field="event_time",
+                start=datetime(2026, 4, 24, tzinfo=UTC),
+                end=datetime(2026, 5, 1, tzinfo=UTC),
+            ),
+        ),
+        dimensions=["region"],
+        decomposition_limit=10,
+    )
+
+    assert lower_aoi_derived_request("attribute", request) == {
+        "metric": "view_time",
+        "left": {
+            "time_scope": {
+                "field": "event_time",
+                "start": "2026-05-01T00:00:00Z",
+                "end": "2026-05-08T00:00:00Z",
+            },
+            "filter": {"dialects": [{"dialect": "ANSI_SQL", "expression": "region = 'US'"}]},
+        },
+        "right": {
+            "time_scope": {
+                "field": "event_time",
+                "start": "2026-04-24T00:00:00Z",
+                "end": "2026-05-01T00:00:00Z",
+            }
+        },
+        "dimensions": ["region"],
+        "decomposition_method": "delta_share",
+        "decomposition_limit": 10,
+    }

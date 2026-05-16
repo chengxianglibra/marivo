@@ -24,6 +24,10 @@ class Artifacts(RootModel[Any]):
     root: Any
 
 
+class Dimension(RootModel[str]):
+    root: str = Field(..., min_length=1)
+
+
 class Decompose(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -39,10 +43,6 @@ class Forecast(BaseModel):
     )
     horizon: int = Field(..., ge=1)
     source_artifact_id: str = Field(..., min_length=1)
-
-
-class Dimension(RootModel[str]):
-    root: str = Field(..., min_length=1)
 
 
 class PValue(RootModel[float]):
@@ -396,6 +396,18 @@ class Artifact2(BaseModel):
     failure: AnalysisFailure
 
 
+class Attribute(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    metric: str = Field(..., min_length=1)
+    left: Slice
+    right: Slice
+    dimensions: list[Dimension] = Field(..., min_length=1)
+    decomposition_method: Literal["delta_share"] = "delta_share"
+    decomposition_limit: int = Field(5, ge=1)
+
+
 class Validate(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -426,6 +438,7 @@ class AoiV02(
         | Test
         | Forecast
         | Validate
+        | Attribute
         | Observe1
         | Observe2
         | Observe3
@@ -441,6 +454,7 @@ class AoiV02(
         | Test
         | Forecast
         | Validate
+        | Attribute
         | Observe1
         | Observe2
         | Observe3

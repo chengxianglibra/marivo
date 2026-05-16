@@ -387,16 +387,16 @@ class AttributeUnknownMetricEndpointTests(unittest.TestCase):
                 "metric": _metric_ref("dau"),
                 "left": {
                     "time_scope": {
-                        "kind": "range",
-                        "start": "2024-01-08",
-                        "end": "2024-01-15",
+                        "field": "event_time",
+                        "start": "2024-01-08T00:00:00Z",
+                        "end": "2024-01-15T00:00:00Z",
                     }
                 },
                 "right": {
                     "time_scope": {
-                        "kind": "range",
-                        "start": "2024-01-01",
-                        "end": "2024-01-08",
+                        "field": "event_time",
+                        "start": "2024-01-01T00:00:00Z",
+                        "end": "2024-01-08T00:00:00Z",
                     }
                 },
                 "dimensions": ["region"],
@@ -576,10 +576,18 @@ class ClosedSessionWriteGuardTests(unittest.TestCase):
             json={
                 "metric": _metric_ref("dau"),
                 "left": {
-                    "time_scope": {"kind": "range", "start": "2024-01-08", "end": "2024-01-15"}
+                    "time_scope": {
+                        "field": "event_time",
+                        "start": "2024-01-08T00:00:00Z",
+                        "end": "2024-01-15T00:00:00Z",
+                    }
                 },
                 "right": {
-                    "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"}
+                    "time_scope": {
+                        "field": "event_time",
+                        "start": "2024-01-01T00:00:00Z",
+                        "end": "2024-01-08T00:00:00Z",
+                    }
                 },
                 "dimensions": ["region"],
             },

@@ -242,6 +242,26 @@ validate:
   # Required: hypothesis configuration.
   hypothesis: hypothesis
 
+# Attribute a metric difference by wrapping observe + compare + decompose.
+attribute:
+  # Required: metric identifier to attribute.
+  metric: string
+
+  # Required: left/current source slice.
+  left: slice
+
+  # Required: right/baseline source slice.
+  right: slice
+
+  # Required: one or more dimensions used for attribution.
+  dimensions: string[]
+
+  # Optional: decomposition method. Omitted means delta_share.
+  decomposition_method: delta_share
+
+  # Optional: maximum driver rows per dimension, range [1, +infinity). Omitted means 5.
+  decomposition_limit: integer
+
 # Artifact envelope and result variants
 
 # Shared artifact envelope returned by every AOI operation.

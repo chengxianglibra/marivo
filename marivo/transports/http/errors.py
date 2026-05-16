@@ -399,7 +399,7 @@ _SCHEMA_NAME_BY_ROUTE: dict[tuple[str, str], str] = {
     ("POST", "/sessions/{session_id}/intents/correlate"): "Correlate",
     ("POST", "/sessions/{session_id}/intents/detect"): "Detect",
     ("POST", "/sessions/{session_id}/intents/forecast"): "Forecast",
-    ("POST", "/sessions/{session_id}/intents/attribute"): "AttributeRequest",
+    ("POST", "/sessions/{session_id}/intents/attribute"): "Attribute",
     ("POST", "/sessions/{session_id}/intents/diagnose"): "DiagnoseRequest",
 }
 

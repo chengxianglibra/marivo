@@ -121,6 +121,7 @@ class OpenApiFragmentTests(unittest.TestCase):
             "Observe1",
             "Compare",
             "Detect",
+            "Attribute",
             "ExecutionEnvelope",
             "SessionCreateRequest",
         ]
@@ -143,6 +144,11 @@ class OpenApiFragmentTests(unittest.TestCase):
             "responses"
         ]["200"]["content"]["application/json"]["schema"]
         self.assertEqual(observe_response["$ref"], "#/components/schemas/ExecutionEnvelope")
+
+        attribute_request = schema["paths"]["/sessions/{session_id}/intents/attribute"]["post"][
+            "requestBody"
+        ]["content"]["application/json"]["schema"]
+        self.assertEqual(attribute_request["$ref"], "#/components/schemas/Attribute")
 
     def test_datasource_routes_publish_stable_request_and_response_schemas(self) -> None:
         response = self.client.get("/openapi.json")

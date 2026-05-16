@@ -14,7 +14,6 @@ from marivo.runtime import SemanticRuntimeNotReadyError
 from marivo.transports.http.deps import get_services, http_error
 from marivo.transports.http.models import (
     ArtifactRuntimeStatusResponse,
-    AttributeRequest,
     AttributeResponse,
     DiagnoseRequest,
     DiagnoseResponse,
@@ -483,12 +482,10 @@ def intent_test(
 @router.post("/sessions/{session_id}/intents/attribute", response_model=AttributeResponse)
 def intent_attribute(
     session_id: str,
-    payload: AttributeRequest,
+    payload: aoi.Attribute,
     request: Request,
 ) -> AttributeResponse:
-    return AttributeResponse.model_validate(
-        _run_intent(session_id, "attribute", payload.model_dump(exclude_none=True), request)
-    )
+    return AttributeResponse.model_validate(_run_intent(session_id, "attribute", payload, request))
 
 
 @router.post("/sessions/{session_id}/intents/diagnose", response_model=DiagnoseResponse)

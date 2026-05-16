@@ -7,9 +7,13 @@ FastAPI app and analytics engine required by those tools.
 
 from __future__ import annotations
 
+import asyncio
+
 from mcp.server.fastmcp import FastMCP
 
+from marivo.contracts.generated import aoi
 from marivo.transports.mcp.tools import register_tools
+from marivo.transports.mcp.tools.schemas import McpAoiSliceRef, McpTimeScope
 
 
 class _FakeSvc:
@@ -348,6 +352,62 @@ def test_validate_hypothesis_schema_omits_fixed_family() -> None:
         "balanced",
         "aggressive",
     ]
+
+
+def test_attribute_schema_uses_aoi_slice_refs() -> None:
+    server = FastMCP("test")
+    register_tools(server, FakeRuntime(), transport="stdio")
+    tools = {tool.name: tool for tool in server._tool_manager.list_tools()}
+
+    properties = tools["attribute"].parameters["properties"]
+    slice_schema = tools["attribute"].parameters["$defs"]["McpAoiSliceRef"]
+
+    assert properties["left"] == {"$ref": "#/$defs/McpAoiSliceRef"}
+    assert properties["right"] == {"$ref": "#/$defs/McpAoiSliceRef"}
+    assert slice_schema["additionalProperties"] is False
+    assert set(slice_schema["properties"]) == {"time_scope", "filter"}
+    assert "scope" not in slice_schema["properties"]
+    assert properties["decomposition_method"]["default"] == "delta_share"
+    assert properties["decomposition_method"]["const"] == "delta_share"
+
+
+def test_attribute_tool_passes_generated_request(monkeypatch) -> None:
+    calls = {}
+
+    async def fake_call_runtime(method, /, **kwargs):
+        calls["method"] = method
+        calls["kwargs"] = kwargs
+        return {"data": {}, "error": None}
+
+    monkeypatch.setattr("marivo.transports.mcp.tools.intents.call_runtime", fake_call_runtime)
+
+    server = FastMCP("test")
+    runtime = FakeRuntime()
+    register_tools(server, runtime, transport="stdio")
+    tool = {tool.name: tool for tool in server._tool_manager.list_tools()}["attribute"]
+    slice_ref = McpAoiSliceRef(
+        time_scope=McpTimeScope(
+            field="event_time",
+            start="2026-05-01T00:00:00Z",
+            end="2026-05-08T00:00:00Z",
+        )
+    )
+
+    result = asyncio.run(
+        tool.fn(
+            session_id="sess_1",
+            metric="view_time",
+            left=slice_ref,
+            right=slice_ref,
+            dimensions=["region"],
+        )
+    )
+
+    assert result == {"data": {}, "error": None}
+    assert calls["method"] == runtime.attribute
+    assert "request" in calls["kwargs"]
+    assert "params" not in calls["kwargs"]
+    assert isinstance(calls["kwargs"]["request"], aoi.Attribute)
 
 
 def test_diagnose_schema_documents_mode_specific_inputs() -> None:

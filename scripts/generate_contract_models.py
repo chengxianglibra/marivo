@@ -139,6 +139,12 @@ def _patch_aoi_optional_non_null_fields(output: Path) -> None:
         "    method: Literal['pearson', 'spearman'] | None = None": (
             "    method: Literal['pearson', 'spearman'] = None  # type: ignore[assignment]"
         ),
+        "    decomposition_method: Literal['delta_share'] | None = 'delta_share'": (
+            "    decomposition_method: Literal['delta_share'] = 'delta_share'"
+        ),
+        "    decomposition_limit: int | None = Field(5, ge=1)": (
+            "    decomposition_limit: int = Field(5, ge=1)"
+        ),
         "    filter: Expression | None = None": (
             "    filter: Expression = None  # type: ignore[assignment]"
         ),

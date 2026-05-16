@@ -71,9 +71,9 @@ def forecast(
 
 
 def attribute(
-    runtime: MarivoRuntime, session_id: SessionId, params: dict[str, Any]
+    runtime: MarivoRuntime, session_id: SessionId, request: AoiDerivedRequest
 ) -> dict[str, Any]:
-    return _run_derived(runtime, "attribute", session_id, params)
+    return _run_aoi_derived(runtime, "attribute", session_id, request)
 
 
 def diagnose(

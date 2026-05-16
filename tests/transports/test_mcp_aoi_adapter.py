@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from marivo.contracts.generated import aoi
 from marivo.transports.mcp.tools.intents import (
+    to_aoi_attribute_request,
     to_aoi_compare_request,
     to_aoi_decompose_request,
     to_aoi_detect_request,
@@ -207,6 +208,29 @@ def test_to_aoi_validate_request_preserves_aoi_slice_filter() -> None:
     }
     assert request.hypothesis.alternative == "greater"
     assert request.hypothesis.significance == "balanced"
+
+
+def test_to_aoi_attribute_request_preserves_aoi_slice_filter() -> None:
+    request = to_aoi_attribute_request(
+        metric="view_time",
+        left=_slice(
+            "2026-05-01T00:00:00Z",
+            "2026-05-08T00:00:00Z",
+            McpExpression(dialects=[{"dialect": "ANSI_SQL", "expression": "region = 'US'"}]),
+        ),
+        right=_slice("2026-04-24T00:00:00Z", "2026-05-01T00:00:00Z"),
+        dimensions=["region"],
+        decomposition_limit=10,
+    )
+
+    assert isinstance(request, aoi.Attribute)
+    assert request.left.filter is not None
+    assert request.left.filter.model_dump(exclude_none=True) == {
+        "dialects": [{"dialect": "ANSI_SQL", "expression": "region = 'US'"}]
+    }
+    assert [dimension.root for dimension in request.dimensions] == ["region"]
+    assert request.decomposition_method == "delta_share"
+    assert request.decomposition_limit == 10
 
 
 def test_to_aoi_test_request_preserves_aoi_slice_filter() -> None:

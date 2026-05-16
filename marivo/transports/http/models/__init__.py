@@ -145,7 +145,6 @@ from .calendar import (
 # Intent API models
 from .intent_request_models import (
     AttributeObservationInput,
-    AttributeRequest,
     DetectTimeScope,
     DiagnoseRequest,
     ObserveScope,
@@ -212,7 +211,6 @@ __all__ = [  # noqa: RUF022
     "ArtifactRuntimeStatusResponse",
     "AttributeChangeStep",
     "AttributeObservationInput",
-    "AttributeRequest",
     "AttributeResponse",
     "BlockingRequirement",
     "BindingRole",

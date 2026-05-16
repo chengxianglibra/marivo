@@ -1402,8 +1402,8 @@ interface DecompositionItem {
 |------|------|------|------|
 | session_id | string | 是 | 会话ID |
 | metric | string | 是 | 语义指标名称 |
-| left | McpSliceRef | 是 | 基准切片（通常为基线时段） |
-| right | McpSliceRef | 是 | 对比切片（通常为异常/当前时段） |
+| left | McpAoiSliceRef | 是 | 基准切片（通常为基线时段），使用 AOI `time_scope` + 可选 `filter` |
+| right | McpAoiSliceRef | 是 | 对比切片（通常为异常/当前时段），使用 AOI `time_scope` + 可选 `filter` |
 | dimensions | string[] | 是 | 拆解维度列表，如 `["cluster", "department"]` |
 
 可选参数：
@@ -1434,6 +1434,14 @@ interface AttributeArtifact {
       "field": "create_time",
       "start": "2025-02-25T00:00:00Z",
       "end": "2025-03-04T00:00:00Z"
+    },
+    "filter": {
+      "dialects": [
+        {
+          "dialect": "ANSI_SQL",
+          "expression": "cluster = 'jscs-ai-offline'"
+        }
+      ]
     }
   },
   "right": {
@@ -1990,7 +1998,7 @@ interface McpTimeScope {
 
 ### 4.2 McpSliceRef
 
-派生 intent 切片引用：时间范围 + 可选人口限定。用于 `attribute`、`diagnose`。
+派生 intent 切片引用：时间范围 + 可选人口限定。用于 `diagnose`。
 
 ```typescript
 interface McpSliceRef {
@@ -2010,7 +2018,7 @@ interface McpSliceRef {
 
 ### 4.3 McpAoiSliceRef
 
-AOI-aligned 切片引用：时间范围 + 可选 AOI 过滤表达式。用于 `test_intent`、`validate`。
+AOI-aligned 切片引用：时间范围 + 可选 AOI 过滤表达式。用于 `test_intent`、`validate`、`attribute`。
 
 ```typescript
 interface McpAoiSliceRef {
@@ -2110,6 +2118,7 @@ interface AnalysisFailure {
 - `test_intent` 在 MCP 层不暴露固定的 `kind` 或 `hypothesis.family`；适配层内部固定为 AOI `kind="numeric"` 和 `hypothesis.family="two_sample_mean"`，使用 `hypothesis.significance` 选择显著性档位，无 `method`、`hypothesis.alpha` 或 `hypothesis.label` 参数
 - `test_intent.left/right` 使用 `McpAoiSliceRef`，支持 `filter`，不支持 derived intent 的 `scope`
 - `validate.left/right` 使用 `McpAoiSliceRef`，进入 runtime 前会构造 generated AOI `Validate` 模型；`validate.hypothesis` 不暴露 `family`，不支持 `alpha`、`label` 或 `method`
+- `attribute.left/right` 使用 `McpAoiSliceRef`，进入 runtime 前会构造 generated AOI `Attribute` 模型；不支持 derived intent 的 `scope`
 - `correlate` 仅支持 `"pearson"` 和 `"spearman"` 方法，不支持 `"kendall"`
 - `decompose` 仅支持 `"delta_share"` 方法，无 method 参数
 

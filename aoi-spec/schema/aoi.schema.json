@@ -30,6 +30,9 @@
       "$ref": "#/$defs/derived_requests/validate"
     },
     {
+      "$ref": "#/$defs/derived_requests/attribute"
+    },
+    {
       "$ref": "#/$defs/artifacts/Artifact"
     }
   ],
@@ -500,6 +503,49 @@
           },
           "hypothesis": {
             "$ref": "#/$defs/primitives/Hypothesis"
+          }
+        }
+      },
+      "attribute": {
+        "title": "Attribute",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "metric",
+          "left",
+          "right",
+          "dimensions"
+        ],
+        "properties": {
+          "metric": {
+            "type": "string",
+            "minLength": 1
+          },
+          "left": {
+            "$ref": "#/$defs/primitives/Slice"
+          },
+          "right": {
+            "$ref": "#/$defs/primitives/Slice"
+          },
+          "dimensions": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "decomposition_method": {
+            "type": "string",
+            "default": "delta_share",
+            "enum": [
+              "delta_share"
+            ]
+          },
+          "decomposition_limit": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 5
           }
         }
       }
