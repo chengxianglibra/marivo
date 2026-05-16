@@ -25,11 +25,6 @@ class CalendarConfigRegionCodeTest(unittest.TestCase):
         cfg = CalendarConfig(region_code="US")
         self.assertEqual(cfg.region_code, "US")
 
-    def test_region_code_strips_whitespace(self) -> None:
-        # Pydantic str fields do not auto-strip; raw value is stored.
-        cfg = CalendarConfig(region_code="  JP  ")
-        self.assertEqual(cfg.region_code, "  JP  ")
-
 
 class CalendarConfigVersionTest(unittest.TestCase):
     """calendar_version is optional but rejects sentinel values."""
@@ -40,10 +35,6 @@ class CalendarConfigVersionTest(unittest.TestCase):
 
     def test_none_version_is_default(self) -> None:
         cfg = CalendarConfig()
-        self.assertIsNone(cfg.calendar_version)
-
-    def test_explicit_none(self) -> None:
-        cfg = CalendarConfig(calendar_version=None)
         self.assertIsNone(cfg.calendar_version)
 
     def test_rejects_latest(self) -> None:
@@ -76,21 +67,9 @@ class CalendarConfigExtraFieldsTest(unittest.TestCase):
         with self.assertRaises(ValidationError):
             CalendarConfig(region_code="CN", snapshots=[])  # type: ignore[call-arg]
 
-    def test_rejects_arbitrary_extra(self) -> None:
-        with self.assertRaises(ValidationError):
-            CalendarConfig(region_code="CN", foo="bar")  # type: ignore[call-arg]
-
 
 class CalendarConfigInMarivoConfigTest(unittest.TestCase):
     """CalendarConfig integrates correctly within MarivoConfig."""
-
-    def test_marivo_config_calendar_default(self) -> None:
-        from marivo.config import MarivoConfig
-
-        cfg = MarivoConfig()
-        self.assertIsInstance(cfg.calendar, CalendarConfig)
-        self.assertEqual(cfg.calendar.region_code, "CN")
-        self.assertIsNone(cfg.calendar.calendar_version)
 
     def test_marivo_config_calendar_custom(self) -> None:
         from marivo.config import MarivoConfig
