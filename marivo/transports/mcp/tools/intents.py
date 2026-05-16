@@ -9,6 +9,7 @@ from marivo.transports.mcp.tools._async_bridge import call_runtime
 from marivo.transports.mcp.tools.schemas import (
     McpSliceRef,
     McpStructuredObject,
+    McpTestHypothesis,
     McpTimeScope,
     McpTimeScopeValidated,
     ObserveScope,
@@ -127,6 +128,32 @@ def _to_aoi_slice(slice_ref: McpSliceRef) -> dict[str, Any]:
         "time_scope": slice_ref.time_scope.model_dump(),
         "filter": None,
     }
+
+
+def to_aoi_test_request(
+    metric: str,
+    left: McpSliceRef,
+    right: McpSliceRef,
+    hypothesis: McpTestHypothesis | dict[str, Any],
+) -> aoi.Test:
+    hypothesis_model = (
+        hypothesis
+        if isinstance(hypothesis, McpTestHypothesis)
+        else McpTestHypothesis.model_validate(hypothesis)
+    )
+    return aoi.Test.model_validate(
+        {
+            "metric": metric,
+            "left": _to_aoi_slice(left),
+            "right": _to_aoi_slice(right),
+            "kind": "numeric",
+            "hypothesis": {
+                "family": "two_sample_mean",
+                "alternative": hypothesis_model.alternative,
+                "significance": hypothesis_model.significance,
+            },
+        }
+    )
 
 
 def register_observe(server: Any, runtime: Any) -> None:
@@ -327,37 +354,13 @@ def register_test_intent(server: Any, runtime: Any) -> None:
         metric: str,
         left: McpSliceRef,
         right: McpSliceRef,
-        kind: Literal["numeric", "rate"] = "numeric",
-        hypothesis: McpStructuredObject | None = None,
-        method: Literal["auto", "welch_t"] = "auto",
+        hypothesis: McpTestHypothesis,
     ) -> dict[str, Any]:
-        from marivo.contracts.generated import aoi
-
-        hyp_model = None
-        if hypothesis is not None:
-            hyp_model = aoi.Hypothesis.model_validate(
-                {
-                    "family": hypothesis.get("family", "two_sample_mean"),
-                    "alternative": hypothesis.get("alternative", "two_sided"),
-                    "alpha": hypothesis.get("alpha", 0.05),
-                    "label": hypothesis.get("label"),
-                }
-            )
-
-        request = aoi.Test.model_validate(
-            {
-                "metric": metric,
-                "left": _to_aoi_slice(left),
-                "right": _to_aoi_slice(right),
-                "kind": kind,
-                "hypothesis": hyp_model
-                or aoi.Hypothesis(
-                    family="two_sample_mean",
-                    alternative="two_sided",
-                    alpha=0.05,
-                    label=None,
-                ),
-            }
+        request = to_aoi_test_request(
+            metric=metric,
+            left=left,
+            right=right,
+            hypothesis=hypothesis,
         )
         return await call_runtime(runtime.test, session_id=session_id, request=request)
 

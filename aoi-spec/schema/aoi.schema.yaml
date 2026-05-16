@@ -31,8 +31,6 @@ compare_types:
 # Statistical test families supported by hypothesis test requests.
 hypothesis_families:
   - two_sample_mean        # Difference in means between two independent samples.
-  - two_sample_proportion  # Difference in proportions between two independent samples.
-  - paired_mean            # Difference in means for paired observations.
 
 # Direction of the statistical alternative hypothesis.
 hypothesis_alternatives:
@@ -40,10 +38,15 @@ hypothesis_alternatives:
   - greater    # Test whether left is greater than right.
   - less       # Test whether left is less than right.
 
+# Agent-facing significance presets for hypothesis test requests.
+hypothesis_significances:
+  - conservative  # Strict threshold; internally resolves to alpha=0.01.
+  - balanced      # Default threshold; internally resolves to alpha=0.05.
+  - aggressive    # Exploratory threshold; internally resolves to alpha=0.10.
+
 # Supported measurement kinds for test requests.
 test_kinds:
   - numeric  # Numeric metric test.
-  - rate     # Rate or proportion metric test.
 
 # Supported correlation methods.
 correlation_methods:
@@ -109,11 +112,8 @@ hypothesis:
   # Required: alternative hypothesis direction, one of hypothesis_alternatives.
   alternative: hypothesis_alternatives
 
-  # Required: significance threshold, range (0, 1). Lower is stricter; higher rejects the null hypothesis more easily.
-  alpha: number
-
-  # Required, nullable: display label for the hypothesis.
-  label: string
+  # Required: significance preset, one of hypothesis_significances.
+  significance: hypothesis_significances
 
 # Paired source slice used by test requests.
 slice:

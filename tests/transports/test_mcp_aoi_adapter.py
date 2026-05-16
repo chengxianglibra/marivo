@@ -9,8 +9,9 @@ from marivo.transports.mcp.tools.intents import (
     to_aoi_detect_request,
     to_aoi_forecast_request,
     to_aoi_observe_request,
+    to_aoi_test_request,
 )
-from marivo.transports.mcp.tools.schemas import McpTimeScope
+from marivo.transports.mcp.tools.schemas import McpSliceRef, McpTestHypothesis, McpTimeScope
 
 
 def test_to_aoi_observe_request_builds_observe_model() -> None:
@@ -104,3 +105,83 @@ def test_to_aoi_forecast_request_builds_forecast_model() -> None:
     assert request.source_artifact_id == "artifact_obs_1"
     assert request.horizon == 7
     assert request.profile == "auto"
+
+
+def _slice(start: str, end: str) -> McpSliceRef:
+    return McpSliceRef(
+        time_scope=McpTimeScope(
+            field="log_time",
+            start=start,
+            end=end,
+        )
+    )
+
+
+def test_to_aoi_test_request_builds_test_model() -> None:
+    request = to_aoi_test_request(
+        metric="view_time",
+        left=_slice("2026-05-01T00:00:00Z", "2026-05-08T00:00:00Z"),
+        right=_slice("2026-04-24T00:00:00Z", "2026-05-01T00:00:00Z"),
+        hypothesis=McpTestHypothesis(
+            alternative="greater",
+            significance="balanced",
+        ),
+    )
+
+    assert isinstance(request, aoi.Test)
+    assert request.kind == "numeric"
+    assert request.hypothesis.family == "two_sample_mean"
+    assert request.hypothesis.alternative == "greater"
+
+
+def test_to_aoi_test_request_rejects_hypothesis_label() -> None:
+    try:
+        to_aoi_test_request(
+            metric="view_time",
+            left=_slice("2026-05-01T00:00:00Z", "2026-05-08T00:00:00Z"),
+            right=_slice("2026-04-24T00:00:00Z", "2026-05-01T00:00:00Z"),
+            hypothesis={
+                "alternative": "greater",
+                "significance": "balanced",
+                "label": "legacy label",
+            },
+        )
+    except ValueError as error:
+        assert "label" in str(error)
+    else:
+        raise AssertionError("expected label to be rejected")
+
+
+def test_to_aoi_test_request_rejects_alpha() -> None:
+    try:
+        to_aoi_test_request(
+            metric="view_time",
+            left=_slice("2026-05-01T00:00:00Z", "2026-05-08T00:00:00Z"),
+            right=_slice("2026-04-24T00:00:00Z", "2026-05-01T00:00:00Z"),
+            hypothesis={
+                "alternative": "greater",
+                "alpha": 0.05,
+            },
+        )
+    except ValueError as error:
+        assert "alpha" in str(error)
+    else:
+        raise AssertionError("expected alpha to be rejected")
+
+
+def test_to_aoi_test_request_rejects_fixed_family_in_mcp_dto() -> None:
+    try:
+        to_aoi_test_request(
+            metric="view_time",
+            left=_slice("2026-05-01T00:00:00Z", "2026-05-08T00:00:00Z"),
+            right=_slice("2026-04-24T00:00:00Z", "2026-05-01T00:00:00Z"),
+            hypothesis={
+                "family": "two_sample_mean",
+                "alternative": "greater",
+                "significance": "balanced",
+            },
+        )
+    except ValueError as error:
+        assert "family" in str(error)
+    else:
+        raise AssertionError("expected fixed AOI family to be rejected in MCP DTO")

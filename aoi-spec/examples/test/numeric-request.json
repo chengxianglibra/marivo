@@ -34,7 +34,6 @@
   "hypothesis": {
     "family": "two_sample_mean",
     "alternative": "greater",
-    "alpha": 0.05,
-    "label": "Treatment increases AOV"
+    "significance": "balanced"
   }
 }

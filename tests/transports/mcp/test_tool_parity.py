@@ -258,6 +258,33 @@ def test_preview_table_filters_schema_is_structured_object() -> None:
     }
 
 
+def test_test_intent_tool_schema_matches_current_aoi_surface() -> None:
+    server = FastMCP("test")
+    register_tools(server, FakeRuntime(), transport="stdio")
+    tools = {tool.name: tool for tool in server._tool_manager.list_tools()}
+
+    properties = tools["test_intent"].parameters["properties"]
+    hypothesis_schema = tools["test_intent"].parameters["$defs"]["McpTestHypothesis"]
+
+    assert "method" not in properties
+    assert "kind" not in properties
+    assert "hypothesis" in tools["test_intent"].parameters["required"]
+    assert properties["hypothesis"] == {"$ref": "#/$defs/McpTestHypothesis"}
+    assert hypothesis_schema["additionalProperties"] is False
+    assert hypothesis_schema["required"] == ["alternative", "significance"]
+    assert "family" not in hypothesis_schema["properties"]
+    assert hypothesis_schema["properties"]["alternative"]["enum"] == [
+        "two_sided",
+        "greater",
+        "less",
+    ]
+    significance_schema = hypothesis_schema["properties"]["significance"]
+    assert significance_schema["enum"] == ["conservative", "balanced", "aggressive"]
+    assert "conservative=0.01" in significance_schema["description"]
+    assert "balanced=0.05" in significance_schema["description"]
+    assert "aggressive=0.10" in significance_schema["description"]
+
+
 def test_shared_tools_identical_schema():
     """Tools present in both modes have identical parameter schemas."""
     stdio_server = FastMCP("test-stdio")

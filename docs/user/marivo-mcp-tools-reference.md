@@ -1617,10 +1617,9 @@ interface AssociationResult {
 | metric | string | 是 | 语义指标名称 |
 | left | McpSliceRef | 是 | 左侧时间切片 |
 | right | McpSliceRef | 是 | 右侧时间切片 |
-| kind | `"numeric"` \| `"rate"` | 是 | 样本类型枚举 |
-| hypothesis | object | 是 | 假设描述对象（需为结构化对象） |
+| hypothesis | object | 是 | 假设描述对象，仅包含 `alternative`、`significance` |
 
-注意：需提供 `metric` 和 `kind` 参数（原文档未列出）。`hypothesis` 需为结构化对象，不接受 JSON 字符串。
+注意：MCP 适配层内部固定使用 AOI `kind="numeric"` 和 `hypothesis.family="two_sample_mean"`；用户只需提供 `metric`、左右切片和 `hypothesis` 中的 `alternative`、`significance`。`hypothesis.significance` 支持 `"conservative"`（严格，内部 alpha=0.01）、`"balanced"`（默认，内部 alpha=0.05）、`"aggressive"`（探索性，内部 alpha=0.10）。`hypothesis` 需为结构化对象，不接受 JSON 字符串，且不支持 `family`、`alpha` 或 `label` 字段。`test_intent` 无 `kind` 或 `method` 参数。
 
 **输出 — TestIntentArtifact**：
 
@@ -1644,8 +1643,7 @@ interface TestIntentArtifact {
   "right": {
     "time_scope": { "field": "create_time", "start": "2025-03-04", "end": "2025-03-11" }
   },
-  "kind": "numeric",
-  "hypothesis": { "family": "t_test", "alternative": "greater", "alpha": 0.05 }
+  "hypothesis": { "alternative": "greater", "significance": "balanced" }
 }
 ```
 
@@ -2022,6 +2020,7 @@ interface AnalysisFailure {
 - 非可加指标不添加 MARIVO `custom_extension`（`additive_dimensions` 不能为空数组）
 - `compare`、`decompose`、`correlate`、`forecast` 使用 artifact ID 字符串引用，非结构化引用对象
 - `observe`/`detect` 的 `filter_expression` 和 `test_intent` 的 `hypothesis` 必须为结构化对象，不接受 JSON 字符串
+- `test_intent` 在 MCP 层不暴露固定的 `kind` 或 `hypothesis.family`；适配层内部固定为 AOI `kind="numeric"` 和 `hypothesis.family="two_sample_mean"`，使用 `hypothesis.significance` 选择显著性档位，无 `method`、`hypothesis.alpha` 或 `hypothesis.label` 参数
 - `correlate` 仅支持 `"pearson"` 和 `"spearman"` 方法，不支持 `"kendall"`
 - `decompose` 仅支持 `"delta_share"` 方法，无 method 参数
 

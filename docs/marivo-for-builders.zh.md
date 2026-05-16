@@ -135,7 +135,7 @@ Marivo 不把分析系统设计成“给 agent 一组工具，让它自己自由
 | `decompose` | “一个已知变化主要由哪些维度成员贡献？” | `compare_ref`、`dimension` | 把总变化拆成结构化贡献项，支持渠道、地区、品类、端类型等归因分析 |
 | `correlate` | “两个序列是否存在统计关联？” | `left_ref`、`right_ref` | 用于发现共变关系，帮助筛选候选解释，但不直接等价于因果结论 |
 | `detect` | “在给定时间范围内，哪里出现了异常？” | `metric`、`time_scope`、`strategy`、可选 `scope`、`dimension` | 先定位异常窗口或异常切片，为后续 `compare` / `diagnose` 固定分析起点 |
-| `test` | “这个明确假设在统计上是否成立？” | `left_ref`、`right_ref`、`hypothesis`、可选 `method` | 把候选解释从直觉判断推进到可检验结论，减少把波动误当成规律 |
+| `test` | “这个明确假设在统计上是否成立？” | `metric`、`left`、`right`、`kind: "numeric"`、`hypothesis` | 把候选解释从直觉判断推进到可检验结论，减少把波动误当成规律 |
 | `forecast` | “基于已有序列，未来一段时间可能如何演化？” | `source_ref`、`horizon` | 用于趋势外推、基线预估或后续偏离识别，不替代因果诊断 |
 
 ### 派生意图

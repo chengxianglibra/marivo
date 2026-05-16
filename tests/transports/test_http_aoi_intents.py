@@ -13,6 +13,7 @@ class _FakeRuntime:
     def __init__(self) -> None:
         self.observe_payload: Any | None = None
         self.detect_payload: Any | None = None
+        self.test_payload: Any | None = None
 
     def observe(self, session_id: str, payload: Any) -> dict[str, Any]:
         self.observe_payload = payload
@@ -52,6 +53,30 @@ class _FakeRuntime:
                 "artifact_id": "art_detect_1",
                 "result": {
                     "items": [],
+                },
+            },
+            "provenance": {"mocked": True},
+            "product_metadata": None,
+        }
+
+    def test(self, session_id: str, payload: Any) -> dict[str, Any]:
+        self.test_payload = payload
+        return {
+            "intent_type": "test",
+            "step_type": "test",
+            "step_ref": {
+                "session_id": session_id,
+                "step_id": "step_test_1",
+                "step_type": "test",
+            },
+            "artifact_id": "art_test_1",
+            "result": {
+                "artifact_id": "art_test_1",
+                "result": {
+                    "statistic": 2.1,
+                    "p_value": 0.04,
+                    "decision": {"reject_null": True},
+                    "assumption_notes": [],
                 },
             },
             "provenance": {"mocked": True},
@@ -181,5 +206,76 @@ def test_detect_requires_strategy() -> None:
             "filter": None,
         },
     )
+
+    assert response.status_code == 422
+
+
+def _valid_test_request() -> dict[str, Any]:
+    return {
+        "metric": "metric.revenue",
+        "left": {
+            "time_scope": {
+                "field": "event_time",
+                "start": "2026-01-01T00:00:00Z",
+                "end": "2026-01-08T00:00:00Z",
+            },
+            "filter": None,
+        },
+        "right": {
+            "time_scope": {
+                "field": "event_time",
+                "start": "2026-01-08T00:00:00Z",
+                "end": "2026-01-15T00:00:00Z",
+            },
+            "filter": None,
+        },
+        "kind": "numeric",
+        "hypothesis": {
+            "family": "two_sample_mean",
+            "alternative": "two_sided",
+            "significance": "balanced",
+        },
+    }
+
+
+def test_test_accepts_aoi_request_and_returns_execution_envelope() -> None:
+    runtime = _FakeRuntime()
+    response = _client(runtime).post(
+        "/sessions/sess_1/intents/test",
+        json=_valid_test_request(),
+    )
+
+    assert response.status_code == 200, response.text
+    assert isinstance(runtime.test_payload, aoi.Test)
+    assert runtime.test_payload.kind == "numeric"
+    assert runtime.test_payload.hypothesis.family == "two_sample_mean"
+    body = response.json()
+    assert body["intent_type"] == "test"
+    assert body["artifact_id"] == "art_test_1"
+
+
+def test_test_rejects_method_parameter() -> None:
+    payload = _valid_test_request()
+    payload["method"] = "welch_t"
+
+    response = _client(_FakeRuntime()).post("/sessions/sess_1/intents/test", json=payload)
+
+    assert response.status_code == 422
+
+
+def test_test_rejects_hypothesis_label() -> None:
+    payload = _valid_test_request()
+    payload["hypothesis"]["label"] = "legacy label"
+
+    response = _client(_FakeRuntime()).post("/sessions/sess_1/intents/test", json=payload)
+
+    assert response.status_code == 422
+
+
+def test_test_rejects_hypothesis_alpha() -> None:
+    payload = _valid_test_request()
+    payload["hypothesis"]["alpha"] = 0.05
+
+    response = _client(_FakeRuntime()).post("/sessions/sess_1/intents/test", json=payload)
 
     assert response.status_code == 422
