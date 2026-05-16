@@ -16,8 +16,8 @@ from marivo.runtime.semantic.import_export import (
     DatasourceBindingReport,
     ImportModelReport,
     ImportOsiDocumentReport,
-    SemanticMergePlan,
-    SemanticMergePlanner,
+    SemanticImportPlan,
+    SemanticImportPlanner,
 )
 from marivo.runtime.semantic.semantic_service import SemanticModelV2Service
 from tests.shared_fixtures import ManagedSQLiteMetadataStore, make_temp_metadata_store
@@ -278,7 +278,7 @@ class SemanticImportExportServiceTests(unittest.TestCase):
             "ds_001",
         )
 
-    def test_import_rolls_back_existing_model_when_mid_merge_field_insert_fails(self) -> None:
+    def test_import_rolls_back_existing_model_when_mid_replace_field_insert_fails(self) -> None:
         token = set_current_user("alice")
         try:
             self.service.import_osi_document(
@@ -409,13 +409,13 @@ class ImportExportContractTests(unittest.TestCase):
 
         self.assertEqual(report.errors, [])
 
-    def test_semantic_merge_plan_defaults_bindings(self) -> None:
-        plan = SemanticMergePlan(document={})
+    def test_semantic_import_plan_defaults_bindings(self) -> None:
+        plan = SemanticImportPlan(document={})
 
         self.assertEqual(plan.bindings, [])
 
-    def test_semantic_merge_plan_is_frozen(self) -> None:
-        plan = SemanticMergePlan(document={})
+    def test_semantic_import_plan_is_frozen(self) -> None:
+        plan = SemanticImportPlan(document={})
 
         with self.assertRaises(FrozenInstanceError):
             plan.document = {"version": "0.1.1"}
@@ -443,7 +443,7 @@ class ImportExportContractTests(unittest.TestCase):
             binding.model_name = "marketing"
 
     def test_empty_document_is_validation_error(self) -> None:
-        planner = SemanticMergePlanner()
+        planner = SemanticImportPlanner()
 
         with self.assertRaises(DomainValidationError) as raised:
             planner.preflight({"version": "0.1.1", "semantic_model": []})
@@ -452,7 +452,7 @@ class ImportExportContractTests(unittest.TestCase):
         self.assertIn("semantic_model", raised.exception.message)
 
     def test_duplicate_dataset_names_are_validation_error(self) -> None:
-        planner = SemanticMergePlanner()
+        planner = SemanticImportPlanner()
         doc = {
             "version": "0.1.1",
             "semantic_model": [
@@ -473,7 +473,7 @@ class ImportExportContractTests(unittest.TestCase):
         self.assertIn("duplicate dataset name", raised.exception.message)
 
     def test_duplicate_dataset_names_are_compared_after_strip(self) -> None:
-        planner = SemanticMergePlanner()
+        planner = SemanticImportPlanner()
         doc = {
             "version": "0.1.1",
             "semantic_model": [
@@ -495,7 +495,7 @@ class ImportExportContractTests(unittest.TestCase):
         self.assertEqual(raised.exception.detail["name"], "orders")
 
     def test_duplicate_semantic_model_names_are_validation_error(self) -> None:
-        planner = SemanticMergePlanner()
+        planner = SemanticImportPlanner()
         doc = {
             "version": "0.1.1",
             "semantic_model": [
@@ -511,7 +511,7 @@ class ImportExportContractTests(unittest.TestCase):
         self.assertIn("duplicate semantic model name", raised.exception.message)
 
     def test_duplicate_dataset_field_names_are_validation_error(self) -> None:
-        planner = SemanticMergePlanner()
+        planner = SemanticImportPlanner()
         doc = {
             "version": "0.1.1",
             "semantic_model": [
@@ -537,7 +537,7 @@ class ImportExportContractTests(unittest.TestCase):
         self.assertIn("duplicate field name", raised.exception.message)
 
     def test_duplicate_metric_names_are_validation_error(self) -> None:
-        planner = SemanticMergePlanner()
+        planner = SemanticImportPlanner()
         doc = {
             "version": "0.1.1",
             "semantic_model": [
@@ -558,7 +558,7 @@ class ImportExportContractTests(unittest.TestCase):
         self.assertIn("duplicate metric name", raised.exception.message)
 
     def test_duplicate_relationship_names_are_validation_error(self) -> None:
-        planner = SemanticMergePlanner()
+        planner = SemanticImportPlanner()
         doc = {
             "version": "0.1.1",
             "semantic_model": [

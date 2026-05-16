@@ -16,8 +16,8 @@ from marivo.runtime.semantic.import_export import (
     ImportOsiSemanticModelsResponse,
     OsiDocumentExporter,
     OsiSemanticDocumentValidator,
-    SemanticMergeExecutor,
-    SemanticMergePlanner,
+    SemanticImportExecutor,
+    SemanticImportPlanner,
 )
 from marivo.runtime.semantic.osi_storage import (
     _storage_to_dataset,
@@ -180,8 +180,8 @@ class SemanticModelV2Service:
             if self.datasource_service is not None
             else None
         )
-        plan = SemanticMergePlanner(binder).preflight(document)
-        report = SemanticMergeExecutor(self.store).execute(
+        plan = SemanticImportPlanner(binder).preflight(document)
+        report = SemanticImportExecutor(self.store).execute(
             document=plan.document,
             owner_user=owner_user,
             bindings=plan.bindings,
