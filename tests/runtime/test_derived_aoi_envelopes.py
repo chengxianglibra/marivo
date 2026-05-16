@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from marivo.runtime.intents.derived_envelopes import build_derived_bundle_envelope
+from marivo.contracts.aoi_projection import project_aoi_artifact_from_any
+from marivo.runtime.intents.derived_envelopes import (
+    aoi_artifact_dump,
+    build_derived_bundle_envelope,
+)
 
 
 class _Core:
@@ -115,6 +119,36 @@ def test_attribute_bundle_envelope_keeps_aoi_artifacts_in_result_and_product_met
         "aoi_artifacts": [aoi_artifact],
     }
     _assert_bundle_storage_is_consistent(result, runtime)
+
+
+def test_aoi_artifact_dump_preserves_flat_runtime_payload_for_projection() -> None:
+    flat_compare_result = {
+        "intent_type": "compare",
+        "step_type": "compare",
+        "step_ref": {
+            "session_id": "sess_1",
+            "step_id": "step_compare_1",
+            "step_type": "compare",
+        },
+        "artifact_id": "art_compare",
+        "comparison_type": "scalar_delta",
+        "left_value": 10.0,
+        "right_value": 7.0,
+        "absolute_delta": 3.0,
+        "provenance": {"query": "internal"},
+        "product_metadata": {"debug": True},
+    }
+
+    artifact = aoi_artifact_dump(flat_compare_result)
+    projected = project_aoi_artifact_from_any(artifact)
+
+    assert artifact["artifact_id"] == "art_compare"
+    assert artifact["result"]["comparison_type"] == "scalar_delta"
+    assert "provenance" not in artifact["result"]
+    assert projected["artifact_id"] == "art_compare"
+    assert projected["result"]["left_value"] == 10.0
+    assert projected["result"]["right_value"] == 7.0
+    assert projected["result"]["delta"] == 3.0
 
 
 def test_diagnosis_bundle_envelope_keeps_aoi_artifacts_in_result_and_product_metadata() -> None:

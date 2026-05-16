@@ -5,8 +5,10 @@ from typing import Any
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 from marivo.contracts.generated import aoi
+from marivo.transports.http.models import ObserveResponse, ValidateResponse
 from marivo.transports.http.sessions import router
 
 
@@ -16,6 +18,7 @@ class _FakeRuntime:
         self.detect_payload: Any | None = None
         self.test_payload: Any | None = None
         self.forecast_payload: Any | None = None
+        self.validate_payload: Any | None = None
 
     def observe(self, session_id: str, payload: Any) -> dict[str, Any]:
         self.observe_payload = payload
@@ -106,12 +109,127 @@ class _FakeRuntime:
             "product_metadata": None,
         }
 
+    def validate(self, session_id: str, payload: Any) -> dict[str, Any]:
+        self.validate_payload = payload
+        return {
+            "intent_type": "validate",
+            "step_type": "validate",
+            "step_ref": {
+                "session_id": session_id,
+                "step_id": "step_validate_1",
+                "step_type": "validate",
+            },
+            "artifact_id": "art_validate_1",
+            "result": {
+                "bundle_type": "validation_bundle",
+                "aoi_artifacts": [
+                    {
+                        "artifact_id": "art_test_1",
+                        "result": {
+                            "statistic": 2.1,
+                            "p_value": 0.04,
+                            "decision": {"reject_null": True},
+                            "assumption_notes": [],
+                        },
+                    }
+                ],
+            },
+            "provenance": {"mocked": True},
+            "product_metadata": None,
+        }
+
 
 def _client(runtime: _FakeRuntime) -> TestClient:
     app = FastAPI()
     app.state.services = type("Services", (), {"runtime": runtime})()
     app.include_router(router)
     return TestClient(app)
+
+
+def _step_ref(step_type: str) -> dict[str, str]:
+    return {
+        "session_id": "sess_1",
+        "step_id": f"step_{step_type}_1",
+        "step_type": step_type,
+    }
+
+
+def test_atomic_response_model_accepts_aoi_artifact_wrapper() -> None:
+    response = ObserveResponse.model_validate(
+        {
+            "intent_type": "observe",
+            "step_type": "observe",
+            "step_ref": _step_ref("observe"),
+            "artifact_id": "art_observe_1",
+            "result": {
+                "artifact_id": "art_observe_1",
+                "result": {"value": 42.0},
+            },
+        }
+    )
+
+    assert response.result.result == aoi.ScalarObservationResult(value=42.0)
+
+
+def test_atomic_response_model_rejects_flat_or_rich_runtime_fields() -> None:
+    with pytest.raises(ValidationError):
+        ObserveResponse.model_validate(
+            {
+                "intent_type": "observe",
+                "step_type": "observe",
+                "step_ref": _step_ref("observe"),
+                "artifact_id": "art_observe_1",
+                "result": {
+                    "artifact_id": "art_observe_1",
+                    "result": {
+                        "artifact_kind": "scalar_observation",
+                        "metric": "metric.revenue",
+                        "value": 42.0,
+                    },
+                },
+            }
+        )
+
+
+def test_derived_response_model_requires_typed_aoi_artifacts() -> None:
+    response = ValidateResponse.model_validate(
+        {
+            "intent_type": "validate",
+            "step_type": "validate",
+            "step_ref": _step_ref("validate"),
+            "artifact_id": "art_validate_1",
+            "result": {
+                "bundle_type": "validation_bundle",
+                "aoi_artifacts": [
+                    {
+                        "artifact_id": "art_test_1",
+                        "result": {
+                            "statistic": 2.1,
+                            "p_value": 0.04,
+                            "decision": {"reject_null": True},
+                            "assumption_notes": [],
+                        },
+                    }
+                ],
+            },
+        }
+    )
+
+    assert response.result.aoi_artifacts[0].artifact_id == "art_test_1"
+
+    with pytest.raises(ValidationError):
+        ValidateResponse.model_validate(
+            {
+                "intent_type": "validate",
+                "step_type": "validate",
+                "step_ref": _step_ref("validate"),
+                "artifact_id": "art_validate_1",
+                "result": {
+                    "bundle_type": "validation_bundle",
+                    "aoi_artifacts": [{"artifact_id": "art_bad", "result": {"metric": "x"}}],
+                },
+            }
+        )
 
 
 def test_observe_accepts_aoi_request_and_returns_execution_envelope() -> None:
@@ -137,11 +255,7 @@ def test_observe_accepts_aoi_request_and_returns_execution_envelope() -> None:
     assert body["artifact_id"] == "art_observe_1"
     assert body["result"] == {
         "artifact_id": "art_observe_1",
-        "result": {
-            "artifact_kind": "scalar_observation",
-            "metric": "metric.revenue",
-            "value": 42.0,
-        },
+        "result": {"value": 42.0},
     }
     assert "value" not in body
 
@@ -350,3 +464,39 @@ def test_test_rejects_hypothesis_alpha() -> None:
     response = _client(_FakeRuntime()).post("/sessions/sess_1/intents/test", json=payload)
 
     assert response.status_code == 422
+
+
+def test_validate_accepts_aoi_request_and_returns_typed_bundle() -> None:
+    runtime = _FakeRuntime()
+    response = _client(runtime).post(
+        "/sessions/sess_1/intents/validate",
+        json={
+            "metric": "metric.revenue",
+            "left": {
+                "time_scope": {
+                    "field": "event_time",
+                    "start": "2026-01-01T00:00:00Z",
+                    "end": "2026-01-08T00:00:00Z",
+                }
+            },
+            "right": {
+                "time_scope": {
+                    "field": "event_time",
+                    "start": "2026-01-08T00:00:00Z",
+                    "end": "2026-01-15T00:00:00Z",
+                }
+            },
+            "hypothesis": {
+                "family": "two_sample_mean",
+                "alternative": "two_sided",
+                "significance": "balanced",
+            },
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert isinstance(runtime.validate_payload, aoi.Validate)
+    body = response.json()
+    assert body["intent_type"] == "validate"
+    assert body["result"]["bundle_type"] == "validation_bundle"
+    assert body["result"]["aoi_artifacts"][0]["result"]["p_value"] == 0.04

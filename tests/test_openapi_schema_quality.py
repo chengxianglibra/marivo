@@ -42,7 +42,28 @@ ENVELOPE_OPEN_DICT_POINTERS = {
     "/components/schemas/ExecutionEnvelope/properties/result/additionalProperties",
     "/components/schemas/ExecutionEnvelope/properties/provenance/anyOf/0/additionalProperties",
     "/components/schemas/ExecutionEnvelope/properties/product_metadata/anyOf/0/additionalProperties",
+    "/components/schemas/DerivedBundleResult/additionalProperties",
 }
+
+for _intent_response_name in (
+    "AttributeResponse",
+    "CompareResponse",
+    "CorrelateResponse",
+    "DecomposeResponse",
+    "DetectResponse",
+    "DiagnoseResponse",
+    "ForecastResponse",
+    "ObserveResponse",
+    "TestResponse",
+    "ValidateResponse",
+):
+    ENVELOPE_OPEN_DICT_POINTERS.add(
+        f"/components/schemas/{_intent_response_name}/properties/provenance/anyOf/0/additionalProperties"
+    )
+    ENVELOPE_OPEN_DICT_POINTERS.add(
+        f"/components/schemas/{_intent_response_name}/properties/product_metadata/anyOf/0/additionalProperties"
+    )
+del _intent_response_name
 
 
 def _router_only_openapi() -> dict[str, Any]:

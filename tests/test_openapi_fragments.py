@@ -122,7 +122,8 @@ class OpenApiFragmentTests(unittest.TestCase):
             "Compare",
             "Detect",
             "Attribute",
-            "ExecutionEnvelope",
+            "ObserveResponse",
+            "ValidateResponse",
             "SessionCreateRequest",
         ]
         for schema_name in infrastructure_schemas:
@@ -140,10 +141,23 @@ class OpenApiFragmentTests(unittest.TestCase):
             ],
         )
 
-        observe_response = schema["paths"]["/sessions/{session_id}/intents/observe"]["post"][
-            "responses"
-        ]["200"]["content"]["application/json"]["schema"]
-        self.assertEqual(observe_response["$ref"], "#/components/schemas/ExecutionEnvelope")
+        expected_response_refs = {
+            "observe": "ObserveResponse",
+            "compare": "CompareResponse",
+            "decompose": "DecomposeResponse",
+            "correlate": "CorrelateResponse",
+            "detect": "DetectResponse",
+            "forecast": "ForecastResponse",
+            "test": "TestResponse",
+            "validate": "ValidateResponse",
+            "attribute": "AttributeResponse",
+            "diagnose": "DiagnoseResponse",
+        }
+        for intent, response_schema in expected_response_refs.items():
+            intent_response = schema["paths"][f"/sessions/{{session_id}}/intents/{intent}"]["post"][
+                "responses"
+            ]["200"]["content"]["application/json"]["schema"]
+            self.assertEqual(intent_response["$ref"], f"#/components/schemas/{response_schema}")
 
         attribute_request = schema["paths"]["/sessions/{session_id}/intents/attribute"]["post"][
             "requestBody"

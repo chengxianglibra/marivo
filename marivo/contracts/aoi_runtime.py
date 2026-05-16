@@ -128,4 +128,9 @@ def validate_aoi_artifact(value: Any) -> AoiArtifact:
 
 
 def artifact_to_envelope_result(artifact: AoiArtifact) -> dict[str, Any]:
-    return artifact.model_dump(exclude_none=True)
+    data = artifact.model_dump(mode="json")
+    if data.get("result") is None:
+        data.pop("result", None)
+    if data.get("failure") is None:
+        data.pop("failure", None)
+    return data
