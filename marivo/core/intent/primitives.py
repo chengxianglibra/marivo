@@ -55,6 +55,14 @@ INTENT_TAXONOMY: dict[str, dict[str, str]] = {
             "Params: series_ref (ObservationRef), horizon, granularity, profile."
         ),
     },
+    "validate": {
+        "category": "derived",
+        "description": (
+            "Derived intent: validate a metric hypothesis. "
+            "Expands to a fixed-family statistical test and returns a validation bundle. "
+            "Params: metric, left, right, hypothesis."
+        ),
+    },
     "attribute": {
         "category": "derived",
         "description": (
