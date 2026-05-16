@@ -259,11 +259,7 @@ type PropositionAuthoredInputRef =
       artifact_item_ref: ArtifactItemRefRef;
     };
 
-type ResolvedTimeScope =
-  | { kind: "range"; start: string; end: string }
-  | { kind: "snapshot_now"; observed_at: string }
-  | { kind: "latest_available"; data_as_of: string }
-  | { kind: "as_of"; at: string };
+type ResolvedTimeScope = { kind: "range"; start: string; end: string };
 
 type CorrelationJoinBasis =
   | {

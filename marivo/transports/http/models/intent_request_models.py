@@ -8,7 +8,7 @@ Path (/intents/<intent_type>) acts as the discriminator; no step_type field.
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -53,7 +53,7 @@ class ArtifactRef(BaseModel):
     step_type: str
 
 
-# ObserveTimeScope — discriminated union keyed on `kind`
+# ObserveTimeScope — explicit range only
 
 
 class ObserveTimeScopeRange(BaseModel):
@@ -62,26 +62,7 @@ class ObserveTimeScopeRange(BaseModel):
     end: str = Field(description="Exclusive end of the range (ISO-8601 date or datetime).")
 
 
-class ObserveTimeScopeSnapshotNow(BaseModel):
-    kind: Literal["snapshot_now"]
-
-
-class ObserveTimeScopeLatestAvailable(BaseModel):
-    kind: Literal["latest_available"]
-
-
-class ObserveTimeScopeAsOf(BaseModel):
-    kind: Literal["as_of"]
-    at: str = Field(description="Point-in-time snapshot (ISO-8601 datetime).")
-
-
-ObserveTimeScope = Annotated[
-    ObserveTimeScopeRange
-    | ObserveTimeScopeSnapshotNow
-    | ObserveTimeScopeLatestAvailable
-    | ObserveTimeScopeAsOf,
-    Field(discriminator="kind"),
-]
+ObserveTimeScope = ObserveTimeScopeRange
 
 
 class PredicateComparison(BaseModel):

@@ -61,6 +61,17 @@ class DecomposeHourWindowTests(unittest.TestCase):
             ("2024-01-01T01:00:00", "2024-01-01T03:00:00"),
         )
 
+    def test_extract_date_range_rejects_legacy_time_scope_kinds(self) -> None:
+        for kind in ("snapshot_" + "now", "latest_" + "available", "as_" + "of"):
+            with (
+                self.subTest(kind=kind),
+                self.assertRaisesRegex(
+                    ValueError,
+                    f"cannot extract date range from time_scope with kind='{kind}'",
+                ),
+            ):
+                _extract_date_range({"kind": kind})
+
     def test_time_series_compare_input_uses_matched_time_scope(self) -> None:
         normalized = _normalize_decompose_compare_input(
             {

@@ -20,20 +20,7 @@ class TimeScopeRange(BaseModel):
     end: str  # ISO-8601, exclusive
 
 
-class TimeScopeSnapshotNow(BaseModel):
-    kind: Literal["snapshot_now"] = "snapshot_now"
-
-
-class TimeScopeLatestAvailable(BaseModel):
-    kind: Literal["latest_available"] = "latest_available"
-
-
-class TimeScopeAsOf(BaseModel):
-    kind: Literal["as_of"] = "as_of"
-    at: str  # ISO-8601
-
-
-TimeScope = TimeScopeRange | TimeScopeSnapshotNow | TimeScopeLatestAvailable | TimeScopeAsOf
+TimeScope = TimeScopeRange
 
 # --- Granularity ---
 Granularity = Literal["hour", "day", "week", "month"]

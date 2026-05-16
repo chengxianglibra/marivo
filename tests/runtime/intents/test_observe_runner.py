@@ -112,6 +112,25 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
                 },
             )
 
+    def test_observe_rejects_legacy_time_scope_kinds(self) -> None:
+        from marivo.runtime.intents.observe import run_observe_intent
+
+        for kind in ("snapshot_" + "now", "latest_" + "available", "as_" + "of"):
+            with self.subTest(kind=kind):
+                runtime = self._make_runtime()
+                with self.assertRaisesRegex(
+                    ValueError,
+                    f"unsupported time_scope.kind='{kind}'",
+                ):
+                    run_observe_intent(
+                        runtime,
+                        _SESSION,
+                        {
+                            "metric": "m1",
+                            "time_scope": {"kind": kind},
+                        },
+                    )
+
     def test_observe_segmented_omits_segmented_yoy_without_calendar_alignment(self) -> None:
         from marivo.runtime.intents.observe import run_observe_intent
 

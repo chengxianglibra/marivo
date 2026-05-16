@@ -331,15 +331,17 @@ class ObserveIntentValidationEndpointTests(_SessionBackedIntentEndpointMixin, un
         )
         self.assertEqual(r.status_code, 422)
 
-    def test_observe_snapshot_now_unknown_metric_returns_422(self) -> None:
-        r = self.client.post(
-            f"/sessions/{self.session_id}/intents/observe",
-            json={
-                "metric": _metric_ref("non_existent_metric_xyz"),
-                "time_scope": {"kind": "snapshot_now"},
-            },
-        )
-        self.assertEqual(r.status_code, 422)
+    def test_observe_legacy_time_scope_kinds_return_422(self) -> None:
+        for kind in ("snapshot_" + "now", "latest_" + "available", "as_" + "of"):
+            with self.subTest(kind=kind):
+                r = self.client.post(
+                    f"/sessions/{self.session_id}/intents/observe",
+                    json={
+                        "metric": _metric_ref("non_existent_metric_xyz"),
+                        "time_scope": {"kind": kind},
+                    },
+                )
+                self.assertEqual(r.status_code, 422)
 
     def test_observe_rejects_session_user_override_fields(self) -> None:
         for extra_field, extra_value in (

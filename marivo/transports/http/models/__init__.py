@@ -149,10 +149,7 @@ from .intent_request_models import (
     DiagnoseRequest,
     ObserveScope,
     ObserveTimeScope,
-    ObserveTimeScopeAsOf,
-    ObserveTimeScopeLatestAvailable,
     ObserveTimeScopeRange,
-    ObserveTimeScopeSnapshotNow,
 )
 from .intent_response_models import (
     AttributeResponse,
@@ -301,10 +298,7 @@ __all__ = [  # noqa: RUF022
     "ObserveResponse",
     "ObserveScope",
     "ObserveTimeScope",
-    "ObserveTimeScopeAsOf",
-    "ObserveTimeScopeLatestAvailable",
     "ObserveTimeScopeRange",
-    "ObserveTimeScopeSnapshotNow",
     "OSIDocument",
     "OwnershipSemantics",
     "PartitionPruningOverride",

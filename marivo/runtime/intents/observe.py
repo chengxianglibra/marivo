@@ -242,9 +242,6 @@ def run_observe_intent(
 
     Supported time_scope kinds:
       - range: explicit [start, end) bounds
-      - snapshot_now: resolved to today's UTC date range
-      - latest_available: resolved to today's UTC date range (v1 approximation)
-      - as_of: resolved to a single-day range around the given timestamp
     """
     p = params or {}
     if "calendar_policy_ref" in p:

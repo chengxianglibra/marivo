@@ -33,10 +33,7 @@ from .values import (
     ObserveScope,
     QueryResult,
     TimeScope,
-    TimeScopeAsOf,
-    TimeScopeLatestAvailable,
     TimeScopeRange,
-    TimeScopeSnapshotNow,
 )
 
 __all__ = [
@@ -77,10 +74,7 @@ __all__ = [
     "SessionState",
     "StepId",
     "TimeScope",
-    "TimeScopeAsOf",
-    "TimeScopeLatestAvailable",
     "TimeScopeRange",
-    "TimeScopeSnapshotNow",
     "UserId",
     "ValidationError",
 ]

@@ -128,9 +128,6 @@
 | --- | --- | --- |
 | time_scope | 时间范围 | 统一的时间契约 |
 | range | 区间 | 半开区间 `[start, end)` |
-| snapshot_now | 当前快照 | 查询时刻即时快照 |
-| latest_available | 最新可用点 | 当前稳定可用的最近时点 |
-| as_of | 截至某时 | 某个时间点的快照 |
 | granularity | 粒度 | `hour / day / week / month` |
 | time bucket | 时间桶 | 时间序列中的单个 bucket |
 | half-open interval | 半开区间 | 左闭右开 `[start, end)` |

@@ -152,22 +152,13 @@ class ResolvedTimeScope(TypedDict, total=False):
 
     Required field: ``kind``.
     Variant fields depend on ``kind``:
-    - ``range``:            ``start``, ``end``
-    - ``snapshot_now``:     ``observed_at``
-    - ``latest_available``: ``data_as_of``
-    - ``as_of``:            ``at``
+    - ``range``: ``start``, ``end``
     """
 
-    kind: Required[Literal["range", "snapshot_now", "latest_available", "as_of"]]
+    kind: Required[Literal["range"]]
     # range
     start: str
     end: str
-    # snapshot_now
-    observed_at: str
-    # latest_available
-    data_as_of: str
-    # as_of
-    at: str
 
 
 # ---------------------------------------------------------------------------

@@ -107,7 +107,7 @@ v1 支持的输入形态如下：
 ## v1 不支持的输入
 
 - legacy `time_scope.kind` / `mode` / `current` 形状。
-- `snapshot_now`、`latest_available`、`as_of`。
+- 快照式或相对式 time scope 别名；调用方必须传显式 range。
 - 多个 `dimension`。
 - 旧字段 `split_by`、`profile`、`patterns`。
 - 显式指定任意 baseline window。

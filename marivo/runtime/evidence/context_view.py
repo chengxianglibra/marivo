@@ -75,12 +75,6 @@ def _finding_sort_key(f: dict[str, Any]) -> tuple[Any, ...]:
 
     if win_kind == "range":
         time_key: str = win.get("start") or ""
-    elif win_kind == "snapshot_now":
-        time_key = win.get("observed_at") or ""
-    elif win_kind == "latest_available":
-        time_key = win.get("data_as_of") or ""
-    elif win_kind == "as_of":
-        time_key = win.get("at") or ""
     else:
         time_key = ""
 
