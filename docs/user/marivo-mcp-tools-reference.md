@@ -1681,12 +1681,6 @@ interface TestIntentArtifact {
 | source_artifact_id | string | 是 | `observe(time_series)` artifact ID |
 | horizon | integer | 是 | 预测步数（向前预测多少个 granularity 单位） |
 
-可选参数：
-
-| 参数 | 类型 | 必填 | 默认 | 说明 |
-|------|------|------|------|------|
-| profile | string | 否 | 省略 | 预测轮廓；不用时省略，不传 `null` |
-
 注意：参数为字符串 artifact ID（如 `"art_obs_1"`），非引用对象。无 `interval_level` 参数。
 `source_artifact_id` 必须是同一 session 内已提交的 `observe(time_series)` artifact：先调用
 `observe` 并设置 `granularity`，不要同时传 `dimensions`；不要传 datasource ID、
@@ -1719,8 +1713,7 @@ interface ForecastPoint {
 {
   "session_id": "ses_abc123",
   "source_artifact_id": "art_obs_1",
-  "horizon": 7,
-  "profile": "auto"
+  "horizon": 7
 }
 ```
 

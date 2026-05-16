@@ -212,7 +212,7 @@ The request contract is per-intent. Every request is either **source-type** (tak
 | `observe`   | source          | `metric`, `time_scope`, `filter?`, `granularity?`, `dimensions?` (mutually exclusive mode selectors, see 4.1.2)                            |
 | `detect`    | source          | `metric`, `time_scope`, `granularity: TimeGranularity`, `filter?`, `dimension?`, `strategy: "point_anomaly" \| "period_shift"`, `sensitivity?`, `limit?` |
 | `test`      | source (paired) | `metric`, `left: { time_scope, filter? }`, `right: { time_scope, filter? }`, `kind: "numeric"`, `hypothesis: Hypothesis` |
-| `forecast`  | ref             | `source_artifact_id: string`, `horizon`, `profile?`                                                                             |
+| `forecast`  | ref             | `source_artifact_id: string`, `horizon`                                                                             |
 | `compare`   | ref             | `left_artifact_id: string`, `right_artifact_id: string`, `compare_type?: CompareType`                                                             |
 | `decompose` | ref             | `compare_artifact_id: string`, `dimension`, `limit?`                                                                                          |
 | `correlate` | ref             | `left_artifact_id: string`, `right_artifact_id: string` (both time_series), `method?`                                                            |

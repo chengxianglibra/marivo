@@ -44,7 +44,7 @@ v1 明确排除：
 
 - `source_ref` 指向的 observe artifact lineage
 - `horizon`
-- 归一化后的 `profile`
+- runtime 自动选择的 `profile`
 - 归一化后的 `interval_level`
 - `artifact_schema_version`
 - `derivation_version`
@@ -107,7 +107,6 @@ type ObservationArtifactRef = {
     "observation_type": "time_series"
   },
   "horizon": 14,
-  "profile": "auto",
   "interval_level": 0.95
 }
 ```
@@ -120,7 +119,6 @@ type ForecastRequest = {
   source_ref: ObservationArtifactRef;
   source_artifact_id?: string;
   horizon: number;
-  profile?: ForecastProfile;
   interval_level?: number | null;
 };
 
@@ -132,15 +130,6 @@ type ObservationArtifactRef = {
   observation_type: "time_series";
 };
 
-type ForecastProfile =
-  | "auto"
-  | "level"
-  | "trend"
-  | "seasonal"
-  | "seasonal_trend";
-
-// 注：当前实现对 "seasonal" 和 "seasonal_trend" 返回 UNSUPPORTED_OPERATION。
-// 这两个 profile 在文档中保留为合法枚举值，待实现支持后可用。
 ```
 
 ## 输入规则
@@ -153,14 +142,13 @@ v1 支持的输入形态如下：
 - v1 支持 `{"hour", "day", "week", "month"}`
 - source 必须是完整 artifact，而不是 projection
 - `horizon` 必须是正整数
-- `profile` 必须来自受支持的 forecast profiles
 - `interval_level` 必须在 `(0, 1)` 内
 
 输出类型：`forecast_series`
 
 推荐默认值：
 
-- `profile = "auto"`
+- runtime 自动选择 `profile`
 - `interval_level = 0.95`
 
 ## v1 不支持的输入
@@ -185,15 +173,12 @@ v1 支持的输入形态如下：
 - `horizon <= 0`
 - `interval_level != null && (interval_level <= 0 || interval_level >= 1)`
 - `source_ref.session_id` 与当前 step 所在 session 不一致
-- `profile = "seasonal"`，当前实现返回 `UNSUPPORTED_OPERATION`
-- `profile = "seasonal_trend"`，当前实现返回 `UNSUPPORTED_OPERATION`
 - `source_ref` 解析到 projection-only、incomplete 或未完成 artifact
 
 推荐错误码：`INVALID_ARGUMENT`。
 
 ## 归一化规则
 
-- `profile = null` 或缺失时，归一化为 `"auto"`
 - `interval_level = null` 或缺失时，归一化为 `0.95`
 
 ## 字段语义
@@ -218,19 +203,16 @@ v1 支持的输入形态如下：
 
 系统必须强制执行最大 horizon 上限；v1 上限为 90。过长请求应失败，接近上限的请求可成功但返回 `long_horizon_warning`。
 
-### profile
+### runtime-selected profile
 
-稳定的用户语义 profile，而不是原始模型选择器。
+`profile` 是 runtime 为 artifact 记录的投影策略，不是 public request 参数。
 
 v1 支持：
 
-- `auto`
 - `level`
 - `trend`
-- `seasonal`（当前实现返回 `UNSUPPORTED_OPERATION`，待后续支持）
-- `seasonal_trend`（当前实现返回 `UNSUPPORTED_OPERATION`，待后续支持）
 
-不同执行引擎可以选择不同内部方法，只要响应语义一致。
+runtime 会根据可用历史点数自动选择当前 artifact 的 `profile`。不同执行引擎可以选择不同内部方法，只要响应语义一致。
 
 ### interval_level
 
@@ -241,7 +223,7 @@ v1 支持：
 - point forecast 不应依赖 `interval_level`
 - 改变 `interval_level` 只改变 interval 宽度，不改变历史拟合语义
 - `interval_level` 越高，预测区间应弱单调变宽
-- v1 不保证每个 profile / implementation 都一定有 interval
+- v1 不保证每个 runtime-selected profile / implementation 都一定有 interval
 
 ## 校验语义
 
@@ -252,9 +234,9 @@ v1 支持：
 - source step 不存在
 - source 不是 `time_series`
 - granularity 不受支持
-- 可用历史点数不足以支撑 profile
+- 可用历史点数不足以支撑 runtime-selected profile
 - source series 存在阻断性 completeness 问题
-- profile 与序列形态不兼容
+- runtime-selected profile 与序列形态不兼容
 
 推荐错误码：
 
@@ -269,7 +251,7 @@ v1 支持：
 
 - source series 有部分不完整，但仍可预测
 - 前导或尾部缺失值被确定性丢弃
-- `profile = "auto"` 选择了回退 profile
+- runtime 自动选择回退 profile
 - 所选方法无 interval，故返回 `prediction_interval = null`
 - 请求的 horizon 相对历史过长
 
@@ -282,9 +264,9 @@ v1 支持：
 系统至少要检查：
 
 - 继承自 `observe` 的规则 bucket 语义
-- 所选 profile 所需的足够历史长度
+- runtime-selected profile 所需的足够历史长度
 - 历史序列完整性是否可接受
-- granularity 与 profile 是否语义兼容
+- granularity 与 runtime-selected profile 是否语义兼容
 - horizon 是否在系统上限内
 - source 是否是完整工件而非 projection
 
@@ -345,6 +327,8 @@ type ForecastSourceLineage = {
   source_schema_version: string;
   source_metric_contract_version: string | null;
 };
+
+type ForecastProfile = "level" | "trend";
 
 type ForecastSeriesObservation = {
   step_ref: StepRef;
@@ -445,18 +429,18 @@ type ForecastExecutionMetadata = {
 - `source_lineage` 用于 machine-readable provenance，记录输入 artifact 及其 source contract version
 - `history_summary.dropped_points` 只统计为使序列可预测而被确定性排除的历史 bucket
 - 不得把 hidden outlier removal 之类的再分析写进 `dropped_points`
-- `history_summary.usable_points` 是 profile eligibility 与最小历史校验所依据的点数
+- `history_summary.usable_points` 是 runtime-selected profile eligibility 与最小历史校验所依据的点数
 - `forecast` artifact 必须按 `bucket_index ASC` 返回完整未来 bucket 序列；artifact 不得把 top-k 或 tail truncation 编码进 canonical 输出
 - `execution_metadata.model_family` 仅是 provenance 信息，不是稳定的用户契约
 
 ## Null 与 Empty 语义
 
 - `forecastability.issues = []` 表示 no known forecastability issues
-- `prediction_interval = null` 的唯一语义是当前 profile / implementation 下 interval 不可定义或不可用；不得表示 point forecast 失败
+- `prediction_interval = null` 的唯一语义是当前 runtime-selected profile / implementation 下 interval 不可定义或不可用；不得表示 point forecast 失败
 - `prediction_interval.lower = null` 或 `upper = null` 的唯一语义是区间对象存在，但对应边界在当前 contract 下不可解析
 - `analytical_metadata.timezone = null` 表示 source observation 未声明稳定 timezone 语义
 - `analytical_metadata.data_complete = null` 表示 source completeness 当前 unknown，而不是 false
-- `seasonality_assumption = "not_applicable"` 仅用于当前 profile 或 granularity 下 seasonality 语义不成立；不使用 `null` 表达该状态
+- `seasonality_assumption = "not_applicable"` 仅用于当前 runtime-selected profile 或 granularity 下 seasonality 语义不成立；不使用 `null` 表达该状态
 - `last_observed_window` 为 total 字段；若无法确定最后观测窗口，则请求必须失败，而不是返回 `null`
 
 ## 错误语义
@@ -466,7 +450,7 @@ type ForecastExecutionMetadata = {
 - `STEP_NOT_FOUND`
   `source_ref` 无法解析
 - `UNSUPPORTED_OPERATION`
-  source 合法，但 profile / granularity 组合不受支持
+  source 合法，但 runtime-selected profile / granularity 组合不受支持
 - `INSUFFICIENT_HISTORY`
   历史长度不足
 

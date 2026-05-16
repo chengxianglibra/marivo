@@ -15,6 +15,7 @@ class _FakeRuntime:
         self.observe_payload: Any | None = None
         self.detect_payload: Any | None = None
         self.test_payload: Any | None = None
+        self.forecast_payload: Any | None = None
 
     def observe(self, session_id: str, payload: Any) -> dict[str, Any]:
         self.observe_payload = payload
@@ -78,6 +79,27 @@ class _FakeRuntime:
                     "p_value": 0.04,
                     "decision": {"reject_null": True},
                     "assumption_notes": [],
+                },
+            },
+            "provenance": {"mocked": True},
+            "product_metadata": None,
+        }
+
+    def forecast(self, session_id: str, payload: Any) -> dict[str, Any]:
+        self.forecast_payload = payload
+        return {
+            "intent_type": "forecast",
+            "step_type": "forecast",
+            "step_ref": {
+                "session_id": session_id,
+                "step_id": "step_forecast_1",
+                "step_type": "forecast",
+            },
+            "artifact_id": "art_forecast_1",
+            "result": {
+                "artifact_id": "art_forecast_1",
+                "result": {
+                    "points": [],
                 },
             },
             "provenance": {"mocked": True},
@@ -260,17 +282,31 @@ def _valid_test_request() -> dict[str, Any]:
         ),
         (
             "/sessions/sess_1/intents/forecast",
-            {"source_artifact_id": "art_timeseries", "horizon": 14, "profile": None},
+            {"source_artifact_id": "art_timeseries", "horizon": 14, "profile": "auto"},
         ),
     ],
 )
-def test_aoi_request_optional_fields_reject_explicit_null(
+def test_aoi_request_rejects_removed_or_null_optional_fields(
     endpoint: str,
     payload: dict[str, Any],
 ) -> None:
     response = _client(_FakeRuntime()).post(endpoint, json=payload)
 
     assert response.status_code == 422
+
+
+def test_forecast_accepts_request_without_profile() -> None:
+    runtime = _FakeRuntime()
+    response = _client(runtime).post(
+        "/sessions/sess_1/intents/forecast",
+        json={"source_artifact_id": "art_timeseries", "horizon": 14},
+    )
+
+    assert response.status_code == 200, response.text
+    assert isinstance(runtime.forecast_payload, aoi.Forecast)
+    assert runtime.forecast_payload.source_artifact_id == "art_timeseries"
+    assert runtime.forecast_payload.horizon == 14
+    assert "profile" not in runtime.forecast_payload.model_dump()
 
 
 def test_test_accepts_aoi_request_and_returns_execution_envelope() -> None:

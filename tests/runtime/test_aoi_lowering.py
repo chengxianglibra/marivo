@@ -47,11 +47,9 @@ def test_lowers_forecast_request_to_runner_params() -> None:
     request = aoi.Forecast(
         source_artifact_id="artifact-source",
         horizon=14,
-        profile="weekly",
     )
 
     assert lower_aoi_request("forecast", request) == {
         "source_artifact_id": "artifact-source",
         "horizon": 14,
-        "profile": "weekly",
     }

@@ -99,14 +99,12 @@ def to_aoi_decompose_request(
 def to_aoi_forecast_request(
     source_artifact_id: str,
     horizon: int,
-    profile: str = None,  # type: ignore[assignment]  # noqa: RUF013
 ) -> aoi.Forecast:
     return aoi.Forecast.model_validate(
         _omit_none(
             {
                 "source_artifact_id": source_artifact_id,
                 "horizon": horizon,
-                "profile": profile,
             }
         )
     )
@@ -306,12 +304,10 @@ def register_forecast(server: Any, runtime: Any) -> None:
         session_id: str,
         source_artifact_id: TimeSeriesObserveArtifactId,
         horizon: int,
-        profile: str = None,  # type: ignore[assignment]  # noqa: RUF013
     ) -> dict[str, Any]:
         request = to_aoi_forecast_request(
             source_artifact_id=source_artifact_id,
             horizon=horizon,
-            profile=profile,
         )
         return await call_runtime(runtime.forecast, session_id=session_id, request=request)
 

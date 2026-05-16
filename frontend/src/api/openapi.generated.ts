@@ -1421,8 +1421,6 @@ export interface components {
         Forecast: {
             /** Horizon */
             horizon: number;
-            /** Profile */
-            profile?: string;
             /** Source Artifact Id */
             source_artifact_id: string;
         };

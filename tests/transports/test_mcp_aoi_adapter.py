@@ -130,13 +130,12 @@ def test_to_aoi_forecast_request_builds_forecast_model() -> None:
     request = to_aoi_forecast_request(
         source_artifact_id="artifact_obs_1",
         horizon=7,
-        profile="auto",
     )
 
     assert isinstance(request, aoi.Forecast)
     assert request.source_artifact_id == "artifact_obs_1"
     assert request.horizon == 7
-    assert request.profile == "auto"
+    assert "profile" not in request.model_dump()
 
 
 def _slice(start: str, end: str) -> McpSliceRef:
