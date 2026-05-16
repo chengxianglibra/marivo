@@ -136,7 +136,6 @@ class OpenApiFragmentTests(unittest.TestCase):
                 "#/components/schemas/Observe1",
                 "#/components/schemas/Observe2",
                 "#/components/schemas/Observe3",
-                "#/components/schemas/Observe4",
             ],
         )
 

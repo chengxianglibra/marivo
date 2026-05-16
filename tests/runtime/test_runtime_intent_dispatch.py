@@ -203,13 +203,11 @@ def _time_scope() -> aoi.TimeScope:
     )
 
 
-def _observe_request() -> aoi.Observe1:
-    return aoi.Observe1(
+def _observe_request() -> aoi.Observe2:
+    return aoi.Observe2(
         metric="view_time",
         time_scope=_time_scope(),
-        filter=None,
         granularity="day",
-        dimensions=None,
     )
 
 
@@ -242,8 +240,6 @@ def _detect_request() -> aoi.Detect:
         metric="view_time",
         time_scope=_time_scope(),
         granularity="day",
-        filter=None,
-        dimension=None,
         strategy="point_anomaly",
         sensitivity="aggressive",
         limit=10,
@@ -251,7 +247,7 @@ def _detect_request() -> aoi.Detect:
 
 
 def _forecast_request() -> aoi.Forecast:
-    return aoi.Forecast(source_artifact_id="artifact-source", horizon=7, profile=None)
+    return aoi.Forecast(source_artifact_id="artifact-source", horizon=7)
 
 
 def _make_runtime() -> MarivoRuntime:

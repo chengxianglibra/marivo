@@ -22,21 +22,37 @@ def test_to_aoi_observe_request_builds_observe_model() -> None:
             start="2026-05-01T00:00:00Z",
             end="2026-05-08T00:00:00Z",
         ),
-        granularity="day",
         dimensions=["region", "platform"],
         filter_expression={"dialects": [{"dialect": "ANSI_SQL", "expression": "region = 'US'"}]},
     )
 
-    assert isinstance(request, aoi.Observe1)
+    assert isinstance(request, aoi.Observe3)
     assert request.metric == "view_time"
     assert request.time_scope.field == "log_time"
-    assert request.granularity == "day"
     assert request.dimensions is not None
-    assert request.dimensions.model_dump() == ["region", "platform"]
+    assert [dimension.root for dimension in request.dimensions] == ["region", "platform"]
     assert request.filter is not None
     assert request.filter.model_dump(exclude_none=True) == {
         "dialects": [{"dialect": "ANSI_SQL", "expression": "region = 'US'"}]
     }
+
+
+def test_to_aoi_observe_request_rejects_mixed_mode_selectors() -> None:
+    try:
+        to_aoi_observe_request(
+            metric="view_time",
+            time_scope=McpTimeScope(
+                field="log_time",
+                start="2026-05-01T00:00:00Z",
+                end="2026-05-08T00:00:00Z",
+            ),
+            granularity="day",
+            dimensions=["region"],
+        )
+    except ValueError as error:
+        assert "omit granularity" in str(error)
+    else:
+        raise AssertionError("expected mixed observe mode selectors to be rejected")
 
 
 def test_to_aoi_compare_request_builds_compare_model() -> None:
@@ -86,12 +102,28 @@ def test_to_aoi_detect_request_builds_detect_model() -> None:
     assert request.time_scope.field == "log_time"
     assert request.granularity == "day"
     assert request.filter is not None
-    assert request.dimension is not None
-    assert request.dimension.root == "region"
+    assert request.dimension == "region"
     assert request.strategy == "period_shift"
     assert request.sensitivity == "balanced"
-    assert request.limit is not None
-    assert request.limit.root == 5
+    assert request.limit == 5
+
+
+def test_to_aoi_detect_request_omits_absent_optional_fields() -> None:
+    request = to_aoi_detect_request(
+        metric="view_time",
+        time_scope=McpTimeScope(
+            field="log_time",
+            start="2026-05-01T00:00:00Z",
+            end="2026-05-08T00:00:00Z",
+        ),
+        granularity="day",
+        strategy="point_anomaly",
+    )
+
+    dumped = request.model_dump(exclude_none=True)
+    assert "filter" not in dumped
+    assert "dimension" not in dumped
+    assert "limit" not in dumped
 
 
 def test_to_aoi_forecast_request_builds_forecast_model() -> None:
@@ -131,6 +163,7 @@ def test_to_aoi_test_request_builds_test_model() -> None:
     assert isinstance(request, aoi.Test)
     assert request.kind == "numeric"
     assert request.hypothesis.family == "two_sample_mean"
+    assert "filter" not in request.model_dump(exclude_none=True)["left"]
     assert request.hypothesis.alternative == "greater"
 
 

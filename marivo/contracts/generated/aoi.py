@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel, model_validator
 
 
 class Primitives(RootModel[Any]):
@@ -25,16 +25,8 @@ class Decompose(BaseModel):
         extra="forbid",
     )
     dimension: str = Field(..., min_length=1)
-    limit: int | None = Field(None, ge=1)
+    limit: int = Field(None, ge=1)  # type: ignore[assignment]
     compare_artifact_id: str = Field(..., min_length=1)
-
-
-class Dimension(RootModel[str]):
-    root: str = Field(..., min_length=1)
-
-
-class Limit(RootModel[int]):
-    root: int = Field(..., ge=1)
 
 
 class Forecast(BaseModel):
@@ -42,28 +34,12 @@ class Forecast(BaseModel):
         extra="forbid",
     )
     horizon: int = Field(..., ge=1)
-    profile: str | None = None
+    profile: str = None  # type: ignore[assignment]
     source_artifact_id: str = Field(..., min_length=1)
 
 
-class Dimensions(RootModel[list[Dimension]]):
-    root: list[Dimension] = Field(..., min_length=1)
-
-
-class Dimensions1Item(RootModel[str]):
+class Dimension(RootModel[str]):
     root: str = Field(..., min_length=1)
-
-
-class Dimensions1(RootModel[list[Dimensions1Item]]):
-    root: list[Dimensions1Item] = Field(..., min_length=1)
-
-
-class Dimensions2Item(RootModel[str]):
-    root: str = Field(..., min_length=1)
-
-
-class Dimensions2(RootModel[list[Dimensions2Item]]):
-    root: list[Dimensions2Item] = Field(..., min_length=1)
 
 
 class PValue(RootModel[float]):
@@ -124,18 +100,15 @@ class Compare(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    compare_type: (
-        Literal[
-            "normal",
-            "yoy",
-            "mom",
-            "wow",
-            "holiday_aligned_yoy",
-            "weekday_aligned_yoy",
-            "weekday_aligned_mom",
-        ]
-        | None
-    ) = "normal"
+    compare_type: Literal[
+        "normal",
+        "yoy",
+        "mom",
+        "wow",
+        "holiday_aligned_yoy",
+        "weekday_aligned_yoy",
+        "weekday_aligned_mom",
+    ] = "normal"
     left_artifact_id: str = Field(..., min_length=1)
     right_artifact_id: str = Field(..., min_length=1)
 
@@ -144,7 +117,7 @@ class Correlate(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    method: Literal["pearson", "spearman"] | None = None
+    method: Literal["pearson", "spearman"] = None  # type: ignore[assignment]
     left_artifact_id: str = Field(..., min_length=1)
     right_artifact_id: str = Field(..., min_length=1)
 
@@ -254,11 +227,11 @@ class Detect(BaseModel):
     metric: str = Field(..., min_length=1)
     time_scope: TimeScope
     granularity: Literal["hour", "day", "week", "month", "quarter", "year"]
-    filter: Expression | None
-    dimension: Dimension | None = None
+    filter: Expression = None  # type: ignore[assignment]
+    dimension: str = Field(None, min_length=1)  # type: ignore[assignment]
     strategy: Literal["point_anomaly", "period_shift"]
     sensitivity: Literal["conservative", "balanced", "aggressive"] = "aggressive"
-    limit: Limit | None = None
+    limit: int = Field(None, ge=1)  # type: ignore[assignment]
 
 
 class Observe1(BaseModel):
@@ -267,9 +240,15 @@ class Observe1(BaseModel):
     )
     metric: str = Field(..., min_length=1)
     time_scope: TimeScope
-    filter: Expression | None
-    granularity: Literal["hour", "day", "week", "month", "quarter", "year"] | None = None
-    dimensions: Dimensions | None = None
+    filter: Expression = None  # type: ignore[assignment]
+    granularity: Literal["hour", "day", "week", "month", "quarter", "year"] = None  # type: ignore[assignment]
+    dimensions: list[Dimension] = Field(None, min_length=1)  # type: ignore[arg-type]
+
+    @model_validator(mode="after")
+    def _validate_scalar_branch(self) -> Observe1:
+        if self.granularity is not None or self.dimensions is not None:
+            raise ValueError("observe scalar requests must omit granularity and dimensions")
+        return self
 
 
 class Observe2(BaseModel):
@@ -278,9 +257,15 @@ class Observe2(BaseModel):
     )
     metric: str = Field(..., min_length=1)
     time_scope: TimeScope
-    filter: Expression | None
+    filter: Expression = None  # type: ignore[assignment]
     granularity: Literal["hour", "day", "week", "month", "quarter", "year"]
-    dimensions: Dimensions1 | None = None
+    dimensions: list[Dimension] = Field(None, min_length=1)  # type: ignore[arg-type]
+
+    @model_validator(mode="after")
+    def _validate_time_series_branch(self) -> Observe2:
+        if self.dimensions is not None:
+            raise ValueError("observe time-series requests must omit dimensions")
+        return self
 
 
 class Observe3(BaseModel):
@@ -289,20 +274,15 @@ class Observe3(BaseModel):
     )
     metric: str = Field(..., min_length=1)
     time_scope: TimeScope
-    filter: Expression | None
-    granularity: Literal["hour", "day", "week", "month", "quarter", "year"] | None = None
+    filter: Expression = None  # type: ignore[assignment]
+    granularity: Literal["hour", "day", "week", "month", "quarter", "year"] = None  # type: ignore[assignment]
     dimensions: list[Dimension] = Field(..., min_length=1)
 
-
-class Observe4(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    metric: str = Field(..., min_length=1)
-    time_scope: TimeScope
-    filter: Expression | None
-    granularity: Literal["hour", "day", "week", "month", "quarter", "year"] | None
-    dimensions: Dimensions2 | None
+    @model_validator(mode="after")
+    def _validate_segmented_branch(self) -> Observe3:
+        if self.granularity is not None:
+            raise ValueError("observe segmented requests must omit granularity")
+        return self
 
 
 class AnomalyCandidatesResult(BaseModel):
@@ -367,7 +347,7 @@ class Slice(BaseModel):
         extra="forbid",
     )
     time_scope: TimeScope
-    filter: Expression | None
+    filter: Expression = None  # type: ignore[assignment]
 
 
 class Artifact1(BaseModel):
@@ -435,7 +415,6 @@ class AoiV01(
         | Observe1
         | Observe2
         | Observe3
-        | Observe4
         | Artifact1
         | Artifact2
     ]
@@ -450,7 +429,6 @@ class AoiV01(
         | Observe1
         | Observe2
         | Observe3
-        | Observe4
         | Artifact1
         | Artifact2
     ) = Field(

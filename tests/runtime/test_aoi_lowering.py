@@ -7,16 +7,14 @@ from marivo.runtime.aoi_lowering import lower_aoi_request
 
 
 def test_lowers_observe_request_to_runner_params() -> None:
-    request = aoi.Observe1(
+    request = aoi.Observe2(
         metric="view_time",
         time_scope=aoi.TimeScope(
             field="event_time",
             start=datetime(2026, 5, 1, tzinfo=UTC),
             end=datetime(2026, 5, 8, tzinfo=UTC),
         ),
-        filter=None,
         granularity="day",
-        dimensions=None,
     )
 
     assert lower_aoi_request("observe", request) == {

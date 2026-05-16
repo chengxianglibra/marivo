@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -104,9 +105,6 @@ def test_observe_accepts_aoi_request_and_returns_execution_envelope() -> None:
                 "start": "2026-01-01T00:00:00Z",
                 "end": "2026-01-08T00:00:00Z",
             },
-            "filter": None,
-            "granularity": None,
-            "dimensions": None,
         },
     )
 
@@ -136,7 +134,6 @@ def test_observe_rejects_legacy_time_scope_shape() -> None:
                 "start": "2026-01-01T00:00:00Z",
                 "end": "2026-01-08T00:00:00Z",
             },
-            "filter": None,
         },
     )
 
@@ -155,7 +152,6 @@ def test_detect_accepts_aoi_request_with_strategy_and_dimension() -> None:
                 "end": "2026-01-08T00:00:00Z",
             },
             "granularity": "day",
-            "filter": None,
             "dimension": "region",
             "strategy": "period_shift",
             "sensitivity": "balanced",
@@ -165,8 +161,7 @@ def test_detect_accepts_aoi_request_with_strategy_and_dimension() -> None:
 
     assert response.status_code == 200, response.text
     assert isinstance(runtime.detect_payload, aoi.Detect)
-    assert runtime.detect_payload.dimension is not None
-    assert runtime.detect_payload.dimension.root == "region"
+    assert runtime.detect_payload.dimension == "region"
     assert runtime.detect_payload.strategy == "period_shift"
     assert runtime.detect_payload.sensitivity == "balanced"
 
@@ -182,7 +177,6 @@ def test_detect_rejects_removed_split_by_profile_fields() -> None:
                 "end": "2026-01-08T00:00:00Z",
             },
             "granularity": "day",
-            "filter": None,
             "strategy": "point_anomaly",
             "split_by": ["region"],
             "profile": "auto",
@@ -203,7 +197,6 @@ def test_detect_requires_strategy() -> None:
                 "end": "2026-01-08T00:00:00Z",
             },
             "granularity": "day",
-            "filter": None,
         },
     )
 
@@ -218,16 +211,14 @@ def _valid_test_request() -> dict[str, Any]:
                 "field": "event_time",
                 "start": "2026-01-01T00:00:00Z",
                 "end": "2026-01-08T00:00:00Z",
-            },
-            "filter": None,
+            }
         },
         "right": {
             "time_scope": {
                 "field": "event_time",
                 "start": "2026-01-08T00:00:00Z",
                 "end": "2026-01-15T00:00:00Z",
-            },
-            "filter": None,
+            }
         },
         "kind": "numeric",
         "hypothesis": {
@@ -236,6 +227,50 @@ def _valid_test_request() -> dict[str, Any]:
             "significance": "balanced",
         },
     }
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "payload"),
+    [
+        (
+            "/sessions/sess_1/intents/observe",
+            {
+                "metric": "metric.revenue",
+                "time_scope": {
+                    "field": "event_time",
+                    "start": "2026-01-01T00:00:00Z",
+                    "end": "2026-01-08T00:00:00Z",
+                },
+                "filter": None,
+            },
+        ),
+        (
+            "/sessions/sess_1/intents/detect",
+            {
+                "metric": "metric.revenue",
+                "time_scope": {
+                    "field": "event_time",
+                    "start": "2026-01-01T00:00:00Z",
+                    "end": "2026-01-08T00:00:00Z",
+                },
+                "granularity": "day",
+                "filter": None,
+                "strategy": "point_anomaly",
+            },
+        ),
+        (
+            "/sessions/sess_1/intents/forecast",
+            {"source_artifact_id": "art_timeseries", "horizon": 14, "profile": None},
+        ),
+    ],
+)
+def test_aoi_request_optional_fields_reject_explicit_null(
+    endpoint: str,
+    payload: dict[str, Any],
+) -> None:
+    response = _client(_FakeRuntime()).post(endpoint, json=payload)
+
+    assert response.status_code == 422
 
 
 def test_test_accepts_aoi_request_and_returns_execution_envelope() -> None:

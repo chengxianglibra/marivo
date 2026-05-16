@@ -17,7 +17,7 @@ from marivo.contracts.generated import aoi
 def lower_aoi_request(intent_type: str, request: AoiAtomicRequest) -> dict[str, Any]:
     assert_request_matches_intent(intent_type, request)
 
-    if isinstance(request, (aoi.Observe1, aoi.Observe2, aoi.Observe3, aoi.Observe4)):
+    if isinstance(request, (aoi.Observe1, aoi.Observe2, aoi.Observe3)):
         return _lower_observe(request)
     if isinstance(request, aoi.Compare):
         return {
@@ -54,7 +54,7 @@ def lower_aoi_request(intent_type: str, request: AoiAtomicRequest) -> dict[str, 
 
 
 def _lower_observe(
-    request: aoi.Observe1 | aoi.Observe2 | aoi.Observe3 | aoi.Observe4,
+    request: aoi.Observe1 | aoi.Observe2 | aoi.Observe3,
 ) -> dict[str, Any]:
     params: dict[str, Any] = {
         "metric": request.metric,

@@ -117,6 +117,159 @@ def test_aoi_timescope_requires_field() -> None:
         )
 
 
+def test_aoi_request_optional_fields_may_be_omitted() -> None:
+    from marivo.contracts.generated import aoi
+
+    time_scope = {
+        "field": "event_time",
+        "start": "2026-01-01T00:00:00Z",
+        "end": "2026-01-02T00:00:00Z",
+    }
+
+    aoi.Observe1.model_validate({"metric": "revenue", "time_scope": time_scope})
+    aoi.Detect.model_validate(
+        {
+            "metric": "revenue",
+            "time_scope": time_scope,
+            "granularity": "day",
+            "strategy": "point_anomaly",
+        }
+    )
+    aoi.Test.model_validate(
+        {
+            "metric": "revenue",
+            "left": {"time_scope": time_scope},
+            "right": {"time_scope": time_scope},
+            "kind": "numeric",
+            "hypothesis": {
+                "family": "two_sample_mean",
+                "alternative": "two_sided",
+                "significance": "balanced",
+            },
+        }
+    )
+    aoi.Compare.model_validate(
+        {"left_artifact_id": "artifact_left", "right_artifact_id": "artifact_right"}
+    )
+    aoi.Decompose.model_validate({"compare_artifact_id": "artifact_compare", "dimension": "region"})
+    aoi.Correlate.model_validate(
+        {"left_artifact_id": "artifact_left", "right_artifact_id": "artifact_right"}
+    )
+    aoi.Forecast.model_validate({"source_artifact_id": "artifact_source", "horizon": 7})
+
+
+@pytest.mark.parametrize(
+    ("model_name", "payload"),
+    [
+        (
+            "Observe1",
+            {
+                "metric": "revenue",
+                "time_scope": {
+                    "field": "event_time",
+                    "start": "2026-01-01T00:00:00Z",
+                    "end": "2026-01-02T00:00:00Z",
+                },
+                "filter": None,
+            },
+        ),
+        (
+            "Observe1",
+            {
+                "metric": "revenue",
+                "time_scope": {
+                    "field": "event_time",
+                    "start": "2026-01-01T00:00:00Z",
+                    "end": "2026-01-02T00:00:00Z",
+                },
+                "granularity": None,
+            },
+        ),
+        (
+            "Detect",
+            {
+                "metric": "revenue",
+                "time_scope": {
+                    "field": "event_time",
+                    "start": "2026-01-01T00:00:00Z",
+                    "end": "2026-01-02T00:00:00Z",
+                },
+                "granularity": "day",
+                "filter": None,
+                "strategy": "point_anomaly",
+            },
+        ),
+        (
+            "Compare",
+            {
+                "left_artifact_id": "artifact_left",
+                "right_artifact_id": "artifact_right",
+                "compare_type": None,
+            },
+        ),
+        (
+            "Decompose",
+            {"compare_artifact_id": "artifact_compare", "dimension": "region", "limit": None},
+        ),
+        (
+            "Correlate",
+            {
+                "left_artifact_id": "artifact_left",
+                "right_artifact_id": "artifact_right",
+                "method": None,
+            },
+        ),
+        ("Forecast", {"source_artifact_id": "artifact_source", "horizon": 7, "profile": None}),
+        (
+            "Slice",
+            {
+                "time_scope": {
+                    "field": "event_time",
+                    "start": "2026-01-01T00:00:00Z",
+                    "end": "2026-01-02T00:00:00Z",
+                },
+                "filter": None,
+            },
+        ),
+    ],
+)
+def test_aoi_request_optional_fields_reject_explicit_null(
+    model_name: str,
+    payload: dict[str, Any],
+) -> None:
+    from marivo.contracts.generated import aoi
+
+    model = getattr(aoi, model_name)
+
+    with pytest.raises(ValidationError):
+        model.model_validate(payload)
+
+
+def test_aoi_result_nullable_fields_still_accept_explicit_null() -> None:
+    from marivo.contracts.generated import aoi
+
+    aoi.ScalarObservationResult.model_validate({"value": None})
+    aoi.ScalarDeltaResult.model_validate(
+        {
+            "left_value": None,
+            "right_value": None,
+            "delta": None,
+            "matched_time_scope": None,
+        }
+    )
+    aoi.AssociationResult.model_validate(
+        {"coefficient": 0.2, "p_value": None, "n_pairs": 10, "matched_time_scope": None}
+    )
+    aoi.HypothesisTestResult.model_validate(
+        {
+            "statistic": 1.2,
+            "p_value": 0.04,
+            "decision": {"reject_null": None},
+            "assumption_notes": [],
+        }
+    )
+
+
 def test_additive_dimensions_validation() -> None:
     """additive_dimensions defaults to empty list; empty list means non-additive."""
     from marivo.transports.http.models.marivo_extensions import MarivoMetricExtension

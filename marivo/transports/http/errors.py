@@ -367,7 +367,6 @@ _GUIDED_EXAMPLES: dict[tuple[str, str], list[dict[str, Any]]] = {
                     "end": "2026-04-08T00:00:00Z",
                 },
                 "granularity": "day",
-                "filter": None,
                 "strategy": "point_anomaly",
             },
         }

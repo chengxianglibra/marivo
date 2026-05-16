@@ -120,7 +120,7 @@ slice:
   # Required: time range for this side of the test.
   time_scope: time_scope
 
-  # Required, nullable: filter expression for this side of the test. Null means no filter.
+  # Optional: filter expression for this side of the test. Omit when there is no filter.
   filter: expression
 
 # Requests
@@ -133,13 +133,13 @@ observe:
   # Required: analysis time range.
   time_scope: time_scope
 
-  # Required, nullable: filter expression. Null means no filter.
+  # Optional: filter expression. Omit when there is no filter.
   filter: expression
 
-  # Optional, nullable: mode selector. Non-null value from time_granularities requests a time_series_observation_result.
+  # Optional: mode selector. A value from time_granularities requests a time_series_observation_result.
   granularity: time_granularities
 
-  # Optional, nullable: mode selector. Non-empty string list requests a segmented_observation_result.
+  # Optional: mode selector. Non-empty string list requests a segmented_observation_result.
   dimensions: string[]
 
 # Compare two upstream artifacts and produce a delta result.
@@ -186,10 +186,10 @@ detect:
   # Required: bucket size for anomaly detection, one of time_granularities.
   granularity: time_granularities
 
-  # Required, nullable: filter expression. Null means no filter.
+  # Optional: filter expression. Omit when there is no filter.
   filter: expression
 
-  # Optional, nullable: single dimension used to split independent anomaly series.
+  # Optional: single dimension used to split independent anomaly series.
   dimension: string
 
   # Required: detection strategy, one of detect_strategies.
@@ -198,7 +198,7 @@ detect:
   # Optional: detection sensitivity preset, one of detect_sensitivities. Omitted means aggressive.
   sensitivity: detect_sensitivities
 
-  # Optional, nullable: maximum number of anomaly candidates to return, range [1, +infinity).
+  # Optional: maximum number of anomaly candidates to return, range [1, +infinity).
   limit: integer
 
 # Run a statistical test between two source slices.
@@ -226,7 +226,7 @@ forecast:
   # Required: number of future buckets to forecast, range [1, +infinity).
   horizon: integer
 
-  # Optional, nullable: implementation-defined forecasting profile name.
+  # Optional: implementation-defined forecasting profile name.
   profile: string
 
 # Artifact envelope and result variants

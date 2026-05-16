@@ -28,7 +28,6 @@ def _observe_request() -> aoi.Observe1:
     return aoi.Observe1(
         metric="view_time",
         time_scope=_time_scope(),
-        filter=None,
     )
 
 
@@ -45,7 +44,7 @@ def test_runtime_intent_envelope_accepts_generated_observe_request() -> None:
 
 
 def test_assert_request_matches_intent_rejects_operation_mismatch() -> None:
-    request = aoi.Forecast(horizon=7, profile=None, source_artifact_id="artifact_1")
+    request = aoi.Forecast(horizon=7, source_artifact_id="artifact_1")
 
     with pytest.raises(ValueError, match="AOI_OPERATION_MISMATCH"):
         assert_request_matches_intent("compare", request)

@@ -227,14 +227,14 @@ The request contract is per-intent. Every request is either **source-type** (tak
 {
   "metric": "string",
   "time_scope": TimeScope,
-  "filter": Expression | null,
+  "filter": Expression, // optional; omit when there is no filter
 
   // exactly one mode branch:
-  // - scalar: omit both granularity and dimensions, or set both to null
-  // - time_series: set granularity to a non-null TimeGranularity
+  // - scalar: omit both granularity and dimensions
+  // - time_series: set granularity to a TimeGranularity
   // - segmented: set dimensions to a non-empty array
-  "granularity": TimeGranularity | null,
-  "dimensions": [string] | null  // when present, minItems: 1
+  "granularity": TimeGranularity,
+  "dimensions": [string]  // when present, minItems: 1
 }
 ```
 
@@ -242,11 +242,11 @@ Mapping to result shape:
 
 | Request selectors | Derived mode | Result schema |
 |-------------------|--------------|---------------|
-| no `granularity`, no `dimensions`; or both explicitly `null` | `scalar` | `scalar_observation_result` |
-| non-null `granularity`, no `dimensions` or `dimensions: null` | `time_series` | `time_series_observation_result` |
-| no `granularity` or `granularity: null`, non-empty `dimensions` | `segmented` | `segmented_observation_result` |
+| no `granularity`, no `dimensions` | `scalar` | `scalar_observation_result` |
+| `granularity` present, no `dimensions` | `time_series` | `time_series_observation_result` |
+| no `granularity`, non-empty `dimensions` | `segmented` | `segmented_observation_result` |
 
-Schema enforces the three branches with `oneOf`. Non-null `granularity` and non-null `dimensions` are mutually exclusive; `dimensions: []` is invalid rather than a scalar alias.
+Schema enforces the three branches with `oneOf`. `granularity` and `dimensions` are mutually exclusive; `dimensions: []` is invalid rather than a scalar alias. Optional request fields are omitted when unused; explicit `null` is not a valid AOI request value.
 
 ### 4.2 Response (Artifact) Contract
 

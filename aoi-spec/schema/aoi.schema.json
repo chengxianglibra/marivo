@@ -138,22 +138,14 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "time_scope",
-          "filter"
+          "time_scope"
         ],
         "properties": {
           "time_scope": {
             "$ref": "#/$defs/primitives/TimeScope"
           },
           "filter": {
-            "anyOf": [
-              {
-                "$ref": "#/$defs/primitives/Expression"
-              },
-              {
-                "type": "null"
-              }
-            ]
+            "$ref": "#/$defs/primitives/Expression"
           }
         }
       },
@@ -231,8 +223,7 @@
         "additionalProperties": false,
         "required": [
           "metric",
-          "time_scope",
-          "filter"
+          "time_scope"
         ],
         "properties": {
           "metric": {
@@ -243,39 +234,18 @@
             "$ref": "#/$defs/primitives/TimeScope"
           },
           "filter": {
-            "anyOf": [
-              {
-                "$ref": "#/$defs/primitives/Expression"
-              },
-              {
-                "type": "null"
-              }
-            ]
+            "$ref": "#/$defs/primitives/Expression"
           },
           "granularity": {
-            "anyOf": [
-              {
-                "$ref": "#/$defs/primitives/TimeGranularity"
-              },
-              {
-                "type": "null"
-              }
-            ]
+            "$ref": "#/$defs/primitives/TimeGranularity"
           },
           "dimensions": {
-            "anyOf": [
-              {
-                "type": "array",
-                "minItems": 1,
-                "items": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              },
-              {
-                "type": "null"
-              }
-            ]
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
           }
         },
         "oneOf": [
@@ -337,20 +307,6 @@
               ]
             },
             "required": [
-              "dimensions"
-            ]
-          },
-          {
-            "properties": {
-              "granularity": {
-                "type": "null"
-              },
-              "dimensions": {
-                "type": "null"
-              }
-            },
-            "required": [
-              "granularity",
               "dimensions"
             ]
           }
@@ -427,7 +383,6 @@
           "metric",
           "time_scope",
           "granularity",
-          "filter",
           "strategy"
         ],
         "properties": {
@@ -442,25 +397,11 @@
             "$ref": "#/$defs/primitives/TimeGranularity"
           },
           "filter": {
-            "anyOf": [
-              {
-                "$ref": "#/$defs/primitives/Expression"
-              },
-              {
-                "type": "null"
-              }
-            ]
+            "$ref": "#/$defs/primitives/Expression"
           },
           "dimension": {
-            "anyOf": [
-              {
-                "type": "string",
-                "minLength": 1
-              },
-              {
-                "type": "null"
-              }
-            ]
+            "type": "string",
+            "minLength": 1
           },
           "strategy": {
             "type": "string",
@@ -479,15 +420,8 @@
             ]
           },
           "limit": {
-            "anyOf": [
-              {
-                "type": "integer",
-                "minimum": 1
-              },
-              {
-                "type": "null"
-              }
-            ]
+            "type": "integer",
+            "minimum": 1
           }
         }
       },
@@ -533,14 +467,7 @@
             "minimum": 1
           },
           "profile": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
+            "type": "string"
           },
           "source_artifact_id": {
             "type": "string",
