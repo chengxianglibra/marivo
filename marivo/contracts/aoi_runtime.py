@@ -21,6 +21,7 @@ AoiAtomicRequest: TypeAlias = (  # noqa: UP040 - mypy hook does not support PEP 
     | aoi.Observe2
     | aoi.Observe3
 )
+AoiDerivedRequest: TypeAlias = aoi.Validate  # noqa: UP040
 AoiArtifact: TypeAlias = aoi.Artifact1 | aoi.Artifact2  # noqa: UP040
 
 
@@ -39,19 +40,19 @@ class _CanonicalFailureArtifactShape(BaseModel):
 
 
 class RuntimeIntentEnvelope(BaseModel):
-    """Marivo runtime metadata around a generated AOI atomic request."""
+    """Marivo runtime metadata around a generated AOI request."""
 
     model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
 
     session_id: str
     actor: str | None = None
-    request: AoiAtomicRequest
+    request: AoiAtomicRequest | AoiDerivedRequest
 
 
 @dataclass(frozen=True)
 class AoiOperationDefinition:
     intent_type: str
-    request_types: tuple[type[AoiAtomicRequest], ...]
+    request_types: tuple[type[AoiAtomicRequest | AoiDerivedRequest], ...]
 
 
 AOI_OPERATION_REGISTRY: dict[str, AoiOperationDefinition] = {
@@ -67,6 +68,10 @@ AOI_OPERATION_REGISTRY: dict[str, AoiOperationDefinition] = {
     "test": AoiOperationDefinition("test", (aoi.Test,)),
 }
 
+AOI_DERIVED_OPERATION_REGISTRY: dict[str, AoiOperationDefinition] = {
+    "validate": AoiOperationDefinition("validate", (aoi.Validate,)),
+}
+
 
 def assert_request_matches_intent(
     intent_type: str,
@@ -78,6 +83,20 @@ def assert_request_matches_intent(
     if not isinstance(request, definition.request_types):
         raise ValueError(
             f"AOI_OPERATION_MISMATCH: intent_type={intent_type} "
+            f"request_type={type(request).__name__}"
+        )
+
+
+def assert_derived_request_matches_intent(
+    intent_type: str,
+    request: AoiDerivedRequest,
+) -> None:
+    definition = AOI_DERIVED_OPERATION_REGISTRY.get(intent_type)
+    if definition is None:
+        raise ValueError(f"AOI_DERIVED_OPERATION_UNKNOWN: {intent_type}")
+    if not isinstance(request, definition.request_types):
+        raise ValueError(
+            f"AOI_DERIVED_OPERATION_MISMATCH: intent_type={intent_type} "
             f"request_type={type(request).__name__}"
         )
 

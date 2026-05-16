@@ -412,38 +412,31 @@ async def test_stdio_validate_injects_fixed_hypothesis_family() -> None:
     )
 
     assert result == {"data": {"validated": True}, "error": None}
-    assert runtime.intent_calls == [
-        (
-            "validate",
-            {
-                "session_id": "sess_test",
-                "params": {
-                    "metric": "view_time",
-                    "left": {
-                        "time_scope": {
-                            "field": "log_time",
-                            "start": "2026-05-01T00:00:00Z",
-                            "end": "2026-05-08T00:00:00Z",
-                        },
-                        "scope": None,
-                    },
-                    "right": {
-                        "time_scope": {
-                            "field": "log_time",
-                            "start": "2026-04-24T00:00:00Z",
-                            "end": "2026-05-01T00:00:00Z",
-                        },
-                        "scope": None,
-                    },
-                    "hypothesis": {
-                        "family": "two_sample_mean",
-                        "alternative": "greater",
-                        "significance": "balanced",
-                    },
-                },
-            },
-        )
-    ]
+    assert runtime.intent_calls[0][0] == "validate"
+    assert runtime.intent_calls[0][1]["session_id"] == "sess_test"
+    request = runtime.intent_calls[0][1]["request"]
+    assert request.model_dump(mode="json", exclude_none=True) == {
+        "metric": "view_time",
+        "left": {
+            "time_scope": {
+                "field": "log_time",
+                "start": "2026-05-01T00:00:00Z",
+                "end": "2026-05-08T00:00:00Z",
+            }
+        },
+        "right": {
+            "time_scope": {
+                "field": "log_time",
+                "start": "2026-04-24T00:00:00Z",
+                "end": "2026-05-01T00:00:00Z",
+            }
+        },
+        "hypothesis": {
+            "family": "two_sample_mean",
+            "alternative": "greater",
+            "significance": "balanced",
+        },
+    }
 
 
 @pytest.mark.asyncio
@@ -478,9 +471,10 @@ async def test_stdio_validate_preserves_partial_hypothesis_defaults() -> None:
     )
 
     assert result == {"data": {"validated": True}, "error": None}
-    assert runtime.intent_calls[0][1]["params"]["hypothesis"] == {
+    assert runtime.intent_calls[0][1]["request"].model_dump(mode="json")["hypothesis"] == {
         "family": "two_sample_mean",
         "alternative": "greater",
+        "significance": "balanced",
     }
 
 

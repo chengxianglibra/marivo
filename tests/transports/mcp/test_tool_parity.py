@@ -324,8 +324,15 @@ def test_validate_hypothesis_schema_omits_fixed_family() -> None:
     tools = {tool.name: tool for tool in server._tool_manager.list_tools()}
 
     properties = tools["validate"].parameters["properties"]
+    slice_schema = tools["validate"].parameters["$defs"]["McpAoiSliceRef"]
     hypothesis_schema = tools["validate"].parameters["$defs"]["McpValidateHypothesis"]
 
+    assert "method" not in properties
+    assert properties["left"] == {"$ref": "#/$defs/McpAoiSliceRef"}
+    assert properties["right"] == {"$ref": "#/$defs/McpAoiSliceRef"}
+    assert slice_schema["additionalProperties"] is False
+    assert set(slice_schema["properties"]) == {"time_scope", "filter"}
+    assert "scope" not in slice_schema["properties"]
     assert properties["hypothesis"]["anyOf"][0] == {"$ref": "#/$defs/McpValidateHypothesis"}
     assert hypothesis_schema["additionalProperties"] is False
     assert "required" not in hypothesis_schema

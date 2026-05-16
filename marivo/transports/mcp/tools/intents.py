@@ -197,6 +197,31 @@ def to_aoi_test_request(
     )
 
 
+def to_aoi_validate_request(
+    metric: str,
+    left: McpAoiSliceRef,
+    right: McpAoiSliceRef,
+    hypothesis: McpValidateHypothesis | dict[str, Any] | None = None,
+) -> aoi.Validate:
+    hypothesis_model = (
+        hypothesis
+        if isinstance(hypothesis, McpValidateHypothesis)
+        else McpValidateHypothesis.model_validate(hypothesis or {})
+    )
+    return aoi.Validate.model_validate(
+        {
+            "metric": metric,
+            "left": _to_aoi_slice(left),
+            "right": _to_aoi_slice(right),
+            "hypothesis": {
+                "family": "two_sample_mean",
+                "alternative": hypothesis_model.alternative or "two_sided",
+                "significance": hypothesis_model.significance or "balanced",
+            },
+        }
+    )
+
+
 def register_observe(server: Any, runtime: Any) -> None:
     @server.tool()  # type: ignore
     async def observe(
@@ -478,21 +503,14 @@ def register_validate(server: Any, runtime: Any) -> None:
     async def validate(
         session_id: str,
         metric: str,
-        left: McpSliceRef,
-        right: McpSliceRef,
+        left: McpAoiSliceRef,
+        right: McpAoiSliceRef,
         hypothesis: McpValidateHypothesis | None = None,
-        method: Literal["auto", "welch_t"] | None = None,
     ) -> dict[str, Any]:
-        params: dict[str, Any] = {
-            "metric": metric,
-            "left": left.model_dump(),
-            "right": right.model_dump(),
-        }
-        if hypothesis is not None:
-            params["hypothesis"] = {
-                "family": "two_sample_mean",
-                **hypothesis.model_dump(exclude_none=True),
-            }
-        if method is not None:
-            params["method"] = method
-        return await call_runtime(runtime.validate, session_id=session_id, params=params)
+        request = to_aoi_validate_request(
+            metric=metric,
+            left=left,
+            right=right,
+            hypothesis=hypothesis,
+        )
+        return await call_runtime(runtime.validate, session_id=session_id, request=request)

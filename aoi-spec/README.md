@@ -1,14 +1,14 @@
-# AOI v0.1
+# AOI v0.2
 
-AOI (Analysis Operation Interface) is a schema-only standard for analysis operation contracts. It defines how callers invoke atomic analysis intents and how implementations return portable artifacts.
+AOI (Analysis Operation Interface) is a schema-only standard for analysis operation contracts. It defines how callers invoke atomic analysis intents, derived request contracts, and consume portable artifacts.
 
 ## Status
 
-Version: 0.1.0
+Version: 0.2.0
 
 Status: draft
 
-AOI v0.1 defines foundation primitives, seven atomic intents, artifact contracts, and failure contracts. It does not define transport, runtime sessions, private metadata, derived intents, capability subsets, or a conformance test suite.
+AOI v0.2 defines foundation primitives, seven atomic intents, one derived request contract (`validate`), artifact contracts, and failure contracts. It does not define transport, runtime sessions, private metadata, arbitrary DAG composition, capability subsets, or a conformance test suite.
 
 ## Layout
 
@@ -29,6 +29,7 @@ aoi-spec/
     detect/
     test/
     forecast/
+    validate/
 ```
 
 `schema/aoi.schema.json` is the canonical validation entry point. It keeps all reusable types under `$defs` so the public schema can be copied, reviewed, and validated without resolving cross-file references. `schema/aoi.schema.yaml` is an OSI-style readable contract view with top-level enumerations and snake_case schema names.
@@ -41,7 +42,7 @@ From the repository root:
 npx --yes ajv-cli@5.0.0 validate --spec=draft2020 -s aoi-spec/schema/aoi.schema.json -d "aoi-spec/examples/**/*.json"
 ```
 
-The command validates every JSON example against the AOI v0.1 schema.
+The command validates every JSON example against the AOI v0.2 schema.
 
 Each intent directory contains request examples, successful artifact examples, and blocking failure artifact examples. Intents with multiple parameter or result shapes include separate examples for those shapes, such as scalar/time-series/segmented observe and compare requests.
 
@@ -51,11 +52,12 @@ Included:
 
 - Foundation primitives: `Expression`, `TimeScope`, `TimeGranularity`, `CompareType`, `AnalysisFailure`, `Hypothesis`
 - Atomic requests: `observe`, `compare`, `decompose`, `correlate`, `detect`, `test`, `forecast`
+- Derived requests: `validate`
 - Artifact types: `scalar_observation`, `time_series_observation`, `segmented_observation`, `scalar_delta`, `time_series_delta`, `segmented_delta`, `delta_decomposition`, `anomaly_candidates`, `association_result`, `hypothesis_test_result`, `forecast_series`
 
-Excluded from v0.1:
+Excluded from v0.2:
 
-- Derived intents such as `attribute`, `diagnose`, and `validate`
+- Derived intents other than `validate`, such as `attribute` and `diagnose`
 - Composition or DAG schemas
 - Transport bindings
 - Runtime sessions, evidence graphs, planning, and caching

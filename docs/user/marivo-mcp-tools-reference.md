@@ -1430,10 +1430,18 @@ interface AttributeArtifact {
   "session_id": "ses_abc123",
   "metric": "total_query_count",
   "left": {
-    "time_scope": { "field": "create_time", "start": "2025-02-25", "end": "2025-03-04" }
+    "time_scope": {
+      "field": "create_time",
+      "start": "2025-02-25T00:00:00Z",
+      "end": "2025-03-04T00:00:00Z"
+    }
   },
   "right": {
-    "time_scope": { "field": "create_time", "start": "2025-03-04", "end": "2025-03-11" }
+    "time_scope": {
+      "field": "create_time",
+      "start": "2025-03-04T00:00:00Z",
+      "end": "2025-03-11T00:00:00Z"
+    }
   },
   "dimensions": ["cluster"],
   "decomposition_limit": 5
@@ -1681,17 +1689,15 @@ interface TestIntentArtifact {
 |------|------|------|------|
 | session_id | string | 是 | 会话ID |
 | metric | string | 是 | 语义指标名称 |
-| left | McpSliceRef | 是 | 左侧时间切片，支持 derived intent `scope` |
-| right | McpSliceRef | 是 | 右侧时间切片，支持 derived intent `scope` |
+| left | McpAoiSliceRef | 是 | 左侧 AOI 切片：`time_scope` + 可选 `filter` |
+| right | McpAoiSliceRef | 是 | 右侧 AOI 切片：`time_scope` + 可选 `filter` |
 
 可选参数：
 
 | 参数 | 类型 | 必填 | 默认 | 说明 |
 |------|------|------|------|------|
 | hypothesis | object | 否 | 省略 | 可包含 `alternative`、`significance`；不暴露 `family`，未传字段沿用运行时默认值 |
-| method | `"auto"` \| `"welch_t"` \| null | 否 | null | 验证方法 |
-
-注意：MCP 层不暴露 `hypothesis.family`；适配层内部固定为 `"two_sample_mean"`。`hypothesis` 不支持 `family`、`alpha` 或 `label` 字段。
+注意：MCP 层不暴露 `hypothesis.family`；适配层内部固定为 `"two_sample_mean"`，并在进入 runtime 前构造 generated AOI `Validate` 模型。`hypothesis` 不支持 `family`、`alpha` 或 `label` 字段；`validate` 不支持 `method` 或 derived `scope`。
 
 **输入示例**：
 
@@ -1984,7 +1990,7 @@ interface McpTimeScope {
 
 ### 4.2 McpSliceRef
 
-派生 intent 切片引用：时间范围 + 可选人口限定。用于 `attribute`、`diagnose`、`validate`。
+派生 intent 切片引用：时间范围 + 可选人口限定。用于 `attribute`、`diagnose`。
 
 ```typescript
 interface McpSliceRef {
@@ -2004,7 +2010,7 @@ interface McpSliceRef {
 
 ### 4.3 McpAoiSliceRef
 
-AOI-aligned 切片引用：时间范围 + 可选 AOI 过滤表达式。用于 `test_intent`。
+AOI-aligned 切片引用：时间范围 + 可选 AOI 过滤表达式。用于 `test_intent`、`validate`。
 
 ```typescript
 interface McpAoiSliceRef {
@@ -2103,7 +2109,7 @@ interface AnalysisFailure {
 - `observe`/`detect` 的 `filter_expression` 必须为 `McpExpression` 结构化对象，不接受 JSON 字符串
 - `test_intent` 在 MCP 层不暴露固定的 `kind` 或 `hypothesis.family`；适配层内部固定为 AOI `kind="numeric"` 和 `hypothesis.family="two_sample_mean"`，使用 `hypothesis.significance` 选择显著性档位，无 `method`、`hypothesis.alpha` 或 `hypothesis.label` 参数
 - `test_intent.left/right` 使用 `McpAoiSliceRef`，支持 `filter`，不支持 derived intent 的 `scope`
-- `validate.hypothesis` 不暴露 `family`；适配层内部固定为 `"two_sample_mean"`，不支持 `alpha` 或 `label`
+- `validate.left/right` 使用 `McpAoiSliceRef`，进入 runtime 前会构造 generated AOI `Validate` 模型；`validate.hypothesis` 不暴露 `family`，不支持 `alpha`、`label` 或 `method`
 - `correlate` 仅支持 `"pearson"` 和 `"spearman"` 方法，不支持 `"kendall"`
 - `decompose` 仅支持 `"delta_share"` 方法，无 method 参数
 

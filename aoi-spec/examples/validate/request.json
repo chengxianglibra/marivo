@@ -1,0 +1,30 @@
+{
+  "metric": "metric.order_revenue",
+  "left": {
+    "time_scope": {
+      "field": "order_date",
+      "start": "2026-01-01T00:00:00Z",
+      "end": "2026-02-01T00:00:00Z"
+    },
+    "filter": {
+      "dialects": [
+        {
+          "dialect": "ANSI_SQL",
+          "expression": "region = 'US'"
+        }
+      ]
+    }
+  },
+  "right": {
+    "time_scope": {
+      "field": "order_date",
+      "start": "2025-01-01T00:00:00Z",
+      "end": "2025-02-01T00:00:00Z"
+    }
+  },
+  "hypothesis": {
+    "family": "two_sample_mean",
+    "alternative": "greater",
+    "significance": "balanced"
+  }
+}

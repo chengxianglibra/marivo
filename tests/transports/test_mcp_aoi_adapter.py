@@ -10,6 +10,7 @@ from marivo.transports.mcp.tools.intents import (
     to_aoi_forecast_request,
     to_aoi_observe_request,
     to_aoi_test_request,
+    to_aoi_validate_request,
 )
 from marivo.transports.mcp.tools.schemas import (
     McpAoiSliceRef,
@@ -171,6 +172,41 @@ def test_to_aoi_test_request_builds_test_model() -> None:
     assert request.hypothesis.family == "two_sample_mean"
     assert "filter" not in request.model_dump(exclude_none=True)["left"]
     assert request.hypothesis.alternative == "greater"
+
+
+def test_to_aoi_validate_request_builds_validate_model_with_defaults() -> None:
+    request = to_aoi_validate_request(
+        metric="view_time",
+        left=_slice("2026-05-01T00:00:00Z", "2026-05-08T00:00:00Z"),
+        right=_slice("2026-04-24T00:00:00Z", "2026-05-01T00:00:00Z"),
+    )
+
+    assert isinstance(request, aoi.Validate)
+    assert request.hypothesis.family == "two_sample_mean"
+    assert request.hypothesis.alternative == "two_sided"
+    assert request.hypothesis.significance == "balanced"
+    assert "filter" not in request.model_dump(exclude_none=True)["left"]
+
+
+def test_to_aoi_validate_request_preserves_aoi_slice_filter() -> None:
+    request = to_aoi_validate_request(
+        metric="view_time",
+        left=_slice(
+            "2026-05-01T00:00:00Z",
+            "2026-05-08T00:00:00Z",
+            McpExpression(dialects=[{"dialect": "ANSI_SQL", "expression": "region = 'US'"}]),
+        ),
+        right=_slice("2026-04-24T00:00:00Z", "2026-05-01T00:00:00Z"),
+        hypothesis=McpValidateHypothesis(alternative="greater"),
+    )
+
+    assert isinstance(request, aoi.Validate)
+    assert request.left.filter is not None
+    assert request.left.filter.model_dump(exclude_none=True) == {
+        "dialects": [{"dialect": "ANSI_SQL", "expression": "region = 'US'"}]
+    }
+    assert request.hypothesis.alternative == "greater"
+    assert request.hypothesis.significance == "balanced"
 
 
 def test_to_aoi_test_request_preserves_aoi_slice_filter() -> None:

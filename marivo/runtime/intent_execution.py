@@ -9,9 +9,13 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
-from marivo.contracts.aoi_runtime import AoiAtomicRequest, assert_request_matches_intent
+from marivo.contracts.aoi_runtime import (
+    AoiAtomicRequest,
+    AoiDerivedRequest,
+    assert_request_matches_intent,
+)
 from marivo.contracts.ids import SessionId
-from marivo.runtime.aoi_lowering import lower_aoi_request
+from marivo.runtime.aoi_lowering import lower_aoi_derived_request, lower_aoi_request
 from marivo.runtime.intents.attribute import run_attribute_intent
 from marivo.runtime.intents.compare import run_compare_intent
 from marivo.runtime.intents.correlate import run_correlate_intent
@@ -85,9 +89,9 @@ def test(
 
 
 def validate(
-    runtime: MarivoRuntime, session_id: SessionId, params: dict[str, Any]
+    runtime: MarivoRuntime, session_id: SessionId, request: AoiDerivedRequest
 ) -> dict[str, Any]:
-    return _run_derived(runtime, "validate", session_id, params)
+    return _run_aoi_derived(runtime, "validate", session_id, request)
 
 
 AOI_RUNNERS: dict[str, _IntentRunner] = {
@@ -164,6 +168,17 @@ def _run_derived(
     params: dict[str, Any],
 ) -> dict[str, Any]:
     _assert_session_is_open(runtime, session_id)
+    return DERIVED_RUNNERS[intent_type](runtime, str(session_id), params)
+
+
+def _run_aoi_derived(
+    runtime: MarivoRuntime,
+    intent_type: str,
+    session_id: SessionId,
+    request: AoiDerivedRequest,
+) -> dict[str, Any]:
+    _assert_session_is_open(runtime, session_id)
+    params = lower_aoi_derived_request(intent_type, request)
     return DERIVED_RUNNERS[intent_type](runtime, str(session_id), params)
 
 

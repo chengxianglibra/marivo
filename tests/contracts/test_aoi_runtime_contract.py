@@ -4,9 +4,11 @@ import pytest
 from pydantic import ValidationError
 
 from marivo.contracts.aoi_runtime import (
+    AOI_DERIVED_OPERATION_REGISTRY,
     AOI_OPERATION_REGISTRY,
     RuntimeIntentEnvelope,
     artifact_to_envelope_result,
+    assert_derived_request_matches_intent,
     assert_request_matches_intent,
     validate_aoi_artifact,
 )
@@ -60,6 +62,47 @@ def test_aoi_operation_registry_contains_atomic_operations() -> None:
         "observe",
         "test",
     }
+
+
+def test_aoi_derived_operation_registry_contains_validate() -> None:
+    assert set(AOI_DERIVED_OPERATION_REGISTRY) == {"validate"}
+
+
+def test_runtime_intent_envelope_accepts_generated_validate_request() -> None:
+    request = aoi.Validate(
+        metric="view_time",
+        left=aoi.Slice(time_scope=_time_scope()),
+        right=aoi.Slice(time_scope=_time_scope()),
+        hypothesis=aoi.Hypothesis(
+            family="two_sample_mean",
+            alternative="two_sided",
+            significance="balanced",
+        ),
+    )
+
+    envelope = RuntimeIntentEnvelope(
+        session_id="session_1",
+        actor="alice",
+        request=request,
+    )
+
+    assert envelope.request is request
+
+
+def test_assert_derived_request_matches_intent_rejects_operation_mismatch() -> None:
+    request = aoi.Validate(
+        metric="view_time",
+        left=aoi.Slice(time_scope=_time_scope()),
+        right=aoi.Slice(time_scope=_time_scope()),
+        hypothesis=aoi.Hypothesis(
+            family="two_sample_mean",
+            alternative="two_sided",
+            significance="balanced",
+        ),
+    )
+
+    with pytest.raises(ValueError, match="AOI_DERIVED_OPERATION_UNKNOWN"):
+        assert_derived_request_matches_intent("diagnose", request)
 
 
 def test_validate_aoi_artifact_returns_success_artifact() -> None:

@@ -18,8 +18,9 @@ not contain a top-level `step_type`.
 | `attribute` | `POST /sessions/{session_id}/intents/attribute` | JSON object |
 | `diagnose` | `POST /sessions/{session_id}/intents/diagnose` | JSON object |
 
-`validate` is not a derived HTTP analysis intent; semantic-model validation
-remains available through the semantic-model APIs.
+`validate` is currently an MCP/runtime derived analysis intent rather than an
+HTTP endpoint. Semantic-model validation remains available through the
+semantic-model APIs.
 
 ## Common Response Envelope
 
@@ -219,7 +220,9 @@ POST /sessions/{session_id}/intents/test
 
 ## Derived Intents
 
-Derived intent request models are currently transport-local compatibility DTOs.
+`validate` uses the generated AOI `Validate` request model as its runtime
+contract. Other derived intent request models remain transport-local
+compatibility DTOs.
 
 ### Attribute
 
@@ -279,6 +282,39 @@ Auto-detect mode:
 
 Explicit-compare mode uses `current` and `baseline` observe-shaped inputs
 instead of `time_scope` / `granularity`.
+
+### Validate
+
+`validate` is not exposed as an HTTP intent endpoint today. MCP validate calls
+must cross into runtime as the generated AOI `Validate` model:
+
+```json
+{
+  "metric": "metric.order_revenue",
+  "left": {
+    "time_scope": {
+      "field": "order_date",
+      "start": "2026-01-01T00:00:00Z",
+      "end": "2026-02-01T00:00:00Z"
+    }
+  },
+  "right": {
+    "time_scope": {
+      "field": "order_date",
+      "start": "2025-01-01T00:00:00Z",
+      "end": "2025-02-01T00:00:00Z"
+    }
+  },
+  "hypothesis": {
+    "family": "two_sample_mean",
+    "alternative": "greater",
+    "significance": "balanced"
+  }
+}
+```
+
+`left` and `right` use AOI `Slice` (`time_scope` plus optional `filter`).
+Derived `scope` and `method` are not part of the runtime contract.
 
 ## Errors
 

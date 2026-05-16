@@ -20,6 +20,31 @@ def _observe_request() -> aoi.Observe2:
     )
 
 
+def _validate_request() -> aoi.Validate:
+    return aoi.Validate(
+        metric="view_time",
+        left=aoi.Slice(
+            time_scope=aoi.TimeScope(
+                field="event_time",
+                start=datetime(2026, 5, 1, tzinfo=UTC),
+                end=datetime(2026, 5, 8, tzinfo=UTC),
+            )
+        ),
+        right=aoi.Slice(
+            time_scope=aoi.TimeScope(
+                field="event_time",
+                start=datetime(2026, 4, 24, tzinfo=UTC),
+                end=datetime(2026, 5, 1, tzinfo=UTC),
+            )
+        ),
+        hypothesis=aoi.Hypothesis(
+            family="two_sample_mean",
+            alternative="greater",
+            significance="balanced",
+        ),
+    )
+
+
 def test_observe_accepts_aoi_request_and_dispatches_lowered_params(monkeypatch) -> None:
     runtime = object()
     calls: list[tuple[object, str, dict[str, object]]] = []
@@ -72,3 +97,49 @@ def test_compare_rejects_mismatched_aoi_request_before_runner(monkeypatch) -> No
         intent_execution.compare(runtime, "s1", request)
 
     assert called is False
+
+
+def test_validate_accepts_aoi_request_and_dispatches_lowered_params(monkeypatch) -> None:
+    runtime = object()
+    calls: list[tuple[object, str, dict[str, object]]] = []
+    expected = {"status": "ok"}
+
+    monkeypatch.setattr(intent_execution, "_assert_session_is_open", lambda *_: None)
+
+    def runner(runtime_arg, session_id, params):
+        calls.append((runtime_arg, session_id, params))
+        return expected
+
+    monkeypatch.setitem(intent_execution.DERIVED_RUNNERS, "validate", runner)
+
+    result = intent_execution.validate(runtime, "s1", _validate_request())
+
+    assert result is expected
+    assert calls == [
+        (
+            runtime,
+            "s1",
+            {
+                "metric": "view_time",
+                "left": {
+                    "time_scope": {
+                        "field": "event_time",
+                        "start": "2026-05-01T00:00:00Z",
+                        "end": "2026-05-08T00:00:00Z",
+                    }
+                },
+                "right": {
+                    "time_scope": {
+                        "field": "event_time",
+                        "start": "2026-04-24T00:00:00Z",
+                        "end": "2026-05-01T00:00:00Z",
+                    }
+                },
+                "hypothesis": {
+                    "family": "two_sample_mean",
+                    "alternative": "greater",
+                    "significance": "balanced",
+                },
+            },
+        )
+    ]
