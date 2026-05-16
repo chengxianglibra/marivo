@@ -222,6 +222,26 @@ def to_aoi_validate_request(
     )
 
 
+def to_aoi_attribute_request(
+    metric: str,
+    left: McpAoiSliceRef,
+    right: McpAoiSliceRef,
+    dimensions: list[str],
+    decomposition_method: Literal["delta_share"] = "delta_share",
+    decomposition_limit: int = 5,
+) -> aoi.Attribute:
+    return aoi.Attribute.model_validate(
+        {
+            "metric": metric,
+            "left": _to_aoi_slice(left),
+            "right": _to_aoi_slice(right),
+            "dimensions": dimensions,
+            "decomposition_method": decomposition_method,
+            "decomposition_limit": decomposition_limit,
+        }
+    )
+
+
 def register_observe(server: Any, runtime: Any) -> None:
     @server.tool()  # type: ignore
     async def observe(
@@ -387,21 +407,21 @@ def register_attribute(server: Any, runtime: Any) -> None:
     async def attribute(
         session_id: str,
         metric: str,
-        left: McpSliceRef,
-        right: McpSliceRef,
+        left: McpAoiSliceRef,
+        right: McpAoiSliceRef,
         dimensions: list[str],
-        decomposition_method: str = "delta_share",
+        decomposition_method: Literal["delta_share"] = "delta_share",
         decomposition_limit: int = 5,
     ) -> dict[str, Any]:
-        params: dict[str, Any] = {
-            "metric": metric,
-            "left": left.model_dump(),
-            "right": right.model_dump(),
-            "dimensions": dimensions,
-            "decomposition_method": decomposition_method,
-            "decomposition_limit": decomposition_limit,
-        }
-        return await call_runtime(runtime.attribute, session_id=session_id, params=params)
+        request = to_aoi_attribute_request(
+            metric=metric,
+            left=left,
+            right=right,
+            dimensions=dimensions,
+            decomposition_method=decomposition_method,
+            decomposition_limit=decomposition_limit,
+        )
+        return await call_runtime(runtime.attribute, session_id=session_id, request=request)
 
 
 def register_diagnose(server: Any, runtime: Any) -> None:

@@ -303,8 +303,8 @@ class MarivoRuntime:
     def forecast(self, session_id: str, request: AoiAtomicRequest) -> dict[str, Any]:
         return intent_execution.forecast(self, SessionId(session_id), request)
 
-    def attribute(self, session_id: str, params: dict[str, Any]) -> dict[str, Any]:
-        return intent_execution.attribute(self, SessionId(session_id), params)
+    def attribute(self, session_id: str, request: AoiDerivedRequest) -> dict[str, Any]:
+        return intent_execution.attribute(self, SessionId(session_id), request)
 
     def diagnose(self, session_id: str, params: dict[str, Any]) -> dict[str, Any]:
         return intent_execution.diagnose(self, SessionId(session_id), params)

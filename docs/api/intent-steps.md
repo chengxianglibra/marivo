@@ -220,9 +220,8 @@ POST /sessions/{session_id}/intents/test
 
 ## Derived Intents
 
-`validate` uses the generated AOI `Validate` request model as its runtime
-contract. Other derived intent request models remain transport-local
-compatibility DTOs.
+`validate` and `attribute` use generated AOI request models as runtime
+contracts. `diagnose` remains a transport-local compatibility DTO.
 
 ### Attribute
 
@@ -235,25 +234,34 @@ POST /sessions/{session_id}/intents/attribute
   "metric": "metric.order_revenue",
   "left": {
     "time_scope": {
-      "kind": "range",
-      "start": "2026-01-01",
-      "end": "2026-02-01"
+      "field": "order_date",
+      "start": "2026-01-01T00:00:00Z",
+      "end": "2026-02-01T00:00:00Z"
     },
-    "scope": null
+    "filter": {
+      "dialects": [
+        {
+          "dialect": "ANSI_SQL",
+          "expression": "country = 'US'"
+        }
+      ]
+    }
   },
   "right": {
     "time_scope": {
-      "kind": "range",
-      "start": "2025-01-01",
-      "end": "2025-02-01"
-    },
-    "scope": null
+      "field": "order_date",
+      "start": "2025-01-01T00:00:00Z",
+      "end": "2025-02-01T00:00:00Z"
+    }
   },
   "dimensions": ["country"],
   "decomposition_method": "delta_share",
   "decomposition_limit": 5
 }
 ```
+
+`left` and `right` use AOI `Slice` (`time_scope` plus optional `filter`).
+They do not accept the legacy derived-intent `scope` wrapper.
 
 ### Diagnose
 

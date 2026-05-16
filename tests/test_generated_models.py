@@ -168,6 +168,16 @@ def test_aoi_request_optional_fields_may_be_omitted() -> None:
             },
         }
     )
+    attribute = aoi.Attribute.model_validate(
+        {
+            "metric": "revenue",
+            "left": {"time_scope": time_scope},
+            "right": {"time_scope": time_scope},
+            "dimensions": ["region"],
+        }
+    )
+    assert attribute.decomposition_method == "delta_share"
+    assert attribute.decomposition_limit == 5
 
 
 @pytest.mark.parametrize(
@@ -269,6 +279,72 @@ def test_aoi_request_optional_fields_may_be_omitted() -> None:
                 },
             },
         ),
+        (
+            "Attribute",
+            {
+                "metric": "revenue",
+                "left": {
+                    "time_scope": {
+                        "field": "event_time",
+                        "start": "2026-01-01T00:00:00Z",
+                        "end": "2026-01-02T00:00:00Z",
+                    },
+                    "filter": None,
+                },
+                "right": {
+                    "time_scope": {
+                        "field": "event_time",
+                        "start": "2026-01-01T00:00:00Z",
+                        "end": "2026-01-02T00:00:00Z",
+                    }
+                },
+                "dimensions": ["region"],
+            },
+        ),
+        (
+            "Attribute",
+            {
+                "metric": "revenue",
+                "left": {
+                    "time_scope": {
+                        "field": "event_time",
+                        "start": "2026-01-01T00:00:00Z",
+                        "end": "2026-01-02T00:00:00Z",
+                    }
+                },
+                "right": {
+                    "time_scope": {
+                        "field": "event_time",
+                        "start": "2026-01-01T00:00:00Z",
+                        "end": "2026-01-02T00:00:00Z",
+                    }
+                },
+                "dimensions": ["region"],
+                "decomposition_method": None,
+            },
+        ),
+        (
+            "Attribute",
+            {
+                "metric": "revenue",
+                "left": {
+                    "time_scope": {
+                        "field": "event_time",
+                        "start": "2026-01-01T00:00:00Z",
+                        "end": "2026-01-02T00:00:00Z",
+                    }
+                },
+                "right": {
+                    "time_scope": {
+                        "field": "event_time",
+                        "start": "2026-01-01T00:00:00Z",
+                        "end": "2026-01-02T00:00:00Z",
+                    }
+                },
+                "dimensions": ["region"],
+                "decomposition_limit": None,
+            },
+        ),
     ],
 )
 def test_aoi_request_optional_fields_reject_explicit_null(
@@ -356,6 +432,74 @@ def test_aoi_validate_rejects_non_contract_fields(payload: dict[str, Any]) -> No
 
     with pytest.raises(ValidationError):
         aoi.Validate.model_validate(payload)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {
+            "metric": "revenue",
+            "left": {
+                "time_scope": {
+                    "field": "event_time",
+                    "start": "2026-01-01T00:00:00Z",
+                    "end": "2026-01-02T00:00:00Z",
+                },
+                "scope": {"constraints": {"region": "US"}},
+            },
+            "right": {
+                "time_scope": {
+                    "field": "event_time",
+                    "start": "2026-01-01T00:00:00Z",
+                    "end": "2026-01-02T00:00:00Z",
+                }
+            },
+            "dimensions": ["region"],
+        },
+        {
+            "metric": "revenue",
+            "left": {
+                "time_scope": {
+                    "field": "event_time",
+                    "start": "2026-01-01T00:00:00Z",
+                    "end": "2026-01-02T00:00:00Z",
+                }
+            },
+            "right": {
+                "time_scope": {
+                    "field": "event_time",
+                    "start": "2026-01-01T00:00:00Z",
+                    "end": "2026-01-02T00:00:00Z",
+                }
+            },
+            "dimensions": [],
+        },
+        {
+            "metric": "revenue",
+            "left": {
+                "time_scope": {
+                    "field": "event_time",
+                    "start": "2026-01-01T00:00:00Z",
+                    "end": "2026-01-02T00:00:00Z",
+                }
+            },
+            "right": {
+                "time_scope": {
+                    "field": "event_time",
+                    "start": "2026-01-01T00:00:00Z",
+                    "end": "2026-01-02T00:00:00Z",
+                }
+            },
+            "dimensions": ["region"],
+            "decomposition_method": "ratio_share",
+        },
+    ],
+)
+def test_aoi_attribute_rejects_non_contract_fields(payload: dict[str, Any]) -> None:
+    from marivo.contracts.generated import aoi
+
+    with pytest.raises(ValidationError):
+        aoi.Attribute.model_validate(payload)
 
 
 def test_aoi_result_nullable_fields_still_accept_explicit_null() -> None:

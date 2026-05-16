@@ -43,6 +43,35 @@ _RECONCILIATION_ISSUE_CODES = frozenset(
 )
 
 
+def _aoi_filter_to_scope(filter_raw: Any, *, label: str) -> dict[str, str] | None:
+    if filter_raw is None:
+        return None
+    if not isinstance(filter_raw, dict):
+        raise ValueError(f"attribute: INVALID_ARGUMENT - {label} must be an AOI Expression object")
+    dialects = filter_raw.get("dialects")
+    if not isinstance(dialects, list) or not dialects:
+        raise ValueError(f"attribute: INVALID_ARGUMENT - {label}.dialects must be non-empty")
+
+    selected_expression: str | None = None
+    for dialect in dialects:
+        if not isinstance(dialect, dict):
+            continue
+        expression = dialect.get("expression")
+        if not isinstance(expression, str) or not expression.strip():
+            continue
+        if selected_expression is None:
+            selected_expression = expression.strip()
+        if str(dialect.get("dialect") or "ANSI_SQL").upper() == "ANSI_SQL":
+            selected_expression = expression.strip()
+            break
+
+    if selected_expression is None:
+        raise ValueError(
+            f"attribute: INVALID_ARGUMENT - {label}.dialects must include an expression"
+        )
+    return {"predicate": selected_expression}
+
+
 def run_attribute_intent(
     runtime: MarivoRuntime, session_id: str, params: dict[str, Any] | None
 ) -> dict[str, Any]:
@@ -50,7 +79,7 @@ def run_attribute_intent(
 
     Expands to: observe(left) + observe(right) + compare + decompose × len(dimensions)
 
-    Input (from AttributeRequest):
+    Input (from generated AOI Attribute request after lowering):
       metric:               published semantic metric
       left:                 { time_scope, scope? } — current / treatment side
       right:                { time_scope, scope? } — baseline / control side
@@ -100,7 +129,11 @@ def run_attribute_intent(
         )
 
     left_scope: dict[str, Any] | None = left_input.get("scope")
+    if left_scope is None:
+        left_scope = _aoi_filter_to_scope(left_input.get("filter"), label="left.filter")
     right_scope: dict[str, Any] | None = right_input.get("scope")
+    if right_scope is None:
+        right_scope = _aoi_filter_to_scope(right_input.get("filter"), label="right.filter")
 
     raw_dimensions = p.get("dimensions")
     dimensions = normalize_dimensions(raw_dimensions)

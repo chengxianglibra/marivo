@@ -250,6 +250,15 @@ def _forecast_request() -> aoi.Forecast:
     return aoi.Forecast(source_artifact_id="artifact-source", horizon=7)
 
 
+def _attribute_request() -> aoi.Attribute:
+    return aoi.Attribute(
+        metric="view_time",
+        left=aoi.Slice(time_scope=_time_scope()),
+        right=aoi.Slice(time_scope=_time_scope()),
+        dimensions=["region"],
+    )
+
+
 def _make_runtime() -> MarivoRuntime:
     ports = _make_ports()
     core = CoreEngine()
@@ -280,11 +289,6 @@ ATOMIC_INTENT_REQUESTS = {
     "forecast": _forecast_request,
 }
 
-DERIVED_INTENT_METHODS = [
-    "attribute",
-    "diagnose",
-]
-
 
 def test_all_intent_methods_exist() -> None:
     rt = _make_runtime()
@@ -303,17 +307,24 @@ def test_intent_dispatches_to_intent_execution() -> None:
             mock_fn.assert_called_once_with(rt, SessionId("sess_123"), request)
             assert result == {"status": "ok"}
 
-    params = {
+    attribute_request = _attribute_request()
+    with patch(
+        "marivo.runtime.intent_execution.attribute", return_value={"status": "ok"}
+    ) as mock_fn:
+        result = rt.attribute("sess_123", attribute_request)
+        mock_fn.assert_called_once_with(rt, SessionId("sess_123"), attribute_request)
+        assert result == {"status": "ok"}
+
+    diagnose_params = {
         "metric": "revenue",
         "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-02-01"},
     }
-    for intent_name in DERIVED_INTENT_METHODS:
-        target = f"marivo.runtime.intent_execution.{intent_name}"
-        with patch(target, return_value={"status": "ok"}) as mock_fn:
-            method = getattr(rt, intent_name)
-            result = method("sess_123", params)
-            mock_fn.assert_called_once_with(rt, SessionId("sess_123"), params)
-            assert result == {"status": "ok"}
+    with patch(
+        "marivo.runtime.intent_execution.diagnose", return_value={"status": "ok"}
+    ) as mock_fn:
+        result = rt.diagnose("sess_123", diagnose_params)
+        mock_fn.assert_called_once_with(rt, SessionId("sess_123"), diagnose_params)
+        assert result == {"status": "ok"}
 
 
 def test_observe_dispatches() -> None:
@@ -375,8 +386,9 @@ def test_attribute_dispatches() -> None:
     with patch(
         "marivo.runtime.intent_execution.attribute", return_value={"status": "ok"}
     ) as mock_fn:
-        rt.attribute("s1", {"metric": "m"})
-        mock_fn.assert_called_once_with(rt, SessionId("s1"), {"metric": "m"})
+        request = _attribute_request()
+        rt.attribute("s1", request)
+        mock_fn.assert_called_once_with(rt, SessionId("s1"), request)
 
 
 def test_diagnose_dispatches() -> None:

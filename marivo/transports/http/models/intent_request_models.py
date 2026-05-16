@@ -1,7 +1,7 @@
 """Typed request models for the Marivo intent-based write surface.
 
-Intent API models for observe, compare, correlate, decompose, detect,
-forecast, attribute, and diagnose intents.
+Compatibility DTOs for derived diagnose inputs. AOI-backed atomic requests
+and attribute use generated contract models directly.
 
 Path (/intents/<intent_type>) acts as the discriminator; no step_type field.
 """
@@ -137,31 +137,6 @@ class AttributeObservationInput(BaseModel):
 
     time_scope: ObserveTimeScope
     scope: ObserveScope | None = Field(default=None)
-
-
-class AttributeRequest(BaseModel):
-    """Derived intent: attribute a metric change (expands to observe+observe+compare+decompose)."""
-
-    metric: str = Field(
-        description="Canonical semantic metric ref to attribute (e.g., 'metric.watch_time')."
-    )
-    left: AttributeObservationInput = Field(
-        description="Current / treatment side observation scope."
-    )
-    right: AttributeObservationInput = Field(
-        description="Baseline / control side observation scope."
-    )
-    dimensions: list[str] = Field(
-        min_length=1,
-        description="Attribution dimensions (deduped in order).",
-    )
-    decomposition_method: Literal["delta_share"] = Field(default="delta_share")
-    decomposition_limit: int = Field(default=5, ge=1)
-
-    @field_validator("metric")
-    @classmethod
-    def _validate_metric_ref(cls, value: str) -> str:
-        return validate_ref_prefix(value, "metric", "metric")
 
 
 class DiagnoseRequest(BaseModel):

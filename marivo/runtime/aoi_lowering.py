@@ -65,6 +65,15 @@ def lower_aoi_derived_request(intent_type: str, request: AoiDerivedRequest) -> d
             "right": _dump_slice(request.right),
             "hypothesis": request.hypothesis.model_dump(exclude_none=True),
         }
+    if isinstance(request, aoi.Attribute):
+        return {
+            "metric": request.metric,
+            "left": _dump_slice(request.left),
+            "right": _dump_slice(request.right),
+            "dimensions": _dump_model(request.dimensions),
+            "decomposition_method": request.decomposition_method,
+            "decomposition_limit": request.decomposition_limit,
+        }
     raise TypeError(f"Unsupported AOI derived request type: {type(request).__name__}")
 
 

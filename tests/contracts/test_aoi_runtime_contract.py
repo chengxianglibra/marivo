@@ -64,8 +64,8 @@ def test_aoi_operation_registry_contains_atomic_operations() -> None:
     }
 
 
-def test_aoi_derived_operation_registry_contains_validate() -> None:
-    assert set(AOI_DERIVED_OPERATION_REGISTRY) == {"validate"}
+def test_aoi_derived_operation_registry_contains_derived_operations() -> None:
+    assert set(AOI_DERIVED_OPERATION_REGISTRY) == {"attribute", "validate"}
 
 
 def test_runtime_intent_envelope_accepts_generated_validate_request() -> None:
@@ -89,6 +89,23 @@ def test_runtime_intent_envelope_accepts_generated_validate_request() -> None:
     assert envelope.request is request
 
 
+def test_runtime_intent_envelope_accepts_generated_attribute_request() -> None:
+    request = aoi.Attribute(
+        metric="view_time",
+        left=aoi.Slice(time_scope=_time_scope()),
+        right=aoi.Slice(time_scope=_time_scope()),
+        dimensions=["region"],
+    )
+
+    envelope = RuntimeIntentEnvelope(
+        session_id="session_1",
+        actor="alice",
+        request=request,
+    )
+
+    assert envelope.request is request
+
+
 def test_assert_derived_request_matches_intent_rejects_operation_mismatch() -> None:
     request = aoi.Validate(
         metric="view_time",
@@ -101,8 +118,8 @@ def test_assert_derived_request_matches_intent_rejects_operation_mismatch() -> N
         ),
     )
 
-    with pytest.raises(ValueError, match="AOI_DERIVED_OPERATION_UNKNOWN"):
-        assert_derived_request_matches_intent("diagnose", request)
+    with pytest.raises(ValueError, match="AOI_DERIVED_OPERATION_MISMATCH"):
+        assert_derived_request_matches_intent("attribute", request)
 
 
 def test_validate_aoi_artifact_returns_success_artifact() -> None:
