@@ -50,13 +50,6 @@ def _set_test_user():
 # Test files that depend on the deleted SemanticService — skip during OSI v2 migration.
 # Re-enable as part of Task 7 (Fix Downstream Dependencies).
 collect_ignore_glob = [
-    "test_intent_attribute.py",
-    "test_intent_detect.py",
-    "test_intent_diagnose.py",
-    "test_intent_forecast.py",
-    "test_intent_compare.py",
-    "test_intent_decompose.py",
-    "test_intent_correlate.py",
     "test_intent_api.py",
     "test_catalog_query.py",
     "test_step_metadata.py",

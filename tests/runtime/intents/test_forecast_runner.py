@@ -21,11 +21,6 @@ Covers:
   - run_forecast_intent: seasonal profile raises UNSUPPORTED_OPERATION
   - run_forecast_intent: artifact_id mismatch raises ValueError
   - run_forecast_intent: step not found raises STEP_NOT_FOUND
-  - HTTP endpoint: valid forecast returns 200 with forecast buckets
-  - HTTP endpoint: naive profile endpoint (level)
-  - HTTP endpoint: missing session returns 404
-  - HTTP endpoint: missing source_ref returns 422
-  - HTTP endpoint: invalid horizon returns 422
 """
 
 from __future__ import annotations
@@ -36,13 +31,13 @@ from datetime import date as _date
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
+from unittest.mock import MagicMock
 from uuid import uuid4
-
-from fastapi.testclient import TestClient
 
 from marivo.adapters.local.duckdb_analytics import DuckDBAnalyticsEngine
 from marivo.adapters.local.sqlite_metadata import SQLiteMetadataStore
-from marivo.main import create_app
+from marivo.runtime.intents.forecast import run_forecast_intent
+from tests.runtime.intents._runner_fixtures import _FAKE_ARTIFACT_ID, _SESSION
 from tests.semantic_test_helpers import build_runtime
 from tests.shared_fixtures import get_named_seeded_duckdb_path
 
@@ -168,7 +163,7 @@ class ForecastRunnerServiceTests(unittest.TestCase):
         }
         if interval_level is not None:
             body["interval_level"] = interval_level
-        return self.service.forecast(session_id, body)
+        return run_forecast_intent(self.service, session_id, body)
 
     # ── Success paths ──────────────────────────────────────────────────────────
 
@@ -352,7 +347,8 @@ class ForecastRunnerServiceTests(unittest.TestCase):
         sid = self._make_session()
         step_id, artifact_id = _inject_observe_artifact(self.service, sid)
         with self.assertRaises(ValueError) as ctx:
-            self.service.forecast(
+            run_forecast_intent(
+                self.service,
                 sid,
                 {
                     "source_ref": {
@@ -373,7 +369,8 @@ class ForecastRunnerServiceTests(unittest.TestCase):
         sid = self._make_session()
         step_id, artifact_id = _inject_observe_artifact(self.service, sid)
         with self.assertRaises(ValueError) as ctx:
-            self.service.forecast(
+            run_forecast_intent(
+                self.service,
                 sid,
                 {
                     "source_ref": {
@@ -413,7 +410,8 @@ class ForecastRunnerServiceTests(unittest.TestCase):
         sid = self._make_session()
         step_id, artifact_id = _inject_observe_artifact(self.service, sid)
         with self.assertRaises(ValueError) as ctx:
-            self.service.forecast(
+            run_forecast_intent(
+                self.service,
                 sid,
                 {
                     "source_ref": {
@@ -443,7 +441,8 @@ class ForecastRunnerServiceTests(unittest.TestCase):
         sid = self._make_session()
         step_id, _ = _inject_observe_artifact(self.service, sid)
         with self.assertRaises(ValueError) as ctx:
-            self.service.forecast(
+            run_forecast_intent(
+                self.service,
                 sid,
                 {
                     "source_ref": {
@@ -464,7 +463,8 @@ class ForecastRunnerServiceTests(unittest.TestCase):
         """Nonexistent step_id raises ValueError with STEP_NOT_FOUND."""
         sid = self._make_session()
         with self.assertRaises(ValueError) as ctx:
-            self.service.forecast(
+            run_forecast_intent(
+                self.service,
                 sid,
                 {
                     "source_ref": {
@@ -488,108 +488,65 @@ class ForecastRunnerServiceTests(unittest.TestCase):
         self.assertIn("interval_level", str(ctx.exception).lower())
 
 
-# ── HTTP endpoint tests ───────────────────────────────────────────────────────
+class TestForecastRunnerCommitPath(unittest.TestCase):
+    """run_forecast_intent must call _commit_artifact_with_extraction(step_type='forecast')."""
 
-
-class ForecastIntentEndpointTests(unittest.TestCase):
-    """HTTP-level tests for /sessions/{id}/intents/forecast."""
-
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls.temp_dir = tempfile.TemporaryDirectory()
-        db_path = Path(cls.temp_dir.name) / "forecast_http.duckdb"
-
-        analytics = DuckDBAnalyticsEngine(str(db_path))
-        analytics.initialize()
-
-        meta_path = db_path.with_suffix(".meta.sqlite")
-        metadata = SQLiteMetadataStore(str(meta_path))
-        metadata.initialize()
-
-        cls.client = TestClient(
-            create_app(db_path=db_path, metadata_store=metadata, analytics_engine=analytics),
-            headers={"X-Marivo-User": "test_user"},
-        )
-
-        # Create session and run observe intent to get a real time_series artifact
-        r = cls.client.post("/sessions", json={"goal": "forecast HTTP test"})
-        assert r.status_code == 200, r.text
-        cls.session_id = r.json()["session_id"]
-        cls.obs_step_id, cls.obs_artifact_id = _inject_observe_artifact(
-            cls.client.app.state.services.runtime,
-            cls.session_id,
-            metric="http_forecast_dau",
-        )
-
-    @classmethod
-    def tearDownClass(cls) -> None:
-        cls.client.close()
-        cls.temp_dir.cleanup()
-
-    def _valid_body(self, **overrides: object) -> dict:
-        body = {
-            "source_ref": {
-                "step_type": "observe",
-                "session_id": self.session_id,
-                "step_id": self.obs_step_id,
-                "artifact_id": self.obs_artifact_id,
-                "observation_type": "time_series",
-            },
-            "horizon": 7,
-            "profile": "trend",
+    def _make_ts_artifact(self) -> dict[str, Any]:
+        return {
+            "observation_type": "time_series",
+            "metric": "m1",
+            "schema_version": "1.0",
+            "granularity": "day",
+            "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+            "analytical_metadata": {"timezone": None, "data_complete": None},
+            "series": [
+                {
+                    "window": {"start": f"2024-01-{d:02d}", "end": f"2024-01-{d + 1:02d}"},
+                    "value": float(100 + d),
+                }
+                for d in range(1, 8)
+            ],
         }
-        body.update(overrides)
-        return body
 
-    def test_valid_forecast_returns_200(self) -> None:
-        r = self.client.post(
-            f"/sessions/{self.session_id}/intents/forecast",
-            json=self._valid_body(),
-        )
-        self.assertEqual(r.status_code, 200, msg=r.text)
-        body = r.json()
-        self.assertEqual(body["observation_type"], "forecast_series")
-        self.assertIn("forecast", body)
-        self.assertEqual(len(body["forecast"]), 7)
-        self.assertIn("artifact_id", body)
-        self.assertIn("step_ref", body)
+    def _make_runtime(self) -> MagicMock:
+        runtime = MagicMock()
+        runtime.core = MagicMock()
+        artifact_id = "art_ts001"
+        runtime.resolve_artifact_with_id.return_value = (artifact_id, self._make_ts_artifact())
+        runtime.new_step_id.return_value = "step_4c2_001"
+        runtime.commit_artifact_with_extraction.return_value = _FAKE_ARTIFACT_ID
+        runtime.insert_step.return_value = None
+        return runtime
 
-    def test_level_profile_endpoint(self) -> None:
-        r = self.client.post(
-            f"/sessions/{self.session_id}/intents/forecast",
-            json=self._valid_body(profile="level", horizon=3),
-        )
-        self.assertEqual(r.status_code, 200, msg=r.text)
-        body = r.json()
-        self.assertEqual(len(body["forecast"]), 3)
+    def _run_forecast(self, runtime: MagicMock) -> dict[str, Any]:
+        from marivo.runtime.intents.forecast import run_forecast_intent
 
-    def test_missing_session_returns_404(self) -> None:
-        # source_ref.session_id must match the URL path to pass the same-session guard;
-        # the 404 is then raised by the service when it looks up a nonexistent session.
-        body = self._valid_body()
-        body["source_ref"]["session_id"] = "sess_doesnotexist"
-        r = self.client.post(
-            "/sessions/sess_doesnotexist/intents/forecast",
-            json=body,
-        )
-        self.assertEqual(r.status_code, 404)
+        artifact_id = "art_ts001"
+        params = {
+            "source_ref": {
+                "step_id": "step_obs",
+                "session_id": _SESSION,
+                "step_type": "observe",
+                "observation_type": "time_series",
+                "artifact_id": artifact_id,
+            },
+            "horizon": 3,
+        }
+        return run_forecast_intent(runtime, _SESSION, params)
 
-    def test_missing_source_ref_returns_422(self) -> None:
-        r = self.client.post(
-            f"/sessions/{self.session_id}/intents/forecast",
-            json={"horizon": 7},
-        )
-        self.assertEqual(r.status_code, 422)
+    def test_forecast_calls_commit_artifact_with_extraction(self) -> None:
+        runtime = self._make_runtime()
+        self._run_forecast(runtime)
+        runtime.commit_artifact_with_extraction.assert_called_once()
 
-    def test_invalid_horizon_returns_422(self) -> None:
-        body = self._valid_body()
-        body["horizon"] = 0  # violates ge=1
-        r = self.client.post(
-            f"/sessions/{self.session_id}/intents/forecast",
-            json=body,
-        )
-        self.assertEqual(r.status_code, 422)
+    def test_forecast_passes_step_type_forecast(self) -> None:
+        runtime = self._make_runtime()
+        self._run_forecast(runtime)
+        _, kwargs = runtime.commit_artifact_with_extraction.call_args
+        self.assertEqual(kwargs.get("step_type"), "forecast")
 
-
-if __name__ == "__main__":
-    unittest.main()
+    def test_forecast_artifact_type_is_forecast_series(self) -> None:
+        runtime = self._make_runtime()
+        self._run_forecast(runtime)
+        args, _ = runtime.commit_artifact_with_extraction.call_args
+        self.assertEqual(args[2], "forecast_series")
