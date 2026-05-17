@@ -5,7 +5,7 @@ Deterministically expands to:
   → for each top-followup_limit candidate:
       observe(current_window) + observe(baseline_window)
       + compare(current_ref, baseline_ref, mode="scalar")
-      + decompose(compare_ref, dimension, ...) × len(candidate_dimensions)
+      + decompose(compare_artifact_id, dimension, ...) × len(candidate_dimensions)
 
 Baseline policy: previous_adjacent_equal_length (fixed, not caller-configurable).
 Candidate follow-up is capped at followup_limit; untracked candidates are disclosed
@@ -267,8 +267,8 @@ def run_diagnose_intent(
             "sensitivity": sensitivity,
             "strategy": strategy,
         }
-        if scope is not None:
-            detect_params["scope"] = scope
+        if p.get("filter") is not None:
+            detect_params["filter"] = p.get("filter")
         if detect_dimension:
             detect_params["dimension"] = detect_dimension
         if candidate_limit is not None:
@@ -729,11 +729,12 @@ def _follow_up_candidate(
     }
 
     if can_decompose:
+        assert compare_ref is not None
         for dimension in dimensions:
             driver = _decompose_for_dimension(
                 runtime=runtime,
                 session_id=session_id,
-                compare_step_id=compare_step_id,  # type: ignore[arg-type]
+                compare_artifact_id=str(compare_ref["artifact_id"]),
                 dimension=dimension,
                 decomposition_limit=decomposition_limit,
                 candidate_ref=candidate_ref,
@@ -783,7 +784,7 @@ def _follow_up_candidate(
 def _decompose_for_dimension(
     runtime: MarivoRuntime,
     session_id: str,
-    compare_step_id: str,
+    compare_artifact_id: str,
     dimension: str,
     decomposition_limit: int,
     candidate_ref: dict[str, Any] | None,
@@ -807,14 +808,8 @@ def _decompose_for_dimension(
             runtime,
             session_id,
             {
-                "compare_ref": {
-                    "step_id": compare_step_id,
-                    "session_id": session_id,
-                    "step_type": "compare",
-                },
+                "compare_artifact_id": compare_artifact_id,
                 "dimension": dimension,
-                "method": "delta_share",
-                "limit": decomposition_limit,
             },
         )
 

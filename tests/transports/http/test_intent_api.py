@@ -258,16 +258,6 @@ class AoiGeneratedIntentModelTests(unittest.TestCase):
         self.assertEqual(request.left_artifact_id, "art_left")
         self.assertEqual(request.right_artifact_id, "art_right")
 
-    def test_aoi_detect_rejects_legacy_time_scope_shape(self) -> None:
-        with self.assertRaises(ValidationError):
-            aoi.Detect.model_validate(
-                {
-                    "metric": "metric.dau",
-                    "time_scope": {"kind": "range", "start": "2026-05-01", "end": "2026-05-02"},
-                    "granularity": "day",
-                }
-            )
-
     def test_aoi_forecast_requires_source_artifact_id(self) -> None:
         with self.assertRaises(ValidationError):
             aoi.Forecast.model_validate({"source_ref": {"step_id": "step_1"}, "horizon": 7})
@@ -335,7 +325,14 @@ class LightweightIntentEndpointTests(_SessionBackedIntentEndpointMixin, unittest
     def test_detect_validation_error_includes_schema_guidance_and_example(self) -> None:
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/detect",
-            json={"metric": "metric.watch_time", "time_scope": {"kind": "range"}},
+            json={
+                "metric": "metric.watch_time",
+                "time_scope": {
+                    "start": "2024-01-01T00:00:00Z",
+                    "end": "2024-01-08T00:00:00Z",
+                },
+                "granularity": "day",
+            },
         )
 
         self.assertEqual(r.status_code, 422)

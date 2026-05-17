@@ -372,7 +372,7 @@ def _build_decompose_success_runtime(
     )
     runtime = MagicMock()
     runtime.core = MagicMock()
-    runtime.resolve_artifact_for_ref.return_value = compare_artifact
+    runtime.resolve_artifact_by_id.return_value = compare_artifact
     runtime.resolve_artifact_id_for_step.return_value = "art_fake"
     runtime.resolve_metric.return_value = mock_metric
     runtime.resolve_metric_dimensions.return_value = dimensions or ["dimension.country"]
@@ -387,6 +387,43 @@ def _build_decompose_success_runtime(
 class DecomposeAdditivityGateTests(unittest.TestCase):
     """P4: Test decompose additivity gate — error payloads and artifact metadata."""
 
+    # ── AOI-only input tests ────────────────────────────────────────────────
+
+    def test_decompose_rejects_legacy_compare_ref_parameter(self) -> None:
+        with self.assertRaisesRegex(ValueError, "unsupported parameter"):
+            run_decompose_intent(
+                MagicMock(),
+                "session_1",
+                {
+                    "compare_ref": {"step_id": "step_compare", "session_id": "session_1"},
+                    "dimension": "dimension.country",
+                },
+            )
+
+    def test_decompose_rejects_legacy_method_parameter(self) -> None:
+        with self.assertRaisesRegex(ValueError, "unsupported parameter"):
+            run_decompose_intent(
+                MagicMock(),
+                "session_1",
+                {
+                    "compare_artifact_id": "art_compare",
+                    "dimension": "dimension.country",
+                    "method": "delta_share",
+                },
+            )
+
+    def test_decompose_limit_must_be_positive(self) -> None:
+        with self.assertRaisesRegex(ValueError, "limit must be > 0"):
+            run_decompose_intent(
+                MagicMock(),
+                "session_1",
+                {
+                    "compare_artifact_id": "art_compare",
+                    "dimension": "dimension.country",
+                    "limit": 0,
+                },
+            )
+
     # ── Error gate tests ────────────────────────────────────────────────────
 
     def test_empty_additive_dimensions_metric_decompose_fails(self) -> None:
@@ -394,7 +431,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
         runtime.core = MagicMock()
         compare_artifact = _make_compare_artifact(additive_dimensions=[])
         mock_metric = _make_mock_metric(additive_dimensions=[])
-        runtime.resolve_artifact_for_ref.return_value = compare_artifact
+        runtime.resolve_artifact_by_id.return_value = compare_artifact
         runtime.resolve_artifact_id_for_step.return_value = "art_fake"
         runtime.resolve_metric.return_value = mock_metric
 
@@ -402,10 +439,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
             run_decompose_intent(
                 runtime,
                 "session_1",
-                {
-                    "compare_ref": {"step_id": "step_compare", "session_id": "session_1"},
-                    "dimension": "dimension.country",
-                },
+                {"compare_artifact_id": "art_compare", "dimension": "dimension.country"},
             )
         exc = ctx.exception
         self.assertEqual(exc.category, "compatibility")
@@ -420,7 +454,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
         runtime.core = MagicMock()
         compare_artifact = _make_compare_artifact()  # no additive_dimensions in am
         mock_metric = _make_mock_metric(additive_dimensions=None)
-        runtime.resolve_artifact_for_ref.return_value = compare_artifact
+        runtime.resolve_artifact_by_id.return_value = compare_artifact
         runtime.resolve_artifact_id_for_step.return_value = "art_fake"
         runtime.resolve_metric.return_value = mock_metric
 
@@ -428,10 +462,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
             run_decompose_intent(
                 runtime,
                 "session_1",
-                {
-                    "compare_ref": {"step_id": "step_compare", "session_id": "session_1"},
-                    "dimension": "dimension.country",
-                },
+                {"compare_artifact_id": "art_compare", "dimension": "dimension.country"},
             )
         exc = ctx.exception
         self.assertEqual(exc.category, "compatibility")
@@ -444,7 +475,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
         runtime2.core = MagicMock()
         compare_artifact2 = _make_compare_artifact(additive_dimensions=[])
         mock_metric2 = _make_mock_metric(additive_dimensions=[])
-        runtime2.resolve_artifact_for_ref.return_value = compare_artifact2
+        runtime2.resolve_artifact_by_id.return_value = compare_artifact2
         runtime2.resolve_artifact_id_for_step.return_value = "art_fake"
         runtime2.resolve_metric.return_value = mock_metric2
 
@@ -452,10 +483,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
             run_decompose_intent(
                 runtime2,
                 "session_1",
-                {
-                    "compare_ref": {"step_id": "step_compare", "session_id": "session_1"},
-                    "dimension": "dimension.country",
-                },
+                {"compare_artifact_id": "art_compare", "dimension": "dimension.country"},
             )
         exc2 = ctx2.exception
         self.assertEqual(exc2.category, "compatibility")
@@ -471,7 +499,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
             additive_dimensions=["dimension.country"],
             dimensions=["dimension.country", "dimension.product"],
         )
-        runtime.resolve_artifact_for_ref.return_value = compare_artifact
+        runtime.resolve_artifact_by_id.return_value = compare_artifact
         runtime.resolve_artifact_id_for_step.return_value = "art_fake"
         runtime.resolve_metric.return_value = mock_metric
         runtime.resolve_metric_dimensions.return_value = ["dimension.country", "dimension.product"]
@@ -480,10 +508,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
             run_decompose_intent(
                 runtime,
                 "session_1",
-                {
-                    "compare_ref": {"step_id": "step_compare", "session_id": "session_1"},
-                    "dimension": "dimension.product",
-                },
+                {"compare_artifact_id": "art_compare", "dimension": "dimension.product"},
             )
         exc = ctx.exception
         self.assertEqual(exc.category, "compatibility")
@@ -499,7 +524,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
             additive_dimensions=["dimension.country"],
             dimensions=["dimension.country", "dimension.product"],
         )
-        runtime.resolve_artifact_for_ref.return_value = compare_artifact
+        runtime.resolve_artifact_by_id.return_value = compare_artifact
         runtime.resolve_artifact_id_for_step.return_value = "art_fake"
         runtime.resolve_metric.return_value = mock_metric
         runtime.resolve_metric_dimensions.return_value = ["dimension.country", "dimension.product"]
@@ -508,10 +533,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
             run_decompose_intent(
                 runtime,
                 "session_1",
-                {
-                    "compare_ref": {"step_id": "step_compare", "session_id": "session_1"},
-                    "dimension": "dimension.product",
-                },
+                {"compare_artifact_id": "art_compare", "dimension": "dimension.product"},
             )
         exc = ctx.exception
         compat = exc.detail["compatibility_error"]
@@ -525,7 +547,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
             additive_dimensions=["dimension.country"],
             dimensions=["dimension.country", "dimension.product"],
         )
-        runtime.resolve_artifact_for_ref.return_value = compare_artifact
+        runtime.resolve_artifact_by_id.return_value = compare_artifact
         runtime.resolve_artifact_id_for_step.return_value = "art_fake"
         runtime.resolve_metric.return_value = mock_metric
         runtime.resolve_metric_dimensions.return_value = ["dimension.country", "dimension.product"]
@@ -534,10 +556,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
             run_decompose_intent(
                 runtime,
                 "session_1",
-                {
-                    "compare_ref": {"step_id": "step_compare", "session_id": "session_1"},
-                    "dimension": "dimension.product",
-                },
+                {"compare_artifact_id": "art_compare", "dimension": "dimension.product"},
             )
         exc = ctx.exception
         compat = exc.detail["compatibility_error"]
@@ -558,10 +577,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
             result = run_decompose_intent(
                 runtime,
                 "session_1",
-                {
-                    "compare_ref": {"step_id": "step_compare", "session_id": "session_1"},
-                    "dimension": "dimension.country",
-                },
+                {"compare_artifact_id": "art_compare", "dimension": "dimension.country"},
             )
         self.assertIn("rows", result)
 
@@ -578,12 +594,46 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
             result = run_decompose_intent(
                 runtime,
                 "session_1",
-                {
-                    "compare_ref": {"step_id": "step_compare", "session_id": "session_1"},
-                    "dimension": "dimension.country",
-                },
+                {"compare_artifact_id": "art_compare", "dimension": "dimension.country"},
             )
         self.assertIn("rows", result)
+
+    def test_decompose_limit_returns_top_ranked_rows(self) -> None:
+        runtime = _build_decompose_success_runtime(
+            additive_dimensions=["dimension.country"],
+            dimensions=["dimension.country"],
+        )
+        left_result = MagicMock()
+        left_result.rows = [
+            {"dimension.country": "A", "current_value": 100.0},
+            {"dimension.country": "B", "current_value": 40.0},
+            {"dimension.country": "C", "current_value": 30.0},
+        ]
+        left_result.metadata.get.return_value = None
+        right_result = MagicMock()
+        right_result.rows = [
+            {"dimension.country": "A", "current_value": 20.0},
+            {"dimension.country": "B", "current_value": 35.0},
+            {"dimension.country": "C", "current_value": 30.0},
+        ]
+        right_result.metadata.get.return_value = None
+
+        with patch(
+            "marivo.runtime.intents.decompose.execute_compiled",
+            side_effect=[left_result, right_result],
+        ):
+            result = run_decompose_intent(
+                runtime,
+                "session_1",
+                {
+                    "compare_artifact_id": "art_compare",
+                    "dimension": "dimension.country",
+                    "limit": 1,
+                },
+            )
+
+        self.assertEqual([row["key"] for row in result["rows"]], ["A"])
+        self.assertEqual(result["analytical_metadata"]["returned_row_count"], 1)
 
     def test_artifact_metadata_includes_additive_dimensions_top_level(self) -> None:
         runtime = _build_decompose_success_runtime(
@@ -598,10 +648,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
             result = run_decompose_intent(
                 runtime,
                 "session_1",
-                {
-                    "compare_ref": {"step_id": "step_compare", "session_id": "session_1"},
-                    "dimension": "dimension.country",
-                },
+                {"compare_artifact_id": "art_compare", "dimension": "dimension.country"},
             )
         am = result["analytical_metadata"]
         self.assertEqual(am["additive_dimensions"], ["dimension.country"])
@@ -619,10 +666,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
             result = run_decompose_intent(
                 runtime,
                 "session_1",
-                {
-                    "compare_ref": {"step_id": "step_compare", "session_id": "session_1"},
-                    "dimension": "dimension.country",
-                },
+                {"compare_artifact_id": "art_compare", "dimension": "dimension.country"},
             )
         tbc = result["analytical_metadata"]["time_boundary_constraint"]
         self.assertEqual(tbc["scope"], "frozen_compare_window")
@@ -642,7 +686,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
         # that include dimension.country and time.date (the metric state when compare was run)
         frozen_dimensions = ["dimension.country", "time.date"]
         compare_artifact = _make_compare_artifact(additive_dimensions=frozen_dimensions)
-        runtime.resolve_artifact_for_ref.return_value = compare_artifact
+        runtime.resolve_artifact_by_id.return_value = compare_artifact
 
         mock_result = MagicMock()
         mock_result.rows = [{"dimension.country": "US", "current_value": 50.0}]
@@ -652,10 +696,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
             result = run_decompose_intent(
                 runtime,
                 "session_1",
-                {
-                    "compare_ref": {"step_id": "step_compare", "session_id": "session_1"},
-                    "dimension": "dimension.country",
-                },
+                {"compare_artifact_id": "art_compare", "dimension": "dimension.country"},
             )
         am = result["analytical_metadata"]
         self.assertEqual(am["additive_dimensions_source"], "compare_artifact_lineage")
@@ -672,7 +713,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
         mock_metric = _make_mock_metric(
             additive_dimensions=["dimension.country", "time.date"],
         )
-        runtime.resolve_artifact_for_ref.return_value = compare_artifact
+        runtime.resolve_artifact_by_id.return_value = compare_artifact
         runtime.resolve_artifact_id_for_step.return_value = "art_fake"
         runtime.resolve_metric.return_value = mock_metric
 
@@ -680,10 +721,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
             run_decompose_intent(
                 runtime,
                 "session_1",
-                {
-                    "compare_ref": {"step_id": "step_compare", "session_id": "session_1"},
-                    "dimension": "dimension.country",
-                },
+                {"compare_artifact_id": "art_compare", "dimension": "dimension.country"},
             )
         exc = ctx.exception
         self.assertEqual(exc.category, "compatibility")
@@ -701,7 +739,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
         # Override compare artifact with time_series_delta + frozen dimensions
         frozen_dimensions = ["dimension.country", "time.date"]
         compare_artifact = _make_time_series_compare_artifact(additive_dimensions=frozen_dimensions)
-        runtime.resolve_artifact_for_ref.return_value = compare_artifact
+        runtime.resolve_artifact_by_id.return_value = compare_artifact
 
         mock_result = MagicMock()
         mock_result.rows = [{"dimension.country": "US", "current_value": 50.0}]
@@ -711,10 +749,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
             result = run_decompose_intent(
                 runtime,
                 "session_1",
-                {
-                    "compare_ref": {"step_id": "step_compare", "session_id": "session_1"},
-                    "dimension": "dimension.country",
-                },
+                {"compare_artifact_id": "art_compare", "dimension": "dimension.country"},
             )
         am = result["analytical_metadata"]
         self.assertEqual(am["additive_dimensions_source"], "compare_artifact_lineage")
@@ -735,10 +770,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
             result = run_decompose_intent(
                 runtime,
                 "session_1",
-                {
-                    "compare_ref": {"step_id": "step_compare", "session_id": "session_1"},
-                    "dimension": "dimension.country",
-                },
+                {"compare_artifact_id": "art_compare", "dimension": "dimension.country"},
             )
         self.assertTrue(result["analytical_metadata"]["time_rollup_allowed"])
 
@@ -755,10 +787,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
             result = run_decompose_intent(
                 runtime,
                 "session_1",
-                {
-                    "compare_ref": {"step_id": "step_compare", "session_id": "session_1"},
-                    "dimension": "dimension.country",
-                },
+                {"compare_artifact_id": "art_compare", "dimension": "dimension.country"},
             )
         self.assertFalse(result["analytical_metadata"]["time_rollup_allowed"])
 
@@ -775,10 +804,7 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
             result = run_decompose_intent(
                 runtime,
                 "session_1",
-                {
-                    "compare_ref": {"step_id": "step_compare", "session_id": "session_1"},
-                    "dimension": "dimension.country",
-                },
+                {"compare_artifact_id": "art_compare", "dimension": "dimension.country"},
             )
         self.assertFalse(result["analytical_metadata"]["time_rollup_allowed"])
 
@@ -828,7 +854,7 @@ class TestDecomposeRunnerCommitPath(unittest.TestCase):
                     "right_scope": {},
                 },
             }
-        runtime.resolve_artifact_for_ref.return_value = compare_artifact
+        runtime.resolve_artifact_by_id.return_value = compare_artifact
         runtime.resolve_artifact_id_for_step.return_value = "art_fake_ref001"
 
         # Configure resolved_metric with real values so validation passes
@@ -863,10 +889,7 @@ class TestDecomposeRunnerCommitPath(unittest.TestCase):
         runtime.compile_step.return_value = _make_compiled_mock()
         runtime.build_scoped_query.return_value = None
 
-        params = {
-            "compare_ref": {"step_id": "step_compare", "session_id": _SESSION},
-            "dimension": "dim1",
-        }
+        params = {"compare_artifact_id": "art_compare", "dimension": "dim1"}
         with patch("marivo.runtime.intents.decompose.execute_compiled") as mock_exec:
             # Return 1 row for both left and right segmented queries.
             # Configure metadata.get() to return None so the query_hash branch skips.

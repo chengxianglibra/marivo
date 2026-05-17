@@ -50,6 +50,19 @@ _PERIOD_SHIFT_THRESHOLD: dict[str, float] = {
 _MIN_POINTS_FOR_DETECTION = 3
 _DEFAULT_MAX_SERIES = 20
 _VALID_STRATEGIES: frozenset[str] = frozenset({"point_anomaly", "period_shift"})
+_AOI_PARAM_KEYS: frozenset[str] = frozenset(
+    {
+        "metric",
+        "time_scope",
+        "granularity",
+        "filter",
+        "dimension",
+        "strategy",
+        "sensitivity",
+        "limit",
+    }
+)
+_AOI_TIME_SCOPE_KEYS: frozenset[str] = frozenset({"field", "start", "end"})
 
 
 def _coerce_float(value: Any) -> float | None:
@@ -302,6 +315,12 @@ def run_detect_intent(
     the artifact is committed even when no candidates are found.
     """
     p = params or {}
+    extra_keys = sorted(set(p) - _AOI_PARAM_KEYS)
+    if extra_keys:
+        raise ValueError(
+            "detect: INVALID_ARGUMENT - unsupported parameter(s): "
+            f"{extra_keys}; detect accepts only AOI request fields"
+        )
 
     metric_ref = normalize_metric_ref(p.get("metric"))
     metric_ref = runtime.core.normalize_intent_metric_ref(metric_ref)
@@ -312,7 +331,15 @@ def run_detect_intent(
         raise ValueError("detect intent requires 'time_scope'")
 
     # ── Validate and parse time_scope ────────────────────────────────────────
-    time_scope_field: str | None = time_scope_raw.get("field")
+    extra_time_scope_keys = sorted(set(time_scope_raw) - _AOI_TIME_SCOPE_KEYS)
+    if extra_time_scope_keys:
+        raise ValueError(
+            "detect: INVALID_ARGUMENT - unsupported time_scope field(s): "
+            f"{extra_time_scope_keys}; time_scope must contain only field, start, and end"
+        )
+    time_scope_field: str | None = str(time_scope_raw.get("field") or "").strip() or None
+    if time_scope_field is None:
+        raise ValueError("detect: INVALID_ARGUMENT - time_scope.field is required")
 
     granularity_input = p.get("granularity")
     if granularity_input is not None:
@@ -366,13 +393,8 @@ def run_detect_intent(
     if isinstance(dimension_raw, str):
         dimension = dimension_raw.strip() or None
 
-    # ── Read and validate max_series ──────────────────────────────────────────
-    max_series_raw = p.get("max_series")
+    # ── Internal fan-out guard ────────────────────────────────────────────────
     max_series: int | None = _DEFAULT_MAX_SERIES if dimension is not None else None
-    if max_series_raw is not None:
-        max_series = int(max_series_raw)
-        if max_series <= 0:
-            raise ValueError("detect: INVALID_ARGUMENT - max_series must be > 0")
 
     # ── Read and validate limit ───────────────────────────────────────────────
     limit_raw = p.get("limit")
@@ -382,13 +404,11 @@ def run_detect_intent(
         if limit <= 0:
             raise ValueError("detect: INVALID_ARGUMENT - limit must be > 0")
 
-    # ── Scope passthrough ─────────────────────────────────────────────────────
-    scope_raw = p.get("scope") or None
-    if not scope_raw:
-        try:
-            scope_raw = aoi_filter_to_scope(p.get("filter"), label="filter")
-        except ValueError as exc:
-            raise ValueError(f"detect: INVALID_ARGUMENT - {exc}") from exc
+    # ── AOI filter conversion ─────────────────────────────────────────────────
+    try:
+        scope_raw = aoi_filter_to_scope(p.get("filter"), label="filter")
+    except ValueError as exc:
+        raise ValueError(f"detect: INVALID_ARGUMENT - {exc}") from exc
 
     # ── Resolve metric ─────────────────────────────────────────────────────────
     execution_context = runtime.resolve_metric_execution_context(metric_ref, session_id=session_id)

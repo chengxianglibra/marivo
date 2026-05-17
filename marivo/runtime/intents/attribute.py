@@ -339,13 +339,8 @@ def run_attribute_intent(
                 runtime,
                 session_id,
                 {
-                    "compare_ref": {
-                        "step_id": compare_step_id,
-                        "session_id": session_id,
-                        "step_type": "compare",
-                    },
+                    "compare_artifact_id": compare_artifact_id,
                     "dimension": dimension,
-                    "method": decomposition_method,
                 },
             )
         except Exception as exc:

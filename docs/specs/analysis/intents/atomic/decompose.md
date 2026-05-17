@@ -36,9 +36,8 @@ v1 明确不支持：
 
 标识边界（identity boundary）绑定以下输入：
 
-- `compare_ref` 指向的 compare artifact lineage
+- `compare_artifact_id` 指向的 compare artifact lineage
 - `dimension`
-- `method`
 - `artifact_schema_version`
 - `derivation_version`
 
@@ -64,9 +63,8 @@ v1 默认：
 
 ## Reference Contract
 
-`decompose` 优先消费 typed artifact reference，而不是裸字符串 step id。
-
-AOI 协议支持通过 `compare_artifact_id` 直接引用 compare artifact，此时 `compare_ref` 可从 artifact 元数据自动解析。
+`decompose` 消费 `compare_artifact_id`，而不是 legacy `compare_ref` 或裸字符串 step id。
+运行时可在输出 artifact 中从 compare artifact 元数据重建 `compare_ref` 谱系。
 
 ```ts
 type CompareArtifactRef = {
@@ -88,10 +86,10 @@ type ObservationArtifactRef = {
 
 引用约束：
 
-- `compare_ref` 必须指向已完成步骤产出的 canonical compare artifact
-- `compare_ref.comparison_type` 在 v1 中必须是 `scalar_delta` 或 `time_series_delta`
+- `compare_artifact_id` 必须指向已完成步骤产出的 canonical compare artifact
+- 被引用 artifact 的 `comparison_type` 在 v1 中必须是 `scalar_delta` 或 `time_series_delta`
 - 不允许 projection ref 充当 canonical source ref
-- v1 不允许跨 session ref
+- v1 不允许跨 session artifact ref
 - 引用图必须保持 DAG；`decompose` 不允许直接或间接回指依赖自己的对象
 
 ## Request Shape
@@ -99,15 +97,9 @@ type ObservationArtifactRef = {
 ```json
 {
   "step_type": "decompose",
-  "compare_ref": {
-    "step_type": "compare",
-    "session_id": "sess_123",
-    "step_id": "step_cmp_week_over_week",
-    "artifact_id": "cmp_artifact_123",
-    "comparison_type": "time_series_delta"
-  },
+  "compare_artifact_id": "cmp_artifact_123",
   "dimension": "country",
-  "method": "delta_share"
+  "limit": 5
 }
 ```
 
@@ -116,10 +108,9 @@ type ObservationArtifactRef = {
 ```ts
 type DecomposeRequest = {
   step_type: "decompose";
-  compare_ref: CompareArtifactRef;
-  compare_artifact_id?: string;
+  compare_artifact_id: string;
   dimension: string;
-  method?: "delta_share";
+  limit?: number;
 };
 ```
 
@@ -127,11 +118,11 @@ type DecomposeRequest = {
 
 v1 支持的输入形态如下：
 
-- `compare_ref` 必须解析到已完成的 `compare` artifact
+- `compare_artifact_id` 必须解析到已完成的 `compare` artifact
 - 被引用的 compare 输出必须是 `scalar_delta` 或 `time_series_delta`
 - 被比较的 metric 的 `additive_dimensions` 必须非空（即 metric 支持至少一个维度的分解）
 - 该 metric 必须声明自己可按所请求的 `dimension` 做分解（`dimension` 必须在 `additive_dimensions` 列表内）
-- 请求的 method 必须受该 metric 支持
+- `limit` 省略时返回实现默认的完整排序结果；提供时必须为正整数
 
 输出类型：`delta_decomposition`
 
@@ -139,6 +130,7 @@ v1 支持的输入形态如下：
 
 - 直接传 `scope`
 - 直接传 `metric + left_scope + right_scope`
+- legacy `compare_ref` 或 `method`
 - 以 `segmented_delta` 作为主输入契约
 - 多个 dimensions
 - interaction-effect decomposition
@@ -152,7 +144,7 @@ v1 支持的输入形态如下：
 
 ## 字段语义
 
-### compare_ref
+### compare_artifact_id
 
 指向先前 `compare` 步骤产出的 canonical artifact，用于定义要被解释的 delta。
 
@@ -164,7 +156,7 @@ v1 支持的输入形态如下：
 
 `decompose` 不会重定义这个 delta，只负责解释它。
 
-v1 要求 `compare_ref` 解析到 `scalar_delta` 或 `time_series_delta`，而不是 `segmented_delta`。
+v1 要求 `compare_artifact_id` 解析到 `scalar_delta` 或 `time_series_delta`，而不是 `segmented_delta`。
 
 当上游是 `time_series_delta` 时，`decompose` 解释的是 compare 已对齐 bucket 之后的 summary delta，而不是为每个时间 bucket 单独生成一组 contribution rows。若 compare analytical metadata 提供 `matched_left_time_scope` / `matched_right_time_scope`，`decompose` 的 grouped 重算必须分别复用左右两侧的 matched 范围；若只有兼容字段 `matched_time_scope`，则可继续将其同时视作两侧范围，以保持与 summary delta 同一对账边界。
 
@@ -185,9 +177,10 @@ v1 只支持一个维度，因为：
 - 单维度归因拥有稳定的排序和截断语义
 - 多维归因会引入 interaction semantics，需要单独契约
 
-### method
+### limit
 
-v1 只支持 `delta_share`。
+可选的返回行数上限。runtime 先按 contribution share / contribution magnitude / key
+形成稳定排序，再返回前 `limit` 行。
 
 其含义为：
 
@@ -244,7 +237,6 @@ type DecomposeResponse = DeltaDecomposition;
 type DeltaAttributionIssue = {
   code:
     | "unsupported_dimension"
-    | "unsupported_method"
     | "metric_not_decomposable"
     | "non_additive_not_supported"
     | "data_incomplete"
@@ -268,6 +260,7 @@ type DecomposeAnalyticalMetadata = {
   flat_tolerance_relative: number;
   left_row_count: number | null;
   right_row_count: number | null;
+  returned_row_count: number;
 };
 
 type CanonicalVersionMetadata = {
@@ -324,7 +317,6 @@ type DeltaDecomposition = {
   unexplained_absolute_delta: number | null;
   unexplained_share: number | null;
   unexplained_reason:
-    | "method_limit"
     | "data_incomplete"
     | "scope_recomputation_failed"
     | "rounding"
@@ -386,10 +378,11 @@ empty semantics：
 
 ## 校验规则
 
-- `compare_ref` 必须解析到现有且已完成的 `compare`
+- `compare_artifact_id` 必须解析到现有且已完成的 `compare`
 - 被引用结果必须是 `scalar_delta` 或 `time_series_delta`
 - `dimension` 必须是单个 semantic dimension 名称
-- v1 中 `method` 只能是 `delta_share`
+- 请求不得包含 legacy `compare_ref` 或 `method`
+- `limit` 若提供必须为正整数；runtime 在稳定排序后返回前 `limit` 行
 - metric 的 `additive_dimensions` 必须非空，且被请求的 `dimension` 必须在该列表内；`additive_dimensions` 为空的 metric 在 v1 中必须拒绝
 - one-sided rows 必须显式保留，并通过 `presence` 标记
 - 成功 artifact 必须至少包含一条 contribution row；若当前请求无法形成任何 canonical contribution row，请求必须失败
@@ -402,12 +395,10 @@ empty semantics：
 
 - `INVALID_ARGUMENT`
   请求形状非法、v1 不支持的参数、或上游类型不兼容
-- `STEP_NOT_FOUND`
-  `compare_ref` 无法解析
+- `ARTIFACT_NOT_FOUND`
+  `compare_artifact_id` 无法解析
 - `UNSUPPORTED_DIMENSION`
   metric 不支持按该 dimension 分解
-- `UNSUPPORTED_METHOD`
-  method 不受支持
 - `NOT_ATTRIBUTABLE`
   delta 存在，但在当前契约下无法做可辩护归因，包括无法形成任何 canonical contribution row
 
@@ -419,7 +410,6 @@ agent 可稳定消费以下查询轴：
 
 - `metric`
 - `dimension`
-- `method`
 - `attribution.status`
 - `rows[].presence`
 - `rows[].direction`

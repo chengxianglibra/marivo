@@ -430,7 +430,42 @@ def _deep_update(target: dict[str, Any], patch_value: dict[str, Any]) -> None:
             target[key] = value
 
 
-def test_aoi_detect_defaults_and_optional_fields() -> None:
+@pytest.mark.parametrize("strategy", ["point_anomaly", "period_shift"])
+@pytest.mark.parametrize("sensitivity", ["conservative", "balanced", "aggressive"])
+@pytest.mark.parametrize("granularity", ["hour", "day", "week", "month", "quarter", "year"])
+def test_aoi_detect_accepts_all_public_options(
+    strategy: str,
+    sensitivity: str,
+    granularity: str,
+) -> None:
+    from marivo.contracts.generated import aoi
+
+    request = aoi.Detect.model_validate(
+        {
+            "metric": "revenue",
+            "time_scope": _aoi_time_scope(),
+            "granularity": granularity,
+            "filter": {
+                "dialects": [
+                    {"dialect": "ANSI_SQL", "expression": "region = 'US'"},
+                ]
+            },
+            "dimension": "region",
+            "strategy": strategy,
+            "sensitivity": sensitivity,
+            "limit": 10,
+        }
+    )
+
+    assert request.granularity == granularity
+    assert request.strategy == strategy
+    assert request.sensitivity == sensitivity
+    assert request.filter is not None
+    assert request.dimension == "region"
+    assert request.limit == 10
+
+
+def test_aoi_detect_defaults_omitted_optional_fields() -> None:
     from marivo.contracts.generated import aoi
 
     request = aoi.Detect.model_validate(
@@ -438,21 +473,75 @@ def test_aoi_detect_defaults_and_optional_fields() -> None:
             "metric": "revenue",
             "time_scope": _aoi_time_scope(),
             "granularity": "day",
-            "filter": {
-                "dialects": [
-                    {"dialect": "ANSI_SQL", "expression": "region = 'US'"},
-                ]
-            },
-            "dimension": "region",
             "strategy": "point_anomaly",
-            "limit": 10,
         }
     )
 
     assert request.sensitivity == "aggressive"
-    assert request.filter is not None
+    dumped = request.model_dump(exclude_none=True)
+    assert "filter" not in dumped
+    assert "dimension" not in dumped
+    assert "limit" not in dumped
+
+
+def test_aoi_decompose_accepts_public_options() -> None:
+    from marivo.contracts.generated import aoi
+
+    request = aoi.Decompose.model_validate(
+        {
+            "compare_artifact_id": "artifact_compare",
+            "dimension": "region",
+            "limit": 10,
+        }
+    )
+
+    assert request.compare_artifact_id == "artifact_compare"
     assert request.dimension == "region"
     assert request.limit == 10
+
+
+def test_aoi_decompose_defaults_omitted_optional_fields() -> None:
+    from marivo.contracts.generated import aoi
+
+    request = aoi.Decompose.model_validate(
+        {"compare_artifact_id": "artifact_compare", "dimension": "region"}
+    )
+
+    dumped = request.model_dump(exclude_none=True)
+    assert dumped == {"compare_artifact_id": "artifact_compare", "dimension": "region"}
+
+
+@pytest.mark.parametrize(
+    "payload_patch",
+    [
+        {"compare_artifact_id": ""},
+        {"dimension": ""},
+        {"limit": 0},
+        {"limit": -1},
+        {"compare_ref": {"step_id": "step_compare"}},
+        {"method": "delta_share"},
+        {"scope": {"predicate": "region = 'US'"}},
+    ],
+)
+def test_aoi_decompose_rejects_invalid_contract_fields(payload_patch: dict[str, Any]) -> None:
+    from marivo.contracts.generated import aoi
+
+    payload = {"compare_artifact_id": "artifact_compare", "dimension": "region"}
+    payload.update(payload_patch)
+
+    with pytest.raises(ValidationError):
+        aoi.Decompose.model_validate(payload)
+
+
+@pytest.mark.parametrize("missing_field", ["compare_artifact_id", "dimension"])
+def test_aoi_decompose_requires_public_required_fields(missing_field: str) -> None:
+    from marivo.contracts.generated import aoi
+
+    payload = {"compare_artifact_id": "artifact_compare", "dimension": "region"}
+    payload.pop(missing_field)
+
+    with pytest.raises(ValidationError):
+        aoi.Decompose.model_validate(payload)
 
 
 @pytest.mark.parametrize(
@@ -463,8 +552,19 @@ def test_aoi_detect_defaults_and_optional_fields() -> None:
         {"strategy": "zscore_raw"},
         {"sensitivity": "extreme"},
         {"limit": 0},
+        {"limit": -1},
         {"dimension": ""},
         {"scope": {"predicate": "region = 'US'"}},
+        {"split_by": ["region"]},
+        {"profile": "auto"},
+        {"max_series": 10},
+        {
+            "time_scope": {
+                "kind": "range",
+                "start": "2026-05-01T00:00:00Z",
+                "end": "2026-05-08T00:00:00Z",
+            }
+        },
     ],
 )
 def test_aoi_detect_rejects_invalid_contract_fields(payload_patch: dict[str, Any]) -> None:

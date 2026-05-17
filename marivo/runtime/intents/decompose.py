@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from marivo.runtime.runtime import MarivoRuntime
 
 _FLAT_TOLERANCE_RELATIVE = 0.01
+_AOI_PARAM_KEYS: frozenset[str] = frozenset({"compare_artifact_id", "dimension", "limit"})
 
 
 def run_decompose_intent(
@@ -25,74 +26,48 @@ def run_decompose_intent(
     """Execute a `decompose` intent: attribute a compare delta across a dimension.
 
     Input:
-      compare_ref: ArtifactRef pointing to a committed scalar_delta or time_series_delta artifact
-      dimension:   single semantic dimension to decompose over
-      method:      "delta_share" (only v1 option)
+      compare_artifact_id: committed scalar_delta or time_series_delta compare artifact id
+      dimension:           single semantic dimension to decompose over
+      limit:               optional max returned contribution rows
 
     Output: committed delta_decomposition artifact.
 
     Empty semantics: fails (NOT_ATTRIBUTABLE) if no contribution rows can be formed.
     """
     p = params or {}
+    extra_keys = sorted(set(p) - _AOI_PARAM_KEYS)
+    if extra_keys:
+        raise ValueError(
+            "decompose: INVALID_ARGUMENT - unsupported parameter(s): "
+            f"{extra_keys}; decompose accepts only AOI request fields"
+        )
 
-    compare_ref_raw: dict[str, Any] = p.get("compare_ref") or {}
     compare_artifact_id_raw = p.get("compare_artifact_id")
     compare_artifact_id = (
         compare_artifact_id_raw.strip() if isinstance(compare_artifact_id_raw, str) else ""
     )
-    uses_aoi_artifact_ref = bool(compare_artifact_id) or "compare_ref" not in p
-    compare_step_id: str = "" if uses_aoi_artifact_ref else compare_ref_raw.get("step_id") or ""
-    compare_session_id: str = (
-        session_id if uses_aoi_artifact_ref else compare_ref_raw.get("session_id") or session_id
-    )
+    compare_step_id: str = ""
     dimension: str = (p.get("dimension") or "").strip()
-    method: str = p.get("method") or "delta_share"
+    limit_raw = p.get("limit")
+    limit: int | None = None
+    if limit_raw is not None:
+        limit = int(limit_raw)
+        if limit <= 0:
+            raise ValueError("decompose: INVALID_ARGUMENT - limit must be > 0")
 
     # ── Input validation ──────────────────────────────────────────────────────
-    if uses_aoi_artifact_ref:
-        if not compare_artifact_id:
-            raise ValueError("decompose: INVALID_ARGUMENT - compare_artifact_id is required")
-    elif not compare_step_id:
-        raise ValueError("decompose: compare_ref.step_id is required")
-
-    if not uses_aoi_artifact_ref:
-        ref_step_type = compare_ref_raw.get("step_type")
-        if ref_step_type is not None and ref_step_type != "compare":
-            raise ValueError(
-                f"decompose: INVALID_ARGUMENT - compare_ref.step_type must be 'compare', "
-                f"got '{ref_step_type}'"
-            )
-
-    if not uses_aoi_artifact_ref and compare_session_id != session_id:
-        raise ValueError(
-            "decompose: Cross-session ref not allowed - compare_ref.session_id must match "
-            "the current session"
-        )
+    if not compare_artifact_id:
+        raise ValueError("decompose: INVALID_ARGUMENT - compare_artifact_id is required")
 
     if not dimension:
         raise ValueError("decompose: INVALID_ARGUMENT - dimension is required")
 
-    if method != "delta_share":
-        raise ValueError(
-            f"decompose: UNSUPPORTED_METHOD - only 'delta_share' is supported in v1, got '{method}'"
-        )
-
     # ── Resolve compare artifact ──────────────────────────────────────────────
-    if uses_aoi_artifact_ref:
-        compare_artifact = runtime.resolve_artifact_by_id(session_id, compare_artifact_id)
-        if compare_artifact is None:
-            raise ValueError(
-                "decompose: ARTIFACT_NOT_FOUND - no committed artifact for "
-                f"compare_artifact_id '{compare_artifact_id}'"
-            )
-    else:
-        compare_artifact = runtime.resolve_artifact_for_ref(compare_session_id, compare_step_id)
-        if compare_artifact is None:
-            raise ValueError(
-                f"decompose: STEP_NOT_FOUND - no committed artifact for step '{compare_step_id}'"
-            )
-        compare_artifact_id = (
-            runtime.resolve_artifact_id_for_step(session_id, compare_step_id) or ""
+    compare_artifact = runtime.resolve_artifact_by_id(session_id, compare_artifact_id)
+    if compare_artifact is None:
+        raise ValueError(
+            "decompose: ARTIFACT_NOT_FOUND - no committed artifact for "
+            f"compare_artifact_id '{compare_artifact_id}'"
         )
 
     normalized_compare = _normalize_decompose_compare_input(compare_artifact)
@@ -362,6 +337,7 @@ def run_decompose_intent(
             "" if r["key"] is None else str(r["key"]),
         )
     )
+    returned_rows = rows[:limit] if limit is not None else rows
 
     # ── Unexplained delta ─────────────────────────────────────────────────────
     explained = sum(
@@ -471,7 +447,7 @@ def run_decompose_intent(
         "scope_relative_delta": scope_relative_delta,
         "scope_direction": scope_direction,
         "attribution": {"status": attribution_status, "issues": issues},
-        "rows": rows,
+        "rows": returned_rows,
         "unexplained_absolute_delta": unexplained_absolute_delta,
         "unexplained_share": unexplained_share,
         "unexplained_reason": unexplained_reason,
@@ -485,6 +461,7 @@ def run_decompose_intent(
             "flat_tolerance_relative": _FLAT_TOLERANCE_RELATIVE,
             "left_row_count": len(left_rows),
             "right_row_count": len(right_rows),
+            "returned_row_count": len(returned_rows),
             **source_analytical_metadata,
             "time_boundary_constraint": {
                 "scope": "frozen_compare_window",
@@ -507,14 +484,14 @@ def run_decompose_intent(
     artifact_name = f"{metric_name}_decompose_{dimension}"
     summary = (
         f"decompose {metric_name} by {dimension}: "
-        f"{len(rows)} contribution rows "
+        f"{len(returned_rows)} contribution rows "
         f"(scope Δ {scope_absolute_delta if scope_absolute_delta is not None else 'n/a'})"
     )
 
     provenance: dict[str, Any] = {
-        "compare_step_id": compare_step_id,
+        "compare_artifact_id": compare_artifact_id,
         "dimension": dimension,
-        "method": method,
+        "limit": limit,
     }
     result = commit_step_result(
         runtime,
@@ -599,7 +576,7 @@ def _normalize_decompose_compare_input(compare_artifact: dict[str, Any]) -> dict
         }
 
     raise ValueError(
-        "decompose: INVALID_ARGUMENT - compare_ref must point to a scalar_delta or "
+        "decompose: INVALID_ARGUMENT - compare_artifact_id must point to a scalar_delta or "
         f"time_series_delta artifact, got '{comparison_type}'"
     )
 
