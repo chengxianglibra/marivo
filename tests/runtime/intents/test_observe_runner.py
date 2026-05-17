@@ -144,7 +144,7 @@ class TestObserveRunner(unittest.TestCase):
         self.assertEqual(args[4]["scope"], {"predicate": "region = 'US'"})
 
     def test_time_series_observe_builds_dense_series_and_quality(self) -> None:
-        _, result = self._run_observe(
+        runtime, result = self._run_observe(
             {
                 "metric": "metric.m1",
                 "time_scope": {
@@ -158,6 +158,8 @@ class TestObserveRunner(unittest.TestCase):
         )
 
         self.assertEqual(result["observation_type"], "time_series")
+        compiled_call = runtime.compile_step.call_args.args[0]
+        self.assertEqual(compiled_call.params["limit"], 1000)
         self.assertEqual(result["granularity"], "day")
         self.assertEqual(
             result["series"],
@@ -250,7 +252,7 @@ class TestObserveRunner(unittest.TestCase):
         self.assertEqual(scoped_call.time_scope.grain, "hour")
 
     def test_segmented_observe_builds_sorted_segments(self) -> None:
-        _, result = self._run_observe(
+        runtime, result = self._run_observe(
             {
                 "metric": "metric.m1",
                 "time_scope": {
@@ -268,6 +270,8 @@ class TestObserveRunner(unittest.TestCase):
         )
 
         self.assertEqual(result["observation_type"], "segmented")
+        compiled_call = runtime.compile_step.call_args.args[0]
+        self.assertEqual(compiled_call.params["limit"], 1000)
         self.assertEqual(result["dimensions"], ["platform"])
         self.assertEqual(
             result["segments"],
