@@ -110,6 +110,14 @@ class ArtifactRuntimeStatusResponse(BaseModel):
     schema_version: str
 
 
+class ArtifactPayloadResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    session_id: str
+    artifact_id: str
+    result: JsonObject
+
+
 class PropositionRuntimeStatusResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

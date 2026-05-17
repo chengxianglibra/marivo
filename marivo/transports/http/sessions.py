@@ -12,8 +12,10 @@ from marivo.contracts.generated import aoi
 from marivo.contracts.ids import SessionId, UserId
 from marivo.contracts.session import SessionState
 from marivo.runtime import SemanticRuntimeNotReadyError
+from marivo.runtime.intents.diagnose_projection import compact_diagnose_envelope
 from marivo.transports.http.deps import get_services, http_error
 from marivo.transports.http.models import (
+    ArtifactPayloadResponse,
     ArtifactRuntimeStatusResponse,
     AttributeResponse,
     CompareResponse,
@@ -421,6 +423,27 @@ def _derived_intent_response(result: dict[str, Any]) -> dict[str, Any]:
     return response
 
 
+@router.get(
+    "/sessions/{session_id}/artifacts/{artifact_id}",
+    response_model=ArtifactPayloadResponse,
+)
+def get_artifact_payload(
+    session_id: str,
+    artifact_id: str,
+    request: Request,
+) -> ArtifactPayloadResponse:
+    """Return the committed payload for a session-scoped artifact."""
+    result = get_services(request).runtime.resolve_artifact_by_id(session_id, artifact_id)
+    if result is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"artifact {artifact_id!r} not found in session {session_id!r}",
+        )
+    return ArtifactPayloadResponse.model_validate(
+        {"session_id": session_id, "artifact_id": artifact_id, "result": result}
+    )
+
+
 @router.post(
     "/sessions/{session_id}/intents/observe",
     response_model=ObserveResponse,
@@ -548,6 +571,9 @@ def intent_diagnose(
     session_id: str,
     payload: aoi.Diagnose,
     request: Request,
+    include_details: bool = Query(default=True),
 ) -> DiagnoseResponse:
     result = _run_intent(session_id, "diagnose", payload, request)
+    if not include_details:
+        result = compact_diagnose_envelope(result)
     return DiagnoseResponse.model_validate(_derived_intent_response(result))

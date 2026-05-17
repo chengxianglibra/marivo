@@ -166,6 +166,52 @@ class RecordingTerminateRuntime(FakeRuntime):
         }
 
 
+class RecordingDiagnoseRuntime(FakeRuntime):
+    def __init__(self) -> None:
+        self.diagnose_call: dict[str, object] | None = None
+
+    def diagnose(self, **kw):
+        self.diagnose_call = kw
+        return _diagnose_envelope()
+
+
+def _diagnose_envelope() -> dict[str, object]:
+    return {
+        "intent_type": "diagnose",
+        "step_type": "diagnose",
+        "step_ref": {"session_id": "sess_1", "step_id": "step_diag", "step_type": "diagnose"},
+        "artifact_id": "art_diag",
+        "result": {
+            "bundle_type": "diagnosis_bundle",
+            "aoi_artifacts": [{"artifact_id": "art_decomp", "result": {"rows": [{"key": "A"}]}}],
+            "diagnoses": [
+                {
+                    "drivers": [
+                        {
+                            "dimension": "region",
+                            "decompose_ref": {
+                                "session_id": "sess_1",
+                                "step_id": "step_decomp",
+                                "step_type": "decompose",
+                                "artifact_id": "art_decomp",
+                            },
+                            "top_segment": {"key": "A", "absolute_contribution": 10.0},
+                            "total_contribution": 10.0,
+                            "total_contribution_share": 1.0,
+                            "rows": [{"key": "A", "absolute_contribution": 10.0}],
+                            "returned_row_count": 1,
+                            "total_row_count": 1,
+                            "is_truncated": False,
+                            "issues": [],
+                        }
+                    ]
+                }
+            ],
+        },
+        "product_metadata": {"aoi_artifacts": [{"artifact_id": "art_decomp"}]},
+    }
+
+
 # Catalog / OpenAPI tools are only registered in HTTP mode.
 _HTTP_ONLY_TOOLS = frozenset(
     {
@@ -534,6 +580,57 @@ def test_diagnose_schema_documents_auto_detect_inputs() -> None:
     assert "Detection sensitivity" in properties["sensitivity"]["description"]
     assert "Maximum anomaly candidates" in properties["candidate_limit"]["description"]
     assert "Maximum driver rows" in properties["decomposition_limit"]["description"]
+    assert properties["include_details"]["default"] is False
+    assert "full embedded AOI artifacts" in properties["include_details"]["description"]
+
+
+def test_diagnose_tool_defaults_to_compact_response_and_can_include_details() -> None:
+    server = FastMCP("test")
+    runtime = RecordingDiagnoseRuntime()
+    register_tools(server, runtime, transport="stdio")
+    tool = {tool.name: tool for tool in server._tool_manager.list_tools()}["diagnose"]
+    time_scope = McpTimeScope(
+        field="event_time",
+        start="2026-05-01T00:00:00Z",
+        end="2026-05-08T00:00:00Z",
+    )
+
+    compact = asyncio.run(
+        tool.fn(
+            session_id="sess_1",
+            metric="view_time",
+            dimensions=["region"],
+            strategy="point_anomaly",
+            time_scope=time_scope,
+            granularity="day",
+        )
+    )
+    full = asyncio.run(
+        tool.fn(
+            session_id="sess_1",
+            metric="view_time",
+            dimensions=["region"],
+            strategy="point_anomaly",
+            time_scope=time_scope,
+            granularity="day",
+            include_details=True,
+        )
+    )
+
+    compact_data = compact["data"]
+    compact_driver = compact_data["result"]["diagnoses"][0]["drivers"][0]
+    full_data = full["data"]
+    full_driver = full_data["result"]["diagnoses"][0]["drivers"][0]
+
+    assert runtime.diagnose_call is not None
+    assert isinstance(runtime.diagnose_call["request"], aoi.Diagnose)
+    assert compact_data["result"]["aoi_artifacts"] == []
+    assert compact_data["product_metadata"]["aoi_artifacts"] == []
+    assert "rows" not in compact_driver
+    assert compact_driver["decompose_ref"]["artifact_id"] == "art_decomp"
+    assert full_data["result"]["aoi_artifacts"]
+    assert full_data["product_metadata"]["aoi_artifacts"]
+    assert full_driver["rows"] == [{"key": "A", "absolute_contribution": 10.0}]
 
 
 def test_correlate_and_forecast_tool_schemas_document_time_series_artifact_inputs() -> None:

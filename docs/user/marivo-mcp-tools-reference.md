@@ -1593,6 +1593,7 @@ interface AttributeArtifact {
 | sensitivity | `"conservative"` \| `"balanced"` \| `"aggressive"` | 否 | `"aggressive"` | detect 阶段的灵敏度 |
 | candidate_limit | integer \| null | 否 | 3 | 最多端到端诊断的异常候选数量；不控制 driver rows |
 | decomposition_limit | integer \| null | 否 | 5 | 每个候选、每个归因维度最多返回的 driver rows 数量；不控制候选数量 |
+| include_details | boolean | 否 | false | 是否返回完整内嵌 AOI artifacts 与 driver rows；默认返回轻量摘要，并通过 `decompose_ref.artifact_id` 按需读取明细 |
 
 **输出 — DiagnoseArtifact**：
 
@@ -1685,6 +1686,8 @@ interface DiagnoseArtifact {
 
 `drivers[]` 是维度级归因集合；`top_segment` 提供 `rows[0]` 的摘要，
 `total_contribution` / `total_contribution_share` 汇总该维度所有 contribution rows。
+默认 MCP 响应会省略完整 `aoi_artifacts` 与 `drivers[].rows`；需要明细时设置
+`include_details=true`，或使用返回的 `decompose_ref.artifact_id` 读取对应 decompose artifact。
 
 ---
 

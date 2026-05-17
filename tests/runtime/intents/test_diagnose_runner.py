@@ -11,6 +11,7 @@ import pytest
 from marivo.adapters.local.duckdb_analytics import DuckDBAnalyticsEngine
 from marivo.adapters.local.sqlite_metadata import SQLiteMetadataStore
 from marivo.runtime.intents.diagnose import run_diagnose_intent
+from marivo.runtime.intents.diagnose_projection import compact_diagnose_envelope
 from tests.semantic_test_helpers import (
     build_semantic_layer_service,
     ensure_published_typed_metric,
@@ -265,6 +266,41 @@ def test_decomposition_limit_truncates_driver_rows(diagnose_env: DiagnoseEnv) ->
     assert driver["total_contribution_share"] == pytest.approx(1.0)
     assert driver["others_absolute_contribution"] == 0.0
     assert driver["issues"] == []
+
+
+def test_compact_projection_elides_details_and_preserves_driver_summary(
+    diagnose_env: DiagnoseEnv,
+) -> None:
+    session_id = _make_session(diagnose_env, "auto diagnose compact")
+
+    bundle = run_diagnose_intent(
+        diagnose_env.service,
+        session_id,
+        _auto_params(decomposition_limit=1),
+    )
+
+    compact = compact_diagnose_envelope(bundle)
+    full_driver = _result(bundle)["diagnoses"][0]["drivers"][0]
+    compact_result = _result(compact)
+    compact_driver = compact_result["diagnoses"][0]["drivers"][0]
+
+    assert _result(bundle)["aoi_artifacts"]
+    assert _product(bundle)["aoi_artifacts"]
+    assert compact_result["aoi_artifacts"] == []
+    assert _product(compact)["aoi_artifacts"] == []
+    assert "rows" in full_driver
+    assert "rows" not in compact_driver
+    assert (
+        compact_driver["decompose_ref"]["artifact_id"]
+        == full_driver["decompose_ref"]["artifact_id"]
+    )
+    assert compact_driver["top_segment"] == full_driver["top_segment"]
+    assert compact_driver["total_contribution"] == full_driver["total_contribution"]
+    assert compact_driver["total_contribution_share"] == full_driver["total_contribution_share"]
+    assert compact_driver["returned_row_count"] == 1
+    assert compact_driver["total_row_count"] == 2
+    assert compact_driver["is_truncated"] is True
+    assert compact_driver["issues"] == full_driver["issues"]
 
 
 def test_not_attributable_driver_has_null_summaries() -> None:
