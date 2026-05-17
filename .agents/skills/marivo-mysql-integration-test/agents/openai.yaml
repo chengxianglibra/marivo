@@ -1,4 +1,0 @@
-interface:
-  display_name: "Marivo MySQL Integration Test"
-  short_description: "Run live MySQL metadata tests."
-  default_prompt: "Use $marivo-mysql-integration-test to run the Marivo MySQL integration tests using a local MySQL container."

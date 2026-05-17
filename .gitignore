@@ -76,21 +76,7 @@ marivo.yaml
 !.claude/skills/commit-attribution/
 !.claude/skills/commit-attribution/SKILL.md
 .codex/
-.agents/*
-!.agents/skills/
-.agents/skills/*
-!.agents/skills/commit-attribution/
-!.agents/skills/commit-attribution/SKILL.md
-!.agents/skills/marivo-test-fixtures/
-!.agents/skills/marivo-test-fixtures/SKILL.md
-!.agents/skills/marivo-mysql-integration-test/
-!.agents/skills/marivo-mysql-integration-test/SKILL.md
-!.agents/skills/marivo-mysql-integration-test/agents/
-!.agents/skills/marivo-mysql-integration-test/agents/openai.yaml
-!.agents/skills/marivo-skill-maintainer/
-!.agents/skills/marivo-skill-maintainer/SKILL.md
-!.agents/skills/marivo-skill-maintainer/agents/
-!.agents/skills/marivo-skill-maintainer/agents/openai.yaml
+.agents/
 
 # Plan
 plan/
