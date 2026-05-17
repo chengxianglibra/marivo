@@ -1209,21 +1209,20 @@ interface AnalysisFailure {
     "start": "2025-03-01",
     "end": "2025-03-08"
   },
-  "granularity": "day",
-  "dimensions": ["cluster"]
+  "granularity": "day"
 }
 ```
 
-**输出示例**（时间序列 + 分段）：
+**输出示例**（时间序列）：
 
 ```json
 {
   "data": {
     "artifact_id": "art_obs_1",
     "result": {
-      "rows": [
-        { "item_id": "item_0", "keys": { "cluster": "jscs-ai-offline", "bucket_start": "2025-03-01T00:00:00Z" }, "value": 15230 },
-        { "item_id": "item_1", "keys": { "cluster": "jscs-ai-online", "bucket_start": "2025-03-01T00:00:00Z" }, "value": 8910 }
+      "points": [
+        { "bucket_start": "2025-03-01T00:00:00Z", "value": 15230 },
+        { "bucket_start": "2025-03-02T00:00:00Z", "value": 8910 }
       ]
     },
     "failure": null

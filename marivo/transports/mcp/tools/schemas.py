@@ -194,7 +194,9 @@ class McpAoiSliceRef(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    time_scope: McpTimeScope
+    time_scope: McpTimeScope = Field(
+        description="AOI TimeScope for this slice; required half-open [start, end) interval.",
+    )
     filter: McpExpression | None = Field(
         default=None,
         description="Optional AOI Expression filter for this time slice.",
@@ -206,7 +208,12 @@ class McpTestHypothesis(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    alternative: Literal["two_sided", "greater", "less"]
+    alternative: Literal["two_sided", "greater", "less"] = Field(
+        description=(
+            "Hypothesis direction: two_sided tests for any difference, greater tests whether "
+            "current is greater than baseline, less tests whether current is less than baseline."
+        ),
+    )
     significance: Literal["conservative", "balanced", "aggressive"] = Field(
         ...,
         description=(
@@ -223,7 +230,13 @@ class McpValidateHypothesis(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    alternative: Literal["two_sided", "greater", "less"] | None = None
+    alternative: Literal["two_sided", "greater", "less"] | None = Field(
+        default=None,
+        description=(
+            "Optional hypothesis direction. Defaults to two_sided; greater tests whether "
+            "current is greater than baseline, less tests whether current is less than baseline."
+        ),
+    )
     significance: Literal["conservative", "balanced", "aggressive"] | None = Field(
         default=None,
         description=(
