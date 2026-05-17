@@ -344,6 +344,21 @@ def test_observe_and_detect_filter_schemas_expose_aoi_expression() -> None:
     assert "scalar observe" in observe_props["granularity"]["description"]
 
 
+def test_mcp_time_scope_schema_documents_naive_datetime_default() -> None:
+    server = FastMCP("test")
+    register_tools(server, FakeRuntime(), transport="stdio")
+    tools = {tool.name: tool for tool in server._tool_manager.list_tools()}
+
+    time_scope_schema = tools["observe"].parameters["$defs"]["McpTimeScope"]
+    start_description = time_scope_schema["properties"]["start"]["description"]
+    end_description = time_scope_schema["properties"]["end"]["description"]
+
+    for description in (start_description, end_description):
+        assert "ISO-8601 date or datetime" in description
+        assert "defaults date-only and timezone-naive datetime values" in description
+        assert "service system timezone" in description
+
+
 def test_validate_hypothesis_schema_omits_fixed_family() -> None:
     server = FastMCP("test")
     register_tools(server, FakeRuntime(), transport="stdio")
