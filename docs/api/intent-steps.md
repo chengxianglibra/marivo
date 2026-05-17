@@ -335,6 +335,14 @@ attribution detail, while `top_segment`, `total_contribution`, and
 `total_contribution_share` provide the common summary fields consumers need
 without traversing `rows`.
 
+Each diagnosis candidate separates anomaly magnitude from attribution input:
+`anomaly_evidence` reports the detect-side current value, expected value, and
+deviation used to rank the anomaly candidate. `attribution_comparison` reports
+the actual current/baseline observe windows and scalar delta that feed
+`decompose`. For `point_anomaly`, these values can differ because the detect
+expected value is the scan-window statistical baseline, while attribution uses
+the previous adjacent equal-length baseline window.
+
 Known current/baseline change attribution uses `attribute` with `left` as the
 current slice and `right` as the baseline slice. `baseline_policy` is fixed by
 the diagnose runtime and is not a request field.

@@ -447,6 +447,7 @@ def _follow_up_candidate(
         )
         if k in candidate
     }
+    anomaly_evidence = _build_anomaly_evidence(candidate)
 
     cand_window: dict[str, Any] = candidate.get("window") or {}
     cand_slice: dict[str, Any] | None = candidate.get("slice") or None
@@ -506,7 +507,8 @@ def _follow_up_candidate(
             "current_ref": None,
             "baseline_ref": None,
             "compare_ref": None,
-            "comparison": None,
+            "anomaly_evidence": anomaly_evidence,
+            "attribution_comparison": None,
             "drivers": [],
             "status": "needs_attention",
             "issues": cand_issues,
@@ -593,7 +595,7 @@ def _follow_up_candidate(
 
     # ── Compare ────────────────────────────────────────────────────────────────
     compare_ref: dict[str, Any] | None = None
-    comparison: dict[str, Any] | None = None
+    attribution_comparison: dict[str, Any] | None = None
     compare_step_id: str | None = None
     comparability_status: str = "not_comparable"
 
@@ -618,8 +620,14 @@ def _follow_up_candidate(
             }
             comparability: dict[str, Any] = compare_result.get("comparability") or {}
             comparability_status = comparability.get("status") or "comparable"
-            comparison = {
+            attribution_comparison = {
+                "basis": "previous_adjacent_equal_length",
                 "comparison_type": "scalar_delta",
+                "current_window": {"start": current_start_str, "end": current_end_str},
+                "baseline_window": {
+                    "start": baseline_start_str,
+                    "end": baseline_end_str,
+                },
                 "current_value": compare_result.get("current_value"),
                 "baseline_value": compare_result.get("baseline_value"),
                 "absolute_delta": compare_result.get("absolute_delta"),
@@ -711,11 +719,32 @@ def _follow_up_candidate(
         "current_ref": current_ref,
         "baseline_ref": baseline_ref,
         "compare_ref": compare_ref,
-        "comparison": comparison,
+        "anomaly_evidence": anomaly_evidence,
+        "attribution_comparison": attribution_comparison,
         "drivers": drivers,
         "status": status,
         "issues": cand_issues,
         "_aoi_artifacts": aoi_artifacts,
+    }
+
+
+def _build_anomaly_evidence(candidate: dict[str, Any]) -> dict[str, Any]:
+    """Return the detect-side evidence used to rank an anomaly candidate."""
+    candidate_type = str(candidate.get("candidate_type") or "point_anomaly")
+    basis = (
+        "previous_adjacent_equal_length"
+        if candidate_type == "period_shift"
+        else "scan_window_zscore_mean"
+    )
+    return {
+        "basis": basis,
+        "current_value": candidate.get("current_value"),
+        "expected_value": candidate.get("baseline_value"),
+        "deviation_abs": candidate.get("deviation_abs"),
+        "deviation_pct": candidate.get("deviation_pct"),
+        "direction": candidate.get("direction") or "undefined",
+        "candidate_score": candidate.get("candidate_score"),
+        "flag_level": candidate.get("flag_level"),
     }
 
 
