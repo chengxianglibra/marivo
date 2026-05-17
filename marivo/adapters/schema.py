@@ -379,18 +379,16 @@ METADATA_DDL: list[str] = [
     """
     CREATE TABLE IF NOT EXISTS calendar (
         calendar_date              TEXT NOT NULL,
-        region_code                TEXT NOT NULL,
-        calendar_version           TEXT NOT NULL,
+        holiday_group_id           TEXT NOT NULL DEFAULT '',
         weekday                    INTEGER NOT NULL CHECK (weekday BETWEEN 1 AND 7),
         is_weekend                 INTEGER NOT NULL CHECK (is_weekend IN (0, 1)),
         is_workday                 INTEGER NOT NULL CHECK (is_workday IN (0, 1)),
         holiday_name               TEXT,
-        holiday_group_id           TEXT,
         year_relative_holiday_key  TEXT,
-        PRIMARY KEY (calendar_version, region_code, calendar_date)
+        PRIMARY KEY (calendar_date, holiday_group_id)
     )
     """,
-    "CREATE INDEX IF NOT EXISTS idx_calendar_version_region ON calendar(calendar_version, region_code)",
+    "CREATE INDEX IF NOT EXISTS idx_calendar_date ON calendar(calendar_date)",
     """
     CREATE TABLE IF NOT EXISTS metadata_schema_marker (
         backend         TEXT NOT NULL PRIMARY KEY CHECK (backend IN ('sqlite', 'mysql')),

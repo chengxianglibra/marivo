@@ -99,15 +99,15 @@ def _seed_calendar_rows_to_metadata(metadata: SQLiteMetadataStore) -> None:
             wd = _weekday_of(iso)
             is_we = 1 if wd >= 6 else 0
             is_wd = 1 if wd < 6 else 0
-            rows.append((iso, "CN", _CALENDAR_VERSION, wd, is_we, is_wd, None, None, None))
+            rows.append((iso, "", wd, is_we, is_wd, None, None))
     with metadata.connect() as con:
         con.executemany(
             """
             INSERT INTO calendar
-                (calendar_date, region_code, calendar_version, weekday,
-                 is_weekend, is_workday, holiday_name, holiday_group_id,
+                (calendar_date, holiday_group_id, weekday,
+                 is_weekend, is_workday, holiday_name,
                  year_relative_holiday_key)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             rows,
         )

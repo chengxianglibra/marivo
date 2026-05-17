@@ -48,8 +48,6 @@ from marivo.runtime.evidence.assessment_context import AssessmentEvaluationConte
 _CALENDAR_ALIGNMENT_REQUIRED_STRING_FIELDS: tuple[str, ...] = (
     "policy_ref",
     "comparison_basis",
-    "resolved_calendar_source",
-    "resolved_calendar_version",
     "resolved_baseline_generation_rule",
 )
 _CALENDAR_ALIGNMENT_REQUIRED_DICT_FIELDS: tuple[str, ...] = (

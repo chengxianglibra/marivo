@@ -5,9 +5,9 @@ from datetime import date
 from typing import Any, cast
 
 from marivo.adapters.metadata import MetadataStore
-from marivo.config import CalendarConfig
 from marivo.runtime.semantic.calendar_data_runtime import (
     CalendarDataReader,
+    CalendarDataReadResult,
     CalendarDataResolutionError,
 )
 
@@ -17,18 +17,15 @@ def _calendar_row(
     *,
     holiday_group_id: str | None = None,
     year_relative_holiday_key: str | None = None,
-    calendar_version: str = "cn_2026q2_v1",
 ) -> dict[str, Any]:
     day_value = date.fromisoformat(day)
     return {
         "calendar_date": day,
-        "region_code": "CN",
-        "calendar_version": calendar_version,
         "weekday": day_value.weekday() + 1,
         "is_weekend": 1 if day_value.weekday() >= 5 else 0,
         "is_workday": 1 if day_value.weekday() < 5 else 0,
         "holiday_name": None,
-        "holiday_group_id": holiday_group_id,
+        "holiday_group_id": holiday_group_id or "",
         "year_relative_holiday_key": year_relative_holiday_key,
     }
 
@@ -36,33 +33,15 @@ def _calendar_row(
 class _FakeMetadata:
     def __init__(self, calendar_rows: list[dict[str, Any]] | None = None) -> None:
         self._calendar_rows = calendar_rows or []
-        self._versions: list[str] = sorted({row["calendar_version"] for row in self._calendar_rows})
 
     def query_rows(self, sql: str, params: list[Any] | None = None) -> list[dict[str, Any]]:
         params = params or []
-        if "FROM calendar" in sql and "MAX(calendar_version)" in sql:
-            if not self._versions:
-                return []
-            return [{"max_version": self._versions[-1]}]
-        if "FROM calendar" in sql:
-            calendar_version = params[0] if params else ""
-            region_code = params[1] if len(params) > 1 else "CN"
-            read_start = params[2] if len(params) > 2 else ""
-            read_end = params[3] if len(params) > 3 else ""
+        if "FROM calendar" in sql and "WHERE calendar_date >= ?" in sql:
+            read_start = params[0] if params else ""
+            read_end = params[1] if len(params) > 1 else ""
             return [
-                row
-                for row in self._calendar_rows
-                if row["calendar_version"] == calendar_version
-                and row["region_code"] == region_code
-                and read_start <= row["calendar_date"] < read_end
+                row for row in self._calendar_rows if read_start <= row["calendar_date"] < read_end
             ]
-        raise AssertionError(f"Unexpected query: {sql}")
-
-    def query_one(self, sql: str, params: list[Any] | None = None) -> dict[str, Any] | None:
-        params = params or []
-        if "MAX(calendar_version)" in sql:
-            rows = self.query_rows(sql, params)
-            return rows[0] if rows else None
         raise AssertionError(f"Unexpected query: {sql}")
 
 
@@ -76,34 +55,30 @@ class CalendarDataReaderTests(unittest.TestCase):
     def _make_reader(
         self,
         calendar_rows: list[dict[str, Any]] | None = None,
-        config: CalendarConfig | None = None,
     ) -> CalendarDataReader:
-        return CalendarDataReader(
-            metadata=_metadata_store(calendar_rows),
-            config=config or CalendarConfig(),
-        )
+        return CalendarDataReader(metadata=_metadata_store(calendar_rows))
 
-    def test_read_for_alignment_reads_single_table(self) -> None:
+    def test_read_for_alignment_returns_annotation_rows(self) -> None:
         rows = [
             _calendar_row(
                 "2025-04-01",
                 holiday_group_id="qingming",
-                year_relative_holiday_key="qingming_d-3",
+                year_relative_holiday_key="qingming_2025",
             ),
             _calendar_row(
                 "2025-04-02",
                 holiday_group_id="qingming",
-                year_relative_holiday_key="qingming_d-2",
+                year_relative_holiday_key="qingming_2025",
             ),
             _calendar_row(
                 "2026-04-01",
                 holiday_group_id="qingming",
-                year_relative_holiday_key="qingming_d-3",
+                year_relative_holiday_key="qingming_2026",
             ),
             _calendar_row(
                 "2026-04-02",
                 holiday_group_id="qingming",
-                year_relative_holiday_key="qingming_d-2",
+                year_relative_holiday_key="qingming_2026",
             ),
         ]
         reader = self._make_reader(rows)
@@ -113,42 +88,39 @@ class CalendarDataReaderTests(unittest.TestCase):
             baseline_window=(date(2025, 4, 1), date(2025, 4, 3)),
         )
 
-        self.assertEqual(result.resolved_calendar_version, "cn_2026q2_v1")
+        self.assertIsInstance(result, CalendarDataReadResult)
         self.assertEqual(len(result.annotation_rows), 4)
         self.assertEqual(result.annotation_rows[0].holiday_group_id, "qingming")
 
-    def test_read_for_alignment_with_pinned_version(self) -> None:
+    def test_read_for_alignment_multi_holiday_date(self) -> None:
         rows = [
-            _calendar_row("2025-04-01", calendar_version="cn_2026q1_v1"),
-            _calendar_row("2025-04-01", calendar_version="cn_2026q2_v1"),
-            _calendar_row("2026-04-01", calendar_version="cn_2026q1_v1"),
-            _calendar_row("2026-04-01", calendar_version="cn_2026q2_v1"),
-        ]
-        config = CalendarConfig(calendar_version="cn_2026q1_v1")
-        reader = self._make_reader(rows, config=config)
-
-        result = reader.read_for_alignment(
-            current_window=(date(2026, 4, 1), date(2026, 4, 2)),
-            baseline_window=(date(2025, 4, 1), date(2025, 4, 2)),
-        )
-
-        self.assertEqual(result.resolved_calendar_version, "cn_2026q1_v1")
-
-    def test_read_for_alignment_discovers_latest_version(self) -> None:
-        rows = [
-            _calendar_row("2025-04-01", calendar_version="cn_2026q1_v1"),
-            _calendar_row("2025-04-01", calendar_version="cn_2026q2_v1"),
-            _calendar_row("2026-04-01", calendar_version="cn_2026q1_v1"),
-            _calendar_row("2026-04-01", calendar_version="cn_2026q2_v1"),
+            {
+                "calendar_date": "2024-10-01",
+                "weekday": 2,
+                "is_weekend": 0,
+                "is_workday": 0,
+                "holiday_name": "国庆节",
+                "holiday_group_id": "national_day",
+                "year_relative_holiday_key": "national_day_2024",
+            },
+            {
+                "calendar_date": "2024-10-01",
+                "weekday": 2,
+                "is_weekend": 0,
+                "is_workday": 0,
+                "holiday_name": "中秋节",
+                "holiday_group_id": "mid_autumn",
+                "year_relative_holiday_key": "mid_autumn_2024",
+            },
         ]
         reader = self._make_reader(rows)
-
         result = reader.read_for_alignment(
-            current_window=(date(2026, 4, 1), date(2026, 4, 2)),
-            baseline_window=(date(2025, 4, 1), date(2025, 4, 2)),
+            current_window=(date(2024, 10, 1), date(2024, 10, 2)),
+            baseline_window=(date(2023, 9, 30), date(2023, 10, 1)),
         )
-
-        self.assertEqual(result.resolved_calendar_version, "cn_2026q2_v1")
+        oct1 = next(r for r in result.annotation_rows if r.calendar_date == date(2024, 10, 1))
+        self.assertEqual(oct1.holiday_group_id, "national_day")
+        self.assertIn("mid_autumn", oct1.extra_holiday_group_ids)
 
     def test_read_for_alignment_raises_when_no_data(self) -> None:
         reader = self._make_reader([])
@@ -159,64 +131,9 @@ class CalendarDataReaderTests(unittest.TestCase):
                 baseline_window=(date(2025, 4, 1), date(2025, 4, 2)),
             )
 
-        self.assertIn("no calendar data", str(ctx.exception).lower())
+        self.assertIn("calendar data unavailable", str(ctx.exception).lower())
 
-    def test_read_for_alignment_raises_when_pinned_version_missing(self) -> None:
-        rows = [_calendar_row("2026-04-01", calendar_version="cn_2026q2_v1")]
-        config = CalendarConfig(calendar_version="cn_2026q1_v1")
-        reader = self._make_reader(rows, config=config)
-
-        with self.assertRaises(CalendarDataResolutionError):
-            reader.read_for_alignment(
-                current_window=(date(2026, 4, 1), date(2026, 4, 2)),
-                baseline_window=(date(2025, 4, 1), date(2025, 4, 2)),
-            )
-
-    def test_read_for_alignment_rejects_invalid_weekday(self) -> None:
-        rows = [
-            {
-                "calendar_date": "2026-04-01",
-                "region_code": "CN",
-                "calendar_version": "cn_2026q2_v1",
-                "weekday": 8,
-                "is_weekend": 0,
-                "is_workday": 1,
-                "holiday_name": None,
-                "holiday_group_id": None,
-                "year_relative_holiday_key": None,
-            },
-        ]
-        reader = self._make_reader(rows)
-
-        with self.assertRaises(CalendarDataResolutionError):
-            reader.read_for_alignment(
-                current_window=(date(2026, 4, 1), date(2026, 4, 2)),
-                baseline_window=(date(2025, 4, 1), date(2025, 4, 2)),
-            )
-
-    def test_read_for_alignment_rejects_missing_weekend_workday(self) -> None:
-        rows = [
-            {
-                "calendar_date": "2026-04-01",
-                "region_code": "CN",
-                "calendar_version": "cn_2026q2_v1",
-                "weekday": 2,
-                "is_weekend": None,
-                "is_workday": 1,
-                "holiday_name": None,
-                "holiday_group_id": None,
-                "year_relative_holiday_key": None,
-            },
-        ]
-        reader = self._make_reader(rows)
-
-        with self.assertRaises(CalendarDataResolutionError):
-            reader.read_for_alignment(
-                current_window=(date(2026, 4, 1), date(2026, 4, 2)),
-                baseline_window=(date(2025, 4, 1), date(2025, 4, 2)),
-            )
-
-    def test_source_lineage_contains_table_and_version(self) -> None:
+    def test_source_lineage(self) -> None:
         rows = [
             _calendar_row("2025-04-01"),
             _calendar_row("2026-04-01"),
@@ -228,9 +145,7 @@ class CalendarDataReaderTests(unittest.TestCase):
             baseline_window=(date(2025, 4, 1), date(2025, 4, 2)),
         )
 
-        self.assertIn("table_fqn", result.source_lineage)
-        self.assertEqual(result.source_lineage["table_fqn"], "calendar")
-        self.assertIn("calendar_version", result.source_lineage)
+        self.assertEqual(result.source_lineage["table"], "calendar")
 
 
 if __name__ == "__main__":
