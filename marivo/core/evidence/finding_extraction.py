@@ -190,7 +190,7 @@ def segment_stable_key(keys: dict[str, Any]) -> str:
 # ---------------------------------------------------------------------------
 
 _VALID_DIRECTIONS = frozenset({"increase", "decrease", "flat", "undefined"})
-_VALID_PRESENCES = frozenset({"both", "left_only", "right_only"})
+_VALID_PRESENCES = frozenset({"both", "current_only", "baseline_only"})
 
 
 def _validate_direction(raw: Any) -> str:
@@ -527,23 +527,23 @@ def _extract_compare_scalar_delta(
     finding_id = make_finding_id(artifact_id, "delta", canonical_item_key)
 
     resolved = payload.get("resolved_input_summary") or {}
-    left_scope: dict[str, Any] = resolved.get("left_scope") or {}
-    left_time_scope = resolved.get("left_time_scope")
+    current_scope: dict[str, Any] = resolved.get("current_scope") or {}
+    current_time_scope = resolved.get("current_time_scope")
 
     direction = _validate_direction(payload.get("direction"))
 
     _, obs_item_ref = make_item_identity("value")
-    left_ref = {"artifact_id": "", "item_ref": obs_item_ref}
-    right_ref = {"artifact_id": "", "item_ref": obs_item_ref}
+    current_ref = {"artifact_id": "", "item_ref": obs_item_ref}
+    baseline_ref = {"artifact_id": "", "item_ref": obs_item_ref}
     comp_payload = extract_comparability_payload(payload)
 
     delta_payload = _attach_comparability_payload(
         {
             "delta_kind": "scalar_delta",
-            "left_ref": left_ref,
-            "right_ref": right_ref,
-            "left_value": to_float_or_none(payload.get("left_value")),
-            "right_value": to_float_or_none(payload.get("right_value")),
+            "current_ref": current_ref,
+            "baseline_ref": baseline_ref,
+            "current_value": to_float_or_none(payload.get("current_value")),
+            "baseline_value": to_float_or_none(payload.get("baseline_value")),
             "absolute_delta": to_float_or_none(payload.get("absolute_delta")),
             "relative_delta": to_float_or_none(payload.get("relative_delta")),
             "direction": direction,
@@ -562,11 +562,11 @@ def _extract_compare_scalar_delta(
             subject={
                 "metric": payload.get("metric"),
                 "entity": None,
-                "slice": left_scope,
+                "slice": current_scope,
                 "grain": None,
                 "analysis_axis": "scalar",
             },
-            observed_window=left_time_scope,
+            observed_window=current_time_scope,
             quality=_empty_quality(),
             provenance=_make_provenance(
                 step_ref=step_ref,
@@ -590,7 +590,7 @@ def _extract_compare_segmented_delta(
     metric: str | None = payload.get("metric")
     unit: str | None = payload.get("unit")
     resolved = payload.get("resolved_input_summary") or {}
-    left_time_scope = resolved.get("left_time_scope")
+    current_time_scope = resolved.get("current_time_scope")
     comp_payload = extract_comparability_payload(payload)
 
     findings: list[dict[str, Any]] = []
@@ -604,16 +604,16 @@ def _extract_compare_segmented_delta(
         direction = _validate_direction(row.get("direction"))
         presence = _validate_presence(row.get("presence"))
 
-        _, left_item_ref = make_item_identity("rows", key=stable_key)
-        _, right_item_ref = make_item_identity("rows", key=stable_key)
+        _, current_item_ref = make_item_identity("rows", key=stable_key)
+        _, baseline_item_ref = make_item_identity("rows", key=stable_key)
 
         delta_payload = _attach_comparability_payload(
             {
                 "delta_kind": "segmented_delta",
-                "left_ref": {"artifact_id": "", "item_ref": left_item_ref},
-                "right_ref": {"artifact_id": "", "item_ref": right_item_ref},
-                "left_value": to_float_or_none(row.get("left_value")),
-                "right_value": to_float_or_none(row.get("right_value")),
+                "current_ref": {"artifact_id": "", "item_ref": current_item_ref},
+                "baseline_ref": {"artifact_id": "", "item_ref": baseline_item_ref},
+                "current_value": to_float_or_none(row.get("current_value")),
+                "baseline_value": to_float_or_none(row.get("baseline_value")),
                 "absolute_delta": to_float_or_none(row.get("absolute_delta")),
                 "relative_delta": to_float_or_none(row.get("relative_delta")),
                 "direction": direction,
@@ -636,7 +636,7 @@ def _extract_compare_segmented_delta(
                     "grain": None,
                     "analysis_axis": "segment",
                 },
-                observed_window=left_time_scope,
+                observed_window=current_time_scope,
                 quality=_empty_quality(),
                 provenance=_make_provenance(
                     step_ref=step_ref,
@@ -669,8 +669,8 @@ def _extract_compare_time_series_delta(
     has_summary = any(
         key in payload
         for key in (
-            "summary_left_value",
-            "summary_right_value",
+            "summary_current_value",
+            "summary_baseline_value",
             "summary_absolute_delta",
             "summary_relative_delta",
             "summary_direction",
@@ -684,10 +684,10 @@ def _extract_compare_time_series_delta(
         summary_payload = _attach_comparability_payload(
             {
                 "delta_kind": "time_series_delta",
-                "left_ref": {"artifact_id": "", "item_ref": summary_item_ref},
-                "right_ref": {"artifact_id": "", "item_ref": summary_item_ref},
-                "left_value": to_float_or_none(payload.get("summary_left_value")),
-                "right_value": to_float_or_none(payload.get("summary_right_value")),
+                "current_ref": {"artifact_id": "", "item_ref": summary_item_ref},
+                "baseline_ref": {"artifact_id": "", "item_ref": summary_item_ref},
+                "current_value": to_float_or_none(payload.get("summary_current_value")),
+                "baseline_value": to_float_or_none(payload.get("summary_baseline_value")),
                 "absolute_delta": to_float_or_none(payload.get("summary_absolute_delta")),
                 "relative_delta": to_float_or_none(payload.get("summary_relative_delta")),
                 "direction": summary_direction,
@@ -756,10 +756,10 @@ def _extract_compare_time_series_delta(
         delta_payload = _attach_comparability_payload(
             {
                 "delta_kind": "time_series_delta",
-                "left_ref": {"artifact_id": "", "item_ref": bucket_item_ref},
-                "right_ref": {"artifact_id": "", "item_ref": bucket_item_ref},
-                "left_value": to_float_or_none(row.get("left_value")),
-                "right_value": to_float_or_none(row.get("right_value")),
+                "current_ref": {"artifact_id": "", "item_ref": bucket_item_ref},
+                "baseline_ref": {"artifact_id": "", "item_ref": bucket_item_ref},
+                "current_value": to_float_or_none(row.get("current_value")),
+                "baseline_value": to_float_or_none(row.get("baseline_value")),
                 "absolute_delta": to_float_or_none(row.get("absolute_delta")),
                 "relative_delta": to_float_or_none(row.get("relative_delta")),
                 "direction": direction,
@@ -898,8 +898,8 @@ def extract_detect_findings(
                     "candidate_ref": candidate_ref,
                     "score": to_float_or_none(candidate.get("candidate_score")),
                     "flag_level": flag_level,
-                    "actual_value": to_float_or_none(candidate.get("observed_value")),
-                    "expected_value": to_float_or_none(candidate.get("expected_value")),
+                    "current_value": to_float_or_none(candidate.get("current_value")),
+                    "baseline_value": to_float_or_none(candidate.get("baseline_value")),
                     "deviation_absolute": to_float_or_none(candidate.get("deviation_abs")),
                     "deviation_relative": to_float_or_none(candidate.get("deviation_pct")),
                 },
@@ -1211,26 +1211,26 @@ def extract_test_findings(
     except (TypeError, ValueError):
         alpha = 0.05
 
-    left_src: dict[str, Any] = payload.get("left_ref") or {}
-    right_src: dict[str, Any] = payload.get("right_ref") or {}
+    current_src: dict[str, Any] = payload.get("current_ref") or {}
+    baseline_src: dict[str, Any] = payload.get("baseline_ref") or {}
 
-    _, left_obs_item_ref = make_item_identity("result")
-    left_ref = {
-        "artifact_id": str(left_src.get("artifact_id") or ""),
-        "item_ref": left_obs_item_ref,
+    _, current_obs_item_ref = make_item_identity("result")
+    current_ref = {
+        "artifact_id": str(current_src.get("artifact_id") or ""),
+        "item_ref": current_obs_item_ref,
     }
-    _, right_obs_item_ref = make_item_identity("result")
-    right_ref = {
-        "artifact_id": str(right_src.get("artifact_id") or ""),
-        "item_ref": right_obs_item_ref,
+    _, baseline_obs_item_ref = make_item_identity("result")
+    baseline_ref = {
+        "artifact_id": str(baseline_src.get("artifact_id") or ""),
+        "item_ref": baseline_obs_item_ref,
     }
 
     comp_payload = extract_comparability_payload(payload)
 
     test_payload = _attach_comparability_payload(
         {
-            "left_ref": left_ref,
-            "right_ref": right_ref,
+            "current_ref": current_ref,
+            "baseline_ref": baseline_ref,
             "method": method,
             "estimate_value": to_float_or_none(estimate.get("value")),
             "statistic_name": stat_name,

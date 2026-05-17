@@ -286,10 +286,10 @@ empty semantics：
 
 payload 必须直接携带：
 
-- `left_ref`
-- `right_ref`
-- `left_value`
-- `right_value`
+- `current_ref`
+- `baseline_ref`
+- `current_value`
+- `baseline_value`
 - `absolute_delta`
 - `relative_delta`
 - `direction`
@@ -369,8 +369,8 @@ payload 必须直接携带：
 - `candidate_ref`
 - `score`
 - `flag_level`
-- `actual_value`
-- `expected_value`
+- `current_value`
+- `baseline_value`
 - `deviation_absolute`
 - `deviation_relative`
 
@@ -432,8 +432,8 @@ empty semantics：
 
 payload 必须直接携带：
 
-- `left_ref`
-- `right_ref`
+- `current_ref`
+- `baseline_ref`
 - `method`
 - `estimate_value`
 - `statistic_name`

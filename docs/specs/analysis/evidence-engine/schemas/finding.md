@@ -478,14 +478,14 @@ type DeltaFinding = FindingBase & {
   finding_type: "delta";
   payload: {
     delta_kind: "scalar_delta" | "segmented_delta" | "time_series_delta";
-    left_ref: ArtifactItemRefRef;
-    right_ref: ArtifactItemRefRef;
-    left_value: number | null;
-    right_value: number | null;
+    current_ref: ArtifactItemRefRef;
+    baseline_ref: ArtifactItemRefRef;
+    current_value: number | null;
+    baseline_value: number | null;
     absolute_delta: number | null;
     relative_delta: number | null;
     direction: "increase" | "decrease" | "flat" | "undefined";
-    presence: "both" | "left_only" | "right_only" | null;
+    presence: "both" | "current_only" | "baseline_only" | null;
     unit: string | null;
   };
 };
@@ -542,8 +542,8 @@ type AnomalyCandidateFinding = FindingBase & {
     candidate_ref: ArtifactItemRefRef;
     score: number | null;
     flag_level: "high" | "medium" | "low" | null;
-    actual_value: number | null;
-    expected_value: number | null;
+    current_value: number | null;
+    baseline_value: number | null;
     deviation_absolute: number | null;
     deviation_relative: number | null;
   };
@@ -553,7 +553,7 @@ type AnomalyCandidateFinding = FindingBase & {
 字段映射：
 
 - `score <- candidate_score`
-- `actual_value <- observed_value`
+- `current_value <- current_value`
 - `deviation_absolute <- deviation_abs`
 - `deviation_relative <- deviation_pct`
 
@@ -569,8 +569,8 @@ type AnomalyCandidateFinding = FindingBase & {
 type CorrelationResultFinding = FindingBase & {
   finding_type: "correlation_result";
   payload: {
-    left_ref: ArtifactItemRefRef;
-    right_ref: ArtifactItemRefRef;
+    current_ref: ArtifactItemRefRef;
+    baseline_ref: ArtifactItemRefRef;
     method: string;
     coefficient: number | null;
     p_value: number | null;
@@ -696,7 +696,8 @@ finding payload 中的 canonical 引用必须使用结构化 typed ref。
 
 v1 固定如下：
 
-- `left_ref` / `right_ref`：使用 `ArtifactItemRefRef`
+- `current_ref` / `baseline_ref`：使用 `ArtifactItemRefRef` for current-vs-baseline findings
+- `left_ref` / `right_ref`：使用 `ArtifactItemRefRef` for correlation findings
 - `scope_delta_ref`：使用 `FindingRef`，指向被解释的 delta finding
 - `candidate_ref`：使用 `ArtifactItemRefRef`，指向 detect artifact 中对应 candidate item
 
@@ -916,7 +917,7 @@ action proposal 是面向 agent 的动作候选，不是事实。
   },
   "payload": {
     "delta_kind": "segmented_delta",
-    "left_ref": {
+    "current_ref": {
       "artifact_id": "art_obs_current",
       "item_ref": {
         "collection": "rows",
@@ -924,7 +925,7 @@ action proposal 是面向 agent 的动作候选，不是事实。
         "key": "iOS"
       }
     },
-    "right_ref": {
+    "baseline_ref": {
       "artifact_id": "art_obs_baseline",
       "item_ref": {
         "collection": "rows",
@@ -932,8 +933,8 @@ action proposal 是面向 agent 的动作候选，不是事实。
         "key": "iOS"
       }
     },
-    "left_value": 12.4,
-    "right_value": 14.1,
+    "current_value": 12.4,
+    "baseline_value": 14.1,
     "absolute_delta": -1.7,
     "relative_delta": -0.1206,
     "direction": "decrease",
@@ -998,8 +999,8 @@ action proposal 是面向 agent 的动作候选，不是事实。
     },
     "score": 0.92,
     "flag_level": "high",
-    "actual_value": 0.031,
-    "expected_value": 0.052,
+    "current_value": 0.031,
+    "baseline_value": 0.052,
     "deviation_absolute": -0.021,
     "deviation_relative": -0.4038
   }

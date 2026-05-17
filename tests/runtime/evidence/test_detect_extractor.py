@@ -49,8 +49,8 @@ _EXTRACTOR = DetectArtifactExtractor()
 def _candidate(
     window_start: str = "2024-01-05",
     window_end: str = "2024-01-06",
-    observed_value: float | None = 320.0,
-    expected_value: float | None = 100.0,
+    current_value: float | None = 320.0,
+    baseline_value: float | None = 100.0,
     deviation_abs: float | None = 220.0,
     deviation_pct: float | None = 2.2,
     candidate_score: float | None = 3.5,
@@ -60,8 +60,8 @@ def _candidate(
     return {
         "window": {"start": window_start, "end": window_end},
         "slice": candidate_slice,
-        "observed_value": observed_value,
-        "expected_value": expected_value,
+        "current_value": current_value,
+        "baseline_value": baseline_value,
         "deviation_abs": deviation_abs,
         "deviation_pct": deviation_pct,
         "candidate_score": candidate_score,
@@ -242,8 +242,8 @@ class TestDetectExtractorSingleCandidate(unittest.TestCase):
 class TestDetectExtractorPayloadFields(unittest.TestCase):
     def setUp(self) -> None:
         self.candidate = _candidate(
-            observed_value=320.0,
-            expected_value=100.0,
+            current_value=320.0,
+            baseline_value=100.0,
             deviation_abs=220.0,
             deviation_pct=2.2,
             candidate_score=3.5,
@@ -254,11 +254,11 @@ class TestDetectExtractorPayloadFields(unittest.TestCase):
         )
         self.payload = self.result["findings"][0]["payload"]
 
-    def test_actual_value_mapped(self) -> None:
-        self.assertAlmostEqual(self.payload["actual_value"], 320.0)
+    def test_current_value_mapped(self) -> None:
+        self.assertAlmostEqual(self.payload["current_value"], 320.0)
 
-    def test_expected_value_mapped(self) -> None:
-        self.assertAlmostEqual(self.payload["expected_value"], 100.0)
+    def test_baseline_value_mapped(self) -> None:
+        self.assertAlmostEqual(self.payload["baseline_value"], 100.0)
 
     def test_deviation_absolute_mapped(self) -> None:
         self.assertAlmostEqual(self.payload["deviation_absolute"], 220.0)
@@ -303,16 +303,16 @@ class TestDetectExtractorPayloadFields(unittest.TestCase):
 
     def test_none_numeric_fields_map_to_none(self) -> None:
         c = _candidate(
-            observed_value=None,
-            expected_value=None,
+            current_value=None,
+            baseline_value=None,
             deviation_abs=None,
             deviation_pct=None,
             candidate_score=None,
         )
         result = _EXTRACTOR.extract(_ART_ID, _artifact(candidates=[c]), _STEP_REF, _SESSION)
         p = result["findings"][0]["payload"]
-        self.assertIsNone(p["actual_value"])
-        self.assertIsNone(p["expected_value"])
+        self.assertIsNone(p["current_value"])
+        self.assertIsNone(p["baseline_value"])
         self.assertIsNone(p["deviation_absolute"])
         self.assertIsNone(p["deviation_relative"])
         self.assertIsNone(p["score"])
@@ -405,8 +405,8 @@ class TestDetectExtractorFindingId(unittest.TestCase):
         c: dict[str, Any] = {
             "window": None,
             "slice": None,
-            "observed_value": 50.0,
-            "expected_value": 20.0,
+            "current_value": 50.0,
+            "baseline_value": 20.0,
             "deviation_abs": 30.0,
             "deviation_pct": 1.5,
             "candidate_score": 2.5,
@@ -424,8 +424,8 @@ class TestDetectExtractorFindingId(unittest.TestCase):
         c: dict[str, Any] = {
             "window": {"start": "", "end": ""},
             "slice": None,
-            "observed_value": 50.0,
-            "expected_value": 20.0,
+            "current_value": 50.0,
+            "baseline_value": 20.0,
             "deviation_abs": 30.0,
             "deviation_pct": 1.5,
             "candidate_score": 2.5,
@@ -451,8 +451,8 @@ class TestDetectExtractorAnalysisAxis(unittest.TestCase):
         c: dict[str, Any] = {
             "window": None,
             "slice": None,
-            "observed_value": 50.0,
-            "expected_value": 20.0,
+            "current_value": 50.0,
+            "baseline_value": 20.0,
             "deviation_abs": 30.0,
             "deviation_pct": 1.5,
             "candidate_score": 2.5,
@@ -466,8 +466,8 @@ class TestDetectExtractorAnalysisAxis(unittest.TestCase):
         c: dict[str, Any] = {
             "window": None,
             "slice": {"region": "EU"},
-            "observed_value": 50.0,
-            "expected_value": 20.0,
+            "current_value": 50.0,
+            "baseline_value": 20.0,
             "deviation_abs": 30.0,
             "deviation_pct": 1.5,
             "candidate_score": 2.5,
@@ -615,17 +615,17 @@ class TestDetectExtractorGrain(unittest.TestCase):
 
 def _segment_candidate(
     region: str = "EU",
-    observed_value: float = 50.0,
-    expected_value: float = 20.0,
+    current_value: float = 50.0,
+    baseline_value: float = 20.0,
 ) -> dict[str, Any]:
     """A candidate with a non-null slice and no window (segment anomaly)."""
     return {
         "window": None,
         "slice": {"region": region},
-        "observed_value": observed_value,
-        "expected_value": expected_value,
-        "deviation_abs": observed_value - expected_value,
-        "deviation_pct": (observed_value - expected_value) / expected_value,
+        "current_value": current_value,
+        "baseline_value": baseline_value,
+        "deviation_abs": current_value - baseline_value,
+        "deviation_pct": (current_value - baseline_value) / baseline_value,
         "candidate_score": 2.5,
         "flag_level": "medium",
         "direction": "up",
@@ -685,8 +685,8 @@ class TestDetectExtractorSegmentCandidate(unittest.TestCase):
         c: dict[str, Any] = {
             "window": None,
             "slice": {"device": "iOS", "country": "US"},
-            "observed_value": 50.0,
-            "expected_value": 20.0,
+            "current_value": 50.0,
+            "baseline_value": 20.0,
             "deviation_abs": 30.0,
             "deviation_pct": 1.5,
             "candidate_score": 2.5,

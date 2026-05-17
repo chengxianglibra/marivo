@@ -24,12 +24,12 @@ class DecomposeHourWindowTests(unittest.TestCase):
     def test_infer_compare_grain_prefers_hour_for_datetime_windows_over_metric_day(self) -> None:
         self.assertEqual(
             _infer_compare_grain(
-                left_time_scope={
+                current_time_scope={
                     "kind": "range",
                     "start": "2024-01-01T01:00:00",
                     "end": "2024-01-01T03:00:00",
                 },
-                right_time_scope={
+                baseline_time_scope={
                     "kind": "range",
                     "start": "2024-01-01T00:00:00",
                     "end": "2024-01-01T01:00:00",
@@ -42,8 +42,8 @@ class DecomposeHourWindowTests(unittest.TestCase):
     def test_infer_compare_grain_falls_back_to_metric_grain_for_date_windows(self) -> None:
         self.assertEqual(
             _infer_compare_grain(
-                left_time_scope={"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
-                right_time_scope={"kind": "range", "start": "2023-12-25", "end": "2024-01-01"},
+                current_time_scope={"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+                baseline_time_scope={"kind": "range", "start": "2023-12-25", "end": "2024-01-01"},
                 fallback_grain="day",
             ),
             "day",
@@ -66,19 +66,19 @@ class DecomposeHourWindowTests(unittest.TestCase):
             {
                 "comparison_type": "time_series_delta",
                 "metric": "m1",
-                "summary_left_value": 30.0,
-                "summary_right_value": 23.0,
+                "summary_current_value": 30.0,
+                "summary_baseline_value": 23.0,
                 "summary_absolute_delta": 7.0,
                 "summary_relative_delta": 7.0 / 23.0,
                 "summary_direction": "increase",
                 "granularity": "day",
                 "resolved_input_summary": {
-                    "left_time_scope": {
+                    "current_time_scope": {
                         "kind": "range",
                         "start": "2024-01-01",
                         "end": "2024-01-08",
                     },
-                    "right_time_scope": {
+                    "baseline_time_scope": {
                         "kind": "range",
                         "start": "2023-01-01",
                         "end": "2023-01-08",
@@ -99,11 +99,11 @@ class DecomposeHourWindowTests(unittest.TestCase):
         self.assertEqual(normalized["scope_absolute_delta"], 7.0)
         self.assertEqual(normalized["source_observation_type"], "time_series")
         self.assertEqual(
-            normalized["left_time_scope"],
+            normalized["current_time_scope"],
             {"kind": "range", "start": "2024-01-02", "end": "2024-01-04"},
         )
         self.assertEqual(
-            normalized["right_time_scope"],
+            normalized["baseline_time_scope"],
             {"kind": "range", "start": "2024-01-02", "end": "2024-01-04"},
         )
         self.assertEqual(
@@ -116,19 +116,19 @@ class DecomposeHourWindowTests(unittest.TestCase):
             {
                 "comparison_type": "time_series_delta",
                 "metric": "m1",
-                "summary_left_value": 30.0,
-                "summary_right_value": 23.0,
+                "summary_current_value": 30.0,
+                "summary_baseline_value": 23.0,
                 "summary_absolute_delta": 7.0,
                 "summary_relative_delta": 7.0 / 23.0,
                 "summary_direction": "increase",
                 "granularity": "day",
                 "resolved_input_summary": {
-                    "left_time_scope": {
+                    "current_time_scope": {
                         "kind": "range",
                         "start": "2024-01-01",
                         "end": "2024-01-08",
                     },
-                    "right_time_scope": {
+                    "baseline_time_scope": {
                         "kind": "range",
                         "start": "2023-01-01",
                         "end": "2023-01-08",
@@ -138,12 +138,12 @@ class DecomposeHourWindowTests(unittest.TestCase):
                     "matched_bucket_count": 2,
                     "pairing_basis": "calendar_aligned_observation_windows",
                     "pairing_rule": "calendar_aligned_bucket_pairing",
-                    "matched_left_time_scope": {
+                    "matched_current_time_scope": {
                         "kind": "range",
                         "start": "2024-01-02",
                         "end": "2024-01-04",
                     },
-                    "matched_right_time_scope": {
+                    "matched_baseline_time_scope": {
                         "kind": "range",
                         "start": "2023-01-03",
                         "end": "2023-01-05",
@@ -153,11 +153,11 @@ class DecomposeHourWindowTests(unittest.TestCase):
         )
 
         self.assertEqual(
-            normalized["left_time_scope"],
+            normalized["current_time_scope"],
             {"kind": "range", "start": "2024-01-02", "end": "2024-01-04"},
         )
         self.assertEqual(
-            normalized["right_time_scope"],
+            normalized["baseline_time_scope"],
             {"kind": "range", "start": "2023-01-03", "end": "2023-01-05"},
         )
         self.assertEqual(
@@ -266,23 +266,23 @@ def _make_compare_artifact(
         "comparison_type": "scalar_delta",
         "metric": "m1",
         "unit": None,
-        "left_value": 100.0,
-        "right_value": 90.0,
+        "current_value": 100.0,
+        "baseline_value": 90.0,
         "absolute_delta": 10.0,
         "relative_delta": 0.111,
         "direction": "increase",
         "lineage": {
-            "left_source_ref": {"step_id": "step_obs_left", "session_id": "session_1"},
-            "right_source_ref": {"step_id": "step_obs_right", "session_id": "session_1"},
+            "current_source_ref": {"step_id": "step_obs_left", "session_id": "session_1"},
+            "baseline_source_ref": {"step_id": "step_obs_right", "session_id": "session_1"},
         },
         "resolved_input_summary": {
-            "left_time_scope": {
+            "current_time_scope": {
                 "field": time_scope_field,
                 "kind": "range",
                 "start": "2024-01-01",
                 "end": "2024-01-08",
             },
-            "right_time_scope": {
+            "baseline_time_scope": {
                 "field": time_scope_field,
                 "kind": "range",
                 "start": "2023-12-25",
@@ -304,19 +304,19 @@ def _make_time_series_compare_artifact(
         "comparison_type": "time_series_delta",
         "metric": "m1",
         "unit": None,
-        "summary_left_value": 100.0,
-        "summary_right_value": 90.0,
+        "summary_current_value": 100.0,
+        "summary_baseline_value": 90.0,
         "summary_absolute_delta": 10.0,
         "summary_relative_delta": 0.111,
         "summary_direction": "increase",
         "granularity": "day",
         "lineage": {
-            "left_source_ref": {"step_id": "step_obs_left", "session_id": "session_1"},
-            "right_source_ref": {"step_id": "step_obs_right", "session_id": "session_1"},
+            "current_source_ref": {"step_id": "step_obs_left", "session_id": "session_1"},
+            "baseline_source_ref": {"step_id": "step_obs_right", "session_id": "session_1"},
         },
         "resolved_input_summary": {
-            "left_time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
-            "right_time_scope": {"kind": "range", "start": "2023-12-25", "end": "2024-01-01"},
+            "current_time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+            "baseline_time_scope": {"kind": "range", "start": "2023-12-25", "end": "2024-01-01"},
         },
         "analytical_metadata": am,
     }
@@ -794,28 +794,28 @@ class TestDecomposeRunnerCommitPath(unittest.TestCase):
                 "comparison_type": "scalar_delta",
                 "metric": "m1",
                 "unit": None,
-                "left_value": 100.0,
-                "right_value": 90.0,
+                "current_value": 100.0,
+                "baseline_value": 90.0,
                 "absolute_delta": 10.0,
                 "relative_delta": 0.111,
                 "direction": "increase",
                 "lineage": {
-                    "left_source_ref": {"step_id": "step_obs_left", "session_id": _SESSION},
-                    "right_source_ref": {"step_id": "step_obs_right", "session_id": _SESSION},
+                    "current_source_ref": {"step_id": "step_obs_left", "session_id": _SESSION},
+                    "baseline_source_ref": {"step_id": "step_obs_right", "session_id": _SESSION},
                 },
                 "resolved_input_summary": {
-                    "left_time_scope": {
+                    "current_time_scope": {
                         "kind": "range",
                         "start": "2024-01-01",
                         "end": "2024-01-08",
                     },
-                    "right_time_scope": {
+                    "baseline_time_scope": {
                         "kind": "range",
                         "start": "2023-12-25",
                         "end": "2024-01-01",
                     },
-                    "left_scope": {},
-                    "right_scope": {},
+                    "current_scope": {},
+                    "baseline_scope": {},
                 },
             }
         runtime.resolve_artifact_by_id.return_value = compare_artifact
@@ -889,46 +889,46 @@ class TestDecomposeRunnerCommitPath(unittest.TestCase):
                 "metric": "m1",
                 "unit": None,
                 "granularity": "day",
-                "summary_left_value": 120.0,
-                "summary_right_value": 90.0,
+                "summary_current_value": 120.0,
+                "summary_baseline_value": 90.0,
                 "summary_absolute_delta": 30.0,
                 "summary_relative_delta": 0.333,
                 "summary_direction": "increase",
                 "lineage": {
-                    "left_source_ref": {"step_id": "step_obs_left", "session_id": _SESSION},
-                    "right_source_ref": {"step_id": "step_obs_right", "session_id": _SESSION},
+                    "current_source_ref": {"step_id": "step_obs_left", "session_id": _SESSION},
+                    "baseline_source_ref": {"step_id": "step_obs_right", "session_id": _SESSION},
                 },
                 "resolved_input_summary": {
-                    "left_time_scope": {
+                    "current_time_scope": {
                         "kind": "range",
                         "start": "2024-01-01",
                         "end": "2024-01-08",
                     },
-                    "right_time_scope": {
+                    "baseline_time_scope": {
                         "kind": "range",
                         "start": "2023-01-01",
                         "end": "2023-01-08",
                     },
-                    "left_scope": {},
-                    "right_scope": {},
+                    "current_scope": {},
+                    "baseline_scope": {},
                 },
                 "analytical_metadata": {
                     "pairing_basis": "calendar_aligned_observation_windows",
                     "pairing_rule": "calendar_aligned_bucket_pairing",
                     "matched_bucket_count": 7,
-                    "dropped_left_buckets": 0,
-                    "dropped_right_buckets": 0,
+                    "dropped_current_buckets": 0,
+                    "dropped_baseline_buckets": 0,
                     "matched_time_scope": {
                         "kind": "range",
                         "start": "2024-01-01",
                         "end": "2024-01-08",
                     },
-                    "matched_left_time_scope": {
+                    "matched_current_time_scope": {
                         "kind": "range",
                         "start": "2024-01-01",
                         "end": "2024-01-08",
                     },
-                    "matched_right_time_scope": {
+                    "matched_baseline_time_scope": {
                         "kind": "range",
                         "start": "2023-01-01",
                         "end": "2023-01-08",
@@ -938,8 +938,8 @@ class TestDecomposeRunnerCommitPath(unittest.TestCase):
         )
 
         self.assertEqual(result["compare_ref"]["comparison_type"], "time_series_delta")
-        self.assertEqual(result["left_ref"]["observation_type"], "time_series")
-        self.assertEqual(result["right_ref"]["observation_type"], "time_series")
+        self.assertEqual(result["current_ref"]["observation_type"], "time_series")
+        self.assertEqual(result["baseline_ref"]["observation_type"], "time_series")
         self.assertEqual(result["scope_absolute_delta"], 30.0)
         self.assertEqual(
             result["analytical_metadata"]["decomposition_source"],

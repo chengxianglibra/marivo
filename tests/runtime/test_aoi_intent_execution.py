@@ -50,14 +50,14 @@ def _decompose_request() -> aoi.Decompose:
 def _validate_request() -> aoi.Validate:
     return aoi.Validate(
         metric="view_time",
-        left=aoi.Slice(
+        current=aoi.Slice(
             time_scope=aoi.TimeScope(
                 field="event_time",
                 start=datetime(2026, 5, 1, tzinfo=UTC),
                 end=datetime(2026, 5, 8, tzinfo=UTC),
             )
         ),
-        right=aoi.Slice(
+        baseline=aoi.Slice(
             time_scope=aoi.TimeScope(
                 field="event_time",
                 start=datetime(2026, 4, 24, tzinfo=UTC),
@@ -262,14 +262,14 @@ def test_validate_accepts_aoi_request_and_dispatches_lowered_params(monkeypatch)
             "s1",
             {
                 "metric": "view_time",
-                "left": {
+                "current": {
                     "time_scope": {
                         "field": "event_time",
                         "start": "2026-05-01T00:00:00Z",
                         "end": "2026-05-08T00:00:00Z",
                     }
                 },
-                "right": {
+                "baseline": {
                     "time_scope": {
                         "field": "event_time",
                         "start": "2026-04-24T00:00:00Z",

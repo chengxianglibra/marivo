@@ -216,8 +216,8 @@ def _observe_request() -> aoi.Observe2:
 
 def _compare_request() -> aoi.Compare:
     return aoi.Compare(
-        left_artifact_id="artifact-left",
-        right_artifact_id="artifact-right",
+        current_artifact_id="artifact-left",
+        baseline_artifact_id="artifact-right",
         compare_type="normal",
     )
 
@@ -256,8 +256,8 @@ def _forecast_request() -> aoi.Forecast:
 def _attribute_request() -> aoi.Attribute:
     return aoi.Attribute(
         metric="view_time",
-        left=aoi.Slice(time_scope=_time_scope()),
-        right=aoi.Slice(time_scope=_time_scope()),
+        current=aoi.Slice(time_scope=_time_scope()),
+        baseline=aoi.Slice(time_scope=_time_scope()),
         dimensions=["region"],
     )
 

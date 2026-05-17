@@ -215,8 +215,8 @@ def test_auto_detect_filter_is_applied_to_detect_and_followup(
     driver = diagnosis["drivers"][0]
 
     assert result["scope"] == {"predicate": "cluster = 'alpha'"}
-    assert diagnosis["comparison"]["left_value"] == 500.0
-    assert diagnosis["comparison"]["right_value"] == 100.0
+    assert diagnosis["comparison"]["current_value"] == 500.0
+    assert diagnosis["comparison"]["baseline_value"] == 100.0
     assert [row["key"] for row in driver["rows"]] == ["alpha"]
 
 
@@ -499,8 +499,8 @@ def test_hour_candidate_followup_preserves_hour_windows_for_compare() -> None:
             "step_type": "compare",
         },
         "artifact_id": "art_compare",
-        "left_value": 29.0,
-        "right_value": 3.0,
+        "current_value": 29.0,
+        "baseline_value": 3.0,
         "absolute_delta": 26.0,
         "relative_delta": 8.6,
         "direction": "up",
@@ -555,8 +555,8 @@ def test_hour_candidate_followup_preserves_hour_windows_for_compare() -> None:
         "field": "event_time",
     }
     assert compare.call_args.args[2] == {
-        "left_artifact_id": "art_obs_current",
-        "right_artifact_id": "art_obs_baseline",
+        "current_artifact_id": "art_obs_current",
+        "baseline_artifact_id": "art_obs_baseline",
     }
 
 

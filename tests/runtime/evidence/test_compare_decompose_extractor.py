@@ -63,44 +63,44 @@ _DECOMPOSE_EXTRACTOR = DecomposeArtifactExtractor()
 
 def _scalar_delta_payload(
     metric: str = "daily_users",
-    left_value: float | None = 1000.0,
-    right_value: float | None = 800.0,
+    current_value: float | None = 1000.0,
+    baseline_value: float | None = 800.0,
     absolute_delta: float | None = 200.0,
     relative_delta: float | None = 0.25,
     direction: str = "increase",
     unit: str | None = None,
-    left_scope: dict[str, Any] | None = None,
-    left_time_scope: dict[str, Any] | None = None,
+    current_scope: dict[str, Any] | None = None,
+    current_time_scope: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
         "artifact_type": "compare_artifact",
         "schema_version": "1.0",
         "comparison_type": "scalar_delta",
         "metric": metric,
-        "left_ref": {
+        "current_ref": {
             "session_id": _SESSION,
             "step_id": "step_obs_left",
             "step_type": "observe",
             "artifact_id": _LEFT_OBS_ART_ID,
         },
-        "right_ref": {
+        "baseline_ref": {
             "session_id": _SESSION,
             "step_id": "step_obs_right",
             "step_type": "observe",
             "artifact_id": _RIGHT_OBS_ART_ID,
         },
         "unit": unit,
-        "left_value": left_value,
-        "right_value": right_value,
+        "current_value": current_value,
+        "baseline_value": baseline_value,
         "absolute_delta": absolute_delta,
         "relative_delta": relative_delta,
         "direction": direction,
         "resolved_input_summary": {
-            "left_scope": left_scope or {},
-            "right_scope": {},
-            "left_time_scope": left_time_scope
+            "current_scope": current_scope or {},
+            "baseline_scope": {},
+            "current_time_scope": current_time_scope
             or {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
-            "right_time_scope": {"kind": "range", "start": "2023-12-25", "end": "2024-01-01"},
+            "baseline_time_scope": {"kind": "range", "start": "2023-12-25", "end": "2024-01-01"},
         },
         "comparability": {"status": "comparable", "issues": []},
         "analytical_metadata": {},
@@ -126,8 +126,8 @@ def _calendar_alignment_summary(
         "resolved_calendar_version": "2026.01",
         "comparability_warnings": list(warnings or []),
         "rollup_safe": True,
-        "left_coverage_summary": dict(coverage),
-        "right_coverage_summary": dict(coverage),
+        "current_coverage_summary": dict(coverage),
+        "baseline_coverage_summary": dict(coverage),
         "effective_coverage_summary": dict(coverage),
     }
 
@@ -141,8 +141,8 @@ def _segmented_delta_payload(
         rows = [
             {
                 "keys": {"country": "US"},
-                "left_value": 500.0,
-                "right_value": 400.0,
+                "current_value": 500.0,
+                "baseline_value": 400.0,
                 "absolute_delta": 100.0,
                 "relative_delta": 0.25,
                 "direction": "increase",
@@ -150,8 +150,8 @@ def _segmented_delta_payload(
             },
             {
                 "keys": {"country": "UK"},
-                "left_value": 200.0,
-                "right_value": 250.0,
+                "current_value": 200.0,
+                "baseline_value": 250.0,
                 "absolute_delta": -50.0,
                 "relative_delta": -0.20,
                 "direction": "decrease",
@@ -163,13 +163,13 @@ def _segmented_delta_payload(
         "schema_version": "1.0",
         "comparison_type": "segmented_delta",
         "metric": metric,
-        "left_ref": {
+        "current_ref": {
             "session_id": _SESSION,
             "step_id": "step_obs_left",
             "step_type": "observe",
             "artifact_id": _LEFT_OBS_ART_ID,
         },
-        "right_ref": {
+        "baseline_ref": {
             "session_id": _SESSION,
             "step_id": "step_obs_right",
             "step_type": "observe",
@@ -179,10 +179,10 @@ def _segmented_delta_payload(
         "unit": unit,
         "rows": rows,
         "resolved_input_summary": {
-            "left_scope": {},
-            "right_scope": {},
-            "left_time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
-            "right_time_scope": {"kind": "range", "start": "2023-12-25", "end": "2024-01-01"},
+            "current_scope": {},
+            "baseline_scope": {},
+            "current_time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+            "baseline_time_scope": {"kind": "range", "start": "2023-12-25", "end": "2024-01-01"},
         },
         "comparability": {"status": "comparable", "issues": []},
         "analytical_metadata": {},
@@ -200,8 +200,8 @@ def _time_series_delta_payload(
         rows = [
             {
                 "window": {"start": "2024-01-01", "end": "2024-01-02"},
-                "left_value": 100.0,
-                "right_value": 90.0,
+                "current_value": 100.0,
+                "baseline_value": 90.0,
                 "absolute_delta": 10.0,
                 "relative_delta": 10.0 / 90.0,
                 "direction": "increase",
@@ -209,12 +209,12 @@ def _time_series_delta_payload(
             },
             {
                 "window": {"start": "2024-01-02", "end": "2024-01-03"},
-                "left_value": None,
-                "right_value": 30.0,
+                "current_value": None,
+                "baseline_value": 30.0,
                 "absolute_delta": -30.0,
                 "relative_delta": None,
                 "direction": "undefined",
-                "presence": "right_only",
+                "presence": "baseline_only",
             },
         ]
     return {
@@ -222,13 +222,13 @@ def _time_series_delta_payload(
         "schema_version": "1.0",
         "comparison_type": "time_series_delta",
         "metric": metric,
-        "left_ref": {
+        "current_ref": {
             "session_id": _SESSION,
             "step_id": "step_obs_left",
             "step_type": "observe",
             "artifact_id": _LEFT_OBS_ART_ID,
         },
-        "right_ref": {
+        "baseline_ref": {
             "session_id": _SESSION,
             "step_id": "step_obs_right",
             "step_type": "observe",
@@ -237,16 +237,16 @@ def _time_series_delta_payload(
         "granularity": granularity,
         "unit": unit,
         "rows": rows,
-        "summary_left_value": 100.0,
-        "summary_right_value": 90.0,
+        "summary_current_value": 100.0,
+        "summary_baseline_value": 90.0,
         "summary_absolute_delta": 10.0,
         "summary_relative_delta": 10.0 / 90.0,
         "summary_direction": "increase",
         "resolved_input_summary": {
-            "left_scope": {},
-            "right_scope": {},
-            "left_time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-03"},
-            "right_time_scope": {"kind": "range", "start": "2023-12-25", "end": "2023-12-27"},
+            "current_scope": {},
+            "baseline_scope": {},
+            "current_time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-03"},
+            "baseline_time_scope": {"kind": "range", "start": "2023-12-25", "end": "2023-12-27"},
         },
         "comparability": {"status": "comparable", "issues": []},
         "analytical_metadata": analytical_metadata
@@ -273,8 +273,8 @@ def _decompose_payload(
         rows = [
             {
                 "key": "ios",
-                "left_value": 600.0,
-                "right_value": 500.0,
+                "current_value": 600.0,
+                "baseline_value": 500.0,
                 "absolute_contribution": 100.0,
                 "contribution_share": 0.5,
                 "direction": "increase",
@@ -282,8 +282,8 @@ def _decompose_payload(
             },
             {
                 "key": "android",
-                "left_value": 400.0,
-                "right_value": 300.0,
+                "current_value": 400.0,
+                "baseline_value": 300.0,
                 "absolute_contribution": 100.0,
                 "contribution_share": 0.5,
                 "direction": "increase",
@@ -302,13 +302,13 @@ def _decompose_payload(
             "artifact_id": compare_artifact_id,
             "comparison_type": "scalar_delta",
         },
-        "left_ref": {
+        "current_ref": {
             "step_type": "observe",
             "session_id": _SESSION,
             "step_id": "step_obs_left",
             "artifact_id": None,
         },
-        "right_ref": {
+        "baseline_ref": {
             "step_type": "observe",
             "session_id": _SESSION,
             "step_id": "step_obs_right",
@@ -363,14 +363,14 @@ class TestCompareScalarDelta(unittest.TestCase):
 
     def test_payload_values_correct(self) -> None:
         result = self._extract(
-            left_value=1000.0,
-            right_value=800.0,
+            current_value=1000.0,
+            baseline_value=800.0,
             absolute_delta=200.0,
             relative_delta=0.25,
         )
         p = result["findings"][0]["payload"]
-        self.assertEqual(p["left_value"], 1000.0)
-        self.assertEqual(p["right_value"], 800.0)
+        self.assertEqual(p["current_value"], 1000.0)
+        self.assertEqual(p["baseline_value"], 800.0)
         self.assertEqual(p["absolute_delta"], 200.0)
         self.assertEqual(p["relative_delta"], 0.25)
 
@@ -437,13 +437,13 @@ class TestCompareScalarDelta(unittest.TestCase):
         result = self._extract()
         self.assertEqual(result["findings"][0]["subject"]["analysis_axis"], "scalar")
 
-    def test_subject_slice_from_left_scope(self) -> None:
-        result = self._extract(left_scope={"region": "APAC"})
+    def test_subject_slice_from_current_scope(self) -> None:
+        result = self._extract(current_scope={"region": "APAC"})
         self.assertEqual(result["findings"][0]["subject"]["slice"], {"region": "APAC"})
 
-    def test_observed_window_from_left_time_scope(self) -> None:
+    def test_observed_window_from_current_time_scope(self) -> None:
         ts = {"kind": "range", "start": "2024-02-01", "end": "2024-02-08"}
-        result = self._extract(left_time_scope=ts)
+        result = self._extract(current_time_scope=ts)
         self.assertEqual(result["findings"][0]["observed_window"], ts)
 
     def test_canonical_item_key_is_result(self) -> None:
@@ -471,29 +471,29 @@ class TestCompareScalarDelta(unittest.TestCase):
         self.assertEqual(result["extractor_version"], "1.0.0")
         self.assertEqual(result["artifact_schema_version"], "v1")
 
-    def test_left_ref_artifact_id_comes_from_compare_lineage(self) -> None:
+    def test_current_ref_artifact_id_comes_from_compare_lineage(self) -> None:
         result = self._extract()
         self.assertEqual(
-            result["findings"][0]["payload"]["left_ref"]["artifact_id"], _LEFT_OBS_ART_ID
+            result["findings"][0]["payload"]["current_ref"]["artifact_id"], _LEFT_OBS_ART_ID
         )
 
-    def test_right_ref_artifact_id_comes_from_compare_lineage(self) -> None:
+    def test_baseline_ref_artifact_id_comes_from_compare_lineage(self) -> None:
         result = self._extract()
         self.assertEqual(
-            result["findings"][0]["payload"]["right_ref"]["artifact_id"], _RIGHT_OBS_ART_ID
+            result["findings"][0]["payload"]["baseline_ref"]["artifact_id"], _RIGHT_OBS_ART_ID
         )
 
     def test_validate_for_commit_passes(self) -> None:
         result = self._extract()
         validate_for_commit("compare", result)  # must not raise
 
-    def test_null_left_value_accepted(self) -> None:
-        result = self._extract(left_value=None)
-        self.assertIsNone(result["findings"][0]["payload"]["left_value"])
+    def test_null_current_value_accepted(self) -> None:
+        result = self._extract(current_value=None)
+        self.assertIsNone(result["findings"][0]["payload"]["current_value"])
 
-    def test_null_right_value_accepted(self) -> None:
-        result = self._extract(right_value=None)
-        self.assertIsNone(result["findings"][0]["payload"]["right_value"])
+    def test_null_baseline_value_accepted(self) -> None:
+        result = self._extract(baseline_value=None)
+        self.assertIsNone(result["findings"][0]["payload"]["baseline_value"])
 
 
 # ===========================================================================
@@ -534,8 +534,8 @@ class TestCompareSegmentedDelta(unittest.TestCase):
         rows = [
             {
                 "keys": {"country": "DE"},
-                "left_value": 100.0,
-                "right_value": 80.0,
+                "current_value": 100.0,
+                "baseline_value": 80.0,
                 "absolute_delta": 20.0,
                 "relative_delta": 0.25,
                 "direction": "increase",
@@ -549,38 +549,38 @@ class TestCompareSegmentedDelta(unittest.TestCase):
         rows = [
             {
                 "keys": {"cat": "A"},
-                "left_value": 100.0,
-                "right_value": None,
+                "current_value": 100.0,
+                "baseline_value": None,
                 "absolute_delta": 100.0,
                 "relative_delta": None,
                 "direction": "undefined",
-                "presence": "left_only",
+                "presence": "current_only",
             },
         ]
         result = self._extract(rows=rows)
-        self.assertEqual(result["findings"][0]["payload"]["presence"], "left_only")
+        self.assertEqual(result["findings"][0]["payload"]["presence"], "current_only")
 
-    def test_right_only_presence_preserved(self) -> None:
+    def test_baseline_only_presence_preserved(self) -> None:
         rows = [
             {
                 "keys": {"cat": "B"},
-                "left_value": None,
-                "right_value": 50.0,
+                "current_value": None,
+                "baseline_value": 50.0,
                 "absolute_delta": -50.0,
                 "relative_delta": None,
                 "direction": "undefined",
-                "presence": "right_only",
+                "presence": "baseline_only",
             },
         ]
         result = self._extract(rows=rows)
-        self.assertEqual(result["findings"][0]["payload"]["presence"], "right_only")
+        self.assertEqual(result["findings"][0]["payload"]["presence"], "baseline_only")
 
     def test_invalid_presence_normalised_to_none(self) -> None:
         rows = [
             {
                 "keys": {"cat": "C"},
-                "left_value": 1.0,
-                "right_value": 1.0,
+                "current_value": 1.0,
+                "baseline_value": 1.0,
                 "absolute_delta": 0.0,
                 "relative_delta": 0.0,
                 "direction": "flat",
@@ -607,8 +607,8 @@ class TestCompareSegmentedDelta(unittest.TestCase):
         rows_ab = [
             {
                 "keys": {"a": "1", "b": "2"},
-                "left_value": 1.0,
-                "right_value": 1.0,
+                "current_value": 1.0,
+                "baseline_value": 1.0,
                 "absolute_delta": 0.0,
                 "relative_delta": 0.0,
                 "direction": "flat",
@@ -618,8 +618,8 @@ class TestCompareSegmentedDelta(unittest.TestCase):
         rows_ba = [
             {
                 "keys": {"b": "2", "a": "1"},
-                "left_value": 1.0,
-                "right_value": 1.0,
+                "current_value": 1.0,
+                "baseline_value": 1.0,
                 "absolute_delta": 0.0,
                 "relative_delta": 0.0,
                 "direction": "flat",
@@ -676,8 +676,8 @@ class TestCompareTimeSeriesDelta(unittest.TestCase):
     def _extract_without_summary(self, rows: list[dict[str, Any]] | None = None) -> Any:
         payload = _time_series_delta_payload(rows=rows)
         for key in (
-            "summary_left_value",
-            "summary_right_value",
+            "summary_current_value",
+            "summary_baseline_value",
             "summary_absolute_delta",
             "summary_relative_delta",
             "summary_direction",
@@ -748,26 +748,26 @@ class TestCompareTimeSeriesDelta(unittest.TestCase):
 
     def test_presence_propagated(self) -> None:
         result = self._extract()
-        self.assertEqual(result["findings"][2]["payload"]["presence"], "right_only")
+        self.assertEqual(result["findings"][2]["payload"]["presence"], "baseline_only")
 
     def test_bucket_identity_uses_buckets_collection_everywhere(self) -> None:
         result = self._extract()
         finding = result["findings"][1]
         self.assertEqual(finding["provenance"]["canonical_item_key"], "buckets:2024-01-01")
         self.assertEqual(finding["provenance"]["artifact_item_ref"]["collection"], "buckets")
-        self.assertEqual(finding["payload"]["left_ref"]["item_ref"]["collection"], "buckets")
-        self.assertEqual(finding["payload"]["right_ref"]["item_ref"]["collection"], "buckets")
+        self.assertEqual(finding["payload"]["current_ref"]["item_ref"]["collection"], "buckets")
+        self.assertEqual(finding["payload"]["baseline_ref"]["item_ref"]["collection"], "buckets")
         self.assertEqual(
-            finding["payload"]["left_ref"]["item_ref"]["key"],
-            finding["payload"]["right_ref"]["item_ref"]["key"],
+            finding["payload"]["current_ref"]["item_ref"]["key"],
+            finding["payload"]["baseline_ref"]["item_ref"]["key"],
         )
 
     def test_missing_window_start_raises(self) -> None:
         rows = [
             {
                 "window": {"end": "2024-01-02"},
-                "left_value": 100.0,
-                "right_value": 90.0,
+                "current_value": 100.0,
+                "baseline_value": 90.0,
                 "absolute_delta": 10.0,
                 "relative_delta": 10.0 / 90.0,
                 "direction": "increase",
@@ -777,27 +777,27 @@ class TestCompareTimeSeriesDelta(unittest.TestCase):
         with self.assertRaises(ValueError, msg="window.start"):
             self._extract(rows=rows)
 
-    def test_left_only_bucket_keeps_undefined_direction(self) -> None:
+    def test_current_only_bucket_keeps_undefined_direction(self) -> None:
         rows = [
             {
                 "window": {"start": "2024-01-01", "end": "2024-01-02"},
-                "left_value": 12.0,
-                "right_value": None,
+                "current_value": 12.0,
+                "baseline_value": None,
                 "absolute_delta": 12.0,
                 "relative_delta": None,
                 "direction": "undefined",
-                "presence": "left_only",
+                "presence": "current_only",
             }
         ]
         result = self._extract(rows=rows)
         finding = result["findings"][1]
-        self.assertEqual(finding["payload"]["presence"], "left_only")
+        self.assertEqual(finding["payload"]["presence"], "current_only")
         self.assertEqual(finding["payload"]["direction"], "undefined")
 
-    def test_right_only_bucket_keeps_undefined_direction(self) -> None:
+    def test_baseline_only_bucket_keeps_undefined_direction(self) -> None:
         result = self._extract()
         finding = result["findings"][2]
-        self.assertEqual(finding["payload"]["presence"], "right_only")
+        self.assertEqual(finding["payload"]["presence"], "baseline_only")
         self.assertEqual(finding["payload"]["direction"], "undefined")
 
     def test_validate_for_commit_passes_nonempty(self) -> None:
@@ -833,8 +833,8 @@ class TestCompareEdgeCases(unittest.TestCase):
             rows = [
                 {
                     "keys": {"k": str(i)},
-                    "left_value": float(i),
-                    "right_value": 1.0,
+                    "current_value": float(i),
+                    "baseline_value": 1.0,
                     "absolute_delta": float(i) - 1.0,
                     "relative_delta": None,
                     "direction": "increase",
@@ -923,8 +923,8 @@ class TestDecomposeRows(unittest.TestCase):
         rows = [
             {
                 "key": "ios",
-                "left_value": 600.0,
-                "right_value": 500.0,
+                "current_value": 600.0,
+                "baseline_value": 500.0,
                 "absolute_contribution": 100.0,
                 "contribution_share": 0.5,
                 "direction": "increase",
@@ -938,8 +938,8 @@ class TestDecomposeRows(unittest.TestCase):
         rows = [
             {
                 "key": "ios",
-                "left_value": 600.0,
-                "right_value": 500.0,
+                "current_value": 600.0,
+                "baseline_value": 500.0,
                 "absolute_contribution": 123.0,
                 "contribution_share": 0.6,
                 "direction": "increase",
@@ -953,8 +953,8 @@ class TestDecomposeRows(unittest.TestCase):
         rows = [
             {
                 "key": "ios",
-                "left_value": 600.0,
-                "right_value": 500.0,
+                "current_value": 600.0,
+                "baseline_value": 500.0,
                 "absolute_contribution": 100.0,
                 "contribution_share": 0.75,
                 "direction": "increase",
@@ -974,8 +974,8 @@ class TestDecomposeRows(unittest.TestCase):
         rows = [
             {
                 "key": "android",
-                "left_value": 400.0,
-                "right_value": 300.0,
+                "current_value": 400.0,
+                "baseline_value": 300.0,
                 "absolute_contribution": 100.0,
                 "contribution_share": 0.5,
                 "direction": "increase",
@@ -983,8 +983,8 @@ class TestDecomposeRows(unittest.TestCase):
             },
             {
                 "key": "ios",
-                "left_value": 600.0,
-                "right_value": 500.0,
+                "current_value": 600.0,
+                "baseline_value": 500.0,
                 "absolute_contribution": 100.0,
                 "contribution_share": 0.5,
                 "direction": "increase",
@@ -1001,8 +1001,8 @@ class TestDecomposeRows(unittest.TestCase):
         rows = [
             {
                 "key": "x",
-                "left_value": 1.0,
-                "right_value": 2.0,
+                "current_value": 1.0,
+                "baseline_value": 2.0,
                 "absolute_contribution": -1.0,
                 "contribution_share": -0.5,
                 "direction": "decrease",
@@ -1016,8 +1016,8 @@ class TestDecomposeRows(unittest.TestCase):
         rows = [
             {
                 "key": "x",
-                "left_value": 1.0,
-                "right_value": 1.0,
+                "current_value": 1.0,
+                "baseline_value": 1.0,
                 "absolute_contribution": 0.0,
                 "contribution_share": 0.0,
                 "direction": "sideways",
@@ -1064,8 +1064,8 @@ class TestDecomposeRows(unittest.TestCase):
         rows = [
             {
                 "key": None,
-                "left_value": 100.0,
-                "right_value": 80.0,
+                "current_value": 100.0,
+                "baseline_value": 80.0,
                 "absolute_contribution": 20.0,
                 "contribution_share": 0.1,
                 "direction": "increase",
@@ -1081,8 +1081,8 @@ class TestDecomposeRows(unittest.TestCase):
         rows = [
             {
                 "key": "ios",
-                "left_value": 1.0,
-                "right_value": 1.0,
+                "current_value": 1.0,
+                "baseline_value": 1.0,
                 "absolute_contribution": 0.0,
                 "contribution_share": 0.0,
                 "direction": "flat",
@@ -1221,8 +1221,8 @@ class TestDecomposeErrorCases(unittest.TestCase):
             rows = [
                 {
                     "key": str(i),
-                    "left_value": float(i),
-                    "right_value": 1.0,
+                    "current_value": float(i),
+                    "baseline_value": 1.0,
                     "absolute_contribution": float(i) - 1.0,
                     "contribution_share": None,
                     "direction": "increase",

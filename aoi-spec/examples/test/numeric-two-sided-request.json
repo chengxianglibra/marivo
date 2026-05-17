@@ -1,6 +1,6 @@
 {
   "metric": "conversion_value",
-  "left": {
+  "current": {
     "time_scope": {
       "field": "event_time",
       "start": "2026-01-01T00:00:00Z",
@@ -15,7 +15,7 @@
       ]
     }
   },
-  "right": {
+  "baseline": {
     "time_scope": {
       "field": "event_time",
       "start": "2026-01-01T00:00:00Z",

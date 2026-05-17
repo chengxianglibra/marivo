@@ -35,4 +35,4 @@ compare artifact metadata 记录：
 - bucket pairing
 - holiday 模式下解析到的 calendar source/version
 
-右侧 observation 未覆盖的 baseline bucket 以 `right_value = null` 和 coverage issue 表达。
+右侧 observation 未覆盖的 baseline bucket 以 `baseline_value = null` 和 coverage issue 表达。

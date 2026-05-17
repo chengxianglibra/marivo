@@ -108,16 +108,16 @@ def _insert_finding(
             "payload_json": json.dumps(
                 {
                     "delta_kind": "scalar_delta",
-                    "left_ref": {
+                    "current_ref": {
                         "artifact_id": artifact_id,
                         "item_ref": {"collection": "result", "index": None, "key": None},
                     },
-                    "right_ref": {
+                    "baseline_ref": {
                         "artifact_id": artifact_id,
                         "item_ref": {"collection": "result", "index": None, "key": None},
                     },
-                    "left_value": 1000.0,
-                    "right_value": 900.0,
+                    "current_value": 1000.0,
+                    "baseline_value": 900.0,
                     "absolute_delta": -100.0,
                     "relative_delta": -0.1,
                     "direction": "decrease",
@@ -159,7 +159,7 @@ _SUBJECT_FORECAST: dict[str, Any] = {
 
 _PAYLOAD_CHANGE: dict[str, Any] = {
     "change_kind": "scalar_change",
-    "comparison_window": {"left": _LEFT_WIN, "right": _RIGHT_WIN},
+    "comparison_window": {"current": _LEFT_WIN, "baseline": _RIGHT_WIN},
     "direction_of_interest": "decrease",
     "dimension_keys": None,
     "comparison_basis": "left_vs_right",

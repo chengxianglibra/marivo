@@ -78,7 +78,7 @@ def project_aoi_artifact_result(intent_type: str, payload: dict[str, Any]) -> di
 
     if intent_type == "compare":
         comparison_type = payload.get("comparison_type")
-        if comparison_type is None and {"left_value", "right_value", "absolute_delta"} & set(
+        if comparison_type is None and {"current_value", "baseline_value", "absolute_delta"} & set(
             payload
         ):
             comparison_type = "scalar_delta"
@@ -90,8 +90,8 @@ def project_aoi_artifact_result(intent_type: str, payload: dict[str, Any]) -> di
                 points=[
                     aoi.DeltaPoint(
                         bucket_start=_as_aoi_datetime(_point_start(row)),
-                        left_value=row.get("left_value"),
-                        right_value=row.get("right_value"),
+                        current_value=row.get("current_value"),
+                        baseline_value=row.get("baseline_value"),
                         delta=row.get("absolute_delta"),
                     )
                     for row in payload.get("rows") or []
@@ -104,8 +104,8 @@ def project_aoi_artifact_result(intent_type: str, payload: dict[str, Any]) -> di
                     aoi.SegmentedDeltaRow(
                         item_id=f"segment_delta_{idx}",
                         keys=_string_keys(row.get("keys")),
-                        left_value=row.get("left_value"),
-                        right_value=row.get("right_value"),
+                        current_value=row.get("current_value"),
+                        baseline_value=row.get("baseline_value"),
                         delta=row.get("absolute_delta"),
                     )
                     for idx, row in enumerate(payload.get("rows") or [])
@@ -114,8 +114,8 @@ def project_aoi_artifact_result(intent_type: str, payload: dict[str, Any]) -> di
             )
         else:
             compare_result = aoi.ScalarDeltaResult(
-                left_value=payload.get("left_value"),
-                right_value=payload.get("right_value"),
+                current_value=payload.get("current_value"),
+                baseline_value=payload.get("baseline_value"),
                 delta=payload.get("absolute_delta"),
                 matched_time_scope=matched_time_scope,
             )
@@ -159,7 +159,7 @@ def project_aoi_artifact_result(intent_type: str, payload: dict[str, Any]) -> di
                         or f"candidate_{idx}"
                     ),
                     bucket_start=_as_aoi_datetime((candidate.get("window") or {}).get("start")),
-                    value=float(candidate.get("observed_value") or 0.0),
+                    value=float(candidate.get("current_value") or 0.0),
                     score=float(candidate.get("candidate_score") or 0.0),
                     series_keys=_string_keys(candidate.get("slice"))
                     if candidate.get("slice") is not None

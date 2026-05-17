@@ -145,7 +145,7 @@
 | baseline | 基线 | 对比或检测中的参考侧 |
 | expected value | 期望值 | `detect`/`forecast` 中的基准估计 |
 | absolute delta | 绝对变化量 | `left - right` |
-| relative delta | 相对变化量 | `absolute_delta / right_value` |
+| relative delta | 相对变化量 | `absolute_delta / baseline_value` |
 | contribution share | 贡献占比 | 分解结果中某行对 scope delta 的带符号占比 |
 | candidate score | 候选分数 | 检测排序分数，不表示概率 |
 | flag level | 候选级别 | 候选优先级，不等于证明强度 |

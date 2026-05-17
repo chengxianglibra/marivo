@@ -76,8 +76,8 @@ def run_decompose_intent(
     # ── Extract metadata from compare artifact ────────────────────────────────
     metric_name: str = normalized_compare["metric_name"]
     unit: str | None = normalized_compare["unit"]
-    scope_left_value: float | None = normalized_compare["scope_left_value"]
-    scope_right_value: float | None = normalized_compare["scope_right_value"]
+    scope_current_value: float | None = normalized_compare["scope_current_value"]
+    scope_baseline_value: float | None = normalized_compare["scope_baseline_value"]
     scope_absolute_delta: float | None = normalized_compare["scope_absolute_delta"]
     scope_relative_delta: float | None = normalized_compare["scope_relative_delta"]
     scope_direction: str = normalized_compare["scope_direction"]
@@ -88,10 +88,10 @@ def run_decompose_intent(
     )
 
     lineage_info: dict[str, Any] = compare_artifact.get("lineage") or {}
-    left_source_ref: dict[str, Any] = lineage_info.get("left_source_ref") or {}
-    right_source_ref: dict[str, Any] = lineage_info.get("right_source_ref") or {}
-    left_obs_step_id: str = left_source_ref.get("step_id") or ""
-    right_obs_step_id: str = right_source_ref.get("step_id") or ""
+    current_source_ref: dict[str, Any] = lineage_info.get("current_source_ref") or {}
+    baseline_source_ref: dict[str, Any] = lineage_info.get("baseline_source_ref") or {}
+    left_obs_step_id: str = current_source_ref.get("step_id") or ""
+    right_obs_step_id: str = baseline_source_ref.get("step_id") or ""
 
     if not left_obs_step_id or not right_obs_step_id:
         raise ValueError(
@@ -100,10 +100,10 @@ def run_decompose_intent(
         )
 
     resolved_input: dict[str, Any] = compare_artifact.get("resolved_input_summary") or {}
-    left_time_scope: dict[str, Any] = normalized_compare["left_time_scope"]
-    right_time_scope: dict[str, Any] = normalized_compare["right_time_scope"]
-    left_scope: dict[str, Any] = resolved_input.get("left_scope") or {}
-    right_scope: dict[str, Any] = resolved_input.get("right_scope") or {}
+    current_time_scope: dict[str, Any] = normalized_compare["current_time_scope"]
+    baseline_time_scope: dict[str, Any] = normalized_compare["baseline_time_scope"]
+    current_scope: dict[str, Any] = resolved_input.get("current_scope") or {}
+    baseline_scope: dict[str, Any] = resolved_input.get("baseline_scope") or {}
 
     # ── Validate metric and dimension ────────────────────────────────────────
     # Use frozen additive_dimensions from compare artifact lineage for idempotent retries.
@@ -132,7 +132,9 @@ def run_decompose_intent(
     metric_aggregation_semantics = _resolved_header.get("aggregation_semantics") or "sum"
 
     # Derive time_rollup_allowed from request-level time_scope.field
-    _time_scope_field = str(left_time_scope.get("field") or "").strip() if left_time_scope else None
+    _time_scope_field = (
+        str(current_time_scope.get("field") or "").strip() if current_time_scope else None
+    )
     time_rollup_allowed = _time_scope_field in dims_for_gate if _time_scope_field else False
     if not additivity_caps.supports_decompose:
         raise ExecutionError(
@@ -215,8 +217,8 @@ def run_decompose_intent(
 
     all_dimensions = list(runtime_dimensions or resolved_metric.dimensions)
     compare_grain = _infer_compare_grain(
-        left_time_scope=left_time_scope,
-        right_time_scope=right_time_scope,
+        current_time_scope=current_time_scope,
+        baseline_time_scope=baseline_time_scope,
         fallback_grain=None,
     )
 
@@ -249,8 +251,8 @@ def run_decompose_intent(
         qualified_table,
         dimension,
         all_dimensions,
-        left_time_scope,
-        left_scope,
+        current_time_scope,
+        current_scope,
         engine,
         engine_type,
         compare_grain,
@@ -264,8 +266,8 @@ def run_decompose_intent(
         qualified_table,
         dimension,
         all_dimensions,
-        right_time_scope,
-        right_scope,
+        baseline_time_scope,
+        baseline_scope,
         engine,
         engine_type,
         compare_grain,
@@ -299,14 +301,14 @@ def run_decompose_intent(
             presence = "both"
             abs_contribution = _delta(lv, rv)
         elif in_left:
-            presence = "left_only"
+            presence = "current_only"
             rv = None
-            # absolute_contribution = left_value (right treated as 0)
+            # absolute_contribution = current_value (right treated as 0)
             abs_contribution = lv
         else:
-            presence = "right_only"
+            presence = "baseline_only"
             lv = None
-            # absolute_contribution = -right_value (right side disappeared)
+            # absolute_contribution = -baseline_value (right side disappeared)
             abs_contribution = (-rv) if rv is not None else None
 
         contribution_share = _signed_share(abs_contribution, scope_absolute_delta)
@@ -315,8 +317,8 @@ def run_decompose_intent(
         rows.append(
             {
                 "key": key,
-                "left_value": lv,
-                "right_value": rv,
+                "current_value": lv,
+                "baseline_value": rv,
                 "absolute_contribution": abs_contribution,
                 "contribution_share": contribution_share,
                 "direction": direction,
@@ -406,14 +408,14 @@ def run_decompose_intent(
     # ── Build artifact ────────────────────────────────────────────────────────
     step_id = new_step_id()
 
-    left_ref_out: dict[str, Any] = {
+    current_ref_out: dict[str, Any] = {
         "step_type": "observe",
         "session_id": session_id,
         "step_id": left_obs_step_id,
         "artifact_id": left_obs_artifact_id,
         "observation_type": source_observation_type,
     }
-    right_ref_out: dict[str, Any] = {
+    baseline_ref_out: dict[str, Any] = {
         "step_type": "observe",
         "session_id": session_id,
         "step_id": right_obs_step_id,
@@ -432,19 +434,19 @@ def run_decompose_intent(
         "decomposition_type": "delta_decomposition",
         "metric": metric_name,
         "compare_ref": compare_ref_out,
-        "left_ref": left_ref_out,
-        "right_ref": right_ref_out,
+        "current_ref": current_ref_out,
+        "baseline_ref": baseline_ref_out,
         "dimension": dimension,
         "method": "delta_share",
         "unit": unit,
-        "left_time_scope": left_time_scope,
-        "right_time_scope": right_time_scope,
+        "current_time_scope": current_time_scope,
+        "baseline_time_scope": baseline_time_scope,
         "resolved_scopes": {
-            "left": left_scope,
-            "right": right_scope,
+            "current": current_scope,
+            "baseline": baseline_scope,
         },
-        "scope_left_value": scope_left_value,
-        "scope_right_value": scope_right_value,
+        "scope_current_value": scope_current_value,
+        "scope_baseline_value": scope_baseline_value,
         "scope_absolute_delta": scope_absolute_delta,
         "scope_relative_delta": scope_relative_delta,
         "scope_direction": scope_direction,
@@ -461,8 +463,8 @@ def run_decompose_intent(
             "time_rollup_allowed": time_rollup_allowed,
             "reconciliation_expected": reconciliation_expected,
             "flat_tolerance_relative": _FLAT_TOLERANCE_RELATIVE,
-            "left_row_count": len(left_rows),
-            "right_row_count": len(right_rows),
+            "current_row_count": len(left_rows),
+            "baseline_row_count": len(right_rows),
             "returned_row_count": len(returned_rows),
             **source_analytical_metadata,
             "time_boundary_constraint": {
@@ -477,8 +479,8 @@ def run_decompose_intent(
         },
         "source_lineage": {
             "compare_artifact": compare_ref_out,
-            "left_artifact": left_ref_out,
-            "right_artifact": right_ref_out,
+            "current_artifact": current_ref_out,
+            "baseline_artifact": baseline_ref_out,
         },
         "execution_metadata": execution_metadata,
     }
@@ -524,14 +526,14 @@ def _normalize_decompose_compare_input(compare_artifact: dict[str, Any]) -> dict
             "comparison_type": "scalar_delta",
             "metric_name": compare_artifact.get("metric") or "",
             "unit": compare_artifact.get("unit"),
-            "scope_left_value": _safe_float(compare_artifact.get("left_value")),
-            "scope_right_value": _safe_float(compare_artifact.get("right_value")),
+            "scope_current_value": _safe_float(compare_artifact.get("current_value")),
+            "scope_baseline_value": _safe_float(compare_artifact.get("baseline_value")),
             "scope_absolute_delta": _safe_float(compare_artifact.get("absolute_delta")),
             "scope_relative_delta": _safe_float(compare_artifact.get("relative_delta")),
             "scope_direction": compare_artifact.get("direction") or "undefined",
             "source_observation_type": "scalar",
-            "left_time_scope": dict(resolved_input.get("left_time_scope") or {}),
-            "right_time_scope": dict(resolved_input.get("right_time_scope") or {}),
+            "current_time_scope": dict(resolved_input.get("current_time_scope") or {}),
+            "baseline_time_scope": dict(resolved_input.get("baseline_time_scope") or {}),
             "analytical_metadata": {"decomposition_source": "scalar_delta"},
             "frozen_additive_dimensions": frozen_additive_dimensions,
         }
@@ -539,38 +541,38 @@ def _normalize_decompose_compare_input(compare_artifact: dict[str, Any]) -> dict
     if comparison_type == "time_series_delta":
         resolved_input = compare_artifact.get("resolved_input_summary") or {}
         analytical = compare_artifact.get("analytical_metadata") or {}
-        left_time_scope = dict(resolved_input.get("left_time_scope") or {})
-        right_time_scope = dict(resolved_input.get("right_time_scope") or {})
-        matched_left_time_scope = analytical.get("matched_left_time_scope")
-        matched_right_time_scope = analytical.get("matched_right_time_scope")
+        current_time_scope = dict(resolved_input.get("current_time_scope") or {})
+        baseline_time_scope = dict(resolved_input.get("baseline_time_scope") or {})
+        matched_current_time_scope = analytical.get("matched_current_time_scope")
+        matched_baseline_time_scope = analytical.get("matched_baseline_time_scope")
         matched_time_scope = analytical.get("matched_time_scope")
-        if isinstance(matched_left_time_scope, dict) and matched_left_time_scope:
-            left_time_scope = dict(matched_left_time_scope)
+        if isinstance(matched_current_time_scope, dict) and matched_current_time_scope:
+            current_time_scope = dict(matched_current_time_scope)
         elif isinstance(matched_time_scope, dict) and matched_time_scope:
-            left_time_scope = dict(matched_time_scope)
-        if isinstance(matched_right_time_scope, dict) and matched_right_time_scope:
-            right_time_scope = dict(matched_right_time_scope)
+            current_time_scope = dict(matched_time_scope)
+        if isinstance(matched_baseline_time_scope, dict) and matched_baseline_time_scope:
+            baseline_time_scope = dict(matched_baseline_time_scope)
         elif isinstance(matched_time_scope, dict) and matched_time_scope:
-            right_time_scope = dict(matched_time_scope)
+            baseline_time_scope = dict(matched_time_scope)
 
         return {
             "comparison_type": "time_series_delta",
             "metric_name": compare_artifact.get("metric") or "",
             "unit": compare_artifact.get("unit"),
-            "scope_left_value": _safe_float(compare_artifact.get("summary_left_value")),
-            "scope_right_value": _safe_float(compare_artifact.get("summary_right_value")),
+            "scope_current_value": _safe_float(compare_artifact.get("summary_current_value")),
+            "scope_baseline_value": _safe_float(compare_artifact.get("summary_baseline_value")),
             "scope_absolute_delta": _safe_float(compare_artifact.get("summary_absolute_delta")),
             "scope_relative_delta": _safe_float(compare_artifact.get("summary_relative_delta")),
             "scope_direction": compare_artifact.get("summary_direction") or "undefined",
             "source_observation_type": "time_series",
-            "left_time_scope": left_time_scope,
-            "right_time_scope": right_time_scope,
+            "current_time_scope": current_time_scope,
+            "baseline_time_scope": baseline_time_scope,
             "analytical_metadata": {
                 "decomposition_source": "time_series_summary_delta",
                 "source_granularity": compare_artifact.get("granularity"),
                 "source_matched_bucket_count": analytical.get("matched_bucket_count"),
-                "source_dropped_left_buckets": analytical.get("dropped_left_buckets"),
-                "source_dropped_right_buckets": analytical.get("dropped_right_buckets"),
+                "source_dropped_current_buckets": analytical.get("dropped_current_buckets"),
+                "source_dropped_baseline_buckets": analytical.get("dropped_baseline_buckets"),
                 "source_pairing_basis": analytical.get("pairing_basis"),
                 "source_pairing_rule": analytical.get("pairing_rule"),
             },
@@ -651,8 +653,8 @@ def _run_segmented_query(
 
 def _infer_compare_grain(
     *,
-    left_time_scope: dict[str, Any],
-    right_time_scope: dict[str, Any],
+    current_time_scope: dict[str, Any],
+    baseline_time_scope: dict[str, Any],
     fallback_grain: str | None,
 ) -> str:
     """Infer the effective compare grain from upstream observation windows.
@@ -663,12 +665,12 @@ def _infer_compare_grain(
     window during follow-up metric_query normalization.
     """
 
-    explicit_grain = _time_scope_grain(left_time_scope) or _time_scope_grain(right_time_scope)
+    explicit_grain = _time_scope_grain(current_time_scope) or _time_scope_grain(baseline_time_scope)
     if explicit_grain is not None:
         return explicit_grain
 
-    if _time_scope_has_datetime_boundary(left_time_scope) or _time_scope_has_datetime_boundary(
-        right_time_scope
+    if _time_scope_has_datetime_boundary(current_time_scope) or _time_scope_has_datetime_boundary(
+        baseline_time_scope
     ):
         return "hour"
 

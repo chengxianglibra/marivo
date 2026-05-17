@@ -33,14 +33,14 @@ def _make_runtime(*, additive_dimensions: list[str] | None = None) -> MagicMock:
 def _params() -> dict[str, Any]:
     return {
         "metric": "metric.revenue",
-        "left": {
+        "current": {
             "time_scope": {
                 "field": "event_date",
                 "start": "2026-01-08T00:00:00Z",
                 "end": "2026-01-15T00:00:00Z",
             },
         },
-        "right": {
+        "baseline": {
             "time_scope": {
                 "field": "event_date",
                 "start": "2026-01-01T00:00:00Z",
@@ -80,8 +80,8 @@ def _compare_result(
             "step_type": "compare",
         },
         "comparability": comparability or {"status": "comparable", "issues": []},
-        "left_value": 120.0,
-        "right_value": 100.0,
+        "current_value": 120.0,
+        "baseline_value": 100.0,
         "absolute_delta": 20.0,
         "relative_delta": 0.2,
         "direction": "increase",
@@ -137,7 +137,7 @@ def _run_with_patched_children(
     with (
         patch(
             "marivo.runtime.intents.attribute.run_observe_intent",
-            side_effect=[_observe_result("left"), _observe_result("right")],
+            side_effect=[_observe_result("current"), _observe_result("baseline")],
         ) as mock_observe,
         patch(
             "marivo.runtime.intents.attribute.run_compare_intent",
@@ -163,7 +163,7 @@ def test_attribute_expands_child_runners_and_commits_bundle_in_request_order() -
     mock_compare.assert_called_once_with(
         runtime,
         "sess_attr",
-        {"left_artifact_id": "art_left", "right_artifact_id": "art_right"},
+        {"current_artifact_id": "art_current", "baseline_artifact_id": "art_baseline"},
     )
     assert [call.args[2]["dimension"] for call in mock_decompose.call_args_list] == [
         "channel",
@@ -202,8 +202,8 @@ def test_attribute_accepts_explicit_delta_share_and_supported_limits(limit: int)
 
 def test_attribute_converts_aoi_filters_to_observe_scope_predicates() -> None:
     params = _params()
-    params["left"]["filter"] = _filter("region = 'US'")
-    params["right"]["filter"] = _filter("region = 'CA'")
+    params["current"]["filter"] = _filter("region = 'US'")
+    params["baseline"]["filter"] = _filter("region = 'CA'")
 
     result, _, mock_observe, _, _ = _run_with_patched_children(params)
 
@@ -211,8 +211,8 @@ def test_attribute_converts_aoi_filters_to_observe_scope_predicates() -> None:
         {"predicate": "region = 'US'"},
         {"predicate": "region = 'CA'"},
     ]
-    assert result["result"]["left"]["scope"] == {"predicate": "region = 'US'"}
-    assert result["result"]["right"]["scope"] == {"predicate": "region = 'CA'"}
+    assert result["result"]["current"]["scope"] == {"predicate": "region = 'US'"}
+    assert result["result"]["baseline"]["scope"] == {"predicate": "region = 'CA'"}
 
 
 def test_attribute_truncates_driver_rows_and_computes_others_bucket() -> None:
@@ -330,10 +330,10 @@ def test_attribute_rejects_disallowed_dimension_before_committing() -> None:
     [
         (None, "params"),
         ({"unexpected": True}, "unsupported field"),
-        ({"left": {"scope": {"predicate": "region = 'US'"}}}, "scope"),
-        ({"left": {"filter": None}}, "filter"),
-        ({"left": {"time_scope": {"kind": "range"}}}, "kind"),
-        ({"left": {"time_scope": {"__remove__": "field"}}}, "field"),
+        ({"current": {"scope": {"predicate": "region = 'US'"}}}, "scope"),
+        ({"current": {"filter": None}}, "filter"),
+        ({"current": {"time_scope": {"kind": "range"}}}, "kind"),
+        ({"current": {"time_scope": {"__remove__": "field"}}}, "field"),
         ({"dimensions": []}, "dimensions"),
         ({"dimensions": "region"}, "dimensions"),
         ({"decomposition_method": "ratio_share"}, "delta_share"),

@@ -1,7 +1,7 @@
 """Test atomic intent runner — Welch's t-test only (source-type per AOI).
 
 Evaluates a typed statistical hypothesis over two data slices.
-Accepts metric + left/right slices (not artifact refs) per the AOI spec,
+Accepts metric + current/baseline slices (not artifact refs) per the AOI spec,
 and computes sample summaries internally without creating intermediate
 observe artifacts.
 
@@ -41,7 +41,7 @@ _SIGNIFICANCE_ALPHA: dict[str, float] = {
     "balanced": 0.05,
     "aggressive": 0.10,
 }
-_REQUEST_FIELDS: frozenset[str] = frozenset({"metric", "left", "right", "kind", "hypothesis"})
+_REQUEST_FIELDS: frozenset[str] = frozenset({"metric", "current", "baseline", "kind", "hypothesis"})
 _SLICE_FIELDS: frozenset[str] = frozenset({"time_scope", "filter"})
 _HYPOTHESIS_FIELDS: frozenset[str] = frozenset({"family", "alternative", "significance"})
 
@@ -165,13 +165,13 @@ def run_test_intent(
             f"test: INVALID_ARGUMENT - kind must be one of {sorted(_VALID_KINDS)}, got '{kind}'"
         )
 
-    left_raw = _validate_slice(p["left"], label="left")
-    right_raw = _validate_slice(p["right"], label="right")
+    current_raw = _validate_slice(p["current"], label="current")
+    baseline_raw = _validate_slice(p["baseline"], label="baseline")
 
-    left_time_scope: dict[str, Any] = left_raw["time_scope"]
-    right_time_scope: dict[str, Any] = right_raw["time_scope"]
-    left_filter: Any = left_raw.get("filter")
-    right_filter: Any = right_raw.get("filter")
+    current_time_scope: dict[str, Any] = current_raw["time_scope"]
+    baseline_time_scope: dict[str, Any] = baseline_raw["time_scope"]
+    current_filter: Any = current_raw.get("filter")
+    baseline_filter: Any = baseline_raw.get("filter")
 
     # ── Hypothesis validation ────────────────────────────────────────────
     hypothesis_raw = p["hypothesis"]
@@ -221,31 +221,31 @@ def run_test_intent(
         ) from exc
 
     # ── Compute sample summaries (internal, no intermediate artifacts) ──
-    left_ss = compute_numeric_sample_summary(
-        runtime, session_id, metric_ref, left_time_scope, scope_raw=left_filter
+    current_ss = compute_numeric_sample_summary(
+        runtime, session_id, metric_ref, current_time_scope, scope_raw=current_filter
     )
-    right_ss = compute_numeric_sample_summary(
-        runtime, session_id, metric_ref, right_time_scope, scope_raw=right_filter
+    baseline_ss = compute_numeric_sample_summary(
+        runtime, session_id, metric_ref, baseline_time_scope, scope_raw=baseline_filter
     )
 
     # ── Predicate lineage comparison ─────────────────────────────────────
     issues: list[dict[str, Any]] = []
     predicate_lineage_summary = resolve_predicate_lineage_reuse_for_intent(
         intent_name="test",
-        left_predicate_filter_lineage=left_ss.predicate_filter_lineage,
-        right_predicate_filter_lineage=right_ss.predicate_filter_lineage,
+        current_predicate_filter_lineage=current_ss.predicate_filter_lineage,
+        baseline_predicate_filter_lineage=baseline_ss.predicate_filter_lineage,
     )
     issues.extend(predicate_lineage_summary["issues"])
     if predicate_lineage_summary["fatal_message"] is not None:
         raise ValueError(f"test: NOT_COMPARABLE - {predicate_lineage_summary['fatal_message']}")
 
     # ── Welch's t-test computation ──────────────────────────────────────
-    n1 = left_ss.n
-    n2 = right_ss.n
-    mean1 = left_ss.mean
-    mean2 = right_ss.mean
-    std1 = left_ss.standard_deviation
-    std2 = right_ss.standard_deviation
+    n1 = current_ss.n
+    n2 = baseline_ss.n
+    mean1 = current_ss.mean
+    mean2 = baseline_ss.mean
+    std1 = current_ss.standard_deviation
+    std2 = baseline_ss.standard_deviation
 
     if any(v is None for v in (n1, n2, mean1, mean2, std1, std2)):
         raise ValueError(
@@ -313,23 +313,23 @@ def run_test_intent(
         assumption_notes.append("one or both groups have zero variance; result may be degenerate")
 
     # ── Build provenance hash ────────────────────────────────────────────
-    left_start, left_end, _ = resolve_time_scope(left_time_scope)
-    right_start, right_end, _ = resolve_time_scope(right_time_scope)
+    current_start, current_end, _ = resolve_time_scope(current_time_scope)
+    baseline_start, baseline_end, _ = resolve_time_scope(baseline_time_scope)
     _hash_input = (
         f"{metric_ref}:welch_t:{family}:{alternative}:{alpha}"
-        f":left[{left_start},{left_end}]:right[{right_start},{right_end}]"
+        f":current[{current_start},{current_end}]:baseline[{baseline_start},{baseline_end}]"
     )
     query_hash = hashlib.sha256(_hash_input.encode()).hexdigest()[:16]
 
     # ── Source lineage ────────────────────────────────────────────────────
     source_lineage: dict[str, Any] = {
-        "left": {
-            "time_scope": {"kind": "range", "start": left_start, "end": left_end},
-            "filter": left_filter,
+        "current": {
+            "time_scope": {"kind": "range", "start": current_start, "end": current_end},
+            "filter": current_filter,
         },
-        "right": {
-            "time_scope": {"kind": "range", "start": right_start, "end": right_end},
-            "filter": right_filter,
+        "baseline": {
+            "time_scope": {"kind": "range", "start": baseline_start, "end": baseline_end},
+            "filter": baseline_filter,
         },
     }
     if predicate_lineage_summary["reuse_summary"] is not None:

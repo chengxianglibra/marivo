@@ -40,24 +40,24 @@ _COMPARE_ARTIFACT_CONTENT: dict[str, Any] = {
     "metric": "dau",
     "direction": "increase",
     "resolved_input_summary": {
-        "left_scope": {},
-        "left_time_scope": _LEFT_WIN,
-        "right_time_scope": _RIGHT_WIN,
+        "current_scope": {},
+        "current_time_scope": _LEFT_WIN,
+        "baseline_time_scope": _RIGHT_WIN,
     },
 }
 
 _DELTA_PAYLOAD: dict[str, Any] = {
     "delta_kind": "scalar_delta",
-    "left_ref": {
+    "current_ref": {
         "artifact_id": _ARTIFACT_ID,
         "item_ref": {"collection": "result", "index": None, "key": None},
     },
-    "right_ref": {
+    "baseline_ref": {
         "artifact_id": _ARTIFACT_ID,
         "item_ref": {"collection": "result", "index": None, "key": None},
     },
-    "left_value": 900.0,
-    "right_value": 1000.0,
+    "current_value": 900.0,
+    "baseline_value": 1000.0,
     "absolute_delta": 100.0,
     "relative_delta": 0.111,
     "direction": "increase",

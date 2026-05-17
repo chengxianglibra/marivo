@@ -334,8 +334,8 @@ def test_test_intent_tool_schema_matches_current_aoi_surface() -> None:
 
     assert "method" not in properties
     assert "kind" not in properties
-    assert properties["left"] == {"$ref": "#/$defs/McpAoiSliceRef"}
-    assert properties["right"] == {"$ref": "#/$defs/McpAoiSliceRef"}
+    assert properties["current"] == {"$ref": "#/$defs/McpAoiSliceRef"}
+    assert properties["baseline"] == {"$ref": "#/$defs/McpAoiSliceRef"}
     assert slice_schema["additionalProperties"] is False
     assert set(slice_schema["properties"]) == {"time_scope", "filter"}
     assert "scope" not in slice_schema["properties"]
@@ -424,8 +424,8 @@ def test_validate_hypothesis_schema_omits_fixed_family() -> None:
     hypothesis_schema = tools["validate"].parameters["$defs"]["McpValidateHypothesis"]
 
     assert "method" not in properties
-    assert properties["left"] == {"$ref": "#/$defs/McpAoiSliceRef"}
-    assert properties["right"] == {"$ref": "#/$defs/McpAoiSliceRef"}
+    assert properties["current"] == {"$ref": "#/$defs/McpAoiSliceRef"}
+    assert properties["baseline"] == {"$ref": "#/$defs/McpAoiSliceRef"}
     assert slice_schema["additionalProperties"] is False
     assert set(slice_schema["properties"]) == {"time_scope", "filter"}
     assert "scope" not in slice_schema["properties"]
@@ -454,8 +454,8 @@ def test_attribute_schema_uses_aoi_slice_refs() -> None:
     properties = tools["attribute"].parameters["properties"]
     slice_schema = tools["attribute"].parameters["$defs"]["McpAoiSliceRef"]
 
-    assert properties["left"] == {"$ref": "#/$defs/McpAoiSliceRef"}
-    assert properties["right"] == {"$ref": "#/$defs/McpAoiSliceRef"}
+    assert properties["current"] == {"$ref": "#/$defs/McpAoiSliceRef"}
+    assert properties["baseline"] == {"$ref": "#/$defs/McpAoiSliceRef"}
     assert slice_schema["additionalProperties"] is False
     assert set(slice_schema["properties"]) == {"time_scope", "filter"}
     assert "scope" not in slice_schema["properties"]
@@ -490,8 +490,8 @@ def test_attribute_tool_passes_generated_request(monkeypatch) -> None:
         tool.fn(
             session_id="sess_1",
             metric="view_time",
-            left=slice_ref,
-            right=slice_ref,
+            current=slice_ref,
+            baseline=slice_ref,
             dimensions=["region"],
         )
     )
@@ -633,8 +633,8 @@ def test_compare_tool_schema_exposes_compare_type_enum_and_default() -> None:
 
     compare = tools["compare"]
     compare_type = compare.parameters["properties"]["compare_type"]
-    left_description = compare.parameters["properties"]["left_artifact_id"]["description"]
-    right_description = compare.parameters["properties"]["right_artifact_id"]["description"]
+    current_description = compare.parameters["properties"]["current_artifact_id"]["description"]
+    baseline_description = compare.parameters["properties"]["baseline_artifact_id"]["description"]
 
     assert compare_type["default"] == "normal"
     assert compare_type["enum"] == [
@@ -643,9 +643,9 @@ def test_compare_tool_schema_exposes_compare_type_enum_and_default() -> None:
         "weekday_aligned",
         "holiday_and_weekday_aligned",
     ]
-    assert "scalar, segmented, or time_series" in left_description
-    assert "dimensions=['log_hour']" in left_description
-    assert "calendar-aligned compare types require time_series" in right_description
+    assert "scalar, segmented, or time_series" in current_description
+    assert "dimensions=['log_hour']" in current_description
+    assert "calendar-aligned compare types require time_series" in baseline_description
 
 
 def test_compare_tool_passes_generated_request_for_segmented_artifact_ids(monkeypatch) -> None:
@@ -666,8 +666,8 @@ def test_compare_tool_passes_generated_request_for_segmented_artifact_ids(monkey
     result = asyncio.run(
         tool.fn(
             session_id="sess_1",
-            left_artifact_id="art_segmented_left",
-            right_artifact_id="art_segmented_right",
+            current_artifact_id="art_segmented_left",
+            baseline_artifact_id="art_segmented_right",
             compare_type="normal",
         )
     )
@@ -676,8 +676,8 @@ def test_compare_tool_passes_generated_request_for_segmented_artifact_ids(monkey
     assert calls["method"] == runtime.compare
     request = calls["kwargs"]["request"]
     assert isinstance(request, aoi.Compare)
-    assert request.left_artifact_id == "art_segmented_left"
-    assert request.right_artifact_id == "art_segmented_right"
+    assert request.current_artifact_id == "art_segmented_left"
+    assert request.baseline_artifact_id == "art_segmented_right"
     assert request.compare_type == "normal"
 
 

@@ -109,8 +109,8 @@ class Compare(BaseModel):
         "weekday_aligned",
         "holiday_and_weekday_aligned",
     ] = "normal"
-    left_artifact_id: str = Field(..., min_length=1)
-    right_artifact_id: str = Field(..., min_length=1)
+    current_artifact_id: str = Field(..., min_length=1)
+    baseline_artifact_id: str = Field(..., min_length=1)
 
 
 class Correlate(BaseModel):
@@ -188,8 +188,8 @@ class DeltaPoint(BaseModel):
         extra="forbid",
     )
     bucket_start: AwareDatetime
-    left_value: float | None
-    right_value: float | None
+    current_value: float | None
+    baseline_value: float | None
     delta: float | None
 
 
@@ -199,8 +199,8 @@ class SegmentedDeltaRow(BaseModel):
     )
     item_id: str = Field(..., min_length=1)
     keys: dict[str, str]
-    left_value: float | None
-    right_value: float | None
+    current_value: float | None
+    baseline_value: float | None
     delta: float | None
 
 
@@ -356,8 +356,8 @@ class ScalarDeltaResult(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    left_value: float | None
-    right_value: float | None
+    current_value: float | None
+    baseline_value: float | None
     delta: float | None
     matched_time_scope: TimeScope | None
 
@@ -448,8 +448,8 @@ class Attribute(BaseModel):
         extra="forbid",
     )
     metric: str = Field(..., min_length=1)
-    left: Slice
-    right: Slice
+    current: Slice
+    baseline: Slice
     dimensions: list[Dimension] = Field(..., min_length=1)
     decomposition_method: Literal["delta_share"] = "delta_share"
     decomposition_limit: int = Field(5, ge=1)
@@ -460,8 +460,8 @@ class Validate(BaseModel):
         extra="forbid",
     )
     metric: str = Field(..., min_length=1)
-    left: Slice
-    right: Slice
+    current: Slice
+    baseline: Slice
     hypothesis: Hypothesis
 
 
@@ -470,8 +470,8 @@ class Test(BaseModel):
         extra="forbid",
     )
     metric: str = Field(..., min_length=1)
-    left: Slice
-    right: Slice
+    current: Slice
+    baseline: Slice
     kind: Literal["numeric"]
     hypothesis: Hypothesis
 

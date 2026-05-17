@@ -528,7 +528,7 @@ assessment 是否产生新 snapshot，由 inference/gap engine 决定；seeding 
 - `direction_of_interest`：
   - `increase -> increase`
   - `decrease -> decrease`
-  - `undefined + presence in {left_only, right_only} -> any_non_flat`
+  - `undefined + presence in {current_only, baseline_only} -> any_non_flat`
 
 ### Creation condition
 
@@ -541,7 +541,7 @@ assessment 是否产生新 snapshot，由 inference/gap engine 决定；seeding 
 以下情况不创建 proposition：
 
 - `direction = flat`
-- `direction = undefined` 且 `presence ∉ {left_only, right_only}`
+- `direction = undefined` 且 `presence ∉ {current_only, baseline_only}`
 - required compare windows 无法解析
 
 ### Seed refs

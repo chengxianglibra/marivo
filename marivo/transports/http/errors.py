@@ -346,8 +346,8 @@ _GUIDED_EXAMPLES: dict[tuple[str, str], list[dict[str, Any]]] = {
             "summary": "Minimal compare payload",
             "complexity": "minimal",
             "payload": {
-                "left_artifact_id": "art_obs_current",
-                "right_artifact_id": "art_obs_baseline",
+                "current_artifact_id": "art_obs_current",
+                "baseline_artifact_id": "art_obs_baseline",
                 "compare_type": "normal",
             },
         }

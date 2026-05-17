@@ -86,7 +86,7 @@ _RIGHT_WIN = {"kind": "range", "start": "2024-01-08", "end": "2024-01-14"}
 
 _PAYLOAD_CHANGE: dict[str, Any] = {
     "change_kind": "scalar_change",
-    "comparison_window": {"left": _LEFT_WIN, "right": _RIGHT_WIN},
+    "comparison_window": {"current": _LEFT_WIN, "baseline": _RIGHT_WIN},
     "direction_of_interest": "decrease",
     "dimension_keys": None,
     "comparison_basis": "left_vs_right",  # NOT identity
@@ -98,7 +98,7 @@ _PAYLOAD_DECOMP: dict[str, Any] = {
     "dimension_keys": {"country": "US"},
     "contribution_role": "primary_driver",
     "scope_delta_ref": {"session_id": "sess_4e2", "finding_id": "fnd_4e2_delta_001"},
-    "comparison_window": {"left": _LEFT_WIN, "right": _RIGHT_WIN},  # NOT identity
+    "comparison_window": {"current": _LEFT_WIN, "baseline": _RIGHT_WIN},  # NOT identity
 }
 
 _PAYLOAD_ANOMALY: dict[str, Any] = {
@@ -362,9 +362,9 @@ class TestChangeIdentity(unittest.TestCase):
         self.assertNotEqual(k1, k2)
 
     def test_different_comparison_window(self) -> None:
-        k1 = self._k(comparison_window={"left": _LEFT_WIN, "right": _RIGHT_WIN})
+        k1 = self._k(comparison_window={"current": _LEFT_WIN, "baseline": _RIGHT_WIN})
         other_right = {"kind": "range", "start": "2024-01-15", "end": "2024-01-21"}
-        k2 = self._k(comparison_window={"left": _LEFT_WIN, "right": other_right})
+        k2 = self._k(comparison_window={"current": _LEFT_WIN, "baseline": other_right})
         self.assertNotEqual(k1, k2)
 
     def test_dimension_keys_none_vs_dict(self) -> None:
@@ -426,10 +426,10 @@ class TestDecompositionIdentity(unittest.TestCase):
         self.assertNotEqual(k1, k2)
 
     def test_comparison_window_not_in_identity(self) -> None:
-        k1 = self._k(comparison_window={"left": _LEFT_WIN, "right": _RIGHT_WIN})
+        k1 = self._k(comparison_window={"current": _LEFT_WIN, "baseline": _RIGHT_WIN})
         other = {
-            "left": _LEFT_WIN,
-            "right": {"kind": "range", "start": "2024-02-01", "end": "2024-02-07"},
+            "current": _LEFT_WIN,
+            "baseline": {"kind": "range", "start": "2024-02-01", "end": "2024-02-07"},
         }
         k2 = self._k(comparison_window=other)
         self.assertEqual(k1, k2)

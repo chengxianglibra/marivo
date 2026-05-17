@@ -215,9 +215,9 @@ The request contract is per-intent. Every atomic request is either **source-type
 | ----------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | `observe`   | source          | `metric`, `time_scope`, `filter?`, `granularity?`, `dimensions?` (mutually exclusive mode selectors, see 4.1.2)                            |
 | `detect`    | source          | `metric`, `time_scope`, `granularity: TimeGranularity`, `filter?`, `dimension?`, `strategy: "point_anomaly" \| "period_shift"`, `sensitivity?`, `limit?` |
-| `test`      | source (paired) | `metric`, `left: { time_scope, filter? }`, `right: { time_scope, filter? }`, `kind: "numeric"`, `hypothesis: Hypothesis` |
+| `test`      | source (paired) | `metric`, `current: { time_scope, filter? }`, `baseline: { time_scope, filter? }`, `kind: "numeric"`, `hypothesis: Hypothesis` |
 | `forecast`  | ref             | `source_artifact_id: string`, `horizon`                                                                             |
-| `compare`   | ref             | `left_artifact_id: string`, `right_artifact_id: string`, `compare_type?: CompareType`                                                             |
+| `compare`   | ref             | `current_artifact_id: string`, `baseline_artifact_id: string`, `compare_type?: CompareType`                                                             |
 | `decompose` | ref             | `compare_artifact_id: string`, `dimension`, `limit?`                                                                                          |
 | `correlate` | ref             | `left_artifact_id: string`, `right_artifact_id: string` (both time_series), `method?`, `min_pairs?`                                              |
 
@@ -328,23 +328,23 @@ result: { "rows": [ { "item_id": string,
                       "value": number | null } ] }
 
 // scalar_delta_result
-result: { "left_value": number | null,
-          "right_value": number | null,
+result: { "current_value": number | null,
+          "baseline_value": number | null,
           "delta": number | null,
           "matched_time_scope": TimeScope | null }
 
 // time_series_delta_result
 result: { "points": [ { "bucket_start": "ISO8601",
-                        "left_value": number | null,
-                        "right_value": number | null,
+                        "current_value": number | null,
+                        "baseline_value": number | null,
                         "delta": number | null } ],
           "matched_time_scope": TimeScope | null }
 
 // segmented_delta_result
 result: { "rows": [ { "item_id": string,
                       "keys": DimensionKeyMap,
-                      "left_value": number | null,
-                      "right_value": number | null,
+                      "current_value": number | null,
+                      "baseline_value": number | null,
                       "delta": number | null } ],
           "matched_time_scope": TimeScope | null }
 
@@ -386,7 +386,7 @@ Numeric result semantics:
 
 | Field family | Range | High/low interpretation |
 | --- | --- | --- |
-| Observation `value`, anomaly candidate `value`, forecast `value`, and compare `left_value` / `right_value` | Metric domain; nullable fields use `null` only for absent observations. | Higher/lower follows the metric definition. AOI does not encode whether high is good or bad. |
+| Observation `value`, anomaly candidate `value`, forecast `value`, and compare `current_value` / `baseline_value` | Metric domain; nullable fields use `null` only for absent observations. | Higher/lower follows the metric definition. AOI does not encode whether high is good or bad. |
 | Compare `delta` | Metric-domain difference, nullable when not computable. | Positive means left/current is higher than right/baseline; negative means lower; larger absolute value means a larger change. |
 | `delta_decomposition_result.items[].contribution` | Signed metric-domain contribution; finite number with no fixed schema bound. | Positive increases the compared delta; negative offsets it; larger absolute value means a stronger driver. |
 | `delta_decomposition_result.items[].share` | Signed ratio to total delta; finite number with no fixed schema bound because offsetting contributors may produce negative or greater-than-1 shares. | Same sign as the total delta reinforces the change; opposite sign offsets it; larger absolute value means higher relative importance. |
@@ -449,7 +449,7 @@ Current Marivo row-level candidates remain outside AOI v0.2:
 | Row-level candidate | v0.2 decision | Reason |
 |---------------------|---------------|--------|
 | Calendar bucket-pairing rows (`bucket_pairing[]`, `pairing_reason`, `strictness_level`, `is_reused_baseline_bucket`) | Do not include | These explain how an implementation resolved a comparison, but consumers can consume the resulting `*_delta` values without them. `compare_type` on the producing step is sufficient to prevent mode mixing; detailed pairing is operator/debug audit data outside AOI v0.2. |
-| Matched bucket counts and coverage ratios on time-series rows | Do not include | Partial overlap is represented portably by result-level `matched_time_scope` where the successful analytical result needs that caveat. Per-row coverage ratios create a second warning surface and are not required to interpret `value: null`, `left_value`, `right_value`, or `delta`. |
+| Matched bucket counts and coverage ratios on time-series rows | Do not include | Partial overlap is represented portably by result-level `matched_time_scope` where the successful analytical result needs that caveat. Per-row coverage ratios create a second warning surface and are not required to interpret `value: null`, `current_value`, `baseline_value`, or `delta`. |
 | Detect candidate display labels (`flag_level`, row severity labels) | Do not include | Core `anomaly_candidates.items[].score` is the machine-readable contract. Labels are thresholded presentation choices and can be derived by UI/SDK layers without changing the artifact. |
 | Compare/decompose row `direction` and `presence` | Do not include | `direction` is derivable from the sign of `delta` or `contribution`; `presence` is derivable from the left/right null pattern. Shipping both would allow disagreement with core numeric fields. |
 | Row `unit` echoes | Do not include | Unit belongs to the OSI metric definition, not to each AOI row. Repeating it per row increases drift risk and is unnecessary for consumers that can resolve metric metadata. |
@@ -614,7 +614,7 @@ Concrete evidence of consolidation. This table is also the input list for Marivo
 |-----------------------|----------|
 | 9 distinct ready-keywords (`comparable`, `attributable`, `aligned`, `detectable`, `valid`, `validated`, `forecastable`, `diagnosable`, `ready`) | **Removed from AOI artifacts.** AOI v0.2 has no artifact status vocabulary on the wire: presence of `result` means success, presence of `failure` means blocked. No "needs_attention" middle state in AOI artifacts. |
 | `direction: increase\|decrease\|flat\|undefined` (most intents) vs `up\|down\|flat\|undefined` (detect) | **`Direction` removed from spec.** Direction is `sign(value)`, derivable by consumers; "flat" requires an epsilon the spec never defined. Result bodies expose values; consumers classify direction locally. |
-| `presence: both\|left_only\|right_only` on compare delta rows and decompose contribution rows | **`Presence` removed from spec.** Presence is `null pattern` of (left_value, right_value); derivable. Spec stipulates instead: `value: null` means "no observation on that side"; one-sided rows must be retained. |
+| `presence: both\|current_only\|baseline_only` on compare delta rows and decompose contribution rows | **`Presence` removed from spec.** Presence is `null pattern` of (current_value, baseline_value); derivable. Spec stipulates instead: `value: null` means "no observation on that side"; one-sided rows must be retained. |
 | `unit` echoed on Observation, delta, contribution rows | **Removed from artifacts.** Unit is a metric-definition property in OSI; consumers retrieve unit through OSI metric metadata, not through AOI artifacts. |
 | `decision.reject_null: boolean\|null` (atomic test) vs `"reject_null"\|"fail_to_reject"\|"undetermined"` (validate) | AOI standardizes the `validate` and `attribute` request contracts only; derived response bundles remain implementation-owned. Atomic `test` retains `boolean\|null`. |
 | 18 `ComparabilityIssue` codes (half calendar-specific, mostly warnings) | Core enumerates only blocking codes (typically 4–6); non-blocking caveats are encoded in the result body (e.g. `compare.matched_time_scope`). Calendar-specific blockers use portable core failure codes. |
@@ -626,7 +626,7 @@ Concrete evidence of consolidation. This table is also the input list for Marivo
 | Current | AOI v0.2 |
 |---------|----------|
 | `ObservationRef` (no `artifact_id`) and `ObservationArtifactRef` (with `artifact_id`) coexist | **Direct `artifact_id` string**. Redundant implementation-specific reference wrappers are omitted because `artifact_id` resolves the artifact record. |
-| `CompareArtifactRef`, `DecomposeArtifactRef`, `DetectArtifactRef`, `TestArtifactRef`, `ObservationArtifactRef` separately defined | All collapse into direct artifact ID string fields such as `left_artifact_id` and `compare_artifact_id`. |
+| `CompareArtifactRef`, `DecomposeArtifactRef`, `DetectArtifactRef`, `TestArtifactRef`, `ObservationArtifactRef` separately defined | All collapse into direct artifact ID string fields such as `current_artifact_id` and `compare_artifact_id`. |
 | `DetectCandidateRef = {artifact_id, item_ref}` | **Removed from AOI v0.2**. List-shaped artifacts expose stable row `item_id` values, but v0.2 has no request or artifact field that references an individual row by contract. |
 | `compare.segmented_delta.rows[].keys` (multi-dim) vs `decompose.rows[].key` (single-value) | Both retained at result-body level (different result schemas, different shapes); but every row carries `item_id`. |
 

@@ -211,28 +211,28 @@ class AoiGeneratedIntentModelTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             aoi.Compare.model_validate(
                 {
-                    "left_ref": {"step_id": "step_1"},
-                    "right_ref": {"step_id": "step_2"},
+                    "current_ref": {"step_id": "step_1"},
+                    "baseline_ref": {"step_id": "step_2"},
                 }
             )
 
     def test_aoi_compare_accepts_artifact_ids(self) -> None:
         request = aoi.Compare.model_validate(
             {
-                "left_artifact_id": "art_left",
-                "right_artifact_id": "art_right",
+                "current_artifact_id": "art_left",
+                "baseline_artifact_id": "art_right",
                 "compare_type": "normal",
             }
         )
 
-        self.assertEqual(request.left_artifact_id, "art_left")
-        self.assertEqual(request.right_artifact_id, "art_right")
+        self.assertEqual(request.current_artifact_id, "art_left")
+        self.assertEqual(request.baseline_artifact_id, "art_right")
 
     def test_aoi_compare_defaults_compare_type_to_normal(self) -> None:
         request = aoi.Compare.model_validate(
             {
-                "left_artifact_id": "art_left",
-                "right_artifact_id": "art_right",
+                "current_artifact_id": "art_left",
+                "baseline_artifact_id": "art_right",
             }
         )
 
@@ -248,8 +248,8 @@ class AoiGeneratedIntentModelTests(unittest.TestCase):
             with self.subTest(compare_type=compare_type):
                 request = aoi.Compare.model_validate(
                     {
-                        "left_artifact_id": "art_left",
-                        "right_artifact_id": "art_right",
+                        "current_artifact_id": "art_left",
+                        "baseline_artifact_id": "art_right",
                         "compare_type": compare_type,
                     }
                 )
@@ -268,8 +268,8 @@ class AoiGeneratedIntentModelTests(unittest.TestCase):
             with self.subTest(compare_type=compare_type), self.assertRaises(ValidationError):
                 aoi.Compare.model_validate(
                     {
-                        "left_artifact_id": "art_left",
-                        "right_artifact_id": "art_right",
+                        "current_artifact_id": "art_left",
+                        "baseline_artifact_id": "art_right",
                         "compare_type": compare_type,
                     }
                 )
@@ -278,16 +278,16 @@ class AoiGeneratedIntentModelTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             aoi.Compare.model_validate(
                 {
-                    "left_artifact_id": "art_left",
-                    "right_artifact_id": "art_right",
-                    "left_ref": {"step_id": "step_1"},
+                    "current_artifact_id": "art_left",
+                    "baseline_artifact_id": "art_right",
+                    "current_ref": {"step_id": "step_1"},
                 }
             )
 
     def test_aoi_compare_rejects_empty_artifact_ids(self) -> None:
         for payload in (
-            {"left_artifact_id": "", "right_artifact_id": "art_right"},
-            {"left_artifact_id": "art_left", "right_artifact_id": ""},
+            {"current_artifact_id": "", "baseline_artifact_id": "art_right"},
+            {"current_artifact_id": "art_left", "baseline_artifact_id": ""},
         ):
             with self.subTest(payload=payload), self.assertRaises(ValidationError):
                 aoi.Compare.model_validate(payload)
@@ -323,7 +323,7 @@ class LightweightIntentEndpointTests(_SessionBackedIntentEndpointMixin, unittest
     def test_compare_validation_error_includes_schema_guidance_and_example(self) -> None:
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/compare",
-            json={"left_artifact_id": "art_left"},
+            json={"current_artifact_id": "art_left"},
         )
 
         self.assertEqual(r.status_code, 422)
@@ -331,8 +331,8 @@ class LightweightIntentEndpointTests(_SessionBackedIntentEndpointMixin, unittest
         self.assertEqual(payload["error"]["code"], "request_validation_error")
         self.assertIn("/openapi/schemas/", payload["guidance"]["schema_url"])
         self.assertIn("/openapi/paths/", payload["guidance"]["contract_url"])
-        self.assertIn("left_artifact_id", payload["guidance"]["examples"][0]["payload"])
-        self.assertIn("right_artifact_id", payload["guidance"]["examples"][0]["payload"])
+        self.assertIn("current_artifact_id", payload["guidance"]["examples"][0]["payload"])
+        self.assertIn("baseline_artifact_id", payload["guidance"]["examples"][0]["payload"])
 
     def test_detect_validation_error_includes_schema_guidance_and_example(self) -> None:
         r = self.client.post(
@@ -361,8 +361,8 @@ class LightweightIntentEndpointTests(_SessionBackedIntentEndpointMixin, unittest
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/compare",
             json={
-                "left_artifact_id": "art_001",
-                "right_artifact_id": "art_002",
+                "current_artifact_id": "art_001",
+                "baseline_artifact_id": "art_002",
             },
         )
         self.assertEqual(r.status_code, 422)
@@ -497,8 +497,8 @@ class CompareSegmentedIntentEndpointTests(unittest.TestCase):
         response = self.client.post(
             f"/sessions/{self.session_id}/intents/compare",
             json={
-                "left_artifact_id": self.left_artifact_id,
-                "right_artifact_id": self.right_artifact_id,
+                "current_artifact_id": self.left_artifact_id,
+                "baseline_artifact_id": self.right_artifact_id,
                 "compare_type": "normal",
             },
         )
@@ -566,14 +566,14 @@ class ClosedSessionWriteGuardTests(unittest.TestCase):
             f"/sessions/{self.session_id}/intents/attribute",
             json={
                 "metric": _metric_ref("dau"),
-                "left": {
+                "current": {
                     "time_scope": {
                         "field": "event_time",
                         "start": "2024-01-08T00:00:00Z",
                         "end": "2024-01-15T00:00:00Z",
                     }
                 },
-                "right": {
+                "baseline": {
                     "time_scope": {
                         "field": "event_time",
                         "start": "2024-01-01T00:00:00Z",

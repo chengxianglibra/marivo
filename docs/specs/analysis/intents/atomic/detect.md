@@ -303,12 +303,12 @@ Marivo 推荐默认行为是对不可检测请求直接报错，而不是返回 
 
 定义：
 
-- `observed_value`：候选 bucket 或窗口中的实际指标值
-- `expected_value`：与当前 strategy 一致的基线估计
-- `deviation_abs = observed_value - expected_value`
-- `deviation_pct = deviation_abs / expected_value`
+- `current_value`：候选 bucket 或窗口中的实际指标值
+- `baseline_value`：与当前 strategy 一致的基线估计
+- `deviation_abs = current_value - baseline_value`
+- `deviation_pct = deviation_abs / baseline_value`
 
-若 `expected_value` 为 `0` 或 `null`，`deviation_pct` 必须为 `null`。
+若 `baseline_value` 为 `0` 或 `null`，`deviation_pct` 必须为 `null`。
 
 ### Direction
 
@@ -436,8 +436,8 @@ type DetectCandidateItem = {
   };
   baseline_window?: { start: string; end: string } | null;
   slice: Record<string, string> | null;
-  observed_value: number | null;
-  expected_value: number | null;
+  current_value: number | null;
+  baseline_value: number | null;
   deviation_abs: number | null;
   deviation_pct: number | null;
   candidate_score: number;
@@ -481,10 +481,10 @@ type ExecutionMetadata = {
 - `filter = null`：no-extra non-time filter
 - `dimension = null`：整体序列扫描，不做按维度拆分
 - `candidate.slice = null`：该 candidate 对应整体序列，而不是“未知 slice”
-- `observed_value = null`：该 candidate 的 observed value 在 artifact contract 下不可定义或未能可靠解析；不得同时表示 “0”
-- `expected_value = null`：当前 strategy 下无法形成可辩护 expected baseline；不得同时表示 “0”
-- `deviation_abs = null`：由于 `observed_value` 或 `expected_value` 不可定义，绝对偏差不可定义
-- `deviation_pct = null`：相对偏差不可定义；唯一允许原因是 `expected_value = null` 或 `expected_value = 0`
+- `current_value = null`：该 candidate 的 observed value 在 artifact contract 下不可定义或未能可靠解析；不得同时表示 “0”
+- `baseline_value = null`：当前 strategy 下无法形成可辩护 expected baseline；不得同时表示 “0”
+- `deviation_abs = null`：由于 `current_value` 或 `baseline_value` 不可定义，绝对偏差不可定义
+- `deviation_pct = null`：相对偏差不可定义；唯一允许原因是 `baseline_value = null` 或 `baseline_value = 0`
 - `analytical_metadata.timezone = null`：timezone 对该 artifact 不适用或未被 canonical contract 定义；不得同时表示 consumer 尚未读取
 - `analytical_metadata.data_complete = null`：完整性尚未能被确定性判定；不得同时表示 `false`
 - `detectability.issues = []`：no-known detectability issues

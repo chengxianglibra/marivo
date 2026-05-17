@@ -14,14 +14,14 @@ from marivo.runtime.intents.validate import run_validate_intent
 def _valid_params() -> dict[str, Any]:
     return {
         "metric": "metric.test_metric",
-        "left": {
+        "current": {
             "time_scope": {
                 "field": "event_time",
                 "start": "2026-01-01T00:00:00Z",
                 "end": "2026-01-08T00:00:00Z",
             }
         },
-        "right": {
+        "baseline": {
             "time_scope": {
                 "field": "event_time",
                 "start": "2026-01-08T00:00:00Z",
@@ -116,16 +116,16 @@ def test_forwards_filters_to_test_and_bundle_payload() -> None:
     params = _valid_params()
     left_filter = {"dialects": [{"dialect": "ANSI_SQL", "expression": "region = 'US'"}]}
     right_filter = {"dialects": [{"dialect": "ANSI_SQL", "expression": "region = 'CA'"}]}
-    params["left"]["filter"] = left_filter
-    params["right"]["filter"] = right_filter
+    params["current"]["filter"] = left_filter
+    params["baseline"]["filter"] = right_filter
 
     result, _, mock_test = _run_with_mock_test(params)
 
     delegated_params = mock_test.call_args[0][2]
-    assert delegated_params["left"]["filter"] == left_filter
-    assert delegated_params["right"]["filter"] == right_filter
-    assert result["result"]["left"]["filter"] == left_filter
-    assert result["result"]["right"]["filter"] == right_filter
+    assert delegated_params["current"]["filter"] == left_filter
+    assert delegated_params["baseline"]["filter"] == right_filter
+    assert result["result"]["current"]["filter"] == left_filter
+    assert result["result"]["baseline"]["filter"] == right_filter
 
 
 @pytest.mark.parametrize(
@@ -219,18 +219,18 @@ def test_test_failure_is_wrapped() -> None:
     [
         (None, "params"),
         ({"__remove__": "metric"}, "metric"),
-        ({"__remove__": "left"}, "left"),
-        ({"__remove__": "right"}, "right"),
+        ({"__remove__": "current"}, "current"),
+        ({"__remove__": "baseline"}, "baseline"),
         ({"__remove__": "hypothesis"}, "hypothesis"),
         ({"method": "welch_t"}, "method"),
         ({"kind": "numeric"}, "kind"),
         ({"metric": ""}, "metric"),
-        ({"left": []}, "left"),
-        ({"right": []}, "right"),
-        ({"left": {"scope": {"predicate": "region = 'US'"}}}, "scope"),
-        ({"left": {"filter": None}}, "filter"),
-        ({"left": {"__remove__": "time_scope"}}, "time_scope"),
-        ({"right": {"__remove__": "time_scope"}}, "time_scope"),
+        ({"current": []}, "current"),
+        ({"baseline": []}, "baseline"),
+        ({"current": {"scope": {"predicate": "region = 'US'"}}}, "scope"),
+        ({"current": {"filter": None}}, "filter"),
+        ({"current": {"__remove__": "time_scope"}}, "time_scope"),
+        ({"baseline": {"__remove__": "time_scope"}}, "time_scope"),
         ({"hypothesis": None}, "hypothesis"),
         ({"hypothesis": {"family": "two_sample_proportion"}}, "family"),
         ({"hypothesis": {"alternative": "not_equal"}}, "alternative"),

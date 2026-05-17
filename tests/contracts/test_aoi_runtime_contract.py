@@ -161,8 +161,8 @@ def test_aoi_derived_operation_registry_contains_derived_operations() -> None:
 def test_runtime_intent_envelope_accepts_generated_validate_request() -> None:
     request = aoi.Validate(
         metric="view_time",
-        left=aoi.Slice(time_scope=_time_scope()),
-        right=aoi.Slice(time_scope=_time_scope()),
+        current=aoi.Slice(time_scope=_time_scope()),
+        baseline=aoi.Slice(time_scope=_time_scope()),
         hypothesis=aoi.Hypothesis(
             family="two_sample_mean",
             alternative="two_sided",
@@ -183,11 +183,11 @@ def test_aoi_validate_accepts_full_current_shape_with_filters() -> None:
     request = aoi.Validate.model_validate(
         {
             "metric": "view_time",
-            "left": {
+            "current": {
                 "time_scope": _time_scope_payload(),
                 "filter": {"dialects": [{"dialect": "ANSI_SQL", "expression": "region = 'US'"}]},
             },
-            "right": {
+            "baseline": {
                 "time_scope": _time_scope_payload(),
                 "filter": {"dialects": [{"dialect": "ANSI_SQL", "expression": "region = 'CA'"}]},
             },
@@ -199,8 +199,8 @@ def test_aoi_validate_accepts_full_current_shape_with_filters() -> None:
         }
     )
 
-    assert request.left.filter is not None
-    assert request.right.filter is not None
+    assert request.current.filter is not None
+    assert request.baseline.filter is not None
     assert request.hypothesis.alternative == "greater"
     assert request.hypothesis.significance == "aggressive"
 
@@ -210,8 +210,8 @@ def test_aoi_validate_accepts_full_current_shape_with_filters() -> None:
     [
         {"method": "welch_t"},
         {"kind": "numeric"},
-        {"left": {"scope": {"predicate": "region = 'US'"}}},
-        {"left": {"filter": None}},
+        {"current": {"scope": {"predicate": "region = 'US'"}}},
+        {"current": {"filter": None}},
         {"hypothesis": {"__remove__": "family"}},
         {"hypothesis": {"__remove__": "alternative"}},
         {"hypothesis": {"__remove__": "significance"}},
@@ -223,8 +223,8 @@ def test_aoi_validate_rejects_invalid_shape(
 ) -> None:
     payload: dict[str, Any] = {
         "metric": "view_time",
-        "left": {"time_scope": _time_scope_payload()},
-        "right": {"time_scope": _time_scope_payload()},
+        "current": {"time_scope": _time_scope_payload()},
+        "baseline": {"time_scope": _time_scope_payload()},
         "hypothesis": {
             "family": "two_sample_mean",
             "alternative": "two_sided",
@@ -240,8 +240,8 @@ def test_aoi_validate_rejects_invalid_shape(
 def test_runtime_intent_envelope_accepts_generated_attribute_request() -> None:
     request = aoi.Attribute(
         metric="view_time",
-        left=aoi.Slice(time_scope=_time_scope()),
-        right=aoi.Slice(time_scope=_time_scope()),
+        current=aoi.Slice(time_scope=_time_scope()),
+        baseline=aoi.Slice(time_scope=_time_scope()),
         dimensions=["region"],
     )
 
@@ -275,8 +275,8 @@ def test_runtime_intent_envelope_accepts_generated_diagnose_request() -> None:
 def test_assert_derived_request_matches_intent_rejects_operation_mismatch() -> None:
     request = aoi.Validate(
         metric="view_time",
-        left=aoi.Slice(time_scope=_time_scope()),
-        right=aoi.Slice(time_scope=_time_scope()),
+        current=aoi.Slice(time_scope=_time_scope()),
+        baseline=aoi.Slice(time_scope=_time_scope()),
         hypothesis=aoi.Hypothesis(
             family="two_sample_mean",
             alternative="two_sided",

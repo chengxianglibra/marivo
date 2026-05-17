@@ -230,8 +230,8 @@ class _FakeRuntime:
                     {
                         "artifact_id": "art_compare_1",
                         "result": {
-                            "left_value": 120.0,
-                            "right_value": 100.0,
+                            "current_value": 120.0,
+                            "baseline_value": 100.0,
                             "delta": 20.0,
                             "matched_time_scope": None,
                         },
@@ -458,16 +458,16 @@ def test_compare_accepts_aoi_request_with_compare_type() -> None:
     response = _client(runtime).post(
         "/sessions/sess_1/intents/compare",
         json={
-            "left_artifact_id": "artifact_left",
-            "right_artifact_id": "artifact_right",
+            "current_artifact_id": "artifact_left",
+            "baseline_artifact_id": "artifact_right",
             "compare_type": "weekday_aligned",
         },
     )
 
     assert response.status_code == 200, response.text
     assert isinstance(runtime.compare_payload, aoi.Compare)
-    assert runtime.compare_payload.left_artifact_id == "artifact_left"
-    assert runtime.compare_payload.right_artifact_id == "artifact_right"
+    assert runtime.compare_payload.current_artifact_id == "artifact_left"
+    assert runtime.compare_payload.baseline_artifact_id == "artifact_right"
     assert runtime.compare_payload.compare_type == "weekday_aligned"
 
 
@@ -509,14 +509,14 @@ def test_decompose_accepts_aoi_request_with_limit() -> None:
 def _valid_test_request() -> dict[str, Any]:
     return {
         "metric": "metric.revenue",
-        "left": {
+        "current": {
             "time_scope": {
                 "field": "event_time",
                 "start": "2026-01-01T00:00:00Z",
                 "end": "2026-01-08T00:00:00Z",
             }
         },
-        "right": {
+        "baseline": {
             "time_scope": {
                 "field": "event_time",
                 "start": "2026-01-08T00:00:00Z",
@@ -541,14 +541,14 @@ def _valid_validate_request() -> dict[str, Any]:
 def _valid_attribute_request() -> dict[str, Any]:
     return {
         "metric": "metric.revenue",
-        "left": {
+        "current": {
             "time_scope": {
                 "field": "event_time",
                 "start": "2026-01-01T00:00:00Z",
                 "end": "2026-01-08T00:00:00Z",
             }
         },
-        "right": {
+        "baseline": {
             "time_scope": {
                 "field": "event_time",
                 "start": "2026-01-08T00:00:00Z",
@@ -693,7 +693,7 @@ def test_attribute_accepts_aoi_request_and_returns_typed_bundle() -> None:
     [
         (("method",), "welch_t"),
         (("kind",), "numeric"),
-        (("left", "scope"), {"predicate": "region = 'US'"}),
+        (("current", "scope"), {"predicate": "region = 'US'"}),
         (("hypothesis", "alpha"), 0.05),
     ],
 )

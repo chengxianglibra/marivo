@@ -48,7 +48,7 @@ class ArtifactItemRef(TypedDict):
 
 
 class ArtifactItemRefRef(TypedDict):
-    """Cross-artifact reference used in finding payloads (left_ref / right_ref)."""
+    """Cross-artifact reference used in finding payloads."""
 
     artifact_id: str
     item_ref: ArtifactItemRef
@@ -241,7 +241,7 @@ ObservationPayload = (
 
 DeltaKind = Literal["scalar_delta", "segmented_delta", "time_series_delta"]
 DeltaDirection = Literal["increase", "decrease", "flat", "undefined"]
-DeltaPresence = Literal["both", "left_only", "right_only"]
+DeltaPresence = Literal["both", "current_only", "baseline_only"]
 
 
 class CalendarAlignmentCoverageSummary(TypedDict):
@@ -267,21 +267,21 @@ class CalendarAlignmentReuseSummary(TypedDict):
     comparison_basis: str
     comparability_warnings: list[str]
     rollup_safe: bool
-    left_coverage_summary: CalendarAlignmentCoverageSummary
-    right_coverage_summary: CalendarAlignmentCoverageSummary
+    current_coverage_summary: CalendarAlignmentCoverageSummary
+    baseline_coverage_summary: CalendarAlignmentCoverageSummary
     effective_coverage_summary: CalendarAlignmentCoverageSummary
-    left_data_coverage_summary: MetricDataCoverageSummary | None
-    right_data_coverage_summary: MetricDataCoverageSummary | None
+    current_data_coverage_summary: MetricDataCoverageSummary | None
+    baseline_data_coverage_summary: MetricDataCoverageSummary | None
     effective_data_coverage_summary: MetricDataCoverageSummary | None
 
 
 class PredicateLineageReuseSummary(TypedDict):
     reuse_source: str
     metric_default_predicate_refs: list[str]
-    left_shared_effective_scope: dict[str, Any]
-    right_shared_effective_scope: dict[str, Any]
-    left_scope_fingerprints: dict[str, str]
-    right_scope_fingerprints: dict[str, str]
+    current_shared_effective_scope: dict[str, Any]
+    baseline_shared_effective_scope: dict[str, Any]
+    current_scope_fingerprints: dict[str, str]
+    baseline_scope_fingerprints: dict[str, str]
 
 
 class ComparabilityIssue(TypedDict, total=False):
@@ -300,10 +300,10 @@ class DeltaPayloadBase(TypedDict):
     """Required delta payload fields shared by all delta findings."""
 
     delta_kind: DeltaKind
-    left_ref: ArtifactItemRefRef
-    right_ref: ArtifactItemRefRef
-    left_value: float | None
-    right_value: float | None
+    current_ref: ArtifactItemRefRef
+    baseline_ref: ArtifactItemRefRef
+    current_value: float | None
+    baseline_value: float | None
     absolute_delta: float | None
     relative_delta: float | None
     direction: DeltaDirection
@@ -342,8 +342,8 @@ class AnomalyCandidatePayload(TypedDict):
     candidate_ref: ArtifactItemRefRef
     score: float | None
     flag_level: FlagLevel | None
-    actual_value: float | None
-    expected_value: float | None
+    current_value: float | None
+    baseline_value: float | None
     deviation_absolute: float | None
     deviation_relative: float | None
 

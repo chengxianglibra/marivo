@@ -133,8 +133,8 @@ class _CompareReuseTestBase(unittest.TestCase):
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/compare",
             json={
-                "left_artifact_id": left_artifact_id,
-                "right_artifact_id": right_artifact_id,
+                "current_artifact_id": left_artifact_id,
+                "baseline_artifact_id": right_artifact_id,
             },
         )
         self.assertEqual(r.status_code, 200, r.text)
@@ -253,8 +253,8 @@ class TestCompareLineageMismatchRejection(_CompareReuseTestBase):
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/compare",
             json={
-                "left_artifact_id": self.left_artifact_id,
-                "right_artifact_id": self.right_artifact_id,
+                "current_artifact_id": self.left_artifact_id,
+                "baseline_artifact_id": self.right_artifact_id,
             },
         )
         self.assertEqual(r.status_code, 422)
@@ -294,8 +294,8 @@ class TestCompareLineageMismatchRejection(_CompareReuseTestBase):
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/compare",
             json={
-                "left_artifact_id": left_artifact_id,
-                "right_artifact_id": right_artifact_id,
+                "current_artifact_id": left_artifact_id,
+                "baseline_artifact_id": right_artifact_id,
             },
         )
         self.assertEqual(r.status_code, 200, r.text)

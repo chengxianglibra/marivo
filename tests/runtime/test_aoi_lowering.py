@@ -77,27 +77,27 @@ def test_lowers_segmented_observe_request_with_filter_to_runner_params() -> None
 
 def test_lowers_compare_request_to_runner_params() -> None:
     request = aoi.Compare(
-        left_artifact_id="artifact-left",
-        right_artifact_id="artifact-right",
+        current_artifact_id="artifact-current",
+        baseline_artifact_id="artifact-baseline",
         compare_type="holiday_aligned",
     )
 
     assert lower_aoi_request("compare", request) == {
-        "left_artifact_id": "artifact-left",
-        "right_artifact_id": "artifact-right",
+        "current_artifact_id": "artifact-current",
+        "baseline_artifact_id": "artifact-baseline",
         "compare_type": "holiday_aligned",
     }
 
 
 def test_lowers_compare_default_compare_type_to_runner_params() -> None:
     request = aoi.Compare(
-        left_artifact_id="artifact-left",
-        right_artifact_id="artifact-right",
+        current_artifact_id="artifact-current",
+        baseline_artifact_id="artifact-baseline",
     )
 
     assert lower_aoi_request("compare", request) == {
-        "left_artifact_id": "artifact-left",
-        "right_artifact_id": "artifact-right",
+        "current_artifact_id": "artifact-current",
+        "baseline_artifact_id": "artifact-baseline",
         "compare_type": "normal",
     }
 
@@ -191,14 +191,14 @@ def test_lowers_detect_request_with_all_options_to_runner_params() -> None:
 def test_lowers_test_request_to_runner_params() -> None:
     request = aoi.Test(
         metric="view_time",
-        left=aoi.Slice(
+        current=aoi.Slice(
             time_scope=aoi.TimeScope(
                 field="event_time",
                 start=datetime(2026, 5, 1, tzinfo=UTC),
                 end=datetime(2026, 5, 8, tzinfo=UTC),
             )
         ),
-        right=aoi.Slice(
+        baseline=aoi.Slice(
             time_scope=aoi.TimeScope(
                 field="event_time",
                 start=datetime(2026, 4, 24, tzinfo=UTC),
@@ -215,14 +215,14 @@ def test_lowers_test_request_to_runner_params() -> None:
 
     assert lower_aoi_request("test", request) == {
         "metric": "view_time",
-        "left": {
+        "current": {
             "time_scope": {
                 "field": "event_time",
                 "start": "2026-05-01T00:00:00Z",
                 "end": "2026-05-08T00:00:00Z",
             }
         },
-        "right": {
+        "baseline": {
             "time_scope": {
                 "field": "event_time",
                 "start": "2026-04-24T00:00:00Z",
@@ -241,7 +241,7 @@ def test_lowers_test_request_to_runner_params() -> None:
 def test_lowers_test_request_with_filters_to_runner_params() -> None:
     request = aoi.Test(
         metric="view_time",
-        left=aoi.Slice(
+        current=aoi.Slice(
             time_scope=aoi.TimeScope(
                 field="event_time",
                 start=datetime(2026, 5, 1, tzinfo=UTC),
@@ -251,7 +251,7 @@ def test_lowers_test_request_with_filters_to_runner_params() -> None:
                 dialects=[aoi.Dialect(dialect="ANSI_SQL", expression="region = 'US'")]
             ),
         ),
-        right=aoi.Slice(
+        baseline=aoi.Slice(
             time_scope=aoi.TimeScope(
                 field="event_time",
                 start=datetime(2026, 4, 24, tzinfo=UTC),
@@ -271,7 +271,7 @@ def test_lowers_test_request_with_filters_to_runner_params() -> None:
 
     assert lower_aoi_request("test", request) == {
         "metric": "view_time",
-        "left": {
+        "current": {
             "time_scope": {
                 "field": "event_time",
                 "start": "2026-05-01T00:00:00Z",
@@ -279,7 +279,7 @@ def test_lowers_test_request_with_filters_to_runner_params() -> None:
             },
             "filter": {"dialects": [{"dialect": "ANSI_SQL", "expression": "region = 'US'"}]},
         },
-        "right": {
+        "baseline": {
             "time_scope": {
                 "field": "event_time",
                 "start": "2026-04-24T00:00:00Z",
@@ -299,7 +299,7 @@ def test_lowers_test_request_with_filters_to_runner_params() -> None:
 def test_lowers_validate_request_to_runner_params() -> None:
     request = aoi.Validate(
         metric="view_time",
-        left=aoi.Slice(
+        current=aoi.Slice(
             time_scope=aoi.TimeScope(
                 field="event_time",
                 start=datetime(2026, 5, 1, tzinfo=UTC),
@@ -309,7 +309,7 @@ def test_lowers_validate_request_to_runner_params() -> None:
                 dialects=[aoi.Dialect(dialect="ANSI_SQL", expression="region = 'US'")]
             ),
         ),
-        right=aoi.Slice(
+        baseline=aoi.Slice(
             time_scope=aoi.TimeScope(
                 field="event_time",
                 start=datetime(2026, 4, 24, tzinfo=UTC),
@@ -325,7 +325,7 @@ def test_lowers_validate_request_to_runner_params() -> None:
 
     assert lower_aoi_derived_request("validate", request) == {
         "metric": "view_time",
-        "left": {
+        "current": {
             "time_scope": {
                 "field": "event_time",
                 "start": "2026-05-01T00:00:00Z",
@@ -333,7 +333,7 @@ def test_lowers_validate_request_to_runner_params() -> None:
             },
             "filter": {"dialects": [{"dialect": "ANSI_SQL", "expression": "region = 'US'"}]},
         },
-        "right": {
+        "baseline": {
             "time_scope": {
                 "field": "event_time",
                 "start": "2026-04-24T00:00:00Z",
@@ -351,7 +351,7 @@ def test_lowers_validate_request_to_runner_params() -> None:
 def test_lowers_attribute_request_to_runner_params() -> None:
     request = aoi.Attribute(
         metric="view_time",
-        left=aoi.Slice(
+        current=aoi.Slice(
             time_scope=aoi.TimeScope(
                 field="event_time",
                 start=datetime(2026, 5, 1, tzinfo=UTC),
@@ -361,7 +361,7 @@ def test_lowers_attribute_request_to_runner_params() -> None:
                 dialects=[aoi.Dialect(dialect="ANSI_SQL", expression="region = 'US'")]
             ),
         ),
-        right=aoi.Slice(
+        baseline=aoi.Slice(
             time_scope=aoi.TimeScope(
                 field="event_time",
                 start=datetime(2026, 4, 24, tzinfo=UTC),
@@ -374,7 +374,7 @@ def test_lowers_attribute_request_to_runner_params() -> None:
 
     assert lower_aoi_derived_request("attribute", request) == {
         "metric": "view_time",
-        "left": {
+        "current": {
             "time_scope": {
                 "field": "event_time",
                 "start": "2026-05-01T00:00:00Z",
@@ -382,7 +382,7 @@ def test_lowers_attribute_request_to_runner_params() -> None:
             },
             "filter": {"dialects": [{"dialect": "ANSI_SQL", "expression": "region = 'US'"}]},
         },
-        "right": {
+        "baseline": {
             "time_scope": {
                 "field": "event_time",
                 "start": "2026-04-24T00:00:00Z",

@@ -806,8 +806,8 @@ export interface components {
         Attribute: {
             /** Metric */
             metric: string;
-            left: components["schemas"]["Slice"];
-            right: components["schemas"]["Slice"];
+            current: components["schemas"]["Slice"];
+            baseline: components["schemas"]["Slice"];
             /** Dimensions */
             dimensions: components["schemas"]["Dimension-Input"][];
             /**
@@ -867,10 +867,10 @@ export interface components {
              * @enum {string}
              */
             compare_type: "normal" | "holiday_aligned" | "weekday_aligned" | "holiday_and_weekday_aligned";
-            /** Left Artifact Id */
-            left_artifact_id: string;
-            /** Right Artifact Id */
-            right_artifact_id: string;
+            /** Current Artifact Id */
+            current_artifact_id: string;
+            /** Baseline Artifact Id */
+            baseline_artifact_id: string;
         };
         /** CompareResponse */
         CompareResponse: {
@@ -1111,9 +1111,9 @@ export interface components {
              */
             bucket_start: string;
             /** Left Value */
-            left_value: number | null;
+            current_value: number | null;
             /** Right Value */
-            right_value: number | null;
+            baseline_value: number | null;
             /** Delta */
             delta: number | null;
         };
@@ -1919,9 +1919,9 @@ export interface components {
         /** ScalarDeltaResult */
         ScalarDeltaResult: {
             /** Left Value */
-            left_value: number | null;
+            current_value: number | null;
             /** Right Value */
-            right_value: number | null;
+            baseline_value: number | null;
             /** Delta */
             delta: number | null;
             matched_time_scope: components["schemas"]["TimeScope"] | null;
@@ -1946,9 +1946,9 @@ export interface components {
                 [key: string]: string;
             };
             /** Left Value */
-            left_value: number | null;
+            current_value: number | null;
             /** Right Value */
-            right_value: number | null;
+            baseline_value: number | null;
             /** Delta */
             delta: number | null;
         };
@@ -2246,8 +2246,8 @@ export interface components {
         Test: {
             /** Metric */
             metric: string;
-            left: components["schemas"]["Slice"];
-            right: components["schemas"]["Slice"];
+            current: components["schemas"]["Slice"];
+            baseline: components["schemas"]["Slice"];
             /**
              * Kind
              * @constant
@@ -2348,8 +2348,8 @@ export interface components {
         Validate: {
             /** Metric */
             metric: string;
-            left: components["schemas"]["Slice"];
-            right: components["schemas"]["Slice"];
+            current: components["schemas"]["Slice"];
+            baseline: components["schemas"]["Slice"];
             hypothesis: components["schemas"]["Hypothesis"];
         };
         /** ValidateResponse */

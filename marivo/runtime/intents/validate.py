@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 
 _DERIVED_LOGIC_VERSION = "1.0"
 _PROJECTION_VERSION = "validation_bundle.v1"
-_REQUEST_FIELDS: frozenset[str] = frozenset({"metric", "left", "right", "hypothesis"})
+_REQUEST_FIELDS: frozenset[str] = frozenset({"metric", "current", "baseline", "hypothesis"})
 _SLICE_FIELDS: frozenset[str] = frozenset({"time_scope", "filter"})
 _HYPOTHESIS_FIELDS: frozenset[str] = frozenset({"family", "alternative", "significance"})
 _VALID_FAMILIES: frozenset[str] = frozenset({"two_sample_mean"})
@@ -41,12 +41,12 @@ def run_validate_intent(
     if not metric_ref:
         raise ValueError("validate: INVALID_ARGUMENT - metric is required")
 
-    left_raw = _validate_slice(p["left"], label="left")
-    right_raw = _validate_slice(p["right"], label="right")
-    left_time_scope: dict[str, Any] = left_raw["time_scope"]
-    right_time_scope: dict[str, Any] = right_raw["time_scope"]
-    left_filter: Any = left_raw.get("filter")
-    right_filter: Any = right_raw.get("filter")
+    current_raw = _validate_slice(p["current"], label="current")
+    baseline_raw = _validate_slice(p["baseline"], label="baseline")
+    current_time_scope: dict[str, Any] = current_raw["time_scope"]
+    baseline_time_scope: dict[str, Any] = baseline_raw["time_scope"]
+    current_filter: Any = current_raw.get("filter")
+    baseline_filter: Any = baseline_raw.get("filter")
 
     hypothesis_raw = _validate_hypothesis(p["hypothesis"])
     family: str = hypothesis_raw["family"]
@@ -56,17 +56,17 @@ def run_validate_intent(
     metric_name = runtime.core.metric_name_from_ref(metric_ref)
 
     # ── Build test params (source-type) ──────────────────────────────────
-    left_test_slice: dict[str, Any] = {"time_scope": left_time_scope}
-    if left_filter is not None:
-        left_test_slice["filter"] = left_filter
-    right_test_slice: dict[str, Any] = {"time_scope": right_time_scope}
-    if right_filter is not None:
-        right_test_slice["filter"] = right_filter
+    current_test_slice: dict[str, Any] = {"time_scope": current_time_scope}
+    if current_filter is not None:
+        current_test_slice["filter"] = current_filter
+    baseline_test_slice: dict[str, Any] = {"time_scope": baseline_time_scope}
+    if baseline_filter is not None:
+        baseline_test_slice["filter"] = baseline_filter
 
     test_params: dict[str, Any] = {
         "metric": metric_ref,
-        "left": left_test_slice,
-        "right": right_test_slice,
+        "current": current_test_slice,
+        "baseline": baseline_test_slice,
         "kind": "numeric",
         "hypothesis": {
             "family": family,
@@ -144,8 +144,8 @@ def run_validate_intent(
         "artifact_schema_version": "v1",
         "derivation_version": _DERIVED_LOGIC_VERSION,
         "metric": metric_ref,
-        "left": {"time_scope": left_time_scope, "filter": left_filter},
-        "right": {"time_scope": right_time_scope, "filter": right_filter},
+        "current": {"time_scope": current_time_scope, "filter": current_filter},
+        "baseline": {"time_scope": baseline_time_scope, "filter": baseline_filter},
         "kind": "numeric",
         "hypothesis": hypothesis_out,
         "method": resolved_method,

@@ -15,14 +15,14 @@ from marivo.runtime.intents.test import _betai, _p_value_from_t, _t_sf, run_test
 def _valid_params() -> dict[str, Any]:
     return {
         "metric": "metric.test_metric",
-        "left": {
+        "current": {
             "time_scope": {
                 "field": "event_time",
                 "start": "2026-01-01T00:00:00Z",
                 "end": "2026-01-08T00:00:00Z",
             }
         },
-        "right": {
+        "baseline": {
             "time_scope": {
                 "field": "event_time",
                 "start": "2026-01-08T00:00:00Z",
@@ -165,15 +165,15 @@ def test_passes_filters_to_sample_summaries_and_source_lineage() -> None:
     params = _valid_params()
     left_filter = {"dialects": [{"dialect": "ANSI_SQL", "expression": "region = 'US'"}]}
     right_filter = {"dialects": [{"dialect": "ANSI_SQL", "expression": "region = 'CA'"}]}
-    params["left"]["filter"] = left_filter
-    params["right"]["filter"] = right_filter
+    params["current"]["filter"] = left_filter
+    params["baseline"]["filter"] = right_filter
 
     artifact, mock_compute = _run_with_mock_data(params)
 
     assert mock_compute.call_args_list[0].kwargs["scope_raw"] == left_filter
     assert mock_compute.call_args_list[1].kwargs["scope_raw"] == right_filter
-    assert artifact["source_lineage"]["left"]["filter"] == left_filter
-    assert artifact["source_lineage"]["right"]["filter"] == right_filter
+    assert artifact["source_lineage"]["current"]["filter"] == left_filter
+    assert artifact["source_lineage"]["baseline"]["filter"] == right_filter
 
 
 def test_zero_variance_slice_adds_assumption_note() -> None:
@@ -219,8 +219,8 @@ def test_rejects_insufficient_data(
         ({"method": "welch_t"}, "method"),
         ({"kind": "Numeric"}, "kind"),
         ({"kind": "rate"}, "kind"),
-        ({"left": {"scope": {"predicate": "region = 'US'"}}}, "scope"),
-        ({"left": {"filter": None}}, "filter"),
+        ({"current": {"scope": {"predicate": "region = 'US'"}}}, "scope"),
+        ({"current": {"filter": None}}, "filter"),
         ({"hypothesis": {"family": "two_sample_proportion"}}, "family"),
         ({"hypothesis": {"alternative": "not_equal"}}, "alternative"),
         ({"hypothesis": {"significance": "loose"}}, "significance"),

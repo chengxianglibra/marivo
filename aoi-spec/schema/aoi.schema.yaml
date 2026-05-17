@@ -141,11 +141,11 @@ observe:
 
 # Compare two upstream artifacts and produce a delta result.
 compare:
-  # Required: artifact_id for the left/current input artifact.
-  left_artifact_id: string
+  # Required: artifact_id for the current input artifact.
+  current_artifact_id: string
 
-  # Required: artifact_id for the right/baseline input artifact.
-  right_artifact_id: string
+  # Required: artifact_id for the baseline input artifact.
+  baseline_artifact_id: string
 
   # Optional: alignment strategy from compare_types; omitted means normal.
   compare_type: compare_types
@@ -206,11 +206,11 @@ test:
   # Required: metric identifier to test.
   metric: string
 
-  # Required: left/current source slice.
-  left: slice
+  # Required: current source slice.
+  current: slice
 
-  # Required: right/baseline source slice.
-  right: slice
+  # Required: baseline source slice.
+  baseline: slice
 
   # Required: metric kind, one of test_kinds.
   kind: test_kinds
@@ -233,11 +233,11 @@ validate:
   # Required: metric identifier to validate.
   metric: string
 
-  # Required: left/current source slice.
-  left: slice
+  # Required: current source slice.
+  current: slice
 
-  # Required: right/baseline source slice.
-  right: slice
+  # Required: baseline source slice.
+  baseline: slice
 
   # Required: hypothesis configuration.
   hypothesis: hypothesis
@@ -247,11 +247,11 @@ attribute:
   # Required: metric identifier to attribute.
   metric: string
 
-  # Required: left/current source slice.
-  left: slice
+  # Required: current source slice.
+  current: slice
 
-  # Required: right/baseline source slice.
-  right: slice
+  # Required: baseline source slice.
+  baseline: slice
 
   # Required: one or more dimensions used for attribution.
   dimensions: string[]
@@ -354,14 +354,14 @@ segmented_observation_result:
 
 # Result for scalar compare requests.
 scalar_delta_result:
-  # Required, nullable: left/current scalar value. Null means absent. Range follows the metric domain.
-  left_value: number
+  # Required, nullable: current scalar value. Null means absent. Range follows the metric domain.
+  current_value: number
 
-  # Required, nullable: right/baseline scalar value. Null means absent. Range follows the metric domain.
-  right_value: number
+  # Required, nullable: baseline scalar value. Null means absent. Range follows the metric domain.
+  baseline_value: number
 
-  # Required, nullable: computed left-minus-right delta. Null means not computable.
-  # Range follows the metric domain difference. Positive means left/current is higher than right/baseline; negative means lower; larger absolute value means a larger change.
+  # Required, nullable: computed current-minus-baseline delta. Null means not computable.
+  # Range follows the metric domain difference. Positive means current is higher than baseline; negative means lower; larger absolute value means a larger change.
   delta: number
 
   # Required, nullable: time range actually compared. Null means the full referenced scope was used.
@@ -373,9 +373,9 @@ time_series_delta_result:
   points:
     # One bucketed comparison point.
     - bucket_start: iso8601_datetime  # Required: bucket start timestamp.
-      left_value: number             # Required, nullable: left/current bucket value. Null means absent. Range follows the metric domain.
-      right_value: number            # Required, nullable: right/baseline bucket value. Null means absent. Range follows the metric domain.
-      delta: number                  # Required, nullable: left-minus-right delta. Null means not computable. Positive means left/current is higher; negative means lower; larger absolute value means larger change.
+      current_value: number          # Required, nullable: current bucket value. Null means absent. Range follows the metric domain.
+      baseline_value: number         # Required, nullable: baseline bucket value. Null means absent. Range follows the metric domain.
+      delta: number                  # Required, nullable: current-minus-baseline delta. Null means not computable. Positive means current is higher; negative means lower; larger absolute value means larger change.
 
   # Required, nullable: time range actually compared. Null means the full referenced scope was used.
   matched_time_scope: time_scope
@@ -387,9 +387,9 @@ segmented_delta_result:
     # One segmented comparison row.
     - item_id: string                 # Required: stable row identifier.
       keys: dimension_key_map         # Required: segment dimension values.
-      left_value: number             # Required, nullable: left/current segment value. Null means absent. Range follows the metric domain.
-      right_value: number            # Required, nullable: right/baseline segment value. Null means absent. Range follows the metric domain.
-      delta: number                  # Required, nullable: left-minus-right delta. Null means not computable. Positive means left/current is higher; negative means lower; larger absolute value means larger change.
+      current_value: number          # Required, nullable: current segment value. Null means absent. Range follows the metric domain.
+      baseline_value: number         # Required, nullable: baseline segment value. Null means absent. Range follows the metric domain.
+      delta: number                  # Required, nullable: current-minus-baseline delta. Null means not computable. Positive means current is higher; negative means lower; larger absolute value means larger change.
 
   # Required, nullable: time range actually compared. Null means the full referenced scope was used.
   matched_time_scope: time_scope

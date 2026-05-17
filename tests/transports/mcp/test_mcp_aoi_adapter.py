@@ -136,21 +136,21 @@ def test_to_aoi_observe_request_rejects_mixed_mode_selectors() -> None:
 
 def test_to_aoi_compare_request_builds_compare_model() -> None:
     request = to_aoi_compare_request(
-        left_artifact_id="artifact_obs_left",
-        right_artifact_id="artifact_obs_right",
+        current_artifact_id="artifact_obs_left",
+        baseline_artifact_id="artifact_obs_right",
         compare_type="holiday_aligned",
     )
 
     assert isinstance(request, aoi.Compare)
-    assert request.left_artifact_id == "artifact_obs_left"
-    assert request.right_artifact_id == "artifact_obs_right"
+    assert request.current_artifact_id == "artifact_obs_left"
+    assert request.baseline_artifact_id == "artifact_obs_right"
     assert request.compare_type == "holiday_aligned"
 
 
 def test_to_aoi_compare_request_defaults_compare_type() -> None:
     request = to_aoi_compare_request(
-        left_artifact_id="artifact_obs_left",
-        right_artifact_id="artifact_obs_right",
+        current_artifact_id="artifact_obs_left",
+        baseline_artifact_id="artifact_obs_right",
     )
 
     assert isinstance(request, aoi.Compare)
@@ -291,8 +291,8 @@ def _slice(start: str, end: str, filter_expression: McpExpression | None = None)
 def test_to_aoi_test_request_builds_test_model() -> None:
     request = to_aoi_test_request(
         metric="view_time",
-        left=_slice("2026-05-01T00:00:00Z", "2026-05-08T00:00:00Z"),
-        right=_slice("2026-04-24T00:00:00Z", "2026-05-01T00:00:00Z"),
+        current=_slice("2026-05-01T00:00:00Z", "2026-05-08T00:00:00Z"),
+        baseline=_slice("2026-04-24T00:00:00Z", "2026-05-01T00:00:00Z"),
         hypothesis=McpTestHypothesis(
             alternative="greater",
             significance="balanced",
@@ -302,7 +302,7 @@ def test_to_aoi_test_request_builds_test_model() -> None:
     assert isinstance(request, aoi.Test)
     assert request.kind == "numeric"
     assert request.hypothesis.family == "two_sample_mean"
-    assert "filter" not in request.model_dump(exclude_none=True)["left"]
+    assert "filter" not in request.model_dump(exclude_none=True)["current"]
     assert request.hypothesis.alternative == "greater"
     assert request.hypothesis.significance == "balanced"
 
@@ -310,8 +310,8 @@ def test_to_aoi_test_request_builds_test_model() -> None:
 def test_to_aoi_test_request_accepts_naive_mcp_slice_time_scope() -> None:
     request = to_aoi_test_request(
         metric="view_time",
-        left=_slice("2026-05-01T00:00:00", "2026-05-08T00:00:00"),
-        right=_slice("2026-04-24 00:00:00", "2026-05-01 00:00:00"),
+        current=_slice("2026-05-01T00:00:00", "2026-05-08T00:00:00"),
+        baseline=_slice("2026-04-24 00:00:00", "2026-05-01 00:00:00"),
         hypothesis=McpTestHypothesis(
             alternative="greater",
             significance="balanced",
@@ -319,15 +319,15 @@ def test_to_aoi_test_request_accepts_naive_mcp_slice_time_scope() -> None:
     )
 
     assert isinstance(request, aoi.Test)
-    assert request.left.time_scope.start == _local_datetime("2026-05-01T00:00:00")
-    assert request.right.time_scope.end == _local_datetime("2026-05-01T00:00:00")
+    assert request.current.time_scope.start == _local_datetime("2026-05-01T00:00:00")
+    assert request.baseline.time_scope.end == _local_datetime("2026-05-01T00:00:00")
 
 
 def test_to_aoi_test_request_accepts_date_only_mcp_slice_time_scope() -> None:
     request = to_aoi_test_request(
         metric="view_time",
-        left=_slice("2026-05-01", "2026-05-08"),
-        right=_slice("2026-04-24", "2026-05-01"),
+        current=_slice("2026-05-01", "2026-05-08"),
+        baseline=_slice("2026-04-24", "2026-05-01"),
         hypothesis=McpTestHypothesis(
             alternative="greater",
             significance="balanced",
@@ -335,8 +335,8 @@ def test_to_aoi_test_request_accepts_date_only_mcp_slice_time_scope() -> None:
     )
 
     assert isinstance(request, aoi.Test)
-    assert request.left.time_scope.start == _local_datetime("2026-05-01T00:00:00")
-    assert request.right.time_scope.end == _local_datetime("2026-05-01T00:00:00")
+    assert request.current.time_scope.start == _local_datetime("2026-05-01T00:00:00")
+    assert request.baseline.time_scope.end == _local_datetime("2026-05-01T00:00:00")
 
 
 @pytest.mark.parametrize("alternative", ["two_sided", "greater", "less"])
@@ -347,8 +347,8 @@ def test_to_aoi_test_request_passes_supported_hypothesis_options(
 ) -> None:
     request = to_aoi_test_request(
         metric="view_time",
-        left=_slice("2026-05-01T00:00:00Z", "2026-05-08T00:00:00Z"),
-        right=_slice("2026-04-24T00:00:00Z", "2026-05-01T00:00:00Z"),
+        current=_slice("2026-05-01T00:00:00Z", "2026-05-08T00:00:00Z"),
+        baseline=_slice("2026-04-24T00:00:00Z", "2026-05-01T00:00:00Z"),
         hypothesis=McpTestHypothesis(
             alternative=alternative,
             significance=significance,
@@ -364,32 +364,32 @@ def test_to_aoi_test_request_passes_supported_hypothesis_options(
 def test_to_aoi_validate_request_builds_validate_model_with_defaults() -> None:
     request = to_aoi_validate_request(
         metric="view_time",
-        left=_slice("2026-05-01T00:00:00Z", "2026-05-08T00:00:00Z"),
-        right=_slice("2026-04-24T00:00:00Z", "2026-05-01T00:00:00Z"),
+        current=_slice("2026-05-01T00:00:00Z", "2026-05-08T00:00:00Z"),
+        baseline=_slice("2026-04-24T00:00:00Z", "2026-05-01T00:00:00Z"),
     )
 
     assert isinstance(request, aoi.Validate)
     assert request.hypothesis.family == "two_sample_mean"
     assert request.hypothesis.alternative == "two_sided"
     assert request.hypothesis.significance == "balanced"
-    assert "filter" not in request.model_dump(exclude_none=True)["left"]
+    assert "filter" not in request.model_dump(exclude_none=True)["current"]
 
 
 def test_to_aoi_validate_request_preserves_aoi_slice_filter() -> None:
     request = to_aoi_validate_request(
         metric="view_time",
-        left=_slice(
+        current=_slice(
             "2026-05-01T00:00:00Z",
             "2026-05-08T00:00:00Z",
             McpExpression(dialects=[{"dialect": "ANSI_SQL", "expression": "region = 'US'"}]),
         ),
-        right=_slice("2026-04-24T00:00:00Z", "2026-05-01T00:00:00Z"),
+        baseline=_slice("2026-04-24T00:00:00Z", "2026-05-01T00:00:00Z"),
         hypothesis=McpValidateHypothesis(alternative="greater"),
     )
 
     assert isinstance(request, aoi.Validate)
-    assert request.left.filter is not None
-    assert request.left.filter.model_dump(exclude_none=True) == {
+    assert request.current.filter is not None
+    assert request.current.filter.model_dump(exclude_none=True) == {
         "dialects": [{"dialect": "ANSI_SQL", "expression": "region = 'US'"}]
     }
     assert request.hypothesis.alternative == "greater"
@@ -399,19 +399,19 @@ def test_to_aoi_validate_request_preserves_aoi_slice_filter() -> None:
 def test_to_aoi_attribute_request_preserves_aoi_slice_filter() -> None:
     request = to_aoi_attribute_request(
         metric="view_time",
-        left=_slice(
+        current=_slice(
             "2026-05-01T00:00:00Z",
             "2026-05-08T00:00:00Z",
             McpExpression(dialects=[{"dialect": "ANSI_SQL", "expression": "region = 'US'"}]),
         ),
-        right=_slice("2026-04-24T00:00:00Z", "2026-05-01T00:00:00Z"),
+        baseline=_slice("2026-04-24T00:00:00Z", "2026-05-01T00:00:00Z"),
         dimensions=["region"],
         decomposition_limit=10,
     )
 
     assert isinstance(request, aoi.Attribute)
-    assert request.left.filter is not None
-    assert request.left.filter.model_dump(exclude_none=True) == {
+    assert request.current.filter is not None
+    assert request.current.filter.model_dump(exclude_none=True) == {
         "dialects": [{"dialect": "ANSI_SQL", "expression": "region = 'US'"}]
     }
     assert [dimension.root for dimension in request.dimensions] == ["region"]
@@ -422,8 +422,8 @@ def test_to_aoi_attribute_request_preserves_aoi_slice_filter() -> None:
 def test_to_aoi_attribute_request_uses_contract_defaults() -> None:
     request = to_aoi_attribute_request(
         metric="view_time",
-        left=_slice("2026-05-01T00:00:00Z", "2026-05-08T00:00:00Z"),
-        right=_slice("2026-04-24T00:00:00Z", "2026-05-01T00:00:00Z"),
+        current=_slice("2026-05-01T00:00:00Z", "2026-05-08T00:00:00Z"),
+        baseline=_slice("2026-04-24T00:00:00Z", "2026-05-01T00:00:00Z"),
         dimensions=["region"],
     )
 
@@ -465,20 +465,20 @@ def test_to_aoi_diagnose_request_builds_auto_detect_model() -> None:
 def test_to_aoi_test_request_preserves_aoi_slice_filter() -> None:
     request = to_aoi_test_request(
         metric="view_time",
-        left=_slice(
+        current=_slice(
             "2026-05-01T00:00:00Z",
             "2026-05-08T00:00:00Z",
             McpExpression(dialects=[{"dialect": "ANSI_SQL", "expression": "region = 'US'"}]),
         ),
-        right=_slice("2026-04-24T00:00:00Z", "2026-05-01T00:00:00Z"),
+        baseline=_slice("2026-04-24T00:00:00Z", "2026-05-01T00:00:00Z"),
         hypothesis=McpTestHypothesis(
             alternative="greater",
             significance="balanced",
         ),
     )
 
-    assert request.left.filter is not None
-    assert request.left.filter.model_dump(exclude_none=True) == {
+    assert request.current.filter is not None
+    assert request.current.filter.model_dump(exclude_none=True) == {
         "dialects": [{"dialect": "ANSI_SQL", "expression": "region = 'US'"}]
     }
 
@@ -531,8 +531,8 @@ def test_to_aoi_validate_request_rejects_non_mcp_hypothesis_fields(
     with pytest.raises(ValueError, match=field):
         to_aoi_validate_request(
             metric="view_time",
-            left=_slice("2026-05-01T00:00:00Z", "2026-05-08T00:00:00Z"),
-            right=_slice("2026-04-24T00:00:00Z", "2026-05-01T00:00:00Z"),
+            current=_slice("2026-05-01T00:00:00Z", "2026-05-08T00:00:00Z"),
+            baseline=_slice("2026-04-24T00:00:00Z", "2026-05-01T00:00:00Z"),
             hypothesis={
                 "alternative": "greater",
                 "significance": "balanced",
@@ -555,8 +555,8 @@ def test_to_aoi_test_request_rejects_non_mcp_hypothesis_fields(
     with pytest.raises(ValueError, match=field):
         to_aoi_test_request(
             metric="view_time",
-            left=_slice("2026-05-01T00:00:00Z", "2026-05-08T00:00:00Z"),
-            right=_slice("2026-04-24T00:00:00Z", "2026-05-01T00:00:00Z"),
+            current=_slice("2026-05-01T00:00:00Z", "2026-05-08T00:00:00Z"),
+            baseline=_slice("2026-04-24T00:00:00Z", "2026-05-01T00:00:00Z"),
             hypothesis={
                 "alternative": "greater",
                 "significance": "balanced",

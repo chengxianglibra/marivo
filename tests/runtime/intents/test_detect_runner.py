@@ -228,8 +228,8 @@ class DetectRunnerServiceTests(unittest.TestCase):
         top = candidates[0]
         self.assertEqual(top["candidate_type"], "point_anomaly")
         self.assertIn("candidate_ref", top)
-        self.assertIn("observed_value", top)
-        self.assertIn("expected_value", top)
+        self.assertIn("current_value", top)
+        self.assertIn("baseline_value", top)
         self.assertIn("deviation_abs", top)
         self.assertIn("candidate_score", top)
         self.assertIn("flag_level", top)

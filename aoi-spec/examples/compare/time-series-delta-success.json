@@ -4,20 +4,20 @@
     "points": [
       {
         "bucket_start": "2026-01-01T00:00:00Z",
-        "left_value": 100,
-        "right_value": 90,
+        "current_value": 100,
+        "baseline_value": 90,
         "delta": 10
       },
       {
         "bucket_start": "2026-01-02T00:00:00Z",
-        "left_value": null,
-        "right_value": 85,
+        "current_value": null,
+        "baseline_value": 85,
         "delta": null
       },
       {
         "bucket_start": "2026-01-03T00:00:00Z",
-        "left_value": 125.25,
-        "right_value": 100,
+        "current_value": 125.25,
+        "baseline_value": 100,
         "delta": 25.25
       }
     ],

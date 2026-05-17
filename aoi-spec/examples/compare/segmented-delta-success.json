@@ -7,8 +7,8 @@
         "keys": {
           "region": "US"
         },
-        "left_value": 820000.5,
-        "right_value": 640000.25,
+        "current_value": 820000.5,
+        "baseline_value": 640000.25,
         "delta": 180000.25
       },
       {
@@ -16,8 +16,8 @@
         "keys": {
           "region": "EU"
         },
-        "left_value": 430000,
-        "right_value": 360000,
+        "current_value": 430000,
+        "baseline_value": 360000,
         "delta": 70000
       },
       {
@@ -25,8 +25,8 @@
         "keys": {
           "region": "APAC"
         },
-        "left_value": 120000,
-        "right_value": null,
+        "current_value": 120000,
+        "baseline_value": null,
         "delta": null
       }
     ],

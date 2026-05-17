@@ -126,8 +126,8 @@ POST /sessions/{session_id}/intents/compare
 
 ```json
 {
-  "left_artifact_id": "art_left",
-  "right_artifact_id": "art_right",
+  "current_artifact_id": "art_left",
+  "baseline_artifact_id": "art_right",
   "compare_type": "normal"
 }
 ```
@@ -218,14 +218,14 @@ POST /sessions/{session_id}/intents/test
 ```json
 {
   "metric": "order_revenue",
-  "left": {
+  "current": {
     "time_scope": {
       "field": "order_date",
       "start": "2026-01-01T00:00:00Z",
       "end": "2026-02-01T00:00:00Z"
     }
   },
-  "right": {
+  "baseline": {
     "time_scope": {
       "field": "order_date",
       "start": "2025-12-01T00:00:00Z",
@@ -261,7 +261,7 @@ POST /sessions/{session_id}/intents/attribute
 ```json
 {
   "metric": "metric.order_revenue",
-  "left": {
+  "current": {
     "time_scope": {
       "field": "order_date",
       "start": "2026-01-01T00:00:00Z",
@@ -276,7 +276,7 @@ POST /sessions/{session_id}/intents/attribute
       ]
     }
   },
-  "right": {
+  "baseline": {
     "time_scope": {
       "field": "order_date",
       "start": "2025-01-01T00:00:00Z",
@@ -289,7 +289,7 @@ POST /sessions/{session_id}/intents/attribute
 }
 ```
 
-`left` and `right` use AOI `Slice` (`time_scope` plus optional `filter`).
+`current` and `baseline` use AOI `Slice` (`time_scope` plus optional `filter`).
 They do not accept additional wrapper fields.
 
 ### Diagnose
@@ -348,14 +348,14 @@ transport defaults before constructing that generated model:
 ```json
 {
   "metric": "metric.order_revenue",
-  "left": {
+  "current": {
     "time_scope": {
       "field": "order_date",
       "start": "2026-01-01T00:00:00Z",
       "end": "2026-02-01T00:00:00Z"
     }
   },
-  "right": {
+  "baseline": {
     "time_scope": {
       "field": "order_date",
       "start": "2025-01-01T00:00:00Z",
@@ -370,7 +370,7 @@ transport defaults before constructing that generated model:
 }
 ```
 
-`left` and `right` use AOI `Slice` (`time_scope` plus optional `filter`).
+`current` and `baseline` use AOI `Slice` (`time_scope` plus optional `filter`).
 Derived `scope` and `method` are not part of the runtime contract.
 
 ## Errors
