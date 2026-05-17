@@ -7,8 +7,6 @@ import signal
 import time
 from typing import Any
 
-import httpx
-
 from marivo.transports.cli._exitcodes import (
     EXIT_FAILURE,
     EXIT_HEALTH_CHECK_FAILED,
@@ -22,6 +20,16 @@ from marivo.transports.cli._workspace import (
     resolve_workspace_root,
     runtime_manifest_path,
 )
+
+
+class _LazyHttpx:
+    def get(self, *args: Any, **kwargs: Any) -> Any:
+        import httpx
+
+        return httpx.get(*args, **kwargs)
+
+
+httpx = _LazyHttpx()
 
 
 def add_arguments(parser: argparse.ArgumentParser) -> None:
@@ -234,8 +242,8 @@ def _check_health(base_url: str) -> bool:
         if resp.status_code == 200:
             body = resp.json()
             return str(body.get("status")) == "ok"
-    except (httpx.HTTPError, ValueError):
-        pass
+    except Exception:
+        return False
     return False
 
 

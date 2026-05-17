@@ -5,8 +5,6 @@ import os
 from pathlib import Path
 from typing import Any
 
-import uvicorn
-
 from marivo.transports.cli._exitcodes import EXIT_CONFIG_INVALID, EXIT_PORT_UNAVAILABLE
 from marivo.transports.cli._output import CliError
 
@@ -25,6 +23,8 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
 
 def handle(args: argparse.Namespace) -> dict[str, Any] | None:
     """Execute 'marivo serve' — start a foreground HTTP server."""
+    import uvicorn
+
     config_path: str | None = getattr(args, "config", None)
     host: str = getattr(args, "host", "127.0.0.1")
     port: int = getattr(args, "port", 8000)

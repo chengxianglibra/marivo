@@ -3,12 +3,8 @@ from __future__ import annotations
 import argparse
 import os
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import httpx
-import yaml
-
-from marivo.config import MarivoConfig, resolve_metadata_path
 from marivo.transports.cli._exitcodes import (
     EXIT_CONFIG_INVALID,
     EXIT_RUNTIME_NOT_RUNNING,
@@ -22,6 +18,19 @@ from marivo.transports.cli._workspace import (
     dot_marivo_path,
     runtime_manifest_path,
 )
+
+if TYPE_CHECKING:
+    from marivo.config import MarivoConfig
+
+
+class _LazyHttpx:
+    def get(self, *args: Any, **kwargs: Any) -> Any:
+        import httpx
+
+        return httpx.get(*args, **kwargs)
+
+
+httpx = _LazyHttpx()
 
 
 def add_arguments(parser: argparse.ArgumentParser) -> None:
@@ -150,6 +159,10 @@ def _check_dot_marivo(workspace_root: Path) -> tuple[dict[str, Any], int]:
 
 def _check_config_file(workspace_root: Path) -> tuple[dict[str, Any], int, MarivoConfig | None]:
     """Check 3: marivo.yaml exists, parseable, valid schema."""
+    import yaml
+
+    from marivo.config import MarivoConfig
+
     config_path = bootstrap_config_path(workspace_root)
     if not config_path.is_file():
         return (
@@ -179,6 +192,8 @@ def _check_metadata_store(
     workspace_root: Path, config: MarivoConfig | None
 ) -> tuple[dict[str, Any], int]:
     """Check 4: metadata store is accessible."""
+    from marivo.config import resolve_metadata_path
+
     if config is None or config.metadata is None:
         return (
             _check("metadata_store", "failed", "metadata config missing"),

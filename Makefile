@@ -9,7 +9,7 @@ VENV_LINT_IMPORTS := .venv/bin/lint-imports
 
 test:
 	@./scripts/require-venv.sh pytest
-	@$(VENV_PYTEST) $(TESTS)
+	@$(VENV_PYTEST) $(if $(findstring ::,$(TESTS)),-n 0,) $(TESTS)
 
 typecheck:
 	@./scripts/require-venv.sh mypy
