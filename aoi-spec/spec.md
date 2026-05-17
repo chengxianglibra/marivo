@@ -137,11 +137,10 @@ AOI v0.2 has no `Scope` wrapper. Filter conditions are expressed directly throug
 
 ### 3.3 CompareType
 
-`CompareType` is a core request control for the comparison mode. It names how the left and right references should be interpreted without standardizing implementation-owned calendar datasets, holiday/event registries, or bucket-pairing traces.
+`CompareType` is a core request control for the comparison alignment strategy. It names how already-produced left and right references should be bucket-paired without encoding whether the inputs are year-over-year, month-over-month, or another baseline relationship.
 
 ```jsonc
-"normal" | "yoy" | "mom" | "wow"
-| "holiday_aligned_yoy" | "weekday_aligned_yoy" | "weekday_aligned_mom"
+"normal" | "holiday_aligned" | "weekday_aligned" | "holiday_and_weekday_aligned"
 ```
 
 **CompareType constraints**:
@@ -667,7 +666,7 @@ Section 5 explains why implementation-private metadata stays outside AOI v0.2. T
 
 | Current field in atomic schema | Destination |
 |--------------------------------|-------------|
-| Legacy calendar policy selector | Replaced by AOI core `compare_type`. Values include `normal`, `yoy`, `mom`, `wow`, `holiday_aligned_yoy`, `weekday_aligned_yoy`, and `weekday_aligned_mom`. |
+| Legacy calendar policy selector | Replaced by AOI core `compare_type`. Values include `normal`, `holiday_aligned`, `weekday_aligned`, and `holiday_and_weekday_aligned`. |
 | `ResolvedPolicySummary`, `calendar_policy_summary` | **Not included**; `compare_type` identifies the mode, and missing builtin calendar data is a blocking failure. |
 | `bucket_pairing[]`, `is_reused_baseline_bucket`, `data_coverage_summary` | **Not included in AOI v0.2**; future audit metadata requires a concrete minor revision. |
 | `AnalyticalMetadata.additivity_constraints` and derived additivity basis fields | **Not included on successful artifacts**; additivity blockers use core `failure.message`. |

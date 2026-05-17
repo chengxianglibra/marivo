@@ -1230,9 +1230,9 @@ interface AnomalyCandidate {
 
 | 参数 | 类型 | 必填 | 默认 | 说明 |
 |------|------|------|------|------|
-| compare_type | `"normal"` \| `"yoy"` \| `"mom"` \| `"wow"` \| `"holiday_aligned_yoy"` \| `"weekday_aligned_yoy"` \| `"weekday_aligned_mom"` | 否 | `"normal"` | 对比类型枚举 |
+| compare_type | `"normal"` \| `"holiday_aligned"` \| `"weekday_aligned"` \| `"holiday_and_weekday_aligned"` | 否 | `"normal"` | 对齐策略枚举 |
 
-注意：参数为 **字符串 artifact ID**（如 `"art_obs_1"`），非引用对象。compare_type 不同于 mode，支持多种对齐策略。
+注意：参数为 **字符串 artifact ID**（如 `"art_obs_1"`），非引用对象。compare_type 只表达桶对齐策略；同比、环比等时间关系由输入 observe artifact 的窗口决定。
 
 **输出 — CompareArtifact**：
 

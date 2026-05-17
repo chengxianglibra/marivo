@@ -79,15 +79,17 @@ class CalendarPolicyRegistryTests(unittest.TestCase):
     def test_compare_type_to_alignment_plan_maps_supported_types(self) -> None:
         self.assertIsNone(compare_type_to_alignment_plan("normal"))
         self.assertEqual(
-            compare_type_to_alignment_plan("holiday_aligned_yoy").resolved_alignment_mode,
-            "calendar_aware",
+            compare_type_to_alignment_plan("holiday_aligned").resolved_alignment_mode,
+            "holiday_aligned",
         )
-        self.assertTrue(
-            compare_type_to_alignment_plan("holiday_aligned_yoy").requires_calendar_data
+        self.assertTrue(compare_type_to_alignment_plan("holiday_aligned").requires_calendar_data)
+        self.assertEqual(
+            compare_type_to_alignment_plan("weekday_aligned").comparison_basis,
+            "input_artifact_windows",
         )
         self.assertEqual(
-            compare_type_to_alignment_plan("weekday_aligned_mom").comparison_basis,
-            "mom",
+            compare_type_to_alignment_plan("holiday_and_weekday_aligned").resolved_alignment_mode,
+            "holiday_and_weekday_aligned",
         )
 
     def test_calendar_yoy_has_calendar_aware_alignment(self) -> None:

@@ -20,13 +20,10 @@ time_granularities:
 
 # Supported comparison modes for compare requests.
 compare_types:
-  - normal                 # Compare the referenced artifacts as-is.
-  - yoy                    # Year-over-year comparison.
-  - mom                    # Month-over-month comparison.
-  - wow                    # Week-over-week comparison.
-  - holiday_aligned_yoy    # Year-over-year comparison aligned by holiday calendar.
-  - weekday_aligned_yoy    # Year-over-year comparison aligned by weekday.
-  - weekday_aligned_mom    # Month-over-month comparison aligned by weekday.
+  - normal                       # Pair time-series buckets by relative position in the input artifact windows.
+  - holiday_aligned              # Align time-series buckets by holiday calendar, falling back to relative position.
+  - weekday_aligned              # Align time-series buckets by weekday, falling back to relative position.
+  - holiday_and_weekday_aligned  # Align by holiday calendar, then weekday, then relative position.
 
 # Statistical test families supported by hypothesis test requests.
 hypothesis_families:
@@ -162,7 +159,7 @@ compare:
   # Required: artifact_id for the right/baseline input artifact.
   right_artifact_id: string
 
-  # Optional: comparison mode from compare_types; omitted means normal.
+  # Optional: alignment strategy from compare_types; omitted means normal.
   compare_type: compare_types
 
 # Decompose a compare result by one dimension.

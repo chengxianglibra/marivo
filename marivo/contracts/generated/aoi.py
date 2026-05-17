@@ -109,12 +109,9 @@ class Compare(BaseModel):
     )
     compare_type: Literal[
         "normal",
-        "yoy",
-        "mom",
-        "wow",
-        "holiday_aligned_yoy",
-        "weekday_aligned_yoy",
-        "weekday_aligned_mom",
+        "holiday_aligned",
+        "weekday_aligned",
+        "holiday_and_weekday_aligned",
     ] = "normal"
     left_artifact_id: str = Field(..., min_length=1)
     right_artifact_id: str = Field(..., min_length=1)

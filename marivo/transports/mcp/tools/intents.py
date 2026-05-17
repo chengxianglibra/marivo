@@ -69,12 +69,9 @@ def to_aoi_compare_request(
     right_artifact_id: str,
     compare_type: Literal[
         "normal",
-        "yoy",
-        "mom",
-        "wow",
-        "holiday_aligned_yoy",
-        "weekday_aligned_yoy",
-        "weekday_aligned_mom",
+        "holiday_aligned",
+        "weekday_aligned",
+        "holiday_and_weekday_aligned",
     ] = "normal",
 ) -> aoi.Compare:
     return aoi.Compare.model_validate(
@@ -332,12 +329,9 @@ def register_compare(server: Any, runtime: Any) -> None:
         right_artifact_id: str,
         compare_type: Literal[
             "normal",
-            "yoy",
-            "mom",
-            "wow",
-            "holiday_aligned_yoy",
-            "weekday_aligned_yoy",
-            "weekday_aligned_mom",
+            "holiday_aligned",
+            "weekday_aligned",
+            "holiday_and_weekday_aligned",
         ] = "normal",
     ) -> dict[str, Any]:
         request = to_aoi_compare_request(

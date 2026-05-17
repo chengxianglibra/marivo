@@ -1022,7 +1022,7 @@ export interface components {
              * @default normal
              * @enum {string}
              */
-            compare_type: "normal" | "yoy" | "mom" | "wow" | "holiday_aligned_yoy" | "weekday_aligned_yoy" | "weekday_aligned_mom";
+            compare_type: "normal" | "holiday_aligned" | "weekday_aligned" | "holiday_and_weekday_aligned";
             /** Left Artifact Id */
             left_artifact_id: string;
             /** Right Artifact Id */

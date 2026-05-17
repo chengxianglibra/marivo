@@ -168,6 +168,24 @@ def test_compare_rejects_unknown_compare_type() -> None:
         _run_compare(runtime, _compare_params("not_real"))
 
 
+@pytest.mark.parametrize(
+    "compare_type",
+    [
+        "yoy",
+        "mom",
+        "wow",
+        "holiday_aligned_yoy",
+        "weekday_aligned_yoy",
+        "weekday_aligned_mom",
+    ],
+)
+def test_compare_rejects_legacy_compare_types(compare_type: str) -> None:
+    runtime = _make_runtime()
+
+    with pytest.raises(ValueError, match=f"Unknown compare_type '{compare_type}'"):
+        _run_compare(runtime, _compare_params(compare_type))
+
+
 def test_compare_reports_missing_left_artifact_id() -> None:
     runtime = MagicMock()
     runtime.resolve_artifact_with_step_by_id.return_value = None
@@ -196,8 +214,8 @@ def test_compare_type_non_normal_rejects_non_time_series_observations(
 ) -> None:
     runtime = _make_runtime(left_artifact, left_artifact)
 
-    with pytest.raises(ValueError, match="compare_type 'yoy' requires time_series"):
-        _run_compare(runtime, _compare_params("yoy"))
+    with pytest.raises(ValueError, match="compare_type 'weekday_aligned' requires time_series"):
+        _run_compare(runtime, _compare_params("weekday_aligned"))
 
 
 def test_compare_time_series_commits_time_series_delta() -> None:
@@ -219,8 +237,8 @@ def test_compare_time_series_commits_time_series_delta() -> None:
     assert len(result["rows"]) == 2
     assert result["summary_left_value"] == 30.0
     assert result["summary_right_value"] == 23.0
-    assert result["analytical_metadata"]["pairing_basis"] == "observed_series"
-    assert result["analytical_metadata"]["pairing_rule"] == "intersection_by_time_bucket"
+    assert result["analytical_metadata"]["pairing_basis"] == "input_artifact_window_position"
+    assert result["analytical_metadata"]["pairing_rule"] == "relative_bucket_position"
 
 
 def test_compare_segmented_commits_segmented_delta() -> None:
@@ -246,7 +264,7 @@ def test_compare_metric_mismatch_is_not_comparable() -> None:
         _run_compare(runtime)
 
 
-def test_compare_type_yoy_aligns_time_series_by_baseline_window() -> None:
+def test_compare_type_normal_aligns_non_overlapping_windows_by_relative_position() -> None:
     left = _time_series_observation(
         "m1",
         series=[
@@ -265,11 +283,11 @@ def test_compare_type_yoy_aligns_time_series_by_baseline_window() -> None:
     right["time_scope"] = {"kind": "range", "start": "2025-02-14", "end": "2025-02-16"}
     runtime = _make_runtime(left, right)
 
-    result = _run_compare(runtime, _compare_params("yoy"))
+    result = _run_compare(runtime)
 
-    assert result["analytical_metadata"]["pairing_basis"] == "compare_type_calendar_alignment"
-    assert result["analytical_metadata"]["pairing_rule"] == "natural_date"
-    assert result["analytical_metadata"]["compare_type"] == "yoy"
+    assert result["analytical_metadata"]["pairing_basis"] == "input_artifact_window_position"
+    assert result["analytical_metadata"]["pairing_rule"] == "relative_bucket_position"
+    assert result["analytical_metadata"]["compare_type"] == "normal"
     assert result["summary_left_value"] == 22.0
     assert result["summary_right_value"] == 20.0
     assert result["summary_absolute_delta"] == 2.0
@@ -287,65 +305,7 @@ def test_compare_type_yoy_aligns_time_series_by_baseline_window() -> None:
     assert result["rows"][0]["right_value"] == 9.0
 
 
-def test_compare_type_mom_aligns_time_series_to_previous_period() -> None:
-    left = _time_series_observation(
-        "m1",
-        series=[
-            {"window": {"start": "2026-04-08", "end": "2026-04-09"}, "value": 30.0},
-            {"window": {"start": "2026-04-09", "end": "2026-04-10"}, "value": 40.0},
-        ],
-    )
-    left["time_scope"] = {"kind": "range", "start": "2026-04-08", "end": "2026-04-10"}
-    right = _time_series_observation(
-        "m1",
-        series=[
-            {"window": {"start": "2026-04-06", "end": "2026-04-07"}, "value": 20.0},
-            {"window": {"start": "2026-04-07", "end": "2026-04-08"}, "value": 25.0},
-        ],
-    )
-    runtime = _make_runtime(left, right)
-
-    result = _run_compare(runtime, _compare_params("mom"))
-
-    assert result["analytical_metadata"]["pairing_rule"] == "natural_date"
-    assert result["summary_left_value"] == 70.0
-    assert result["summary_right_value"] == 45.0
-    assert result["resolved_input_summary"]["calendar_alignment"]["baseline_window"] == {
-        "start": "2026-04-06",
-        "end": "2026-04-08",
-    }
-
-
-def test_compare_type_wow_aligns_time_series_to_previous_week() -> None:
-    left = _time_series_observation(
-        "m1",
-        series=[
-            {"window": {"start": "2026-04-08", "end": "2026-04-09"}, "value": 30.0},
-            {"window": {"start": "2026-04-09", "end": "2026-04-10"}, "value": 40.0},
-        ],
-    )
-    left["time_scope"] = {"kind": "range", "start": "2026-04-08", "end": "2026-04-10"}
-    right = _time_series_observation(
-        "m1",
-        series=[
-            {"window": {"start": "2026-04-01", "end": "2026-04-02"}, "value": 20.0},
-            {"window": {"start": "2026-04-02", "end": "2026-04-03"}, "value": 25.0},
-        ],
-    )
-    runtime = _make_runtime(left, right)
-
-    result = _run_compare(runtime, _compare_params("wow"))
-
-    assert result["analytical_metadata"]["pairing_rule"] == "same_weekday"
-    assert result["summary_right_value"] == 45.0
-    assert result["analytical_metadata"]["matched_right_time_scope"] == {
-        "kind": "range",
-        "start": "2026-04-01",
-        "end": "2026-04-03",
-    }
-
-
-def test_compare_type_weekday_aligned_yoy_uses_nearest_weekday() -> None:
+def test_compare_type_weekday_aligned_uses_nearest_weekday() -> None:
     left = _time_series_observation(
         "m1",
         series=[{"window": {"start": "2026-04-02", "end": "2026-04-03"}, "value": 120.0}],
@@ -355,9 +315,10 @@ def test_compare_type_weekday_aligned_yoy_uses_nearest_weekday() -> None:
         "m1",
         series=[{"window": {"start": "2025-04-03", "end": "2025-04-04"}, "value": 100.0}],
     )
+    right["time_scope"] = {"kind": "range", "start": "2025-04-01", "end": "2025-04-05"}
     runtime = _make_runtime(left, right)
 
-    result = _run_compare(runtime, _compare_params("weekday_aligned_yoy"))
+    result = _run_compare(runtime, _compare_params("weekday_aligned"))
 
     assert result["analytical_metadata"]["pairing_rule"] == "same_weekday"
     assert result["rows"][0]["right_value"] == 100.0
@@ -369,7 +330,7 @@ def test_compare_type_weekday_aligned_yoy_uses_nearest_weekday() -> None:
     )
 
 
-def test_compare_type_weekday_aligned_mom_falls_back_to_natural_date() -> None:
+def test_compare_type_weekday_aligned_falls_back_to_relative_position() -> None:
     left = _time_series_observation(
         "m1",
         series=[{"window": {"start": "2026-04-08", "end": "2026-04-09"}, "value": 120.0}],
@@ -379,9 +340,10 @@ def test_compare_type_weekday_aligned_mom_falls_back_to_natural_date() -> None:
         "m1",
         series=[{"window": {"start": "2026-04-07", "end": "2026-04-08"}, "value": 100.0}],
     )
+    right["time_scope"] = {"kind": "range", "start": "2026-04-07", "end": "2026-04-08"}
     runtime = _make_runtime(left, right)
 
-    result = _run_compare(runtime, _compare_params("weekday_aligned_mom"))
+    result = _run_compare(runtime, _compare_params("weekday_aligned"))
 
     assert result["rows"][0]["right_value"] == 100.0
     assert (
@@ -392,7 +354,7 @@ def test_compare_type_weekday_aligned_mom_falls_back_to_natural_date() -> None:
     )
 
 
-def test_compare_type_holiday_aligned_yoy_reads_calendar_data() -> None:
+def test_compare_type_holiday_aligned_reads_calendar_data() -> None:
     left = _time_series_observation(
         "m1",
         series=[{"window": {"start": "2026-02-20", "end": "2026-02-21"}, "value": 120.0}],
@@ -402,10 +364,11 @@ def test_compare_type_holiday_aligned_yoy_reads_calendar_data() -> None:
         "m1",
         series=[{"window": {"start": "2025-02-20", "end": "2025-02-21"}, "value": 100.0}],
     )
+    right["time_scope"] = {"kind": "range", "start": "2025-02-20", "end": "2025-02-21"}
     runtime = _make_runtime(left, right)
     runtime.calendar_data_reader = _FakeCalendarDataReader()
 
-    result = _run_compare(runtime, _compare_params("holiday_aligned_yoy"))
+    result = _run_compare(runtime, _compare_params("holiday_aligned"))
 
     assert result["rows"][0]["right_value"] == 100.0
     assert (
@@ -416,12 +379,37 @@ def test_compare_type_holiday_aligned_yoy_reads_calendar_data() -> None:
     )
 
 
-def test_compare_type_holiday_aligned_yoy_requires_calendar_reader() -> None:
+def test_compare_type_holiday_and_weekday_aligned_falls_back_to_weekday() -> None:
+    left = _time_series_observation(
+        "m1",
+        series=[{"window": {"start": "2026-04-02", "end": "2026-04-03"}, "value": 120.0}],
+    )
+    left["time_scope"] = {"kind": "range", "start": "2026-04-02", "end": "2026-04-03"}
+    right = _time_series_observation(
+        "m1",
+        series=[{"window": {"start": "2025-04-03", "end": "2025-04-04"}, "value": 100.0}],
+    )
+    right["time_scope"] = {"kind": "range", "start": "2025-04-01", "end": "2025-04-05"}
+    runtime = _make_runtime(left, right)
+    runtime.calendar_data_reader = _FakeCalendarDataReader()
+
+    result = _run_compare(runtime, _compare_params("holiday_and_weekday_aligned"))
+
+    assert result["rows"][0]["right_value"] == 100.0
+    assert (
+        result["resolved_input_summary"]["calendar_alignment"]["bucket_pairing"][0][
+            "pairing_reason"
+        ]
+        == "same_weekday_nearest"
+    )
+
+
+def test_compare_type_holiday_aligned_requires_calendar_reader() -> None:
     runtime = _make_runtime(_time_series_observation("m1"), _time_series_observation("m1"))
     runtime.calendar_data_reader = None
 
     with pytest.raises(ValueError, match="requires configured calendar data"):
-        _run_compare(runtime, _compare_params("holiday_aligned_yoy"))
+        _run_compare(runtime, _compare_params("holiday_aligned"))
 
 
 def test_compare_time_series_missing_granularity_fails() -> None:

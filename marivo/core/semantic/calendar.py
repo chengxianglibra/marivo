@@ -19,7 +19,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
-from typing import Any, Literal, cast
+from typing import Any, Literal
 
 # ---------------------------------------------------------------------------
 # Calendar policy types (from calendar_policy.py)
@@ -28,12 +28,9 @@ from typing import Any, Literal, cast
 CalendarComparisonBasis = Literal["yoy", "mom", "wow"]
 CompareType = Literal[
     "normal",
-    "yoy",
-    "mom",
-    "wow",
-    "holiday_aligned_yoy",
-    "weekday_aligned_yoy",
-    "weekday_aligned_mom",
+    "holiday_aligned",
+    "weekday_aligned",
+    "holiday_and_weekday_aligned",
 ]
 CalendarPolicyRef = Literal[
     "calendar_policy.natural_yoy",
@@ -83,9 +80,8 @@ class CalendarPolicyDefinition:
 @dataclass(frozen=True, slots=True)
 class CalendarAlignmentPlan:
     compare_type: CompareType
-    comparison_basis: CalendarComparisonBasis
+    comparison_basis: str
     resolved_alignment_mode: str
-    resolved_baseline_generation_rule: CalendarBaselineGenerationRule
     matching_strategy: tuple[CalendarMatchingStep, ...]
     fallback_strategy: tuple[str, ...]
     requires_calendar_data: bool
@@ -482,38 +478,65 @@ def compare_type_to_alignment_plan(compare_type: str | None) -> CalendarAlignmen
     normalized = str(compare_type or "normal").strip() or "normal"
     if normalized == "normal":
         return None
-    policy_ref_by_compare_type: dict[str, str] = {
-        "yoy": "calendar_policy.natural_yoy",
-        "mom": "calendar_policy.natural_mom",
-        "wow": "calendar_policy.weekday_wow",
-        "holiday_aligned_yoy": "calendar_policy.calendar_yoy",
-        "weekday_aligned_yoy": "calendar_policy.weekday_yoy",
-        "weekday_aligned_mom": "calendar_policy.weekday_mom",
+    plan_by_compare_type: dict[str, CalendarAlignmentPlan] = {
+        "weekday_aligned": CalendarAlignmentPlan(
+            compare_type="weekday_aligned",
+            comparison_basis="input_artifact_windows",
+            resolved_alignment_mode="same_weekday",
+            matching_strategy=(
+                CalendarMatchingStep(
+                    "same_weekday_nearest",
+                    requires_annotation=False,
+                    tie_breaker="prefer_backward",
+                    max_shift_days=3,
+                ),
+                CalendarMatchingStep("natural_date_shift", requires_annotation=False),
+            ),
+            fallback_strategy=("natural_date_shift",),
+            requires_calendar_data=False,
+        ),
+        "holiday_aligned": CalendarAlignmentPlan(
+            compare_type="holiday_aligned",
+            comparison_basis="input_artifact_windows",
+            resolved_alignment_mode="holiday_aligned",
+            matching_strategy=(
+                CalendarMatchingStep("holiday_cluster", requires_annotation=True),
+                CalendarMatchingStep("year_relative_holiday_key", requires_annotation=True),
+                CalendarMatchingStep("natural_date_shift", requires_annotation=False),
+            ),
+            fallback_strategy=("natural_date_shift",),
+            requires_calendar_data=True,
+        ),
+        "holiday_and_weekday_aligned": CalendarAlignmentPlan(
+            compare_type="holiday_and_weekday_aligned",
+            comparison_basis="input_artifact_windows",
+            resolved_alignment_mode="holiday_and_weekday_aligned",
+            matching_strategy=(
+                CalendarMatchingStep("holiday_cluster", requires_annotation=True),
+                CalendarMatchingStep("year_relative_holiday_key", requires_annotation=True),
+                CalendarMatchingStep(
+                    "same_weekday_nearest",
+                    requires_annotation=False,
+                    tie_breaker="prefer_backward",
+                    max_shift_days=3,
+                ),
+                CalendarMatchingStep("natural_date_shift", requires_annotation=False),
+            ),
+            fallback_strategy=("same_weekday_nearest", "natural_date_shift"),
+            requires_calendar_data=True,
+        ),
     }
-    policy_ref = policy_ref_by_compare_type.get(normalized)
-    if policy_ref is None:
+    plan = plan_by_compare_type.get(normalized)
+    if plan is None:
         raise CalendarPolicyResolutionError(
             f"Unknown compare_type '{normalized}'",
             code="compare_type_unknown",
             details={
                 "compare_type": normalized,
-                "allowed_compare_types": ["normal", *sorted(policy_ref_by_compare_type)],
+                "allowed_compare_types": ["normal", *sorted(plan_by_compare_type)],
             },
         )
-    policy = get_calendar_policy(policy_ref)
-    return CalendarAlignmentPlan(
-        compare_type=cast_compare_type(normalized),
-        comparison_basis=policy.comparison_basis,
-        resolved_alignment_mode=policy.resolved_alignment_mode,
-        resolved_baseline_generation_rule=policy.resolved_baseline_generation_rule,
-        matching_strategy=policy.matching_strategy,
-        fallback_strategy=policy.fallback_strategy,
-        requires_calendar_data=normalized == "holiday_aligned_yoy",
-    )
-
-
-def cast_compare_type(value: str) -> CompareType:
-    return cast("CompareType", value)
+    return plan
 
 
 def calendar_policy_catalog_entry(policy_ref: str) -> CalendarPolicyCatalogEntry:
@@ -726,7 +749,10 @@ class _CalendarPairingResolver:
             return None, []
         if matcher == "year_relative_holiday_key":
             all_keys: list[str] = []
-            if current_row.holiday_group_id is not None and current_row.year_relative_holiday_key is not None:
+            if (
+                current_row.holiday_group_id is not None
+                and current_row.year_relative_holiday_key is not None
+            ):
                 all_keys.append(current_row.year_relative_holiday_key)
             all_keys.extend(current_row.extra_year_relative_holiday_keys)
             if not all_keys:
