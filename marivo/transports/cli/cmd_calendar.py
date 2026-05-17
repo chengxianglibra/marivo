@@ -1,4 +1,4 @@
-"""CLI command: marivo calendar load <file.csv> --version <version>."""
+"""CLI command: marivo calendar load <file.csv>."""
 
 from __future__ import annotations
 
@@ -18,21 +18,17 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
 
     load_parser = sub.add_parser("load", help="Validate a calendar CSV file")
     load_parser.add_argument("file", type=str, help="Path to the CSV file")
-    load_parser.add_argument(
-        "--version", type=str, required=True, help="Calendar version identifier"
-    )
 
 
 def handle(args: argparse.Namespace) -> dict[str, Any]:
     command = getattr(args, "calendar_command", None)
     if command == "load":
         return _handle_load(args)
-    raise CliError(EXIT_INVALID_USAGE, "Usage: marivo calendar load <file.csv> --version <version>")
+    raise CliError(EXIT_INVALID_USAGE, "Usage: marivo calendar load <file.csv>")
 
 
 def _handle_load(args: argparse.Namespace) -> dict[str, Any]:
     file_path = Path(args.file)
-    version = args.version
 
     if not file_path.is_file():
         raise CliError(EXIT_INVALID_USAGE, f"File not found: {file_path}")
@@ -101,11 +97,10 @@ def _handle_load(args: argparse.Namespace) -> dict[str, Any]:
 
     return {
         "status": "validated",
-        "calendar_version": version,
         "row_count": row_count,
         "file": str(file_path),
         "message": (
             f"CSV validated ({row_count} rows). "
-            "Load via API: POST /calendar/data with the validated rows."
+            "Load via API: PUT /calendar/data with the validated rows."
         ),
     }

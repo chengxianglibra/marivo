@@ -148,8 +148,6 @@ def _resolve_time_series_pairing_basis(
             current_window=current_window,
             rule=alignment_plan.resolved_baseline_generation_rule,
         )
-        calendar_source: str | None = None
-        calendar_version: str | None = None
         if alignment_plan.requires_calendar_data:
             reader = runtime.calendar_data_reader
             if not isinstance(reader, CalendarDataReaderLike):
@@ -168,8 +166,6 @@ def _resolve_time_series_pairing_basis(
                     f"'{compare_type}' calendar data unavailable: {exc}"
                 ) from exc
             annotation_rows = calendar_data.annotation_rows
-            calendar_source = calendar_data.resolved_calendar_source
-            calendar_version = calendar_data.resolved_calendar_version
         else:
             annotation_rows = build_calendar_annotation_rows(
                 current_window=current_window,
@@ -223,8 +219,6 @@ def _resolve_time_series_pairing_basis(
                 "compare_type": compare_type,
                 "comparison_basis": alignment_plan.comparison_basis,
                 "resolved_alignment_mode": alignment_plan.resolved_alignment_mode,
-                "resolved_calendar_source": calendar_source,
-                "resolved_calendar_version": calendar_version,
                 "current_window": {
                     "start": current_window[0].isoformat(),
                     "end": current_window[1].isoformat(),
@@ -635,8 +629,6 @@ def run_compare_intent(
                     "compare_type",
                     "comparison_basis",
                     "resolved_alignment_mode",
-                    "resolved_calendar_source",
-                    "resolved_calendar_version",
                     "rollup_safe",
                 )
             }

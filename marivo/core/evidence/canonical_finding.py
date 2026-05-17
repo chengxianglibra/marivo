@@ -265,8 +265,6 @@ class CalendarAlignmentReuseSummary(TypedDict):
     reuse_source: str
     policy_ref: str
     comparison_basis: str
-    resolved_calendar_source: str
-    resolved_calendar_version: str
     comparability_warnings: list[str]
     rollup_safe: bool
     left_coverage_summary: CalendarAlignmentCoverageSummary
