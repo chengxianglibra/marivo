@@ -337,6 +337,49 @@ def _aoi_test_payload() -> dict[str, Any]:
     }
 
 
+def test_aoi_attribute_accepts_required_only_shape_with_defaults() -> None:
+    from marivo.contracts.generated import aoi
+
+    request = aoi.Attribute.model_validate(
+        {
+            "metric": "revenue",
+            "left": {"time_scope": _aoi_time_scope()},
+            "right": {"time_scope": _aoi_time_scope()},
+            "dimensions": ["region"],
+        }
+    )
+
+    assert request.metric == "revenue"
+    assert request.decomposition_method == "delta_share"
+    assert request.decomposition_limit == 5
+
+
+def test_aoi_attribute_accepts_explicit_options_and_slice_filter() -> None:
+    from marivo.contracts.generated import aoi
+
+    request = aoi.Attribute.model_validate(
+        {
+            "metric": "revenue",
+            "left": {
+                "time_scope": _aoi_time_scope(),
+                "filter": {"dialects": [{"dialect": "ANSI_SQL", "expression": "region = 'US'"}]},
+            },
+            "right": {"time_scope": _aoi_time_scope()},
+            "dimensions": ["region", "channel"],
+            "decomposition_method": "delta_share",
+            "decomposition_limit": 10,
+        }
+    )
+
+    assert request.left.filter is not None
+    assert request.left.filter.model_dump(exclude_none=True) == {
+        "dialects": [{"dialect": "ANSI_SQL", "expression": "region = 'US'"}]
+    }
+    assert [dimension.root for dimension in request.dimensions] == ["region", "channel"]
+    assert request.decomposition_method == "delta_share"
+    assert request.decomposition_limit == 10
+
+
 @pytest.mark.parametrize("alternative", ["two_sided", "greater", "less"])
 @pytest.mark.parametrize("significance", ["conservative", "balanced", "aggressive"])
 def test_aoi_test_accepts_all_public_options(alternative: str, significance: str) -> None:
@@ -999,6 +1042,44 @@ def test_aoi_validate_rejects_non_contract_fields(payload: dict[str, Any]) -> No
             },
             "dimensions": ["region"],
             "decomposition_method": "ratio_share",
+        },
+        {
+            "metric": "revenue",
+            "left": {
+                "time_scope": {
+                    "field": "event_time",
+                    "start": "2026-01-01T00:00:00Z",
+                    "end": "2026-01-02T00:00:00Z",
+                }
+            },
+            "right": {
+                "time_scope": {
+                    "field": "event_time",
+                    "start": "2026-01-01T00:00:00Z",
+                    "end": "2026-01-02T00:00:00Z",
+                }
+            },
+            "dimensions": ["region"],
+            "decomposition_limit": 0,
+        },
+        {
+            "metric": "revenue",
+            "left": {
+                "time_scope": {
+                    "field": "event_time",
+                    "start": "2026-01-01T00:00:00Z",
+                    "end": "2026-01-02T00:00:00Z",
+                }
+            },
+            "right": {
+                "time_scope": {
+                    "field": "event_time",
+                    "start": "2026-01-01T00:00:00Z",
+                    "end": "2026-01-02T00:00:00Z",
+                }
+            },
+            "dimensions": ["region"],
+            "unknown": True,
         },
     ],
 )
