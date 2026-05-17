@@ -50,7 +50,15 @@ def lower_aoi_request(intent_type: str, request: AoiAtomicRequest) -> dict[str, 
             "sensitivity": request.sensitivity,
             "limit": _dump_model(request.limit) if request.limit is not None else None,
         }
-    if isinstance(request, (aoi.Test, aoi.Forecast)):
+    if isinstance(request, aoi.Test):
+        return {
+            "metric": request.metric,
+            "left": _dump_slice(request.left),
+            "right": _dump_slice(request.right),
+            "kind": request.kind,
+            "hypothesis": request.hypothesis.model_dump(exclude_none=True),
+        }
+    if isinstance(request, aoi.Forecast):
         return request.model_dump(exclude_none=True)
     raise TypeError(f"Unsupported AOI request type: {type(request).__name__}")
 

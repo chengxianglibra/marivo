@@ -41,6 +41,9 @@ _SIGNIFICANCE_ALPHA: dict[str, float] = {
     "balanced": 0.05,
     "aggressive": 0.10,
 }
+_REQUEST_FIELDS: frozenset[str] = frozenset({"metric", "left", "right", "kind", "hypothesis"})
+_SLICE_FIELDS: frozenset[str] = frozenset({"time_scope", "filter"})
+_HYPOTHESIS_FIELDS: frozenset[str] = frozenset({"family", "alternative", "significance"})
 
 
 # ── Statistical helpers (pure Python, no external deps) ──────────────────────
@@ -129,62 +132,86 @@ def run_test_intent(
     Computes sample summaries internally and returns a hypothesis_test
     artifact conforming to the AOI hypothesis_test_result contract.
     """
-    p = params or {}
+    if not isinstance(params, dict):
+        raise ValueError("test: INVALID_ARGUMENT - params must be a test request object")
+    p = params
     now = datetime.now(UTC).isoformat()
 
     # ── Input validation ─────────────────────────────────────────────────
-    if "method" in p:
-        raise ValueError("test: INVALID_ARGUMENT - method is not a supported test parameter")
+    missing_fields = _REQUEST_FIELDS - set(p)
+    if missing_fields:
+        raise ValueError(
+            f"test: INVALID_ARGUMENT - missing required field(s): {sorted(missing_fields)}"
+        )
+    unexpected_fields = set(p) - _REQUEST_FIELDS
+    if unexpected_fields:
+        raise ValueError(
+            f"test: INVALID_ARGUMENT - unsupported field(s): {sorted(unexpected_fields)}"
+        )
 
-    metric_ref: str = normalize_metric_ref(p.get("metric") or "")
+    metric_ref: str = normalize_metric_ref(p["metric"])
     metric_ref = runtime.core.normalize_intent_metric_ref(metric_ref)
     metric_name = runtime.core.metric_name_from_ref(metric_ref)
 
     if not metric_ref:
         raise ValueError("test: INVALID_ARGUMENT - metric is required")
 
-    kind: str = str(p.get("kind") or "numeric").lower()
+    kind_raw = p["kind"]
+    if not isinstance(kind_raw, str):
+        raise ValueError("test: INVALID_ARGUMENT - kind must be a string")
+    kind = kind_raw
     if kind not in _VALID_KINDS:
         raise ValueError(
             f"test: INVALID_ARGUMENT - kind must be one of {sorted(_VALID_KINDS)}, got '{kind}'"
         )
 
-    left_raw: dict[str, Any] = p.get("left") or {}
-    right_raw: dict[str, Any] = p.get("right") or {}
+    left_raw = _validate_slice(p["left"], label="left")
+    right_raw = _validate_slice(p["right"], label="right")
 
-    left_time_scope: dict[str, Any] = left_raw.get("time_scope") or {}
-    right_time_scope: dict[str, Any] = right_raw.get("time_scope") or {}
-
-    if not left_time_scope:
-        raise ValueError("test: INVALID_ARGUMENT - left.time_scope is required")
-    if not right_time_scope:
-        raise ValueError("test: INVALID_ARGUMENT - right.time_scope is required")
-
-    left_scope: Any = left_raw.get("scope") or left_raw.get("filter")
-    right_scope: Any = right_raw.get("scope") or right_raw.get("filter")
+    left_time_scope: dict[str, Any] = left_raw["time_scope"]
+    right_time_scope: dict[str, Any] = right_raw["time_scope"]
+    left_filter: Any = left_raw.get("filter")
+    right_filter: Any = right_raw.get("filter")
 
     # ── Hypothesis validation ────────────────────────────────────────────
-    hypothesis_raw: dict[str, Any] = p.get("hypothesis") or {}
-    unexpected_hypothesis_keys = set(hypothesis_raw) - {"family", "alternative", "significance"}
+    hypothesis_raw = p["hypothesis"]
+    if not isinstance(hypothesis_raw, dict):
+        raise ValueError("test: INVALID_ARGUMENT - hypothesis must be an object")
+    missing_hypothesis_keys = _HYPOTHESIS_FIELDS - set(hypothesis_raw)
+    if missing_hypothesis_keys:
+        raise ValueError(
+            "test: INVALID_ARGUMENT - missing hypothesis field(s): "
+            f"{sorted(missing_hypothesis_keys)}"
+        )
+    unexpected_hypothesis_keys = set(hypothesis_raw) - _HYPOTHESIS_FIELDS
     if unexpected_hypothesis_keys:
         raise ValueError(
             "test: INVALID_ARGUMENT - unsupported hypothesis field(s): "
             f"{sorted(unexpected_hypothesis_keys)}"
         )
-    family: str = str(hypothesis_raw.get("family") or "two_sample_mean").lower()
+    family_raw = hypothesis_raw["family"]
+    if not isinstance(family_raw, str):
+        raise ValueError("test: INVALID_ARGUMENT - hypothesis.family must be a string")
+    family = family_raw
     if family not in _VALID_FAMILIES:
         raise ValueError(
             f"test: INVALID_ARGUMENT - hypothesis.family must be one of "
             f"{sorted(_VALID_FAMILIES)}, got '{family}'"
         )
-    alternative: str = str(hypothesis_raw.get("alternative") or "two_sided").lower()
+    alternative_raw = hypothesis_raw["alternative"]
+    if not isinstance(alternative_raw, str):
+        raise ValueError("test: INVALID_ARGUMENT - hypothesis.alternative must be a string")
+    alternative = alternative_raw
     if alternative not in _VALID_ALTERNATIVES:
         raise ValueError(
             f"test: INVALID_ARGUMENT - hypothesis.alternative must be one of "
             f"{sorted(_VALID_ALTERNATIVES)}, got '{alternative}'"
         )
 
-    significance = str(hypothesis_raw.get("significance") or "balanced").lower()
+    significance_raw = hypothesis_raw["significance"]
+    if not isinstance(significance_raw, str):
+        raise ValueError("test: INVALID_ARGUMENT - hypothesis.significance must be a string")
+    significance = significance_raw
     try:
         alpha = _SIGNIFICANCE_ALPHA[significance]
     except KeyError as exc:
@@ -195,10 +222,10 @@ def run_test_intent(
 
     # ── Compute sample summaries (internal, no intermediate artifacts) ──
     left_ss = compute_numeric_sample_summary(
-        runtime, session_id, metric_ref, left_time_scope, scope_raw=left_scope
+        runtime, session_id, metric_ref, left_time_scope, scope_raw=left_filter
     )
     right_ss = compute_numeric_sample_summary(
-        runtime, session_id, metric_ref, right_time_scope, scope_raw=right_scope
+        runtime, session_id, metric_ref, right_time_scope, scope_raw=right_filter
     )
 
     # ── Predicate lineage comparison ─────────────────────────────────────
@@ -282,8 +309,8 @@ def run_test_intent(
         "normality not assessed",
         "equal variance not assumed (Welch's t-test)",
     ]
-    if std1 == 0.0 and std2 == 0.0:
-        assumption_notes.append("both groups have zero variance; result may be degenerate")
+    if std1 == 0.0 or std2 == 0.0:
+        assumption_notes.append("one or both groups have zero variance; result may be degenerate")
 
     # ── Build provenance hash ────────────────────────────────────────────
     left_start, left_end, _ = resolve_time_scope(left_time_scope)
@@ -298,11 +325,11 @@ def run_test_intent(
     source_lineage: dict[str, Any] = {
         "left": {
             "time_scope": {"kind": "range", "start": left_start, "end": left_end},
-            "filter": left_scope,
+            "filter": left_filter,
         },
         "right": {
             "time_scope": {"kind": "range", "start": right_start, "end": right_end},
-            "filter": right_scope,
+            "filter": right_filter,
         },
     }
     if predicate_lineage_summary["reuse_summary"] is not None:
@@ -361,3 +388,26 @@ def run_test_intent(
         provenance=provenance,
     )
     return result
+
+
+def _validate_slice(value: Any, *, label: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError(f"test: INVALID_ARGUMENT - {label} must be an object")
+
+    missing_fields = {"time_scope"} - set(value)
+    if missing_fields:
+        raise ValueError(
+            f"test: INVALID_ARGUMENT - missing {label} field(s): {sorted(missing_fields)}"
+        )
+    unexpected_fields = set(value) - _SLICE_FIELDS
+    if unexpected_fields:
+        raise ValueError(
+            f"test: INVALID_ARGUMENT - unsupported {label} field(s): {sorted(unexpected_fields)}"
+        )
+
+    time_scope = value["time_scope"]
+    if not isinstance(time_scope, dict) or not time_scope:
+        raise ValueError(f"test: INVALID_ARGUMENT - {label}.time_scope is required")
+    if "filter" in value and value["filter"] is None:
+        raise ValueError(f"test: INVALID_ARGUMENT - {label}.filter must not be null")
+    return value

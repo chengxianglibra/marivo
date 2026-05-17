@@ -69,10 +69,17 @@ def run_validate_intent(
     metric_name = runtime.core.metric_name_from_ref(metric_ref)
 
     # ── Build test params (source-type) ──────────────────────────────────
+    left_test_slice: dict[str, Any] = {"time_scope": left_time_scope}
+    if left_filter is not None:
+        left_test_slice["filter"] = left_filter
+    right_test_slice: dict[str, Any] = {"time_scope": right_time_scope}
+    if right_filter is not None:
+        right_test_slice["filter"] = right_filter
+
     test_params: dict[str, Any] = {
         "metric": metric_ref,
-        "left": {"time_scope": left_time_scope, "filter": left_filter},
-        "right": {"time_scope": right_time_scope, "filter": right_filter},
+        "left": left_test_slice,
+        "right": right_test_slice,
         "kind": "numeric",
         "hypothesis": {
             "family": "two_sample_mean",

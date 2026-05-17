@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from marivo.contracts.generated import aoi
 from marivo.transports.mcp.tools.intents import (
     to_aoi_attribute_request,
@@ -207,6 +209,29 @@ def test_to_aoi_test_request_builds_test_model() -> None:
     assert request.hypothesis.family == "two_sample_mean"
     assert "filter" not in request.model_dump(exclude_none=True)["left"]
     assert request.hypothesis.alternative == "greater"
+    assert request.hypothesis.significance == "balanced"
+
+
+@pytest.mark.parametrize("alternative", ["two_sided", "greater", "less"])
+@pytest.mark.parametrize("significance", ["conservative", "balanced", "aggressive"])
+def test_to_aoi_test_request_passes_supported_hypothesis_options(
+    alternative: str,
+    significance: str,
+) -> None:
+    request = to_aoi_test_request(
+        metric="view_time",
+        left=_slice("2026-05-01T00:00:00Z", "2026-05-08T00:00:00Z"),
+        right=_slice("2026-04-24T00:00:00Z", "2026-05-01T00:00:00Z"),
+        hypothesis=McpTestHypothesis(
+            alternative=alternative,
+            significance=significance,
+        ),
+    )
+
+    assert request.kind == "numeric"
+    assert request.hypothesis.family == "two_sample_mean"
+    assert request.hypothesis.alternative == alternative
+    assert request.hypothesis.significance == significance
 
 
 def test_to_aoi_validate_request_builds_validate_model_with_defaults() -> None:
@@ -369,8 +394,19 @@ def test_validate_hypothesis_rejects_non_mcp_fields() -> None:
             raise AssertionError(f"expected validate hypothesis DTO to reject {field}")
 
 
-def test_to_aoi_test_request_rejects_hypothesis_label() -> None:
-    try:
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("label", "legacy label"),
+        ("alpha", 0.05),
+        ("family", "two_sample_mean"),
+    ],
+)
+def test_to_aoi_test_request_rejects_non_mcp_hypothesis_fields(
+    field: str,
+    value: object,
+) -> None:
+    with pytest.raises(ValueError, match=field):
         to_aoi_test_request(
             metric="view_time",
             left=_slice("2026-05-01T00:00:00Z", "2026-05-08T00:00:00Z"),
@@ -378,45 +414,6 @@ def test_to_aoi_test_request_rejects_hypothesis_label() -> None:
             hypothesis={
                 "alternative": "greater",
                 "significance": "balanced",
-                "label": "legacy label",
+                field: value,
             },
         )
-    except ValueError as error:
-        assert "label" in str(error)
-    else:
-        raise AssertionError("expected label to be rejected")
-
-
-def test_to_aoi_test_request_rejects_alpha() -> None:
-    try:
-        to_aoi_test_request(
-            metric="view_time",
-            left=_slice("2026-05-01T00:00:00Z", "2026-05-08T00:00:00Z"),
-            right=_slice("2026-04-24T00:00:00Z", "2026-05-01T00:00:00Z"),
-            hypothesis={
-                "alternative": "greater",
-                "alpha": 0.05,
-            },
-        )
-    except ValueError as error:
-        assert "alpha" in str(error)
-    else:
-        raise AssertionError("expected alpha to be rejected")
-
-
-def test_to_aoi_test_request_rejects_fixed_family_in_mcp_dto() -> None:
-    try:
-        to_aoi_test_request(
-            metric="view_time",
-            left=_slice("2026-05-01T00:00:00Z", "2026-05-08T00:00:00Z"),
-            right=_slice("2026-04-24T00:00:00Z", "2026-05-01T00:00:00Z"),
-            hypothesis={
-                "family": "two_sample_mean",
-                "alternative": "greater",
-                "significance": "balanced",
-            },
-        )
-    except ValueError as error:
-        assert "family" in str(error)
-    else:
-        raise AssertionError("expected fixed AOI family to be rejected in MCP DTO")
