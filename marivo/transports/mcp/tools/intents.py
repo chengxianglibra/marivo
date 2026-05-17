@@ -471,7 +471,8 @@ def register_diagnose(server: Any, runtime: Any) -> None:
     @server.tool(  # type: ignore
         description=(
             "Run a bounded diagnosis. auto_detect mode requires time_scope and granularity; "
-            "explicit_compare mode requires current and baseline slices."
+            "explicit_compare mode requires current and baseline slices and must omit the "
+            "top-level time_scope and granularity fields together."
         )
     )
     async def diagnose(
@@ -484,17 +485,28 @@ def register_diagnose(server: Any, runtime: Any) -> None:
             Field(
                 description=(
                     "auto_detect requires time_scope and granularity; explicit_compare "
-                    "requires current and baseline."
+                    "requires current and baseline and omits top-level time_scope and "
+                    "granularity."
                 )
             ),
         ] = "auto_detect",
         time_scope: Annotated[
             McpTimeScope | None,
-            Field(description="Required when mode='auto_detect'; omit for explicit_compare."),
+            Field(
+                description=(
+                    "Required when mode='auto_detect'. When mode='explicit_compare', omit this "
+                    "top-level field and put time_scope inside current and baseline instead."
+                )
+            ),
         ] = None,
         granularity: Annotated[
             Literal["hour", "day", "week", "month", "quarter", "year"] | None,
-            Field(description="Required when mode='auto_detect'; omit for explicit_compare."),
+            Field(
+                description=(
+                    "Required when mode='auto_detect'. When mode='explicit_compare', omit this "
+                    "top-level field together with top-level time_scope."
+                )
+            ),
         ] = None,
         filter_expression: Annotated[
             McpExpression | None,
