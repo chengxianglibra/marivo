@@ -27,6 +27,7 @@ from marivo.contracts.values import (
 )
 from marivo.core.engine import CoreEngine
 from marivo.core.session.rebuild import rebuild_session_state
+from marivo.identity import current_user
 from marivo.runtime.runtime import MarivoRuntime
 
 # --- Stub port implementations ---
@@ -266,6 +267,23 @@ def test_terminate_session_appends_terminated_event() -> None:
     events = store.load_events(state.session_id)
     assert len(events) == 2
     assert events[1].event_type == "session_terminated"
+
+
+def test_terminate_session_resolves_current_user_when_actor_omitted() -> None:
+    store = RecordingSessionStore()
+    rt = _make_runtime(session_store=store)
+    state = rt.create_session("Test goal", actor=UserId("test-user"))
+
+    token = current_user.set("test-user")
+    try:
+        rt.terminate_session(state.session_id)
+    finally:
+        current_user.reset(token)
+
+    events = store.load_events(state.session_id)
+    assert len(events) == 2
+    assert events[1].event_type == "session_terminated"
+    assert events[1].actor == "test-user"
 
 
 def test_get_session_state_returns_rebuilt_state() -> None:
