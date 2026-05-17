@@ -399,9 +399,9 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
         )
 
         self.assertEqual(result["rows"][0]["right_value"], 100.0)
-        self.assertEqual(
-            result["resolved_input_summary"]["calendar_alignment"]["resolved_calendar_version"],
-            "cn_2026_v1",
+        self.assertIn(
+            "bucket_pairing",
+            result["resolved_input_summary"]["calendar_alignment"],
         )
         self.assertEqual(
             result["resolved_input_summary"]["calendar_alignment"]["bucket_pairing"][0][

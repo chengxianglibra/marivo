@@ -139,7 +139,6 @@ from .calendar import (
     CalendarDataLoadRequest,
     CalendarDataLoadResponse,
     CalendarDataRow,
-    CalendarVersionItem,
 )
 
 # Intent API models
@@ -232,7 +231,6 @@ __all__ = [  # noqa: RUF022
     "CalendarDataRow",
     "CalendarDataLoadRequest",
     "CalendarDataLoadResponse",
-    "CalendarVersionItem",
     "Cardinality",
     "CardinalityToParent",
     "CatalogMetadata",

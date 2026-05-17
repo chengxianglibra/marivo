@@ -2,65 +2,49 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Request
 
 from marivo.transports.http.deps import get_services
 from marivo.transports.http.models.calendar import (
     CalendarDataLoadRequest,
     CalendarDataLoadResponse,
-    CalendarVersionItem,
 )
 
-router = APIRouter()
+router = APIRouter(prefix="/calendar", tags=["calendar"])
 
-_CALENDAR_COLUMNS = [
+_COLUMNS = (
     "calendar_date",
-    "region_code",
-    "calendar_version",
     "weekday",
     "is_weekend",
     "is_workday",
     "holiday_name",
     "holiday_group_id",
     "year_relative_holiday_key",
-]
+)
 
 _INSERT_SQL = (
-    "INSERT INTO calendar ("
-    + ", ".join(_CALENDAR_COLUMNS)
-    + ") VALUES ("
-    + ", ".join("?" for _ in _CALENDAR_COLUMNS)
-    + ")"
+    "INSERT INTO calendar "
+    "(calendar_date, weekday, is_weekend, is_workday, holiday_name, "
+    "holiday_group_id, year_relative_holiday_key) "
+    "VALUES (?, ?, ?, ?, ?, ?, ?)"
 )
 
 
-@router.post("/calendar/data", response_model=CalendarDataLoadResponse)
+@router.put("/data", response_model=CalendarDataLoadResponse)
 def load_calendar_data(
-    payload: CalendarDataLoadRequest, request: Request
+    request: Request, payload: CalendarDataLoadRequest
 ) -> CalendarDataLoadResponse:
-    """Load calendar data rows into the metadata store.
+    """Replace all calendar data with the provided rows.
 
-    Returns 409 if the calendar_version already exists.
+    This is a destructive PUT — existing calendar data is deleted
+    before the new rows are inserted.
     """
     services = get_services(request)
     store = services.metadata_store
-
-    # Check if version already exists
-    existing = store.query_one(
-        "SELECT 1 AS cnt FROM calendar WHERE calendar_version = ? LIMIT 1",
-        [payload.calendar_version],
-    )
-    if existing is not None:
-        raise HTTPException(
-            status_code=409,
-            detail=f"calendar_version '{payload.calendar_version}' already exists",
-        )
-
-    rows = [
+    store.execute("DELETE FROM calendar")
+    params = [
         (
             row.calendar_date,
-            row.region_code,
-            payload.calendar_version,
             row.weekday,
             row.is_weekend,
             row.is_workday,
@@ -70,21 +54,5 @@ def load_calendar_data(
         )
         for row in payload.rows
     ]
-
-    store.execute_many(_INSERT_SQL, rows)
-
-    return CalendarDataLoadResponse(
-        status="loaded",
-        calendar_version=payload.calendar_version,
-        row_count=len(rows),
-    )
-
-
-@router.get("/calendar/versions", response_model=list[CalendarVersionItem])
-def list_calendar_versions(request: Request) -> list[CalendarVersionItem]:
-    """List loaded calendar versions with their region codes."""
-    services = get_services(request)
-    rows = services.metadata_store.query_rows(
-        "SELECT DISTINCT calendar_version, region_code FROM calendar ORDER BY calendar_version, region_code"
-    )
-    return [CalendarVersionItem(**row) for row in rows]
+    store.execute_many(_INSERT_SQL, params)
+    return CalendarDataLoadResponse(status="loaded", row_count=len(params))
