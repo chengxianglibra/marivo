@@ -253,7 +253,7 @@ type MetricContract = {
 - path search strategy
 - 底层 SQL 文本本身
 
-必要时可保留受控的 execution payload 或 legacy SQL fragment，但它只应是**实现细节**，不是外部 semantic identity。
+必要时可保留受控的 execution payload 或 SQL fragment，但它只应是**实现细节**，不是外部 semantic identity。
 
 ## ~~Process Object Contract 边界~~（已删除）
 
@@ -528,7 +528,7 @@ IR 负责：
 
 必要时可以保留以下受控能力：
 
-- legacy `definition_sql`
+- engine-owned SQL definition
 - engine-specific execution kernel
 - 特殊 UDF / sketch / percentile 实现
 

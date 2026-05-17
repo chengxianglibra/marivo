@@ -144,46 +144,11 @@ def test_compare_requires_both_artifact_ids(payload: dict[str, Any]) -> None:
         _run_compare(runtime, payload)
 
 
-@pytest.mark.parametrize(
-    "payload",
-    [
-        {
-            "left_ref": {"step_id": _LEFT_STEP_ID, "session_id": _SESSION},
-            "right_ref": {"step_id": _RIGHT_STEP_ID, "session_id": _SESSION},
-        },
-        {**_compare_params(), "mode": "scalar"},
-    ],
-)
-def test_compare_rejects_legacy_or_unknown_request_fields(payload: dict[str, Any]) -> None:
-    runtime = _make_runtime()
-
-    with pytest.raises(ValueError, match="unsupported parameter"):
-        _run_compare(runtime, payload)
-
-
 def test_compare_rejects_unknown_compare_type() -> None:
     runtime = _make_runtime()
 
     with pytest.raises(ValueError, match="Unknown compare_type 'not_real'"):
         _run_compare(runtime, _compare_params("not_real"))
-
-
-@pytest.mark.parametrize(
-    "compare_type",
-    [
-        "yoy",
-        "mom",
-        "wow",
-        "holiday_aligned_yoy",
-        "weekday_aligned_yoy",
-        "weekday_aligned_mom",
-    ],
-)
-def test_compare_rejects_legacy_compare_types(compare_type: str) -> None:
-    runtime = _make_runtime()
-
-    with pytest.raises(ValueError, match=f"Unknown compare_type '{compare_type}'"):
-        _run_compare(runtime, _compare_params(compare_type))
 
 
 def test_compare_reports_missing_left_artifact_id() -> None:

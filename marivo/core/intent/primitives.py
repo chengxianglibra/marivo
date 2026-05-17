@@ -96,9 +96,7 @@ STEP_TAXONOMY = {
         "description": (
             "Query a published semantic metric across typed time windows. "
             "Params: table, metric, time_scope (required), dimensions, scope, time_axis, order, limit. "
-            "time_scope is the only time-window contract; scope is the only non-time row/entity scope; "
-            "legacy params metric_name, table_name, period_start, period_end, baseline_start, baseline_end, "
-            "comparison_type, date_column, where, and filter are no longer part of the public contract."
+            "time_scope is the only time-window contract; scope is the only non-time row/entity scope."
         ),
     },
     "profile_table": {
@@ -114,8 +112,7 @@ STEP_TAXONOMY = {
         "description": (
             "Run a window-aware typed aggregate query on a table. "
             "Params: table, measures, time_scope (required), group_by, scope, time_axis, order, limit. "
-            "time_scope is the only time-window contract; scope is the only non-time row/entity scope; "
-            "legacy params select, where, compare_period, and date_column are no longer part of the public contract."
+            "time_scope is the only time-window contract; scope is the only non-time row/entity scope."
         ),
     },
     "attribute_change": {

@@ -63,7 +63,7 @@ v1 默认：
 
 ## Reference Contract
 
-`decompose` 消费 `compare_artifact_id`，而不是 legacy `compare_ref` 或裸字符串 step id。
+`decompose` 消费 `compare_artifact_id`，而不是引用对象或裸字符串 step id。
 运行时可在输出 artifact 中从 compare artifact 元数据重建 `compare_ref` 谱系。
 
 ```ts
@@ -130,7 +130,7 @@ v1 支持的输入形态如下：
 
 - 直接传 `scope`
 - 直接传 `metric + left_scope + right_scope`
-- legacy `compare_ref` 或 `method`
+- 引用对象或 `method`
 - 以 `segmented_delta` 作为主输入契约
 - 多个 dimensions
 - interaction-effect decomposition
@@ -381,7 +381,7 @@ empty semantics：
 - `compare_artifact_id` 必须解析到现有且已完成的 `compare`
 - 被引用结果必须是 `scalar_delta` 或 `time_series_delta`
 - `dimension` 必须是单个 semantic dimension 名称
-- 请求不得包含 legacy `compare_ref` 或 `method`
+- 请求不得包含引用对象或 `method`
 - `limit` 若提供必须为正整数；runtime 在稳定排序后返回前 `limit` 行
 - metric 的 `additive_dimensions` 必须非空，且被请求的 `dimension` 必须在该列表内；`additive_dimensions` 为空的 metric 在 v1 中必须拒绝
 - one-sided rows 必须显式保留，并通过 `presence` 标记

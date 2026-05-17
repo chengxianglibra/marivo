@@ -80,7 +80,7 @@ class SessionAPITests(unittest.TestCase):
         # timestamps
         self.assertIn("created_at", data)
         self.assertIn("updated_at", data)
-        # legacy flat fields must NOT appear at top level
+        # Retired flat fields must NOT appear at top level
         self.assertNotIn("status", data)
         self.assertNotIn("constraints", data)
         self.assertNotIn("execution_identity", data)
@@ -154,7 +154,7 @@ class SessionAPITests(unittest.TestCase):
             self.assertIn("owner_user", s)
             self.assertIn("state_summary", s)
             self.assertEqual(s["schema_version"], "analysis_session.v1")
-            # legacy flat fields must not appear
+            # Retired flat fields must not appear
             self.assertNotIn("status", s)
             self.assertNotIn("constraints", s)
             self.assertNotIn("execution_identity", s)

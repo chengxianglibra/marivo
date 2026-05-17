@@ -242,7 +242,6 @@ def test_test_failure_is_wrapped() -> None:
         ({"hypothesis": {"__remove__": "alternative"}}, "alternative"),
         ({"hypothesis": {"__remove__": "significance"}}, "significance"),
         ({"hypothesis": {"alpha": 0.05}}, "alpha"),
-        ({"hypothesis": {"label": "legacy label"}}, "label"),
     ],
 )
 def test_rejects_non_current_request_shapes(

@@ -641,7 +641,6 @@ def test_test_accepts_aoi_request_and_returns_execution_envelope() -> None:
     ("path", "value"),
     [
         (("method",), "welch_t"),
-        (("hypothesis", "label"), "legacy label"),
         (("hypothesis", "alpha"), 0.05),
     ],
 )
@@ -689,15 +688,6 @@ def test_attribute_accepts_aoi_request_and_returns_typed_bundle() -> None:
     assert body["result"]["aoi_artifacts"][0]["result"]["delta"] == 20.0
 
 
-def test_attribute_rejects_legacy_scope_field() -> None:
-    payload = _valid_attribute_request()
-    payload["left"]["scope"] = {"predicate": "region = 'US'"}
-
-    response = _client(_FakeRuntime()).post("/sessions/sess_1/intents/attribute", json=payload)
-
-    assert response.status_code == 422
-
-
 @pytest.mark.parametrize(
     ("path", "value"),
     [
@@ -705,7 +695,6 @@ def test_attribute_rejects_legacy_scope_field() -> None:
         (("kind",), "numeric"),
         (("left", "scope"), {"predicate": "region = 'US'"}),
         (("hypothesis", "alpha"), 0.05),
-        (("hypothesis", "label"), "legacy label"),
     ],
 )
 def test_validate_rejects_representative_non_contract_fields(

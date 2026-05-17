@@ -161,15 +161,12 @@ def normalize_step_request(
         return NormalizedCompilerRequest(
             intent_kind="aggregate_query",
             request_class="root_metric_process",
-            table_name=step.table_name(),
+            table_name=str(step.params.get("table") or "").strip() or None,
             request_time_scope=request_time_scope or _mapping_dict(step.params.get("scoped_query")),
             request_dimensions=_normalize_dimension_refs(_string_list(step.params.get("group_by"))),
             request_options=_filter_none_dict(
-                order=str(step.params.get("order") or step.params.get("order_by") or "").strip()
-                or None,
+                order=str(step.params.get("order") or "").strip() or None,
                 limit=_optional_int(step.params.get("limit")),
-                compare_period=_optional_bool(step.params.get("compare_period")),
-                select=list(step.params.get("select") or []) or None,
                 measures=list(step.params.get("measures") or []) or None,
             ),
         )
@@ -362,12 +359,6 @@ def _optional_int(value: Any) -> int | None:
     return int(value)
 
 
-def _optional_bool(value: Any) -> bool | None:
-    if value is None:
-        return None
-    return bool(value)
-
-
 def _filter_none_dict(**values: Any) -> dict[str, Any]:
     return {key: value for key, value in values.items() if value is not None}
 
@@ -406,11 +397,3 @@ def _resolved_filter_time_ref(
 def _optional_str(value: Any) -> str | None:
     text = str(value or "").strip()
     return text or None
-
-
-def _optional_boolish(value: Any) -> bool | None:
-    if value is None:
-        return None
-    if isinstance(value, bool):
-        return value
-    return bool(value)

@@ -16,7 +16,6 @@ from marivo.core.semantic.compiler import (
     CompiledQuery,
     SemanticCompilerError,
     SemanticRequestCompatibilityError,
-    build_aggregate_comparison_query,
     build_metric_query,
     build_windowed_aggregate_query,
 )
@@ -243,7 +242,6 @@ def collect_layered_predicate_refs(*_args: Any, **_kwargs: Any) -> list[Predicat
 
 from marivo.core.semantic.compiler import (  # noqa: E402
     _build_scoped_query_parts,
-    _expand_group_by_aliases,
     _metric_query_dimension_sql_expressions,
     _normalize_metric_query_order,
     _require_scoped_query_mode,
@@ -955,14 +953,8 @@ def compile_step(
         )
 
     if step.step_type == "metric_query":
-        table_name = step.table_name()
-        if table_name is None:
-            raise ValueError("metric_query requires 'table' or 'table_name' param")
-        metric_name = (
-            step.primary_metric_name()
-            or params.get("metric")
-            or _require_param(step, "metric_name")
-        )
+        table_name = _require_param(step, "table")
+        metric_name = _require_param(step, "metric")
         metric_sql = semantic_context.get("metric_sql")
         dimensions = semantic_context.get("dimensions")
         if metric_sql is None or dimensions is None:
@@ -972,9 +964,9 @@ def compile_step(
         limit = int(params.get("limit", 10))
         order_param = params.get("order")
         scoped_query = params.get("scoped_query")
-        mode = "compare"
-        if isinstance(scoped_query, Mapping):
-            mode = _require_scoped_query_mode(scoped_query)
+        if not isinstance(scoped_query, Mapping):
+            raise ValueError("metric_query compilation requires a resolved scoped_query")
+        mode = _require_scoped_query_mode(scoped_query)
         default_order = "CURRENT_VALUE DESC" if mode == "single_window" else "DELTA_PCT ASC"
         order = str(order_param or default_order).upper()
         _normalize_metric_query_order(order, mode=mode)
@@ -989,15 +981,13 @@ def compile_step(
             ),
             order=order,
             limit=limit,
-            scoped_query=scoped_query if isinstance(scoped_query, Mapping) else None,
+            scoped_query=scoped_query,
         )
-        compiled_params = list(semantic_context.get("period_params", []))
-        if isinstance(scoped_query, Mapping):
-            compiled_params = _build_scoped_query_parts(
-                table_name,
-                scoped_query,
-                include_period=True,
-            ).params
+        compiled_params = _build_scoped_query_parts(
+            table_name,
+            scoped_query,
+            include_period=mode == "compare",
+        ).params
         return CompiledQuery(
             sql=sql,
             params=compiled_params,
@@ -1011,9 +1001,7 @@ def compile_step(
         )
 
     if step.step_type == "aggregate_query":
-        table_name = step.table_name()
-        if table_name is None:
-            raise ValueError("aggregate_query requires 'table' or 'table_name' param")
+        table_name = _require_param(step, "table")
         group_by = params.get("group_by", [])
         if not isinstance(group_by, list):
             raise ValueError("aggregate_query requires 'group_by' param (list of columns)")
@@ -1021,99 +1009,38 @@ def compile_step(
         scoped_query = params.get("scoped_query")
         has_scoped_query = isinstance(scoped_query, Mapping)
         scoped_query_m: Mapping[str, Any] | None = scoped_query if has_scoped_query else None
-        order_by = params.get("order_by") or params.get("order")
+        order_by = params.get("order")
         typed_measures = params.get("measures")
+        if typed_measures is None:
+            raise ValueError("aggregate_query requires 'measures' param (list of measure objects)")
 
-        if typed_measures is not None:
-            sql = build_windowed_aggregate_query(
-                table_name=table_name,
-                measures=typed_measures,
-                group_by=list(group_by),
-                order_by=str(order_by) if order_by else None,
-                limit=limit,
-                scoped_query=scoped_query if has_scoped_query else None,
-            )
-            compiled_params = []
-            compare_period = (
-                scoped_query_m is not None and str(scoped_query_m.get("mode") or "") == "compare"
-            )
-            if scoped_query_m is not None:
-                compiled_params = _build_scoped_query_parts(
-                    table_name,
-                    scoped_query_m,
-                    include_period=compare_period,
-                ).params
-            return CompiledQuery(
-                sql=sql,
-                params=compiled_params,
-                metadata={
-                    **metadata,
-                    "table_name": table_name,
-                    "limit": limit,
-                    "compare_period": compare_period,
-                },
-                ir_bundle=ir_bundle,
-            )
-
-        select_exprs = params.get("select")
-        if not select_exprs or not isinstance(select_exprs, list):
-            raise ValueError("aggregate_query requires 'select' param (list of expressions)")
-        where = params.get("where")
-
-        if params.get("compare_period") or (
-            scoped_query_m is not None and str(scoped_query_m.get("mode") or "") == "compare"
-        ):
-            date_column = str(params.get("date_column", "event_date"))
-            sql = build_aggregate_comparison_query(
-                table_name=table_name,
-                select_exprs=list(select_exprs),
-                group_by=list(group_by),
-                date_column=date_column,
-                order_by=order_by,
-                limit=limit,
-                filter_expr=str(where) if where else None,
-                scoped_query=scoped_query_m,
-            )
-            compiled_params = list(semantic_context.get("period_params", []))
-            if scoped_query_m is not None:
-                compiled_params = _build_scoped_query_parts(
-                    table_name,
-                    scoped_query_m,
-                    include_period=True,
-                ).params
-            return CompiledQuery(
-                sql=sql,
-                params=compiled_params,
-                metadata={
-                    **metadata,
-                    "table_name": table_name,
-                    "limit": limit,
-                    "compare_period": True,
-                },
-                ir_bundle=ir_bundle,
-            )
-
-        select_clause = ", ".join(select_exprs)
-        expanded_group_by = _expand_group_by_aliases(list(select_exprs), list(group_by))
-        group_clause = f" GROUP BY {', '.join(expanded_group_by)}" if expanded_group_by else ""
-        order_clause = f" ORDER BY {order_by}" if order_by else ""
+        sql = build_windowed_aggregate_query(
+            table_name=table_name,
+            measures=typed_measures,
+            group_by=list(group_by),
+            order_by=str(order_by) if order_by else None,
+            limit=limit,
+            scoped_query=scoped_query_m,
+        )
         compiled_params = []
-
+        compare_period = (
+            scoped_query_m is not None and str(scoped_query_m.get("mode") or "") == "compare"
+        )
         if scoped_query_m is not None:
-            scoped = _build_scoped_query_parts(
+            compiled_params = _build_scoped_query_parts(
                 table_name,
                 scoped_query_m,
-                include_period=False,
-            )
-            sql = f"WITH {scoped.cte_sql} SELECT {select_clause} FROM scoped{group_clause}{order_clause} LIMIT {limit}"
-            compiled_params = scoped.params
-        else:
-            where_clause = f" WHERE {where}" if where else ""
-            sql = f"SELECT {select_clause} FROM {table_name}{where_clause}{group_clause}{order_clause} LIMIT {limit}"
+                include_period=compare_period,
+            ).params
         return CompiledQuery(
             sql=sql,
             params=compiled_params,
-            metadata={**metadata, "table_name": table_name, "limit": limit},
+            metadata={
+                **metadata,
+                "table_name": table_name,
+                "limit": limit,
+                "compare_period": compare_period,
+            },
             ir_bundle=ir_bundle,
         )
 

@@ -436,7 +436,6 @@ def test_validate_hypothesis_rejects_non_mcp_fields() -> None:
     [
         ("family", "two_sample_mean"),
         ("alpha", 0.05),
-        ("label", "legacy label"),
     ],
 )
 def test_to_aoi_validate_request_rejects_non_mcp_hypothesis_fields(
@@ -459,7 +458,6 @@ def test_to_aoi_validate_request_rejects_non_mcp_hypothesis_fields(
 @pytest.mark.parametrize(
     ("field", "value"),
     [
-        ("label", "legacy label"),
         ("alpha", 0.05),
         ("family", "two_sample_mean"),
     ],

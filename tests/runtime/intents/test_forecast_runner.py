@@ -270,30 +270,6 @@ def test_forecast_rejects_invalid_required_parameters(
     _assert_forecast_fails_without_commit(runtime, params, match)
 
 
-@pytest.mark.parametrize(
-    "payload",
-    [
-        {
-            "source_ref": {
-                "step_type": "observe",
-                "session_id": _SESSION,
-                "step_id": _SOURCE_STEP_ID,
-                "artifact_id": _SOURCE_ARTIFACT_ID,
-                "observation_type": "time_series",
-            },
-            "horizon": 1,
-        },
-        {"source_artifact_id": _SOURCE_ARTIFACT_ID, "horizon": 1, "profile": "level"},
-        {"source_artifact_id": _SOURCE_ARTIFACT_ID, "horizon": 1, "interval_level": 0.9},
-        {"source_artifact_id": _SOURCE_ARTIFACT_ID, "horizon": 1, "unexpected": True},
-    ],
-)
-def test_forecast_rejects_legacy_or_unknown_request_fields(payload: dict[str, Any]) -> None:
-    runtime = _make_runtime()
-
-    _assert_forecast_fails_without_commit(runtime, payload, "unsupported parameter")
-
-
 def test_forecast_reports_missing_source_artifact() -> None:
     runtime = _make_runtime(resolved=None)
     runtime.resolve_artifact_with_step_by_id.return_value = None

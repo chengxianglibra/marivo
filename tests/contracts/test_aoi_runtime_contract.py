@@ -106,10 +106,6 @@ def test_aoi_correlate_accepts_omitted_optional_parameters() -> None:
     "payload",
     [
         {
-            "left_ref": {"step_id": "step_left"},
-            "right_ref": {"step_id": "step_right"},
-        },
-        {
             "left_artifact_id": "art_left",
             "right_artifact_id": "art_right",
             "method": "kendall",
@@ -126,7 +122,7 @@ def test_aoi_correlate_accepts_omitted_optional_parameters() -> None:
         },
     ],
 )
-def test_aoi_correlate_rejects_invalid_or_legacy_shape(payload: dict[str, object]) -> None:
+def test_aoi_correlate_rejects_invalid_shape(payload: dict[str, object]) -> None:
     with pytest.raises(ValidationError):
         aoi.Correlate.model_validate(payload)
 
@@ -146,7 +142,6 @@ def test_aoi_forecast_accepts_artifact_id_and_horizon_only() -> None:
 @pytest.mark.parametrize(
     "payload",
     [
-        {"source_ref": {"step_id": "step_1"}, "horizon": 7},
         {"source_artifact_id": "art_source", "horizon": 7, "profile": "auto"},
         {"source_artifact_id": "art_source", "horizon": 7, "interval_level": 0.95},
         {"source_artifact_id": "art_source", "horizon": 0},
@@ -154,7 +149,7 @@ def test_aoi_forecast_accepts_artifact_id_and_horizon_only() -> None:
         {"source_artifact_id": None, "horizon": 7},
     ],
 )
-def test_aoi_forecast_rejects_invalid_or_legacy_shape(payload: dict[str, object]) -> None:
+def test_aoi_forecast_rejects_invalid_shape(payload: dict[str, object]) -> None:
     with pytest.raises(ValidationError):
         aoi.Forecast.model_validate(payload)
 
@@ -221,10 +216,9 @@ def test_aoi_validate_accepts_full_current_shape_with_filters() -> None:
         {"hypothesis": {"__remove__": "alternative"}},
         {"hypothesis": {"__remove__": "significance"}},
         {"hypothesis": {"alpha": 0.05}},
-        {"hypothesis": {"label": "legacy label"}},
     ],
 )
-def test_aoi_validate_rejects_invalid_or_legacy_shape(
+def test_aoi_validate_rejects_invalid_shape(
     payload_patch: dict[str, Any],
 ) -> None:
     payload: dict[str, Any] = {

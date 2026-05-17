@@ -35,7 +35,7 @@ from marivo.core.semantic.extensions import (
 
 
 def _ai_context_to_json(value: Any) -> str | None:
-    """Serialize AI context values from generated or legacy models."""
+    """Serialize AI context values from generated models."""
     if value is None:
         return None
     if hasattr(value, "root"):

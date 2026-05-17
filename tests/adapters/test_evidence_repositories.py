@@ -382,7 +382,7 @@ class TestPropositionRepository(unittest.TestCase):
 
     def test_empty_identity_key_allows_multiple(self) -> None:
         """Propositions with identity_key='' are excluded from the UNIQUE partial
-        index and must not conflict with each other (legacy/agent-authored rows)."""
+        index and must not conflict with each other."""
         self.repo.create(self._make_prop("prop_001", identity_key=""))
         self.repo.create(self._make_prop("prop_002", identity_key=""))
         all_props = self.repo.list_by_session("sess_001")

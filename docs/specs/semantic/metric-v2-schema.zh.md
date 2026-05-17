@@ -887,7 +887,7 @@ metric v2 并不要求完全移除底层 SQL 或 engine-specific kernel。
 
 必要时，可保留：
 
-- legacy `definition_sql`
+- engine-owned SQL definition
 - 特定引擎 percentile kernel
 - sketch / approximate distinct kernel
 - 模型分数读取逻辑

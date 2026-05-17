@@ -1,4 +1,4 @@
-"""Typed request models for legacy intent reference DTOs.
+"""Typed request models for intent reference DTOs.
 
 HTTP intent routes use generated AOI request models directly.
 """

@@ -20,9 +20,6 @@ from marivo.core.semantic.compiler import (
     CompiledQuery,
     SemanticRequestCompatibilityError,
 )
-from marivo.core.semantic.compiler import (
-    build_metric_query as compile_metric_query,
-)
 from marivo.core.semantic.ir import AnalysisStepIR
 from marivo.core.semantic.resolution import ResolvedSemanticObject
 from marivo.runtime.errors import (
@@ -105,7 +102,7 @@ def _coerce_metric_ref(value: str) -> str:
 
 
 def metric_name_from_ref(metric_ref: str) -> str:
-    """Return the short metric name for display or legacy internals."""
+    """Return the short metric name for display and semantic repository lookups."""
     return metric_ref.removeprefix("metric.")
 
 
@@ -777,11 +774,9 @@ def resolve_metric_dimensions(
         return None
     semantic_object = resolved.semantic_object
     header = semantic_object.get("header") or {}
-    payload = semantic_object.get("payload") or {}
-
-    legacy_dims = payload.get("dimensions")
-    if legacy_dims is not None:
-        return [str(dimension) for dimension in list(legacy_dims)]
+    additive_dimensions = header.get("additive_dimensions")
+    if isinstance(additive_dimensions, list):
+        return [str(dimension) for dimension in additive_dimensions]
 
     observed_entity_ref = _optional_str(header.get("observed_entity_ref"))
     if observed_entity_ref is not None:
@@ -1020,34 +1015,6 @@ def build_scoped_query(
         ),
         "scope_predicate_filter": request.scope.predicate,
     }
-
-
-def build_metric_query(
-    runtime: MarivoRuntime,
-    metric_name: str,
-    table_name: str,
-    metric_sql: str,
-    dimensions: list[str],
-    date_column: str = "event_date",
-    order: str = "ASC",
-    limit: int = 3,
-) -> str:
-    """Build a current-vs-baseline comparison SQL query from metric definition.
-
-    Uses the metric's SQL expression and dimensions to generate a
-    sliced comparison query with delta_pct calculation.
-    """
-    _ = runtime  # currently pure, runtime accepted for future semantic resolution
-    result = compile_metric_query(
-        metric_name=metric_name,
-        table_name=table_name,
-        metric_sql=metric_sql,
-        dimensions=dimensions,
-        date_column=date_column,
-        order=order,
-        limit=limit,
-    )
-    return str(result)
 
 
 def resolve_metric_sql(
@@ -1878,18 +1845,6 @@ def run_attribute_change(
     except Exception:
         date_fmt = detect_date_format(str(period_end_p))
 
-    def _fmt(d: date) -> str | date:
-        return d.strftime(date_fmt) if date_fmt else d
-
-    period_params = [
-        _fmt(period_start),
-        _fmt(period_end),
-        _fmt(baseline_start),
-        _fmt(baseline_end),
-        _fmt(baseline_start),
-        _fmt(period_end),
-    ]
-
     contributions: list[dict[str, Any]] = []
     query_sql_parts: list[str] = []
     query_params: list[Any] = []
@@ -1898,25 +1853,40 @@ def run_attribute_change(
     baseline_has_data = False
 
     for dimension in candidate_dimensions:
-        select_exprs = [dimension, f"{metric_sql} AS metric_value"]
+        scoped_query: dict[str, Any] = {
+            "mode": "compare",
+            "analysis_time_kind": "date_field",
+            "analysis_time_expr": date_column,
+            "current": {
+                "start": period_start.isoformat(),
+                "end": (period_end + timedelta(days=1)).isoformat(),
+            },
+            "baseline": {
+                "start": baseline_start.isoformat(),
+                "end": (baseline_end + timedelta(days=1)).isoformat(),
+            },
+        }
+        if date_fmt:
+            scoped_query["analysis_time_format"] = date_fmt
+        if merged_where:
+            scoped_query["scope_predicate_filter"] = str(merged_where)
         step_ir = AnalysisStepIR(
             index=0,
             step_type="aggregate_query",
             params={
-                "table_name": qualified_table,
-                "select": select_exprs,
+                "table": qualified_table,
+                "measures": [{"expr": metric_sql, "as": "metric_value"}],
                 "group_by": [dimension],
-                "compare_period": True,
-                "date_column": date_column,
+                "order": "metric_value_delta_pct DESC",
+                "scoped_query": scoped_query,
                 "limit": query_limit,
-                **({"where": merged_where} if merged_where else {}),
             },
         )
         compiled_query = compile_step_with_feedback(
             runtime,
             step_ir,
             engine_type=engine_type,
-            semantic_context={"period_params": period_params},
+            semantic_context={},
         )
         rows = execute_compiled(engine, compiled_query, session_id=session_id).rows
         query_sql_parts.append(compiled_query.sql)

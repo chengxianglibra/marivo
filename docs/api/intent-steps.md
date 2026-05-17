@@ -273,7 +273,7 @@ POST /sessions/{session_id}/intents/attribute
 ```
 
 `left` and `right` use AOI `Slice` (`time_scope` plus optional `filter`).
-They do not accept the legacy derived-intent `scope` wrapper.
+They do not accept additional wrapper fields.
 
 ### Diagnose
 

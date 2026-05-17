@@ -670,14 +670,14 @@ class DatasourceBinderTests(unittest.TestCase):
                 {
                     "datasource_id": "ds_a",
                     "display_name": "warehouse_b",
-                    "name": "aaa_legacy_name",
+                    "name": "aaa_source_name",
                     "status": "active",
                     "has_table": True,
                 },
                 {
                     "datasource_id": "ds_b",
                     "display_name": "warehouse_a",
-                    "name": "zzz_legacy_name",
+                    "name": "zzz_source_name",
                     "status": "active",
                     "has_table": True,
                 },

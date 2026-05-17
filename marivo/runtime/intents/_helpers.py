@@ -226,10 +226,10 @@ def compute_numeric_sample_summary(
                     "grain": None,
                     "current": {"start": start_str, "end": end_str},
                 },
-                "select": [
-                    "COUNT(*) AS n",
-                    f"AVG({value_expr}) AS mean",
-                    f"STDDEV_SAMP({value_expr}) AS standard_deviation",
+                "measures": [
+                    {"expr": "COUNT(*)", "as": "n"},
+                    {"expr": f"AVG({value_expr})", "as": "mean"},
+                    {"expr": f"STDDEV_SAMP({value_expr})", "as": "standard_deviation"},
                 ],
                 "scoped_query": scoped_query,
             },

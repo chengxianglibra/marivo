@@ -543,7 +543,7 @@ def test_auto_detect_accepts_generic_time_granularities(granularity: str) -> Non
         ),
     ],
 )
-def test_diagnose_rejects_invalid_and_legacy_runner_inputs(
+def test_diagnose_rejects_invalid_runner_inputs(
     diagnose_env: DiagnoseEnv,
     params: dict[str, Any],
     message: str,

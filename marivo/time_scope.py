@@ -84,30 +84,32 @@ class ResolvedWindowedQueryRequest:
     limit: int | None = None
 
 
-_METRIC_QUERY_LEGACY_FIELDS = frozenset(
+_METRIC_QUERY_FIELDS = frozenset(
     {
-        "metric_name",
-        "table_name",
-        "period_start",
-        "period_end",
-        "baseline_start",
-        "baseline_end",
-        "comparison_type",
-        "date_column",
-        "where",
-        "filter",
+        "table",
+        "metric",
+        "dimensions",
+        "time_scope",
+        "scope",
+        "time_axis",
+        "time_scope_field",
+        "scoped_query",
+        "order",
+        "limit",
     }
 )
 
-_AGGREGATE_QUERY_LEGACY_FIELDS = frozenset(
+_AGGREGATE_QUERY_FIELDS = frozenset(
     {
-        "table_name",
-        "select",
-        "where",
-        "filter",
-        "compare_period",
-        "date_column",
-        "order_by",
+        "table",
+        "group_by",
+        "measures",
+        "time_scope",
+        "scope",
+        "time_axis",
+        "scoped_query",
+        "order",
+        "limit",
     }
 )
 
@@ -131,7 +133,7 @@ _EMPTY_SCHEMA_DAY_CANDIDATES = ("event_date", "date", "day", "dt", "log_date")
 
 
 def normalize_metric_query_request(params: Mapping[str, Any]) -> ResolvedWindowedQueryRequest:
-    _reject_legacy_fields(params, _METRIC_QUERY_LEGACY_FIELDS, "metric_query")
+    _reject_unknown_fields(params, _METRIC_QUERY_FIELDS, "metric_query")
     table = _required_str(params, "table", "metric_query")
     metric = _required_str(params, "metric", "metric_query")
     time_scope = _normalize_time_scope(params.get("time_scope"), "metric_query")
@@ -154,7 +156,7 @@ def normalize_metric_query_request(params: Mapping[str, Any]) -> ResolvedWindowe
 
 
 def normalize_aggregate_query_request(params: Mapping[str, Any]) -> ResolvedWindowedQueryRequest:
-    _reject_legacy_fields(params, _AGGREGATE_QUERY_LEGACY_FIELDS, "aggregate_query")
+    _reject_unknown_fields(params, _AGGREGATE_QUERY_FIELDS, "aggregate_query")
     table = _required_str(params, "table", "aggregate_query")
     time_scope = _normalize_time_scope(params.get("time_scope"), "aggregate_query")
     scope = _normalize_scope(params.get("scope"))
@@ -801,13 +803,13 @@ def _normalize_measure(payload: Any) -> ResolvedMeasure:
     return ResolvedMeasure(expr=expr, alias=alias)
 
 
-def _reject_legacy_fields(
-    params: Mapping[str, Any], fields: set[str] | frozenset[str], step_type: str
+def _reject_unknown_fields(
+    params: Mapping[str, Any], allowed_fields: set[str] | frozenset[str], step_type: str
 ) -> None:
-    legacy_fields = sorted(field for field in fields if field in params)
-    if legacy_fields:
-        joined = ", ".join(legacy_fields)
-        raise ValueError(f"{step_type} no longer accepts legacy fields: {joined}")
+    unknown_fields = sorted(field for field in params if field not in allowed_fields)
+    if unknown_fields:
+        joined = ", ".join(unknown_fields)
+        raise ValueError(f"{step_type} contains unsupported fields: {joined}")
 
 
 def _normalize_string_list(value: Any) -> list[str]:

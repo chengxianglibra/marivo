@@ -16,7 +16,7 @@ The following remain outside the quality gate and are deferred to Wave 5:
 
 - `/engines/**` — not mounted by the current router
 - `/mappings/**` — not mounted by the current router
-- `/catalog` legacy and stub routes, except the active datasource preview path
+- `/catalog` removed and stub routes, except the active datasource preview path
   `/datasources/{datasource_id}/catalog/preview`
 - `/openapi/*` meta routes
 - `/sessions/{session_id}/...` routes not listed in the scoped contract,
@@ -42,7 +42,7 @@ The following remain outside the quality gate and are deferred to Wave 5:
 2. Jobs and metrics, because they expose operational state.
 3. Calendar, because the data model is already mostly typed and should be
    straightforward to close.
-4. `/catalog` legacy/stub routes, after deciding whether each route remains
+4. `/catalog` removed/stub routes, after deciding whether each route remains
    public.
 5. `/openapi/*` meta routes, after the primary API surface is stable.
 

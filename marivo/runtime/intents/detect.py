@@ -208,17 +208,15 @@ def _query_scalar_window_values(
     )
     scoped_query = runtime.build_scoped_query(session_id, resolved, engine_type=engine_type)
 
-    select_exprs = [f"{metric_sql} AS value"]
     group_by: list[str] = []
-    order_by: str | None = None
+    order: str | None = None
     if dimension is not None:
         if dimension_expr is None:
             raise ValueError(
                 f"detect: INVALID_ARGUMENT - dimension '{dimension}' did not resolve to a physical column"
             )
-        select_exprs.insert(0, f"{dimension_expr} AS split_value")
-        group_by.append("split_value")
-        order_by = "split_value"
+        group_by.append(f"{dimension_expr} AS split_value")
+        order = "split_value"
 
     compiled_query = runtime.compile_step(
         AnalysisStepIR(
@@ -226,9 +224,9 @@ def _query_scalar_window_values(
             step_type="aggregate_query",
             params={
                 "table": qualified_table,
-                "select": select_exprs,
+                "measures": [{"expr": metric_sql, "as": "value"}],
                 "group_by": group_by,
-                "order_by": order_by,
+                "order": order,
                 "scoped_query": scoped_query,
                 "limit": 10000,
             },
@@ -481,20 +479,15 @@ def run_detect_intent(
 
     time_col = resolved.resolved_time_axis.analysis_time_expr
     bucket_expr = f"DATE_TRUNC('{granularity}', {time_col})"
-    select_exprs = [
-        f"{bucket_expr} AS bucket_start",
-        f"{metric_sql} AS value",
-    ]
-    group_by = ["bucket_start"]
-    order_by = "bucket_start"
+    group_by = [f"{bucket_expr} AS bucket_start"]
+    order = "bucket_start"
     if dimension is not None:
         if dimension_expr is None:
             raise ValueError(
                 f"detect: INVALID_ARGUMENT - dimension '{dimension}' did not resolve to a physical column"
             )
-        select_exprs.insert(1, f"{dimension_expr} AS split_value")
-        group_by.append("split_value")
-        order_by = "split_value, bucket_start"
+        group_by.append(f"{dimension_expr} AS split_value")
+        order = "split_value, bucket_start"
 
     step_id = new_step_id()
     compiled_query = runtime.compile_step(
@@ -503,9 +496,9 @@ def run_detect_intent(
             step_type="aggregate_query",
             params={
                 "table": qualified_table,
-                "select": select_exprs,
+                "measures": [{"expr": metric_sql, "as": "value"}],
                 "group_by": group_by,
-                "order_by": order_by,
+                "order": order,
                 "scoped_query": scoped_query,
                 "limit": 10000,
             },

@@ -314,19 +314,16 @@ def build_metric_query(
     table_name: str,
     metric_sql: str,
     dimensions: list[str],
+    scoped_query: Mapping[str, Any],
     dimension_sql_expressions: Mapping[str, str] | None = None,
-    date_column: str = "event_date",
     order: str = "DELTA_PCT ASC",
     limit: int = 10,
-    filter_expr: str | None = None,
-    scoped_query: Mapping[str, Any] | None = None,
 ) -> str:
     """Build metric_query SQL for compare and single-window semantic metric queries.
 
     When *dimensions* is empty, an aggregate-only query is produced
-    (no GROUP BY on dimensions). ``scoped_query.mode == 'compare'`` emits
-    current-vs-baseline columns; ``single_window`` emits current-window
-    observation columns only.
+    (no GROUP BY on dimensions). ``scoped_query.mode == 'compare'`` emits current-vs-baseline
+    columns; ``single_window`` emits current-window observation columns only.
     """
 
     del metric_name
@@ -354,85 +351,37 @@ def build_metric_query(
         group_by_dims = ""
         select_dims = ""
 
-    if scoped_query is not None:
-        mode = _require_scoped_query_mode(scoped_query)
-        effective_order = order
-        if not str(effective_order or "").strip():
-            effective_order = "CURRENT_VALUE DESC" if mode == "single_window" else "DELTA_PCT ASC"
-        order_field, order_direction = _normalize_metric_query_order(effective_order, mode=mode)
-        if mode == "single_window":
-            scoped = _build_scoped_query_parts(table_name, scoped_query, include_period=False)
-            group_clause = f"GROUP BY {', '.join(group_dimension_exprs)}" if dimensions else ""
-            order_clause = f"ORDER BY {order_field} {order_direction}" if order else ""
-            return f"""
-                WITH {scoped.cte_sql}
-                SELECT
-                    {select_dims}
-                    ROUND({metric_sql}, 2) AS current_value,
-                    COUNT(*) AS current_sessions
-                FROM scoped
-                {group_clause}
-                {order_clause}
-                LIMIT {limit}
-            """
-
-        scoped = _build_scoped_query_parts(table_name, scoped_query, include_period=True)
+    mode = _require_scoped_query_mode(scoped_query)
+    effective_order = order
+    if not str(effective_order or "").strip():
+        effective_order = "CURRENT_VALUE DESC" if mode == "single_window" else "DELTA_PCT ASC"
+    order_field, order_direction = _normalize_metric_query_order(effective_order, mode=mode)
+    if mode == "single_window":
+        scoped = _build_scoped_query_parts(table_name, scoped_query, include_period=False)
+        group_clause = f"GROUP BY {', '.join(group_dimension_exprs)}" if dimensions else ""
+        order_clause = f"ORDER BY {order_field} {order_direction}" if order else ""
         return f"""
-            WITH {scoped.cte_sql},
-            by_period AS (
-                SELECT
-                    _period AS period,
-                    {select_dims}
-                    {metric_sql} AS metric_value,
-                    COUNT(*) AS session_count
-                FROM scoped
-                {group_by_period}
-            ),
-            pivoted AS (
-                SELECT
-                    {select_dims}
-                    MAX(CASE WHEN period = 'current' THEN metric_value END) AS current_value,
-                    MAX(CASE WHEN period = 'baseline' THEN metric_value END) AS baseline_value,
-                    MAX(CASE WHEN period = 'current' THEN session_count END) AS current_sessions,
-                    MAX(CASE WHEN period = 'baseline' THEN session_count END) AS baseline_sessions
-                FROM by_period
-                {group_by_dims}
-            )
+            WITH {scoped.cte_sql}
             SELECT
                 {select_dims}
-                ROUND(current_value, 2) AS current_value,
-                ROUND(baseline_value, 2) AS baseline_value,
-                ROUND(((current_value - baseline_value) * 1.0 / NULLIF(baseline_value, 0)) * 100, 2) AS delta_pct,
-                current_sessions,
-                baseline_sessions
-            FROM pivoted
-            ORDER BY {order_field} {order_direction}
+                ROUND({metric_sql}, 2) AS current_value,
+                COUNT(*) AS current_sessions
+            FROM scoped
+            {group_clause}
+            {order_clause}
             LIMIT {limit}
         """
 
-    legacy_order_field, legacy_order_direction = _normalize_metric_query_order(
-        order, mode="compare"
-    )
-    filter_clause = f" AND {filter_expr}" if filter_expr else ""
-
+    scoped = _build_scoped_query_parts(table_name, scoped_query, include_period=True)
     return f"""
-        WITH periodized AS (
-            SELECT
-                CASE
-                    WHEN {date_column} BETWEEN ? AND ? THEN 'current'
-                    WHEN {date_column} BETWEEN ? AND ? THEN 'baseline'
-                END AS period,
-                *
-            FROM {table_name}
-            WHERE {date_column} BETWEEN ? AND ?{filter_clause}
-        ),
+        WITH {scoped.cte_sql},
         by_period AS (
             SELECT
-                period,
+                _period AS period,
                 {select_dims}
                 {metric_sql} AS metric_value,
                 COUNT(*) AS session_count
-            FROM periodized
+            FROM scoped
             {group_by_period}
         ),
         pivoted AS (
@@ -453,7 +402,7 @@ def build_metric_query(
             current_sessions,
             baseline_sessions
         FROM pivoted
-        ORDER BY {legacy_order_field} {legacy_order_direction}
+        ORDER BY {order_field} {order_direction}
         LIMIT {limit}
     """
 
@@ -474,44 +423,6 @@ def _metric_query_dimension_sql_expressions(
     }
 
 
-def _extract_agg_alias(expr: str) -> str:
-    """Extract alias from e.g. 'count(*) as query_count' -> 'query_count'.
-
-    Raises ValueError if no alias found (required for compare_period mode).
-    """
-    match = re.search(r"\bAS\s+(\w+)\s*$", expr, re.IGNORECASE)
-    if match:
-        return match.group(1)
-    raise ValueError(
-        f"aggregate_query with compare_period=True requires aliases in all aggregate "
-        f"expressions. Missing alias in: {expr!r}"
-    )
-
-
-def _expand_group_by_aliases(select_exprs: list[str], group_by: list[str]) -> list[str]:
-    """Expand SELECT aliases referenced in GROUP BY to their full expressions.
-
-    Trino (standard SQL) rejects GROUP BY alias references; DuckDB accepts them.
-    This expansion makes compiled SQL portable across engines.
-
-    Example:
-        select_exprs = ["CASE WHEN x = 1 THEN 'a' ELSE 'b' END AS cat", "count(*) AS n"]
-        group_by     = ["cat"]
-        -> returns    ["CASE WHEN x = 1 THEN 'a' ELSE 'b' END"]
-    """
-    alias_to_expr: dict[str, str] = {}
-    for expr in select_exprs:
-        m = re.search(r"^(.*?)\s+AS\s+(\w+)\s*$", expr.strip(), re.IGNORECASE)
-        if m:
-            alias_to_expr[m.group(2).lower()] = m.group(1).strip()
-
-    expanded: list[str] = []
-    for item in group_by:
-        key = item.strip().lower()
-        expanded.append(alias_to_expr.get(key, item))
-    return expanded
-
-
 def _normalize_typed_aggregate_measures(raw_measures: Any) -> list[tuple[str, str]]:
     if not isinstance(raw_measures, list) or not raw_measures:
         raise ValueError("aggregate_query requires 'measures' param (list of measure objects)")
@@ -526,6 +437,28 @@ def _normalize_typed_aggregate_measures(raw_measures: Any) -> list[tuple[str, st
             raise ValueError("aggregate_query measures must include non-empty 'expr' and 'as'")
         normalized.append((expr, alias))
     return normalized
+
+
+def _normalize_group_by_terms(group_by: list[str]) -> tuple[str, str, str]:
+    select_terms: list[str] = []
+    group_terms: list[str] = []
+    output_refs: list[str] = []
+    for item in group_by:
+        raw = str(item).strip()
+        if not raw:
+            continue
+        alias_match = re.search(r"^(.*?)\s+AS\s+(\w+)\s*$", raw, re.IGNORECASE)
+        if alias_match:
+            expr = alias_match.group(1).strip()
+            alias = alias_match.group(2).strip()
+            select_terms.append(f"{expr} AS {alias}")
+            group_terms.append(expr)
+            output_refs.append(alias)
+            continue
+        select_terms.append(raw)
+        group_terms.append(raw)
+        output_refs.append(raw)
+    return ", ".join(select_terms), ", ".join(group_terms), ", ".join(output_refs)
 
 
 def build_windowed_aggregate_query(
@@ -546,7 +479,7 @@ def build_windowed_aggregate_query(
     """
 
     agg_exprs = _normalize_typed_aggregate_measures(measures)
-    group_by_sql = ", ".join(group_by)
+    group_by_sql, group_by_group_sql, group_by_output_sql = _normalize_group_by_terms(group_by)
     agg_select = ", ".join(f"{expr} AS {alias}" for expr, alias in agg_exprs)
     select_prefix = f"{group_by_sql}, " if group_by_sql else ""
 
@@ -577,11 +510,11 @@ def build_windowed_aggregate_query(
             )
 
         by_period_group_by = (
-            f"GROUP BY _period, {group_by_sql}" if group_by_sql else "GROUP BY _period"
+            f"GROUP BY _period, {group_by_group_sql}" if group_by_group_sql else "GROUP BY _period"
         )
-        pivot_group_by = f"GROUP BY {group_by_sql}" if group_by_sql else ""
-        pivot_select_prefix = f"{group_by_sql},\n            " if group_by_sql else ""
-        final_select_prefix = f"{group_by_sql},\n            " if group_by_sql else ""
+        pivot_group_by = f"GROUP BY {group_by_output_sql}" if group_by_output_sql else ""
+        pivot_select_prefix = f"{group_by_output_sql},\n            " if group_by_output_sql else ""
+        final_select_prefix = f"{group_by_output_sql},\n            " if group_by_output_sql else ""
         return f"""
             WITH {scoped.cte_sql},
             by_period AS (
@@ -600,7 +533,7 @@ def build_windowed_aggregate_query(
             LIMIT {limit}
         """
 
-    group_clause = f" GROUP BY {group_by_sql}" if group_by_sql else ""
+    group_clause = f" GROUP BY {group_by_group_sql}" if group_by_group_sql else ""
     order_clause = f" ORDER BY {order_by}" if order_by else ""
 
     if scoped_query is not None:
@@ -611,143 +544,6 @@ def build_windowed_aggregate_query(
         )
 
     return f"SELECT {select_prefix}{agg_select} FROM {table_name}{group_clause}{order_clause} LIMIT {limit}"
-
-
-def build_aggregate_comparison_query(
-    table_name: str,
-    select_exprs: list[str],
-    group_by: list[str],
-    date_column: str,
-    order_by: str | None = None,
-    limit: int = 100,
-    filter_expr: str | None = None,
-    scoped_query: Mapping[str, Any] | None = None,
-) -> str:
-    """Build a current-vs-baseline comparison query for ad-hoc aggregate steps.
-
-    Mirrors ``build_metric_query`` but driven by user-supplied ``select``
-    and ``group_by`` instead of a registered semantic metric.
-
-    SQL ``?`` placeholder order (6 params, same as build_metric_query):
-        current_start, current_end,   (CASE WHEN ... THEN 'current')
-        baseline_start, baseline_end, (CASE WHEN ... THEN 'baseline')
-        baseline_start, current_end   (outer WHERE range)
-    """
-    agg_exprs: list[tuple[str, str]] = []
-    for expr in select_exprs:
-        stripped = expr.strip()
-        if stripped in group_by:
-            continue
-        alias = _extract_agg_alias(stripped)
-        agg_exprs.append((stripped, alias))
-
-    if not agg_exprs:
-        raise ValueError(
-            "compare_period requires at least one aggregate expression with an alias in 'select'"
-        )
-
-    group_by_cols = ", ".join(group_by)
-    group_by_cols_expanded = ", ".join(_expand_group_by_aliases(select_exprs, group_by))
-    agg_select = ", ".join(expr for expr, _ in agg_exprs)
-
-    pivot_parts: list[str] = []
-    for _, alias in agg_exprs:
-        pivot_parts.append(
-            f"MAX(CASE WHEN _period = 'current' THEN {alias} END) AS {alias}_current"
-        )
-        pivot_parts.append(
-            f"MAX(CASE WHEN _period = 'baseline' THEN {alias} END) AS {alias}_baseline"
-        )
-    pivot_select = ",\n            ".join(pivot_parts)
-
-    final_parts: list[str] = []
-    for _, alias in agg_exprs:
-        final_parts.append(f"{alias}_current")
-        final_parts.append(f"{alias}_baseline")
-        final_parts.append(
-            f"ROUND(({alias}_current - {alias}_baseline) * 1.0 / NULLIF({alias}_baseline, 0) * 100, 2)"
-            f" AS {alias}_delta_pct"
-        )
-    final_select_agg = ",\n            ".join(final_parts)
-
-    first_alias = agg_exprs[0][1]
-    effective_order_by = order_by or f"{first_alias}_delta_pct DESC"
-
-    scoped_from = f"FROM {table_name}"
-    if scoped_query is not None:
-        scoped = _build_scoped_query_parts(table_name, scoped_query, include_period=True)
-        scoped_from = "FROM scoped"
-        with_prefix = f"WITH {scoped.cte_sql},"
-    else:
-        filter_clause = f" AND {filter_expr}" if filter_expr else ""
-        with_prefix = ""
-
-    by_period_group_by = (
-        f"GROUP BY _period, {group_by_cols_expanded}"
-        if group_by_cols_expanded
-        else "GROUP BY _period"
-    )
-    pivot_group_by = f"GROUP BY {group_by_cols}" if group_by_cols else ""
-    by_period_select_prefix = f"_period, {group_by_cols}, " if group_by_cols else "_period, "
-    pivot_select_prefix = f"{group_by_cols},\n            " if group_by_cols else ""
-    final_select_prefix = f"{group_by_cols},\n            " if group_by_cols else ""
-
-    if scoped_query is not None:
-        return f"""
-            {with_prefix}
-            by_period AS (
-                SELECT {by_period_select_prefix}{agg_select}
-                {scoped_from}
-                {by_period_group_by}
-            ),
-            pivoted AS (
-                SELECT {pivot_select_prefix}{pivot_select}
-                FROM by_period
-                {pivot_group_by}
-            )
-            SELECT {final_select_prefix}{final_select_agg}
-            FROM pivoted
-            ORDER BY {effective_order_by}
-            LIMIT {limit}
-        """
-
-    filter_clause = f" AND {filter_expr}" if filter_expr else ""
-    by_period_group_by = (
-        f"GROUP BY _period, {group_by_cols_expanded}"
-        if group_by_cols_expanded
-        else "GROUP BY _period"
-    )
-    pivot_group_by = f"GROUP BY {group_by_cols}" if group_by_cols else ""
-    by_period_select_prefix = f"_period, {group_by_cols}, " if group_by_cols else "_period, "
-    pivot_select_prefix = f"{group_by_cols},\n            " if group_by_cols else ""
-    final_select_prefix = f"{group_by_cols},\n            " if group_by_cols else ""
-
-    return f"""
-        WITH periodized AS (
-            SELECT
-                CASE
-                    WHEN {date_column} BETWEEN ? AND ? THEN 'current'
-                    WHEN {date_column} BETWEEN ? AND ? THEN 'baseline'
-                END AS _period,
-                *
-            FROM {table_name}
-            WHERE {date_column} BETWEEN ? AND ?{filter_clause}
-        ),
-        by_period AS (
-            SELECT {by_period_select_prefix}{agg_select}
-            FROM periodized
-            {by_period_group_by}
-        ),
-        pivoted AS (
-            SELECT {pivot_select_prefix}{pivot_select}
-            FROM by_period
-            {pivot_group_by}
-        )
-        SELECT {final_select_prefix}{final_select_agg}
-        FROM pivoted
-        ORDER BY {effective_order_by}
-        LIMIT {limit}
-    """
 
 
 # ── Validation trace/summary builders ───────────────────────────────────
