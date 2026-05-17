@@ -8,7 +8,6 @@ from marivo.core.intent.primitives import new_step_id
 from marivo.core.semantic.calendar import (
     build_calendar_annotation_rows,
     compare_type_to_alignment_plan,
-    resolve_calendar_baseline_window,
     resolve_calendar_bucket_pairing,
 )
 from marivo.runtime.intents._helpers import commit_step_result
@@ -99,6 +98,48 @@ def _series_map_by_start_day(
     return by_start
 
 
+def _sorted_series_rows(series: list[dict[str, Any]], *, label: str) -> list[dict[str, Any]]:
+    return sorted(series, key=lambda row: _window_start(row, label=label))
+
+
+def _relative_position_pairing_basis(
+    *,
+    left_series: list[dict[str, Any]],
+    right_series: list[dict[str, Any]],
+    compare_type: str,
+) -> dict[str, Any]:
+    left_sorted = _sorted_series_rows(left_series, label="left.series.window")
+    right_sorted = _sorted_series_rows(right_series, label="right.series.window")
+    paired_left: dict[str, dict[str, Any]] = {}
+    paired_right: dict[str, dict[str, Any]] = {}
+    paired_keys: list[str] = []
+    max_len = max(len(left_sorted), len(right_sorted))
+    for index in range(max_len):
+        left_row = left_sorted[index] if index < len(left_sorted) else None
+        right_row = right_sorted[index] if index < len(right_sorted) else None
+        if left_row is None and right_row is None:
+            continue
+        key = _series_row_key(left_row if left_row is not None else right_row or {})
+        if left_row is not None:
+            key = _series_row_key(left_row)
+            paired_left[key] = left_row
+        if right_row is not None:
+            right_payload = dict(right_row)
+            if left_row is not None:
+                right_payload["window"] = dict(left_row.get("window") or {})
+                right_payload["_matched_window"] = dict(right_row.get("window") or {})
+            paired_right[key] = right_payload
+        paired_keys.append(key)
+    return {
+        "pairing_basis": "input_artifact_window_position",
+        "pairing_rule": "relative_bucket_position",
+        "series_keys": paired_keys,
+        "left_series_map": paired_left,
+        "right_series_map": paired_right,
+        "compare_type": compare_type,
+    }
+
+
 def _matched_scope_from_windows(windows: list[tuple[str, str]]) -> dict[str, Any] | None:
     if not windows:
         return None
@@ -137,109 +178,99 @@ def _resolve_time_series_pairing_basis(
 ) -> dict[str, Any]:
     left_series: list[dict[str, Any]] = left_artifact.get("series") or []
     right_series: list[dict[str, Any]] = right_artifact.get("series") or []
-    left_series_map = {_series_row_key(row): row for row in left_series}
-    right_series_map = {_series_row_key(row): row for row in right_series}
-    default_keys = sorted(set(left_series_map) | set(right_series_map))
 
     alignment_plan = compare_type_to_alignment_plan(compare_type)
-    if alignment_plan is not None:
-        current_window = _time_scope_window(left_artifact, label="left")
-        baseline_window = resolve_calendar_baseline_window(
-            current_window=current_window,
-            rule=alignment_plan.resolved_baseline_generation_rule,
+    if alignment_plan is None:
+        return _relative_position_pairing_basis(
+            left_series=left_series,
+            right_series=right_series,
+            compare_type=compare_type,
         )
-        if alignment_plan.requires_calendar_data:
-            reader = runtime.calendar_data_reader
-            if not isinstance(reader, CalendarDataReaderLike):
-                raise ValueError(
-                    "compare: INVALID_ARGUMENT - compare_type "
-                    f"'{compare_type}' requires configured calendar data"
-                )
-            try:
-                calendar_data = reader.read_for_alignment(
-                    current_window=current_window,
-                    baseline_window=baseline_window,
-                )
-            except CalendarDataResolutionError as exc:
-                raise ValueError(
-                    "compare: INVALID_ARGUMENT - compare_type "
-                    f"'{compare_type}' calendar data unavailable: {exc}"
-                ) from exc
-            annotation_rows = calendar_data.annotation_rows
-        else:
-            annotation_rows = build_calendar_annotation_rows(
+
+    current_window = _time_scope_window(left_artifact, label="left")
+    baseline_window = _time_scope_window(right_artifact, label="right")
+    if alignment_plan.requires_calendar_data:
+        reader = runtime.calendar_data_reader
+        if not isinstance(reader, CalendarDataReaderLike):
+            raise ValueError(
+                "compare: INVALID_ARGUMENT - compare_type "
+                f"'{compare_type}' requires configured calendar data"
+            )
+        try:
+            calendar_data = reader.read_for_alignment(
                 current_window=current_window,
                 baseline_window=baseline_window,
-                raw_rows=None,
             )
-        pairing_resolution = resolve_calendar_bucket_pairing(
+        except CalendarDataResolutionError as exc:
+            raise ValueError(
+                "compare: INVALID_ARGUMENT - compare_type "
+                f"'{compare_type}' calendar data unavailable: {exc}"
+            ) from exc
+        annotation_rows = calendar_data.annotation_rows
+    else:
+        annotation_rows = build_calendar_annotation_rows(
             current_window=current_window,
             baseline_window=baseline_window,
-            matching_strategy=alignment_plan.matching_strategy,
-            fallback_strategy=alignment_plan.fallback_strategy,
-            annotation_rows=annotation_rows,
+            raw_rows=None,
         )
-        left_by_current = _series_map_by_start_day(left_series, label="left.series.window")
-        right_by_baseline = _series_map_by_start_day(right_series, label="right.series.window")
-        paired_left: dict[str, dict[str, Any]] = {}
-        paired_right: dict[str, dict[str, Any]] = {}
-        paired_keys: list[str] = []
-        for pairing in pairing_resolution.bucket_pairing:
-            current_bucket_start = pairing.get("current_bucket_start")
-            baseline_bucket_start = pairing.get("baseline_bucket_start")
-            if not isinstance(current_bucket_start, str) or not current_bucket_start:
-                continue
-            left_current_row = left_by_current.get(current_bucket_start)
-            if left_current_row is None:
-                continue
-            key = _series_row_key(left_current_row)
-            paired_left[key] = left_current_row
-            if isinstance(baseline_bucket_start, str) and baseline_bucket_start:
-                right_baseline_row = right_by_baseline.get(baseline_bucket_start)
-                if right_baseline_row is not None:
-                    paired_right[key] = {
-                        "window": dict(left_current_row.get("window") or {}),
-                        "value": right_baseline_row.get("value"),
-                        "_matched_window": dict(right_baseline_row.get("window") or {}),
-                    }
-            paired_keys.append(key)
-        if not paired_keys:
-            raise ValueError(
-                "compare: NOT_COMPARABLE - compare_type "
-                f"'{compare_type}' produced no aligned buckets"
-            )
-        return {
-            "pairing_basis": "compare_type_calendar_alignment",
-            "pairing_rule": alignment_plan.resolved_alignment_mode,
-            "series_keys": paired_keys,
-            "left_series_map": paired_left,
-            "right_series_map": paired_right,
-            "compare_type": compare_type,
-            "calendar_alignment": {
-                "compare_type": compare_type,
-                "comparison_basis": alignment_plan.comparison_basis,
-                "resolved_alignment_mode": alignment_plan.resolved_alignment_mode,
-                "current_window": {
-                    "start": current_window[0].isoformat(),
-                    "end": current_window[1].isoformat(),
-                },
-                "baseline_window": {
-                    "start": baseline_window[0].isoformat(),
-                    "end": baseline_window[1].isoformat(),
-                },
-                "bucket_pairing": pairing_resolution.bucket_pairing,
-                "rollup_safe": pairing_resolution.rollup_safe,
-                "comparability_warnings": pairing_resolution.comparability_warnings,
-            },
-        }
-
+    pairing_resolution = resolve_calendar_bucket_pairing(
+        current_window=current_window,
+        baseline_window=baseline_window,
+        matching_strategy=alignment_plan.matching_strategy,
+        fallback_strategy=alignment_plan.fallback_strategy,
+        annotation_rows=annotation_rows,
+    )
+    left_by_current = _series_map_by_start_day(left_series, label="left.series.window")
+    right_by_baseline = _series_map_by_start_day(right_series, label="right.series.window")
+    paired_left: dict[str, dict[str, Any]] = {}
+    paired_right: dict[str, dict[str, Any]] = {}
+    paired_keys: list[str] = []
+    for pairing in pairing_resolution.bucket_pairing:
+        current_bucket_start = pairing.get("current_bucket_start")
+        baseline_bucket_start = pairing.get("baseline_bucket_start")
+        if not isinstance(current_bucket_start, str) or not current_bucket_start:
+            continue
+        left_current_row = left_by_current.get(current_bucket_start)
+        if left_current_row is None:
+            continue
+        key = _series_row_key(left_current_row)
+        paired_left[key] = left_current_row
+        if isinstance(baseline_bucket_start, str) and baseline_bucket_start:
+            right_baseline_row = right_by_baseline.get(baseline_bucket_start)
+            if right_baseline_row is not None:
+                paired_right[key] = {
+                    "window": dict(left_current_row.get("window") or {}),
+                    "value": right_baseline_row.get("value"),
+                    "_matched_window": dict(right_baseline_row.get("window") or {}),
+                }
+        paired_keys.append(key)
+    if not paired_keys:
+        raise ValueError(
+            f"compare: NOT_COMPARABLE - compare_type '{compare_type}' produced no aligned buckets"
+        )
     return {
-        "pairing_basis": "observed_series",
-        "pairing_rule": "intersection_by_time_bucket",
-        "series_keys": default_keys,
-        "left_series_map": left_series_map,
-        "right_series_map": right_series_map,
+        "pairing_basis": "compare_type_calendar_alignment",
+        "pairing_rule": alignment_plan.resolved_alignment_mode,
+        "series_keys": paired_keys,
+        "left_series_map": paired_left,
+        "right_series_map": paired_right,
         "compare_type": compare_type,
+        "calendar_alignment": {
+            "compare_type": compare_type,
+            "comparison_basis": alignment_plan.comparison_basis,
+            "resolved_alignment_mode": alignment_plan.resolved_alignment_mode,
+            "current_window": {
+                "start": current_window[0].isoformat(),
+                "end": current_window[1].isoformat(),
+            },
+            "baseline_window": {
+                "start": baseline_window[0].isoformat(),
+                "end": baseline_window[1].isoformat(),
+            },
+            "bucket_pairing": pairing_resolution.bucket_pairing,
+            "rollup_safe": pairing_resolution.rollup_safe,
+            "comparability_warnings": pairing_resolution.comparability_warnings,
+        },
     }
 
 

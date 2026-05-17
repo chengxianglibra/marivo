@@ -8,13 +8,12 @@
 
 | value | supported observation type | behavior |
 | --- | --- | --- |
-| `normal` | scalar / segmented / time_series | scalar/segmented 按现有值比较；time-series 使用 observed bucket 交集 |
-| `yoy` | time_series | 当前窗口自然平移到上一年，按自然日期配对 |
-| `mom` | time_series | 当前窗口前一个等长周期，按自然日期配对 |
-| `wow` | time_series | 当前窗口前 7 天，按相同 weekday 配对 |
-| `weekday_aligned_yoy` | time_series | 上一年窗口内相同 weekday 最近匹配，失败后自然日期 |
-| `weekday_aligned_mom` | time_series | 上一周期窗口内相同 weekday 最近匹配，失败后自然日期 |
-| `holiday_aligned_yoy` | time_series | 读取 calendar data，优先 holiday group / relative key，再 weekday，再自然日期 |
+| `normal` | scalar / segmented / time_series | scalar/segmented 按现有值比较；time-series 按左右 artifact 窗口内的 bucket 相对位置配对 |
+| `weekday_aligned` | time_series | 在右侧 artifact 窗口内找相同 weekday 最近匹配，失败后按相对位置配对 |
+| `holiday_aligned` | time_series | 读取 calendar data，优先 holiday group / relative key，失败后按相对位置配对 |
+| `holiday_and_weekday_aligned` | time_series | 读取 calendar data，优先 holiday group / relative key，再 weekday，最后按相对位置配对 |
+
+`compare_type` 不表达同比、环比或周环比；这些时间关系由传入的左右 observe artifact 的 `time_scope` 决定。
 
 非 `normal` 值用于 scalar 或 segmented observation 时，runtime 返回：
 

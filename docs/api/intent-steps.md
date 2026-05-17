@@ -120,11 +120,11 @@ POST /sessions/{session_id}/intents/compare
 ```
 
 `compare_type` defaults to `normal` when omitted. It is the only public calendar
-alignment control: `normal` uses observed bucket intersection, while `yoy`,
-`mom`, `wow`, `weekday_aligned_yoy`, `weekday_aligned_mom`, and
-`holiday_aligned_yoy` are accepted only for time-series compare artifacts.
-`holiday_aligned_yoy` reads configured calendar data and uses holiday keys
-before weekday and natural-date fallback.
+alignment control: `normal` pairs time-series buckets by relative position in the
+left and right artifact windows. `holiday_aligned`, `weekday_aligned`, and
+`holiday_and_weekday_aligned` are accepted only for time-series compare artifacts.
+Holiday strategies read configured calendar data; all alignment strategies fall
+back to relative-position pairing when a more specific bucket match is absent.
 
 ### Decompose
 

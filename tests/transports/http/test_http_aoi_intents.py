@@ -417,7 +417,7 @@ def test_compare_accepts_aoi_request_with_compare_type() -> None:
         json={
             "left_artifact_id": "artifact_left",
             "right_artifact_id": "artifact_right",
-            "compare_type": "weekday_aligned_yoy",
+            "compare_type": "weekday_aligned",
         },
     )
 
@@ -425,7 +425,7 @@ def test_compare_accepts_aoi_request_with_compare_type() -> None:
     assert isinstance(runtime.compare_payload, aoi.Compare)
     assert runtime.compare_payload.left_artifact_id == "artifact_left"
     assert runtime.compare_payload.right_artifact_id == "artifact_right"
-    assert runtime.compare_payload.compare_type == "weekday_aligned_yoy"
+    assert runtime.compare_payload.compare_type == "weekday_aligned"
 
 
 def test_detect_requires_strategy() -> None:

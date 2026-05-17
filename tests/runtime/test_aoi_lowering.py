@@ -79,13 +79,13 @@ def test_lowers_compare_request_to_runner_params() -> None:
     request = aoi.Compare(
         left_artifact_id="artifact-left",
         right_artifact_id="artifact-right",
-        compare_type="holiday_aligned_yoy",
+        compare_type="holiday_aligned",
     )
 
     assert lower_aoi_request("compare", request) == {
         "left_artifact_id": "artifact-left",
         "right_artifact_id": "artifact-right",
-        "compare_type": "holiday_aligned_yoy",
+        "compare_type": "holiday_aligned",
     }
 
 

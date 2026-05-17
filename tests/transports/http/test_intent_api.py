@@ -271,12 +271,9 @@ class AoiGeneratedIntentModelTests(unittest.TestCase):
     def test_aoi_compare_accepts_all_compare_types(self) -> None:
         for compare_type in (
             "normal",
-            "yoy",
-            "mom",
-            "wow",
-            "holiday_aligned_yoy",
-            "weekday_aligned_yoy",
-            "weekday_aligned_mom",
+            "holiday_aligned",
+            "weekday_aligned",
+            "holiday_and_weekday_aligned",
         ):
             with self.subTest(compare_type=compare_type):
                 request = aoi.Compare.model_validate(
@@ -289,14 +286,23 @@ class AoiGeneratedIntentModelTests(unittest.TestCase):
                 self.assertEqual(request.compare_type, compare_type)
 
     def test_aoi_compare_rejects_invalid_compare_type(self) -> None:
-        with self.assertRaises(ValidationError):
-            aoi.Compare.model_validate(
-                {
-                    "left_artifact_id": "art_left",
-                    "right_artifact_id": "art_right",
-                    "compare_type": "not_real",
-                }
-            )
+        for compare_type in (
+            "not_real",
+            "yoy",
+            "mom",
+            "wow",
+            "holiday_aligned_yoy",
+            "weekday_aligned_yoy",
+            "weekday_aligned_mom",
+        ):
+            with self.subTest(compare_type=compare_type), self.assertRaises(ValidationError):
+                aoi.Compare.model_validate(
+                    {
+                        "left_artifact_id": "art_left",
+                        "right_artifact_id": "art_right",
+                        "compare_type": compare_type,
+                    }
+                )
 
     def test_aoi_compare_rejects_extra_fields(self) -> None:
         with self.assertRaises(ValidationError):

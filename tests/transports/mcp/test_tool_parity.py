@@ -528,12 +528,9 @@ def test_compare_tool_schema_exposes_compare_type_enum_and_default() -> None:
     assert compare_type["default"] == "normal"
     assert compare_type["enum"] == [
         "normal",
-        "yoy",
-        "mom",
-        "wow",
-        "holiday_aligned_yoy",
-        "weekday_aligned_yoy",
-        "weekday_aligned_mom",
+        "holiday_aligned",
+        "weekday_aligned",
+        "holiday_and_weekday_aligned",
     ]
 
 

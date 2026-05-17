@@ -15,6 +15,7 @@
 ### Changed
 
 - AOI scope now includes seven atomic requests plus the derived `validate`, `attribute`, and `diagnose` request contracts.
+- `CompareType` now exposes alignment strategies only: `normal`, `holiday_aligned`, `weekday_aligned`, and `holiday_and_weekday_aligned`.
 
 ## 0.1.0 - 2026-05-08
 
@@ -25,7 +26,7 @@ Initial draft publication.
 - Single canonical JSON Schema at `schema/aoi.schema.json`.
 - Narrative specification at `spec.md`.
 - Minimal examples for observe, compare, and decompose.
-- Core `CompareType` enum with `normal`, `yoy`, `mom`, `wow`, `holiday_aligned_yoy`, `weekday_aligned_yoy`, and `weekday_aligned_mom`.
+- Core `CompareType` enum.
 - Numeric result range and high/low semantics for deltas, decomposition contributions, anomaly scores, association coefficients, p-values, and forecast intervals.
 - Request, success artifact, and failure artifact examples for all seven atomic intents.
 

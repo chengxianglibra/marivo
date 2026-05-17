@@ -82,12 +82,9 @@
         "default": "normal",
         "enum": [
           "normal",
-          "yoy",
-          "mom",
-          "wow",
-          "holiday_aligned_yoy",
-          "weekday_aligned_yoy",
-          "weekday_aligned_mom"
+          "holiday_aligned",
+          "weekday_aligned",
+          "holiday_and_weekday_aligned"
         ]
       },
       "HypothesisFamily": {
