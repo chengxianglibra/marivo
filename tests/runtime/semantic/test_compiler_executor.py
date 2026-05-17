@@ -241,6 +241,40 @@ class CompilerTests(unittest.TestCase):
             compiled.sql,
         )
 
+    def test_compile_aggregate_query_timestamp_expression_keeps_partition_pruning(
+        self,
+    ) -> None:
+        expression = "DATE_PARSE(CAST(create_time AS VARCHAR), '%Y-%m-%d %H:%i:%s')"
+        compiled = compile_step(
+            AnalysisStepIR(
+                index=0,
+                step_type="aggregate_query",
+                params={
+                    "table": "analytics.watch_events",
+                    "measures": [{"expr": "COUNT(*)", "as": "value"}],
+                    "group_by": [],
+                    "order": "value DESC",
+                    "scoped_query": {
+                        "mode": "single_window",
+                        "engine_type": "trino",
+                        "analysis_time_kind": "timestamp",
+                        "analysis_time_expr": expression,
+                        "partition_pruning_predicate": "log_date = '20260515' AND log_hour >= '00' AND log_hour < '24'",
+                        "current": {"start": "2026-05-15T00:00:00", "end": "2026-05-16T00:00:00"},
+                    },
+                },
+            ),
+            engine_type="trino",
+        )
+
+        self.assertEqual(compiled.params, [])
+        self.assertIn(f"{expression} >= TIMESTAMP '2026-05-15 00:00:00'", compiled.sql)
+        self.assertIn(f"{expression} < TIMESTAMP '2026-05-16 00:00:00'", compiled.sql)
+        self.assertIn(
+            "(log_date = '20260515' AND log_hour >= '00' AND log_hour < '24')",
+            compiled.sql,
+        )
+
     def test_compile_aggregate_query_uses_derived_date_expression_for_scoped_where(
         self,
     ) -> None:

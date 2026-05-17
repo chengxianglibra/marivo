@@ -1144,6 +1144,15 @@ interface SessionListResponse {
 
 模式约束：`granularity` 和 `dimensions` 都省略时返回 scalar；只传 `granularity` 返回 time_series；只传 `dimensions` 返回 segmented。
 
+小时级 time_series（`granularity: "hour"`）可以使用原生 timestamp 时间字段，也可以使用
+`log_date` + `log_hour` 这类日期/小时分区字段。`dimensions: ["log_hour"]` 是分段
+observe，只按小时维度切片，不等同于 `granularity: "hour"`，也不会要求时间轴本身支持小时级
+bucket。
+
+Trino 上的 varchar 时间字段建议提供显式 `TRINO` 方言表达式，例如
+`date_parse(create_time, '%Y-%m-%d %H:%i:%s')`。如果只提供简单 ANSI 表达式
+`CAST(create_time AS TIMESTAMP)`，Marivo 会在时间轴解析时转换为等价的 Trino parse 表达式。
+
 **输出 — ObserveArtifact**：
 
 返回的 artifact 包含 AOI 合约层的结构化结果。根据参数组合不同，结果形态分为：

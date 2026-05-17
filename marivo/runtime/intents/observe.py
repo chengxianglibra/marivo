@@ -294,7 +294,7 @@ def run_observe_intent(
 
     if granularity == "hour":
         grain = "hour"
-    elif granularity is not None:
+    elif granularity is not None or dimensions is not None:
         grain = "day"
     else:
         grain = (
@@ -362,6 +362,7 @@ def run_observe_intent(
         grain=grain,
         scope_raw=scope_raw,
         all_dimensions=all_dimensions,
+        time_scope_field=time_scope_field,
     )
     qualified_table = qualified.get(resolved.table, resolved.table)
     step_id = new_step_id()

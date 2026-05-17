@@ -588,6 +588,26 @@ class TimeAxisResolverTests(unittest.TestCase):
         ).resolve()
         self.assertEqual(resolved.analysis_time_expr, "created_at")
 
+    def test_resolver_hour_override_on_date_column_uses_partition_hour_axis(self) -> None:
+        request = self._compare_request(
+            grain="hour",
+            time_axis={"analysis_time": {"column": "log_date"}},
+        )
+
+        resolved = TimeAxisResolver(
+            request=request,
+            engine_type="trino",
+            available_columns=["log_date", "log_hour"],
+        ).resolve()
+
+        self.assertEqual(resolved.analysis_time_kind, "partition_fields")
+        self.assertIn("SUBSTR(CAST(log_date AS VARCHAR), 1, 4)", resolved.analysis_time_expr)
+        self.assertIn("log_hour", resolved.analysis_time_expr)
+        self.assertEqual(
+            resolved.partition_pruning_predicate,
+            "log_date = '20260325' AND log_hour >= '06' AND log_hour < '14'",
+        )
+
     def test_resolver_expands_time_scope_field_timestamp_expression(self) -> None:
         request = self._compare_request(
             grain="hour",
@@ -605,6 +625,66 @@ class TimeAxisResolverTests(unittest.TestCase):
 
         self.assertEqual(resolved.analysis_time_kind, "timestamp")
         self.assertEqual(resolved.analysis_time_expr, expression)
+
+    def test_resolver_expands_date_time_scope_field_to_partition_hour_axis(self) -> None:
+        request = self._compare_request(
+            grain="hour",
+            time_axis={"analysis_time": {"column": "analysis_date"}},
+        )
+
+        resolved = TimeAxisResolver(
+            request=request,
+            engine_type="trino",
+            available_columns=["analysis_date", "log_date", "log_hour"],
+            time_field_expressions={"analysis_date": "log_date"},
+            time_field_data_types={"analysis_date": "date"},
+        ).resolve()
+
+        self.assertEqual(resolved.analysis_time_kind, "partition_fields")
+        self.assertEqual(resolved.override_analysis_time_column, "analysis_date")
+        self.assertIn("log_date", resolved.analysis_time_expr)
+        self.assertIn("log_hour", resolved.analysis_time_expr)
+
+    def test_resolver_rejects_unpaired_date_time_scope_field_for_hour_axis(self) -> None:
+        request = self._compare_request(
+            grain="hour",
+            time_axis={"analysis_time": {"column": "business_date"}},
+        )
+
+        with self.assertRaisesRegex(ValueError, "hour-compatible"):
+            TimeAxisResolver(
+                request=request,
+                engine_type="trino",
+                available_columns=["business_date", "log_hour"],
+                time_field_expressions={"business_date": "business_date"},
+                time_field_data_types={"business_date": "date"},
+            ).resolve()
+
+    def test_resolver_rewrites_trino_ansi_timestamp_cast_and_keeps_partition_pruning(
+        self,
+    ) -> None:
+        request = self._compare_request(
+            grain="hour",
+            time_axis={"analysis_time": {"column": "query_start_time"}},
+        )
+
+        resolved = TimeAxisResolver(
+            request=request,
+            engine_type="trino",
+            available_columns=["query_start_time", "create_time", "log_date", "log_hour"],
+            time_field_expressions={"query_start_time": "CAST(create_time AS TIMESTAMP)"},
+            time_field_data_types={"query_start_time": "timestamp"},
+        ).resolve()
+
+        self.assertEqual(resolved.analysis_time_kind, "timestamp")
+        self.assertEqual(
+            resolved.analysis_time_expr,
+            "DATE_PARSE(CAST(create_time AS VARCHAR), '%Y-%m-%d %H:%i:%s')",
+        )
+        self.assertEqual(
+            resolved.partition_pruning_predicate,
+            "log_date = '20260325' AND log_hour >= '06' AND log_hour < '14'",
+        )
 
     def test_resolver_expands_time_scope_field_date_expression_without_recasting(self) -> None:
         request = self._compare_request(

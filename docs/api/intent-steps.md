@@ -89,6 +89,16 @@ Time-series observation request:
 }
 ```
 
+`granularity: "hour"` can run on a native timestamp time field or on datasets that expose
+date + hour partition fields such as `log_date` and `log_hour`. Segmenting by an hour column,
+for example `dimensions: ["log_hour"]`, is still segmented observe: it returns dimension slices
+inside the requested day-level window and does not request hourly time-series buckets.
+
+For Trino sources with varchar timestamp fields like `2026-05-15 09:09:10`, prefer a
+`TRINO` field expression such as `date_parse(create_time, '%Y-%m-%d %H:%i:%s')`.
+When only the simple ANSI expression `CAST(create_time AS TIMESTAMP)` is present, Marivo rewrites
+it to the equivalent Trino parse expression during time-axis resolution.
+
 `granularity` accepts `hour`, `day`, `week`, `month`, `quarter`, or `year`.
 
 Segmented observation request:

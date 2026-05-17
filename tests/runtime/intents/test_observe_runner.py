@@ -296,6 +296,33 @@ class TestObserveRunner(unittest.TestCase):
         self.assertEqual(result["segments"], [])
         self.assertEqual(result["analytical_metadata"]["quality_status"], "not_ready")
 
+    def test_segmented_observe_with_datetime_bounds_uses_day_internal_grain(self) -> None:
+        runtime, result = self._run_observe(
+            {
+                "metric": "metric.m1",
+                "time_scope": {
+                    "field": "log_date",
+                    "start": "2026-05-15T00:00:00",
+                    "end": "2026-05-16T00:00:00",
+                },
+                "dimensions": ["log_hour"],
+            },
+            dimensions=["log_hour"],
+            rows=[
+                {"log_hour": "09", "current_value": 10.0},
+                {"log_hour": "10", "current_value": 20.0},
+            ],
+            time_axis="log_date",
+            time_axis_kind="date_field",
+        )
+
+        scoped_call = runtime.build_scoped_query.call_args.args[1]
+        self.assertEqual(scoped_call.time_scope.grain, "day")
+        compiled_call = runtime.compile_step.call_args.args[0]
+        self.assertEqual(compiled_call.params["time_scope"]["grain"], "day")
+        self.assertEqual(result["observation_type"], "segmented")
+        self.assertEqual(result["dimensions"], ["log_hour"])
+
     def test_observe_rejects_granularity_plus_dimensions(self) -> None:
         from marivo.runtime.intents.observe import run_observe_intent
 
