@@ -459,6 +459,12 @@ def _valid_test_request() -> dict[str, Any]:
     }
 
 
+def _valid_validate_request() -> dict[str, Any]:
+    payload = _valid_test_request()
+    payload.pop("kind")
+    return payload
+
+
 @pytest.mark.parametrize(
     ("endpoint", "payload"),
     [
@@ -561,28 +567,7 @@ def test_validate_accepts_aoi_request_and_returns_typed_bundle() -> None:
     runtime = _FakeRuntime()
     response = _client(runtime).post(
         "/sessions/sess_1/intents/validate",
-        json={
-            "metric": "metric.revenue",
-            "left": {
-                "time_scope": {
-                    "field": "event_time",
-                    "start": "2026-01-01T00:00:00Z",
-                    "end": "2026-01-08T00:00:00Z",
-                }
-            },
-            "right": {
-                "time_scope": {
-                    "field": "event_time",
-                    "start": "2026-01-08T00:00:00Z",
-                    "end": "2026-01-15T00:00:00Z",
-                }
-            },
-            "hypothesis": {
-                "family": "two_sample_mean",
-                "alternative": "two_sided",
-                "significance": "balanced",
-            },
-        },
+        json=_valid_validate_request(),
     )
 
     assert response.status_code == 200, response.text
@@ -591,3 +576,28 @@ def test_validate_accepts_aoi_request_and_returns_typed_bundle() -> None:
     assert body["intent_type"] == "validate"
     assert body["result"]["bundle_type"] == "validation_bundle"
     assert body["result"]["aoi_artifacts"][0]["result"]["p_value"] == 0.04
+
+
+@pytest.mark.parametrize(
+    ("path", "value"),
+    [
+        (("method",), "welch_t"),
+        (("kind",), "numeric"),
+        (("left", "scope"), {"predicate": "region = 'US'"}),
+        (("hypothesis", "alpha"), 0.05),
+        (("hypothesis", "label"), "legacy label"),
+    ],
+)
+def test_validate_rejects_representative_non_contract_fields(
+    path: tuple[str, ...],
+    value: Any,
+) -> None:
+    payload = _valid_validate_request()
+    target = payload
+    for segment in path[:-1]:
+        target = target[segment]
+    target[path[-1]] = value
+
+    response = _client(_FakeRuntime()).post("/sessions/sess_1/intents/validate", json=payload)
+
+    assert response.status_code == 422

@@ -320,7 +320,8 @@ POST /sessions/{session_id}/intents/validate
 ```
 
 HTTP and MCP validate calls cross into runtime as the generated AOI `Validate`
-model:
+model. Runtime validate requires the complete hypothesis object; MCP may fill
+transport defaults before constructing that generated model:
 
 ```json
 {

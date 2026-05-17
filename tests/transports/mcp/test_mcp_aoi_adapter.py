@@ -420,6 +420,31 @@ def test_validate_hypothesis_rejects_non_mcp_fields() -> None:
 @pytest.mark.parametrize(
     ("field", "value"),
     [
+        ("family", "two_sample_mean"),
+        ("alpha", 0.05),
+        ("label", "legacy label"),
+    ],
+)
+def test_to_aoi_validate_request_rejects_non_mcp_hypothesis_fields(
+    field: str,
+    value: object,
+) -> None:
+    with pytest.raises(ValueError, match=field):
+        to_aoi_validate_request(
+            metric="view_time",
+            left=_slice("2026-05-01T00:00:00Z", "2026-05-08T00:00:00Z"),
+            right=_slice("2026-04-24T00:00:00Z", "2026-05-01T00:00:00Z"),
+            hypothesis={
+                "alternative": "greater",
+                "significance": "balanced",
+                field: value,
+            },
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
         ("label", "legacy label"),
         ("alpha", 0.05),
         ("family", "two_sample_mean"),

@@ -12,60 +12,47 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
-from marivo.core.intent.primitives import new_step_id
-from marivo.runtime.intents._helpers import commit_step_result
+from marivo.runtime.intents.derived_envelopes import (
+    aoi_artifact_dump,
+    build_derived_bundle_envelope,
+)
 from marivo.runtime.intents.test import _SIGNIFICANCE_ALPHA, run_test_intent
 
 if TYPE_CHECKING:
     from marivo.runtime.runtime import MarivoRuntime
 
 _DERIVED_LOGIC_VERSION = "1.0"
-_PROJECTION_VERSION = "1.0"
+_PROJECTION_VERSION = "validation_bundle.v1"
+_REQUEST_FIELDS: frozenset[str] = frozenset({"metric", "left", "right", "hypothesis"})
+_SLICE_FIELDS: frozenset[str] = frozenset({"time_scope", "filter"})
+_HYPOTHESIS_FIELDS: frozenset[str] = frozenset({"family", "alternative", "significance"})
+_VALID_FAMILIES: frozenset[str] = frozenset({"two_sample_mean"})
+_VALID_ALTERNATIVES: frozenset[str] = frozenset({"two_sided", "greater", "less"})
 
 
 def run_validate_intent(
     runtime: MarivoRuntime, session_id: str, params: dict[str, Any] | None
 ) -> dict[str, Any]:
-    p = params or {}
+    p = _validate_request(params)
 
     # ── Input extraction ──────────────────────────────────────────────────
-    metric_ref: str = p.get("metric") or ""
+    metric_raw = p["metric"]
+    metric_ref = metric_raw.strip() if isinstance(metric_raw, str) else ""
     if not metric_ref:
         raise ValueError("validate: INVALID_ARGUMENT - metric is required")
 
-    left_raw: dict[str, Any] = p.get("left") or {}
-    right_raw: dict[str, Any] = p.get("right") or {}
-
-    left_time_scope: dict[str, Any] = left_raw.get("time_scope") or {}
-    right_time_scope: dict[str, Any] = right_raw.get("time_scope") or {}
-
-    if not left_time_scope:
-        raise ValueError("validate: INVALID_ARGUMENT - left.time_scope is required")
-    if not right_time_scope:
-        raise ValueError("validate: INVALID_ARGUMENT - right.time_scope is required")
-
+    left_raw = _validate_slice(p["left"], label="left")
+    right_raw = _validate_slice(p["right"], label="right")
+    left_time_scope: dict[str, Any] = left_raw["time_scope"]
+    right_time_scope: dict[str, Any] = right_raw["time_scope"]
     left_filter: Any = left_raw.get("filter")
     right_filter: Any = right_raw.get("filter")
 
-    hypothesis_raw: dict[str, Any] = p.get("hypothesis") or {}
-    unexpected_hypothesis_keys = set(hypothesis_raw) - {"family", "alternative", "significance"}
-    if unexpected_hypothesis_keys:
-        raise ValueError(
-            "validate: INVALID_ARGUMENT - unsupported hypothesis field(s): "
-            f"{sorted(unexpected_hypothesis_keys)}"
-        )
-    family: str = str(hypothesis_raw.get("family") or "two_sample_mean").lower()
-    if family != "two_sample_mean":
-        raise ValueError("validate: INVALID_ARGUMENT - hypothesis.family must be 'two_sample_mean'")
-    alternative: str = str(hypothesis_raw.get("alternative") or "two_sided").lower()
-    significance = str(hypothesis_raw.get("significance") or "balanced").lower()
-    try:
-        alpha = _SIGNIFICANCE_ALPHA[significance]
-    except KeyError as exc:
-        raise ValueError(
-            "validate: INVALID_ARGUMENT - hypothesis.significance must be one of "
-            f"{sorted(_SIGNIFICANCE_ALPHA)}, got '{significance}'"
-        ) from exc
+    hypothesis_raw = _validate_hypothesis(p["hypothesis"])
+    family: str = hypothesis_raw["family"]
+    alternative: str = hypothesis_raw["alternative"]
+    significance: str = hypothesis_raw["significance"]
+    alpha = _SIGNIFICANCE_ALPHA[significance]
     metric_name = runtime.core.metric_name_from_ref(metric_ref)
 
     # ── Build test params (source-type) ──────────────────────────────────
@@ -82,7 +69,7 @@ def run_validate_intent(
         "right": right_test_slice,
         "kind": "numeric",
         "hypothesis": {
-            "family": "two_sample_mean",
+            "family": family,
             "alternative": alternative,
             "significance": significance,
         },
@@ -143,17 +130,14 @@ def run_validate_intent(
     }
 
     # ── Assemble validation_bundle ───────────────────────────────────────
-    now = datetime.now(UTC).isoformat()
-    step_id = new_step_id()
-
     hypothesis_out: dict[str, Any] = {
-        "family": "two_sample_mean",
+        "family": family,
         "alternative": alternative,
         "significance": significance,
         "alpha": alpha,
     }
 
-    bundle: dict[str, Any] = {
+    result_payload: dict[str, Any] = {
         "result_type": "validation_bundle",
         "intent_type": "validate",
         "step_type": "validate",
@@ -186,7 +170,7 @@ def run_validate_intent(
         },
         "execution_metadata": {
             "engine": "service",
-            "executed_at": now,
+            "executed_at": datetime.now(UTC).isoformat(),
         },
     }
 
@@ -204,15 +188,117 @@ def run_validate_intent(
         "projection_version": _PROJECTION_VERSION,
     }
 
-    result = commit_step_result(
-        runtime,
-        session_id,
-        step_id,
-        "validate",
-        "validation_bundle",
-        artifact_name,
-        bundle,
-        summary,
+    product_status = "needs_attention" if validation_status == "needs_attention" else "succeeded"
+    return build_derived_bundle_envelope(
+        runtime=runtime,
+        session_id=session_id,
+        step_type="validate",
+        bundle_type="validation_bundle",
+        artifact_name=artifact_name,
+        aoi_artifacts=[aoi_artifact_dump(test_result)],
+        summary=summary,
+        product_status=product_status,
+        issues=bundle_issues,
         provenance=provenance,
+        result_payload=result_payload,
+        product_metadata_payload={
+            "validation": {
+                "status": validation_status,
+                "issues": bundle_issues,
+            },
+            "refs": {
+                "test_ref": test_ref_out,
+            },
+        },
     )
-    return result
+
+
+def _validate_request(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError("validate: INVALID_ARGUMENT - params must be a validate request object")
+
+    missing_fields = _REQUEST_FIELDS - set(value)
+    if missing_fields:
+        raise ValueError(
+            f"validate: INVALID_ARGUMENT - missing required field(s): {sorted(missing_fields)}"
+        )
+    unexpected_fields = set(value) - _REQUEST_FIELDS
+    if unexpected_fields:
+        raise ValueError(
+            f"validate: INVALID_ARGUMENT - unsupported field(s): {sorted(unexpected_fields)}"
+        )
+    return value
+
+
+def _validate_slice(value: Any, *, label: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError(f"validate: INVALID_ARGUMENT - {label} must be an object")
+
+    missing_fields = {"time_scope"} - set(value)
+    if missing_fields:
+        raise ValueError(
+            f"validate: INVALID_ARGUMENT - missing {label} field(s): {sorted(missing_fields)}"
+        )
+    unexpected_fields = set(value) - _SLICE_FIELDS
+    if unexpected_fields:
+        raise ValueError(
+            f"validate: INVALID_ARGUMENT - unsupported {label} field(s): "
+            f"{sorted(unexpected_fields)}"
+        )
+
+    time_scope = value["time_scope"]
+    if not isinstance(time_scope, dict) or not time_scope:
+        raise ValueError(f"validate: INVALID_ARGUMENT - {label}.time_scope is required")
+    if "filter" in value and value["filter"] is None:
+        raise ValueError(f"validate: INVALID_ARGUMENT - {label}.filter must not be null")
+    return value
+
+
+def _validate_hypothesis(value: Any) -> dict[str, str]:
+    if not isinstance(value, dict):
+        raise ValueError("validate: INVALID_ARGUMENT - hypothesis must be an object")
+
+    missing_fields = _HYPOTHESIS_FIELDS - set(value)
+    if missing_fields:
+        raise ValueError(
+            f"validate: INVALID_ARGUMENT - missing hypothesis field(s): {sorted(missing_fields)}"
+        )
+    unexpected_fields = set(value) - _HYPOTHESIS_FIELDS
+    if unexpected_fields:
+        raise ValueError(
+            "validate: INVALID_ARGUMENT - unsupported hypothesis field(s): "
+            f"{sorted(unexpected_fields)}"
+        )
+
+    family = value["family"]
+    if not isinstance(family, str):
+        raise ValueError("validate: INVALID_ARGUMENT - hypothesis.family must be a string")
+    if family not in _VALID_FAMILIES:
+        raise ValueError(
+            "validate: INVALID_ARGUMENT - hypothesis.family must be one of "
+            f"{sorted(_VALID_FAMILIES)}, got '{family}'"
+        )
+
+    alternative = value["alternative"]
+    if not isinstance(alternative, str):
+        raise ValueError("validate: INVALID_ARGUMENT - hypothesis.alternative must be a string")
+    if alternative not in _VALID_ALTERNATIVES:
+        raise ValueError(
+            "validate: INVALID_ARGUMENT - hypothesis.alternative must be one of "
+            f"{sorted(_VALID_ALTERNATIVES)}, got '{alternative}'"
+        )
+
+    significance = value["significance"]
+    if not isinstance(significance, str):
+        raise ValueError("validate: INVALID_ARGUMENT - hypothesis.significance must be a string")
+    if significance not in _SIGNIFICANCE_ALPHA:
+        raise ValueError(
+            "validate: INVALID_ARGUMENT - hypothesis.significance must be one of "
+            f"{sorted(_SIGNIFICANCE_ALPHA)}, got '{significance}'"
+        )
+
+    return {
+        "family": family,
+        "alternative": alternative,
+        "significance": significance,
+    }
