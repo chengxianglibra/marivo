@@ -19,6 +19,21 @@ def test_expression_single_dialect():
     assert expr.dialects[0].expression == "ss_sold_date_sk"
 
 
+def test_expression_accepts_trino_dialect():
+    from marivo.contracts.generated import DialectExpression, Expression
+
+    expr = Expression(
+        dialects=[
+            DialectExpression(
+                dialect="TRINO",
+                expression="date_parse(log_date, '%Y%m%d')",
+            )
+        ]
+    )
+
+    assert expr.dialects[0].dialect == "TRINO"
+
+
 def test_expression_requires_at_least_one_dialect():
     from marivo.contracts.generated import Expression
 
@@ -120,6 +135,14 @@ def test_osi_document_structure():
 
     doc = OSIDocument(version="0.1.1", semantic_model=[])
     assert doc.version == "0.1.1"
+
+
+def test_osi_document_accepts_trino_top_level_dialect():
+    from marivo.contracts.generated import OSIDocument
+
+    doc = OSIDocument(version="0.1.1", dialects=["TRINO"], semantic_model=[])
+
+    assert doc.dialects == ["TRINO"]
 
 
 def test_osi_document_version_must_be_011():

@@ -86,6 +86,7 @@ class TimeAxisMetadataProvider:
         *,
         table_name: str,
         metric_name: str | None = None,
+        engine_type: str = "duckdb",
     ) -> TimeAxisMetadataContext:
         available_rows = self._load_field_rows_for_metric(table_name, metric_name)
         if not available_rows:
@@ -99,7 +100,13 @@ class TimeAxisMetadataProvider:
         time_field_expressions = {
             row["name"]: expression
             for row in time_rows
-            if (expression := _extract_ansi_sql(row.get("expression"))) is not None
+            if (
+                expression := _select_dialect_expression(
+                    row.get("expression"),
+                    engine_type=engine_type,
+                )
+            )
+            is not None
         }
         time_field_data_types = {
             row["name"]: data_type
@@ -237,7 +244,7 @@ def _metric_name(metric_name: str | None) -> str | None:
     return normalized.removeprefix("metric.")
 
 
-def _extract_ansi_sql(expression_json: Any) -> str | None:
+def _select_dialect_expression(expression_json: Any, *, engine_type: str) -> str | None:
     if isinstance(expression_json, str):
         try:
             expression = json.loads(expression_json)
@@ -250,14 +257,27 @@ def _extract_ansi_sql(expression_json: Any) -> str | None:
     dialects = expression.get("dialects") if isinstance(expression, Mapping) else None
     if not isinstance(dialects, list):
         return None
+    preferences = ("TRINO", "ANSI_SQL") if engine_type.strip().lower() == "trino" else ("ANSI_SQL",)
+    for preferred in preferences:
+        sql = _first_expression_for_dialect(dialects, preferred)
+        if sql is not None:
+            return sql
+    return _first_valid_expression(dialects)
+
+
+def _first_expression_for_dialect(dialects: list[Any], dialect_name: str) -> str | None:
     for dialect in dialects:
         if not isinstance(dialect, Mapping):
             continue
-        if str(dialect.get("dialect") or "").upper() != "ANSI_SQL":
+        if str(dialect.get("dialect") or "").strip().upper() != dialect_name:
             continue
         sql = _optional_str(dialect.get("expression"))
         if sql is not None:
             return sql
+    return None
+
+
+def _first_valid_expression(dialects: list[Any]) -> str | None:
     for dialect in dialects:
         if not isinstance(dialect, Mapping):
             continue

@@ -859,6 +859,7 @@ def resolve_windowed_query_time_axis(
         metadata_context = time_provider.load_for_windowed_query(
             table_name=request.table,
             metric_name=metric_name,
+            engine_type=engine_type,
         )
     except ValueError:
         if not has_explicit_override:

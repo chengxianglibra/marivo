@@ -45,7 +45,8 @@
         "SNOWFLAKE",
         "MDX",
         "TABLEAU",
-        "DATABRICKS"
+        "DATABRICKS",
+        "TRINO"
       ],
       "description": "Supported SQL and expression language dialects"
     },

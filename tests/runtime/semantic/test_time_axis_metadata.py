@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import json
+import sys
+import types
 import unittest
 from typing import Any
 
 from marivo.time_axis_metadata import (
+    TimeAxisMetadataContext,
     TimeAxisMetadataProvider,
     normalize_time_capabilities,
 )
+from marivo.time_scope import normalize_aggregate_query_request
 
 
 class _MetadataStub:
@@ -73,6 +77,46 @@ class _MetadataStub:
                 },
             ]
         return []
+
+
+class _DialectMetadataStub:
+    def __init__(self, dialects: list[dict[str, str]]) -> None:
+        self._dialects = dialects
+
+    def query_rows(self, sql: str, params: list[Any] | None = None) -> list[dict[str, Any]]:
+        if "JOIN semantic_metrics m" in sql:
+            return [
+                {
+                    "name": "query_time",
+                    "expression": json.dumps({"dialects": self._dialects}),
+                    "data_type": "timestamp",
+                    "is_time": 1,
+                }
+            ]
+        return []
+
+
+class _RecordingTimeProvider:
+    def __init__(self) -> None:
+        self.engine_type: str | None = None
+
+    def load_for_windowed_query(
+        self,
+        *,
+        table_name: str,
+        metric_name: str | None = None,
+        engine_type: str = "duckdb",
+    ) -> TimeAxisMetadataContext:
+        del table_name, metric_name
+        self.engine_type = engine_type
+        return TimeAxisMetadataContext(
+            entity_time_capabilities={"analysis_time": {"timestamp_column": "event_time"}},
+            available_columns=["event_time"],
+        )
+
+    def load_available_columns(self, table_name: str) -> list[str]:
+        del table_name
+        return ["event_time"]
 
 
 class TimeCapabilitiesSchemaTests(unittest.TestCase):
@@ -169,3 +213,130 @@ class TimeAxisMetadataProviderTests(unittest.TestCase):
 
         self.assertEqual(context.available_columns, ["query_time"])
         self.assertEqual(context.time_field_expressions["query_time"], "wrong_model_time")
+
+    def test_trino_engine_prefers_trino_expression(self) -> None:
+        context = TimeAxisMetadataProvider(
+            _DialectMetadataStub(
+                [
+                    {
+                        "dialect": "ANSI_SQL",
+                        "expression": "CAST(log_date AS DATE)",
+                    },
+                    {
+                        "dialect": " trino ",
+                        "expression": "date_parse(log_date, '%Y%m%d')",
+                    },
+                ]
+            )
+        ).load_for_windowed_query(
+            table_name="analytics.events",
+            metric_name="metric.event_count",
+            engine_type="trino",
+        )
+
+        self.assertEqual(
+            context.time_field_expressions["query_time"],
+            "date_parse(log_date, '%Y%m%d')",
+        )
+
+    def test_default_engine_prefers_ansi_expression(self) -> None:
+        context = TimeAxisMetadataProvider(
+            _DialectMetadataStub(
+                [
+                    {
+                        "dialect": "TRINO",
+                        "expression": "date_parse(log_date, '%Y%m%d')",
+                    },
+                    {
+                        "dialect": "ANSI_SQL",
+                        "expression": "CAST(log_date AS DATE)",
+                    },
+                ]
+            )
+        ).load_for_windowed_query(
+            table_name="analytics.events",
+            metric_name="metric.event_count",
+        )
+
+        self.assertEqual(context.time_field_expressions["query_time"], "CAST(log_date AS DATE)")
+
+    def test_trino_engine_falls_back_to_ansi_expression(self) -> None:
+        context = TimeAxisMetadataProvider(
+            _DialectMetadataStub(
+                [
+                    {
+                        "dialect": "ANSI_SQL",
+                        "expression": "CAST(log_date AS DATE)",
+                    }
+                ]
+            )
+        ).load_for_windowed_query(
+            table_name="analytics.events",
+            metric_name="metric.event_count",
+            engine_type="trino",
+        )
+
+        self.assertEqual(context.time_field_expressions["query_time"], "CAST(log_date AS DATE)")
+
+    def test_trino_engine_falls_back_to_first_valid_expression(self) -> None:
+        context = TimeAxisMetadataProvider(
+            _DialectMetadataStub(
+                [
+                    {
+                        "dialect": "SNOWFLAKE",
+                        "expression": "TO_DATE(log_date, 'YYYYMMDD')",
+                    }
+                ]
+            )
+        ).load_for_windowed_query(
+            table_name="analytics.events",
+            metric_name="metric.event_count",
+            engine_type="trino",
+        )
+
+        self.assertEqual(
+            context.time_field_expressions["query_time"],
+            "TO_DATE(log_date, 'YYYYMMDD')",
+        )
+
+    def test_resolve_windowed_query_time_axis_forwards_engine_type_to_provider(self) -> None:
+        feedback_module = types.ModuleType("marivo.runtime.semantic.feedback")
+        feedback_module.compile_failure_from_error = lambda *args, **kwargs: None
+        previous_feedback_module = sys.modules.get("marivo.runtime.semantic.feedback")
+        previous_semantic_ops_module = sys.modules.get("marivo.runtime.semantic_ops")
+        sys.modules["marivo.runtime.semantic.feedback"] = feedback_module
+        try:
+            from marivo.runtime.semantic_ops import resolve_windowed_query_time_axis
+
+            provider = _RecordingTimeProvider()
+            runtime = type("RuntimeStub", (), {"time_axis_metadata_provider": provider})()
+            request = normalize_aggregate_query_request(
+                {
+                    "table": "analytics.events",
+                    "measures": [{"expr": "COUNT(*)", "as": "query_count"}],
+                    "time_scope": {
+                        "mode": "single_window",
+                        "grain": "day",
+                        "current": {"start": "2026-03-10", "end": "2026-03-17"},
+                    },
+                }
+            )
+
+            resolve_windowed_query_time_axis(
+                runtime,
+                request,
+                engine_type="trino",
+                metric_name="metric.event_count",
+            )
+
+            self.assertEqual(provider.engine_type, "trino")
+            self.assertEqual(request.resolved_time_axis.analysis_time_expr, "event_time")
+        finally:
+            if previous_feedback_module is None:
+                sys.modules.pop("marivo.runtime.semantic.feedback", None)
+            else:
+                sys.modules["marivo.runtime.semantic.feedback"] = previous_feedback_module
+            if previous_semantic_ops_module is None:
+                sys.modules.pop("marivo.runtime.semantic_ops", None)
+            else:
+                sys.modules["marivo.runtime.semantic_ops"] = previous_semantic_ops_module

@@ -89,7 +89,7 @@ MARIVO metrics reuse the OSI Core `Expression` type for metric logic and any emb
 }
 ```
 
-The `dialect` field uses the OSI `Dialect` enum: `ANSI_SQL`, `SNOWFLAKE`, `MDX`, `TABLEAU`, `DATABRICKS`.
+The `dialect` field uses the OSI `Dialect` enum: `ANSI_SQL`, `SNOWFLAKE`, `MDX`, `TABLEAU`, `DATABRICKS`, `TRINO`.
 
 ### 4.2 AIContext (reused from OSI Core)
 
