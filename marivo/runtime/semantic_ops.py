@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 
 from marivo.contracts.errors import ErrorCode, NotFoundError
 from marivo.contracts.semantic import SemanticModel
+from marivo.core.semantic.additivity import is_all_additive_dimensions
 from marivo.core.semantic.compiler import (
     CompiledQuery,
     SemanticRequestCompatibilityError,
@@ -776,6 +777,11 @@ def resolve_metric_dimensions(
     header = semantic_object.get("header") or {}
     additive_dimensions = header.get("additive_dimensions")
     if isinstance(additive_dimensions, list):
+        if is_all_additive_dimensions([str(dimension) for dimension in additive_dimensions]):
+            payload = semantic_object.get("payload") or {}
+            dimensions = payload.get("dimensions")
+            if isinstance(dimensions, list):
+                return [str(dimension) for dimension in dimensions]
         return [str(dimension) for dimension in additive_dimensions]
 
     observed_entity_ref = _optional_str(header.get("observed_entity_ref"))

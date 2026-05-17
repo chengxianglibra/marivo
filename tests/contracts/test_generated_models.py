@@ -1258,3 +1258,33 @@ def test_additive_dimensions_validation() -> None:
 
     ext = MarivoMetricExtension(additive_dimensions=[])
     assert ext.additive_dimensions == []
+
+    ext = MarivoMetricExtension(additive_dimensions=["__all"])
+    assert ext.additive_dimensions == ["__all"]
+
+    with pytest.raises(ValidationError):
+        MarivoMetricExtension(additive_dimensions="__all")
+
+    with pytest.raises(ValidationError):
+        MarivoMetricExtension(additive_dimensions=[""])
+
+    with pytest.raises(ValidationError):
+        MarivoMetricExtension(additive_dimensions=["__all", "region"])
+
+
+def test_generated_osi_additive_dimensions_all_validation() -> None:
+    """Generated OSI models accept singleton __all and reject mixed sentinel lists."""
+    from marivo.contracts.generated.osi import MarivoMetricExtension
+
+    ext = MarivoMetricExtension.model_validate({"additive_dimensions": ["__all"]})
+    assert ext.additive_dimensions is not None
+    assert [dimension.root for dimension in ext.additive_dimensions] == ["__all"]
+
+    with pytest.raises(ValidationError):
+        MarivoMetricExtension.model_validate({"additive_dimensions": "__all"})
+
+    with pytest.raises(ValidationError):
+        MarivoMetricExtension.model_validate({"additive_dimensions": [""]})
+
+    with pytest.raises(ValidationError):
+        MarivoMetricExtension.model_validate({"additive_dimensions": ["__all", "region"]})

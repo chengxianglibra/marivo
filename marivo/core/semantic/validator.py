@@ -22,6 +22,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from marivo.core.semantic.additivity import is_all_additive_dimensions
+
 # ── Data classes ─────────────────────────────────────────────────────────
 
 
@@ -483,7 +485,7 @@ def gate_dimension_additivity_condition(
         return issues
     if step_type not in ("decompose", "attribute"):
         return issues
-    if len(caps.additive_dimensions) == 0:
+    if len(caps.additive_dimensions) == 0 or is_all_additive_dimensions(caps.additive_dimensions):
         return issues
 
     resolved_refs = set(resolved_inputs.resolved_dimension_refs)

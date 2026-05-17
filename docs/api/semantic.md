@@ -231,11 +231,7 @@ Physical grounding lives in the semantic document:
                 "observed_dataset": "orders",
                 "observation_grain": ["day"],
                 "primary_time_field": "order_date",
-                "additive_dimensions": ["customer_id"],
-                "additivity": {
-                  "dimension_policy": "all",
-                  "time_axis_policy": "additive"
-                }
+                "additive_dimensions": ["__all"]
               }
             }
           ]

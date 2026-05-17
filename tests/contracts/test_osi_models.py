@@ -267,6 +267,13 @@ def test_marivo_metric_extension_minimal():
     assert ext.additive_dimensions == []
 
 
+def test_marivo_metric_extension_all_dimensions():
+    from marivo.transports.http.models.marivo_extensions import MarivoMetricExtension
+
+    ext = MarivoMetricExtension(additive_dimensions=["__all"])
+    assert ext.additive_dimensions == ["__all"]
+
+
 def test_marivo_metric_filter():
     from marivo.transports.http.models.marivo_extensions import MarivoMetricFilter
 

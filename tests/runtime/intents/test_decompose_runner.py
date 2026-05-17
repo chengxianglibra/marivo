@@ -544,6 +544,24 @@ class DecomposeAdditivityGateTests(unittest.TestCase):
             )
         self.assertIn("rows", result)
 
+    def test_all_additive_dimensions_sentinel_decompose_succeeds(self) -> None:
+        runtime = _build_decompose_success_runtime(
+            additive_dimensions=["__all"],
+            dimensions=["dimension.country", "dimension.product"],
+        )
+        mock_result = MagicMock()
+        mock_result.rows = [{"dimension.product": "Books", "current_value": 50.0}]
+        mock_result.metadata.get.return_value = None
+
+        with patch("marivo.runtime.intents.decompose.execute_compiled", return_value=mock_result):
+            result = run_decompose_intent(
+                runtime,
+                "session_1",
+                {"compare_artifact_id": "art_compare", "dimension": "dimension.product"},
+            )
+        self.assertIn("rows", result)
+        self.assertEqual(result["analytical_metadata"]["additive_dimensions"], ["__all"])
+
     def test_subset_metric_decompose_succeeds_on_allowed_dimension(self) -> None:
         runtime = _build_decompose_success_runtime(
             additive_dimensions=["dimension.country"],

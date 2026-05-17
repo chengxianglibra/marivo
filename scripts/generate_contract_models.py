@@ -236,10 +236,44 @@ def _patch_aoi_optional_non_null_fields(output: Path) -> None:
     output.write_text(text, encoding="utf-8")
 
 
+def _patch_osi_additive_dimensions_all(output: Path) -> None:
+    """Preserve additive_dimensions ``__all`` exclusivity in generated OSI models."""
+
+    text = output.read_text(encoding="utf-8")
+    text = text.replace(
+        "from pydantic import BaseModel, ConfigDict, Field, RootModel\n",
+        "from pydantic import BaseModel, ConfigDict, Field, RootModel, model_validator\n",
+    )
+    text = text.replace(
+        "    primary_time_field: str | None = Field(\n"
+        "        None,\n"
+        '        description="Dataset field used as the metric\'s primary analysis time axis.",\n'
+        "        min_length=1,\n"
+        "    )\n\n\nclass MarivoDatasetCustomExtension",
+        "    primary_time_field: str | None = Field(\n"
+        "        None,\n"
+        '        description="Dataset field used as the metric\'s primary analysis time axis.",\n'
+        "        min_length=1,\n"
+        "    )\n\n"
+        "    @model_validator(mode='after')\n"
+        "    def _validate_additive_dimensions_all(self) -> MarivoMetricExtension:\n"
+        "        if self.additive_dimensions is None:\n"
+        "            return self\n"
+        "        values = [dimension.root for dimension in self.additive_dimensions]\n"
+        "        if '__all' in values and values != ['__all']:\n"
+        "            raise ValueError(\"additive_dimensions '__all' must not be mixed with explicit fields\")\n"
+        "        return self\n\n\n"
+        "class MarivoDatasetCustomExtension",
+        1,
+    )
+    output.write_text(text, encoding="utf-8")
+
+
 def _write_generated_package(output_dir: Path) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     osi_output = output_dir / "osi.py"
     _run_codegen(OSI_SCHEMA, osi_output, "OSI")
+    _patch_osi_additive_dimensions_all(osi_output)
     aoi_output = output_dir / "aoi.py"
     _run_codegen(AOI_SCHEMA, aoi_output, "AOI")
     _patch_aoi_optional_non_null_fields(aoi_output)

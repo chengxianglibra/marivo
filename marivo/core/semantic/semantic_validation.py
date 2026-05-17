@@ -8,6 +8,12 @@ from __future__ import annotations
 
 from typing import Any
 
+from marivo.core.semantic.additivity import (
+    ADDITIVE_DIMENSIONS_ALL,
+    additive_dimensions_mix_all,
+    is_all_additive_dimensions,
+)
+
 
 class SemanticValidationError(Exception):
     """Raised when semantic model validation fails.
@@ -203,7 +209,20 @@ def _validate_metric_refs(
             }
         )
         additive_dimensions = None
+    if additive_dimensions is not None and additive_dimensions_mix_all(additive_dimensions):
+        errors.append(
+            {
+                "message": (
+                    f"metric '{metric_name}' additive_dimensions uses "
+                    f"{ADDITIVE_DIMENSIONS_ALL!r} and must not mix it with explicit fields"
+                ),
+                "path": f"metrics[{metric_name}].additive_dimensions",
+            }
+        )
+        additive_dimensions = None
     if additive_dimensions:
+        if is_all_additive_dimensions(additive_dimensions):
+            return errors
         if observed_dataset:
             ds_fields = fields_by_dataset.get(observed_dataset, {})
             for dim in additive_dimensions:

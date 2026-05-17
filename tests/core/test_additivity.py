@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
-from marivo.core.semantic.additivity import derive_additivity_capabilities
+from marivo.core.semantic.additivity import (
+    additive_dimension_allows,
+    additive_dimensions_mix_all,
+    additive_time_rollup_allowed,
+    derive_additivity_capabilities,
+    is_all_additive_dimensions,
+)
 
 # ---------------------------------------------------------------------------
 # Non-additive (empty additive_dimensions)
@@ -44,6 +50,23 @@ def test_subset_additive_no_time_field() -> None:
     result = derive_additivity_capabilities(additive_dimensions=["country", "product"])
     assert result.supports_decompose is True
     assert result.supports_compare is True
+
+
+def test_all_additive_dimensions_sentinel() -> None:
+    result = derive_additivity_capabilities(additive_dimensions=["__all"])
+    assert result.supports_decompose is True
+    assert result.supports_attribute is True
+    assert result.additive_dimensions == ["__all"]
+    assert result.capability_condition == "dimension_must_be_allowed"
+    assert result.blocker is None
+
+
+def test_additive_dimensions_all_helpers() -> None:
+    assert is_all_additive_dimensions(["__all"]) is True
+    assert additive_dimensions_mix_all(["__all", "country"]) is True
+    assert additive_dimension_allows(["__all"], "country") is True
+    assert additive_dimension_allows(["country"], "product") is False
+    assert additive_time_rollup_allowed(["__all"], "event_date") is True
 
 
 # ---------------------------------------------------------------------------

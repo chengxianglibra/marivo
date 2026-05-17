@@ -64,6 +64,12 @@ def register_semantic_tools(server: Any, runtime: Any) -> None:
 
         dataset.source must be a relation FQN (schema.table or catalog.schema.table); SQL queries are not accepted.
 
+        Key field in the MARIVO metric extension: additive_dimensions.
+        Use [] for non-additive metrics, explicit field names for subset-additive metrics,
+        or ["__all"] when the metric is additive across all declared dimension fields in
+        the observed dataset, including time dimensions. "__all" must be the only item
+        when used.
+
         Key field in the MARIVO metric extension: aggregation_semantics
         (enum: sum | ratio | weighted_average, default: sum).
         Decision rule:
@@ -81,6 +87,12 @@ def register_semantic_tools(server: Any, runtime: Any) -> None:
         """Import an inline or local-file OSI-Marivo semantic document.
 
         dataset.source must be a relation FQN (schema.table or catalog.schema.table); SQL queries are not accepted.
+
+        Key field in the MARIVO metric extension: additive_dimensions.
+        Use [] for non-additive metrics, explicit field names for subset-additive metrics,
+        or ["__all"] when the metric is additive across all declared dimension fields in
+        the observed dataset, including time dimensions. "__all" must be the only item
+        when used.
 
         Key field in the MARIVO metric extension: aggregation_semantics
         (enum: sum | ratio | weighted_average, default: sum).

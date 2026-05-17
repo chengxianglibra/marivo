@@ -198,6 +198,30 @@ def test_validate_metric_extension_references_known_additive_dimensions() -> Non
     assert any(issue.code == "UNKNOWN_FIELD" for issue in result.errors)
 
 
+def test_validate_metric_extension_all_additive_dimensions_sentinel() -> None:
+    doc = _valid_doc()
+    doc["semantic_model"][0]["metrics"][0]["custom_extensions"][0]["data"][
+        "additive_dimensions"
+    ] = ["__all"]
+
+    result = OsiSemanticDocumentValidator().validate(doc)
+
+    assert result.valid is True
+    assert result.errors == []
+
+
+def test_validate_metric_extension_rejects_mixed_all_additive_dimensions_sentinel() -> None:
+    doc = _valid_doc()
+    doc["semantic_model"][0]["metrics"][0]["custom_extensions"][0]["data"][
+        "additive_dimensions"
+    ] = ["__all", "order_time"]
+
+    result = OsiSemanticDocumentValidator().validate(doc)
+
+    assert result.valid is False
+    assert any("__all" in issue.message for issue in result.errors)
+
+
 def test_validate_datasource_grounding_checks_live_columns() -> None:
     doc = _valid_doc()
     service = _FakeDatasourceService(columns=["order_id", "order_time"])

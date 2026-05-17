@@ -12,8 +12,10 @@ Design notes
   dimension (equivalent to old ``dimension_policy: "none"``).
 - ``additive_dimensions = ["dim1", ...]`` means additive only on listed
   dimensions.  Decompose/attribute are gated on dimension membership.
+- ``additive_dimensions = ["__all"]`` means additive on every declared
+  dimension.
 - Time-axis rollup (is the time field itself additive?) is checked at
-  request level using ``time_scope.field in additive_dimensions``.
+  request level using the same dimension allowance helper.
 - ``capability_condition`` is ``"dimension_must_be_allowed"`` when
   ``additive_dimensions`` is non-empty, signalling that runtime dimension
   membership checks are required before decompose/attribute.
@@ -21,8 +23,11 @@ Design notes
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Final
+
+ADDITIVE_DIMENSIONS_ALL: Final = "__all"
 
 
 @dataclass(slots=True, frozen=True)
@@ -99,4 +104,30 @@ def derive_additivity_capabilities(
         blocker=blocker,
         remediation_hint=remediation_hint,
         capability_condition=capability_condition,
+    )
+
+
+def is_all_additive_dimensions(additive_dimensions: Sequence[str]) -> bool:
+    """Return whether additive_dimensions uses the all-dimensions sentinel."""
+    return len(additive_dimensions) == 1 and additive_dimensions[0] == ADDITIVE_DIMENSIONS_ALL
+
+
+def additive_dimensions_mix_all(additive_dimensions: Sequence[str]) -> bool:
+    """Return whether ``__all`` is mixed with explicit dimension names."""
+    return ADDITIVE_DIMENSIONS_ALL in additive_dimensions and not is_all_additive_dimensions(
+        additive_dimensions
+    )
+
+
+def additive_dimension_allows(additive_dimensions: Sequence[str], dimension: str) -> bool:
+    """Return whether a requested dimension is allowed by additive_dimensions."""
+    return is_all_additive_dimensions(additive_dimensions) or dimension in additive_dimensions
+
+
+def additive_time_rollup_allowed(
+    additive_dimensions: Sequence[str], time_scope_field: str | None
+) -> bool:
+    """Return whether the request time field is additive for rollup metadata."""
+    return bool(time_scope_field) and additive_dimension_allows(
+        additive_dimensions, time_scope_field or ""
     )
