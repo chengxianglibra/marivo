@@ -60,9 +60,8 @@ v1 默认：
 
 ## Reference Contract
 
-`correlate` 优先消费 typed artifact reference，而不是裸字符串 step id。
-
-AOI 协议支持通过 `left_artifact_id` / `right_artifact_id` 直接引用 observe artifact，此时 `left_ref` / `right_ref` 可从 artifact 元数据自动解析。
+`correlate` 的请求只消费 artifact ID，而不是 legacy `left_ref` / `right_ref`
+对象或裸字符串 step id。运行时会从 artifact 元数据重建输出 lineage refs。
 
 ```ts
 type ObservationArtifactRef = {
@@ -76,7 +75,7 @@ type ObservationArtifactRef = {
 
 引用约束：
 
-- `left_ref` 与 `right_ref` 都必须指向已完成步骤产出的 canonical `observe` artifact
+- `left_artifact_id` 与 `right_artifact_id` 都必须指向已完成步骤产出的 canonical `observe` artifact
 - `observation_type` 在 v1 中必须是 `time_series`
 - 不允许 projection ref 充当 canonical source ref
 - v1 不允许跨 session ref
@@ -88,20 +87,8 @@ type ObservationArtifactRef = {
 ```json
 {
   "step_type": "correlate",
-  "left_ref": {
-    "step_type": "observe",
-    "session_id": "sess_123",
-    "step_id": "step_obs_gmv_daily",
-    "artifact_id": "obs_artifact_gmv_daily",
-    "observation_type": "time_series"
-  },
-  "right_ref": {
-    "step_type": "observe",
-    "session_id": "sess_123",
-    "step_id": "step_obs_ad_spend_daily",
-    "artifact_id": "obs_artifact_ad_spend_daily",
-    "observation_type": "time_series"
-  },
+  "left_artifact_id": "obs_artifact_gmv_daily",
+  "right_artifact_id": "obs_artifact_ad_spend_daily",
   "method": "spearman",
   "min_pairs": 5
 }
@@ -112,10 +99,8 @@ type ObservationArtifactRef = {
 ```ts
 type CorrelateRequest = {
   step_type: "correlate";
-  left_ref: ObservationArtifactRef;
-  right_ref: ObservationArtifactRef;
-  left_artifact_id?: string;
-  right_artifact_id?: string;
+  left_artifact_id: string;
+  right_artifact_id: string;
   method?: "pearson" | "spearman";
   min_pairs?: number;
 };
@@ -125,8 +110,8 @@ type CorrelateRequest = {
 
 v1 支持的输入形态如下：
 
-- `left_ref` 必须解析到已完成的 `observe`，且 `observation_type = "time_series"`
-- `right_ref` 也必须如此
+- `left_artifact_id` 必须解析到已完成的 `observe`，且 `observation_type = "time_series"`
+- `right_artifact_id` 也必须如此
 - 两边都必须是完整 artifact，而不是 projection-only 结果
 - 两边观测值都必须是数值
 - 两边必须使用相同的 `granularity`
@@ -148,7 +133,7 @@ v1 支持的输入形态如下：
 - `segmented` 与任何类型
 - `matrix` 与任何类型
 - 直接传 `metric + scope`
-- 直接传 artifact ID、raw columns、`join_on`
+- legacy `left_ref` / `right_ref`、raw columns、`join_on`
 - projection ref 作为输入
 - 在一次请求中要求多个 methods
 - 自动 lag search
@@ -160,14 +145,14 @@ v1 支持的输入形态如下：
 
 ## 字段语义
 
-### left_ref / right_ref
+### left_artifact_id / right_artifact_id
 
-指向先前 `observe` 步骤的时间序列 artifact。
+指向先前 `observe` 步骤产出的时间序列 artifact ID。
 
 约定：
 
-- `left_ref` 是主要被考察的序列
-- `right_ref` 是比较序列
+- `left_artifact_id` 是主要被考察的序列
+- `right_artifact_id` 是比较序列
 
 与 `compare` 不同，`correlate` 不给左右两侧赋予 baseline 含义；但稳定的左右标签仍有助于 provenance 和下游引用。
 
@@ -395,7 +380,7 @@ nullable 字段的唯一语义如下：
 
 ## 校验规则
 
-- `left_ref` 与 `right_ref` 都必须解析到已完成的 `observe`
+- `left_artifact_id` 与 `right_artifact_id` 都必须解析到已完成的 `observe`
 - 两边都必须是 `observation_type = "time_series"`
 - 两边都必须是完整 artifact，而不是 projection-only 结果
 - 两边必须使用相同的 `granularity`
@@ -408,8 +393,8 @@ nullable 字段的唯一语义如下：
 
 - `INVALID_ARGUMENT`
   请求形状非法、参数不支持、projection ref 输入或上游类型不兼容
-- `STEP_NOT_FOUND`
-  `left_ref` 或 `right_ref` 无法解析
+- `ARTIFACT_NOT_FOUND`
+  `left_artifact_id` 或 `right_artifact_id` 无法解析
 - `ALIGNMENT_FAILED`
   两条序列无法在当前契约下对齐
 - `INSUFFICIENT_DATA`

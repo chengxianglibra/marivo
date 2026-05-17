@@ -729,7 +729,7 @@ class DiagnoseHourFollowupRegressionTests(unittest.TestCase):
             ),
             patch(
                 "marivo.runtime.intents.diagnose.run_compare_intent", return_value=compare_result
-            ),
+            ) as mock_compare,
             patch(
                 "marivo.runtime.intents.diagnose.run_decompose_intent",
                 return_value=decompose_result,
@@ -757,6 +757,13 @@ class DiagnoseHourFollowupRegressionTests(unittest.TestCase):
         self.assertEqual(product["validation"]["status"], "diagnosable")
         self.assertEqual(result["diagnoses"][0]["status"], "diagnosed")
         self.assertEqual(len(result["diagnoses"][0]["drivers"]), 1)
+        self.assertEqual(
+            mock_compare.call_args.args[2],
+            {
+                "left_artifact_id": "art_obs_current",
+                "right_artifact_id": "art_obs_baseline",
+            },
+        )
 
 
 # ── _combine_scope unit tests ──────────────────────────────────────────────────

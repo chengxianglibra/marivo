@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 _SIGNIFICANCE_LEVEL = 0.05
 _DEFAULT_MIN_PAIRS = 5
 _BLOCKING_ISSUE_CODES = frozenset({"granularity_mismatch", "bucket_mismatch", "insufficient_pairs"})
+_AOI_PARAM_KEYS = frozenset({"left_artifact_id", "right_artifact_id", "method", "min_pairs"})
 
 
 # ── Pure correlation helpers ──────────────────────────────────────────────────
@@ -64,62 +65,32 @@ def run_correlate_intent(
 ) -> dict[str, Any]:
     """Execute a `correlate` intent: estimate pairwise statistical association.
 
-    Input: left_ref + right_ref (both ObservationArtifactRef pointing to committed
-           time_series observe artifacts, same session).
+    Input: left_artifact_id + right_artifact_id (both committed time_series
+           observe artifacts, same session).
     Output: committed pairwise_time_series_association artifact (1 artifact → 1 finding).
 
     Empty semantics: alignment or pair count insufficient → fails, does NOT commit
     success artifact.
     """
     p = params or {}
+    extra_keys = sorted(set(p) - _AOI_PARAM_KEYS)
+    if extra_keys:
+        raise ValueError(
+            "correlate: INVALID_ARGUMENT - unsupported parameter(s): "
+            f"{extra_keys}; correlate accepts only AOI request fields"
+        )
 
-    left_ref_raw: dict[str, Any] = p.get("left_ref") or {}
-    right_ref_raw: dict[str, Any] = p.get("right_ref") or {}
     left_artifact_id_raw = p.get("left_artifact_id")
     right_artifact_id_raw = p.get("right_artifact_id")
     left_artifact_id = left_artifact_id_raw.strip() if isinstance(left_artifact_id_raw, str) else ""
     right_artifact_id = (
         right_artifact_id_raw.strip() if isinstance(right_artifact_id_raw, str) else ""
     )
-    uses_aoi_artifact_refs = bool(left_artifact_id or right_artifact_id) or (
-        "left_ref" not in p and "right_ref" not in p
-    )
-    left_step_id: str = "" if uses_aoi_artifact_refs else left_ref_raw.get("step_id") or ""
-    right_step_id: str = "" if uses_aoi_artifact_refs else right_ref_raw.get("step_id") or ""
-    left_session_id: str = (
-        session_id if uses_aoi_artifact_refs else left_ref_raw.get("session_id") or session_id
-    )
-    right_session_id: str = (
-        session_id if uses_aoi_artifact_refs else right_ref_raw.get("session_id") or session_id
-    )
 
     # ── Input validation ──────────────────────────────────────────────────────
-    if uses_aoi_artifact_refs:
-        if not left_artifact_id or not right_artifact_id:
-            raise ValueError(
-                "correlate: INVALID_ARGUMENT - both left_artifact_id and right_artifact_id are required"
-            )
-    elif not left_step_id or not right_step_id:
-        raise ValueError("correlate: both left_ref.step_id and right_ref.step_id are required")
-
-    if not uses_aoi_artifact_refs:
-        for _side, _ref_raw in (("left", left_ref_raw), ("right", right_ref_raw)):
-            _ref_step_type = _ref_raw.get("step_type")
-            if _ref_step_type is not None and _ref_step_type != "observe":
-                raise ValueError(
-                    f"correlate: INVALID_ARGUMENT - {_side}_ref.step_type must be 'observe', "
-                    f"got '{_ref_step_type}'"
-                )
-
-    if left_session_id != session_id:
+    if not left_artifact_id or not right_artifact_id:
         raise ValueError(
-            "correlate: Cross-session ref not allowed - left_ref.session_id must match "
-            "the current session"
-        )
-    if right_session_id != session_id:
-        raise ValueError(
-            "correlate: Cross-session ref not allowed - right_ref.session_id must match "
-            "the current session"
+            "correlate: INVALID_ARGUMENT - both left_artifact_id and right_artifact_id are required"
         )
 
     method: str = str(p.get("method") or "spearman").lower()
@@ -129,46 +100,45 @@ def run_correlate_intent(
             f"got '{method}'"
         )
 
-    min_pairs: int = int(p.get("min_pairs") or _DEFAULT_MIN_PAIRS)
+    min_pairs_raw = p.get("min_pairs")
+    if min_pairs_raw is None:
+        min_pairs = _DEFAULT_MIN_PAIRS
+    else:
+        try:
+            min_pairs = int(min_pairs_raw)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "correlate: INVALID_ARGUMENT - min_pairs must be an integer >= 1"
+            ) from exc
+        if min_pairs < 1:
+            raise ValueError("correlate: INVALID_ARGUMENT - min_pairs must be an integer >= 1")
 
     # ── Resolve artifacts ─────────────────────────────────────────────────────
-    if uses_aoi_artifact_refs:
-        left_artifact = runtime.resolve_artifact_by_id(session_id, left_artifact_id)
-        if left_artifact is None:
-            raise ValueError(
-                "correlate: ARTIFACT_NOT_FOUND - no committed artifact for "
-                f"left_artifact_id '{left_artifact_id}'"
-            )
-        right_artifact = runtime.resolve_artifact_by_id(session_id, right_artifact_id)
-        if right_artifact is None:
-            raise ValueError(
-                "correlate: ARTIFACT_NOT_FOUND - no committed artifact for "
-                f"right_artifact_id '{right_artifact_id}'"
-            )
-    else:
-        left_artifact = runtime.resolve_artifact_for_ref(session_id, left_step_id)
-        if left_artifact is None:
-            raise ValueError(
-                f"correlate: STEP_NOT_FOUND - no committed artifact for left_ref step '{left_step_id}'"
-            )
-        right_artifact = runtime.resolve_artifact_for_ref(session_id, right_step_id)
-        if right_artifact is None:
-            raise ValueError(
-                f"correlate: STEP_NOT_FOUND - no committed artifact for right_ref step '{right_step_id}'"
-            )
-        left_artifact_id = runtime.resolve_artifact_id_for_step(session_id, left_step_id) or ""
-        right_artifact_id = runtime.resolve_artifact_id_for_step(session_id, right_step_id) or ""
+    left_resolved = runtime.resolve_artifact_with_step_by_id(session_id, left_artifact_id)
+    if left_resolved is None:
+        raise ValueError(
+            "correlate: ARTIFACT_NOT_FOUND - no committed artifact for "
+            f"left_artifact_id '{left_artifact_id}'"
+        )
+    left_step_id, left_artifact = left_resolved
+    right_resolved = runtime.resolve_artifact_with_step_by_id(session_id, right_artifact_id)
+    if right_resolved is None:
+        raise ValueError(
+            "correlate: ARTIFACT_NOT_FOUND - no committed artifact for "
+            f"right_artifact_id '{right_artifact_id}'"
+        )
+    right_step_id, right_artifact = right_resolved
 
     left_obs_type: str | None = left_artifact.get("observation_type")
     right_obs_type: str | None = right_artifact.get("observation_type")
     if left_obs_type != "time_series":
         raise ValueError(
-            f"correlate: INVALID_ARGUMENT - left_ref must be a time_series artifact, "
+            f"correlate: INVALID_ARGUMENT - left_artifact_id must be a time_series artifact, "
             f"got observation_type='{left_obs_type}'"
         )
     if right_obs_type != "time_series":
         raise ValueError(
-            f"correlate: INVALID_ARGUMENT - right_ref must be a time_series artifact, "
+            f"correlate: INVALID_ARGUMENT - right_artifact_id must be a time_series artifact, "
             f"got observation_type='{right_obs_type}'"
         )
 
@@ -208,10 +178,12 @@ def run_correlate_intent(
         lv = left_map[k]
         rv = right_map[k]
         try:
-            xs.append(float(lv))
-            ys.append(float(rv))
+            left_numeric = float(lv)
+            right_numeric = float(rv)
         except (TypeError, ValueError):
             continue
+        xs.append(left_numeric)
+        ys.append(right_numeric)
 
     n_pairs = len(xs)
 

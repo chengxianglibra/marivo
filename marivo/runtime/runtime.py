@@ -152,6 +152,18 @@ class MarivoRuntime:
             SessionId(session_id), ArtifactId(artifact_id)
         )
 
+    def resolve_artifact_with_step_by_id(
+        self, session_id: str, artifact_id: str
+    ) -> tuple[str, dict[str, Any]] | None:
+        """Return (step_id, content) for a committed session-scoped artifact_id."""
+        result = self._ports.artifact_store.resolve_artifact_with_step_by_id(
+            SessionId(session_id), ArtifactId(artifact_id)
+        )
+        if result is None:
+            return None
+        step_id, content = result
+        return str(step_id), content
+
     def commit_artifact_with_extraction(self, *args: Any, **kwargs: Any) -> str:
         """Canonical commit boundary for mandatory-extraction artifacts.
 

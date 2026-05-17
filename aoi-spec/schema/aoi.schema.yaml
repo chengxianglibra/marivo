@@ -187,6 +187,9 @@ correlate:
   # Optional: correlation method, one of correlation_methods.
   method: correlation_methods
 
+  # Optional: minimum aligned numeric pair count required to run, range [1, +infinity).
+  min_pairs: integer
+
 # Detect anomalous buckets or segments for a metric.
 detect:
   # Required: metric identifier to inspect.

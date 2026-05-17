@@ -38,6 +38,7 @@ def lower_aoi_request(intent_type: str, request: AoiAtomicRequest) -> dict[str, 
             "left_artifact_id": request.left_artifact_id,
             "right_artifact_id": request.right_artifact_id,
             "method": request.method,
+            "min_pairs": request.min_pairs,
         }
     if isinstance(request, aoi.Detect):
         return {

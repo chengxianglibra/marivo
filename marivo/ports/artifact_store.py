@@ -62,6 +62,12 @@ class ArtifactStore(Protocol):
         artifact_id: ArtifactId,
     ) -> dict[str, Any] | None: ...
 
+    def resolve_artifact_with_step_by_id(
+        self,
+        session_id: SessionId,
+        artifact_id: ArtifactId,
+    ) -> tuple[StepId, dict[str, Any]] | None: ...
+
     def list_artifacts(
         self,
         session_id: SessionId,

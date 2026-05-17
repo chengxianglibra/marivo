@@ -220,7 +220,7 @@ The request contract is per-intent. Every atomic request is either **source-type
 | `forecast`  | ref             | `source_artifact_id: string`, `horizon`                                                                             |
 | `compare`   | ref             | `left_artifact_id: string`, `right_artifact_id: string`, `compare_type?: CompareType`                                                             |
 | `decompose` | ref             | `compare_artifact_id: string`, `dimension`, `limit?`                                                                                          |
-| `correlate` | ref             | `left_artifact_id: string`, `right_artifact_id: string` (both time_series), `method?`                                                            |
+| `correlate` | ref             | `left_artifact_id: string`, `right_artifact_id: string` (both time_series), `method?`, `min_pairs?`                                              |
 
 `test` is source-type with a *paired* slice spec: it embeds two slices directly rather than referencing upstream observations. Sample-summary statistics (count, mean, std_dev) are computed inside `test` from the underlying data — they are not exposed as a separate AOI artifact. This keeps the standard from carrying a primitive whose only consumer is `test`.
 

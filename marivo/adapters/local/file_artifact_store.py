@@ -274,6 +274,35 @@ class FileArtifactStore:
 
         return None
 
+    def resolve_artifact_with_step_by_id(
+        self,
+        session_id: SessionId,
+        artifact_id: ArtifactId,
+    ) -> tuple[StepId, dict[str, Any]] | None:
+        """Return (StepId, content) for a committed session-scoped ArtifactId."""
+        for entry in reversed(self._read_index(session_id)):
+            if entry.get("artifact_id") != str(artifact_id):
+                continue
+            if entry.get("lifecycle") != "committed":
+                continue
+
+            step_id_raw = entry.get("step_id")
+            if step_id_raw is None:
+                return None
+            step_id = StepId(str(step_id_raw))
+            path = self._artifact_path(session_id, step_id)
+            if not path.is_file():
+                return None
+
+            record: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+            if record.get("artifact_id") != str(artifact_id):
+                return None
+            if record.get("lifecycle") != "committed":
+                return None
+            return step_id, record.get("content", {})
+
+        return None
+
     def list_artifacts(
         self,
         session_id: SessionId,

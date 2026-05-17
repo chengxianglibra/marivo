@@ -17,21 +17,21 @@ INTENT_TAXONOMY: dict[str, dict[str, str]] = {
         "category": "atomic",
         "description": (
             "Compute a typed delta between two observations. "
-            "Params: left_ref (ObservationRef), right_ref (ObservationRef), mode."
+            "Params: left_artifact_id, right_artifact_id, compare_type."
         ),
     },
     "decompose": {
         "category": "atomic",
         "description": (
             "Attribute a delta across candidate dimensions. "
-            "Params: compare_ref (ArtifactRef, step_type='compare'), dimensions, top_k, min_contribution_pct."
+            "Params: compare_artifact_id, dimension, limit."
         ),
     },
     "correlate": {
         "category": "atomic",
         "description": (
             "Estimate statistical association between two time-series. "
-            "Params: left_ref (ObservationRef), right_ref (ObservationRef), method."
+            "Params: left_artifact_id, right_artifact_id, method."
         ),
     },
     "detect": {
@@ -45,14 +45,14 @@ INTENT_TAXONOMY: dict[str, dict[str, str]] = {
         "category": "atomic",
         "description": (
             "Evaluate a typed statistical hypothesis. "
-            "Params: hypothesis, left_ref (ObservationRef), right_ref (ObservationRef), alternative, alpha."
+            "Params: metric, left, right, kind, hypothesis."
         ),
     },
     "forecast": {
         "category": "atomic",
         "description": (
             "Project a time-series into future buckets. "
-            "Params: series_ref (ObservationRef), horizon, granularity, profile."
+            "Params: source_artifact_id, horizon, profile."
         ),
     },
     "validate": {

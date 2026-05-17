@@ -82,13 +82,14 @@ Marivo 当前将以下能力视为原子分析意图集合：
 - 明确的非法组合
 - 明确的响应类型契约
 
-当一个意图依赖上游结果时，应优先消费 typed references（类型化引用），而不是重新引入临时性的原始 scope 输入。
+当一个意图依赖上游结果时，应优先消费 artifact ID，并在输出 artifact
+lineage 中保留 typed references，而不是重新引入临时性的原始 scope 输入。
 
 推荐示例：
 
-- `compare(left_ref, right_ref)`，而不是 `compare(metric, scope_a, scope_b)`
-- `decompose(compare_ref, dimension)`，而不是 `decompose(metric, left_scope, right_scope, ...)`
-- `correlate(left_ref, right_ref)`，而不是 `correlate(metric_a, metric_b, scope, ...)`
+- `compare(left_artifact_id, right_artifact_id)`，而不是 `compare(metric, scope_a, scope_b)`
+- `decompose(compare_artifact_id, dimension)`，而不是 `decompose(metric, left_scope, right_scope, ...)`
+- `correlate(left_artifact_id, right_artifact_id)`，而不是 `correlate(metric_a, metric_b, scope, ...)`
 
 ### 3. 单一分析职责
 

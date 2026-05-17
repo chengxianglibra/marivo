@@ -164,6 +164,10 @@ class OpenApiFragmentTests(unittest.TestCase):
         ]["content"]["application/json"]["schema"]
         self.assertEqual(attribute_request["$ref"], "#/components/schemas/Attribute")
 
+        correlate_schema = components["Correlate"]
+        self.assertIn("min_pairs", correlate_schema["properties"])
+        self.assertEqual(correlate_schema["properties"]["min_pairs"]["minimum"], 1)
+
     def test_datasource_routes_publish_stable_request_and_response_schemas(self) -> None:
         response = self.client.get("/openapi.json")
 

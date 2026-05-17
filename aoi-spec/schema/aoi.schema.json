@@ -382,6 +382,10 @@
           "right_artifact_id": {
             "type": "string",
             "minLength": 1
+          },
+          "min_pairs": {
+            "type": "integer",
+            "minimum": 1
           }
         }
       },

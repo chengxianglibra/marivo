@@ -669,7 +669,7 @@ class IrBundle(TypedDict):
 
 ### 2. typed ref 组合不再悬空
 
-像 `compare(left_ref, right_ref)`、`decompose(compare_ref, dimension)`、`forecast(source_ref)` 这类组合，都必须知道：
+像 `compare(left_artifact_id, right_artifact_id)`、`decompose(compare_artifact_id, dimension)`、`forecast(source_artifact_id)` 这类组合，都必须知道：
 
 - 消费的是哪类 artifact
 - 在当前节点里扮演哪个 slot

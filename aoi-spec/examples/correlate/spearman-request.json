@@ -1,5 +1,6 @@
 {
   "left_artifact_id": "obs_daily_revenue_2026_q1",
   "right_artifact_id": "obs_daily_discount_rate_2026_q1",
-  "method": "spearman"
+  "method": "spearman",
+  "min_pairs": 5
 }
