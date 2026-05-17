@@ -44,6 +44,24 @@ Before formal analysis starts, confirm all of the following:
 If any of these checks fail, stop the investigation and return to `marivo-semantic-layer` instead
 of compensating with ad hoc filters, joins, or one-off explanations.
 
+## Holiday-Aware Calendar Preflight
+
+When the user asks for holiday-aligned, holiday-aware, festival-window, named-holiday, or similar
+calendar-aware comparison, check calendar data before running the formal comparison.
+
+Use this sequence:
+
+1. Identify the current and baseline windows that will be compared.
+2. Call `marivo-list_calendar_data` for the combined half-open date range covering both windows.
+3. If required holiday rows are missing, call `marivo-update_calendar_data` with trusted sparse
+   `holiday` or `adjusted_workday` rows.
+4. Call `marivo-list_calendar_data` again to confirm the rows exist.
+5. Continue with `marivo-observe` and then `marivo-compare` using `compare_type="holiday_aligned"`
+   or `compare_type="holiday_and_weekday_aligned"`.
+
+Do not invent holiday data. If the missing rows are not available from the user, project materials,
+or another clearly traceable source, stop the holiday-aware comparison and report the blocker.
+
 ## Minimal `observe` Example
 
 ```text

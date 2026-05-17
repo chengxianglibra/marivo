@@ -38,6 +38,8 @@ from marivo.profiles.resolver import resolve_profile
 from marivo.routing import QueryRouter
 from marivo.runtime.ports import RuntimePorts
 from marivo.runtime.runtime import MarivoRuntime
+from marivo.runtime.semantic.calendar_data_runtime import CalendarDataReader
+from marivo.runtime.semantic.calendar_data_service import CalendarDataService
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +104,9 @@ def create_local_runtime(
     runtime.register_service("semantic_v2", semantic_v2)
     runtime.register_service("semantic_repository", semantic_repo)
     runtime.register_service("query_router", query_router)
+    runtime.register_service("calendar_data", CalendarDataService(metadata_store))
     runtime.wire_metadata(metadata_store)
+    runtime.wire_calendar_data_reader(CalendarDataReader(metadata=metadata_store))
 
     from marivo.time_axis_metadata import TimeAxisMetadataProvider
 

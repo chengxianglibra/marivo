@@ -8,7 +8,6 @@ Modules:
 - intent_request_models: Typed intent request models (observe, compare, detect, etc.)
 - intent_response_models: Typed intent response models
 - session: Session management request models
-- calendar: Calendar data models
 - _infrastructure: Infrastructure configuration models (datasource, routing, etc.)
 """
 
@@ -134,13 +133,6 @@ from .base import (
     validate_ref_prefix,
 )
 
-# Calendar models
-from .calendar import (
-    CalendarDataLoadRequest,
-    CalendarDataLoadResponse,
-    CalendarDataRow,
-)
-
 # Intent API routes use generated AOI request models directly.
 from .intent_response_models import (
     AttributeResponse,
@@ -216,9 +208,6 @@ __all__ = [  # noqa: RUF022
     "BindingScope",
     "BrowseSchemaItem",
     "BrowseTableItem",
-    "CalendarDataRow",
-    "CalendarDataLoadRequest",
-    "CalendarDataLoadResponse",
     "Cardinality",
     "CardinalityToParent",
     "CatalogMetadata",

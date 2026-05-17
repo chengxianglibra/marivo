@@ -701,26 +701,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/calendar/data": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /**
-         * Load Calendar Data
-         * @description Replace sparse holiday calendar data rows in the metadata store.
-         */
-        put: operations["load_calendar_data_calendar_data_put"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -905,58 +885,6 @@ export interface components {
             row_count?: number | null;
             /** Column Count */
             column_count?: number | null;
-        };
-        /**
-         * CalendarDataLoadRequest
-         * @description Request body for PUT /calendar/data.
-         */
-        CalendarDataLoadRequest: {
-            /**
-             * Rows
-             * @description Calendar data rows
-             */
-            rows: components["schemas"]["CalendarDataRow"][];
-        };
-        /**
-         * CalendarDataLoadResponse
-         * @description Response body for PUT /calendar/data.
-         */
-        CalendarDataLoadResponse: {
-            /** Status */
-            status: string;
-            /** Row Count */
-            row_count: number;
-        };
-        /**
-         * CalendarDataRow
-         * @description A single row of calendar data.
-         */
-        CalendarDataRow: {
-            /**
-             * Calendar Date
-             * @description Date in YYYY-MM-DD format
-             */
-            calendar_date: string;
-            /**
-             * Day Kind
-             * @description Sparse calendar row kind
-             */
-            day_kind: "holiday" | "adjusted_workday";
-            /**
-             * Holiday Name
-             * @description Holiday name, if applicable
-             */
-            holiday_name?: string | null;
-            /**
-             * Holiday Group Id
-             * @description Holiday group identifier
-             */
-            holiday_group_id?: string | null;
-            /**
-             * Year Relative Holiday Key
-             * @description Year-relative holiday key
-             */
-            year_relative_holiday_key?: string | null;
         };
         /** CandidateDimension */
         CandidateDimension: string;
@@ -3947,39 +3875,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    load_calendar_data_calendar_data_put: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CalendarDataLoadRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CalendarDataLoadResponse"];
                 };
             };
             /** @description Validation Error */

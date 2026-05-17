@@ -11,7 +11,7 @@ Simplify calendar data to sparse holiday/adjusted-workday rows. Remove the CN ca
 
 - Delete the built-in CN calendar generator, its direct test, and the old dense seed SQL file.
 - Update metadata DDL so `calendar` stores `calendar_date`, `day_kind`, `holiday_group_id`, `holiday_name`, and `year_relative_holiday_key`.
-- Update `PUT /calendar/data` request handling to accept sparse rows only.
+- Update public calendar data maintenance to accept sparse rows only.
 - Update `CalendarDataReader` and core annotation construction so missing dates are filled with runtime-derived weekday rows.
 - Update current docs and OpenAPI types to remove version/region/dense-row language.
 

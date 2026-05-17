@@ -11,6 +11,13 @@ import asyncio
 
 from mcp.server.fastmcp import FastMCP
 
+from marivo.contracts.calendar import (
+    CalendarDataListResponse,
+    CalendarDataQuery,
+    CalendarDataRow,
+    CalendarDataUpdateRequest,
+    CalendarDataUpdateResponse,
+)
 from marivo.contracts.generated import aoi
 from marivo.transports.mcp.tools import register_tools
 from marivo.transports.mcp.tools.schemas import McpAoiSliceRef, McpTimeScope
@@ -64,11 +71,26 @@ class _FakeSvc:
     def preview_table(self, **kw):
         return {}
 
+    def list_calendar_data(self, input):
+        return CalendarDataListResponse(rows=[], row_count=0, query=input)
+
+    def update_calendar_data(self, input):
+        return CalendarDataUpdateResponse(
+            status="updated",
+            row_count=len(input.rows),
+            inserted_count=len(input.rows),
+            updated_count=0,
+        )
+
 
 class FakeRuntime:
     """Minimal stub satisfying register_tools' runtime contract."""
 
-    _services: dict[str, _FakeSvc] = {"semantic_v2": _FakeSvc(), "datasource": _FakeSvc()}
+    _services: dict[str, _FakeSvc] = {
+        "semantic_v2": _FakeSvc(),
+        "datasource": _FakeSvc(),
+        "calendar_data": _FakeSvc(),
+    }
 
     def get_service(self, name: str) -> _FakeSvc:
         return self._services[name]
@@ -532,6 +554,107 @@ def test_compare_tool_schema_exposes_compare_type_enum_and_default() -> None:
         "weekday_aligned",
         "holiday_and_weekday_aligned",
     ]
+
+
+def test_calendar_tools_registered_in_both_modes() -> None:
+    stdio_server = FastMCP("test-stdio")
+    http_server = FastMCP("test-http", stateless_http=True, json_response=True)
+    register_tools(stdio_server, FakeRuntime(), transport="stdio")
+    register_tools(http_server, FakeRuntime(), transport="http")
+
+    for server in (stdio_server, http_server):
+        tools = _tool_names(server)
+        assert {"list_calendar_data", "update_calendar_data"}.issubset(tools)
+
+
+def test_calendar_tool_schemas_are_structured_and_typed() -> None:
+    server = FastMCP("test")
+    register_tools(server, FakeRuntime(), transport="stdio")
+    tools = {tool.name: tool for tool in server._tool_manager.list_tools()}
+
+    list_tool = tools["list_calendar_data"]
+    update_tool = tools["update_calendar_data"]
+
+    assert list_tool.parameters["properties"]["input"] == {"$ref": "#/$defs/CalendarDataQuery"}
+    assert update_tool.parameters["properties"]["input"] == {
+        "$ref": "#/$defs/CalendarDataUpdateRequest"
+    }
+    assert list_tool.output_schema is not None
+    assert update_tool.output_schema is not None
+    assert "CalendarDataListResponse" in list_tool.output_schema["$defs"]
+    assert "CalendarDataUpdateResponse" in update_tool.output_schema["$defs"]
+    assert "CalendarDataRow" in update_tool.parameters["$defs"]
+    row_schema = update_tool.parameters["$defs"]["CalendarDataRow"]
+    assert row_schema["additionalProperties"] is False
+    assert set(row_schema["properties"]) == {
+        "calendar_date",
+        "day_kind",
+        "holiday_name",
+        "holiday_group_id",
+        "year_relative_holiday_key",
+    }
+
+
+def test_calendar_tools_call_runtime_with_typed_inputs(monkeypatch) -> None:
+    calls = []
+
+    async def fake_call_runtime(method, /, **kwargs):
+        calls.append((method, kwargs))
+        return {"data": {"rows": [], "row_count": 0, "query": {}}, "error": None}
+
+    monkeypatch.setattr("marivo.transports.mcp.tools.calendar.call_runtime", fake_call_runtime)
+
+    server = FastMCP("test")
+    runtime = FakeRuntime()
+    register_tools(server, runtime, transport="stdio")
+    tool = {tool.name: tool for tool in server._tool_manager.list_tools()}["list_calendar_data"]
+    query = CalendarDataQuery(start_date="2026-02-01", end_date="2026-03-01")
+
+    result = asyncio.run(tool.fn(input=query))
+
+    assert result.error is None
+    assert calls[0][0] == runtime.get_service("calendar_data").list_calendar_data
+    assert calls[0][1]["input"] == query
+
+
+def test_update_calendar_data_tool_accepts_calendar_rows(monkeypatch) -> None:
+    calls = []
+
+    async def fake_call_runtime(method, /, **kwargs):
+        calls.append((method, kwargs))
+        return {
+            "data": {
+                "status": "updated",
+                "row_count": 1,
+                "inserted_count": 1,
+                "updated_count": 0,
+            },
+            "error": None,
+        }
+
+    monkeypatch.setattr("marivo.transports.mcp.tools.calendar.call_runtime", fake_call_runtime)
+
+    server = FastMCP("test")
+    runtime = FakeRuntime()
+    register_tools(server, runtime, transport="stdio")
+    tool = {tool.name: tool for tool in server._tool_manager.list_tools()}["update_calendar_data"]
+    request = CalendarDataUpdateRequest(
+        rows=[
+            CalendarDataRow(
+                calendar_date="2026-02-16",
+                day_kind="holiday",
+                holiday_name="Spring Festival",
+                holiday_group_id="spring_festival",
+            )
+        ]
+    )
+
+    result = asyncio.run(tool.fn(input=request))
+
+    assert result.data is not None
+    assert result.data.status == "updated"
+    assert calls[0][0] == runtime.get_service("calendar_data").update_calendar_data
+    assert calls[0][1]["input"] == request
 
 
 def test_shared_tools_identical_schema():

@@ -56,6 +56,11 @@ def test_create_server_runtime_returns_server_composition(tmp_path) -> None:
     assert isinstance(composition.runtime, MarivoRuntime)
     assert composition.metadata_store is meta
     assert composition.analytics_engine is analytics
+    from marivo.runtime.semantic.calendar_data_runtime import CalendarDataReader
+    from marivo.runtime.semantic.calendar_data_service import CalendarDataService
+
+    assert isinstance(composition.runtime.get_service("calendar_data"), CalendarDataService)
+    assert isinstance(composition.runtime.calendar_data_reader, CalendarDataReader)
 
 
 def test_create_server_runtime_ports_are_wrapper_adapters(tmp_path) -> None:

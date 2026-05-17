@@ -12,7 +12,7 @@ Calendar alignment only needs holiday annotations. Weekday and weekend facts are
 - Calendar data is sparse: rows represent `holiday` or `adjusted_workday` dates only.
 - Weekday and weekend facts are derived at runtime from `calendar_date`.
 - The metadata `calendar` table has no version, region, weekday, weekend, or workday columns.
-- The repository no longer ships or maintains a built-in CN calendar generator; callers provide holiday data through `PUT /calendar/data`.
+- The repository no longer ships or maintains a built-in CN calendar generator; callers provide holiday data through MCP `update_calendar_data`.
 
 ## Data Shape
 

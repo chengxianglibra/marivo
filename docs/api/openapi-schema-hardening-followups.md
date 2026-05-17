@@ -11,7 +11,6 @@ The following API groups are active current HTTP surfaces:
 
 - datasources (`/datasources/**`)
 - routing (`/routing/**`)
-- calendar (`/calendar/**`)
 
 The following remain outside the quality gate and are deferred to Wave 5:
 

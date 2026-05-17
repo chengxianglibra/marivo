@@ -47,6 +47,8 @@ close-out. It does not own datasource discovery or reusable semantic authoring.
 
 - `time_scope.end` is exclusive.
 - Formal analysis starts only after semantic preflight passes.
+- If the user asks for holiday-aligned, holiday-aware, festival-window, or named-holiday
+  comparison, run calendar data preflight before the formal comparison.
 - For `marivo-observe`, choose **either** `granularity` **or** `dimensions`.
 - `marivo-correlate` and `marivo-forecast` require committed `observe(time_series)` artifact IDs
   produced by `marivo-observe(granularity=...)`; scalar or segmented observe artifacts are invalid.
@@ -61,6 +63,7 @@ close-out. It does not own datasource discovery or reusable semantic authoring.
 - starting a fresh session for every tiny follow-up instead of continuing the active one
 - entering formal analysis before the metric contract or time semantics were approved
 - mixing grouped and time-series output in one `marivo-observe` call
+- running holiday-aware comparison without checking whether the relevant calendar rows exist
 - passing scalar or segmented observe artifacts into `marivo-correlate` or `marivo-forecast`
 - using the investigation loop to improvise reusable metric definitions
 - treating session lists or runtime-ish status as a substitute for state or proposition context

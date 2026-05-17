@@ -1,6 +1,6 @@
 # Marivo MCP 工具参考文档
 
-本文档介绍 Marivo MCP 所有 32 个工具的完整输入参数与输出结构，按三个分析面（Datasource / Semantic Layer / Analysis）组织。每个字段标注明确类型，每项工具附带输入输出示例 JSON。
+本文档介绍 Marivo MCP 所有 34 个工具的完整输入参数与输出结构，按 Datasource / Semantic Layer / Analysis 及其 calendar data preflight 工具组织。每个字段标注明确类型，每项工具附带输入输出示例 JSON。
 
 ---
 
@@ -828,6 +828,97 @@ interface ValidationSummary {
 ---
 
 ## 三、Analysis Surface — 分析会话与 Intent
+
+### 3.0 calendar data preflight tools
+
+Calendar data 工具用于 holiday-aware 时间对比分析前的节假日数据检查与补录。它们维护 sparse calendar rows，只存节假日和调休工作日，不存普通日期。
+
+#### list_calendar_data
+
+查询当前已录入的 sparse calendar rows。
+
+**输入参数**：
+
+| 参数 | 类型 | 必填 | 默认 | 说明 |
+|------|------|------|------|------|
+| input.start_date | date \| null | 否 | null | calendar_date 下界，包含 |
+| input.end_date | date \| null | 否 | null | calendar_date 上界，排他 |
+| input.day_kind | `"holiday"` \| `"adjusted_workday"` \| null | 否 | null | 行类型过滤 |
+| input.holiday_group_id | string \| null | 否 | null | 节假日窗口 ID 过滤 |
+| input.limit | integer | 否 | 1000 | 返回行数上限，1 到 10000 |
+
+**输出 — CalendarDataListResponse**：
+
+```typescript
+interface CalendarDataRow {
+  calendar_date: string;
+  day_kind: "holiday" | "adjusted_workday";
+  holiday_name: string | null;
+  holiday_group_id: string;
+  year_relative_holiday_key: string | null;
+}
+
+interface CalendarDataListResponse {
+  rows: CalendarDataRow[];
+  row_count: number;
+  query: object;
+}
+```
+
+**输入示例**：
+
+```json
+{
+  "input": {
+    "start_date": "2026-02-01",
+    "end_date": "2026-03-01",
+    "day_kind": "holiday"
+  }
+}
+```
+
+#### update_calendar_data
+
+增量 upsert sparse calendar rows；不会删除请求中未提到的既有 rows。
+
+**输入参数**：
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| input.rows | CalendarDataRow[] | 是 | 要新增或覆盖的 sparse calendar rows |
+
+`holiday` row 必须提供非空 `holiday_group_id`；同一请求内不能出现重复的 `(calendar_date, day_kind, holiday_group_id)`。
+
+**输出 — CalendarDataUpdateResponse**：
+
+```typescript
+interface CalendarDataUpdateResponse {
+  status: "updated";
+  row_count: number;
+  inserted_count: number;
+  updated_count: number;
+}
+```
+
+**输入示例**：
+
+```json
+{
+  "input": {
+    "rows": [
+      {
+        "calendar_date": "2026-02-16",
+        "day_kind": "holiday",
+        "holiday_name": "Spring Festival",
+        "holiday_group_id": "spring_festival",
+        "year_relative_holiday_key": "spring_festival_d0"
+      }
+    ]
+  }
+}
+```
+
+Holiday-aware comparison 默认流程：先 `list_calendar_data` 覆盖 current 和 baseline 窗口；缺失时只用可信来源调用 `update_calendar_data` 补录；复查后再运行 `observe` 和 `compare(compare_type="holiday_aligned")` 或 `compare(compare_type="holiday_and_weekday_aligned")`。不要编造节假日数据。
 
 ### 3.1 create_session
 
@@ -2095,6 +2186,7 @@ interface AnalysisFailure {
 | 显著性/假设验证 | `test_intent` 或 `validate` | 只看数值差异 |
 | 预测 | `forecast` | — |
 | 综合诊断（异常+归因） | `diagnose` | detect + 口头解释 |
+| 节假日对齐的时间对比 | `list_calendar_data`，必要时 `update_calendar_data`，再 `compare(compare_type="holiday_aligned")` | 直接 holiday compare 且不检查 calendar rows |
 
 **关键限制**：
 - `AVG` / `APPROX_PERCENTILE` / 比率类指标为非可加指标，不可使用 `decompose` / `attribute` / `diagnose` 的归因拆解
@@ -2102,6 +2194,7 @@ interface AnalysisFailure {
 - metric/dimension 引用使用语义对象名称，不带 `metric.` / `dimension.` 前缀
 - 非可加指标不添加 MARIVO `custom_extension`（`additive_dimensions` 不能为空数组）
 - `compare`、`decompose`、`correlate`、`forecast` 使用 artifact ID 字符串引用，非结构化引用对象
+- `holiday_aligned` / `holiday_and_weekday_aligned` compare 前先检查 calendar rows；缺失时不得编造节假日数据
 - `observe`/`detect` 的 `filter_expression` 必须为 `McpExpression` 结构化对象，不接受 JSON 字符串
 - `test_intent` 在 MCP 层不暴露固定的 `kind` 或 `hypothesis.family`；适配层内部固定为 AOI `kind="numeric"` 和 `hypothesis.family="two_sample_mean"`，使用 `hypothesis.significance` 选择显著性档位，无 `method`、`hypothesis.alpha` 或 `hypothesis.label` 参数
 - `test_intent.left/right` 使用 `McpAoiSliceRef`，支持 `filter`，不支持 derived intent 的 `scope`
