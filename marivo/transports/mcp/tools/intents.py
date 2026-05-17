@@ -102,7 +102,7 @@ def to_aoi_compare_request(
 def to_aoi_decompose_request(
     compare_artifact_id: str,
     dimension: str,
-    limit: int = None,  # type: ignore[assignment]  # noqa: RUF013
+    limit: int | None = None,
 ) -> aoi.Decompose:
     return aoi.Decompose.model_validate(
         _omit_none(
@@ -132,7 +132,7 @@ def to_aoi_forecast_request(
 def to_aoi_correlate_request(
     left_artifact_id: str,
     right_artifact_id: str,
-    method: Literal["pearson", "spearman"] = None,  # type: ignore[assignment]  # noqa: RUF013
+    method: Literal["pearson", "spearman"] | None = None,
     min_pairs: int | None = None,
 ) -> aoi.Correlate:
     return aoi.Correlate.model_validate(
@@ -153,9 +153,9 @@ def to_aoi_detect_request(
     granularity: Literal["hour", "day", "week", "month", "quarter", "year"],
     strategy: Literal["point_anomaly", "period_shift"],
     filter_expression: McpExpression | dict[str, Any] | None = None,
-    dimension: str = None,  # type: ignore[assignment]  # noqa: RUF013
+    dimension: str | None = None,
     sensitivity: Literal["conservative", "balanced", "aggressive"] = "aggressive",
-    limit: int = None,  # type: ignore[assignment]  # noqa: RUF013
+    limit: int | None = None,
 ) -> aoi.Detect:
     return aoi.Detect.model_validate(
         _omit_none(
@@ -284,11 +284,29 @@ def to_aoi_diagnose_request(
 
 
 def register_observe(server: Any, runtime: Any) -> None:
-    @server.tool()  # type: ignore
+    @server.tool(  # type: ignore
+        description=(
+            "Observe one semantic metric over an AOI time_scope. Omit both granularity and "
+            "dimensions for scalar output, provide only granularity for time_series output, "
+            "or provide only dimensions for segmented output."
+        )
+    )
     async def observe(
-        session_id: str,
-        metric: str,
-        time_scope: McpTimeScopeValidated,
+        session_id: Annotated[
+            str,
+            Field(description="Marivo analysis session ID that owns this intent call."),
+        ],
+        metric: Annotated[
+            str,
+            Field(
+                min_length=1,
+                description="Semantic metric identifier, e.g. 'total_query_count'.",
+            ),
+        ],
+        time_scope: Annotated[
+            McpTimeScopeValidated,
+            Field(description="AOI TimeScope for the observed metric data slice."),
+        ],
         granularity: Annotated[
             Literal["hour", "day", "week", "month", "quarter", "year"] | None,
             Field(
@@ -301,10 +319,11 @@ def register_observe(server: Any, runtime: Any) -> None:
         dimensions: Annotated[
             list[str] | None,
             Field(
+                min_length=1,
                 description=(
-                    "Segmented observe selector. Provide this without granularity; omit both "
-                    "dimensions and granularity for scalar observe."
-                )
+                    "Segmented observe selector. Provide a non-empty dimension list without "
+                    "granularity; omit both dimensions and granularity for scalar observe."
+                ),
             ),
         ] = None,
         filter_expression: Annotated[
@@ -337,7 +356,10 @@ def register_compare(server: Any, runtime: Any) -> None:
         )
     )
     async def compare(
-        session_id: str,
+        session_id: Annotated[
+            str,
+            Field(description="Marivo analysis session ID that owns this intent call."),
+        ],
         current_artifact_id: CompareObserveArtifactId,
         baseline_artifact_id: CompareObserveArtifactId,
         compare_type: Annotated[
@@ -364,12 +386,41 @@ def register_compare(server: Any, runtime: Any) -> None:
 
 
 def register_decompose(server: Any, runtime: Any) -> None:
-    @server.tool()  # type: ignore
+    @server.tool(  # type: ignore
+        description=(
+            "Decompose the delta from a committed compare artifact by one dimension. "
+            "Inputs are string artifact IDs from the same session; the method is fixed "
+            "to delta_share."
+        )
+    )
     async def decompose(
-        session_id: str,
-        compare_artifact_id: str,
-        dimension: str,
-        limit: int = None,  # type: ignore[assignment]  # noqa: RUF013
+        session_id: Annotated[
+            str,
+            Field(description="Marivo analysis session ID that owns this intent call."),
+        ],
+        compare_artifact_id: Annotated[
+            str,
+            Field(
+                min_length=1,
+                description=(
+                    "Committed compare artifact ID from this session, e.g. 'art_compare_1'."
+                ),
+            ),
+        ],
+        dimension: Annotated[
+            str,
+            Field(
+                min_length=1,
+                description="Dimension name to decompose by, e.g. 'cluster' or 'department'.",
+            ),
+        ],
+        limit: Annotated[
+            int | None,
+            Field(
+                ge=1,
+                description="Maximum top dimension values to return; omit to use service default.",
+            ),
+        ] = None,
     ) -> dict[str, Any]:
         request = to_aoi_decompose_request(
             compare_artifact_id=compare_artifact_id,
@@ -380,13 +431,36 @@ def register_decompose(server: Any, runtime: Any) -> None:
 
 
 def register_detect(server: Any, runtime: Any) -> None:
-    @server.tool()  # type: ignore
+    @server.tool(  # type: ignore
+        description=(
+            "Detect anomaly candidates for one semantic metric over an AOI time_scope at a "
+            "required time granularity."
+        )
+    )
     async def detect(
-        session_id: str,
-        metric: str,
-        time_scope: McpTimeScope,
-        granularity: Literal["hour", "day", "week", "month", "quarter", "year"],
-        strategy: Literal["point_anomaly", "period_shift"],
+        session_id: Annotated[
+            str,
+            Field(description="Marivo analysis session ID that owns this intent call."),
+        ],
+        metric: Annotated[
+            str,
+            Field(
+                min_length=1,
+                description="Semantic metric identifier, e.g. 'total_query_count'.",
+            ),
+        ],
+        time_scope: Annotated[
+            McpTimeScope,
+            Field(description="AOI TimeScope for the metric data slice."),
+        ],
+        granularity: Annotated[
+            Literal["hour", "day", "week", "month", "quarter", "year"],
+            Field(description="Required AOI time bucket granularity for anomaly scanning."),
+        ],
+        strategy: Annotated[
+            Literal["point_anomaly", "period_shift"],
+            Field(description="Detection strategy: point anomalies or period shifts."),
+        ],
         filter_expression: Annotated[
             McpExpression | None,
             Field(
@@ -396,9 +470,26 @@ def register_detect(server: Any, runtime: Any) -> None:
                 )
             ),
         ] = None,
-        dimension: str = None,  # type: ignore[assignment]  # noqa: RUF013
-        sensitivity: Literal["conservative", "balanced", "aggressive"] = "aggressive",
-        limit: int = None,  # type: ignore[assignment]  # noqa: RUF013
+        dimension: Annotated[
+            str | None,
+            Field(
+                description=(
+                    "Optional single dimension that splits the scan into independent series; "
+                    "omit to scan the overall metric series."
+                ),
+            ),
+        ] = None,
+        sensitivity: Annotated[
+            Literal["conservative", "balanced", "aggressive"],
+            Field(description="Detection sensitivity preset. Defaults to aggressive."),
+        ] = "aggressive",
+        limit: Annotated[
+            int | None,
+            Field(
+                ge=1,
+                description="Maximum anomaly candidates to return; omit to use service default.",
+            ),
+        ] = None,
     ) -> dict[str, Any]:
         request = to_aoi_detect_request(
             metric=metric,
@@ -422,10 +513,16 @@ def register_correlate(server: Any, runtime: Any) -> None:
         )
     )
     async def correlate(
-        session_id: str,
+        session_id: Annotated[
+            str,
+            Field(description="Marivo analysis session ID that owns this intent call."),
+        ],
         left_artifact_id: TimeSeriesObserveArtifactId,
         right_artifact_id: TimeSeriesObserveArtifactId,
-        method: Literal["pearson", "spearman"] = None,  # type: ignore[assignment]  # noqa: RUF013
+        method: Annotated[
+            Literal["pearson", "spearman"] | None,
+            Field(description="Correlation method; omit to use the service default."),
+        ] = None,
         min_pairs: Annotated[
             int | None,
             Field(
@@ -455,9 +552,21 @@ def register_forecast(server: Any, runtime: Any) -> None:
         )
     )
     async def forecast(
-        session_id: str,
+        session_id: Annotated[
+            str,
+            Field(description="Marivo analysis session ID that owns this intent call."),
+        ],
         source_artifact_id: TimeSeriesObserveArtifactId,
-        horizon: int,
+        horizon: Annotated[
+            int,
+            Field(
+                ge=1,
+                description=(
+                    "Number of future buckets to forecast, in units of the source "
+                    "observe(time_series) granularity."
+                ),
+            ),
+        ],
     ) -> dict[str, Any]:
         request = to_aoi_forecast_request(
             source_artifact_id=source_artifact_id,
@@ -471,21 +580,46 @@ def register_attribute(server: Any, runtime: Any) -> None:
         description=("Attribute a known current-vs-baseline metric change.")
     )
     async def attribute(
-        session_id: str,
-        metric: str,
-        current: McpAoiSliceRef,
-        baseline: McpAoiSliceRef,
+        session_id: Annotated[
+            str,
+            Field(description="Marivo analysis session ID that owns this intent call."),
+        ],
+        metric: Annotated[
+            str,
+            Field(
+                min_length=1,
+                description="Semantic metric identifier, e.g. 'total_query_count'.",
+            ),
+        ],
+        current: Annotated[
+            McpAoiSliceRef,
+            Field(description="Current AOI slice: time_scope plus optional filter."),
+        ],
+        baseline: Annotated[
+            McpAoiSliceRef,
+            Field(description="Baseline AOI slice: time_scope plus optional filter."),
+        ],
         dimensions: Annotated[
             list[str],
             Field(
+                min_length=1,
                 description=(
                     "Attribution dimensions used to explain the known current-vs-baseline "
                     "change. Each dimension produces an independent decompose result."
-                )
+                ),
             ),
         ],
-        decomposition_method: Literal["delta_share"] = "delta_share",
-        decomposition_limit: int = 5,
+        decomposition_method: Annotated[
+            Literal["delta_share"],
+            Field(description="Fixed AOI decomposition method. Only delta_share is supported."),
+        ] = "delta_share",
+        decomposition_limit: Annotated[
+            int,
+            Field(
+                ge=1,
+                description="Maximum driver rows returned per attribution dimension. Defaults to 5.",
+            ),
+        ] = 5,
     ) -> dict[str, Any]:
         request = to_aoi_attribute_request(
             metric=metric,
@@ -507,7 +641,10 @@ def register_diagnose(server: Any, runtime: Any) -> None:
         )
     )
     async def diagnose(
-        session_id: str,
+        session_id: Annotated[
+            str,
+            Field(description="Marivo analysis session ID that owns this intent call."),
+        ],
         metric: Annotated[
             str,
             Field(
@@ -622,13 +759,42 @@ def register_diagnose(server: Any, runtime: Any) -> None:
 
 
 def register_test_intent(server: Any, runtime: Any) -> None:
-    @server.tool()  # type: ignore
+    @server.tool(  # type: ignore
+        description=(
+            "Run a fixed-family numeric hypothesis test over current and baseline AOI slices. "
+            "MCP fixes kind='numeric' and hypothesis.family='two_sample_mean'; do not pass "
+            "kind, method, family, alpha, or label."
+        )
+    )
     async def test_intent(
-        session_id: str,
-        metric: str,
-        current: McpAoiSliceRef,
-        baseline: McpAoiSliceRef,
-        hypothesis: McpTestHypothesis,
+        session_id: Annotated[
+            str,
+            Field(description="Marivo analysis session ID that owns this intent call."),
+        ],
+        metric: Annotated[
+            str,
+            Field(
+                min_length=1,
+                description="Semantic metric identifier, e.g. 'total_query_count'.",
+            ),
+        ],
+        current: Annotated[
+            McpAoiSliceRef,
+            Field(description="Current AOI slice: time_scope plus optional filter."),
+        ],
+        baseline: Annotated[
+            McpAoiSliceRef,
+            Field(description="Baseline AOI slice: time_scope plus optional filter."),
+        ],
+        hypothesis: Annotated[
+            McpTestHypothesis,
+            Field(
+                description=(
+                    "Structured hypothesis object with only alternative and significance; "
+                    "family is fixed internally to two_sample_mean."
+                ),
+            ),
+        ],
     ) -> dict[str, Any]:
         request = to_aoi_test_request(
             metric=metric,
@@ -640,13 +806,42 @@ def register_test_intent(server: Any, runtime: Any) -> None:
 
 
 def register_validate(server: Any, runtime: Any) -> None:
-    @server.tool()  # type: ignore
+    @server.tool(  # type: ignore
+        description=(
+            "Run derived validation for current and baseline AOI slices using the fixed "
+            "two_sample_mean hypothesis family. MCP fills missing hypothesis defaults and "
+            "does not expose method, family, alpha, or label."
+        )
+    )
     async def validate(
-        session_id: str,
-        metric: str,
-        current: McpAoiSliceRef,
-        baseline: McpAoiSliceRef,
-        hypothesis: McpValidateHypothesis | None = None,
+        session_id: Annotated[
+            str,
+            Field(description="Marivo analysis session ID that owns this intent call."),
+        ],
+        metric: Annotated[
+            str,
+            Field(
+                min_length=1,
+                description="Semantic metric identifier, e.g. 'total_query_count'.",
+            ),
+        ],
+        current: Annotated[
+            McpAoiSliceRef,
+            Field(description="Current AOI slice: time_scope plus optional filter."),
+        ],
+        baseline: Annotated[
+            McpAoiSliceRef,
+            Field(description="Baseline AOI slice: time_scope plus optional filter."),
+        ],
+        hypothesis: Annotated[
+            McpValidateHypothesis | None,
+            Field(
+                description=(
+                    "Optional structured hypothesis with alternative and significance only; "
+                    "family defaults internally to two_sample_mean."
+                ),
+            ),
+        ] = None,
     ) -> dict[str, Any]:
         request = to_aoi_validate_request(
             metric=metric,

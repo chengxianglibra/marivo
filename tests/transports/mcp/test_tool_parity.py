@@ -380,13 +380,17 @@ def test_test_intent_tool_schema_matches_current_aoi_surface() -> None:
 
     assert "method" not in properties
     assert "kind" not in properties
-    assert properties["current"] == {"$ref": "#/$defs/McpAoiSliceRef"}
-    assert properties["baseline"] == {"$ref": "#/$defs/McpAoiSliceRef"}
+    assert properties["current"]["$ref"] == "#/$defs/McpAoiSliceRef"
+    assert properties["baseline"]["$ref"] == "#/$defs/McpAoiSliceRef"
+    assert "Current AOI slice" in properties["current"]["description"]
+    assert "Baseline AOI slice" in properties["baseline"]["description"]
     assert slice_schema["additionalProperties"] is False
     assert set(slice_schema["properties"]) == {"time_scope", "filter"}
+    assert "half-open [start, end)" in slice_schema["properties"]["time_scope"]["description"]
     assert "scope" not in slice_schema["properties"]
     assert "hypothesis" in tools["test_intent"].parameters["required"]
-    assert properties["hypothesis"] == {"$ref": "#/$defs/McpTestHypothesis"}
+    assert properties["hypothesis"]["$ref"] == "#/$defs/McpTestHypothesis"
+    assert "family is fixed internally" in properties["hypothesis"]["description"]
     assert hypothesis_schema["additionalProperties"] is False
     assert hypothesis_schema["required"] == ["alternative", "significance"]
     assert "family" not in hypothesis_schema["properties"]
@@ -395,6 +399,10 @@ def test_test_intent_tool_schema_matches_current_aoi_surface() -> None:
         "greater",
         "less",
     ]
+    assert (
+        "current is greater than baseline"
+        in hypothesis_schema["properties"]["alternative"]["description"]
+    )
     significance_schema = hypothesis_schema["properties"]["significance"]
     assert significance_schema["enum"] == ["conservative", "balanced", "aggressive"]
     assert "conservative=0.01" in significance_schema["description"]
@@ -424,8 +432,13 @@ def test_observe_and_detect_filter_schemas_expose_aoi_expression() -> None:
         assert dialect_schema["properties"]["dialect"]["default"] == "ANSI_SQL"
 
     observe_props = tools["observe"].parameters["properties"]
+    assert "owns this intent call" in observe_props["session_id"]["description"]
+    assert "Semantic metric identifier" in observe_props["metric"]["description"]
+    assert "observed metric data slice" in observe_props["time_scope"]["description"]
     assert "without dimensions" in observe_props["granularity"]["description"]
     assert "without granularity" in observe_props["dimensions"]["description"]
+    assert "non-empty dimension list" in observe_props["dimensions"]["description"]
+    assert observe_props["dimensions"]["anyOf"][0]["minItems"] == 1
     assert "scalar observe" in observe_props["granularity"]["description"]
 
 
@@ -460,6 +473,38 @@ def test_mcp_time_scope_schema_documents_naive_datetime_default() -> None:
     ]
 
 
+def test_detect_and_decompose_tool_schemas_document_aoi_parameters() -> None:
+    server = FastMCP("test")
+    register_tools(server, FakeRuntime(), transport="stdio")
+    tools = {tool.name: tool for tool in server._tool_manager.list_tools()}
+
+    detect = tools["detect"]
+    detect_props = detect.parameters["properties"]
+    assert "Detect anomaly candidates" in detect.description
+    assert "owns this intent call" in detect_props["session_id"]["description"]
+    assert "Semantic metric identifier" in detect_props["metric"]["description"]
+    assert "AOI TimeScope" in detect_props["time_scope"]["description"]
+    assert "time bucket granularity" in detect_props["granularity"]["description"]
+    assert "Detection strategy" in detect_props["strategy"]["description"]
+    assert "single dimension" in detect_props["dimension"]["description"]
+    assert "Detection sensitivity" in detect_props["sensitivity"]["description"]
+    assert detect_props["sensitivity"]["default"] == "aggressive"
+    assert "Maximum anomaly candidates" in detect_props["limit"]["description"]
+    assert detect_props["limit"]["anyOf"][0]["minimum"] == 1
+
+    decompose = tools["decompose"]
+    decompose_props = decompose.parameters["properties"]
+    assert "Decompose the delta" in decompose.description
+    assert "string artifact IDs" in decompose.description
+    assert "owns this intent call" in decompose_props["session_id"]["description"]
+    assert "compare artifact ID" in decompose_props["compare_artifact_id"]["description"]
+    assert decompose_props["compare_artifact_id"]["minLength"] == 1
+    assert "Dimension name" in decompose_props["dimension"]["description"]
+    assert decompose_props["dimension"]["minLength"] == 1
+    assert "Maximum top dimension values" in decompose_props["limit"]["description"]
+    assert decompose_props["limit"]["anyOf"][0]["minimum"] == 1
+
+
 def test_validate_hypothesis_schema_omits_fixed_family() -> None:
     server = FastMCP("test")
     register_tools(server, FakeRuntime(), transport="stdio")
@@ -470,12 +515,16 @@ def test_validate_hypothesis_schema_omits_fixed_family() -> None:
     hypothesis_schema = tools["validate"].parameters["$defs"]["McpValidateHypothesis"]
 
     assert "method" not in properties
-    assert properties["current"] == {"$ref": "#/$defs/McpAoiSliceRef"}
-    assert properties["baseline"] == {"$ref": "#/$defs/McpAoiSliceRef"}
+    assert properties["current"]["$ref"] == "#/$defs/McpAoiSliceRef"
+    assert properties["baseline"]["$ref"] == "#/$defs/McpAoiSliceRef"
+    assert "Current AOI slice" in properties["current"]["description"]
+    assert "Baseline AOI slice" in properties["baseline"]["description"]
     assert slice_schema["additionalProperties"] is False
     assert set(slice_schema["properties"]) == {"time_scope", "filter"}
+    assert "half-open [start, end)" in slice_schema["properties"]["time_scope"]["description"]
     assert "scope" not in slice_schema["properties"]
     assert properties["hypothesis"]["anyOf"][0] == {"$ref": "#/$defs/McpValidateHypothesis"}
+    assert "family defaults internally" in properties["hypothesis"]["description"]
     assert hypothesis_schema["additionalProperties"] is False
     assert "required" not in hypothesis_schema
     assert set(hypothesis_schema["properties"]) == {"alternative", "significance"}
@@ -485,6 +534,7 @@ def test_validate_hypothesis_schema_omits_fixed_family() -> None:
         "greater",
         "less",
     ]
+    assert "Defaults to two_sided" in hypothesis_schema["properties"]["alternative"]["description"]
     assert hypothesis_schema["properties"]["significance"]["anyOf"][0]["enum"] == [
         "conservative",
         "balanced",
@@ -500,14 +550,20 @@ def test_attribute_schema_uses_aoi_slice_refs() -> None:
     properties = tools["attribute"].parameters["properties"]
     slice_schema = tools["attribute"].parameters["$defs"]["McpAoiSliceRef"]
 
-    assert properties["current"] == {"$ref": "#/$defs/McpAoiSliceRef"}
-    assert properties["baseline"] == {"$ref": "#/$defs/McpAoiSliceRef"}
+    assert properties["current"]["$ref"] == "#/$defs/McpAoiSliceRef"
+    assert properties["baseline"]["$ref"] == "#/$defs/McpAoiSliceRef"
+    assert "Current AOI slice" in properties["current"]["description"]
+    assert "Baseline AOI slice" in properties["baseline"]["description"]
     assert slice_schema["additionalProperties"] is False
     assert set(slice_schema["properties"]) == {"time_scope", "filter"}
+    assert "half-open [start, end)" in slice_schema["properties"]["time_scope"]["description"]
     assert "scope" not in slice_schema["properties"]
     assert "known current-vs-baseline change" in properties["dimensions"]["description"]
+    assert properties["dimensions"]["minItems"] == 1
     assert properties["decomposition_method"]["default"] == "delta_share"
     assert properties["decomposition_method"]["const"] == "delta_share"
+    assert "Only delta_share is supported" in properties["decomposition_method"]["description"]
+    assert properties["decomposition_limit"]["minimum"] == 1
 
 
 def test_attribute_tool_passes_generated_request(monkeypatch) -> None:
@@ -579,7 +635,9 @@ def test_diagnose_schema_documents_auto_detect_inputs() -> None:
     assert "Detection strategy" in properties["strategy"]["description"]
     assert "Detection sensitivity" in properties["sensitivity"]["description"]
     assert "Maximum anomaly candidates" in properties["candidate_limit"]["description"]
+    assert properties["candidate_limit"]["anyOf"][0]["minimum"] == 1
     assert "Maximum driver rows" in properties["decomposition_limit"]["description"]
+    assert properties["decomposition_limit"]["anyOf"][0]["minimum"] == 1
     assert properties["include_details"]["default"] is False
     assert "full embedded AOI artifacts" in properties["include_details"]["description"]
 
@@ -649,11 +707,14 @@ def test_correlate_and_forecast_tool_schemas_document_time_series_artifact_input
     assert correlate_props["min_pairs"]["default"] is None
     assert correlate_props["min_pairs"]["anyOf"][0]["minimum"] == 1
     assert "service default of 5" in correlate_props["min_pairs"]["description"]
+    assert "Correlation method" in correlate_props["method"]["description"]
 
     forecast_description = forecast_props["source_artifact_id"]["description"]
     assert "observe(time_series)" in forecast_description
     assert "granularity" in forecast_description
     assert "datasource" in forecast_description
+    assert forecast_props["horizon"]["minimum"] == 1
+    assert "future buckets" in forecast_props["horizon"]["description"]
 
 
 def test_correlate_tool_passes_generated_request_with_min_pairs(monkeypatch) -> None:
