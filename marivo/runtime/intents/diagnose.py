@@ -526,7 +526,6 @@ def _follow_up_candidate(
             {
                 "metric": metric_ref,
                 "time_scope": {
-                    "kind": "range",
                     "start": current_start_str,
                     "end": current_end_str,
                     **({"field": time_scope_field} if time_scope_field else {}),
@@ -564,7 +563,6 @@ def _follow_up_candidate(
             {
                 "metric": metric_ref,
                 "time_scope": {
-                    "kind": "range",
                     "start": baseline_start_str,
                     "end": baseline_end_str,
                     **({"field": time_scope_field} if time_scope_field else {}),
@@ -742,6 +740,9 @@ def _decompose_for_dimension(
     is_truncated = False
     others_abs: float | None = None
     others_share: float | None = None
+    top_segment: dict[str, Any] | None = None
+    total_contribution: float | None = None
+    total_contribution_share: float | None = None
 
     try:
         decompose_result = run_decompose_intent(
@@ -784,10 +785,35 @@ def _decompose_for_dimension(
         returned_row_count = len(returned_rows)
         is_truncated = total_row_count > returned_row_count
         rows = returned_rows
+        if returned_rows:
+            first_row = returned_rows[0]
+            top_segment = {
+                "key": first_row.get("key"),
+                "current_value": first_row.get("current_value"),
+                "baseline_value": first_row.get("baseline_value"),
+                "absolute_contribution": first_row.get("absolute_contribution"),
+                "contribution_share": first_row.get("contribution_share"),
+                "direction": first_row.get("direction"),
+                "presence": first_row.get("presence"),
+            }
+
+        scope_delta = decompose_result.get("scope_absolute_delta")
+        if all_rows:
+            contribution_sum: float = 0.0
+            all_have_contribution = True
+            for r in all_rows:
+                contribution = r.get("absolute_contribution")
+                if contribution is None:
+                    all_have_contribution = False
+                    break
+                contribution_sum += contribution
+            if all_have_contribution:
+                total_contribution = contribution_sum
+                if scope_delta is not None and scope_delta != 0:
+                    total_contribution_share = total_contribution / scope_delta
 
         if is_truncated:
             tail_rows = all_rows[decomposition_limit:]
-            scope_delta = decompose_result.get("scope_absolute_delta")
             tail_abs_sum: float = 0.0
             all_have_abs = True
             for r in tail_rows:
@@ -828,6 +854,9 @@ def _decompose_for_dimension(
         "dimension": dimension,
         "decompose_ref": decompose_ref,
         "attribution_status": attribution_status,
+        "top_segment": top_segment,
+        "total_contribution": total_contribution,
+        "total_contribution_share": total_contribution_share,
         "rows": rows,
         "returned_row_count": returned_row_count,
         "total_row_count": total_row_count,

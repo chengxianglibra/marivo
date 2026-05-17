@@ -330,6 +330,10 @@ scans one time series per value of that dimension. `dimensions` are the
 attribution dimensions used after candidates are found. `candidate_limit`
 bounds how many anomaly candidates are diagnosed end-to-end; `decomposition_limit`
 bounds driver rows per diagnosed candidate and attribution dimension.
+Each driver is a dimension-level result: `rows` remains the segment-level
+attribution detail, while `top_segment`, `total_contribution`, and
+`total_contribution_share` provide the common summary fields consumers need
+without traversing `rows`.
 
 Known current/baseline change attribution uses `attribute` with `left` as the
 current slice and `right` as the baseline slice. `baseline_policy` is fixed by

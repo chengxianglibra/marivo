@@ -190,6 +190,13 @@ def test_auto_detect_follows_detect_artifact_candidates_and_builds_full_chain(
     assert driver["attribution_status"] == "attributable"
     assert driver["rows"][0]["key"] == "alpha"
     assert driver["rows"][0]["absolute_contribution"] == 400.0
+    assert driver["top_segment"]["key"] == "alpha"
+    assert (
+        driver["top_segment"]["absolute_contribution"] == driver["rows"][0]["absolute_contribution"]
+    )
+    assert driver["top_segment"]["contribution_share"] == driver["rows"][0]["contribution_share"]
+    assert driver["total_contribution"] == 400.0
+    assert driver["total_contribution_share"] == pytest.approx(1.0)
 
     step_types = _step_types(diagnose_env, session_id)
     assert step_types.count("detect") == 1
@@ -235,8 +242,38 @@ def test_decomposition_limit_truncates_driver_rows(diagnose_env: DiagnoseEnv) ->
     assert driver["total_row_count"] == 2
     assert driver["is_truncated"] is True
     assert driver["rows"][0]["key"] == "alpha"
+    assert driver["top_segment"]["key"] == "alpha"
+    assert driver["total_contribution"] == 400.0
+    assert driver["total_contribution_share"] == pytest.approx(1.0)
     assert driver["others_absolute_contribution"] == 0.0
     assert driver["issues"] == []
+
+
+def test_not_attributable_driver_has_null_summaries() -> None:
+    from marivo.runtime.intents.diagnose import _decompose_for_dimension
+
+    runtime = MagicMock()
+
+    with patch(
+        "marivo.runtime.intents.diagnose.run_decompose_intent",
+        side_effect=ValueError("decompose: NOT_ATTRIBUTABLE - no contribution rows"),
+    ):
+        driver = _decompose_for_dimension(
+            runtime=runtime,
+            session_id="sess_not_attr",
+            compare_artifact_id="art_compare",
+            dimension="cluster",
+            decomposition_limit=5,
+            candidate_ref={"item_ref": {"collection": "candidates", "index": 0}},
+        )
+
+    assert driver["attribution_status"] == "not_attributable"
+    assert driver["top_segment"] is None
+    assert driver["total_contribution"] is None
+    assert driver["total_contribution_share"] is None
+    assert driver["rows"] == []
+    assert driver["returned_row_count"] == 0
+    assert driver["total_row_count"] is None
 
 
 def test_duplicate_dimensions_are_deduped(diagnose_env: DiagnoseEnv) -> None:
@@ -549,7 +586,6 @@ def test_hour_candidate_followup_preserves_hour_windows_for_compare() -> None:
     assert _product(bundle)["validation"]["status"] == "diagnosable"
     assert _result(bundle)["diagnoses"][0]["status"] == "diagnosed"
     assert observe.call_args_list[0].args[2]["time_scope"] == {
-        "kind": "range",
         "start": "2026-04-09T14:00:00",
         "end": "2026-04-09T15:00:00",
         "field": "event_time",

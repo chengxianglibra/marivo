@@ -1632,9 +1632,32 @@ interface DiagnoseArtifact {
   "data": {
     "artifact_id": "art_diagnose_1",
     "result": {
-      "anomaly_detection": { "items": [{ "item_id": "item_0", "bucket_start": "2025-03-05T00:00:00Z", "value": 45000, "score": 3.2, "series_keys": null }] },
-      "attributions": [
-        { "dimension": "cluster", "explained_delta_share": 0.83, "rank": 1, "top_contributors": [{ "dimension_value": "jscs-ai-offline", "delta": 29770, "delta_share": 0.83, "direction": "increase" }] }
+      "bundle_type": "diagnosis_bundle",
+      "diagnoses": [
+        {
+          "comparison": { "absolute_delta": 35867, "relative_delta": 1.95 },
+          "drivers": [
+            {
+              "dimension": "cluster",
+              "top_segment": {
+                "key": "jscs-ai-offline",
+                "absolute_contribution": 29770,
+                "contribution_share": 0.83,
+                "direction": "increase"
+              },
+              "total_contribution": 35867,
+              "total_contribution_share": 1.0,
+              "rows": [
+                {
+                  "key": "jscs-ai-offline",
+                  "absolute_contribution": 29770,
+                  "contribution_share": 0.83,
+                  "direction": "increase"
+                }
+              ]
+            }
+          ]
+        }
       ]
     },
     "failure": null
@@ -1642,6 +1665,9 @@ interface DiagnoseArtifact {
   "error": null
 }
 ```
+
+`drivers[]` 是维度级归因集合；`top_segment` 提供 `rows[0]` 的摘要，
+`total_contribution` / `total_contribution_share` 汇总该维度所有 contribution rows。
 
 ---
 
