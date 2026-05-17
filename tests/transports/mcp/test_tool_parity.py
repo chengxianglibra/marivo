@@ -474,9 +474,18 @@ def test_diagnose_schema_documents_mode_specific_inputs() -> None:
 
     assert "auto_detect mode requires time_scope and granularity" in diagnose.description
     assert "explicit_compare mode requires current and baseline" in diagnose.description
+    assert "must omit the top-level time_scope and granularity fields together" in (
+        diagnose.description
+    )
     assert "auto_detect requires time_scope and granularity" in properties["mode"]["description"]
+    assert "omits top-level time_scope and granularity" in properties["mode"]["description"]
     assert "mode='auto_detect'" in properties["time_scope"]["description"]
+    assert "put time_scope inside current and baseline" in (properties["time_scope"]["description"])
     assert "mode='auto_detect'" in properties["granularity"]["description"]
+    assert (
+        "omit this top-level field together with top-level time_scope"
+        in (properties["granularity"]["description"])
+    )
     assert "mode='explicit_compare'" in properties["current"]["description"]
     assert "mode='explicit_compare'" in properties["baseline"]["description"]
 
