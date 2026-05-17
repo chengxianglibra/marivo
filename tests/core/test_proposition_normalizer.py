@@ -81,8 +81,8 @@ _SUBJECT_FORECAST: dict[str, Any] = {
 # Canonical payload fixtures
 # ---------------------------------------------------------------------------
 
-_LEFT_WIN = {"kind": "range", "start": "2024-01-01", "end": "2024-01-07"}
-_RIGHT_WIN = {"kind": "range", "start": "2024-01-08", "end": "2024-01-14"}
+_LEFT_WIN = {"field": "time", "start": "2024-01-01", "end": "2024-01-07"}
+_RIGHT_WIN = {"field": "time", "start": "2024-01-08", "end": "2024-01-14"}
 
 _PAYLOAD_CHANGE: dict[str, Any] = {
     "change_kind": "scalar_change",
@@ -109,7 +109,7 @@ _PAYLOAD_ANOMALY: dict[str, Any] = {
     },
     "expected_behavior_ref": None,  # NOT identity
     "observed_window": {
-        "kind": "range",
+        "field": "time",
         "start": "2024-01-08",
         "end": "2024-01-09",
     },  # NOT identity
@@ -137,7 +137,7 @@ _PAYLOAD_CORR: dict[str, Any] = {
     "method_family": "pearson",
     "relationship_of_interest": "positive_association",
     "join_basis": {"kind": "time_aligned", "grain": "day", "key_fields": ["date"]},
-    "aligned_window": {"kind": "range", "start": "2024-01-01", "end": "2024-01-31"},
+    "aligned_window": {"field": "time", "start": "2024-01-01", "end": "2024-01-31"},
 }
 
 _LEFT_SUB_TEST: dict[str, Any] = {
@@ -167,7 +167,7 @@ _PAYLOAD_TEST: dict[str, Any] = {
 
 _PAYLOAD_FORECAST: dict[str, Any] = {
     "forecast_kind": "point_forecast",  # NOT identity
-    "forecast_window": {"kind": "range", "start": "2024-02-01", "end": "2024-02-02"},
+    "forecast_window": {"field": "time", "start": "2024-02-01", "end": "2024-02-02"},
     "horizon_index": 3,
     "expectation_direction": "open",
     "forecast_basis_ref": None,  # NOT identity
@@ -363,7 +363,7 @@ class TestChangeIdentity(unittest.TestCase):
 
     def test_different_comparison_window(self) -> None:
         k1 = self._k(comparison_window={"current": _LEFT_WIN, "baseline": _RIGHT_WIN})
-        other_right = {"kind": "range", "start": "2024-01-15", "end": "2024-01-21"}
+        other_right = {"field": "time", "start": "2024-01-15", "end": "2024-01-21"}
         k2 = self._k(comparison_window={"current": _LEFT_WIN, "baseline": other_right})
         self.assertNotEqual(k1, k2)
 
@@ -429,7 +429,7 @@ class TestDecompositionIdentity(unittest.TestCase):
         k1 = self._k(comparison_window={"current": _LEFT_WIN, "baseline": _RIGHT_WIN})
         other = {
             "current": _LEFT_WIN,
-            "baseline": {"kind": "range", "start": "2024-02-01", "end": "2024-02-07"},
+            "baseline": {"field": "time", "start": "2024-02-01", "end": "2024-02-07"},
         }
         k2 = self._k(comparison_window=other)
         self.assertEqual(k1, k2)
@@ -469,8 +469,8 @@ class TestAnomalyIdentity(unittest.TestCase):
         self.assertEqual(k1, k2)
 
     def test_observed_window_not_in_identity(self) -> None:
-        w1 = {"kind": "range", "start": "2024-01-08", "end": "2024-01-09"}
-        w2 = {"kind": "range", "start": "2024-01-15", "end": "2024-01-16"}
+        w1 = {"field": "time", "start": "2024-01-08", "end": "2024-01-09"}
+        w2 = {"field": "time", "start": "2024-01-15", "end": "2024-01-16"}
         k1 = self._k(observed_window=w1)
         k2 = self._k(observed_window=w2)
         self.assertEqual(k1, k2)
@@ -506,8 +506,8 @@ class TestCorrelationIdentity(unittest.TestCase):
         self.assertNotEqual(k1, k2)
 
     def test_different_aligned_window(self) -> None:
-        w1 = {"kind": "range", "start": "2024-01-01", "end": "2024-01-31"}
-        w2 = {"kind": "range", "start": "2024-02-01", "end": "2024-02-29"}
+        w1 = {"field": "time", "start": "2024-01-01", "end": "2024-01-31"}
+        w2 = {"field": "time", "start": "2024-02-01", "end": "2024-02-29"}
         k1 = self._k(aligned_window=w1)
         k2 = self._k(aligned_window=w2)
         self.assertNotEqual(k1, k2)
@@ -576,14 +576,14 @@ class TestForecastIdentity(unittest.TestCase):
         self.assertNotEqual(k1, k2)
 
     def test_same_forecast_window_stable(self) -> None:
-        w = {"kind": "range", "start": "2024-02-01", "end": "2024-02-02"}
+        w = {"field": "time", "start": "2024-02-01", "end": "2024-02-02"}
         k1 = self._k(forecast_window=w)
         k2 = self._k(forecast_window=w)
         self.assertEqual(k1, k2)
 
     def test_different_forecast_window(self) -> None:
-        w1 = {"kind": "range", "start": "2024-02-01", "end": "2024-02-02"}
-        w2 = {"kind": "range", "start": "2024-02-03", "end": "2024-02-04"}
+        w1 = {"field": "time", "start": "2024-02-01", "end": "2024-02-02"}
+        w2 = {"field": "time", "start": "2024-02-03", "end": "2024-02-04"}
         k1 = self._k(forecast_window=w1)
         k2 = self._k(forecast_window=w2)
         self.assertNotEqual(k1, k2)

@@ -142,7 +142,7 @@ def test_extract_observe_scalar() -> None:
         "value": 100.5,
         "unit": "USD",
         "scope": {"region": "US"},
-        "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-02-01"},
+        "time_scope": {"field": "time", "start": "2024-01-01", "end": "2024-02-01"},
         "analytical_metadata": {"data_complete": True, "quality_status": "ready"},
     }
     step_ref = {"session_id": "s1", "step_id": "step1", "step_type": "observe"}
@@ -209,7 +209,7 @@ def test_extract_compare_scalar_delta() -> None:
         "resolved_input_summary": {
             "current_scope": {"region": "US"},
             "current_time_scope": {
-                "kind": "range",
+                "field": "time",
                 "start": "2024-01-01",
                 "end": "2024-02-01",
             },

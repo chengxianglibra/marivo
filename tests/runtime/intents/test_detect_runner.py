@@ -549,11 +549,11 @@ class DetectRunnerServiceTests(unittest.TestCase):
     # ── response time_scope shape ─────────────────────────────────────────────
 
     def test_detect_response_time_scope_shape(self) -> None:
-        """Response time_scope must use range schema plus top-level granularity."""
+        """Response time_scope must use canonical field/start/end plus top-level granularity."""
         session_id = self._make_session()
         result = self._detect(session_id, self.spike_metric)
         ts = result["time_scope"]
-        self.assertEqual(ts["kind"], "range")
+        self.assertEqual(ts["field"], "event_date")
         self.assertEqual(ts["start"], "2026-01-01")
         self.assertEqual(ts["end"], "2026-01-15")
         self.assertEqual(result["granularity"], "day")

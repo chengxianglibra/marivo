@@ -210,7 +210,7 @@ v1 baseline policy 固定为 `previous_adjacent_equal_length`：
 以下情况应直接失败：
 
 - `metric` 不存在
-- `time_scope.kind != "range"` 或缺少 `granularity`
+- `time_scope` 缺少 `field`、`start`、`end` 或缺少 `granularity`
 - `dimensions` 为空
 - `dimensions` 含空字符串或重复后为空
 - 提供了 `candidate_limit` 且 `candidate_limit <= 0`

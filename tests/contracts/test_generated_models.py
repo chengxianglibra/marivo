@@ -592,9 +592,10 @@ def test_aoi_decompose_requires_public_required_fields(missing_field: str) -> No
         {"max_series": 10},
         {
             "time_scope": {
-                "kind": "range",
+                "field": "time",
                 "start": "2026-05-01T00:00:00Z",
                 "end": "2026-05-08T00:00:00Z",
+                "mode": "range",
             }
         },
     ],

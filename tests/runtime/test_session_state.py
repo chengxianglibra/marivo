@@ -137,8 +137,8 @@ def _get_artifact_runtime_status(
 
 
 # compare_artifact content valid for T1 materializer (delta → change proposition).
-_LEFT_WIN = {"kind": "range", "start": "2024-01-01", "end": "2024-01-07"}
-_RIGHT_WIN = {"kind": "range", "start": "2024-01-08", "end": "2024-01-14"}
+_LEFT_WIN = {"field": "time", "start": "2024-01-01", "end": "2024-01-07"}
+_RIGHT_WIN = {"field": "time", "start": "2024-01-08", "end": "2024-01-14"}
 _COMPARE_CONTENT: dict[str, Any] = {
     "comparison_type": "scalar_delta",
     "metric": "dau",
@@ -240,7 +240,7 @@ def _insert_finding(
             "canonical_item_key": finding_id,
             "subject_json": json.dumps(subject),
             "observed_window_json": json.dumps(
-                {"kind": "range", "start": "2024-01-08", "end": "2024-01-14"}
+                {"field": "time", "start": "2024-01-08", "end": "2024-01-14"}
             ),
             "quality_json": json.dumps(quality),
             "provenance_json": json.dumps(provenance),

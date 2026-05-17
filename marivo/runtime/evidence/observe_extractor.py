@@ -204,6 +204,8 @@ class ObserveArtifactExtractor(FindingExtractor):
         scope = payload.get("scope") or {}
         am = payload.get("analytical_metadata") or {}
         quality = _quality_from_am(am)
+        time_scope = payload.get("time_scope") or {}
+        time_field = str(time_scope.get("field") or "time").strip() or "time"
 
         findings: list[ObservationFinding] = []
         for bucket in series:
@@ -227,7 +229,11 @@ class ObserveArtifactExtractor(FindingExtractor):
                     grain=grain,
                     analysis_axis="time",
                 ),
-                observed_window={"kind": "range", "start": bucket_start, "end": bucket_end},
+                observed_window={
+                    "field": time_field,
+                    "start": bucket_start,
+                    "end": bucket_end,
+                },
                 quality=quality,
                 provenance=self._make_provenance(step_ref, canonical_item_key, item_ref),
                 payload=TimeBucketObservationPayload(

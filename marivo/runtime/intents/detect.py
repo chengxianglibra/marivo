@@ -367,7 +367,7 @@ def run_detect_intent(
         )
 
     resolved_time_scope: dict[str, Any] = {
-        "kind": "range",
+        "field": time_scope_field,
         "start": start_str,
         "end": end_str,
     }

@@ -82,7 +82,7 @@ def _correlate_payload(
     right_metric: str = "revenue",
 ) -> dict[str, Any]:
     if matched_time_scope is None:
-        matched_time_scope = {"kind": "range", "start": "2024-01-01", "end": "2024-01-12"}
+        matched_time_scope = {"field": "time", "start": "2024-01-01", "end": "2024-01-12"}
     return {
         "association_type": "pairwise_time_series_association",
         "left_ref": {
@@ -217,7 +217,7 @@ class TestCorrelateExtractor(unittest.TestCase):
         self.assertEqual(result["findings"][0]["subject"]["metric"], "dau")
 
     def test_observed_window_from_matched_time_scope(self) -> None:
-        scope = {"kind": "range", "start": "2024-01-01", "end": "2024-01-12"}
+        scope = {"field": "time", "start": "2024-01-01", "end": "2024-01-12"}
         result = self._extract(_correlate_payload(matched_time_scope=scope))
         ow = result["findings"][0]["observed_window"]
         self.assertIsNotNone(ow)
@@ -359,7 +359,7 @@ class TestForecastExtractor(unittest.TestCase):
         f = result["findings"][0]
         ow = f["observed_window"]
         self.assertIsNotNone(ow)
-        self.assertEqual(ow["kind"], "range")
+        self.assertEqual(ow["field"], "time")
         self.assertEqual(ow["start"], "2024-01-08")
         self.assertEqual(ow["end"], "2024-01-09")
 

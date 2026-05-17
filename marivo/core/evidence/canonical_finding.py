@@ -21,7 +21,7 @@ Identity rules (from artifact-finding-generation-rules.md):
 from __future__ import annotations
 
 import hashlib
-from typing import Any, Literal, Required, TypedDict, Union
+from typing import Any, Literal, TypedDict, Union
 
 # ---------------------------------------------------------------------------
 # ArtifactItemRef
@@ -147,16 +147,14 @@ class FindingProvenance(TypedDict):
 # ---------------------------------------------------------------------------
 
 
-class ResolvedTimeScope(TypedDict, total=False):
-    """Kind-discriminated resolved time scope.
+class ResolvedTimeScope(TypedDict):
+    """Resolved range time scope.
 
-    Required field: ``kind``.
-    Variant fields depend on ``kind``:
-    - ``range``: ``start``, ``end``
+    Marivo currently supports only range windows, so the canonical structure is
+    the AOI TimeScope shape: ``field``, ``start``, and ``end``.
     """
 
-    kind: Required[Literal["range"]]
-    # range
+    field: str
     start: str
     end: str
 

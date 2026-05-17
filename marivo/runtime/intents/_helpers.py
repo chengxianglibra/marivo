@@ -47,24 +47,27 @@ def aoi_filter_to_scope(filter_raw: Any, *, label: str) -> dict[str, str] | None
 def resolve_time_scope(time_scope_raw: dict[str, Any]) -> tuple[str, str, str | None]:
     """Resolve a time scope dict into (start_str, end_str, field).
 
-    Handles AOI-aligned McpTimeScope ({field, start, end}) and range scopes.
+    Handles the AOI-aligned TimeScope contract: {field, start, end}.
     """
-    kind = time_scope_raw.get("kind")
-    # AOI-aligned McpTimeScope uses {field, start, end} without kind.
-    # Treat missing kind as "range" when start and end are present.
-    if kind is None and "start" in time_scope_raw and "end" in time_scope_raw:
-        kind = "range"
-    if kind == "range":
-        try:
-            return (
-                str(time_scope_raw["start"]),
-                str(time_scope_raw["end"]),
-                time_scope_raw.get("field"),
-            )
-        except KeyError as exc:
-            raise ValueError("INVALID_ARGUMENT - range time_scope requires start and end") from exc
-
-    raise ValueError(f"INVALID_ARGUMENT - unsupported time_scope.kind={kind!r}")
+    unexpected_fields = set(time_scope_raw) - {"field", "start", "end"}
+    if unexpected_fields:
+        raise ValueError(
+            f"INVALID_ARGUMENT - unsupported time_scope field(s): {sorted(unexpected_fields)}"
+        )
+    missing_fields = {"field", "start", "end"} - set(time_scope_raw)
+    if missing_fields:
+        raise ValueError(
+            "INVALID_ARGUMENT - time_scope requires field, start, and end; "
+            f"missing {sorted(missing_fields)}"
+        )
+    field = str(time_scope_raw["field"] or "").strip()
+    start = str(time_scope_raw["start"] or "").strip()
+    end = str(time_scope_raw["end"] or "").strip()
+    if not field:
+        raise ValueError("INVALID_ARGUMENT - time_scope.field is required")
+    if not start or not end:
+        raise ValueError("INVALID_ARGUMENT - time_scope.start and time_scope.end are required")
+    return start, end, field
 
 
 def build_scoped_query_for_window(

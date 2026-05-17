@@ -25,12 +25,12 @@ class DecomposeHourWindowTests(unittest.TestCase):
         self.assertEqual(
             _infer_compare_grain(
                 current_time_scope={
-                    "kind": "range",
+                    "field": "time",
                     "start": "2024-01-01T01:00:00",
                     "end": "2024-01-01T03:00:00",
                 },
                 baseline_time_scope={
-                    "kind": "range",
+                    "field": "time",
                     "start": "2024-01-01T00:00:00",
                     "end": "2024-01-01T01:00:00",
                 },
@@ -42,8 +42,8 @@ class DecomposeHourWindowTests(unittest.TestCase):
     def test_infer_compare_grain_falls_back_to_metric_grain_for_date_windows(self) -> None:
         self.assertEqual(
             _infer_compare_grain(
-                current_time_scope={"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
-                baseline_time_scope={"kind": "range", "start": "2023-12-25", "end": "2024-01-01"},
+                current_time_scope={"field": "time", "start": "2024-01-01", "end": "2024-01-08"},
+                baseline_time_scope={"field": "time", "start": "2023-12-25", "end": "2024-01-01"},
                 fallback_grain="day",
             ),
             "day",
@@ -53,7 +53,7 @@ class DecomposeHourWindowTests(unittest.TestCase):
         self.assertEqual(
             _extract_date_range(
                 {
-                    "kind": "range",
+                    "field": "time",
                     "start": "2024-01-01T01:00:00",
                     "end": "2024-01-01T03:00:00",
                 }
@@ -74,12 +74,12 @@ class DecomposeHourWindowTests(unittest.TestCase):
                 "granularity": "day",
                 "resolved_input_summary": {
                     "current_time_scope": {
-                        "kind": "range",
+                        "field": "time",
                         "start": "2024-01-01",
                         "end": "2024-01-08",
                     },
                     "baseline_time_scope": {
-                        "kind": "range",
+                        "field": "time",
                         "start": "2023-01-01",
                         "end": "2023-01-08",
                     },
@@ -87,7 +87,7 @@ class DecomposeHourWindowTests(unittest.TestCase):
                 "analytical_metadata": {
                     "matched_bucket_count": 2,
                     "matched_time_scope": {
-                        "kind": "range",
+                        "field": "time",
                         "start": "2024-01-02",
                         "end": "2024-01-04",
                     },
@@ -100,11 +100,11 @@ class DecomposeHourWindowTests(unittest.TestCase):
         self.assertEqual(normalized["source_observation_type"], "time_series")
         self.assertEqual(
             normalized["current_time_scope"],
-            {"kind": "range", "start": "2024-01-02", "end": "2024-01-04"},
+            {"field": "time", "start": "2024-01-02", "end": "2024-01-04"},
         )
         self.assertEqual(
             normalized["baseline_time_scope"],
-            {"kind": "range", "start": "2024-01-02", "end": "2024-01-04"},
+            {"field": "time", "start": "2024-01-02", "end": "2024-01-04"},
         )
         self.assertEqual(
             normalized["analytical_metadata"]["decomposition_source"],
@@ -124,12 +124,12 @@ class DecomposeHourWindowTests(unittest.TestCase):
                 "granularity": "day",
                 "resolved_input_summary": {
                     "current_time_scope": {
-                        "kind": "range",
+                        "field": "time",
                         "start": "2024-01-01",
                         "end": "2024-01-08",
                     },
                     "baseline_time_scope": {
-                        "kind": "range",
+                        "field": "time",
                         "start": "2023-01-01",
                         "end": "2023-01-08",
                     },
@@ -139,12 +139,12 @@ class DecomposeHourWindowTests(unittest.TestCase):
                     "pairing_basis": "calendar_aligned_observation_windows",
                     "pairing_rule": "calendar_aligned_bucket_pairing",
                     "matched_current_time_scope": {
-                        "kind": "range",
+                        "field": "time",
                         "start": "2024-01-02",
                         "end": "2024-01-04",
                     },
                     "matched_baseline_time_scope": {
-                        "kind": "range",
+                        "field": "time",
                         "start": "2023-01-03",
                         "end": "2023-01-05",
                     },
@@ -154,11 +154,11 @@ class DecomposeHourWindowTests(unittest.TestCase):
 
         self.assertEqual(
             normalized["current_time_scope"],
-            {"kind": "range", "start": "2024-01-02", "end": "2024-01-04"},
+            {"field": "time", "start": "2024-01-02", "end": "2024-01-04"},
         )
         self.assertEqual(
             normalized["baseline_time_scope"],
-            {"kind": "range", "start": "2023-01-03", "end": "2023-01-05"},
+            {"field": "time", "start": "2023-01-03", "end": "2023-01-05"},
         )
         self.assertEqual(
             normalized["analytical_metadata"]["source_pairing_basis"],
@@ -221,7 +221,7 @@ class DecomposeHourWindowTests(unittest.TestCase):
                 "channel",
                 ["event_time", "channel"],
                 {
-                    "kind": "range",
+                    "field": "time",
                     "start": "2024-01-01T01:00:00",
                     "end": "2024-01-01T03:00:00",
                 },
@@ -247,6 +247,7 @@ class DecomposeHourWindowTests(unittest.TestCase):
                     },
                 },
                 "dimensions": ["channel"],
+                "time_scope_field": "time",
             },
         )
 
@@ -278,13 +279,11 @@ def _make_compare_artifact(
         "resolved_input_summary": {
             "current_time_scope": {
                 "field": time_scope_field,
-                "kind": "range",
                 "start": "2024-01-01",
                 "end": "2024-01-08",
             },
             "baseline_time_scope": {
                 "field": time_scope_field,
-                "kind": "range",
                 "start": "2023-12-25",
                 "end": "2024-01-01",
             },
@@ -315,8 +314,8 @@ def _make_time_series_compare_artifact(
             "baseline_source_ref": {"step_id": "step_obs_right", "session_id": "session_1"},
         },
         "resolved_input_summary": {
-            "current_time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
-            "baseline_time_scope": {"kind": "range", "start": "2023-12-25", "end": "2024-01-01"},
+            "current_time_scope": {"field": "time", "start": "2024-01-01", "end": "2024-01-08"},
+            "baseline_time_scope": {"field": "time", "start": "2023-12-25", "end": "2024-01-01"},
         },
         "analytical_metadata": am,
     }
@@ -805,12 +804,12 @@ class TestDecomposeRunnerCommitPath(unittest.TestCase):
                 },
                 "resolved_input_summary": {
                     "current_time_scope": {
-                        "kind": "range",
+                        "field": "time",
                         "start": "2024-01-01",
                         "end": "2024-01-08",
                     },
                     "baseline_time_scope": {
-                        "kind": "range",
+                        "field": "time",
                         "start": "2023-12-25",
                         "end": "2024-01-01",
                     },
@@ -900,12 +899,12 @@ class TestDecomposeRunnerCommitPath(unittest.TestCase):
                 },
                 "resolved_input_summary": {
                     "current_time_scope": {
-                        "kind": "range",
+                        "field": "time",
                         "start": "2024-01-01",
                         "end": "2024-01-08",
                     },
                     "baseline_time_scope": {
-                        "kind": "range",
+                        "field": "time",
                         "start": "2023-01-01",
                         "end": "2023-01-08",
                     },
@@ -919,17 +918,17 @@ class TestDecomposeRunnerCommitPath(unittest.TestCase):
                     "dropped_current_buckets": 0,
                     "dropped_baseline_buckets": 0,
                     "matched_time_scope": {
-                        "kind": "range",
+                        "field": "time",
                         "start": "2024-01-01",
                         "end": "2024-01-08",
                     },
                     "matched_current_time_scope": {
-                        "kind": "range",
+                        "field": "time",
                         "start": "2024-01-01",
                         "end": "2024-01-08",
                     },
                     "matched_baseline_time_scope": {
-                        "kind": "range",
+                        "field": "time",
                         "start": "2023-01-01",
                         "end": "2023-01-08",
                     },

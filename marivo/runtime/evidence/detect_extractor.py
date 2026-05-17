@@ -215,7 +215,14 @@ class DetectArtifactExtractor(FindingExtractor):
             flag_level = flag_raw if flag_raw in _VALID_FLAG_LEVELS else None
 
             observed_window = (
-                {"kind": "range", "start": window_start, "end": window_end}
+                {
+                    "field": str(
+                        (artifact_payload.get("time_scope") or {}).get("field") or "time"
+                    ).strip()
+                    or "time",
+                    "start": window_start,
+                    "end": window_end,
+                }
                 if window_start and window_end
                 else None
             )

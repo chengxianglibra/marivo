@@ -130,6 +130,22 @@ def _to_bool_or_none(v: Any) -> bool | None:
     return None
 
 
+def _time_scope_field(value: Any) -> str:
+    if isinstance(value, dict):
+        field = str(value.get("field") or "").strip()
+        if field:
+            return field
+    return "time"
+
+
+def _time_window(start: Any, end: Any, *, field: Any = None) -> dict[str, str]:
+    return {
+        "field": str(field or "time").strip() or "time",
+        "start": str(start),
+        "end": str(end),
+    }
+
+
 def _quality_from_am(am: dict[str, Any]) -> dict[str, Any]:
     """Build quality dict from analytical_metadata."""
     qs_raw = am.get("quality_status")
@@ -387,6 +403,7 @@ def _extract_observe_time_series(
     scope = payload.get("scope") or {}
     am = payload.get("analytical_metadata") or {}
     quality = _quality_from_am(am)
+    time_field = _time_scope_field(payload.get("time_scope"))
 
     findings: list[dict[str, Any]] = []
     for bucket in series:
@@ -411,7 +428,7 @@ def _extract_observe_time_series(
                     "grain": grain,
                     "analysis_axis": "time",
                 },
-                observed_window={"kind": "range", "start": bucket_start, "end": bucket_end},
+                observed_window=_time_window(bucket_start, bucket_end, field=time_field),
                 quality=quality,
                 provenance=_make_provenance(
                     step_ref=step_ref,
@@ -700,11 +717,11 @@ def _extract_compare_time_series_delta(
         analytical = payload.get("analytical_metadata") or {}
         matched_time_scope = analytical.get("matched_time_scope")
         observed_window: dict[str, str] | None = (
-            {
-                "kind": "range",
-                "start": str(matched_time_scope["start"]),
-                "end": str(matched_time_scope["end"]),
-            }
+            _time_window(
+                matched_time_scope["start"],
+                matched_time_scope["end"],
+                field=matched_time_scope.get("field"),
+            )
             if isinstance(matched_time_scope, dict)
             and matched_time_scope.get("start")
             and matched_time_scope.get("end")
@@ -782,7 +799,13 @@ def _extract_compare_time_series_delta(
                     "grain": granularity,
                     "analysis_axis": "time",
                 },
-                observed_window={"kind": "range", "start": bucket_start, "end": bucket_end},
+                observed_window=_time_window(
+                    bucket_start,
+                    bucket_end,
+                    field=(payload.get("resolved_input_summary") or {})
+                    .get("current_time_scope", {})
+                    .get("field"),
+                ),
                 quality=_empty_quality(),
                 provenance=_make_provenance(
                     step_ref=step_ref,
@@ -862,7 +885,9 @@ def extract_detect_findings(
         flag_level = flag_raw if flag_raw in _VALID_FLAG_LEVELS else None
 
         observed_window = (
-            {"kind": "range", "start": window_start, "end": window_end}
+            _time_window(
+                window_start, window_end, field=(payload.get("time_scope") or {}).get("field")
+            )
             if window_start and window_end
             else None
         )
@@ -1047,7 +1072,11 @@ def extract_correlate_findings(
 
     matched_time_scope: dict[str, Any] | None = analytical.get("matched_time_scope")
     observed_window = (
-        {"kind": "range", "start": matched_time_scope["start"], "end": matched_time_scope["end"]}
+        _time_window(
+            matched_time_scope["start"],
+            matched_time_scope["end"],
+            field=matched_time_scope.get("field"),
+        )
         if isinstance(matched_time_scope, dict)
         and matched_time_scope.get("start")
         and matched_time_scope.get("end")
@@ -1138,7 +1167,11 @@ def extract_forecast_findings(
             horizon_index = i + 1
 
         observed_window = (
-            {"kind": "range", "start": bucket_start, "end": bucket_end}
+            _time_window(
+                bucket_start,
+                bucket_end,
+                field=(payload.get("source_time_scope") or {}).get("field"),
+            )
             if bucket_start and bucket_end
             else None
         )

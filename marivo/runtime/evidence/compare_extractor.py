@@ -392,7 +392,7 @@ class CompareArtifactExtractor(FindingExtractor):
             matched_time_scope = analytical.get("matched_time_scope")
             observed_window: dict[str, str] | None = (
                 {
-                    "kind": "range",
+                    "field": str(matched_time_scope.get("field") or "time").strip() or "time",
                     "start": str(matched_time_scope["start"]),
                     "end": str(matched_time_scope["end"]),
                 }
@@ -476,7 +476,18 @@ class CompareArtifactExtractor(FindingExtractor):
                     grain=cast("Any", granularity),
                     analysis_axis="time",
                 ),
-                observed_window={"kind": "range", "start": bucket_start, "end": bucket_end},
+                observed_window={
+                    "field": str(
+                        (
+                            (payload.get("resolved_input_summary") or {}).get("current_time_scope")
+                            or {}
+                        ).get("field")
+                        or "time"
+                    ).strip()
+                    or "time",
+                    "start": bucket_start,
+                    "end": bucket_end,
+                },
                 quality=_empty_quality(),
                 provenance=self._make_provenance(step_ref, canonical_item_key, item_ref),
                 payload=delta_payload,

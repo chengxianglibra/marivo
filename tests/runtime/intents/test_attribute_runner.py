@@ -64,7 +64,7 @@ def _observe_result(side: str) -> dict[str, Any]:
             "step_id": f"step_{side}",
             "step_type": "observe",
         },
-        "time_scope": {"kind": "range", "start": "2026-01-01", "end": "2026-01-08"},
+        "time_scope": {"field": "time", "start": "2026-01-01", "end": "2026-01-08"},
     }
 
 
@@ -332,7 +332,7 @@ def test_attribute_rejects_disallowed_dimension_before_committing() -> None:
         ({"unexpected": True}, "unsupported field"),
         ({"current": {"scope": {"predicate": "region = 'US'"}}}, "scope"),
         ({"current": {"filter": None}}, "filter"),
-        ({"current": {"time_scope": {"kind": "range"}}}, "kind"),
+        ({"current": {"time_scope": {"kind": "point"}}}, "unsupported"),
         ({"current": {"time_scope": {"__remove__": "field"}}}, "field"),
         ({"dimensions": []}, "dimensions"),
         ({"dimensions": "region"}, "dimensions"),

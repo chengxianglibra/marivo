@@ -418,7 +418,7 @@ class LightweightIntentEndpointTests(_SessionBackedIntentEndpointMixin, unittest
             f"/sessions/{self.session_id}/intents/diagnose",
             json={
                 "metric": _metric_ref("dau"),
-                "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+                "time_scope": {"field": "time", "start": "2024-01-01", "end": "2024-01-08"},
             },
         )
         self.assertEqual(r.status_code, 422)
@@ -458,7 +458,7 @@ class CompareSegmentedIntentEndpointTests(unittest.TestCase):
             metric=_metric_ref("watch_time"),
             observation_type="segmented",
             time_scope={
-                "kind": "range",
+                "field": "time",
                 "start": "2026-05-01",
                 "end": "2026-05-02",
             },
@@ -476,7 +476,7 @@ class CompareSegmentedIntentEndpointTests(unittest.TestCase):
             metric=_metric_ref("watch_time"),
             observation_type="segmented",
             time_scope={
-                "kind": "range",
+                "field": "time",
                 "start": "2026-04-30",
                 "end": "2026-05-01",
             },

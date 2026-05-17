@@ -78,7 +78,7 @@ def _make_finding(
             {"metric": "dau", "entity": None, "slice": {}, "grain": None, "analysis_axis": "scalar"}
         ),
         "observed_window_json": json.dumps(
-            {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"}
+            {"field": "time", "start": "2024-01-01", "end": "2024-01-08"}
         ),
         "quality_json": json.dumps(
             {

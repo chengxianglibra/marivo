@@ -61,8 +61,7 @@ def _finding_sort_key(f: dict[str, Any]) -> tuple[Any, ...]:
     1. ``subject.metric`` lexical, nulls last
     2. ``subject.slice`` canonicalised lexical
     3. ``finding_type`` lexical
-    4. ``observed_window.kind`` lexical, nulls last
-    5. kind-specific canonical time key ascending
+    4. ``observed_window.start`` ascending, nulls last
     6. ``finding_id`` ascending
     """
     subj: dict[str, Any] = f.get("subject_json") or {}
@@ -71,12 +70,7 @@ def _finding_sort_key(f: dict[str, Any]) -> tuple[Any, ...]:
     metric: str | None = subj.get("metric")
     slice_val: dict[str, Any] = subj.get("slice") or {}
     finding_type: str = f.get("finding_type") or ""
-    win_kind: str | None = win.get("kind")
-
-    if win_kind == "range":
-        time_key: str = win.get("start") or ""
-    else:
-        time_key = ""
+    time_key: str = win.get("start") or ""
 
     slice_str: str = json.dumps(slice_val, sort_keys=True) if slice_val else ""
 
@@ -85,8 +79,7 @@ def _finding_sort_key(f: dict[str, Any]) -> tuple[Any, ...]:
         metric or "",
         slice_str,
         finding_type,
-        win_kind is None,  # nulls last
-        win_kind or "",
+        time_key == "",  # nulls last
         time_key,
         f.get("finding_id") or "",
     )

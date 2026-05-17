@@ -179,8 +179,8 @@ def _insert_finding(
 
 _SESSION = "sess_4e3"
 
-_LEFT_WIN = {"kind": "range", "start": "2024-01-01", "end": "2024-01-07"}
-_RIGHT_WIN = {"kind": "range", "start": "2024-01-08", "end": "2024-01-14"}
+_LEFT_WIN = {"field": "time", "start": "2024-01-01", "end": "2024-01-07"}
+_RIGHT_WIN = {"field": "time", "start": "2024-01-08", "end": "2024-01-14"}
 
 _COMPARE_ARTIFACT_CONTENT = {
     "comparison_type": "scalar_delta",
@@ -212,7 +212,7 @@ _DELTA_PAYLOAD = {
     "unit": "users",
 }
 
-_FORECAST_WIN = {"kind": "range", "start": "2024-02-01", "end": "2024-02-02"}
+_FORECAST_WIN = {"field": "time", "start": "2024-02-01", "end": "2024-02-02"}
 
 _FORECAST_PAYLOAD = {
     "bucket_start": "2024-02-01",
@@ -222,7 +222,7 @@ _FORECAST_PAYLOAD = {
     "horizon_index": 3,
 }
 
-_ANOMALY_OBS_WIN = {"kind": "range", "start": "2024-01-05", "end": "2024-01-06"}
+_ANOMALY_OBS_WIN = {"field": "time", "start": "2024-01-05", "end": "2024-01-06"}
 
 _ANOMALY_PAYLOAD = {
     "candidate_ref": {
@@ -816,7 +816,7 @@ class TestIdempotency(_Base):
 # Shared fixtures for T2/T4/T5
 # ---------------------------------------------------------------------------
 
-_CORR_WIN = {"kind": "range", "start": "2024-01-01", "end": "2024-01-14"}
+_CORR_WIN = {"field": "time", "start": "2024-01-01", "end": "2024-01-14"}
 
 _CORRELATE_ARTIFACT_CONTENT = {
     "left_metric": "dau",

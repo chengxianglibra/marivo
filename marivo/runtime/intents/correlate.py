@@ -259,8 +259,9 @@ def run_correlate_intent(
             k = w.get("start") or ""
             if k:
                 left_end_map[k] = w.get("end") or k
+        left_time_scope = left_artifact.get("time_scope") or {}
         matched_time_scope = {
-            "kind": "range",
+            "field": str(left_time_scope.get("field") or "time").strip() or "time",
             "start": matched_keys[0],
             "end": left_end_map.get(matched_keys[-1], matched_keys[-1]),
         }

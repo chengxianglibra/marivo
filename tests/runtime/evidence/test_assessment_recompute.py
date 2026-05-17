@@ -152,7 +152,7 @@ def _make_finding_row(
         "canonical_item_key": finding_id,
         "subject_json": json.dumps(subject),
         "observed_window_json": json.dumps(
-            {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"}
+            {"field": "time", "start": "2024-01-01", "end": "2024-01-08"}
         ),
         "quality_json": json.dumps(
             {

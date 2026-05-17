@@ -36,7 +36,7 @@ def _segmented_observation(metric: str = "m1") -> dict[str, Any]:
             "additive_dimensions": ["country", "device", "date"],
             "row_count": 2,
         },
-        "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+        "time_scope": {"field": "time", "start": "2024-01-01", "end": "2024-01-08"},
         "scope": {},
     }
 
@@ -113,7 +113,7 @@ def test_compare_resolves_inputs_by_artifact_id_and_records_lineage() -> None:
     assert result["lineage"]["current_source_ref"]["artifact_id"] == _LEFT_ARTIFACT_ID
     assert result["lineage"]["baseline_source_ref"]["artifact_id"] == _RIGHT_ARTIFACT_ID
     assert result["resolved_input_summary"]["current_time_scope"] == {
-        "kind": "range",
+        "field": "time",
         "start": "2024-01-01",
         "end": "2024-01-08",
     }
@@ -279,7 +279,7 @@ def test_compare_type_normal_aligns_non_overlapping_windows_by_relative_position
             {"window": {"start": "2026-02-15", "end": "2026-02-16"}, "value": 12.0},
         ],
     )
-    left["time_scope"] = {"kind": "range", "start": "2026-02-14", "end": "2026-02-16"}
+    left["time_scope"] = {"field": "time", "start": "2026-02-14", "end": "2026-02-16"}
     right = _time_series_observation(
         "m1",
         series=[
@@ -287,7 +287,7 @@ def test_compare_type_normal_aligns_non_overlapping_windows_by_relative_position
             {"window": {"start": "2025-02-15", "end": "2025-02-16"}, "value": 11.0},
         ],
     )
-    right["time_scope"] = {"kind": "range", "start": "2025-02-14", "end": "2025-02-16"}
+    right["time_scope"] = {"field": "time", "start": "2025-02-14", "end": "2025-02-16"}
     runtime = _make_runtime(left, right)
 
     result = _run_compare(runtime)
@@ -299,12 +299,12 @@ def test_compare_type_normal_aligns_non_overlapping_windows_by_relative_position
     assert result["summary_baseline_value"] == 20.0
     assert result["summary_absolute_delta"] == 2.0
     assert result["analytical_metadata"]["matched_current_time_scope"] == {
-        "kind": "range",
+        "field": "time",
         "start": "2026-02-14",
         "end": "2026-02-16",
     }
     assert result["analytical_metadata"]["matched_baseline_time_scope"] == {
-        "kind": "range",
+        "field": "time",
         "start": "2025-02-14",
         "end": "2025-02-16",
     }
@@ -317,12 +317,12 @@ def test_compare_type_weekday_aligned_uses_nearest_weekday() -> None:
         "m1",
         series=[{"window": {"start": "2026-04-02", "end": "2026-04-03"}, "value": 120.0}],
     )
-    left["time_scope"] = {"kind": "range", "start": "2026-04-02", "end": "2026-04-04"}
+    left["time_scope"] = {"field": "time", "start": "2026-04-02", "end": "2026-04-04"}
     right = _time_series_observation(
         "m1",
         series=[{"window": {"start": "2025-04-03", "end": "2025-04-04"}, "value": 100.0}],
     )
-    right["time_scope"] = {"kind": "range", "start": "2025-04-01", "end": "2025-04-05"}
+    right["time_scope"] = {"field": "time", "start": "2025-04-01", "end": "2025-04-05"}
     runtime = _make_runtime(left, right)
 
     result = _run_compare(runtime, _compare_params("weekday_aligned"))
@@ -342,12 +342,12 @@ def test_compare_type_weekday_aligned_falls_back_to_relative_position() -> None:
         "m1",
         series=[{"window": {"start": "2026-04-08", "end": "2026-04-09"}, "value": 120.0}],
     )
-    left["time_scope"] = {"kind": "range", "start": "2026-04-08", "end": "2026-04-09"}
+    left["time_scope"] = {"field": "time", "start": "2026-04-08", "end": "2026-04-09"}
     right = _time_series_observation(
         "m1",
         series=[{"window": {"start": "2026-04-07", "end": "2026-04-08"}, "value": 100.0}],
     )
-    right["time_scope"] = {"kind": "range", "start": "2026-04-07", "end": "2026-04-08"}
+    right["time_scope"] = {"field": "time", "start": "2026-04-07", "end": "2026-04-08"}
     runtime = _make_runtime(left, right)
 
     result = _run_compare(runtime, _compare_params("weekday_aligned"))
@@ -366,12 +366,12 @@ def test_compare_type_holiday_aligned_reads_calendar_data() -> None:
         "m1",
         series=[{"window": {"start": "2026-02-20", "end": "2026-02-21"}, "value": 120.0}],
     )
-    left["time_scope"] = {"kind": "range", "start": "2026-02-20", "end": "2026-02-21"}
+    left["time_scope"] = {"field": "time", "start": "2026-02-20", "end": "2026-02-21"}
     right = _time_series_observation(
         "m1",
         series=[{"window": {"start": "2025-02-20", "end": "2025-02-21"}, "value": 100.0}],
     )
-    right["time_scope"] = {"kind": "range", "start": "2025-02-20", "end": "2025-02-21"}
+    right["time_scope"] = {"field": "time", "start": "2025-02-20", "end": "2025-02-21"}
     runtime = _make_runtime(left, right)
     runtime.calendar_data_reader = _FakeCalendarDataReader()
 
@@ -391,12 +391,12 @@ def test_compare_type_holiday_and_weekday_aligned_falls_back_to_weekday() -> Non
         "m1",
         series=[{"window": {"start": "2026-04-02", "end": "2026-04-03"}, "value": 120.0}],
     )
-    left["time_scope"] = {"kind": "range", "start": "2026-04-02", "end": "2026-04-03"}
+    left["time_scope"] = {"field": "time", "start": "2026-04-02", "end": "2026-04-03"}
     right = _time_series_observation(
         "m1",
         series=[{"window": {"start": "2025-04-03", "end": "2025-04-04"}, "value": 100.0}],
     )
-    right["time_scope"] = {"kind": "range", "start": "2025-04-01", "end": "2025-04-05"}
+    right["time_scope"] = {"field": "time", "start": "2025-04-01", "end": "2025-04-05"}
     runtime = _make_runtime(left, right)
     runtime.calendar_data_reader = _FakeCalendarDataReader()
 

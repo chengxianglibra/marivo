@@ -334,7 +334,11 @@ _GUIDED_EXAMPLES: dict[tuple[str, str], list[dict[str, Any]]] = {
             "complexity": "minimal",
             "payload": {
                 "metric": "metric.watch_time",
-                "time_scope": {"kind": "range", "start": "2026-04-01", "end": "2026-04-08"},
+                "time_scope": {
+                    "field": "event_date",
+                    "start": "2026-04-01",
+                    "end": "2026-04-08",
+                },
             },
         }
     ],
