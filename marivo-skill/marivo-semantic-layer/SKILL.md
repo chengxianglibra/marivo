@@ -131,6 +131,8 @@ inside this skill.
   bounded sample rows from each selected dataset before proposing field expressions.
 - Preview candidate primary keys, unique keys, time fields, dimensions, enum-like fields, and filter
   columns needed by the target scenarios.
+- Identify available time partition fields from datasource metadata or sample rows, and include them
+  in the candidate time fields.
 - Verify actual value shapes before writing expressions: date strings such as `YYYYMMDD` versus
   `YYYY-MM-DD`, status values such as `SUCCEED` versus guessed labels, variable-width hour values,
   and null, blank, or sentinel patterns.
@@ -148,6 +150,10 @@ inside this skill.
   alone.
 - Use explicit time fields. Distinguish event time, snapshot time, partition time, and ingestion
   time when they differ.
+- When a dataset has an available time partition field, prefer it as the primary time field and make
+  that choice explicit in the approval gate.
+- If the scenario must use event time, snapshot time, or ingestion time instead of an available time
+  partition, explain the business reason before asking for approval.
 - Mark time fields with `dimension.is_time: true`.
 - Keep measures in the metric stage, not the field stage.
 - Do not write fields into the document until the user explicitly approves the primary key, unique
