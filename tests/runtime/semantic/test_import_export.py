@@ -60,8 +60,13 @@ def _dataset(
     return dataset
 
 
-def _metric(name: str = "revenue", expression: str = "SUM(amount)") -> dict[str, object]:
-    return {
+def _metric(
+    name: str = "revenue",
+    expression: str = "SUM(amount)",
+    *,
+    observed_dataset: str | None = None,
+) -> dict[str, object]:
+    metric: dict[str, object] = {
         "name": name,
         "expression": {
             "dialects": [
@@ -69,6 +74,11 @@ def _metric(name: str = "revenue", expression: str = "SUM(amount)") -> dict[str,
             ],
         },
     }
+    if observed_dataset is not None:
+        metric["custom_extensions"] = [
+            {"vendor_name": "MARIVO", "data": {"observed_dataset": observed_dataset}}
+        ]
+    return metric
 
 
 def _relationship(name: str = "orders_to_customers") -> dict[str, object]:
@@ -143,7 +153,7 @@ class SemanticImportExportServiceTests(unittest.TestCase):
                         ),
                         _dataset("customers", fields=[_field("customer_id")]),
                     ],
-                    metrics=[_metric("revenue", "SUM(amount)")],
+                    metrics=[_metric("revenue", "SUM(amount)", observed_dataset="orders")],
                     relationships=[_relationship()],
                 )
             )

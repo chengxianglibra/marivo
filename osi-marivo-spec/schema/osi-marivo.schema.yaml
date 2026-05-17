@@ -48,6 +48,10 @@ metric_extension:
   #     → "weighted_average"  (e.g. AOV = SUM(revenue)/COUNT(orders), avg_latency)
   # Default: "sum". NOT NULL.
   aggregation_semantics: string # enum: sum | ratio | weighted_average
+  observed_dataset: string # Dataset name that owns the metric expression.
+  observation_grain: # Observation grain fields or semantic grain labels.
+    - string
+  primary_time_field: string # Dataset field used as the primary analysis time axis.
 
 # Top-level semantic model definition
 semantic_model:
