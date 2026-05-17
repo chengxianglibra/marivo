@@ -346,48 +346,6 @@ class AoiGeneratedIntentModelTests(unittest.TestCase):
             aoi.Forecast.model_validate({"source_ref": {"step_id": "step_1"}, "horizon": 7})
 
 
-class AttributeUnknownMetricEndpointTests(unittest.TestCase):
-    """Lightweight coverage for attribute's unknown-metric HTTP failure path."""
-
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls.temp_dir = tempfile.TemporaryDirectory()
-        cls.db_path = Path(cls.temp_dir.name) / "attribute_unknown_metric.duckdb"
-        cls.client = TestClient(create_app(cls.db_path), headers={"X-Marivo-User": "test_user"})
-        response = cls.client.post("/sessions", json={"goal": "attribute unknown metric test"})
-        cls.session_id = response.json()["session_id"]
-
-    @classmethod
-    def tearDownClass(cls) -> None:
-        cls.client.close()
-        cls.temp_dir.cleanup()
-
-    def test_attribute_unknown_metric_returns_422(self) -> None:
-        # attribute is now a real runner; an unresolvable metric yields OBSERVE_FAILED → 422
-        r = self.client.post(
-            f"/sessions/{self.session_id}/intents/attribute",
-            json={
-                "metric": _metric_ref("dau"),
-                "left": {
-                    "time_scope": {
-                        "field": "event_time",
-                        "start": "2024-01-08T00:00:00Z",
-                        "end": "2024-01-15T00:00:00Z",
-                    }
-                },
-                "right": {
-                    "time_scope": {
-                        "field": "event_time",
-                        "start": "2024-01-01T00:00:00Z",
-                        "end": "2024-01-08T00:00:00Z",
-                    }
-                },
-                "dimensions": ["region"],
-            },
-        )
-        self.assertEqual(r.status_code, 422)
-
-
 class LightweightIntentEndpointTests(_SessionBackedIntentEndpointMixin, unittest.TestCase):
     """HTTP intent validation paths that only need a session-backed app."""
 

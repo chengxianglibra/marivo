@@ -20,6 +20,7 @@ class _FakeRuntime:
         self.decompose_payload: Any | None = None
         self.test_payload: Any | None = None
         self.forecast_payload: Any | None = None
+        self.attribute_payload: Any | None = None
         self.validate_payload: Any | None = None
 
     def observe(self, session_id: str, payload: Any) -> dict[str, Any]:
@@ -183,6 +184,35 @@ class _FakeRuntime:
                             "p_value": 0.04,
                             "decision": {"reject_null": True},
                             "assumption_notes": [],
+                        },
+                    }
+                ],
+            },
+            "provenance": {"mocked": True},
+            "product_metadata": None,
+        }
+
+    def attribute(self, session_id: str, payload: Any) -> dict[str, Any]:
+        self.attribute_payload = payload
+        return {
+            "intent_type": "attribute",
+            "step_type": "attribute",
+            "step_ref": {
+                "session_id": session_id,
+                "step_id": "step_attribute_1",
+                "step_type": "attribute",
+            },
+            "artifact_id": "art_attribute_1",
+            "result": {
+                "bundle_type": "attribute_bundle",
+                "aoi_artifacts": [
+                    {
+                        "artifact_id": "art_compare_1",
+                        "result": {
+                            "left_value": 120.0,
+                            "right_value": 100.0,
+                            "delta": 20.0,
+                            "matched_time_scope": None,
                         },
                     }
                 ],
@@ -465,6 +495,27 @@ def _valid_validate_request() -> dict[str, Any]:
     return payload
 
 
+def _valid_attribute_request() -> dict[str, Any]:
+    return {
+        "metric": "metric.revenue",
+        "left": {
+            "time_scope": {
+                "field": "event_time",
+                "start": "2026-01-01T00:00:00Z",
+                "end": "2026-01-08T00:00:00Z",
+            }
+        },
+        "right": {
+            "time_scope": {
+                "field": "event_time",
+                "start": "2026-01-08T00:00:00Z",
+                "end": "2026-01-15T00:00:00Z",
+            }
+        },
+        "dimensions": ["region"],
+    }
+
+
 @pytest.mark.parametrize(
     ("endpoint", "payload"),
     [
@@ -576,6 +627,32 @@ def test_validate_accepts_aoi_request_and_returns_typed_bundle() -> None:
     assert body["intent_type"] == "validate"
     assert body["result"]["bundle_type"] == "validation_bundle"
     assert body["result"]["aoi_artifacts"][0]["result"]["p_value"] == 0.04
+
+
+def test_attribute_accepts_aoi_request_and_returns_typed_bundle() -> None:
+    runtime = _FakeRuntime()
+    response = _client(runtime).post(
+        "/sessions/sess_1/intents/attribute",
+        json=_valid_attribute_request(),
+    )
+
+    assert response.status_code == 200, response.text
+    assert isinstance(runtime.attribute_payload, aoi.Attribute)
+    assert runtime.attribute_payload.decomposition_method == "delta_share"
+    assert runtime.attribute_payload.decomposition_limit == 5
+    body = response.json()
+    assert body["intent_type"] == "attribute"
+    assert body["result"]["bundle_type"] == "attribute_bundle"
+    assert body["result"]["aoi_artifacts"][0]["result"]["delta"] == 20.0
+
+
+def test_attribute_rejects_legacy_scope_field() -> None:
+    payload = _valid_attribute_request()
+    payload["left"]["scope"] = {"predicate": "region = 'US'"}
+
+    response = _client(_FakeRuntime()).post("/sessions/sess_1/intents/attribute", json=payload)
+
+    assert response.status_code == 422
 
 
 @pytest.mark.parametrize(

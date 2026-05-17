@@ -315,6 +315,19 @@ def test_to_aoi_attribute_request_preserves_aoi_slice_filter() -> None:
     assert request.decomposition_limit == 10
 
 
+def test_to_aoi_attribute_request_uses_contract_defaults() -> None:
+    request = to_aoi_attribute_request(
+        metric="view_time",
+        left=_slice("2026-05-01T00:00:00Z", "2026-05-08T00:00:00Z"),
+        right=_slice("2026-04-24T00:00:00Z", "2026-05-01T00:00:00Z"),
+        dimensions=["region"],
+    )
+
+    assert isinstance(request, aoi.Attribute)
+    assert request.decomposition_method == "delta_share"
+    assert request.decomposition_limit == 5
+
+
 def test_to_aoi_diagnose_request_builds_auto_detect_model() -> None:
     request = to_aoi_diagnose_request(
         metric="view_time",

@@ -408,6 +408,7 @@ def test_attribute_tool_passes_generated_request(monkeypatch) -> None:
     assert "request" in calls["kwargs"]
     assert "params" not in calls["kwargs"]
     assert isinstance(calls["kwargs"]["request"], aoi.Attribute)
+    assert calls["kwargs"]["request"].decomposition_limit == 5
 
 
 def test_diagnose_schema_documents_mode_specific_inputs() -> None:

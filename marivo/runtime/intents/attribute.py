@@ -36,6 +36,11 @@ _MAX_DECOMPOSITION_LIMIT = 100
 _DERIVED_LOGIC_VERSION = "1.0"
 _PROJECTION_VERSION = "attribute_bundle.v1"
 _SHARE_SUPPRESSION_POLICY = "suppress_on_reconciliation_needs_attention"
+_REQUEST_FIELDS: frozenset[str] = frozenset(
+    {"metric", "left", "right", "dimensions", "decomposition_method", "decomposition_limit"}
+)
+_SLICE_FIELDS: frozenset[str] = frozenset({"time_scope", "filter"})
+_TIME_SCOPE_FIELDS: frozenset[str] = frozenset({"field", "start", "end"})
 _RECONCILIATION_ISSUE_CODES = frozenset(
     {
         "attribution_not_reconcilable",
@@ -53,8 +58,8 @@ def run_attribute_intent(
 
     Input (from generated AOI Attribute request after lowering):
       metric:               published semantic metric
-      left:                 { time_scope, scope? } — current / treatment side
-      right:                { time_scope, scope? } — baseline / control side
+      left:                 { time_scope, filter? } — current / treatment side
+      right:                { time_scope, filter? } — baseline / control side
       dimensions:           non-empty list of attribution dimensions
       decomposition_method: "delta_share" (only v1 option, default)
       decomposition_limit:  max driver rows per dimension (default 5, max 100)
@@ -67,7 +72,7 @@ def run_attribute_intent(
       - Fails if any decompose is NOT_ATTRIBUTABLE
       - compare/decompose needs_attention → included in bundle with issues
     """
-    p = params or {}
+    p = _validate_request(params)
 
     # ── Input validation ───────────────────────────────────────────────────────
     try:
@@ -77,43 +82,22 @@ def run_attribute_intent(
     metric_ref = runtime.core.normalize_intent_metric_ref(metric_ref)
     metric_name = runtime.core.metric_name_from_ref(metric_ref)
 
-    left_input: dict[str, Any] = p.get("left") or {}
-    right_input: dict[str, Any] = p.get("right") or {}
+    left_input = _validate_slice(p["left"], label="left")
+    right_input = _validate_slice(p["right"], label="right")
+    current_time_scope = _validate_time_scope(left_input["time_scope"], label="left.time_scope")
+    baseline_time_scope = _validate_time_scope(right_input["time_scope"], label="right.time_scope")
 
-    current_time_scope: dict[str, Any] | None = left_input.get("time_scope")
-    if (
-        not isinstance(current_time_scope, dict)
-        or not current_time_scope.get("start")
-        or not current_time_scope.get("end")
-    ):
-        raise ValueError(
-            "attribute: INVALID_ARGUMENT - left.time_scope is required with 'start' and 'end'"
-        )
-
-    baseline_time_scope: dict[str, Any] | None = right_input.get("time_scope")
-    if (
-        not isinstance(baseline_time_scope, dict)
-        or not baseline_time_scope.get("start")
-        or not baseline_time_scope.get("end")
-    ):
-        raise ValueError(
-            "attribute: INVALID_ARGUMENT - right.time_scope is required with 'start' and 'end'"
-        )
-
-    left_scope: dict[str, Any] | None = left_input.get("scope")
-    if left_scope is None:
-        try:
-            left_scope = aoi_filter_to_scope(left_input.get("filter"), label="left.filter")
-        except ValueError as exc:
-            raise ValueError(f"attribute: INVALID_ARGUMENT - {exc}") from exc
-    right_scope: dict[str, Any] | None = right_input.get("scope")
-    if right_scope is None:
-        try:
-            right_scope = aoi_filter_to_scope(right_input.get("filter"), label="right.filter")
-        except ValueError as exc:
-            raise ValueError(f"attribute: INVALID_ARGUMENT - {exc}") from exc
+    try:
+        left_scope = aoi_filter_to_scope(left_input.get("filter"), label="left.filter")
+        right_scope = aoi_filter_to_scope(right_input.get("filter"), label="right.filter")
+    except ValueError as exc:
+        raise ValueError(f"attribute: INVALID_ARGUMENT - {exc}") from exc
 
     raw_dimensions = p.get("dimensions")
+    if not isinstance(raw_dimensions, list):
+        raise ValueError("attribute: INVALID_ARGUMENT - dimensions must be a non-empty list")
+    if any(not isinstance(dimension, str) for dimension in raw_dimensions):
+        raise ValueError("attribute: INVALID_ARGUMENT - dimensions must contain only strings")
     dimensions = normalize_dimensions(raw_dimensions)
     if not dimensions:
         raise ValueError("attribute: INVALID_ARGUMENT - dimensions must be a non-empty list")
@@ -129,13 +113,12 @@ def run_attribute_intent(
     if raw_limit is None:
         decomposition_limit = _DEFAULT_DECOMPOSITION_LIMIT
     else:
-        try:
-            decomposition_limit = int(raw_limit)
-        except (TypeError, ValueError) as exc:
+        if not isinstance(raw_limit, int) or isinstance(raw_limit, bool):
             raise ValueError(
                 f"attribute: INVALID_ARGUMENT - decomposition_limit must be a positive integer, "
                 f"got {raw_limit!r}"
-            ) from exc
+            )
+        decomposition_limit = raw_limit
         if decomposition_limit <= 0:
             raise ValueError(
                 f"attribute: INVALID_ARGUMENT - decomposition_limit must be > 0, "
@@ -581,6 +564,68 @@ def run_attribute_intent(
         result_payload=result_payload,
         product_metadata_payload=product_metadata_payload,
     )
+
+
+# ── Request shape validation ──────────────────────────────────────────────────
+
+
+def _validate_request(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError("attribute: INVALID_ARGUMENT - params must be an attribute request object")
+
+    missing_fields = {"metric", "left", "right", "dimensions"} - set(value)
+    if missing_fields:
+        raise ValueError(
+            f"attribute: INVALID_ARGUMENT - missing required field(s): {sorted(missing_fields)}"
+        )
+    unexpected_fields = set(value) - _REQUEST_FIELDS
+    if unexpected_fields:
+        raise ValueError(
+            f"attribute: INVALID_ARGUMENT - unsupported field(s): {sorted(unexpected_fields)}"
+        )
+    return value
+
+
+def _validate_slice(value: Any, *, label: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError(f"attribute: INVALID_ARGUMENT - {label} must be an object")
+
+    missing_fields = {"time_scope"} - set(value)
+    if missing_fields:
+        raise ValueError(
+            f"attribute: INVALID_ARGUMENT - missing {label} field(s): {sorted(missing_fields)}"
+        )
+    unexpected_fields = set(value) - _SLICE_FIELDS
+    if unexpected_fields:
+        raise ValueError(
+            f"attribute: INVALID_ARGUMENT - unsupported {label} field(s): "
+            f"{sorted(unexpected_fields)}"
+        )
+    if "filter" in value and value["filter"] is None:
+        raise ValueError(f"attribute: INVALID_ARGUMENT - {label}.filter must not be null")
+    return value
+
+
+def _validate_time_scope(value: Any, *, label: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError(f"attribute: INVALID_ARGUMENT - {label} must be an object")
+
+    missing_fields = _TIME_SCOPE_FIELDS - set(value)
+    if missing_fields:
+        raise ValueError(
+            f"attribute: INVALID_ARGUMENT - missing {label} field(s): {sorted(missing_fields)}"
+        )
+    unexpected_fields = set(value) - _TIME_SCOPE_FIELDS
+    if unexpected_fields:
+        raise ValueError(
+            f"attribute: INVALID_ARGUMENT - unsupported {label} field(s): "
+            f"{sorted(unexpected_fields)}"
+        )
+    for field in ("field", "start", "end"):
+        raw_value = value[field]
+        if not isinstance(raw_value, str) or not raw_value.strip():
+            raise ValueError(f"attribute: INVALID_ARGUMENT - {label}.{field} is required")
+    return value
 
 
 # ── Issue code remapping ───────────────────────────────────────────────────────
