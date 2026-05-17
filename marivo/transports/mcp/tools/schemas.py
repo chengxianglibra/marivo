@@ -18,6 +18,8 @@ def _reject_time_scope_string(v: Any) -> Any:
             "time_scope_canonical_required: "
             "time_scope must be a structured object with field, start, end "
             "(half-open interval [start, end) on the named time field). "
+            "start/end may be ISO-8601 date-only strings, timezone-naive datetimes, "
+            "or timezone-aware datetimes. "
             "Shorthand strings like '2024-03-01~2024-03-31' are not accepted."
         )
     return v
@@ -52,7 +54,28 @@ def _parse_mcp_datetime(value: str, *, label: str) -> tuple[str, datetime]:
 class McpTimeScope(BaseModel):
     """AOI-aligned time_scope: half-open [start, end) on a named time field."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "examples": [
+                {
+                    "field": "log_date",
+                    "start": "2026-05-15",
+                    "end": "2026-05-16",
+                },
+                {
+                    "field": "event_time",
+                    "start": "2026-05-15T00:00:00",
+                    "end": "2026-05-16T00:00:00",
+                },
+                {
+                    "field": "event_time",
+                    "start": "2026-05-15T00:00:00+08:00",
+                    "end": "2026-05-16T00:00:00+08:00",
+                },
+            ]
+        },
+    )
 
     field: str = Field(
         ...,
@@ -61,16 +84,22 @@ class McpTimeScope(BaseModel):
     )
     start: str = Field(
         description=(
-            "Inclusive start, ISO-8601 date or datetime. Timezone may be omitted for MCP "
-            "input; Marivo defaults date-only and timezone-naive datetime values to the "
-            "service system timezone."
+            "Inclusive start for the half-open [start, end) interval. Accepts ISO-8601 "
+            "date-only strings (2026-05-15), timezone-naive datetimes "
+            "(2026-05-15T00:00:00 or 2026-05-15 00:00:00), and timezone-aware "
+            "datetimes (2026-05-15T00:00:00+08:00 or 2026-05-15T00:00:00Z). "
+            "Date-only and timezone-naive values are interpreted in the service system "
+            "timezone."
         ),
     )
     end: str = Field(
         description=(
-            "Exclusive end, ISO-8601 date or datetime. Timezone may be omitted for MCP "
-            "input; Marivo defaults date-only and timezone-naive datetime values to the "
-            "service system timezone."
+            "Exclusive end for the half-open [start, end) interval. Accepts ISO-8601 "
+            "date-only strings (2026-05-16), timezone-naive datetimes "
+            "(2026-05-16T00:00:00 or 2026-05-16 00:00:00), and timezone-aware "
+            "datetimes (2026-05-16T00:00:00+08:00 or 2026-05-16T00:00:00Z). "
+            "A date-only end means midnight at the start of that date in the service "
+            "system timezone."
         ),
     )
 

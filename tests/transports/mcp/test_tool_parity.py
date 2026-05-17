@@ -354,9 +354,25 @@ def test_mcp_time_scope_schema_documents_naive_datetime_default() -> None:
     end_description = time_scope_schema["properties"]["end"]["description"]
 
     for description in (start_description, end_description):
-        assert "ISO-8601 date or datetime" in description
-        assert "defaults date-only and timezone-naive datetime values" in description
+        assert "date-only strings" in description
+        assert "timezone-naive datetimes" in description
+        assert "timezone-aware" in description
         assert "service system timezone" in description
+    assert "half-open [start, end) interval" in start_description
+    assert "date-only end means midnight" in end_description
+    assert time_scope_schema["examples"] == [
+        {"field": "log_date", "start": "2026-05-15", "end": "2026-05-16"},
+        {
+            "field": "event_time",
+            "start": "2026-05-15T00:00:00",
+            "end": "2026-05-16T00:00:00",
+        },
+        {
+            "field": "event_time",
+            "start": "2026-05-15T00:00:00+08:00",
+            "end": "2026-05-16T00:00:00+08:00",
+        },
+    ]
 
 
 def test_validate_hypothesis_schema_omits_fixed_family() -> None:

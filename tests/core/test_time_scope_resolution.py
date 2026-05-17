@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from datetime import datetime
 
 from marivo.time_scope import (
     AdHocAggregateValueSpec,
@@ -13,6 +14,14 @@ from marivo.time_scope import (
 
 
 class TimeScopeNormalizationTests(unittest.TestCase):
+    def _local_naive_datetime(self, value: str) -> str:
+        return (
+            datetime.fromisoformat(value.replace("Z", "+00:00"))
+            .astimezone()
+            .replace(tzinfo=None, microsecond=0)
+            .isoformat(timespec="seconds")
+        )
+
     def test_metric_query_normalizes_to_shared_request(self) -> None:
         resolved = normalize_metric_query_request(
             {
@@ -146,32 +155,38 @@ class TimeScopeNormalizationTests(unittest.TestCase):
         self.assertEqual(resolved.current.start, "2026-03-25T10:00:00")
         self.assertEqual(resolved.current.end, "2026-03-25T14:00:00")
 
-    def test_hour_grain_rejects_date_only_boundaries(self) -> None:
-        with self.assertRaisesRegex(
-            ValueError, r"naive datetime string for hour grain .*2026-04-09 00:00:00"
-        ):
-            TimeScopeResolver(step_type="metric_query").resolve(
-                {
-                    "mode": "single_window",
-                    "grain": "hour",
-                    "current": {"start": "2026-03-25", "end": "2026-03-26"},
-                }
-            )
+    def test_hour_grain_accepts_date_only_boundaries(self) -> None:
+        resolved = TimeScopeResolver(step_type="metric_query").resolve(
+            {
+                "mode": "single_window",
+                "grain": "hour",
+                "current": {"start": "2026-03-25", "end": "2026-03-26"},
+            }
+        )
 
-    def test_hour_grain_rejects_timezone_aware_boundaries(self) -> None:
-        with self.assertRaisesRegex(
-            ValueError, r"naive datetime string without timezone .*2026-04-09 00:00:00"
-        ):
-            TimeScopeResolver(step_type="metric_query").resolve(
-                {
-                    "mode": "single_window",
-                    "grain": "hour",
-                    "current": {
-                        "start": "2026-03-25T10:00:00+08:00",
-                        "end": "2026-03-25T14:00:00+08:00",
-                    },
-                }
-            )
+        self.assertEqual(resolved.current.start, "2026-03-25T00:00:00")
+        self.assertEqual(resolved.current.end, "2026-03-26T00:00:00")
+
+    def test_hour_grain_accepts_timezone_aware_boundaries(self) -> None:
+        resolved = TimeScopeResolver(step_type="metric_query").resolve(
+            {
+                "mode": "single_window",
+                "grain": "hour",
+                "current": {
+                    "start": "2026-03-25T10:00:00+08:00",
+                    "end": "2026-03-25T14:00:00+08:00",
+                },
+            }
+        )
+
+        self.assertEqual(
+            resolved.current.start,
+            self._local_naive_datetime("2026-03-25T10:00:00+08:00"),
+        )
+        self.assertEqual(
+            resolved.current.end,
+            self._local_naive_datetime("2026-03-25T14:00:00+08:00"),
+        )
 
     def test_compare_mode_requires_baseline_window(self) -> None:
         with self.assertRaisesRegex(ValueError, "time_scope.baseline is required"):
