@@ -66,13 +66,6 @@ diagnose_modes:
   - auto_detect       # Run detect first, then follow up top candidates.
   - explicit_compare  # Diagnose a caller-specified current/baseline pair.
 
-# Supported diagnose bucket sizes. Diagnose narrows the generic time granularity set.
-diagnose_granularities:
-  - hour
-  - day
-  - week
-  - month
-
 # Foundation primitives
 
 # Multi-dialect boolean filter expression, following the OSI Expression shape.
@@ -287,7 +280,7 @@ diagnose:
   time_scope: time_scope
 
   # Required in auto_detect mode; omitted in explicit_compare mode.
-  granularity: diagnose_granularities
+  granularity: time_granularities
 
   # Optional in auto_detect mode; omitted in explicit_compare mode.
   filter: expression

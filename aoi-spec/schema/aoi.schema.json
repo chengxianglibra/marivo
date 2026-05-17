@@ -584,7 +584,9 @@
               "hour",
               "day",
               "week",
-              "month"
+              "month",
+              "quarter",
+              "year"
             ]
           },
           "filter": {

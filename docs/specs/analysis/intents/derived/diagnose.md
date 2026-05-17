@@ -89,7 +89,7 @@ type DiagnoseObservationInput = {
   scope?: Scope | null;
 };
 
-type TimeGranularity = "hour" | "day" | "week" | "month";
+type TimeGranularity = "hour" | "day" | "week" | "month" | "quarter" | "year";
 
 type DetectStrategy = "point_anomaly" | "period_shift";
 

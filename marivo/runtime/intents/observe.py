@@ -249,7 +249,7 @@ def run_observe_intent(
 
     Output modes (inferred from granularity/dimensions):
       - scalar: no granularity, no dimensions
-      - time_series: granularity set (hour/day/week/month)
+      - time_series: granularity set (hour/day/week/month/quarter/year)
       - segmented: dimensions list set
 
     Supported time_scope kinds:

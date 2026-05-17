@@ -16,6 +16,7 @@
 
 - AOI scope now includes seven atomic requests plus the derived `validate`, `attribute`, and `diagnose` request contracts.
 - `CompareType` now exposes alignment strategies only: `normal`, `holiday_aligned`, `weekday_aligned`, and `holiday_and_weekday_aligned`.
+- `diagnose(auto_detect).granularity` now uses the standard `TimeGranularity` values instead of a narrower diagnose-only enum.
 
 ## 0.1.0 - 2026-05-08
 

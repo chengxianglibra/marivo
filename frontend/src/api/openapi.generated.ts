@@ -1339,7 +1339,7 @@ export interface components {
             metric: string;
             time_scope?: components["schemas"]["TimeScope"];
             /** Granularity */
-            granularity?: ("hour" | "day" | "week" | "month") | null;
+            granularity?: "hour" | "day" | "week" | "month" | "quarter" | "year";
             filter?: components["schemas"]["Expression-Input"];
             current?: components["schemas"]["Slice"];
             baseline?: components["schemas"]["Slice"];

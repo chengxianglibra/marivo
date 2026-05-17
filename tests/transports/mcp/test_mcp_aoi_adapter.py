@@ -336,7 +336,7 @@ def test_to_aoi_diagnose_request_builds_auto_detect_model() -> None:
             start="2026-05-01T00:00:00Z",
             end="2026-05-08T00:00:00Z",
         ),
-        granularity="day",
+        granularity="year",
         filter_expression=McpExpression(
             dialects=[{"dialect": "ANSI_SQL", "expression": "region = 'US'"}]
         ),
@@ -348,6 +348,7 @@ def test_to_aoi_diagnose_request_builds_auto_detect_model() -> None:
 
     assert isinstance(request, aoi.Diagnose)
     assert request.mode == "auto_detect"
+    assert request.granularity == "year"
     assert request.time_scope is not None
     assert request.time_scope.field == "log_time"
     assert request.filter is not None
