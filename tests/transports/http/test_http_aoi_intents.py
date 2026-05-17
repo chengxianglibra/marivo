@@ -464,27 +464,20 @@ def test_test_accepts_aoi_request_and_returns_execution_envelope() -> None:
     assert body["artifact_id"] == "art_test_1"
 
 
-def test_test_rejects_method_parameter() -> None:
+@pytest.mark.parametrize(
+    ("path", "value"),
+    [
+        (("method",), "welch_t"),
+        (("hypothesis", "label"), "legacy label"),
+        (("hypothesis", "alpha"), 0.05),
+    ],
+)
+def test_test_rejects_non_contract_fields(path: tuple[str, ...], value: Any) -> None:
     payload = _valid_test_request()
-    payload["method"] = "welch_t"
-
-    response = _client(_FakeRuntime()).post("/sessions/sess_1/intents/test", json=payload)
-
-    assert response.status_code == 422
-
-
-def test_test_rejects_hypothesis_label() -> None:
-    payload = _valid_test_request()
-    payload["hypothesis"]["label"] = "legacy label"
-
-    response = _client(_FakeRuntime()).post("/sessions/sess_1/intents/test", json=payload)
-
-    assert response.status_code == 422
-
-
-def test_test_rejects_hypothesis_alpha() -> None:
-    payload = _valid_test_request()
-    payload["hypothesis"]["alpha"] = 0.05
+    target = payload
+    for segment in path[:-1]:
+        target = target[segment]
+    target[path[-1]] = value
 
     response = _client(_FakeRuntime()).post("/sessions/sess_1/intents/test", json=payload)
 

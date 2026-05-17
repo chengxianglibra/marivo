@@ -131,6 +131,114 @@ def test_lowers_detect_request_with_all_options_to_runner_params() -> None:
     }
 
 
+def test_lowers_test_request_to_runner_params() -> None:
+    request = aoi.Test(
+        metric="view_time",
+        left=aoi.Slice(
+            time_scope=aoi.TimeScope(
+                field="event_time",
+                start=datetime(2026, 5, 1, tzinfo=UTC),
+                end=datetime(2026, 5, 8, tzinfo=UTC),
+            )
+        ),
+        right=aoi.Slice(
+            time_scope=aoi.TimeScope(
+                field="event_time",
+                start=datetime(2026, 4, 24, tzinfo=UTC),
+                end=datetime(2026, 5, 1, tzinfo=UTC),
+            )
+        ),
+        kind="numeric",
+        hypothesis=aoi.Hypothesis(
+            family="two_sample_mean",
+            alternative="greater",
+            significance="balanced",
+        ),
+    )
+
+    assert lower_aoi_request("test", request) == {
+        "metric": "view_time",
+        "left": {
+            "time_scope": {
+                "field": "event_time",
+                "start": "2026-05-01T00:00:00Z",
+                "end": "2026-05-08T00:00:00Z",
+            }
+        },
+        "right": {
+            "time_scope": {
+                "field": "event_time",
+                "start": "2026-04-24T00:00:00Z",
+                "end": "2026-05-01T00:00:00Z",
+            }
+        },
+        "kind": "numeric",
+        "hypothesis": {
+            "family": "two_sample_mean",
+            "alternative": "greater",
+            "significance": "balanced",
+        },
+    }
+
+
+def test_lowers_test_request_with_filters_to_runner_params() -> None:
+    request = aoi.Test(
+        metric="view_time",
+        left=aoi.Slice(
+            time_scope=aoi.TimeScope(
+                field="event_time",
+                start=datetime(2026, 5, 1, tzinfo=UTC),
+                end=datetime(2026, 5, 8, tzinfo=UTC),
+            ),
+            filter=aoi.Expression(
+                dialects=[aoi.Dialect(dialect="ANSI_SQL", expression="region = 'US'")]
+            ),
+        ),
+        right=aoi.Slice(
+            time_scope=aoi.TimeScope(
+                field="event_time",
+                start=datetime(2026, 4, 24, tzinfo=UTC),
+                end=datetime(2026, 5, 1, tzinfo=UTC),
+            ),
+            filter=aoi.Expression(
+                dialects=[aoi.Dialect(dialect="ANSI_SQL", expression="region = 'CA'")]
+            ),
+        ),
+        kind="numeric",
+        hypothesis=aoi.Hypothesis(
+            family="two_sample_mean",
+            alternative="less",
+            significance="aggressive",
+        ),
+    )
+
+    assert lower_aoi_request("test", request) == {
+        "metric": "view_time",
+        "left": {
+            "time_scope": {
+                "field": "event_time",
+                "start": "2026-05-01T00:00:00Z",
+                "end": "2026-05-08T00:00:00Z",
+            },
+            "filter": {"dialects": [{"dialect": "ANSI_SQL", "expression": "region = 'US'"}]},
+        },
+        "right": {
+            "time_scope": {
+                "field": "event_time",
+                "start": "2026-04-24T00:00:00Z",
+                "end": "2026-05-01T00:00:00Z",
+            },
+            "filter": {"dialects": [{"dialect": "ANSI_SQL", "expression": "region = 'CA'"}]},
+        },
+        "kind": "numeric",
+        "hypothesis": {
+            "family": "two_sample_mean",
+            "alternative": "less",
+            "significance": "aggressive",
+        },
+    }
+
+
 def test_lowers_validate_request_to_runner_params() -> None:
     request = aoi.Validate(
         metric="view_time",

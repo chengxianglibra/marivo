@@ -323,6 +323,113 @@ def test_aoi_request_optional_fields_may_be_omitted() -> None:
     assert explicit.baseline is not None
 
 
+def _aoi_test_payload() -> dict[str, Any]:
+    return {
+        "metric": "revenue",
+        "left": {"time_scope": _aoi_time_scope()},
+        "right": {"time_scope": _aoi_time_scope()},
+        "kind": "numeric",
+        "hypothesis": {
+            "family": "two_sample_mean",
+            "alternative": "two_sided",
+            "significance": "balanced",
+        },
+    }
+
+
+@pytest.mark.parametrize("alternative", ["two_sided", "greater", "less"])
+@pytest.mark.parametrize("significance", ["conservative", "balanced", "aggressive"])
+def test_aoi_test_accepts_all_public_options(alternative: str, significance: str) -> None:
+    from marivo.contracts.generated import aoi
+
+    payload = _aoi_test_payload()
+    payload["left"]["filter"] = {
+        "dialects": [{"dialect": "ANSI_SQL", "expression": "region = 'US'"}]
+    }
+    payload["hypothesis"]["alternative"] = alternative
+    payload["hypothesis"]["significance"] = significance
+
+    request = aoi.Test.model_validate(payload)
+
+    assert request.kind == "numeric"
+    assert request.hypothesis.family == "two_sample_mean"
+    assert request.hypothesis.alternative == alternative
+    assert request.hypothesis.significance == significance
+    assert request.left.filter is not None
+    assert request.left.filter.model_dump(exclude_none=True) == {
+        "dialects": [{"dialect": "ANSI_SQL", "expression": "region = 'US'"}]
+    }
+
+
+def test_aoi_test_omits_absent_optional_filter_fields() -> None:
+    from marivo.contracts.generated import aoi
+
+    request = aoi.Test.model_validate(_aoi_test_payload())
+
+    dumped = request.model_dump(exclude_none=True)
+    assert "filter" not in dumped["left"]
+    assert "filter" not in dumped["right"]
+
+
+@pytest.mark.parametrize("missing_field", ["metric", "left", "right", "kind", "hypothesis"])
+def test_aoi_test_requires_public_required_fields(missing_field: str) -> None:
+    from marivo.contracts.generated import aoi
+
+    payload = _aoi_test_payload()
+    payload.pop(missing_field)
+
+    with pytest.raises(ValidationError):
+        aoi.Test.model_validate(payload)
+
+
+@pytest.mark.parametrize("missing_field", ["family", "alternative", "significance"])
+def test_aoi_test_requires_hypothesis_fields(missing_field: str) -> None:
+    from marivo.contracts.generated import aoi
+
+    payload = _aoi_test_payload()
+    payload["hypothesis"].pop(missing_field)
+
+    with pytest.raises(ValidationError):
+        aoi.Test.model_validate(payload)
+
+
+@pytest.mark.parametrize(
+    "payload_patch",
+    [
+        {"kind": "rate"},
+        {"kind": "Numeric"},
+        {"method": "welch_t"},
+        {"left": {"scope": {"constraints": {"region": "US"}}}},
+        {"left": {"filter": None}},
+        {"hypothesis": {"family": "two_sample_proportion"}},
+        {"hypothesis": {"alternative": "not_equal"}},
+        {"hypothesis": {"significance": "loose"}},
+        {"hypothesis": {"alpha": 0.05}},
+        {"hypothesis": {"label": "legacy label"}},
+        {"hypothesis": {"family": None}},
+        {"hypothesis": {"alternative": None}},
+        {"hypothesis": {"significance": None}},
+    ],
+)
+def test_aoi_test_rejects_invalid_contract_fields(payload_patch: dict[str, Any]) -> None:
+    from marivo.contracts.generated import aoi
+
+    payload = _aoi_test_payload()
+    _deep_update(payload, payload_patch)
+
+    with pytest.raises(ValidationError):
+        aoi.Test.model_validate(payload)
+
+
+def _deep_update(target: dict[str, Any], patch_value: dict[str, Any]) -> None:
+    for key, value in patch_value.items():
+        nested = target.get(key)
+        if isinstance(value, dict) and isinstance(nested, dict):
+            _deep_update(nested, value)
+        else:
+            target[key] = value
+
+
 def test_aoi_detect_defaults_and_optional_fields() -> None:
     from marivo.contracts.generated import aoi
 
