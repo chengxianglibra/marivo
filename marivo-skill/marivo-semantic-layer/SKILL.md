@@ -22,17 +22,19 @@ You MUST complete these items in order when building or changing a reusable sema
 3. **Clarify target analysis scenarios** - identify the questions, output shape, time expectation,
    and scenario-level dimensions the model must support.
 4. **Approve dataset scope** - present the candidate datasets and wait for explicit user approval.
-5. **Approve field semantics** - present primary keys, unique keys, time fields, dimensions, and
+5. **Preview candidate field values** - use bounded sample rows from the approved datasets to verify
+   candidate key, time, dimension, enum-like, filter, format, and null patterns.
+6. **Approve field semantics** - present primary keys, unique keys, time fields, dimensions, and
    uncertainties before writing fields into the document.
-6. **Approve metric definitions** - present metric names, ANSI SQL aggregation expressions,
+7. **Approve metric definitions** - present metric names, ANSI SQL aggregation expressions,
    business meanings, primary time fields, additivity, and non-additive warnings.
-7. **Approve relationship paths** - present join paths and cardinality, or get explicit approval
+8. **Approve relationship paths** - present join paths and cardinality, or get explicit approval
    for a relationship-free model.
-8. **Draft and validate the document** - write a complete OSI-Marivo JSON document to a local file
+9. **Draft and validate the document** - write a complete OSI-Marivo JSON document to a local file
    and validate it with `marivo-validate_osi_semantic_models` using `input_path`.
-9. **Get import approval** - summarize the validated model and local JSON path, then import only
+10. **Get import approval** - summarize the validated model and local JSON path, then import only
    after the user explicitly approves import.
-10. **Hand off to analysis** - once imported and approved for use, switch to `marivo-analysis` for a
+11. **Hand off to analysis** - once imported and approved for use, switch to `marivo-analysis` for a
     smoke test or real investigation.
 
 ## Process Flow
@@ -44,6 +46,7 @@ digraph marivo_semantic_layer {
     "Use marivo-datasource" [shape=box];
     "Target analysis scenarios" [shape=box];
     "Approve dataset scope" [shape=box];
+    "Preview candidate field values" [shape=box];
     "Approve field semantics" [shape=box];
     "Approve metric definitions" [shape=box];
     "Multiple datasets?" [shape=diamond];
@@ -61,7 +64,8 @@ digraph marivo_semantic_layer {
     "Confirm datasource metadata" -> "Use marivo-datasource";
     "Use marivo-datasource" -> "Target analysis scenarios";
     "Target analysis scenarios" -> "Approve dataset scope";
-    "Approve dataset scope" -> "Approve field semantics";
+    "Approve dataset scope" -> "Preview candidate field values";
+    "Preview candidate field values" -> "Approve field semantics";
     "Approve field semantics" -> "Approve metric definitions";
     "Approve metric definitions" -> "Multiple datasets?";
     "Multiple datasets?" -> "Approve relationship paths" [label="yes"];
@@ -121,10 +125,25 @@ inside this skill.
 - Do not make field, metric, or relationship decisions until the in-scope dataset list is explicitly
   approved.
 
-**5. Approve field semantics:**
+**5. Preview candidate field values:**
+
+- After dataset scope approval, use `marivo-datasource` and `marivo-preview_table` to preview
+  bounded sample rows from each selected dataset before proposing field expressions.
+- Preview candidate primary keys, unique keys, time fields, dimensions, enum-like fields, and filter
+  columns needed by the target scenarios.
+- Verify actual value shapes before writing expressions: date strings such as `YYYYMMDD` versus
+  `YYYY-MM-DD`, status values such as `SUCCEED` versus guessed labels, variable-width hour values,
+  and null, blank, or sentinel patterns.
+- Treat preview output as metadata grounding only, not canonical analysis evidence.
+- If preview is unavailable, state why and carry the uncertainty into the field semantics approval
+  gate.
+
+**6. Approve field semantics:**
 
 - For each selected dataset or clear group of similar datasets, present the proposed primary key,
   unique keys, time fields, dimensions, and uncertainties.
+- Cite the observed sample patterns for candidate key, time, dimension, enum-like, and filter fields,
+  or explicitly state that preview was unavailable and why.
 - Choose the primary key from the approved business grain, not from physical naming conventions
   alone.
 - Use explicit time fields. Distinguish event time, snapshot time, partition time, and ingestion
@@ -134,7 +153,7 @@ inside this skill.
 - Do not write fields into the document until the user explicitly approves the primary key, unique
   keys, time fields, and dimensions.
 
-**6. Approve metric definitions:**
+**7. Approve metric definitions:**
 
 - Present proposed metrics with name, observed dataset, ANSI SQL aggregation expression, business
   meaning, primary time field, additive dimensions, and non-additive warnings.
@@ -145,7 +164,7 @@ inside this skill.
 - Do not write a metric into the document until the user explicitly approves its name, expression,
   meaning, primary time field, and additivity warning.
 
-**7. Approve relationship paths:**
+**8. Approve relationship paths:**
 
 - If multiple datasets are used, present join paths, join columns, and cardinality, then stop for
   approval.
@@ -155,7 +174,7 @@ inside this skill.
 - Add relationships only when the target scenario requires cross-dataset semantics and the user
   approves the path and cardinality.
 
-**8. Draft and validate the document:**
+**9. Draft and validate the document:**
 
 - Refer to `references/osi-marivo.schema.json` for the OSI-Marivo JSON document schema when drafting
   the document structure, fields, and extensions.
@@ -165,7 +184,7 @@ inside this skill.
 - Repair validation issues immediately and re-run validation from the local file.
 - Validation success is not import approval.
 
-**9. Get import approval:**
+**10. Get import approval:**
 
 - After validation succeeds, present a concise summary of models, datasets, fields, metrics,
   relationships, known limitations, and the local JSON path.
@@ -174,7 +193,7 @@ inside this skill.
   inline JSON.
 - After import, report the local semantic model JSON document path used for validation/import.
 
-**10. Hand off to analysis:**
+**11. Hand off to analysis:**
 
 - Need current semantic state: use `marivo-list_semantic_models`, `marivo-get_semantic_model`, or
   `marivo-export_osi_semantic_models`.
@@ -190,7 +209,8 @@ Before analysis, make sure all of the following are true:
 - datasource is ready
 - semantic contract is explicit
 - datasource metadata is confirmed and target analysis scenarios are clear
-- dataset scope, field semantics, metric definitions, and relationship paths were approved in order
+- dataset scope, previewed field values, field semantics, metric definitions, and relationship paths
+  were approved in order
 - the complete OSI-Marivo document was validated from a local file with `input_path`
 - the user explicitly approved import
 - the imported model limitations are known, especially non-additive metrics
@@ -217,3 +237,9 @@ get import approval again before continuing analysis.
 - **Import is a hard gate** - Never import without explicit user approval.
 - **Analysis is separate** - This skill prepares reusable semantics; `marivo-analysis` produces
   session-scoped evidence.
+
+## Common Mistakes
+
+- defining field expressions from column names alone without previewing representative values
+- assuming time formats, success states, hour padding, or enum values before checking sample rows
+- treating preview rows as proof of a business conclusion instead of metadata grounding
