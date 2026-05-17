@@ -69,22 +69,13 @@ class MarivoMetricFilter(BaseModel):
 class MarivoMetricExtension(BaseModel):
     additive_dimensions: list[str] = []
     aggregation_semantics: Literal["sum", "ratio", "weighted_average"] = "sum"
+    observed_dataset: str | None = None
+    observation_grain: list[str] | None = None
+    primary_time_field: str | None = None
 
     @model_validator(mode="after")
     def _validate_additive_dimensions(self) -> MarivoMetricExtension:
         return self
-
-    @property
-    def observed_dataset(self) -> str | None:
-        return getattr(self, "__pydantic_extra__", {}).get("observed_dataset")
-
-    @property
-    def observation_grain(self) -> list[str] | None:
-        return getattr(self, "__pydantic_extra__", {}).get("observation_grain")
-
-    @property
-    def primary_time_field(self) -> str | None:
-        return getattr(self, "__pydantic_extra__", {}).get("primary_time_field")
 
     @property
     def filters(self) -> list[MarivoMetricFilter] | None:

@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from marivo.adapters.metadata import MetadataStore, MetadataTransaction
 from marivo.contracts.errors import ErrorCode, NotFoundError, ValidationError
 from marivo.contracts.generated import Dataset, Metric, OSIDocument, Relationship, SemanticModel
+from marivo.dialect import translate as translate_sql
 from marivo.runtime.semantic.osi_storage import (
     _storage_to_dataset,
     _storage_to_metric,
@@ -90,6 +91,8 @@ class OsiSemanticValidationResult(BaseModel):
 
 class OsiSemanticDocumentValidator:
     """Validate OSI-Marivo semantic model documents before import."""
+
+    _DRY_RUN_SAMPLE_LIMIT = 10
 
     def __init__(self, datasource_service: Any | None = None) -> None:
         self.datasource_service = datasource_service
@@ -178,6 +181,7 @@ class OsiSemanticDocumentValidator:
             errors.extend(_reference_issues(model, model_pointer))
             if self.datasource_service is not None:
                 errors.extend(self._datasource_issues(model, model_pointer))
+                errors.extend(self._expression_dry_run_issues(model, model_pointer))
 
         return OsiSemanticValidationResult(
             valid=not errors,
@@ -285,6 +289,131 @@ class OsiSemanticDocumentValidator:
                                 },
                             )
                         )
+        return issues
+
+    def _expression_dry_run_issues(
+        self,
+        model: dict[str, Any],
+        model_pointer: str,
+    ) -> list[SemanticValidationIssue]:
+        assert self.datasource_service is not None
+        issues: list[SemanticValidationIssue] = []
+        datasets = _dataset_contexts(model)
+        engines_by_datasource: dict[str, Any] = {}
+        datasource_types: dict[str, str] = {}
+
+        for dataset_name, context in datasets.items():
+            datasource_id = context.datasource_id
+            if datasource_id is None or context.parsed_source is None:
+                continue
+            try:
+                datasource = self.datasource_service.get_datasource(datasource_id)
+            except (KeyError, ValueError):
+                continue
+            if str(datasource.get("readiness_status") or "") != "ready":
+                continue
+            try:
+                engine = engines_by_datasource[datasource_id]
+            except KeyError:
+                try:
+                    engine = self.datasource_service.build_analytics_engine(datasource_id)
+                except Exception as exc:
+                    issues.append(
+                        SemanticValidationIssue(
+                            code="DATASOURCE_DRY_RUN_UNAVAILABLE",
+                            message=(
+                                f"Could not create a query engine for datasource "
+                                f"{datasource_id!r}: {exc}"
+                            ),
+                            json_pointer=(
+                                f"{model_pointer}/datasets/{context.dataset_index}/custom_extensions"
+                            ),
+                            hint=(
+                                "Fix datasource readiness before validating SQL expression "
+                                "executability."
+                            ),
+                            context={
+                                "dataset": dataset_name,
+                                "datasource_id": datasource_id,
+                            },
+                        )
+                    )
+                    continue
+                engines_by_datasource[datasource_id] = engine
+            datasource_types[datasource_id] = str(datasource.get("datasource_type") or "duckdb")
+
+            for field_index, field_data in enumerate(context.fields):
+                expression = _first_ansi_expression(field_data)
+                if not expression:
+                    continue
+                sql = _field_dry_run_sql(expression, context.source)
+                translated_sql = translate_sql(sql, datasource_types[datasource_id])
+                try:
+                    engine.query_rows(translated_sql)
+                except Exception as exc:
+                    issues.append(
+                        SemanticValidationIssue(
+                            code="FIELD_EXPRESSION_DRY_RUN_FAILED",
+                            message=(
+                                f"Field {field_data.get('name')!r} expression could not be "
+                                f"executed against dataset {dataset_name!r}: {exc}"
+                            ),
+                            json_pointer=(
+                                f"{model_pointer}/datasets/{context.dataset_index}/fields/"
+                                f"{field_index}/expression"
+                            ),
+                            hint="Update the field expression so the datasource can parse it.",
+                            context={
+                                "dataset": dataset_name,
+                                "field": str(field_data.get("name") or ""),
+                                "datasource_id": datasource_id,
+                                "source": context.source,
+                                "query_sql": translated_sql,
+                            },
+                        )
+                    )
+
+        metrics_raw = model.get("metrics")
+        metrics: list[Any] = metrics_raw if isinstance(metrics_raw, list) else []
+        for metric_index, metric in enumerate(metrics):
+            if not isinstance(metric, dict):
+                continue
+            expression = _first_ansi_expression(metric)
+            if not expression:
+                continue
+            metric_context = _metric_observed_dataset_context(metric, datasets)
+            if metric_context is None or metric_context.datasource_id is None:
+                continue
+            datasource_id = metric_context.datasource_id
+            engine = engines_by_datasource.get(datasource_id)
+            if engine is None:
+                continue
+            sql = _metric_dry_run_sql(expression, metric_context.source)
+            translated_sql = translate_sql(sql, datasource_types.get(datasource_id, "duckdb"))
+            try:
+                engine.query_rows(translated_sql)
+            except Exception as exc:
+                issues.append(
+                    SemanticValidationIssue(
+                        code="METRIC_EXPRESSION_DRY_RUN_FAILED",
+                        message=(
+                            f"Metric {metric.get('name')!r} expression could not be "
+                            f"executed against dataset {metric_context.dataset_name!r}: {exc}"
+                        ),
+                        json_pointer=f"{model_pointer}/metrics/{metric_index}/expression",
+                        hint=(
+                            "Update the metric expression so the datasource can parse it "
+                            "over a small input sample."
+                        ),
+                        context={
+                            "dataset": metric_context.dataset_name,
+                            "metric": str(metric.get("name") or ""),
+                            "datasource_id": datasource_id,
+                            "source": metric_context.source,
+                            "query_sql": translated_sql,
+                        },
+                    )
+                )
         return issues
 
 
@@ -922,6 +1051,46 @@ def _duplicate_name_issues(
     return issues
 
 
+@dataclass(frozen=True)
+class _DatasetValidationContext:
+    dataset_name: str
+    dataset_index: int
+    dataset: dict[str, Any]
+    source: str
+    parsed_source: tuple[str, str] | None
+    datasource_id: str | None
+    fields: list[dict[str, Any]]
+
+
+def _dataset_contexts(model: dict[str, Any]) -> dict[str, _DatasetValidationContext]:
+    datasets_raw = model.get("datasets")
+    datasets: list[Any] = datasets_raw if isinstance(datasets_raw, list) else []
+    contexts: dict[str, _DatasetValidationContext] = {}
+    for dataset_index, dataset in enumerate(datasets):
+        if not isinstance(dataset, dict):
+            continue
+        dataset_name = str(dataset.get("name") or "")
+        if not dataset_name:
+            continue
+        fields_raw = dataset.get("fields")
+        fields = (
+            [field for field in fields_raw if isinstance(field, dict)]
+            if isinstance(fields_raw, list)
+            else []
+        )
+        source = str(dataset.get("source") or "").strip()
+        contexts[dataset_name] = _DatasetValidationContext(
+            dataset_name=dataset_name,
+            dataset_index=dataset_index,
+            dataset=dataset,
+            source=source,
+            parsed_source=DatasourceBinder._parse_source(source),
+            datasource_id=_extract_marivo_datasource_id(dataset),
+            fields=fields,
+        )
+    return contexts
+
+
 def _reference_issues(model: dict[str, Any], model_pointer: str) -> list[SemanticValidationIssue]:
     issues: list[SemanticValidationIssue] = []
     datasets_raw = model.get("datasets")
@@ -1027,10 +1196,25 @@ def _metric_extension_issues(
     issues: list[SemanticValidationIssue] = []
     extension_data = _extract_marivo_extension_data(metric)
     if extension_data is None:
+        if len(dataset_fields) > 1:
+            issues.append(
+                _missing_observed_dataset_issue(
+                    metric=metric,
+                    json_pointer=f"{model_pointer}/metrics/{metric_index}/custom_extensions",
+                )
+            )
         return issues
     observed_dataset = extension_data.get("observed_dataset")
     if not isinstance(observed_dataset, str) and len(dataset_fields) == 1:
         observed_dataset = next(iter(dataset_fields))
+    if not isinstance(observed_dataset, str) and len(dataset_fields) > 1:
+        issues.append(
+            _missing_observed_dataset_issue(
+                metric=metric,
+                json_pointer=f"{model_pointer}/metrics/{metric_index}/custom_extensions",
+            )
+        )
+        return issues
     if isinstance(observed_dataset, str) and observed_dataset not in dataset_fields:
         issues.append(
             _unknown_dataset_issue(
@@ -1083,6 +1267,23 @@ def _metric_extension_issues(
             )
         )
     return issues
+
+
+def _missing_observed_dataset_issue(
+    *,
+    metric: dict[str, Any],
+    json_pointer: str,
+) -> SemanticValidationIssue:
+    return SemanticValidationIssue(
+        code="MISSING_OBSERVED_DATASET",
+        message=(
+            f"Metric {metric.get('name')!r} must declare MARIVO "
+            "custom_extensions.data.observed_dataset when the semantic model has multiple datasets."
+        ),
+        json_pointer=json_pointer,
+        hint="Add observed_dataset to the metric MARIVO custom extension.",
+        context={"metric": str(metric.get("name") or "")},
+    )
 
 
 def _unknown_dataset_issue(dataset: str, json_pointer: str) -> SemanticValidationIssue:
@@ -1142,6 +1343,33 @@ def _first_ansi_expression(field: dict[str, Any]) -> str | None:
 def _looks_like_column_reference(expression: str) -> bool:
     stripped = expression.strip()
     return stripped.replace("_", "").isalnum() and "." not in stripped
+
+
+def _metric_observed_dataset_context(
+    metric: dict[str, Any],
+    datasets: dict[str, _DatasetValidationContext],
+) -> _DatasetValidationContext | None:
+    extension_data = _extract_marivo_extension_data(metric)
+    observed_dataset = extension_data.get("observed_dataset") if extension_data else None
+    if isinstance(observed_dataset, str):
+        return datasets.get(observed_dataset)
+    if len(datasets) == 1:
+        return next(iter(datasets.values()))
+    return None
+
+
+def _field_dry_run_sql(expression: str, source: str) -> str:
+    return (
+        f"SELECT {expression} AS value FROM {source} "
+        f"LIMIT {OsiSemanticDocumentValidator._DRY_RUN_SAMPLE_LIMIT}"
+    )
+
+
+def _metric_dry_run_sql(expression: str, source: str) -> str:
+    limit = OsiSemanticDocumentValidator._DRY_RUN_SAMPLE_LIMIT
+    return (
+        f"SELECT {expression} AS value FROM (SELECT * FROM {source} LIMIT {limit}) __marivo_sample"
+    )
 
 
 @dataclass

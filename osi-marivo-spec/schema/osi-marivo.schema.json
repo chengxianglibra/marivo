@@ -410,6 +410,24 @@
           ],
           "default": "sum",
           "description": "Aggregation semantics of the metric. Determines inferential summary mode, statistical test method, and which analysis intents are supported. Decision rule: (1) 'sum' if the metric measures an additive quantity \u2014 values sum across groups (e.g. revenue, latency, duration, inventory balance) \u2014 uses Welch's t-test and expects reconcileable delta decomposition. (2) 'ratio' if the metric is a proportion or binary-outcome rate (e.g. conversion rate, click-through rate, signup rate) \u2014 uses two-proportion z-test. (3) 'weighted_average' if the metric is a ratio of two additive sums, i.e. numerator SUM / denominator COUNT (e.g. AOV = SUM(revenue)/COUNT(orders), avg_latency) \u2014 uses delta method / weighted-average decomposition, delta is NOT expected to reconcile."
+        },
+        "observed_dataset": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Dataset name that owns the metric expression. Required by Marivo validation when a semantic model has multiple datasets."
+        },
+        "observation_grain": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Field names or semantic grain labels that describe one observation for the metric."
+        },
+        "primary_time_field": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Dataset field used as the metric's primary analysis time axis."
         }
       },
       "additionalProperties": false

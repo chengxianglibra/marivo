@@ -180,6 +180,9 @@ def test_marivo_metric_extension_matches_spec() -> None:
     assert set(MarivoMetricExtension.model_fields) == {
         "additive_dimensions",
         "aggregation_semantics",
+        "observed_dataset",
+        "observation_grain",
+        "primary_time_field",
     }
 
 

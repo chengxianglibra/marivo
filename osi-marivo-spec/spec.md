@@ -66,6 +66,10 @@ The `data` field is a JSON object. Its structure MUST conform to the MARIVO exte
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `additive_dimensions` | string[] (minItems: 1) | Optional | Field names across which the metric is additive, including ordinary dimensions and time fields. |
+| `aggregation_semantics` | string enum | Optional | Metric aggregation semantics: `sum`, `ratio`, or `weighted_average`. Defaults to `sum`. |
+| `observed_dataset` | string | Optional | Dataset name that owns the metric expression. Required by Marivo validation when a semantic model has multiple datasets. |
+| `observation_grain` | string[] | Optional | Field names or semantic grain labels that describe one observation for the metric. |
+| `primary_time_field` | string | Optional | Dataset field used as the metric's primary analysis time axis. |
 
 **Example:** See `examples/per-entity/metric-full.json`
 

@@ -278,6 +278,13 @@ Physical grounding lives in the semantic document:
 }
 ```
 
+When a datasource is available and ready, validation also smoke-tests SQL executability for field
+and metric expressions. Field expressions run as `SELECT <expression> FROM <table> LIMIT 10`.
+Metric expressions run over a bounded input sample:
+`SELECT <metric_expression> FROM (SELECT * FROM <table> LIMIT 10) __marivo_sample`.
+This catches parser, type, and sample-row format problems before import, but it is not a full data
+quality scan; malformed rows outside the sampled input can still pass validation.
+
 Typical validation failures:
 
 | Symptom | Fix |
@@ -287,6 +294,9 @@ Typical validation failures:
 | Relationship references an unknown dataset. | Set `from` and `to` to dataset names in the same model. |
 | Relationship references an unknown field. | Set `from_columns` and `to_columns` to field names in their datasets. |
 | Metric references an unknown dataset or field. | Update metric extension fields and expressions to match current datasets and fields. |
+| Multi-dataset metric has no observed dataset. | Add `custom_extensions[].data.observed_dataset` to the metric. |
+| Field expression dry-run fails. | Update the field expression so the datasource can parse it on a small sample. |
+| Metric expression dry-run fails. | Update the metric expression so the datasource can parse it over `LIMIT 10` input rows. |
 
 ## Naming Rules
 
