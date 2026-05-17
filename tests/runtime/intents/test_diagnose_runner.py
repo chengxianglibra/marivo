@@ -1,29 +1,12 @@
-"""Tests for the `diagnose` derived intent runner (Phase 3c-2).
-
-Covers:
-  - run_diagnose_intent: full expansion creates detect + observe×2 + compare + decompose + diagnose steps
-  - run_diagnose_intent: detect_summary.detect_ref points to detect step
-  - run_diagnose_intent: diagnoses[0].current_ref / baseline_ref point to observe steps
-  - run_diagnose_intent: validation.status = "diagnosable" on clean data
-  - run_diagnose_intent: empty detect (0 candidates) → needs_attention with no_detect_candidates
-  - run_diagnose_intent: baseline derivation correct for single-day candidate
-  - run_diagnose_intent: only top-followup_limit candidates followed
-  - run_diagnose_intent: follow_up_truncated when detect returns more than followup_limit
-  - run_diagnose_intent: driver rows capped at decomposition_limit; is_truncated correct
-  - run_diagnose_intent: diagnoses[0].status = "diagnosed" on clean data
-  - run_diagnose_intent: missing metric → ValueError
-  - run_diagnose_intent: empty candidate_dimensions → ValueError
-  - run_diagnose_intent: followup_limit=0 → ValueError
-  - run_diagnose_intent: old detect time_scope shape → ValueError
-"""
-
 from __future__ import annotations
 
-import tempfile
-import unittest
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from marivo.adapters.local.duckdb_analytics import DuckDBAnalyticsEngine
 from marivo.adapters.local.sqlite_metadata import SQLiteMetadataStore
@@ -36,771 +19,651 @@ from tests.semantic_test_helpers import (
 )
 from tests.shared_fixtures import get_named_seeded_duckdb_path
 
-
-def _metric_ref(name: str) -> str:
-    return f"metric.{name}"
-
-
-def _bundle_result(bundle: dict[str, object]) -> dict[str, object]:
-    return bundle["result"]  # type: ignore[index]
-
-
-def _bundle_product_metadata(bundle: dict[str, object]) -> dict[str, object]:
-    return bundle["product_metadata"]  # type: ignore[index]
+_SPIKE_METRIC = "detect_event_count"
+_UNIFORM_METRIC = "uniform_event_count"
+_START = "2026-01-01"
+_END = "2026-01-15"
+_SPIKE_START = "2026-01-08"
+_SPIKE_END = "2026-01-09"
+_BASELINE_START = "2026-01-07"
+_BASELINE_END = "2026-01-08"
+_FILTER_ALPHA = {"dialects": [{"dialect": "ANSI_SQL", "expression": "cluster = 'alpha'"}]}
 
 
-# ── Constants ──────────────────────────────────────────────────────────────────
-
-_METRIC = "diag_revenue"
-
-# Scan window: 2024-03-01 to 2024-03-11 (10 days)
-_SCAN_START = "2024-03-01"
-_SCAN_END = "2024-03-11"
-
-# Anomaly spike on 2024-03-05 (channel A = 700, B = 100, C = 100 → total 900)
-# Normal days: all channels = 100 → total 300
-# z-score of 900 with balanced threshold = 2.0: z ≈ 3.0 (above threshold → candidate)
-_ANOMALY_DATE = "2024-03-05"
-_ANOMALY_DATE_END = "2024-03-06"  # exclusive
-
-# Baseline for 1-day candidate: previous adjacent day
-_BASELINE_DATE = "2024-03-04"
-_BASELINE_DATE_END = "2024-03-05"  # exclusive
-
-_CHANNELS = ["A", "B", "C"]
-_NORMAL_VALUE = 100.0
-_ANOMALY_CHANNEL = "A"
-_ANOMALY_VALUE = 700.0
+@dataclass
+class DiagnoseEnv:
+    service: Any
+    metadata: SQLiteMetadataStore
 
 
-def _detect_time_scope(start: str = _SCAN_START, end: str = _SCAN_END) -> dict[str, str]:
-    return {"field": "event_date", "start": start, "end": end}
+@pytest.fixture(scope="module")
+def diagnose_env(tmp_path_factory: pytest.TempPathFactory) -> DiagnoseEnv:
+    root = tmp_path_factory.mktemp("diagnose_runner")
+    db_path = root / "diagnose.duckdb"
+    meta_path = root / "diagnose.meta.sqlite"
+
+    get_named_seeded_duckdb_path(db_path, "detect_intent")
+    analytics = DuckDBAnalyticsEngine(str(db_path))
+    metadata = SQLiteMetadataStore(str(meta_path))
+    metadata.initialize()
+    analytics.initialize()
+    _seed_detect_metadata(metadata, db_path)
+
+    return DiagnoseEnv(
+        service=build_semantic_layer_service(metadata, analytics),
+        metadata=metadata,
+    )
 
 
-def _aoi_detect_time_scope(start: str = _SCAN_START, end: str = _SCAN_END) -> dict[str, str]:
-    def _as_utc_datetime(value: str) -> str:
-        if "T" in value:
-            return value if value.endswith("Z") else f"{value}Z"
-        return f"{value}T00:00:00Z"
+def _seed_detect_metadata(meta: SQLiteMetadataStore, db_path: Path) -> None:
+    _seed_metric_metadata(
+        meta,
+        db_path=db_path,
+        source_id="ds_detect_diag_01",
+        object_id="obj_detect_diag_01",
+        metric_name=_SPIKE_METRIC,
+        table_name="detect_events",
+        table_fqn="analytics.detect_events",
+    )
+    _seed_metric_metadata(
+        meta,
+        db_path=db_path,
+        source_id="ds_detect_diag_02",
+        object_id="obj_detect_diag_02",
+        metric_name=_UNIFORM_METRIC,
+        table_name="uniform_events",
+        table_fqn="analytics.uniform_events",
+    )
 
-    return {
-        "field": "event_date",
-        "start": _as_utc_datetime(start),
-        "end": _as_utc_datetime(end),
-    }
 
-
-# ── Seeding helpers ────────────────────────────────────────────────────────────
-
-
-def _seed_diag_table(db_path: Path) -> None:
-    """Copy the shared seeded analytics.diag_events fixture into place."""
-    get_named_seeded_duckdb_path(db_path, "diagnose_intent")
-
-
-def _seed_metadata(meta: SQLiteMetadataStore, db_path: str | Path) -> None:
-    """Insert minimal metadata so diagnose can resolve metric → table."""
+def _seed_metric_metadata(
+    meta: SQLiteMetadataStore,
+    *,
+    db_path: Path,
+    source_id: str,
+    object_id: str,
+    metric_name: str,
+    table_name: str,
+    table_fqn: str,
+) -> None:
     now = datetime.now(UTC).isoformat()
-    src_id = "src_diagtest01"
-    obj_id = "obj_diagtest01"
-    met_id = "met_diagtest01"
-    map_id = "map_diagtest01"
-
     seed_duckdb_source_object(
         meta,
-        source_id=src_id,
-        object_id=obj_id,
-        display_name="Diag Test Source",
-        table_name="diag_events",
-        table_fqn="analytics.diag_events",
+        source_id=source_id,
+        object_id=object_id,
+        display_name=f"{metric_name} source",
+        table_name=table_name,
+        table_fqn=table_fqn,
         now=now,
         db_path=db_path,
     )
     ensure_published_typed_metric(
         meta,
-        metric_name=_METRIC,
-        display_name=_METRIC,
+        metric_name=metric_name,
+        display_name=metric_name,
         grain="day",
-        dimensions=["event_date", "channel"],
-        definition_sql="SUM(value)",
+        dimensions=["event_date", "cluster"],
+        definition_sql="COUNT(*)",
         measure_type="sum",
     )
     ensure_published_typed_metric_binding(
         meta,
-        metric_name=_METRIC,
-        carrier_locator="analytics.diag_events",
-        source_object_ref=obj_id,
-        surface_name="value",
-        dimension_names=["event_date", "channel"],
+        metric_name=metric_name,
+        carrier_locator=table_fqn,
+        source_object_ref=object_id,
+        dimension_names=["event_date", "cluster"],
     )
-    # Datasource IS the engine; no separate mapping needed
 
 
-# ── Direct service tests ───────────────────────────────────────────────────────
+def _make_session(env: DiagnoseEnv, goal: str = "diagnose test") -> str:
+    state = env.service.create_session(goal, actor="test_user")
+    if isinstance(state, dict):
+        return str(state["session_id"])
+    return str(state.session_id)
 
 
-class DiagnoseRunnerServiceTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls.temp_dir = tempfile.TemporaryDirectory()
-        db_path = Path(cls.temp_dir.name) / "diag_svc.duckdb"
-        meta_path = Path(cls.temp_dir.name) / "diag_svc.meta.sqlite"
+def _auto_params(**overrides: Any) -> dict[str, Any]:
+    params: dict[str, Any] = {
+        "metric": _SPIKE_METRIC,
+        "time_scope": {"field": "event_date", "start": _START, "end": _END},
+        "granularity": "day",
+        "candidate_dimensions": ["cluster"],
+        "strategy": "point_anomaly",
+        "sensitivity": "balanced",
+        "followup_limit": 1,
+        "decomposition_limit": 5,
+    }
+    params.update(overrides)
+    return params
 
-        _seed_diag_table(db_path)
-        cls.analytics = DuckDBAnalyticsEngine(str(db_path))
-        cls.metadata = SQLiteMetadataStore(str(meta_path))
-        cls.metadata.initialize()
-        cls.analytics.initialize()
-        _seed_metadata(cls.metadata, db_path)
 
-        cls.service = build_semantic_layer_service(cls.metadata, cls.analytics)
-        cls.full_session_id = cls._create_session(cls.service, "diag full test")
-        cls.full_bundle = run_diagnose_intent(
-            cls.service,
-            cls.full_session_id,
-            {
-                "metric": _METRIC,
-                "time_scope": _detect_time_scope(),
-                "granularity": "day",
-                "candidate_dimensions": ["channel"],
-                "strategy": "point_anomaly",
-                "followup_limit": 1,
-                "decomposition_limit": 5,
-                "sensitivity": "balanced",
-            },
-        )
-        step_rows = cls.metadata.query_rows(
-            "SELECT step_type FROM steps WHERE session_id = ?", [cls.full_session_id]
-        )
-        cls.full_step_types = [row["step_type"] for row in step_rows]
+def _explicit_params(**overrides: Any) -> dict[str, Any]:
+    params: dict[str, Any] = {
+        "mode": "explicit_compare",
+        "metric": _SPIKE_METRIC,
+        "current": {
+            "time_scope": {
+                "field": "event_date",
+                "start": _SPIKE_START,
+                "end": _SPIKE_END,
+            }
+        },
+        "baseline": {
+            "time_scope": {
+                "field": "event_date",
+                "start": _BASELINE_START,
+                "end": _BASELINE_END,
+            }
+        },
+        "candidate_dimensions": ["cluster"],
+        "strategy": "point_anomaly",
+        "decomposition_limit": 5,
+    }
+    params.update(overrides)
+    return params
 
-    @classmethod
-    def tearDownClass(cls) -> None:
-        cls.temp_dir.cleanup()
 
-    @staticmethod
-    def _create_session(service, goal: str) -> str:
-        state = service.create_session(goal, actor="test_user")
-        if isinstance(state, dict):
-            return str(state["session_id"])
-        return str(state.session_id)
+def _result(bundle: dict[str, Any]) -> dict[str, Any]:
+    return bundle["result"]
 
-    def _make_session(self) -> str:
-        return self._create_session(self.service, "diag test")
 
-    def _diagnose(
-        self,
-        session_id: str,
-        candidate_dimensions: list[str] | None = None,
-        followup_limit: int = 1,
-        decomposition_limit: int = 5,
-        sensitivity: str = "balanced",
-        candidate_limit: int | None = None,
-    ) -> dict:
-        return run_diagnose_intent(
-            self.service,
-            session_id,
-            {
-                "metric": _METRIC,
-                "time_scope": _detect_time_scope(),
-                "granularity": "day",
-                "candidate_dimensions": candidate_dimensions or ["channel"],
-                "strategy": "point_anomaly",
-                "followup_limit": followup_limit,
-                "decomposition_limit": decomposition_limit,
-                "sensitivity": sensitivity,
-                **({"candidate_limit": candidate_limit} if candidate_limit is not None else {}),
-            },
-        )
+def _product(bundle: dict[str, Any]) -> dict[str, Any]:
+    return bundle["product_metadata"]
 
-    @staticmethod
-    def _result(bundle: dict[str, object]) -> dict[str, object]:
-        return bundle["result"]  # type: ignore[index]
 
-    @staticmethod
-    def _product_metadata(bundle: dict[str, object]) -> dict[str, object]:
-        return bundle["product_metadata"]  # type: ignore[index]
+def _step_types(env: DiagnoseEnv, session_id: str) -> list[str]:
+    rows = env.metadata.query_rows(
+        "SELECT step_type FROM steps WHERE session_id = ?",
+        [session_id],
+    )
+    return [str(row["step_type"]) for row in rows]
 
-    def test_full_expansion_creates_all_steps(self) -> None:
-        """auto_detect fixture currently yields detect + diagnose only."""
-        step_types = self.full_step_types
-        self.assertEqual(step_types.count("detect"), 1)
-        self.assertEqual(step_types.count("diagnose"), 1)
-        self.assertEqual(len(step_types), 2)
 
-    def test_detect_summary_ref_points_to_detect_step(self) -> None:
-        """detect_summary.detect_ref.step_id matches the detect step in the DB."""
-        detect_step_id = _bundle_result(self.full_bundle)["detect_summary"]["detect_ref"]["step_id"]
-        rows = self.metadata.query_rows(
-            "SELECT step_type FROM steps WHERE session_id = ? AND step_id = ?",
-            [self.full_session_id, detect_step_id],
-        )
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["step_type"], "detect")
+def test_auto_detect_follows_detect_artifact_candidates_and_builds_full_chain(
+    diagnose_env: DiagnoseEnv,
+) -> None:
+    session_id = _make_session(diagnose_env, "auto diagnose")
 
-    def test_diagnoses_current_baseline_refs_point_to_observe_steps(self) -> None:
-        """auto_detect fixture currently returns no diagnoses."""
-        bundle = _bundle_result(self.full_bundle)
-        self.assertEqual(bundle["diagnoses"], [])
+    bundle = run_diagnose_intent(
+        diagnose_env.service,
+        session_id,
+        _auto_params(detect_dimension="cluster", candidate_limit=1),
+    )
 
-    def test_validation_status_diagnosable_on_clean_data(self) -> None:
-        """auto_detect with this fixture currently yields no candidates."""
-        self.assertEqual(
-            _bundle_product_metadata(self.full_bundle)["validation"]["status"], "needs_attention"
-        )
+    result = _result(bundle)
+    product = _product(bundle)
+    diagnosis = result["diagnoses"][0]
+    driver = diagnosis["drivers"][0]
 
-    def test_empty_detect_produces_committed_bundle_with_no_diagnoses(self) -> None:
-        """No candidates returns a needs_attention bundle with guidance."""
-        sid = self._make_session()
-        # Use "conservative" with threshold 2.5 — our z-score is ≈3.0 so it will still trigger.
-        # Use aggressive limit=0 is invalid; instead cap at followup_limit=0 is invalid.
-        # Better: scan a range with NO anomaly by querying just normal days (2024-03-01 to 03-04).
-        bundle = run_diagnose_intent(
-            self.service,
-            sid,
-            {
-                "metric": _METRIC,
-                # Only normal days — no spike, so z-score < threshold
-                "time_scope": _detect_time_scope("2024-03-01", "2024-03-05"),
-                "granularity": "day",
-                "candidate_dimensions": ["channel"],
-                "strategy": "point_anomaly",
-                "followup_limit": 3,
-                "sensitivity": "conservative",  # threshold 2.5
-            },
-        )
-        result = _bundle_result(bundle)
-        product = _bundle_product_metadata(bundle)
-        self.assertEqual(result["bundle_type"], "diagnosis_bundle")
-        self.assertEqual(result["diagnoses"], [])
-        self.assertEqual(product["validation"]["status"], "needs_attention")
-        self.assertTrue(
-            any(i["code"] == "no_detect_candidates" for i in product["validation"]["issues"])
-        )
-        self.assertEqual(result["detect_summary"]["followed_candidate_count"], 0)
-        self.assertIsNotNone(bundle["artifact_id"])
+    assert product["validation"]["status"] == "diagnosable"
+    assert result["mode"] == "auto_detect"
+    assert result["granularity"] == "day"
+    assert result["detect_dimension"] == "cluster"
+    assert result["candidate_dimensions"] == ["cluster"]
+    assert result["strategy"] == "point_anomaly"
+    assert result["sensitivity"] == "balanced"
+    assert result["detect_summary"]["returned_candidate_count"] == 1
+    assert result["detect_summary"]["followed_candidate_count"] == 1
+    assert result["detect_summary"]["truncated"] is False
+    assert diagnosis["candidate"]["slice"] == {"cluster": "alpha"}
+    assert diagnosis["baseline_derivation"]["baseline_window"] == {
+        "start": _BASELINE_START,
+        "end": _BASELINE_END,
+    }
+    assert diagnosis["status"] == "diagnosed"
+    assert diagnosis["comparison"]["absolute_delta"] == 400.0
+    assert driver["dimension"] == "cluster"
+    assert driver["attribution_status"] == "attributable"
+    assert driver["rows"][0]["key"] == "alpha"
+    assert driver["rows"][0]["absolute_contribution"] == 400.0
 
-    def test_detect_insufficient_points_adds_validation_guidance(self) -> None:
-        sid = self._make_session()
-        bundle = run_diagnose_intent(
-            self.service,
-            sid,
-            {
-                "metric": _METRIC,
-                "time_scope": _detect_time_scope("2024-03-01", "2024-03-03"),
-                "granularity": "day",
-                "candidate_dimensions": ["channel"],
-                "strategy": "point_anomaly",
-            },
-        )
-        product = _bundle_product_metadata(bundle)
-        result = _bundle_result(bundle)
-        self.assertEqual(product["validation"]["status"], "needs_attention")
-        self.assertEqual(result["diagnoses"], [])
-        guidance = product["validation"]["guidance"]
-        self.assertEqual(guidance["recommended_next_action"], "use_explicit_compare_or_expand_scan")
+    step_types = _step_types(diagnose_env, session_id)
+    assert step_types.count("detect") == 1
+    assert step_types.count("observe") == 2
+    assert step_types.count("compare") == 1
+    assert step_types.count("decompose") == 1
+    assert step_types.count("diagnose") == 1
 
-    def test_baseline_derivation_correct_for_single_day_candidate(self) -> None:
-        """No follow-up is produced when detect finds no candidates."""
-        bundle = _bundle_result(self.full_bundle)
-        self.assertEqual(bundle["detect_summary"]["followed_candidate_count"], 0)
 
-    def test_only_followup_limit_candidates_followed(self) -> None:
-        """Only followup_limit candidates are followed even if more candidates exist."""
-        bundle = _bundle_result(self.full_bundle)
-        self.assertEqual(bundle["detect_summary"]["followed_candidate_count"], 0)
+def test_auto_detect_filter_is_applied_to_detect_and_followup(
+    diagnose_env: DiagnoseEnv,
+) -> None:
+    session_id = _make_session(diagnose_env, "auto diagnose filter")
 
-    def test_truncated_flag_when_detect_returns_more_than_followup_limit(self) -> None:
-        """detect_summary.truncated=True when returned_candidate_count > followup_limit."""
-        bundle = _bundle_result(self.full_bundle)
-        returned = bundle["detect_summary"]["returned_candidate_count"]
-        followed = bundle["detect_summary"]["followed_candidate_count"]
-        # truncated iff returned > followup_limit
-        self.assertEqual(bundle["detect_summary"]["truncated"], returned > followed)
+    bundle = run_diagnose_intent(
+        diagnose_env.service,
+        session_id,
+        _auto_params(filter=_FILTER_ALPHA),
+    )
 
-    def test_driver_rows_capped_at_decomposition_limit(self) -> None:
-        """Driver rows are capped at decomposition_limit; is_truncated reflects this."""
-        sid = self._make_session()
-        bundle = _bundle_result(
-            self._diagnose(sid, candidate_dimensions=["channel"], decomposition_limit=1)
-        )
-        self.assertEqual(bundle["diagnoses"], [])
+    result = _result(bundle)
+    diagnosis = result["diagnoses"][0]
+    driver = diagnosis["drivers"][0]
 
-    def test_diagnosed_status_on_clean_candidate(self) -> None:
-        """diagnoses[0].status = 'diagnosed' when compare is 'comparable'."""
-        bundle = _bundle_result(self.full_bundle)
-        self.assertEqual(bundle["diagnoses"], [])
+    assert result["scope"] == {"predicate": "cluster = 'alpha'"}
+    assert diagnosis["comparison"]["left_value"] == 500.0
+    assert diagnosis["comparison"]["right_value"] == 100.0
+    assert [row["key"] for row in driver["rows"]] == ["alpha"]
 
-    def test_explicit_compare_does_not_create_detect_step(self) -> None:
-        sid = self._make_session()
-        bundle = run_diagnose_intent(
-            self.service,
-            sid,
-            {
-                "mode": "explicit_compare",
-                "metric": _METRIC,
-                "current": {"time_scope": _detect_time_scope(_ANOMALY_DATE, _ANOMALY_DATE_END)},
-                "baseline": {"time_scope": _detect_time_scope(_BASELINE_DATE, _BASELINE_DATE_END)},
-                "candidate_dimensions": ["channel"],
-                "strategy": "point_anomaly",
-                "decomposition_limit": 5,
-            },
-        )
 
-        result = _bundle_result(bundle)
-        self.assertEqual(result["mode"], "explicit_compare")
-        self.assertIsNone(result["detect_summary"])
-        self.assertEqual(len(result["diagnoses"]), 1)
-        self.assertEqual(result["diagnoses"][0]["status"], "diagnosed")
-        step_rows = self.metadata.query_rows(
-            "SELECT step_type FROM steps WHERE session_id = ?", [sid]
-        )
-        step_types = [row["step_type"] for row in step_rows]
-        self.assertNotIn("detect", step_types)
-        self.assertEqual(step_types.count("observe"), 2)
-        self.assertEqual(step_types.count("compare"), 1)
-        self.assertEqual(step_types.count("decompose"), 0)
+def test_explicit_compare_uses_slices_without_detect_step_and_builds_drivers(
+    diagnose_env: DiagnoseEnv,
+) -> None:
+    session_id = _make_session(diagnose_env, "explicit diagnose")
 
-    def test_result_type_is_diagnosis_bundle(self) -> None:
-        """result_type field is 'diagnosis_bundle'."""
-        self.assertEqual(_bundle_result(self.full_bundle)["bundle_type"], "diagnosis_bundle")
+    bundle = run_diagnose_intent(
+        diagnose_env.service,
+        session_id,
+        _explicit_params(),
+    )
 
-    def test_artifact_id_persisted_and_retrievable(self) -> None:
-        """Bundle artifact_id can be resolved from the metadata store."""
-        artifact_id = self.full_bundle["artifact_id"]
-        self.assertIsNotNone(artifact_id)
-        rows = self.metadata.query_rows(
-            "SELECT artifact_id FROM artifacts WHERE artifact_id = ?",
-            [artifact_id],
-        )
-        self.assertEqual(len(rows), 1)
+    result = _result(bundle)
+    diagnosis = result["diagnoses"][0]
+    driver = diagnosis["drivers"][0]
 
-    # ── Validation errors ──────────────────────────────────────────────────────
+    assert _product(bundle)["validation"]["status"] == "diagnosable"
+    assert result["mode"] == "explicit_compare"
+    assert result["detect_summary"] is None
+    assert diagnosis["candidate"]["candidate_type"] == "explicit_compare"
+    assert diagnosis["current_ref"]["step_type"] == "observe"
+    assert diagnosis["baseline_ref"]["step_type"] == "observe"
+    assert diagnosis["compare_ref"]["step_type"] == "compare"
+    assert diagnosis["comparison"]["left_value"] == 600.0
+    assert diagnosis["comparison"]["right_value"] == 200.0
+    assert driver["decompose_ref"]["step_type"] == "decompose"
+    assert driver["returned_row_count"] == 2
+    assert driver["total_row_count"] == 2
+    assert driver["is_truncated"] is False
+    assert driver["issues"] == []
 
-    def test_missing_metric_raises_value_error(self) -> None:
-        """Empty metric → ValueError."""
-        sid = self._make_session()
-        with self.assertRaises(ValueError) as ctx:
-            run_diagnose_intent(
-                self.service,
-                sid,
-                {
-                    "metric": "",
-                    "time_scope": _detect_time_scope(),
-                    "granularity": "day",
-                    "candidate_dimensions": ["channel"],
-                    "strategy": "point_anomaly",
+    step_types = _step_types(diagnose_env, session_id)
+    assert "detect" not in step_types
+    assert step_types.count("observe") == 2
+    assert step_types.count("compare") == 1
+    assert step_types.count("decompose") == 1
+    assert step_types.count("diagnose") == 1
+
+
+def test_explicit_compare_preserves_matching_slice_filters(
+    diagnose_env: DiagnoseEnv,
+) -> None:
+    session_id = _make_session(diagnose_env, "explicit diagnose filters")
+
+    bundle = run_diagnose_intent(
+        diagnose_env.service,
+        session_id,
+        _explicit_params(
+            current={
+                "time_scope": {
+                    "field": "event_date",
+                    "start": _SPIKE_START,
+                    "end": _SPIKE_END,
                 },
-            )
-        self.assertIn("metric", str(ctx.exception).lower())
-
-    def test_empty_candidate_dimensions_raises_value_error(self) -> None:
-        """Empty candidate_dimensions list → ValueError."""
-        sid = self._make_session()
-        with self.assertRaises(ValueError) as ctx:
-            run_diagnose_intent(
-                self.service,
-                sid,
-                {
-                    "metric": _METRIC,
-                    "time_scope": _detect_time_scope(),
-                    "granularity": "day",
-                    "candidate_dimensions": [],
-                    "strategy": "point_anomaly",
-                },
-            )
-        self.assertIn("candidate_dimensions", str(ctx.exception))
-
-    def test_followup_limit_zero_raises_value_error(self) -> None:
-        """followup_limit=0 → ValueError."""
-        sid = self._make_session()
-        with self.assertRaises(ValueError) as ctx:
-            run_diagnose_intent(
-                self.service,
-                sid,
-                {
-                    "metric": _METRIC,
-                    "time_scope": _detect_time_scope(),
-                    "granularity": "day",
-                    "candidate_dimensions": ["channel"],
-                    "strategy": "point_anomaly",
-                    "followup_limit": 0,
-                },
-            )
-        self.assertIn("followup_limit", str(ctx.exception))
-
-    def test_old_time_scope_shape_raises(self) -> None:
-        """Old mode/grain/current shape is rejected."""
-        sid = self._make_session()
-        with self.assertRaises(ValueError) as ctx:
-            run_diagnose_intent(
-                self.service,
-                sid,
-                {
-                    "metric": _METRIC,
-                    "time_scope": {
-                        "mode": "rolling_window",
-                        "grain": "day",
-                        "current": {"start": _SCAN_START, "end": _SCAN_END},
-                    },
-                    "granularity": "day",
-                    "candidate_dimensions": ["channel"],
-                    "strategy": "point_anomaly",
-                },
-            )
-        self.assertIn("time_scope", str(ctx.exception))
-
-
-# ── Additional validation boundary tests ──────────────────────────────────────
-
-
-class DiagnoseValidationBoundaryTests(unittest.TestCase):
-    """Tests for input validation edge cases that don't need a live DB."""
-
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls.temp_dir = tempfile.TemporaryDirectory()
-        db_path = Path(cls.temp_dir.name) / "diag_val.duckdb"
-        meta_path = Path(cls.temp_dir.name) / "diag_val.meta.sqlite"
-
-        _seed_diag_table(db_path)
-        analytics = DuckDBAnalyticsEngine(str(db_path))
-        metadata = SQLiteMetadataStore(str(meta_path))
-        metadata.initialize()
-        analytics.initialize()
-        _seed_metadata(metadata, db_path)
-
-        cls.service = build_semantic_layer_service(metadata, analytics)
-        cls.dedup_split_bundle = run_diagnose_intent(
-            cls.service,
-            cls._create_session(cls.service, "val dedup split test"),
-            {
-                "metric": _METRIC,
-                "time_scope": _detect_time_scope(),
-                "granularity": "day",
-                "candidate_dimensions": ["channel", "channel"],
-                "strategy": "point_anomaly",
-                "detect_dimension": "channel",
-                "followup_limit": 1,
+                "filter": _FILTER_ALPHA,
             },
-        )
-        cls.truncated_driver_bundle = run_diagnose_intent(
-            cls.service,
-            cls._create_session(cls.service, "val truncation test"),
-            {
-                "metric": _METRIC,
-                "time_scope": _detect_time_scope(),
-                "granularity": "day",
-                "candidate_dimensions": ["channel"],
-                "strategy": "point_anomaly",
-                "decomposition_limit": 1,
-                "followup_limit": 1,
+            baseline={
+                "time_scope": {
+                    "field": "event_date",
+                    "start": _BASELINE_START,
+                    "end": _BASELINE_END,
+                },
+                "filter": _FILTER_ALPHA,
             },
-        )
+        ),
+    )
 
-    @classmethod
-    def tearDownClass(cls) -> None:
-        cls.temp_dir.cleanup()
+    diagnosis = _result(bundle)["diagnoses"][0]
+    driver = diagnosis["drivers"][0]
 
-    @staticmethod
-    def _create_session(service, goal: str) -> str:
-        state = service.create_session(goal, actor="test_user")
-        if isinstance(state, dict):
-            return str(state["session_id"])
-        return str(state.session_id)
+    assert diagnosis["comparison"]["left_value"] == 500.0
+    assert diagnosis["comparison"]["right_value"] == 100.0
+    assert driver["rows"][0]["key"] == "alpha"
+    assert driver["rows"][0]["contribution_share"] == 1.0
 
-    def _make_session(self) -> str:
-        return self._create_session(self.service, "val boundary test")
 
-    def _base_params(self, **overrides: object) -> dict:
-        p: dict = {
-            "metric": _METRIC,
-            "time_scope": _detect_time_scope(),
-            "granularity": "day",
-            "candidate_dimensions": ["channel"],
-            "strategy": "point_anomaly",
+def test_decomposition_limit_truncates_driver_rows(diagnose_env: DiagnoseEnv) -> None:
+    session_id = _make_session(diagnose_env, "explicit diagnose truncation")
+
+    bundle = run_diagnose_intent(
+        diagnose_env.service,
+        session_id,
+        _explicit_params(decomposition_limit=1),
+    )
+
+    driver = _result(bundle)["diagnoses"][0]["drivers"][0]
+
+    assert driver["returned_row_count"] == 1
+    assert driver["total_row_count"] == 2
+    assert driver["is_truncated"] is True
+    assert driver["rows"][0]["key"] == "alpha"
+    assert driver["others_absolute_contribution"] == 0.0
+    assert driver["issues"] == []
+
+
+def test_duplicate_candidate_dimensions_are_deduped(diagnose_env: DiagnoseEnv) -> None:
+    session_id = _make_session(diagnose_env, "diagnose dedupe")
+
+    bundle = run_diagnose_intent(
+        diagnose_env.service,
+        session_id,
+        _explicit_params(candidate_dimensions=["cluster", "cluster"]),
+    )
+
+    result = _result(bundle)
+
+    assert result["candidate_dimensions"] == ["cluster"]
+    assert len(result["diagnoses"][0]["drivers"]) == 1
+
+
+def test_auto_detect_no_candidates_returns_needs_attention(
+    diagnose_env: DiagnoseEnv,
+) -> None:
+    session_id = _make_session(diagnose_env, "diagnose no candidates")
+
+    bundle = run_diagnose_intent(
+        diagnose_env.service,
+        session_id,
+        _auto_params(metric=_UNIFORM_METRIC),
+    )
+
+    result = _result(bundle)
+    validation = _product(bundle)["validation"]
+
+    assert result["diagnoses"] == []
+    assert result["detect_summary"]["total_candidate_count"] == 0
+    assert validation["status"] == "needs_attention"
+    assert {issue["code"] for issue in validation["issues"]} == {"no_detect_candidates"}
+    assert validation["guidance"]["recommended_next_action"] == (
+        "use_explicit_compare_or_expand_scan"
+    )
+
+
+def test_detect_needs_attention_guidance_is_propagated(
+    diagnose_env: DiagnoseEnv,
+) -> None:
+    session_id = _make_session(diagnose_env, "diagnose insufficient detect")
+
+    bundle = run_diagnose_intent(
+        diagnose_env.service,
+        session_id,
+        _auto_params(
+            time_scope={"field": "event_date", "start": "2026-01-01", "end": "2026-01-03"}
+        ),
+    )
+
+    validation = _product(bundle)["validation"]
+
+    assert validation["status"] == "needs_attention"
+    assert {"detect_needs_attention", "no_detect_candidates"} == {
+        issue["code"] for issue in validation["issues"]
+    }
+    assert validation["guidance"]["recommended_next_action"] == "expand_scan_window"
+    assert "explicit_compare_fallback" in validation["guidance"]
+
+
+def test_followup_limit_truncation_is_reported_from_detect_artifact_payload() -> None:
+    runtime = MagicMock()
+    runtime.core.normalize_intent_metric_ref.side_effect = lambda metric: f"metric.{metric}"
+    runtime.core.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
+    runtime.insert_artifact.return_value = "art_diag_bundle"
+    runtime.insert_step.return_value = None
+
+    candidates = [
+        {
+            "candidate_ref": {"item_ref": {"collection": "candidates", "index": idx}},
+            "window": {"start": f"2026-01-0{idx + 2}", "end": f"2026-01-0{idx + 3}"},
+            "slice": None,
+            "candidate_score": 10.0 - idx,
         }
-        p.update(overrides)
-        return p
+        for idx in range(2)
+    ]
+    detect_result = {
+        "step_ref": {"session_id": "sess_trunc", "step_id": "step_detect", "step_type": "detect"},
+        "artifact_id": "art_detect",
+        "result": {
+            "artifact_id": "art_detect",
+            "detectability": {"status": "detectable", "issues": [], "guidance": None},
+            "scan_summary": {"total_candidate_count": 2},
+            "candidates": candidates,
+        },
+    }
 
-    def test_followup_limit_above_max_raises(self) -> None:
-        """followup_limit > _MAX_FOLLOWUP_LIMIT (10) → ValueError."""
-        sid = self._make_session()
-        with self.assertRaises(ValueError) as ctx:
-            run_diagnose_intent(self.service, sid, self._base_params(followup_limit=11))
-        self.assertIn("followup_limit", str(ctx.exception))
-
-    def test_decomposition_limit_zero_raises(self) -> None:
-        """decomposition_limit=0 → ValueError."""
-        sid = self._make_session()
-        with self.assertRaises(ValueError) as ctx:
-            run_diagnose_intent(self.service, sid, self._base_params(decomposition_limit=0))
-        self.assertIn("decomposition_limit", str(ctx.exception))
-
-    def test_invalid_granularity_raises_with_valid_options_listed(self) -> None:
-        """granularity='quarterly' → ValueError mentioning all four valid granularities."""
-        sid = self._make_session()
-        with self.assertRaises(ValueError) as ctx:
-            run_diagnose_intent(
-                self.service,
-                sid,
-                {
-                    "metric": _METRIC,
-                    "time_scope": _detect_time_scope(),
-                    "granularity": "quarterly",
-                    "candidate_dimensions": ["channel"],
-                    "strategy": "point_anomaly",
-                },
-            )
-        err = str(ctx.exception)
-        self.assertIn("quarterly", err)
-        # All four valid grains should be listed in the error message
-        for g in ("hour", "day", "week", "month"):
-            self.assertIn(g, err)
-
-    def test_granularity_week_passes_validation(self) -> None:
-        """granularity='week' should not be rejected by granularity validation."""
-        sid = self._make_session()
-        try:
-            run_diagnose_intent(
-                self.service,
-                sid,
-                {
-                    "metric": _METRIC,
-                    "time_scope": _detect_time_scope("2024-03-01", "2024-03-29"),
-                    "granularity": "week",
-                    "candidate_dimensions": ["channel"],
-                    "strategy": "point_anomaly",
-                    "followup_limit": 1,
-                },
-            )
-        except ValueError as exc:
-            self.assertNotIn(
-                "granularity",
-                str(exc).lower(),
-                msg=f"granularity validation rejected 'week': {exc}",
-            )
-
-    def test_granularity_month_passes_validation(self) -> None:
-        """granularity='month' should not be rejected by granularity validation."""
-        sid = self._make_session()
-        try:
-            run_diagnose_intent(
-                self.service,
-                sid,
-                {
-                    "metric": _METRIC,
-                    "time_scope": _detect_time_scope("2024-01-01", "2024-04-01"),
-                    "granularity": "month",
-                    "candidate_dimensions": ["channel"],
-                    "strategy": "point_anomaly",
-                    "followup_limit": 1,
-                },
-            )
-        except ValueError as exc:
-            self.assertNotIn(
-                "granularity",
-                str(exc).lower(),
-                msg=f"granularity validation rejected 'month': {exc}",
-            )
-
-    def test_duplicate_candidate_dimensions_deduped_to_single_driver_set(self) -> None:
-        """candidate_dimensions=['channel','channel'] → only one driver set per candidate."""
-        bundle = _bundle_result(self.dedup_split_bundle)
-        self.assertEqual(bundle["candidate_dimensions"], ["channel"])
-
-    def test_detect_dimension_propagated_to_bundle(self) -> None:
-        """detect_dimension='channel' is reflected in the returned bundle."""
-        self.assertEqual(_bundle_result(self.dedup_split_bundle)["detect_dimension"], "channel")
-
-    def test_truncation_does_not_emit_decompose_issue(self) -> None:
-        """Truncated driver rows must not add a decompose_needs_attention issue."""
-        bundle = _bundle_result(self.truncated_driver_bundle)
-        self.assertEqual(bundle["diagnoses"], [])
-
-
-class DiagnoseHourFollowupRegressionTests(unittest.TestCase):
-    def test_hour_candidate_followup_reaches_driver_rows_even_if_metric_grain_is_day(self) -> None:
-        from marivo.runtime.intents.diagnose import run_diagnose_intent
-
-        runtime = MagicMock()
-        runtime.core = MagicMock()
-        runtime.core.normalize_intent_metric_ref.side_effect = lambda metric: f"metric.{metric}"
-        runtime.core.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix(
-            "metric."
+    with (
+        patch("marivo.runtime.intents.diagnose.run_detect_intent", return_value=detect_result),
+        patch(
+            "marivo.runtime.intents.diagnose._follow_up_candidate",
+            return_value={"status": "diagnosed", "issues": []},
+        ) as follow_up,
+    ):
+        bundle = run_diagnose_intent(
+            runtime,
+            "sess_trunc",
+            _auto_params(metric="mock_metric", followup_limit=1),
         )
-        runtime.new_step_id.return_value = "step_diag_hour_bundle"
-        runtime.insert_artifact.return_value = "art_diag_hour_bundle"
-        runtime.insert_step.return_value = None
 
-        detect_result = {
-            "step_ref": {
-                "session_id": "sess_diag_hour",
-                "step_id": "step_detect_hour",
-                "step_type": "detect",
-            },
+    summary = _result(bundle)["detect_summary"]
+    validation = _product(bundle)["validation"]
+
+    assert summary["returned_candidate_count"] == 2
+    assert summary["followed_candidate_count"] == 1
+    assert summary["truncated"] is True
+    assert any(issue["code"] == "candidate_followup_truncated" for issue in validation["issues"])
+    follow_up.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    ("params", "message"),
+    [
+        (
+            {"metric": "", "candidate_dimensions": ["cluster"], "strategy": "point_anomaly"},
+            "metric",
+        ),
+        (_auto_params(candidate_dimensions=[]), "candidate_dimensions"),
+        (_auto_params(granularity="quarter"), "granularity"),
+        (_auto_params(strategy="unknown"), "strategy"),
+        (_auto_params(sensitivity="wild"), "sensitivity"),
+        (_auto_params(candidate_limit=0), "candidate_limit"),
+        (_auto_params(followup_limit=0), "followup_limit"),
+        (_auto_params(followup_limit=11), "followup_limit"),
+        (_auto_params(decomposition_limit=0), "decomposition_limit"),
+        (_auto_params(decomposition_limit=101), "decomposition_limit"),
+        (_explicit_params(current=None), "current and baseline"),
+        (
+            _explicit_params(time_scope={"field": "event_date", "start": _START, "end": _END}),
+            "time_scope",
+        ),
+        (_explicit_params(filter=_FILTER_ALPHA), "filter"),
+        (_explicit_params(candidate_limit=1), "candidate_limit"),
+        (
+            _auto_params(
+                current={"time_scope": {"field": "event_date", "start": _START, "end": _END}}
+            ),
+            "current",
+        ),
+        (_auto_params(scope={"constraints": {"cluster": "alpha"}}), "unsupported parameter"),
+        (_auto_params(baseline_policy="previous_adjacent_equal_length"), "unsupported parameter"),
+        (
+            _explicit_params(
+                current={
+                    "time_scope": {
+                        "field": "event_date",
+                        "start": _SPIKE_START,
+                        "end": _SPIKE_END,
+                    },
+                    "scope": {"constraints": {"cluster": "alpha"}},
+                }
+            ),
+            "unsupported current field",
+        ),
+    ],
+)
+def test_diagnose_rejects_invalid_and_legacy_runner_inputs(
+    diagnose_env: DiagnoseEnv,
+    params: dict[str, Any],
+    message: str,
+) -> None:
+    session_id = _make_session(diagnose_env, "diagnose invalid")
+
+    with pytest.raises(ValueError, match=message):
+        run_diagnose_intent(diagnose_env.service, session_id, params)
+
+
+def test_explicit_compare_rejects_mismatched_slice_filters(
+    diagnose_env: DiagnoseEnv,
+) -> None:
+    session_id = _make_session(diagnose_env, "explicit mismatched filters")
+
+    with pytest.raises(ValueError, match=r"current\.scope and baseline\.scope must match"):
+        run_diagnose_intent(
+            diagnose_env.service,
+            session_id,
+            _explicit_params(
+                current={
+                    "time_scope": {
+                        "field": "event_date",
+                        "start": _SPIKE_START,
+                        "end": _SPIKE_END,
+                    },
+                    "filter": _FILTER_ALPHA,
+                }
+            ),
+        )
+
+
+def test_hour_candidate_followup_preserves_hour_windows_for_compare() -> None:
+    runtime = MagicMock()
+    runtime.core.normalize_intent_metric_ref.side_effect = lambda metric: f"metric.{metric}"
+    runtime.core.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
+    runtime.insert_artifact.return_value = "art_diag_hour_bundle"
+    runtime.insert_step.return_value = None
+
+    detect_result = {
+        "step_ref": {
+            "session_id": "sess_diag_hour",
+            "step_id": "step_detect_hour",
+            "step_type": "detect",
+        },
+        "artifact_id": "art_detect_hour",
+        "result": {
             "artifact_id": "art_detect_hour",
-            "detectability": {"status": "ready", "issues": []},
+            "detectability": {"status": "detectable", "issues": [], "guidance": None},
             "scan_summary": {"total_candidate_count": 1},
             "candidates": [
                 {
-                    "candidate_ref": {
-                        "session_id": "sess_diag_hour",
-                        "step_id": "step_detect_hour",
-                        "step_type": "detect",
-                        "artifact_id": "art_detect_hour",
-                        "item_ref": {"collection": "candidates", "key": "2026-04-09T14:00:00"},
-                    },
+                    "candidate_ref": {"item_ref": {"collection": "candidates", "index": 0}},
                     "window": {
                         "start": "2026-04-09T14:00:00",
                         "end": "2026-04-09T15:00:00",
                     },
-                    "observed_value": 29.39,
-                    "expected_value": 2.14,
-                    "deviation_abs": 27.25,
-                    "deviation_pct": 12.7,
                     "candidate_score": 99.0,
-                    "flag_level": "high",
-                    "direction": "up",
                 }
             ],
-        }
-        observe_results = [
-            {
-                "step_ref": {
-                    "session_id": "sess_diag_hour",
-                    "step_id": "step_obs_current",
-                    "step_type": "observe",
-                },
-                "artifact_id": "art_obs_current",
-            },
-            {
-                "step_ref": {
-                    "session_id": "sess_diag_hour",
-                    "step_id": "step_obs_baseline",
-                    "step_type": "observe",
-                },
-                "artifact_id": "art_obs_baseline",
-            },
-        ]
-        compare_result = {
+        },
+    }
+    observe_results = [
+        {
             "step_ref": {
                 "session_id": "sess_diag_hour",
-                "step_id": "step_compare_hour",
-                "step_type": "compare",
+                "step_id": "step_obs_current",
+                "step_type": "observe",
             },
-            "artifact_id": "art_compare_hour",
-            "left_value": 29.39,
-            "right_value": 3.09,
-            "absolute_delta": 26.3,
-            "relative_delta": 8.51,
-            "direction": "up",
-            "comparability": {"status": "comparable", "issues": []},
-        }
-        decompose_result = {
+            "artifact_id": "art_obs_current",
+        },
+        {
             "step_ref": {
                 "session_id": "sess_diag_hour",
-                "step_id": "step_decompose_hour",
-                "step_type": "decompose",
+                "step_id": "step_obs_baseline",
+                "step_type": "observe",
             },
-            "artifact_id": "art_decompose_hour",
-            "attribution": {"status": "attributable", "issues": []},
-            "rows": [
-                {
-                    "key": "global.oneservice.oneservice",
-                    "left_value": 1657,
-                    "right_value": 69,
-                    "absolute_contribution": 1588,
-                    "contribution_share": 0.94,
-                    "direction": "up",
-                    "presence": "both",
-                }
-            ],
-            "scope_absolute_delta": 1688,
-            "unexplained_absolute_delta": 100,
-            "unexplained_share": 0.06,
-            "unexplained_reason": None,
-        }
+            "artifact_id": "art_obs_baseline",
+        },
+    ]
+    compare_result = {
+        "step_ref": {
+            "session_id": "sess_diag_hour",
+            "step_id": "step_compare",
+            "step_type": "compare",
+        },
+        "artifact_id": "art_compare",
+        "left_value": 29.0,
+        "right_value": 3.0,
+        "absolute_delta": 26.0,
+        "relative_delta": 8.6,
+        "direction": "up",
+        "comparability": {"status": "comparable", "issues": []},
+    }
+    decompose_result = {
+        "step_ref": {
+            "session_id": "sess_diag_hour",
+            "step_id": "step_decompose",
+            "step_type": "decompose",
+        },
+        "artifact_id": "art_decompose",
+        "attribution": {"status": "attributable", "issues": []},
+        "rows": [{"key": "rg_a", "absolute_contribution": 26.0}],
+    }
 
-        with (
-            patch("marivo.runtime.intents.diagnose.run_detect_intent", return_value=detect_result),
-            patch(
-                "marivo.runtime.intents.diagnose.run_observe_intent", side_effect=observe_results
-            ),
-            patch(
-                "marivo.runtime.intents.diagnose.run_compare_intent", return_value=compare_result
-            ) as mock_compare,
-            patch(
-                "marivo.runtime.intents.diagnose.run_decompose_intent",
-                return_value=decompose_result,
-            ),
-        ):
-            bundle = run_diagnose_intent(
-                runtime,
-                "sess_diag_hour",
-                {
-                    "metric": "trino_elapsed_seconds_p95",
-                    "time_scope": {
-                        "kind": "range",
-                        "start": "2026-04-09T00:00:00",
-                        "end": "2026-04-10T00:00:00",
-                    },
-                    "granularity": "hour",
-                    "candidate_dimensions": ["trino_resource_group"],
-                    "strategy": "point_anomaly",
-                    "followup_limit": 1,
-                },
-            )
-
-        product = _bundle_product_metadata(bundle)
-        result = _bundle_result(bundle)
-        self.assertEqual(product["validation"]["status"], "diagnosable")
-        self.assertEqual(result["diagnoses"][0]["status"], "diagnosed")
-        self.assertEqual(len(result["diagnoses"][0]["drivers"]), 1)
-        self.assertEqual(
-            mock_compare.call_args.args[2],
+    with (
+        patch("marivo.runtime.intents.diagnose.run_detect_intent", return_value=detect_result),
+        patch(
+            "marivo.runtime.intents.diagnose.run_observe_intent", side_effect=observe_results
+        ) as observe,
+        patch(
+            "marivo.runtime.intents.diagnose.run_compare_intent", return_value=compare_result
+        ) as compare,
+        patch(
+            "marivo.runtime.intents.diagnose.run_decompose_intent", return_value=decompose_result
+        ),
+    ):
+        bundle = run_diagnose_intent(
+            runtime,
+            "sess_diag_hour",
             {
-                "left_artifact_id": "art_obs_current",
-                "right_artifact_id": "art_obs_baseline",
+                "metric": "trino_elapsed_seconds_p95",
+                "time_scope": {
+                    "field": "event_time",
+                    "start": "2026-04-09T00:00:00",
+                    "end": "2026-04-10T00:00:00",
+                },
+                "granularity": "hour",
+                "candidate_dimensions": ["trino_resource_group"],
+                "strategy": "point_anomaly",
+                "followup_limit": 1,
             },
         )
 
+    assert _product(bundle)["validation"]["status"] == "diagnosable"
+    assert _result(bundle)["diagnoses"][0]["status"] == "diagnosed"
+    assert observe.call_args_list[0].args[2]["time_scope"] == {
+        "kind": "range",
+        "start": "2026-04-09T14:00:00",
+        "end": "2026-04-09T15:00:00",
+        "field": "event_time",
+    }
+    assert compare.call_args.args[2] == {
+        "left_artifact_id": "art_obs_current",
+        "right_artifact_id": "art_obs_baseline",
+    }
 
-# ── _combine_scope unit tests ──────────────────────────────────────────────────
 
-
-class CombineScopeTests(unittest.TestCase):
-    """Unit tests for _combine_scope helper in isolation."""
-
-    def _fn(self, base, slc):
+class TestCombineScope:
+    def _fn(self, base: dict[str, Any] | None, slc: dict[str, Any] | None) -> dict[str, Any] | None:
         from marivo.runtime.intents.diagnose import _combine_scope
 
         return _combine_scope(base, slc)
 
     def test_null_slice_returns_base_scope(self) -> None:
         base = {"constraints": {"region": "US"}}
-        self.assertIs(self._fn(base, None), base)
 
-    def test_empty_slice_returns_base_scope(self) -> None:
-        base = {"constraints": {"region": "US"}}
-        self.assertIs(self._fn(base, {}), base)
+        assert self._fn(base, None) is base
 
-    def test_slice_merges_into_constraints(self) -> None:
-        base = {"constraints": {"region": "US"}}
-        result = self._fn(base, {"channel": "paid"})
-        self.assertEqual(result["constraints"], {"region": "US", "channel": "paid"})
+    def test_slice_merges_into_constraints_and_preserves_predicate(self) -> None:
+        predicate = "region = 'US'"
+        result = self._fn(
+            {"constraints": {"channel": "organic"}, "predicate": predicate}, {"channel": "paid"}
+        )
 
-    def test_slice_preserves_predicate(self) -> None:
-        pred = {"op": "and", "items": []}
-        base = {"constraints": {"region": "US"}, "predicate": pred}
-        result = self._fn(base, {"channel": "paid"})
-        self.assertIs(result["predicate"], pred)
+        assert result == {"constraints": {"channel": "paid"}, "predicate": predicate}
 
     def test_null_base_scope_with_slice(self) -> None:
-        result = self._fn(None, {"channel": "paid"})
-        self.assertEqual(result, {"constraints": {"channel": "paid"}})
-
-    def test_slice_overwrites_conflicting_constraint(self) -> None:
-        base = {"constraints": {"channel": "organic"}}
-        result = self._fn(base, {"channel": "paid"})
-        self.assertEqual(result["constraints"]["channel"], "paid")
+        assert self._fn(None, {"channel": "paid"}) == {"constraints": {"channel": "paid"}}

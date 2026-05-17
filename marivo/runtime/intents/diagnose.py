@@ -44,6 +44,26 @@ _MAX_DECOMPOSITION_LIMIT = 100
 _DERIVED_LOGIC_VERSION = "1.0"
 _PROJECTION_VERSION = "diagnosis_bundle.v1"
 _VALID_STRATEGIES = frozenset({"point_anomaly", "period_shift"})
+_VALID_SENSITIVITIES = frozenset({"conservative", "balanced", "aggressive"})
+_AOI_PARAM_KEYS = frozenset(
+    {
+        "metric",
+        "mode",
+        "time_scope",
+        "granularity",
+        "filter",
+        "current",
+        "baseline",
+        "detect_dimension",
+        "candidate_dimensions",
+        "strategy",
+        "sensitivity",
+        "candidate_limit",
+        "followup_limit",
+        "decomposition_limit",
+    }
+)
+_AOI_SLICE_KEYS = frozenset({"time_scope", "filter"})
 
 
 def _normalize_range_time_scope(
@@ -107,6 +127,12 @@ def run_diagnose_intent(
     + compare + decompose without running detect.
     """
     p = params or {}
+    extra_keys = sorted(set(p) - _AOI_PARAM_KEYS)
+    if extra_keys:
+        raise ValueError(
+            "diagnose: INVALID_ARGUMENT - unsupported parameter(s): "
+            f"{extra_keys}; diagnose accepts only AOI request fields"
+        )
 
     try:
         metric_ref = normalize_metric_ref(p.get("metric"))
@@ -120,20 +146,19 @@ def run_diagnose_intent(
         raise ValueError(
             "diagnose: INVALID_ARGUMENT - mode must be 'auto_detect' or 'explicit_compare'"
         )
-    scope: dict[str, Any] | None = p.get("scope") or None
-    if scope is None:
-        try:
-            scope = aoi_filter_to_scope(p.get("filter"), label="filter")
-        except ValueError as exc:
-            raise ValueError(f"diagnose: INVALID_ARGUMENT - {exc}") from exc
+    try:
+        scope = aoi_filter_to_scope(p.get("filter"), label="filter")
+    except ValueError as exc:
+        raise ValueError(f"diagnose: INVALID_ARGUMENT - {exc}") from exc
     detect_dimension: str | None = (p.get("detect_dimension") or "").strip() or None
     strategy = _normalize_strategy(p.get("strategy"))
     sensitivity: str = str(p.get("sensitivity") or "aggressive").lower()
-    baseline_policy = str(p.get("baseline_policy") or "previous_adjacent_equal_length")
-    if baseline_policy != "previous_adjacent_equal_length":
+    if sensitivity not in _VALID_SENSITIVITIES:
         raise ValueError(
-            "diagnose: INVALID_ARGUMENT - baseline_policy must be 'previous_adjacent_equal_length'"
+            f"diagnose: INVALID_ARGUMENT - sensitivity '{sensitivity}' is not valid. "
+            f"Must be one of: {sorted(_VALID_SENSITIVITIES)}"
         )
+    baseline_policy = "previous_adjacent_equal_length"
 
     raw_dims = p.get("candidate_dimensions")
     dimensions = normalize_dimensions(raw_dims)
@@ -183,6 +208,20 @@ def run_diagnose_intent(
     detect_step_id: str | None = None
 
     if mode == "explicit_compare":
+        if p.get("time_scope") is not None or p.get("granularity") is not None:
+            raise ValueError(
+                "diagnose: INVALID_ARGUMENT - time_scope/granularity are only valid "
+                "when mode='auto_detect'"
+            )
+        if p.get("filter") is not None or detect_dimension is not None:
+            raise ValueError(
+                "diagnose: INVALID_ARGUMENT - filter/detect_dimension are only valid "
+                "when mode='auto_detect'"
+            )
+        if p.get("candidate_limit") is not None:
+            raise ValueError(
+                "diagnose: INVALID_ARGUMENT - candidate_limit is only valid when mode='auto_detect'"
+            )
         current_input = p.get("current")
         baseline_input = p.get("baseline")
         if not isinstance(current_input, dict) or not isinstance(baseline_input, dict):
@@ -190,6 +229,17 @@ def run_diagnose_intent(
                 "diagnose: INVALID_ARGUMENT - current and baseline are required "
                 "when mode='explicit_compare'"
             )
+        for label, slice_input in (
+            ("current", current_input),
+            ("baseline", baseline_input),
+        ):
+            extra_slice_keys = sorted(set(slice_input) - _AOI_SLICE_KEYS)
+            if extra_slice_keys:
+                raise ValueError(
+                    "diagnose: INVALID_ARGUMENT - unsupported "
+                    f"{label} field(s): {extra_slice_keys}; slices accept only "
+                    "time_scope and filter"
+                )
         try:
             current_filter_scope = aoi_filter_to_scope(
                 current_input.get("filter"), label="current.filter"
@@ -199,8 +249,8 @@ def run_diagnose_intent(
             )
         except ValueError as exc:
             raise ValueError(f"diagnose: INVALID_ARGUMENT - {exc}") from exc
-        current_scope = current_input.get("scope") or current_filter_scope or scope
-        baseline_scope = baseline_input.get("scope") or baseline_filter_scope or scope
+        current_scope = current_filter_scope
+        baseline_scope = baseline_filter_scope
         if current_scope != baseline_scope:
             raise ValueError(
                 "diagnose: INVALID_ARGUMENT - explicit_compare current.scope and "
@@ -243,6 +293,11 @@ def run_diagnose_intent(
             if issue.get("severity") == "error":
                 top_level_issues.append(issue)
     else:
+        if p.get("current") is not None or p.get("baseline") is not None:
+            raise ValueError(
+                "diagnose: INVALID_ARGUMENT - current/baseline are only valid "
+                "when mode='explicit_compare'"
+            )
         ts_granularity = _normalize_granularity(p.get("granularity"))
         granularity = ts_granularity
         resolved_time_scope = _normalize_range_time_scope(
@@ -290,7 +345,8 @@ def run_diagnose_intent(
             "step_type": "detect",
             "artifact_id": detect_result["artifact_id"],
         }
-        detectability: dict[str, Any] = detect_result.get("detectability") or {}
+        detect_artifact: dict[str, Any] = detect_result.get("result") or detect_result
+        detectability: dict[str, Any] = detect_artifact.get("detectability") or {}
         validation_guidance = detectability.get("guidance")
         if detectability.get("status") == "needs_attention":
             for iss in detectability.get("issues") or []:
@@ -302,8 +358,8 @@ def run_diagnose_intent(
                     }
                 )
 
-        all_candidates: list[dict[str, Any]] = detect_result.get("candidates") or []
-        total_candidate_count: int = (detect_result.get("scan_summary") or {}).get(
+        all_candidates: list[dict[str, Any]] = detect_artifact.get("candidates") or []
+        total_candidate_count: int = (detect_artifact.get("scan_summary") or {}).get(
             "total_candidate_count"
         ) or 0
         returned_candidate_count: int = len(all_candidates)

@@ -217,7 +217,7 @@ def run_decompose_intent(
     compare_grain = _infer_compare_grain(
         left_time_scope=left_time_scope,
         right_time_scope=right_time_scope,
-        fallback_grain=resolved_metric.grain,
+        fallback_grain=None,
     )
 
     table = runtime.resolve_metric_table(metric_name, session_id=session_id)
@@ -254,6 +254,7 @@ def run_decompose_intent(
         engine,
         engine_type,
         compare_grain,
+        table_name=table,
     )
     right_rows, _ = _run_segmented_query(
         runtime,
@@ -268,6 +269,7 @@ def run_decompose_intent(
         engine,
         engine_type,
         compare_grain,
+        table_name=table,
     )
 
     now = datetime.now(UTC).isoformat()
@@ -594,6 +596,7 @@ def _run_segmented_query(
     engine: Any,
     engine_type: str,
     grain: str,
+    table_name: str | None = None,
 ) -> tuple[list[dict[str, Any]], str | None]:
     """Run a single segmented metric query for one time scope.
 
@@ -602,7 +605,7 @@ def _run_segmented_query(
     start_str, end_str = _extract_date_range(time_scope)
 
     mq_params: dict[str, Any] = {
-        "table": qualified_table,
+        "table": table_name or qualified_table,
         "metric": metric_name,
         "time_scope": {
             "mode": "single_window",
@@ -613,6 +616,9 @@ def _run_segmented_query(
     }
     if scope:
         mq_params["scope"] = scope
+    time_scope_field = str(time_scope.get("field") or "").strip()
+    if time_scope_field:
+        mq_params["time_scope_field"] = time_scope_field
 
     resolved = normalize_metric_query_request(mq_params)
     runtime.resolve_windowed_query_time_axis(
@@ -629,6 +635,8 @@ def _run_segmented_query(
             params={
                 "table": qualified_table,
                 "metric": metric_name,
+                "time_scope": mq_params["time_scope"],
+                **({"time_scope_field": time_scope_field} if time_scope_field else {}),
                 "scoped_query": scoped_query,
             },
         ),
