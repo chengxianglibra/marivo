@@ -559,26 +559,23 @@
         "additionalProperties": false,
         "required": [
           "metric",
+          "time_scope",
+          "granularity",
           "strategy",
-          "candidate_dimensions"
+          "dimensions"
         ],
         "properties": {
-          "mode": {
-            "type": "string",
-            "default": "auto_detect",
-            "enum": [
-              "auto_detect",
-              "explicit_compare"
-            ]
-          },
           "metric": {
+            "description": "Semantic metric identifier to diagnose. Diagnose runs against exactly one metric.",
             "type": "string",
             "minLength": 1
           },
           "time_scope": {
+            "description": "Time range scanned by the internal detect step before follow-up diagnosis.",
             "$ref": "#/$defs/primitives/TimeScope"
           },
           "granularity": {
+            "description": "Time bucket granularity used by the internal detect scan.",
             "type": "string",
             "enum": [
               "hour",
@@ -590,19 +587,16 @@
             ]
           },
           "filter": {
+            "description": "Optional AOI expression applied to both candidate detection and follow-up observe/compare/decompose steps.",
             "$ref": "#/$defs/primitives/Expression"
           },
-          "current": {
-            "$ref": "#/$defs/primitives/Slice"
-          },
-          "baseline": {
-            "$ref": "#/$defs/primitives/Slice"
-          },
-          "detect_dimension": {
+          "scan_dimension": {
+            "description": "Optional single dimension used only to split the internal detect scan into independent time series. Omit to scan the overall metric series.",
             "type": "string",
             "minLength": 1
           },
-          "candidate_dimensions": {
+          "dimensions": {
+            "description": "Non-empty attribution dimension list used after anomaly candidates are found. These dimensions drive follow-up decompose steps and are independent of scan_dimension.",
             "type": "array",
             "minItems": 1,
             "items": {
@@ -611,6 +605,7 @@
             }
           },
           "strategy": {
+            "description": "Detection strategy passed to the internal detect step.",
             "type": "string",
             "enum": [
               "point_anomaly",
@@ -618,6 +613,7 @@
             ]
           },
           "sensitivity": {
+            "description": "Detection sensitivity preset passed to the internal detect step. Defaults to aggressive.",
             "type": "string",
             "default": "aggressive",
             "enum": [
@@ -627,89 +623,18 @@
             ]
           },
           "candidate_limit": {
-            "type": "integer",
-            "minimum": 1
-          },
-          "followup_limit": {
+            "description": "Maximum number of anomaly candidates diagnosed end-to-end. This bounds follow-up candidates, not driver rows.",
             "type": "integer",
             "minimum": 1,
             "default": 3
           },
           "decomposition_limit": {
+            "description": "Maximum number of driver rows returned per diagnosed candidate and attribution dimension.",
             "type": "integer",
             "minimum": 1,
             "default": 5
           }
-        },
-        "allOf": [
-          {
-            "if": {
-              "required": [
-                "mode"
-              ],
-              "properties": {
-                "mode": {
-                  "const": "explicit_compare"
-                }
-              }
-            },
-            "then": {
-              "required": [
-                "current",
-                "baseline"
-              ],
-              "not": {
-                "anyOf": [
-                  {
-                    "required": [
-                      "time_scope"
-                    ]
-                  },
-                  {
-                    "required": [
-                      "granularity"
-                    ]
-                  },
-                  {
-                    "required": [
-                      "filter"
-                    ]
-                  },
-                  {
-                    "required": [
-                      "detect_dimension"
-                    ]
-                  },
-                  {
-                    "required": [
-                      "candidate_limit"
-                    ]
-                  }
-                ]
-              }
-            },
-            "else": {
-              "required": [
-                "time_scope",
-                "granularity"
-              ],
-              "not": {
-                "anyOf": [
-                  {
-                    "required": [
-                      "current"
-                    ]
-                  },
-                  {
-                    "required": [
-                      "baseline"
-                    ]
-                  }
-                ]
-              }
-            }
-          }
-        ]
+        }
       }
     },
     "artifacts": {

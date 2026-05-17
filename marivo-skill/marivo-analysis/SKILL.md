@@ -23,8 +23,8 @@ close-out. It does not own datasource discovery or reusable semantic authoring.
 ## Choose The First Analysis Step
 
 - metric and window are already known: `marivo-observe`
-- abnormal window is still unknown: `marivo-detect` or `marivo-diagnose(mode="auto_detect")`
-- current and baseline windows are already known: `marivo-diagnose(mode="explicit_compare")`
+- abnormal window is still unknown: `marivo-detect` or `marivo-diagnose`
+- current and baseline windows are already known: `marivo-attribute`
 - two `observe` artifacts already exist: `marivo-compare`
 - one compare artifact needs segment drivers: `marivo-decompose`
 - you need the session-level picture: `marivo-get_session_state` or `marivo-query_session_state`

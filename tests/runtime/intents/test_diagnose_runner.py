@@ -127,36 +127,10 @@ def _auto_params(**overrides: Any) -> dict[str, Any]:
         "metric": _SPIKE_METRIC,
         "time_scope": {"field": "event_date", "start": _START, "end": _END},
         "granularity": "day",
-        "candidate_dimensions": ["cluster"],
+        "dimensions": ["cluster"],
         "strategy": "point_anomaly",
         "sensitivity": "balanced",
-        "followup_limit": 1,
-        "decomposition_limit": 5,
-    }
-    params.update(overrides)
-    return params
-
-
-def _explicit_params(**overrides: Any) -> dict[str, Any]:
-    params: dict[str, Any] = {
-        "mode": "explicit_compare",
-        "metric": _SPIKE_METRIC,
-        "current": {
-            "time_scope": {
-                "field": "event_date",
-                "start": _SPIKE_START,
-                "end": _SPIKE_END,
-            }
-        },
-        "baseline": {
-            "time_scope": {
-                "field": "event_date",
-                "start": _BASELINE_START,
-                "end": _BASELINE_END,
-            }
-        },
-        "candidate_dimensions": ["cluster"],
-        "strategy": "point_anomaly",
+        "candidate_limit": 1,
         "decomposition_limit": 5,
     }
     params.update(overrides)
@@ -187,7 +161,7 @@ def test_auto_detect_follows_detect_artifact_candidates_and_builds_full_chain(
     bundle = run_diagnose_intent(
         diagnose_env.service,
         session_id,
-        _auto_params(detect_dimension="cluster", candidate_limit=1),
+        _auto_params(scan_dimension="cluster", candidate_limit=1),
     )
 
     result = _result(bundle)
@@ -198,8 +172,8 @@ def test_auto_detect_follows_detect_artifact_candidates_and_builds_full_chain(
     assert product["validation"]["status"] == "diagnosable"
     assert result["mode"] == "auto_detect"
     assert result["granularity"] == "day"
-    assert result["detect_dimension"] == "cluster"
-    assert result["candidate_dimensions"] == ["cluster"]
+    assert result["scan_dimension"] == "cluster"
+    assert result["dimensions"] == ["cluster"]
     assert result["strategy"] == "point_anomaly"
     assert result["sensitivity"] == "balanced"
     assert result["detect_summary"]["returned_candidate_count"] == 1
@@ -246,88 +220,13 @@ def test_auto_detect_filter_is_applied_to_detect_and_followup(
     assert [row["key"] for row in driver["rows"]] == ["alpha"]
 
 
-def test_explicit_compare_uses_slices_without_detect_step_and_builds_drivers(
-    diagnose_env: DiagnoseEnv,
-) -> None:
-    session_id = _make_session(diagnose_env, "explicit diagnose")
-
-    bundle = run_diagnose_intent(
-        diagnose_env.service,
-        session_id,
-        _explicit_params(),
-    )
-
-    result = _result(bundle)
-    diagnosis = result["diagnoses"][0]
-    driver = diagnosis["drivers"][0]
-
-    assert _product(bundle)["validation"]["status"] == "diagnosable"
-    assert result["mode"] == "explicit_compare"
-    assert result["detect_summary"] is None
-    assert diagnosis["candidate"]["candidate_type"] == "explicit_compare"
-    assert diagnosis["current_ref"]["step_type"] == "observe"
-    assert diagnosis["baseline_ref"]["step_type"] == "observe"
-    assert diagnosis["compare_ref"]["step_type"] == "compare"
-    assert diagnosis["comparison"]["left_value"] == 600.0
-    assert diagnosis["comparison"]["right_value"] == 200.0
-    assert driver["decompose_ref"]["step_type"] == "decompose"
-    assert driver["returned_row_count"] == 2
-    assert driver["total_row_count"] == 2
-    assert driver["is_truncated"] is False
-    assert driver["issues"] == []
-
-    step_types = _step_types(diagnose_env, session_id)
-    assert "detect" not in step_types
-    assert step_types.count("observe") == 2
-    assert step_types.count("compare") == 1
-    assert step_types.count("decompose") == 1
-    assert step_types.count("diagnose") == 1
-
-
-def test_explicit_compare_preserves_matching_slice_filters(
-    diagnose_env: DiagnoseEnv,
-) -> None:
-    session_id = _make_session(diagnose_env, "explicit diagnose filters")
-
-    bundle = run_diagnose_intent(
-        diagnose_env.service,
-        session_id,
-        _explicit_params(
-            current={
-                "time_scope": {
-                    "field": "event_date",
-                    "start": _SPIKE_START,
-                    "end": _SPIKE_END,
-                },
-                "filter": _FILTER_ALPHA,
-            },
-            baseline={
-                "time_scope": {
-                    "field": "event_date",
-                    "start": _BASELINE_START,
-                    "end": _BASELINE_END,
-                },
-                "filter": _FILTER_ALPHA,
-            },
-        ),
-    )
-
-    diagnosis = _result(bundle)["diagnoses"][0]
-    driver = diagnosis["drivers"][0]
-
-    assert diagnosis["comparison"]["left_value"] == 500.0
-    assert diagnosis["comparison"]["right_value"] == 100.0
-    assert driver["rows"][0]["key"] == "alpha"
-    assert driver["rows"][0]["contribution_share"] == 1.0
-
-
 def test_decomposition_limit_truncates_driver_rows(diagnose_env: DiagnoseEnv) -> None:
-    session_id = _make_session(diagnose_env, "explicit diagnose truncation")
+    session_id = _make_session(diagnose_env, "auto diagnose truncation")
 
     bundle = run_diagnose_intent(
         diagnose_env.service,
         session_id,
-        _explicit_params(decomposition_limit=1),
+        _auto_params(decomposition_limit=1),
     )
 
     driver = _result(bundle)["diagnoses"][0]["drivers"][0]
@@ -340,18 +239,18 @@ def test_decomposition_limit_truncates_driver_rows(diagnose_env: DiagnoseEnv) ->
     assert driver["issues"] == []
 
 
-def test_duplicate_candidate_dimensions_are_deduped(diagnose_env: DiagnoseEnv) -> None:
+def test_duplicate_dimensions_are_deduped(diagnose_env: DiagnoseEnv) -> None:
     session_id = _make_session(diagnose_env, "diagnose dedupe")
 
     bundle = run_diagnose_intent(
         diagnose_env.service,
         session_id,
-        _explicit_params(candidate_dimensions=["cluster", "cluster"]),
+        _auto_params(dimensions=["cluster", "cluster"]),
     )
 
     result = _result(bundle)
 
-    assert result["candidate_dimensions"] == ["cluster"]
+    assert result["dimensions"] == ["cluster"]
     assert len(result["diagnoses"][0]["drivers"]) == 1
 
 
@@ -373,9 +272,7 @@ def test_auto_detect_no_candidates_returns_needs_attention(
     assert result["detect_summary"]["total_candidate_count"] == 0
     assert validation["status"] == "needs_attention"
     assert {issue["code"] for issue in validation["issues"]} == {"no_detect_candidates"}
-    assert validation["guidance"]["recommended_next_action"] == (
-        "use_explicit_compare_or_expand_scan"
-    )
+    assert validation["guidance"]["recommended_next_action"] == "use_attribute_or_expand_scan"
 
 
 def test_detect_needs_attention_guidance_is_propagated(
@@ -398,10 +295,10 @@ def test_detect_needs_attention_guidance_is_propagated(
         issue["code"] for issue in validation["issues"]
     }
     assert validation["guidance"]["recommended_next_action"] == "expand_scan_window"
-    assert "explicit_compare_fallback" in validation["guidance"]
+    assert "attribute_fallback" in validation["guidance"]
 
 
-def test_followup_limit_truncation_is_reported_from_detect_artifact_payload() -> None:
+def test_candidate_limit_truncation_is_reported_from_detect_artifact_payload() -> None:
     runtime = MagicMock()
     runtime.core.normalize_intent_metric_ref.side_effect = lambda metric: f"metric.{metric}"
     runtime.core.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
@@ -410,12 +307,11 @@ def test_followup_limit_truncation_is_reported_from_detect_artifact_payload() ->
 
     candidates = [
         {
-            "candidate_ref": {"item_ref": {"collection": "candidates", "index": idx}},
-            "window": {"start": f"2026-01-0{idx + 2}", "end": f"2026-01-0{idx + 3}"},
+            "candidate_ref": {"item_ref": {"collection": "candidates", "index": 0}},
+            "window": {"start": "2026-01-02", "end": "2026-01-03"},
             "slice": None,
-            "candidate_score": 10.0 - idx,
+            "candidate_score": 10.0,
         }
-        for idx in range(2)
     ]
     detect_result = {
         "step_ref": {"session_id": "sess_trunc", "step_id": "step_detect", "step_type": "detect"},
@@ -425,11 +321,19 @@ def test_followup_limit_truncation_is_reported_from_detect_artifact_payload() ->
             "detectability": {"status": "detectable", "issues": [], "guidance": None},
             "scan_summary": {"total_candidate_count": 2},
             "candidates": candidates,
+            "truncation": {
+                "returned_candidate_count": 1,
+                "total_candidate_count": 2,
+                "truncated": True,
+            },
         },
     }
 
     with (
-        patch("marivo.runtime.intents.diagnose.run_detect_intent", return_value=detect_result),
+        patch(
+            "marivo.runtime.intents.diagnose.run_detect_intent",
+            return_value=detect_result,
+        ) as detect,
         patch(
             "marivo.runtime.intents.diagnose._follow_up_candidate",
             return_value={"status": "diagnosed", "issues": []},
@@ -438,13 +342,16 @@ def test_followup_limit_truncation_is_reported_from_detect_artifact_payload() ->
         bundle = run_diagnose_intent(
             runtime,
             "sess_trunc",
-            _auto_params(metric="mock_metric", followup_limit=1),
+            _auto_params(metric="mock_metric", candidate_limit=1),
         )
 
     summary = _result(bundle)["detect_summary"]
     validation = _product(bundle)["validation"]
 
-    assert summary["returned_candidate_count"] == 2
+    detect.assert_called_once()
+    assert detect.call_args.args[2]["limit"] == 1
+    assert summary["returned_candidate_count"] == 1
+    assert summary["total_candidate_count"] == 2
     assert summary["followed_candidate_count"] == 1
     assert summary["truncated"] is True
     assert any(issue["code"] == "candidate_followup_truncated" for issue in validation["issues"])
@@ -501,25 +408,21 @@ def test_auto_detect_accepts_generic_time_granularities(granularity: str) -> Non
     ("params", "message"),
     [
         (
-            {"metric": "", "candidate_dimensions": ["cluster"], "strategy": "point_anomaly"},
+            {"metric": "", "dimensions": ["cluster"], "strategy": "point_anomaly"},
             "metric",
         ),
-        (_auto_params(candidate_dimensions=[]), "candidate_dimensions"),
+        (_auto_params(dimensions=[]), "dimensions"),
         (_auto_params(granularity="minute"), "granularity"),
         (_auto_params(strategy="unknown"), "strategy"),
         (_auto_params(sensitivity="wild"), "sensitivity"),
         (_auto_params(candidate_limit=0), "candidate_limit"),
-        (_auto_params(followup_limit=0), "followup_limit"),
-        (_auto_params(followup_limit=11), "followup_limit"),
+        (_auto_params(candidate_limit=11), "candidate_limit"),
         (_auto_params(decomposition_limit=0), "decomposition_limit"),
         (_auto_params(decomposition_limit=101), "decomposition_limit"),
-        (_explicit_params(current=None), "current and baseline"),
         (
-            _explicit_params(time_scope={"field": "event_date", "start": _START, "end": _END}),
-            "time_scope",
+            _auto_params(mode="explicit_compare"),
+            "unsupported parameter",
         ),
-        (_explicit_params(filter=_FILTER_ALPHA), "filter"),
-        (_explicit_params(candidate_limit=1), "candidate_limit"),
         (
             _auto_params(
                 current={"time_scope": {"field": "event_date", "start": _START, "end": _END}}
@@ -528,19 +431,6 @@ def test_auto_detect_accepts_generic_time_granularities(granularity: str) -> Non
         ),
         (_auto_params(scope={"constraints": {"cluster": "alpha"}}), "unsupported parameter"),
         (_auto_params(baseline_policy="previous_adjacent_equal_length"), "unsupported parameter"),
-        (
-            _explicit_params(
-                current={
-                    "time_scope": {
-                        "field": "event_date",
-                        "start": _SPIKE_START,
-                        "end": _SPIKE_END,
-                    },
-                    "scope": {"constraints": {"cluster": "alpha"}},
-                }
-            ),
-            "unsupported current field",
-        ),
     ],
 )
 def test_diagnose_rejects_invalid_runner_inputs(
@@ -552,28 +442,6 @@ def test_diagnose_rejects_invalid_runner_inputs(
 
     with pytest.raises(ValueError, match=message):
         run_diagnose_intent(diagnose_env.service, session_id, params)
-
-
-def test_explicit_compare_rejects_mismatched_slice_filters(
-    diagnose_env: DiagnoseEnv,
-) -> None:
-    session_id = _make_session(diagnose_env, "explicit mismatched filters")
-
-    with pytest.raises(ValueError, match=r"current\.scope and baseline\.scope must match"):
-        run_diagnose_intent(
-            diagnose_env.service,
-            session_id,
-            _explicit_params(
-                current={
-                    "time_scope": {
-                        "field": "event_date",
-                        "start": _SPIKE_START,
-                        "end": _SPIKE_END,
-                    },
-                    "filter": _FILTER_ALPHA,
-                }
-            ),
-        )
 
 
 def test_hour_candidate_followup_preserves_hour_windows_for_compare() -> None:
@@ -672,9 +540,9 @@ def test_hour_candidate_followup_preserves_hour_windows_for_compare() -> None:
                     "end": "2026-04-10T00:00:00",
                 },
                 "granularity": "hour",
-                "candidate_dimensions": ["trino_resource_group"],
+                "dimensions": ["trino_resource_group"],
                 "strategy": "point_anomaly",
-                "followup_limit": 1,
+                "candidate_limit": 1,
             },
         )
 

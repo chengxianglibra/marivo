@@ -420,6 +420,7 @@ def test_attribute_schema_uses_aoi_slice_refs() -> None:
     assert slice_schema["additionalProperties"] is False
     assert set(slice_schema["properties"]) == {"time_scope", "filter"}
     assert "scope" not in slice_schema["properties"]
+    assert "known current-vs-baseline change" in properties["dimensions"]["description"]
     assert properties["decomposition_method"]["default"] == "delta_share"
     assert properties["decomposition_method"]["const"] == "delta_share"
 
@@ -464,7 +465,7 @@ def test_attribute_tool_passes_generated_request(monkeypatch) -> None:
     assert calls["kwargs"]["request"].decomposition_limit == 5
 
 
-def test_diagnose_schema_documents_mode_specific_inputs() -> None:
+def test_diagnose_schema_documents_auto_detect_inputs() -> None:
     server = FastMCP("test")
     register_tools(server, FakeRuntime(), transport="stdio")
     tools = {tool.name: tool for tool in server._tool_manager.list_tools()}
@@ -472,22 +473,28 @@ def test_diagnose_schema_documents_mode_specific_inputs() -> None:
     diagnose = tools["diagnose"]
     properties = diagnose.parameters["properties"]
 
-    assert "auto_detect mode requires time_scope and granularity" in diagnose.description
-    assert "explicit_compare mode requires current and baseline" in diagnose.description
-    assert "must omit the top-level time_scope and granularity fields together" in (
-        diagnose.description
-    )
-    assert "auto_detect requires time_scope and granularity" in properties["mode"]["description"]
-    assert "omits top-level time_scope and granularity" in properties["mode"]["description"]
-    assert "mode='auto_detect'" in properties["time_scope"]["description"]
-    assert "put time_scope inside current and baseline" in (properties["time_scope"]["description"])
-    assert "mode='auto_detect'" in properties["granularity"]["description"]
+    assert "auto-detect anomaly diagnosis" in diagnose.description
+    assert "detects anomalous candidates" in diagnose.description
+    assert "mode" not in properties
+    assert "current" not in properties
+    assert "baseline" not in properties
+    assert "candidate_dimensions" not in properties
+    assert "dimensions" in properties
+    assert "scan_dimension" in properties
+    assert "exactly one metric" in properties["metric"]["description"]
     assert (
-        "omit this top-level field together with top-level time_scope"
-        in (properties["granularity"]["description"])
+        "time range scanned by the internal detect step" in properties["time_scope"]["description"]
     )
-    assert "mode='explicit_compare'" in properties["current"]["description"]
-    assert "mode='explicit_compare'" in properties["baseline"]["description"]
+    assert "time bucket granularity" in properties["granularity"]["description"]
+    assert "AOI Expression" in properties["filter_expression"]["description"]
+    assert "single dimension used only to split" in properties["scan_dimension"]["description"]
+    assert "independent from attribution dimensions" in properties["scan_dimension"]["description"]
+    assert "Required attribution dimensions" in properties["dimensions"]["description"]
+    assert "independent from scan_dimension" in properties["dimensions"]["description"]
+    assert "Detection strategy" in properties["strategy"]["description"]
+    assert "Detection sensitivity" in properties["sensitivity"]["description"]
+    assert "Maximum anomaly candidates" in properties["candidate_limit"]["description"]
+    assert "Maximum driver rows" in properties["decomposition_limit"]["description"]
 
 
 def test_correlate_and_forecast_tool_schemas_document_time_series_artifact_inputs() -> None:

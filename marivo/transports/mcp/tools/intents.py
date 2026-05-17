@@ -254,36 +254,28 @@ def to_aoi_attribute_request(
 
 def to_aoi_diagnose_request(
     metric: str,
-    candidate_dimensions: list[str],
+    dimensions: list[str],
     strategy: Literal["point_anomaly", "period_shift"],
-    mode: Literal["auto_detect", "explicit_compare"] = "auto_detect",
-    time_scope: McpTimeScope | None = None,
-    granularity: Literal["hour", "day", "week", "month", "quarter", "year"] | None = None,
+    time_scope: McpTimeScope,
+    granularity: Literal["hour", "day", "week", "month", "quarter", "year"],
     filter_expression: McpExpression | dict[str, Any] | None = None,
-    current: McpAoiSliceRef | None = None,
-    baseline: McpAoiSliceRef | None = None,
-    detect_dimension: str | None = None,
+    scan_dimension: str | None = None,
     sensitivity: Literal["conservative", "balanced", "aggressive"] = "aggressive",
-    candidate_limit: int | None = None,
-    followup_limit: int = 3,
+    candidate_limit: int = 3,
     decomposition_limit: int = 5,
 ) -> aoi.Diagnose:
     return aoi.Diagnose.model_validate(
         _omit_none(
             {
                 "metric": metric,
-                "mode": mode,
-                "time_scope": time_scope.model_dump() if time_scope is not None else None,
+                "time_scope": time_scope.model_dump(),
                 "granularity": granularity,
                 "filter": _dump_expression(filter_expression),
-                "current": _to_aoi_slice(current) if current is not None else None,
-                "baseline": _to_aoi_slice(baseline) if baseline is not None else None,
-                "detect_dimension": detect_dimension,
-                "candidate_dimensions": candidate_dimensions,
+                "scan_dimension": scan_dimension,
+                "dimensions": dimensions,
                 "strategy": strategy,
                 "sensitivity": sensitivity,
                 "candidate_limit": candidate_limit,
-                "followup_limit": followup_limit,
                 "decomposition_limit": decomposition_limit,
             }
         )
@@ -474,13 +466,26 @@ def register_forecast(server: Any, runtime: Any) -> None:
 
 
 def register_attribute(server: Any, runtime: Any) -> None:
-    @server.tool()  # type: ignore
+    @server.tool(  # type: ignore
+        description=(
+            "Attribute a known current-vs-baseline metric change. Use left for the "
+            "current slice and right for the baseline slice."
+        )
+    )
     async def attribute(
         session_id: str,
         metric: str,
         left: McpAoiSliceRef,
         right: McpAoiSliceRef,
-        dimensions: list[str],
+        dimensions: Annotated[
+            list[str],
+            Field(
+                description=(
+                    "Attribution dimensions used to explain the known current-vs-baseline "
+                    "change. Each dimension produces an independent decompose result."
+                )
+            ),
+        ],
         decomposition_method: Literal["delta_share"] = "delta_share",
         decomposition_limit: int = 5,
     ) -> dict[str, Any]:
@@ -498,81 +503,108 @@ def register_attribute(server: Any, runtime: Any) -> None:
 def register_diagnose(server: Any, runtime: Any) -> None:
     @server.tool(  # type: ignore
         description=(
-            "Run a bounded diagnosis. auto_detect mode requires time_scope and granularity; "
-            "explicit_compare mode requires current and baseline slices and must omit the "
-            "top-level time_scope and granularity fields together."
+            "Run bounded auto-detect anomaly diagnosis. The tool first detects anomalous "
+            "candidates in time_scope at granularity, then follows up with compare and "
+            "decompose across the requested dimensions."
         )
     )
     async def diagnose(
         session_id: str,
-        metric: str,
-        candidate_dimensions: list[str],
-        strategy: Literal["point_anomaly", "period_shift"],
-        mode: Annotated[
-            Literal["auto_detect", "explicit_compare"],
+        metric: Annotated[
+            str,
             Field(
                 description=(
-                    "auto_detect requires time_scope and granularity; explicit_compare "
-                    "requires current and baseline and omits top-level time_scope and "
-                    "granularity."
+                    "Semantic metric identifier to diagnose. Diagnose runs against exactly "
+                    "one metric."
                 )
             ),
-        ] = "auto_detect",
+        ],
+        dimensions: Annotated[
+            list[str],
+            Field(
+                description=(
+                    "Required attribution dimensions used after anomaly candidates are found. "
+                    "These drive follow-up decompose steps and are independent from "
+                    "scan_dimension."
+                )
+            ),
+        ],
+        strategy: Annotated[
+            Literal["point_anomaly", "period_shift"],
+            Field(description="Detection strategy passed to the internal detect step."),
+        ],
         time_scope: Annotated[
-            McpTimeScope | None,
+            McpTimeScope,
             Field(
                 description=(
-                    "Required when mode='auto_detect'. When mode='explicit_compare', omit this "
-                    "top-level field and put time_scope inside current and baseline instead."
+                    "Required time range scanned by the internal detect step before follow-up "
+                    "diagnosis."
                 )
             ),
-        ] = None,
+        ],
         granularity: Annotated[
-            Literal["hour", "day", "week", "month", "quarter", "year"] | None,
-            Field(
-                description=(
-                    "Required when mode='auto_detect'. When mode='explicit_compare', omit this "
-                    "top-level field together with top-level time_scope."
-                )
-            ),
-        ] = None,
+            Literal["hour", "day", "week", "month", "quarter", "year"],
+            Field(description="Required time bucket granularity used by the internal detect scan."),
+        ],
         filter_expression: Annotated[
             McpExpression | None,
             Field(
                 description=(
-                    "Optional AOI Expression filter for auto_detect mode; omit for "
-                    "explicit_compare."
+                    "Optional AOI Expression applied to candidate detection and follow-up "
+                    "observe/compare/decompose steps."
                 )
             ),
         ] = None,
-        current: Annotated[
-            McpAoiSliceRef | None,
-            Field(description="Required when mode='explicit_compare'; omit for auto_detect."),
+        scan_dimension: Annotated[
+            str | None,
+            Field(
+                description=(
+                    "Optional single dimension used only to split the internal detect scan into "
+                    "independent time series. Omit to scan the overall metric series; this is "
+                    "independent from attribution dimensions."
+                )
+            ),
         ] = None,
-        baseline: Annotated[
-            McpAoiSliceRef | None,
-            Field(description="Required when mode='explicit_compare'; omit for auto_detect."),
-        ] = None,
-        detect_dimension: str | None = None,
-        sensitivity: Literal["conservative", "balanced", "aggressive"] = "aggressive",
-        candidate_limit: int | None = None,
-        followup_limit: int | None = 3,
-        decomposition_limit: int | None = 5,
+        sensitivity: Annotated[
+            Literal["conservative", "balanced", "aggressive"],
+            Field(
+                description=(
+                    "Detection sensitivity preset passed to the internal detect step. Defaults "
+                    "to aggressive."
+                )
+            ),
+        ] = "aggressive",
+        candidate_limit: Annotated[
+            int | None,
+            Field(
+                description=(
+                    "Maximum anomaly candidates to diagnose end-to-end. This bounds follow-up "
+                    "candidates, not driver rows."
+                ),
+                ge=1,
+            ),
+        ] = 3,
+        decomposition_limit: Annotated[
+            int | None,
+            Field(
+                description=(
+                    "Maximum driver rows returned per diagnosed candidate and attribution "
+                    "dimension. This does not limit how many candidates are diagnosed."
+                ),
+                ge=1,
+            ),
+        ] = 5,
     ) -> dict[str, Any]:
         request = to_aoi_diagnose_request(
             metric=metric,
-            candidate_dimensions=candidate_dimensions,
+            dimensions=dimensions,
             strategy=strategy,
-            mode=mode,
             time_scope=time_scope,
             granularity=granularity,
             filter_expression=filter_expression,
-            current=current,
-            baseline=baseline,
-            detect_dimension=detect_dimension,
+            scan_dimension=scan_dimension,
             sensitivity=sensitivity,
-            candidate_limit=candidate_limit,
-            followup_limit=followup_limit if followup_limit is not None else 3,
+            candidate_limit=candidate_limit if candidate_limit is not None else 3,
             decomposition_limit=decomposition_limit if decomposition_limit is not None else 5,
         )
         return await call_runtime(runtime.diagnose, session_id=session_id, request=request)

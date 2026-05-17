@@ -396,7 +396,7 @@ def test_diagnose_accepts_generic_time_granularity() -> None:
                 "end": "2026-07-01T00:00:00Z",
             },
             "granularity": "quarter",
-            "candidate_dimensions": ["region"],
+            "dimensions": ["region"],
             "strategy": "point_anomaly",
         },
     )

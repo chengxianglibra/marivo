@@ -298,11 +298,10 @@ They do not accept additional wrapper fields.
 POST /sessions/{session_id}/intents/diagnose
 ```
 
-Auto-detect mode:
+Diagnose is auto-detect only:
 
 ```json
 {
-  "mode": "auto_detect",
   "metric": "metric.order_revenue",
   "time_scope": {
     "field": "order_date",
@@ -318,17 +317,23 @@ Auto-detect mode:
       }
     ]
   },
-  "candidate_dimensions": ["country"],
-  "candidate_limit": 5,
-  "followup_limit": 3,
+  "scan_dimension": "country",
+  "dimensions": ["country"],
+  "strategy": "point_anomaly",
+  "candidate_limit": 3,
   "decomposition_limit": 5
 }
 ```
 
-Explicit-compare mode uses `current` and `baseline` observe-shaped inputs
-instead of `time_scope` / `granularity`; those inputs are AOI `Slice` objects
-with `time_scope` and optional `filter`. `baseline_policy` is fixed by the
-runtime and is not a request field.
+`scan_dimension` is the optional detection split axis: when present, detect
+scans one time series per value of that dimension. `dimensions` are the
+attribution dimensions used after candidates are found. `candidate_limit`
+bounds how many anomaly candidates are diagnosed end-to-end; `decomposition_limit`
+bounds driver rows per diagnosed candidate and attribution dimension.
+
+Known current/baseline change attribution uses `attribute` with `left` as the
+current slice and `right` as the baseline slice. `baseline_policy` is fixed by
+the diagnose runtime and is not a request field.
 
 ### Validate
 

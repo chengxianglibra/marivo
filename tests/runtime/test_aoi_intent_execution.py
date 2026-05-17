@@ -81,9 +81,9 @@ def _diagnose_request() -> aoi.Diagnose:
             end=datetime(2026, 5, 8, tzinfo=UTC),
         ),
         granularity="day",
-        candidate_dimensions=["region"],
+        dimensions=["region"],
         strategy="point_anomaly",
-        followup_limit=2,
+        candidate_limit=2,
     )
 
 
@@ -308,17 +308,16 @@ def test_diagnose_accepts_aoi_request_and_dispatches_lowered_params(monkeypatch)
             "s1",
             {
                 "metric": "view_time",
-                "mode": "auto_detect",
                 "time_scope": {
                     "field": "event_time",
                     "start": "2026-05-01T00:00:00Z",
                     "end": "2026-05-08T00:00:00Z",
                 },
                 "granularity": "day",
-                "candidate_dimensions": ["region"],
+                "dimensions": ["region"],
                 "strategy": "point_anomaly",
                 "sensitivity": "aggressive",
-                "followup_limit": 2,
+                "candidate_limit": 2,
                 "decomposition_limit": 5,
             },
         )

@@ -116,24 +116,23 @@ marivo-detect(
 
 Use `detect` when the abnormal window is still unknown.
 
-## Minimal `diagnose` Example
+## Minimal `attribute` Example
 
-Use explicit compare when both windows are already known:
+Use `attribute` when both windows are already known:
 
 ```text
-marivo-diagnose(
+marivo-attribute(
   session_id="sess_123",
   metric="watch_time_seconds",
-  candidate_dimensions=["country", "platform"],
-  mode="explicit_compare",
-  current={
+  dimensions=["country", "platform"],
+  left={
     "time_scope": {
       "field": "event_time",
       "start": "2026-05-05",
       "end": "2026-05-12"
     }
   },
-  baseline={
+  right={
     "time_scope": {
       "field": "event_time",
       "start": "2026-04-28",

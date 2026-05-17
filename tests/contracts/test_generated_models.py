@@ -304,26 +304,13 @@ def test_aoi_request_optional_fields_may_be_omitted() -> None:
             "metric": "revenue",
             "time_scope": time_scope,
             "granularity": "day",
-            "candidate_dimensions": ["region"],
+            "dimensions": ["region"],
             "strategy": "point_anomaly",
         }
     )
-    assert diagnose.mode == "auto_detect"
     assert diagnose.sensitivity == "aggressive"
-    assert diagnose.followup_limit == 3
+    assert diagnose.candidate_limit == 3
     assert diagnose.decomposition_limit == 5
-    explicit = aoi.Diagnose.model_validate(
-        {
-            "mode": "explicit_compare",
-            "metric": "revenue",
-            "current": {"time_scope": time_scope},
-            "baseline": {"time_scope": time_scope},
-            "candidate_dimensions": ["region"],
-            "strategy": "period_shift",
-        }
-    )
-    assert explicit.current is not None
-    assert explicit.baseline is not None
 
 
 def _aoi_test_payload() -> dict[str, Any]:
@@ -863,7 +850,7 @@ def test_aoi_forecast_requires_public_required_fields(missing_field: str) -> Non
                 },
                 "granularity": "day",
                 "filter": None,
-                "candidate_dimensions": ["region"],
+                "dimensions": ["region"],
                 "strategy": "point_anomaly",
             },
         ),
@@ -877,8 +864,8 @@ def test_aoi_forecast_requires_public_required_fields(missing_field: str) -> Non
                     "end": "2026-01-02T00:00:00Z",
                 },
                 "granularity": "day",
-                "detect_dimension": None,
-                "candidate_dimensions": ["region"],
+                "scan_dimension": None,
+                "dimensions": ["region"],
                 "strategy": "point_anomaly",
             },
         ),
@@ -892,7 +879,7 @@ def test_aoi_forecast_requires_public_required_fields(missing_field: str) -> Non
                     "end": "2026-01-02T00:00:00Z",
                 },
                 "granularity": "day",
-                "candidate_dimensions": ["region"],
+                "dimensions": ["region"],
                 "strategy": "point_anomaly",
                 "candidate_limit": None,
             },
@@ -1097,7 +1084,7 @@ def test_aoi_attribute_rejects_non_contract_fields(payload: dict[str, Any]) -> N
     [
         {
             "metric": "revenue",
-            "candidate_dimensions": ["region"],
+            "dimensions": ["region"],
             "strategy": "point_anomaly",
         },
         {
@@ -1110,7 +1097,7 @@ def test_aoi_attribute_rejects_non_contract_fields(payload: dict[str, Any]) -> N
                     "end": "2026-01-02T00:00:00Z",
                 }
             },
-            "candidate_dimensions": ["region"],
+            "dimensions": ["region"],
             "strategy": "point_anomaly",
         },
         {
@@ -1135,7 +1122,7 @@ def test_aoi_attribute_rejects_non_contract_fields(payload: dict[str, Any]) -> N
                 "start": "2026-01-01T00:00:00Z",
                 "end": "2026-01-02T00:00:00Z",
             },
-            "candidate_dimensions": ["region"],
+            "dimensions": ["region"],
             "strategy": "point_anomaly",
         },
         {
@@ -1147,7 +1134,7 @@ def test_aoi_attribute_rejects_non_contract_fields(payload: dict[str, Any]) -> N
             },
             "granularity": "day",
             "scope": {"constraints": {"region": "US"}},
-            "candidate_dimensions": ["region"],
+            "dimensions": ["region"],
             "strategy": "point_anomaly",
         },
         {
@@ -1159,7 +1146,7 @@ def test_aoi_attribute_rejects_non_contract_fields(payload: dict[str, Any]) -> N
             },
             "granularity": "day",
             "baseline_policy": "previous_adjacent_equal_length",
-            "candidate_dimensions": ["region"],
+            "dimensions": ["region"],
             "strategy": "point_anomaly",
         },
     ],
@@ -1186,7 +1173,7 @@ def test_aoi_diagnose_accepts_generic_time_granularities(granularity: str) -> No
                 "end": "2026-01-02T00:00:00Z",
             },
             "granularity": granularity,
-            "candidate_dimensions": ["region"],
+            "dimensions": ["region"],
             "strategy": "point_anomaly",
         }
     )
@@ -1207,7 +1194,7 @@ def test_aoi_diagnose_rejects_invalid_granularity() -> None:
                     "end": "2026-01-02T00:00:00Z",
                 },
                 "granularity": "minute",
-                "candidate_dimensions": ["region"],
+                "dimensions": ["region"],
                 "strategy": "point_anomaly",
             }
         )

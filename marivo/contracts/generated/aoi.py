@@ -28,10 +28,6 @@ class Dimension(RootModel[str]):
     root: str = Field(..., min_length=1)
 
 
-class CandidateDimension(RootModel[str]):
-    root: str = Field(..., min_length=1)
-
-
 class Decompose(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -225,6 +221,55 @@ class TimeSeriesPoint(BaseModel):
     value: float | None
 
 
+class Diagnose(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    metric: str = Field(
+        ...,
+        description="Semantic metric identifier to diagnose. Diagnose runs against exactly one metric.",
+        min_length=1,
+    )
+    time_scope: TimeScope = Field(
+        ...,
+        description="Time range scanned by the internal detect step before follow-up diagnosis.",
+    )
+    granularity: Literal["hour", "day", "week", "month", "quarter", "year"] = Field(
+        ..., description="Time bucket granularity used by the internal detect scan."
+    )
+    filter: Expression = Field(  # type: ignore[assignment]
+        None,
+        description="Optional AOI expression applied to both candidate detection and follow-up observe/compare/decompose steps.",
+    )
+    scan_dimension: str = Field(  # type: ignore[assignment]
+        None,
+        description="Optional single dimension used only to split the internal detect scan into independent time series. Omit to scan the overall metric series.",
+        min_length=1,
+    )
+    dimensions: list[Dimension] = Field(
+        ...,
+        description="Non-empty attribution dimension list used after anomaly candidates are found. These dimensions drive follow-up decompose steps and are independent of scan_dimension.",
+        min_length=1,
+    )
+    strategy: Literal["point_anomaly", "period_shift"] = Field(
+        ..., description="Detection strategy passed to the internal detect step."
+    )
+    sensitivity: Literal["conservative", "balanced", "aggressive"] = Field(
+        "aggressive",
+        description="Detection sensitivity preset passed to the internal detect step. Defaults to aggressive.",
+    )
+    candidate_limit: int = Field(
+        3,
+        description="Maximum number of anomaly candidates diagnosed end-to-end. This bounds follow-up candidates, not driver rows.",
+        ge=1,
+    )
+    decomposition_limit: int = Field(
+        5,
+        description="Maximum number of driver rows returned per diagnosed candidate and attribution dimension.",
+        ge=1,
+    )
+
+
 class Detect(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -408,50 +453,6 @@ class Attribute(BaseModel):
     dimensions: list[Dimension] = Field(..., min_length=1)
     decomposition_method: Literal["delta_share"] = "delta_share"
     decomposition_limit: int = Field(5, ge=1)
-
-
-class Diagnose(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    mode: Literal["auto_detect", "explicit_compare"] = "auto_detect"
-    metric: str = Field(..., min_length=1)
-    time_scope: TimeScope = None  # type: ignore[assignment]
-    granularity: Literal["hour", "day", "week", "month", "quarter", "year"] = None  # type: ignore[assignment]
-    filter: Expression = None  # type: ignore[assignment]
-    current: Slice = None  # type: ignore[assignment]
-    baseline: Slice = None  # type: ignore[assignment]
-    detect_dimension: str = Field(None, min_length=1)  # type: ignore[assignment]
-    candidate_dimensions: list[CandidateDimension] = Field(..., min_length=1)
-    strategy: Literal["point_anomaly", "period_shift"]
-    sensitivity: Literal["conservative", "balanced", "aggressive"] = "aggressive"
-    candidate_limit: int = Field(None, ge=1)  # type: ignore[assignment]
-    followup_limit: int = Field(3, ge=1)
-    decomposition_limit: int = Field(5, ge=1)
-
-    @model_validator(mode="after")
-    def _validate_mode_inputs(self) -> Diagnose:
-        if self.mode == "auto_detect":
-            if self.time_scope is None:
-                raise ValueError("diagnose auto_detect requests require time_scope")
-            if self.granularity is None:
-                raise ValueError("diagnose auto_detect requests require granularity")
-            if self.current is not None or self.baseline is not None:
-                raise ValueError("diagnose auto_detect requests must omit current and baseline")
-            return self
-        if self.current is None or self.baseline is None:
-            raise ValueError("diagnose explicit_compare requests require current and baseline")
-        if self.time_scope is not None or self.granularity is not None:
-            raise ValueError(
-                "diagnose explicit_compare requests must omit time_scope and granularity"
-            )
-        if self.filter is not None or self.detect_dimension is not None:
-            raise ValueError(
-                "diagnose explicit_compare requests must omit filter and detect_dimension"
-            )
-        if self.candidate_limit is not None:
-            raise ValueError("diagnose explicit_compare requests must omit candidate_limit")
-        return self
 
 
 class Validate(BaseModel):

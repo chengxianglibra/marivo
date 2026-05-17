@@ -38,7 +38,6 @@ v1 明确约束：
 ```json
 {
   "intent": "diagnose",
-  "mode": "auto_detect",
   "metric": "dau",
   "time_scope": {
     "field": "event_date",
@@ -46,13 +45,10 @@ v1 明确约束：
     "end": "2024-04-01T00:00:00Z"
   },
   "granularity": "day",
-  "scope": null,
-  "detect_dimension": null,
   "strategy": "point_anomaly",
   "sensitivity": "aggressive",
-  "candidate_dimensions": ["channel", "region"],
-  "candidate_limit": 10,
-  "followup_limit": 3,
+  "dimensions": ["channel", "region"],
+  "candidate_limit": 3,
   "decomposition_limit": 5
 }
 ```
@@ -62,20 +58,16 @@ v1 明确约束：
 ```ts
 type DiagnoseRequest = {
   intent: "diagnose";
-  mode?: "auto_detect" | "explicit_compare";
   metric: string;
-  time_scope?: DetectTimeScope | null;
-  granularity?: TimeGranularity | null;
-  current?: DiagnoseObservationInput | null;
-  baseline?: DiagnoseObservationInput | null;
-  scope?: Scope | null;
-  detect_dimension?: string | null;
+  time_scope: DetectTimeScope;
+  granularity: TimeGranularity;
+  filter?: Expression;
+  scan_dimension?: string;
   strategy: DetectStrategy;
-  sensitivity?: DetectSensitivity | null;
-  candidate_dimensions: string[];
-  candidate_limit?: number | null;
-  followup_limit?: number | null;
-  decomposition_limit?: number | null;
+  sensitivity?: DetectSensitivity;
+  dimensions: string[];
+  candidate_limit?: number;
+  decomposition_limit?: number;
 };
 
 type DetectTimeScope = {
@@ -84,16 +76,13 @@ type DetectTimeScope = {
   end: string;
 };
 
-type DiagnoseObservationInput = {
-  time_scope: DetectTimeScope;
-  scope?: Scope | null;
-};
-
 type TimeGranularity = "hour" | "day" | "week" | "month" | "quarter" | "year";
 
 type DetectStrategy = "point_anomaly" | "period_shift";
 
 type DetectSensitivity = "conservative" | "balanced" | "aggressive";
+
+type Expression = Record<string, unknown>;
 ```
 
 ## 输入规则
@@ -101,16 +90,14 @@ type DetectSensitivity = "conservative" | "balanced" | "aggressive";
 v1 支持的输入形态如下：
 
 - `metric` 必须解析到已发布的 semantic metric。
-- `mode = "auto_detect"` 时，`time_scope` 必须使用 `detect` 的 `{field, start, end}` 时间范围契约，且必须提供顶层 `granularity`。
-- `mode = "explicit_compare"` 时，必须提供 `current.time_scope` 与 `baseline.time_scope`，不运行 `detect`。
-- `scope` 若提供，必须遵守统一 non-time scope 契约。
-- `detect_dimension` 可选；若提供，只能是单个 semantic dimension。
+- `time_scope` 必须使用 `detect` 的 `{field, start, end}` 时间范围契约，且必须提供顶层 `granularity`。
+- `filter` 若提供，会同时应用到内部 detect 与后续 observe/compare/decompose。
+- `scan_dimension` 可选；若提供，只能是单个 semantic dimension。省略表示扫描整体指标序列。
 - `strategy` 必填，并传递给内部 `detect`。
 - `sensitivity` 继承 `detect` 的三档枚举，省略时默认 `aggressive`。
-- `candidate_dimensions` 必须是非空的单维度名称列表，且去重后仍非空。
-- `candidate_limit` 控制内部 `detect` 返回的候选数。
-- `followup_limit` 控制实际进入 compare/decompose follow-up 的候选数。
-- `decomposition_limit` 控制每个维度分解返回的 contribution rows 数量。
+- `dimensions` 必须是非空的单维度名称列表，且去重后仍非空；它控制候选发现后的归因拆解维度，与 `scan_dimension` 相互独立。
+- `candidate_limit` 控制实际进入 compare/decompose follow-up 的异常候选数，省略时为 `3`。
+- `decomposition_limit` 控制每个候选、每个归因维度返回的 contribution rows 数量。
 
 artifact 类型：`diagnosis_bundle`
 
@@ -142,20 +129,22 @@ projection 类型：`diagnose_projection`
 
 `diagnose` 先在该范围内寻找异常候选，再围绕被选中的 candidate window 做后续量化与归因。
 
-### scope
+### filter
 
-供内部 `detect` 和后续 follow-up `observe` 共享的统一 non-time scope。
+供内部 `detect` 和后续 follow-up `observe` 共享的统一 AOI Expression 过滤条件。
 
-### detect_dimension
+实现可以在 artifact 中把该过滤条件解析为运行时 `scope`，但请求面使用 `filter`，不再暴露独立 `scope` 参数。
+
+### scan_dimension
 
 控制 `detect` 是否在整体时间序列之上扫描，还是先按一个 semantic dimension 拆成独立子序列再扫描。
 
-- `null`：扫描整体序列
+- 省略：扫描整体序列
 - 非空：扫描该维度下的独立序列
 
-若 detect candidate 自带 `slice`，该 slice 必须与请求 `scope` 组合，并原样继承到 follow-up 的 current/baseline scope 中。
+若 detect candidate 自带 `slice`，该 slice 必须与请求 `filter` 组合，并原样继承到 follow-up 的 current/baseline scope 中。
 
-### candidate_dimensions
+### dimensions
 
 诊断时要逐个执行归因的维度列表。
 
@@ -167,16 +156,12 @@ projection 类型：`diagnose_projection`
 
 ### candidate_limit
 
-传递给内部 `detect.limit`，用于限制 detect artifact 返回的候选数量。
-
-### followup_limit
-
 控制 `diagnose` 实际跟进多少个异常候选。
 
 规则：
 
 - 候选必须沿用 `detect` 的稳定排序
-- 只跟进前 `followup_limit` 个候选
+- 只跟进前 `candidate_limit` 个候选
 - 未跟进候选必须通过顶层 metadata 披露
 
 ### decomposition_limit
@@ -189,16 +174,16 @@ projection 类型：`diagnose_projection`
 
 固定展开如下：
 
-1. `detect(metric, time_scope, scope, detect_dimension, strategy, sensitivity, candidate_limit)`
+1. `detect(metric, time_scope, filter, scan_dimension, strategy, sensitivity, limit=candidate_limit)`
 2. 读取 detect artifact 中按既定排序返回的 candidates
-3. 对前 `followup_limit` 个 candidate 逐个展开：
+3. 对前 `candidate_limit` 个 candidate 逐个展开：
    - 令 `current_window = candidate.window`
    - 用固定策略推导 `baseline_window`
-   - 将请求 `scope` 与 `candidate.slice` 组合成 current/baseline 的共享 non-time scope
+   - 将请求 `filter` 与 `candidate.slice` 组合成 current/baseline 的共享 non-time scope
    - `observe(current_window, combined_scope)`
    - `observe(baseline_window, combined_scope)`
    - `compare(left_artifact_id=current_artifact_id, right_artifact_id=baseline_artifact_id)`
-   - 对 `candidate_dimensions` 中每个 dimension：
+   - 对 `dimensions` 中每个 dimension：
      - `decompose(compare_artifact_id, dimension, limit=decomposition_limit)`
 
 ### Baseline Derivation
@@ -225,21 +210,19 @@ v1 baseline policy 固定为 `previous_adjacent_equal_length`：
 以下情况应直接失败：
 
 - `metric` 不存在
-- `auto_detect` 下 `time_scope.kind != "range"` 或缺少 `granularity`
-- `explicit_compare` 下缺少 `current` 或 `baseline`
-- `candidate_dimensions` 为空
-- `candidate_dimensions` 含空字符串或重复后为空
-- `candidate_limit != null && candidate_limit <= 0`
-- `followup_limit != null && followup_limit <= 0`
-- `decomposition_limit != null && decomposition_limit <= 0`
-- `detect_dimension` 或任一 `candidate_dimensions` 不是合法 semantic dimension
+- `time_scope.kind != "range"` 或缺少 `granularity`
+- `dimensions` 为空
+- `dimensions` 含空字符串或重复后为空
+- 提供了 `candidate_limit` 且 `candidate_limit <= 0`
+- 提供了 `decomposition_limit` 且 `decomposition_limit <= 0`
+- `scan_dimension` 或任一 `dimensions` 不是合法 semantic dimension
 
 ### 2. 展开校验
 
 以下情况应直接失败，而不是退化为 planner 行为：
 
 - 候选窗口无法应用固定 baseline 推导策略
-- `followup_limit` 超出系统允许的 bounded output 上限
+- `candidate_limit` 超出系统允许的 bounded output 上限
 - 请求的 detect / decomposition fan-out 不能维持有界执行
 
 ### 3. 原子兼容性校验
@@ -267,7 +250,7 @@ v1 baseline policy 固定为 `previous_adjacent_equal_length`：
 
 - 下游步骤、审计和复现应引用 `diagnosis_bundle`
 - agent / UI 的短读场景可消费 `diagnose_projection`
-- `followup_limit` 与 `decomposition_limit` 的截断语义属于 projection policy，不进入 artifact identity
+- `candidate_limit` 与 `decomposition_limit` 的截断语义属于 projection policy，不进入 artifact identity
 
 ## Artifact Shape
 
@@ -275,13 +258,13 @@ v1 baseline policy 固定为 `previous_adjacent_equal_length`：
 type DiagnoseArtifact = {
   result_type: "diagnosis_bundle";
   artifact_schema_version: string;
-  mode: "auto_detect" | "explicit_compare";
+  mode: "auto_detect";
   metric: string;
-  time_scope: ResolvedDetectTimeScope | null;
-  granularity: TimeGranularity | null;
+  time_scope: ResolvedDetectTimeScope;
+  granularity: TimeGranularity;
   scope: Scope | null;
-  detect_dimension: string | null;
-  candidate_dimensions: string[];
+  scan_dimension: string | null;
+  dimensions: string[];
   strategy: DetectStrategy;
   sensitivity: DetectSensitivity;
   validation: DiagnoseValidation;
@@ -297,8 +280,8 @@ type DiagnoseProjection = {
   metric: string;
   time_scope: ResolvedDetectTimeScope;
   scope: Scope | null;
-  detect_dimension: string | null;
-  candidate_dimensions: string[];
+  scan_dimension: string | null;
+  dimensions: string[];
   strategy: DetectStrategy;
   sensitivity: DetectSensitivity;
   validation: DiagnoseValidation;
@@ -360,7 +343,7 @@ type DiagnoseDetectSummary = {
 };
 
 type DiagnoseProjectionMetadata = {
-  followup_limit: number;
+  candidate_limit: number;
   decomposition_limit: number;
 };
 
@@ -540,10 +523,10 @@ type DiagnoseDriverProjection = {
 
 ## Nullability 与 Empty Semantics
 
-本契约中的 nullable / empty 字段必须遵守单义语义：
+本节描述 artifact / projection 中的 nullable / empty 字段；请求面 optional 字段应通过省略表达，不通过显式 `null` 表达。
 
 - `scope = null`：no-extra non-time scope
-- `detect_dimension = null`：整体序列扫描，不做维度拆分
+- `scan_dimension = null`：整体序列扫描，不做维度拆分
 - `candidate.slice = null`：该 candidate 对应整体序列，而不是“未知 slice”
 - `baseline_derivation.baseline_window = null`：固定 baseline policy 对该 candidate 无法定义合法 baseline；不得同时表示“尚未读取”
 - `current_ref = null`：current-side observe artifact 未产生；唯一允许原因是上游校验或执行失败已在 `issues` 中披露
@@ -570,10 +553,9 @@ type DiagnoseDriverProjection = {
 
 ### DiagnoseValidation.status
 
-- `auto_detect` 仅当 detect 阶段可执行、存在可跟进候选、且不存在 diagnose-level `error` issue 时，状态为 `diagnosable`
-- `explicit_compare` 不要求 source detect；只要 compare/decompose follow-up 没有 error issue，即可为 `diagnosable`
+- detect 阶段可执行、存在可跟进候选、且不存在 diagnose-level `error` issue 时，状态为 `diagnosable`
 - 只要存在 `detect_needs_attention` 且 `severity = "error"`，状态降为 `needs_attention`
-- 只要存在 `no_detect_candidates`，状态降为 `needs_attention`，并应给出 explicit_compare fallback guidance
+- 只要存在 `no_detect_candidates`，状态降为 `needs_attention`，并应给出 attribute fallback guidance
 - `candidate_followup_truncated` 只影响 completeness，不单独把顶层状态降为 `needs_attention`
 
 ### DiagnoseCandidateResult.status
@@ -624,7 +606,7 @@ type DiagnoseDriverProjection = {
 
 `diagnose_projection` 是对 `DiagnoseArtifact` 的确定性压缩视图，而不是新的证据层。
 
-- `diagnoses` 只包含按 detect 稳定排序后前 `followup_limit` 个被跟进候选
+- `diagnoses` 只包含按 detect 稳定排序后前 `candidate_limit` 个被跟进候选
 - 每个 `DiagnoseCandidateProjection.drivers` 只包含按 decompose 稳定排序后前 `decomposition_limit` 个 driver rows
 - projection 必须保留解释截断所需的 metadata，不得让调用方从内部 artifact 自行重建 truncation 语义
 
@@ -634,7 +616,7 @@ type DiagnoseDriverProjection = {
 
 允许：
 
-- 只返回前 `followup_limit` 个被跟进候选
+- 只返回前 `candidate_limit` 个被跟进候选
 - 每个维度只返回前 `decomposition_limit` 个 drivers
 - 压缩 detect 与 decompose 的元数据为 projection-level 摘要
 - 附带 `artifact_ref` 以回指完整 `DiagnoseArtifact`
@@ -654,8 +636,8 @@ type DiagnoseDriverProjection = {
 请求：
 
 - `metric = "dau"`
-- `detect_dimension = null`
-- `candidate_dimensions = ["channel", "region"]`
+- 不提供 `scan_dimension`
+- `dimensions = ["channel", "region"]`
 
 含义：
 
@@ -670,8 +652,8 @@ type DiagnoseDriverProjection = {
 
 - `metric = "gmv"`
 - `granularity = "week"`
-- `detect_dimension = "channel"`
-- `candidate_dimensions = ["category", "province"]`
+- `scan_dimension = "channel"`
+- `dimensions = ["category", "province"]`
 
 含义：
 

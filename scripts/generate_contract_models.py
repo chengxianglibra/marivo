@@ -170,12 +170,31 @@ def _patch_aoi_optional_non_null_fields(output: Path) -> None:
         "    detect_dimension: str | None = Field(None, min_length=1)": (
             "    detect_dimension: str = Field(None, min_length=1)  # type: ignore[assignment]"
         ),
+        "    scan_dimension: str | None = Field(None, min_length=1)": (
+            "    scan_dimension: str = Field(None, min_length=1)  # type: ignore[assignment]"
+        ),
         "    candidate_limit: int | None = Field(None, ge=1)": (
             "    candidate_limit: int = Field(None, ge=1)  # type: ignore[assignment]"
         ),
     }
     for old, new in replacements.items():
         text = text.replace(old, new)
+    text = re.sub(
+        r"    filter: Expression \| None = Field\(\n        None,\n(?P<body>(?:        .+\n)+?)    \)",
+        "    filter: Expression = Field(  # type: ignore[assignment]\n"
+        "        None,\n"
+        r"\g<body>"
+        "    )",
+        text,
+    )
+    text = re.sub(
+        r"    scan_dimension: str \| None = Field\(\n        None,\n(?P<body>(?:        .+\n)+?)    \)",
+        "    scan_dimension: str = Field(  # type: ignore[assignment]\n"
+        "        None,\n"
+        r"\g<body>"
+        "    )",
+        text,
+    )
     text = re.sub(
         r"    granularity: (Literal\[[^\n]+\]) \| None = \(\n        None\n    \)",
         r"    granularity: \1 = None  # type: ignore[assignment]",
@@ -212,39 +231,6 @@ def _patch_aoi_optional_non_null_fields(output: Path) -> None:
         "            raise ValueError('observe segmented requests must omit granularity')\n"
         "        return self\n\n\n"
         "class AnomalyCandidatesResult",
-        1,
-    )
-    text = text.replace(
-        "    decomposition_limit: int = Field(5, ge=1)\n\n\nclass Validate",
-        "    decomposition_limit: int = Field(5, ge=1)\n\n"
-        "    @model_validator(mode='after')\n"
-        "    def _validate_mode_inputs(self) -> Diagnose:\n"
-        "        if self.mode == 'auto_detect':\n"
-        "            if self.time_scope is None:\n"
-        "                raise ValueError('diagnose auto_detect requests require time_scope')\n"
-        "            if self.granularity is None:\n"
-        "                raise ValueError('diagnose auto_detect requests require granularity')\n"
-        "            if self.current is not None or self.baseline is not None:\n"
-        "                raise ValueError(\n"
-        "                    'diagnose auto_detect requests must omit current and baseline'\n"
-        "                )\n"
-        "            return self\n"
-        "        if self.current is None or self.baseline is None:\n"
-        "            raise ValueError(\n"
-        "                'diagnose explicit_compare requests require current and baseline'\n"
-        "            )\n"
-        "        if self.time_scope is not None or self.granularity is not None:\n"
-        "            raise ValueError(\n"
-        "                'diagnose explicit_compare requests must omit time_scope and granularity'\n"
-        "            )\n"
-        "        if self.filter is not None or self.detect_dimension is not None:\n"
-        "            raise ValueError(\n"
-        "                'diagnose explicit_compare requests must omit filter and detect_dimension'\n"
-        "            )\n"
-        "        if self.candidate_limit is not None:\n"
-        "            raise ValueError('diagnose explicit_compare requests must omit candidate_limit')\n"
-        "        return self\n\n\n"
-        "class Validate",
         1,
     )
     output.write_text(text, encoding="utf-8")
