@@ -58,14 +58,6 @@ class CalendarDataReader:
         combined_start = min(current_window[0], baseline_window[0])
         combined_end = max(current_window[1], baseline_window[1])
         raw_rows = self._read_rows(combined_start, combined_end)
-        if not raw_rows:
-            raise CalendarDataResolutionError(
-                "calendar data unavailable for the requested time range",
-                details={
-                    "combined_start": combined_start.isoformat(),
-                    "combined_end": combined_end.isoformat(),
-                },
-            )
         annotation_rows = build_calendar_annotation_rows(
             current_window=current_window,
             baseline_window=baseline_window,
@@ -83,10 +75,10 @@ class CalendarDataReader:
     ) -> list[dict[str, Any]]:
         """Query the calendar table for rows covering the date range."""
         return self._metadata.query_rows(
-            "SELECT calendar_date, weekday, is_weekend, is_workday, "
-            "holiday_name, holiday_group_id, year_relative_holiday_key "
+            "SELECT calendar_date, day_kind, holiday_name, "
+            "holiday_group_id, year_relative_holiday_key "
             "FROM calendar "
             "WHERE calendar_date >= ? AND calendar_date < ? "
-            "ORDER BY calendar_date, holiday_group_id",
+            "ORDER BY calendar_date, day_kind, holiday_group_id",
             [combined_start.isoformat(), combined_end.isoformat()],
         )

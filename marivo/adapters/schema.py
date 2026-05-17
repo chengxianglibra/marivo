@@ -7,7 +7,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Literal
 
-METADATA_SCHEMA_VERSION = "metadata.aggregation_semantics.v1"
+METADATA_SCHEMA_VERSION = "metadata.sparse_calendar.v1"
 METADATA_SCHEMA_MARKER_TABLE = "metadata_schema_marker"
 
 METADATA_DDL: list[str] = [
@@ -380,12 +380,10 @@ METADATA_DDL: list[str] = [
     CREATE TABLE IF NOT EXISTS calendar (
         calendar_date              TEXT NOT NULL,
         holiday_group_id           TEXT NOT NULL DEFAULT '',
-        weekday                    INTEGER NOT NULL CHECK (weekday BETWEEN 1 AND 7),
-        is_weekend                 INTEGER NOT NULL CHECK (is_weekend IN (0, 1)),
-        is_workday                 INTEGER NOT NULL CHECK (is_workday IN (0, 1)),
+        day_kind                   TEXT NOT NULL CHECK (day_kind IN ('holiday', 'adjusted_workday')),
         holiday_name               TEXT,
         year_relative_holiday_key  TEXT,
-        PRIMARY KEY (calendar_date, holiday_group_id)
+        PRIMARY KEY (calendar_date, day_kind, holiday_group_id)
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_calendar_date ON calendar(calendar_date)",

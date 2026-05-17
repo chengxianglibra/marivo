@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -11,9 +13,9 @@ class CalendarDataRow(BaseModel):
     model_config = {"extra": "forbid"}
 
     calendar_date: str = Field(..., description="Date in YYYY-MM-DD format")
-    weekday: int = Field(..., ge=1, le=7, description="Day of week, 1=Monday .. 7=Sunday")
-    is_weekend: int = Field(..., ge=0, le=1, description="1 if weekend, 0 otherwise")
-    is_workday: int = Field(..., ge=0, le=1, description="1 if workday, 0 otherwise")
+    day_kind: Literal["holiday", "adjusted_workday"] = Field(
+        ..., description="Sparse calendar row kind"
+    )
     holiday_name: str | None = Field(default=None, description="Holiday name, if applicable")
     holiday_group_id: str = Field(
         default="", description="Holiday group identifier (empty string for non-holiday rows)"

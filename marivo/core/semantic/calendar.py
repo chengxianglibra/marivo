@@ -615,12 +615,9 @@ def _coerce_annotation_row(raw_row: Mapping[str, Any]) -> CalendarAnnotationRow:
         calendar_date = raw_date
     else:
         calendar_date = date.fromisoformat(str(raw_date or "")[:10])
-    weekday = int(raw_row.get("weekday") or 0)
-    if weekday < 1 or weekday > 7:
-        raise ValueError("calendar annotation weekday must be in 1..7")
     return CalendarAnnotationRow(
         calendar_date=calendar_date,
-        weekday=weekday,
+        weekday=calendar_date.weekday() + 1,
         holiday_group_id=_optional_str(raw_row.get("holiday_group_id")),
         year_relative_holiday_key=_optional_str(raw_row.get("year_relative_holiday_key")),
     )

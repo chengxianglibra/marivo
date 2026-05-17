@@ -8,7 +8,6 @@ from marivo.adapters.metadata import MetadataStore
 from marivo.runtime.semantic.calendar_data_runtime import (
     CalendarDataReader,
     CalendarDataReadResult,
-    CalendarDataResolutionError,
 )
 
 
@@ -18,12 +17,9 @@ def _calendar_row(
     holiday_group_id: str | None = None,
     year_relative_holiday_key: str | None = None,
 ) -> dict[str, Any]:
-    day_value = date.fromisoformat(day)
     return {
         "calendar_date": day,
-        "weekday": day_value.weekday() + 1,
-        "is_weekend": 1 if day_value.weekday() >= 5 else 0,
-        "is_workday": 1 if day_value.weekday() < 5 else 0,
+        "day_kind": "holiday" if holiday_group_id else "adjusted_workday",
         "holiday_name": None,
         "holiday_group_id": holiday_group_id or "",
         "year_relative_holiday_key": year_relative_holiday_key,
@@ -96,18 +92,14 @@ class CalendarDataReaderTests(unittest.TestCase):
         rows = [
             {
                 "calendar_date": "2024-10-01",
-                "weekday": 2,
-                "is_weekend": 0,
-                "is_workday": 0,
+                "day_kind": "holiday",
                 "holiday_name": "国庆节",
                 "holiday_group_id": "national_day",
                 "year_relative_holiday_key": "national_day_2024",
             },
             {
                 "calendar_date": "2024-10-01",
-                "weekday": 2,
-                "is_weekend": 0,
-                "is_workday": 0,
+                "day_kind": "holiday",
                 "holiday_name": "中秋节",
                 "holiday_group_id": "mid_autumn",
                 "year_relative_holiday_key": "mid_autumn_2024",
@@ -122,16 +114,18 @@ class CalendarDataReaderTests(unittest.TestCase):
         self.assertEqual(oct1.holiday_group_id, "national_day")
         self.assertIn("mid_autumn", oct1.extra_holiday_group_ids)
 
-    def test_read_for_alignment_raises_when_no_data(self) -> None:
+    def test_read_for_alignment_fills_sparse_non_holiday_dates(self) -> None:
         reader = self._make_reader([])
 
-        with self.assertRaises(CalendarDataResolutionError) as ctx:
-            reader.read_for_alignment(
-                current_window=(date(2026, 4, 1), date(2026, 4, 2)),
-                baseline_window=(date(2025, 4, 1), date(2025, 4, 2)),
-            )
+        result = reader.read_for_alignment(
+            current_window=(date(2026, 6, 5), date(2026, 6, 6)),
+            baseline_window=(date(2025, 6, 6), date(2025, 6, 7)),
+        )
 
-        self.assertIn("calendar data unavailable", str(ctx.exception).lower())
+        rows_by_date = {row.calendar_date: row for row in result.annotation_rows}
+        self.assertEqual(rows_by_date[date(2026, 6, 5)].weekday, 5)
+        self.assertEqual(rows_by_date[date(2025, 6, 6)].weekday, 5)
+        self.assertIsNone(rows_by_date[date(2026, 6, 5)].holiday_group_id)
 
     def test_source_lineage(self) -> None:
         rows = [

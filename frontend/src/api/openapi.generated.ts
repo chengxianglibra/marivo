@@ -709,33 +709,11 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        put?: never;
         /**
          * Load Calendar Data
-         * @description Load calendar data rows into the metadata store.
-         *
-         *     Returns 409 if the calendar_version already exists.
+         * @description Replace sparse holiday calendar data rows in the metadata store.
          */
-        post: operations["load_calendar_data_calendar_data_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/calendar/versions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List Calendar Versions
-         * @description List loaded calendar versions with their region codes.
-         */
-        get: operations["list_calendar_versions_calendar_versions_get"];
-        put?: never;
+        put: operations["load_calendar_data_calendar_data_put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -930,14 +908,9 @@ export interface components {
         };
         /**
          * CalendarDataLoadRequest
-         * @description Request body for POST /calendar/data.
+         * @description Request body for PUT /calendar/data.
          */
         CalendarDataLoadRequest: {
-            /**
-             * Calendar Version
-             * @description Version identifier for this calendar dataset
-             */
-            calendar_version: string;
             /**
              * Rows
              * @description Calendar data rows
@@ -946,13 +919,11 @@ export interface components {
         };
         /**
          * CalendarDataLoadResponse
-         * @description Response body for POST /calendar/data.
+         * @description Response body for PUT /calendar/data.
          */
         CalendarDataLoadResponse: {
             /** Status */
             status: string;
-            /** Calendar Version */
-            calendar_version: string;
             /** Row Count */
             row_count: number;
         };
@@ -967,26 +938,10 @@ export interface components {
              */
             calendar_date: string;
             /**
-             * Region Code
-             * @description Region code (e.g. CN)
-             * @default CN
+             * Day Kind
+             * @description Sparse calendar row kind
              */
-            region_code: string;
-            /**
-             * Weekday
-             * @description Day of week, 1=Monday .. 7=Sunday
-             */
-            weekday: number;
-            /**
-             * Is Weekend
-             * @description 1 if weekend, 0 otherwise
-             */
-            is_weekend: number;
-            /**
-             * Is Workday
-             * @description 1 if workday, 0 otherwise
-             */
-            is_workday: number;
+            day_kind: "holiday" | "adjusted_workday";
             /**
              * Holiday Name
              * @description Holiday name, if applicable
@@ -1002,16 +957,6 @@ export interface components {
              * @description Year-relative holiday key
              */
             year_relative_holiday_key?: string | null;
-        };
-        /**
-         * CalendarVersionItem
-         * @description A single calendar version entry.
-         */
-        CalendarVersionItem: {
-            /** Calendar Version */
-            calendar_version: string;
-            /** Region Code */
-            region_code: string;
         };
         /** CandidateDimension */
         CandidateDimension: string;
@@ -4015,7 +3960,7 @@ export interface operations {
             };
         };
     };
-    load_calendar_data_calendar_data_post: {
+    load_calendar_data_calendar_data_put: {
         parameters: {
             query?: never;
             header?: never;
@@ -4044,26 +3989,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_calendar_versions_calendar_versions_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CalendarVersionItem"][];
                 };
             };
         };
