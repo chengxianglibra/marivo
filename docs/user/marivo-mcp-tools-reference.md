@@ -1692,8 +1692,8 @@ interface TestIntentArtifact {
 
 | 参数 | 类型 | 必填 | 默认 | 说明 |
 |------|------|------|------|------|
-| hypothesis | object | 否 | 省略 | 可包含 `alternative`、`significance`；不暴露 `family`，未传字段沿用运行时默认值 |
-注意：MCP 层不暴露 `hypothesis.family`；适配层内部固定为 `"two_sample_mean"`，并在进入 runtime 前构造 generated AOI `Validate` 模型。`hypothesis` 不支持 `family`、`alpha` 或 `label` 字段；`validate` 不支持 `method` 或 derived `scope`。
+| hypothesis | object | 否 | 省略 | 可包含 `alternative`、`significance`；不暴露 `family`，未传字段由 MCP 适配层补为默认值 |
+注意：MCP 层不暴露 `hypothesis.family`；适配层内部固定为 `"two_sample_mean"`，默认 `alternative="two_sided"`、`significance="balanced"`，并在进入 runtime 前构造 generated AOI `Validate` 模型。runtime 只接受完整 generated AOI `Validate` 降级后的参数。`hypothesis` 不支持 `family`、`alpha` 或 `label` 字段；`validate` 不支持 `method` 或 derived `scope`。
 
 **输入示例**：
 

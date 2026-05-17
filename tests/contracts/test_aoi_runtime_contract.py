@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 from pydantic import ValidationError
 
@@ -24,6 +26,14 @@ def _time_scope() -> aoi.TimeScope:
             "end": "2026-01-02T00:00:00Z",
         }
     )
+
+
+def _time_scope_payload() -> dict[str, str]:
+    return {
+        "field": "event_time",
+        "start": "2026-01-01T00:00:00Z",
+        "end": "2026-01-02T00:00:00Z",
+    }
 
 
 def _observe_request() -> aoi.Observe1:
@@ -172,6 +182,65 @@ def test_runtime_intent_envelope_accepts_generated_validate_request() -> None:
     )
 
     assert envelope.request is request
+
+
+def test_aoi_validate_accepts_full_current_shape_with_filters() -> None:
+    request = aoi.Validate.model_validate(
+        {
+            "metric": "view_time",
+            "left": {
+                "time_scope": _time_scope_payload(),
+                "filter": {"dialects": [{"dialect": "ANSI_SQL", "expression": "region = 'US'"}]},
+            },
+            "right": {
+                "time_scope": _time_scope_payload(),
+                "filter": {"dialects": [{"dialect": "ANSI_SQL", "expression": "region = 'CA'"}]},
+            },
+            "hypothesis": {
+                "family": "two_sample_mean",
+                "alternative": "greater",
+                "significance": "aggressive",
+            },
+        }
+    )
+
+    assert request.left.filter is not None
+    assert request.right.filter is not None
+    assert request.hypothesis.alternative == "greater"
+    assert request.hypothesis.significance == "aggressive"
+
+
+@pytest.mark.parametrize(
+    "payload_patch",
+    [
+        {"method": "welch_t"},
+        {"kind": "numeric"},
+        {"left": {"scope": {"predicate": "region = 'US'"}}},
+        {"left": {"filter": None}},
+        {"hypothesis": {"__remove__": "family"}},
+        {"hypothesis": {"__remove__": "alternative"}},
+        {"hypothesis": {"__remove__": "significance"}},
+        {"hypothesis": {"alpha": 0.05}},
+        {"hypothesis": {"label": "legacy label"}},
+    ],
+)
+def test_aoi_validate_rejects_invalid_or_legacy_shape(
+    payload_patch: dict[str, Any],
+) -> None:
+    payload: dict[str, Any] = {
+        "metric": "view_time",
+        "left": {"time_scope": _time_scope_payload()},
+        "right": {"time_scope": _time_scope_payload()},
+        "hypothesis": {
+            "family": "two_sample_mean",
+            "alternative": "two_sided",
+            "significance": "balanced",
+        },
+    }
+    _merge_patch(payload, payload_patch)
+
+    with pytest.raises(ValidationError):
+        aoi.Validate.model_validate(payload)
 
 
 def test_runtime_intent_envelope_accepts_generated_attribute_request() -> None:
@@ -333,3 +402,15 @@ def test_execution_envelope_keeps_aoi_artifact_under_result() -> None:
         "result": {"value": 42.0},
     }
     assert "value" not in envelope.model_dump()
+
+
+def _merge_patch(target: dict[str, Any], patch_value: dict[str, Any]) -> None:
+    for key, value in patch_value.items():
+        if key == "__remove__":
+            target.pop(str(value))
+            continue
+        nested = target.get(key)
+        if isinstance(value, dict) and isinstance(nested, dict):
+            _merge_patch(nested, value)
+        else:
+            target[key] = value
