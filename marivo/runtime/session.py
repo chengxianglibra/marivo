@@ -364,9 +364,7 @@ def get_session_state_view(
 
     repos = runtime.evidence_repos
     if repos is None:
-        raise NotImplementedError(
-            "get_session_state_view requires evidence_repos (server mode only)"
-        )
+        raise NotImplementedError("get_session_state_view requires canonical evidence repositories")
     assert_session_exists(runtime, session_id)
     return materialize_session_state_view(
         session_id=str(session_id),
@@ -400,7 +398,7 @@ def get_proposition_context(
     repos = runtime.evidence_repos
     if repos is None:
         raise NotImplementedError(
-            "get_proposition_context requires evidence_repos (server mode only)"
+            "get_proposition_context requires canonical evidence repositories"
         )
     return materialize_proposition_context_view(
         session_id=session_id,

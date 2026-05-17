@@ -156,7 +156,9 @@ def create_server_runtime(config: ServerConfig) -> ServerComposition:
     runtime.register_service("semantic_repository", semantic_repo)
     runtime.register_service("query_router", query_router)
     runtime.register_service("calendar_data", CalendarDataService(metadata_store))
-    runtime.wire_evidence_repos(_build_evidence_repos(metadata_store))
+    from marivo.profiles.evidence import build_evidence_repos
+
+    runtime.wire_evidence_repos(build_evidence_repos(metadata_store))
     runtime.wire_metadata(metadata_store)
     runtime.wire_analytics(analytics_engine)
     runtime.wire_calendar_data_reader(CalendarDataReader(metadata=metadata_store))
@@ -244,23 +246,3 @@ def _build_server_ports(
             step_metadata_repo=step_metadata_repo,
         ),
     )
-
-
-def _build_evidence_repos(metadata_store: MetadataStore) -> dict[str, object]:
-    from marivo.adapters.server.evidence_repositories import (
-        ActionProposalRepository,
-        AssessmentRepository,
-        EvidenceGapRepository,
-        FindingRepository,
-        InferenceRecordRepository,
-        PropositionRepository,
-    )
-
-    return {
-        "proposition_repo": PropositionRepository(metadata_store),
-        "assessment_repo": AssessmentRepository(metadata_store),
-        "finding_repo": FindingRepository(metadata_store),
-        "gap_repo": EvidenceGapRepository(metadata_store),
-        "inference_record_repo": InferenceRecordRepository(metadata_store),
-        "proposal_repo": ActionProposalRepository(metadata_store),
-    }

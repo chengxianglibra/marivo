@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -195,6 +197,70 @@ def test_commit_artifact_with_extraction_with_extractor(
         del default_finding_registry._registry[key]
 
 
+def test_insert_artifact_metadata_failure_is_not_visible(tmp_path: Path) -> None:
+    store = FileArtifactStore(tmp_path / "artifacts", metadata_store=_FailingMetadataStore())
+    sid, step = SessionId("s-1"), StepId("step-a")
+
+    with pytest.raises(RuntimeError, match="metadata unavailable"):
+        store.insert_artifact(sid, step, "finding", "primary", {"x": 1})
+
+    assert store.resolve_artifact_for_ref(sid, step) is None
+    assert store.resolve_artifact_id_for_step(sid, step) is None
+    assert store.list_artifacts(sid) == []
+
+
+def test_commit_artifact_with_extraction_metadata_failure_is_not_visible(
+    tmp_path: Path,
+) -> None:
+    from marivo.runtime.evidence.finding_extractor_registry import (
+        FindingExtractor,
+        default_finding_registry,
+    )
+
+    class FakeExtractor(FindingExtractor):
+        artifact_type = "test_artifact_type_metadata_failure_fa"
+        artifact_schema_version = "v1"
+        extractor_name = "fake_extractor_metadata_failure_fa"
+        extractor_version = "1.0"
+        family = "observe"
+
+        def extract(self, artifact_id, artifact_payload, step_ref, session_id):
+            return {
+                "findings": [
+                    {"finding_id": "fnd_abc", "finding_type": "observation", "payload": {}}
+                ],
+                "extractor_name": self.extractor_name,
+                "extractor_version": self.extractor_version,
+                "artifact_schema_version": "v1",
+                "finding_count": 1,
+            }
+
+    extractor = FakeExtractor()
+    default_finding_registry.register(extractor, override=True)
+    store = FileArtifactStore(tmp_path / "artifacts", metadata_store=_FailingMetadataStore())
+
+    try:
+        sid, step = SessionId("s-1"), StepId("step-a")
+        with pytest.raises(RuntimeError, match="metadata unavailable"):
+            store.commit_artifact_with_extraction(
+                sid,
+                step,
+                "test_artifact_type_metadata_failure_fa",
+                "primary",
+                {"value": 42},
+                step_type="observe",
+                artifact_schema_version="v1",
+            )
+
+        assert store.resolve_artifact_for_ref(sid, step) is None
+        assert store.resolve_artifact_id_for_step(sid, step) is None
+        assert store.list_artifacts(sid) == []
+        assert not (store._session_dir(sid) / f"{step}.findings.json").exists()
+    finally:
+        key = (extractor.artifact_type, extractor.artifact_schema_version)
+        del default_finding_registry._registry[key]
+
+
 def test_commit_artifact_with_extraction_zero_findings_allowed(
     store: FileArtifactStore,
 ) -> None:
@@ -262,3 +328,10 @@ def test_list_artifacts_includes_metadata_and_content(
     assert row["artifact_type"] == "observation_artifact"
     assert row["step_id"] == "step-a"
     assert row["content"] == {"x": 1}
+
+
+class _FailingMetadataStore:
+    @contextmanager
+    def connect(self) -> Any:
+        raise RuntimeError("metadata unavailable")
+        yield
