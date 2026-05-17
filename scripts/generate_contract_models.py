@@ -136,6 +136,9 @@ def _patch_aoi_optional_non_null_fields(output: Path) -> None:
         "    limit: int | None = Field(None, ge=1)": (
             "    limit: int = Field(None, ge=1)  # type: ignore[assignment]"
         ),
+        "    min_pairs: int | None = Field(None, ge=1)": (
+            "    min_pairs: int = Field(None, ge=1)  # type: ignore[assignment]"
+        ),
         "    method: Literal['pearson', 'spearman'] | None = None": (
             "    method: Literal['pearson', 'spearman'] = None  # type: ignore[assignment]"
         ),

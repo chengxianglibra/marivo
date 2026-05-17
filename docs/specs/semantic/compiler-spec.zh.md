@@ -226,11 +226,13 @@ type NormalizedRequest = {
 
 消费上游 canonical artifacts，例如：
 
-- `compare(left_ref, right_ref)`
-- `decompose(compare_ref, dimension)`
-- `correlate(left_ref, right_ref)`
-- `test(left_ref, right_ref, hypothesis, method)`
-- `forecast(source_ref, ...)`
+- `compare(left_artifact_id, right_artifact_id)`
+- `decompose(compare_artifact_id, dimension)`
+- `correlate(left_artifact_id, right_artifact_id)`
+- `test(metric, left, right, hypothesis)`
+- `forecast(source_artifact_id, ...)`
+- 当前 AOI runtime 请求使用 `*_artifact_id` 字段；上述 typed refs 是输出
+  lineage / compiler IR 中的语义绑定，不是 HTTP/MCP 请求形状。
 
 #### 3. `derived_macro`
 
@@ -415,9 +417,9 @@ Dimension 作为 Field 属性表达，不再是独立对象。compiler 抽取：
 
 1. `observe(left scalar)`
 2. `observe(right scalar)`
-3. `compare(left_ref, right_ref, mode="scalar")`
+3. `compare(left_artifact_id, right_artifact_id)`
 4. 对 `dimensions` 按请求顺序逐个展开：
-   - `decompose(compare_ref, dimension, method, limit)`
+   - `decompose(compare_artifact_id, dimension, limit)`
 
 关键 gate：
 
@@ -451,9 +453,9 @@ Dimension 作为 Field 属性表达，不再是独立对象。compiler 抽取：
    - 组合 `combined_scope = request.scope + candidate.slice`
    - `observe(current scalar)`
    - `observe(baseline scalar)`
-   - `compare(current_ref, baseline_ref, mode="scalar")`
+   - `compare(current_artifact_id, baseline_artifact_id)`
    - 对 `candidate_dimensions` 按请求顺序逐个展开：
-     - `decompose(compare_ref, dimension, limit)`
+     - `decompose(compare_artifact_id, dimension, limit)`
 
 关键 gate：
 
@@ -477,7 +479,7 @@ Dimension 作为 Field 属性表达，不再是独立对象。compiler 抽取：
 1. 解析 inferential summary mode（`sample_kind` 从 metric 定义解析，不再作为请求参数）
 2. `observe(left, result_mode=inferred_summary_mode)`
 3. `observe(right, result_mode=inferred_summary_mode)`
-4. `test(left_ref, right_ref, hypothesis, method)`
+4. `test(metric, left, right, hypothesis)`
 
 关键 gate：
 

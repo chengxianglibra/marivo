@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from marivo.adapters.local.file_artifact_store import FileArtifactStore
-from marivo.contracts.ids import SessionId, StepId
+from marivo.contracts.ids import ArtifactId, SessionId, StepId
 
 
 @pytest.fixture
@@ -79,6 +79,20 @@ def test_resolve_artifact_with_id_returns_none_when_missing(
     store: FileArtifactStore,
 ) -> None:
     result = store.resolve_artifact_with_id(SessionId("s-nope"), StepId("step-x"))
+    assert result is None
+
+
+def test_resolve_artifact_with_step_by_id(store: FileArtifactStore) -> None:
+    sid, step = SessionId("s-1"), StepId("step-a")
+    aid = store.insert_artifact(sid, step, "finding", "primary", {"k": "v"})
+    result = store.resolve_artifact_with_step_by_id(sid, aid)
+    assert result == (step, {"k": "v"})
+
+
+def test_resolve_artifact_with_step_by_id_returns_none_when_missing(
+    store: FileArtifactStore,
+) -> None:
+    result = store.resolve_artifact_with_step_by_id(SessionId("s-nope"), ArtifactId("art_missing"))
     assert result is None
 
 

@@ -91,6 +91,25 @@ def _run_resolve_artifact_by_id_missing(adapter, _: Path) -> None:
     assert result is None
 
 
+def _run_resolve_artifact_with_step_by_id(adapter, _: Path) -> None:
+    """Resolve committed artifact step id and content by session-scoped ArtifactId."""
+    session_id = SessionId("sess-art-contract-step-lookup")
+    step_id = StepId("step-art-contract-step-lookup")
+    artifact_id = adapter.insert_artifact(
+        session_id=session_id,
+        step_id=step_id,
+        artifact_type="finding_set",
+        name="artifact_step_lookup",
+        content={"lookup": "step-and-content"},
+        lifecycle="committed",
+        artifact_schema_version="v1",
+    )
+
+    result = adapter.resolve_artifact_with_step_by_id(session_id, artifact_id)
+
+    assert result == (step_id, {"lookup": "step-and-content"})
+
+
 def _run_resolve_artifact_by_id_cross_session(adapter, _: Path) -> None:
     """ArtifactId lookup is scoped to the requested session."""
     artifact_id = adapter.insert_artifact(
@@ -139,6 +158,10 @@ ARTIFACT_STORE_CASES = [
     ),
     ContractCase(name="list_artifacts", run=_run_list_artifacts),
     ContractCase(name="resolve_artifact_by_id", run=_run_resolve_artifact_by_id),
+    ContractCase(
+        name="resolve_artifact_with_step_by_id",
+        run=_run_resolve_artifact_with_step_by_id,
+    ),
     ContractCase(
         name="resolve_artifact_by_id_missing",
         run=_run_resolve_artifact_by_id_missing,

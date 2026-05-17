@@ -124,6 +124,10 @@ class TestAttributeRunnerOrchestration(unittest.TestCase):
 
         self.assertEqual(mock_observe.call_count, 2)
         self.assertEqual(mock_compare.call_count, 1)
+        self.assertEqual(
+            mock_compare.call_args.args[2],
+            {"left_artifact_id": "art_left", "right_artifact_id": "art_right"},
+        )
         self.assertEqual(mock_decompose.call_count, 2)
         self.assertEqual(
             [call.args[2]["dimension"] for call in mock_decompose.call_args_list],

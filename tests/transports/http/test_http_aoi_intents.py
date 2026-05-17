@@ -15,6 +15,7 @@ from marivo.transports.http.sessions import router
 class _FakeRuntime:
     def __init__(self) -> None:
         self.observe_payload: Any | None = None
+        self.compare_payload: Any | None = None
         self.detect_payload: Any | None = None
         self.decompose_payload: Any | None = None
         self.test_payload: Any | None = None
@@ -38,6 +39,29 @@ class _FakeRuntime:
                     "artifact_kind": "scalar_observation",
                     "metric": "metric.revenue",
                     "value": 42.0,
+                },
+            },
+            "provenance": {"mocked": True},
+            "product_metadata": None,
+        }
+
+    def compare(self, session_id: str, payload: Any) -> dict[str, Any]:
+        self.compare_payload = payload
+        return {
+            "intent_type": "compare",
+            "step_type": "compare",
+            "step_ref": {
+                "session_id": session_id,
+                "step_id": "step_compare_1",
+                "step_type": "compare",
+            },
+            "artifact_id": "art_compare_1",
+            "result": {
+                "artifact_id": "art_compare_1",
+                "result": {
+                    "absolute_delta": 7.0,
+                    "relative_delta": 0.7,
+                    "direction": "increase",
                 },
             },
             "provenance": {"mocked": True},
@@ -354,6 +378,24 @@ def test_detect_accepts_aoi_request_with_strategy_and_dimension() -> None:
     assert runtime.detect_payload.dimension == "region"
     assert runtime.detect_payload.strategy == "period_shift"
     assert runtime.detect_payload.sensitivity == "balanced"
+
+
+def test_compare_accepts_aoi_request_with_compare_type() -> None:
+    runtime = _FakeRuntime()
+    response = _client(runtime).post(
+        "/sessions/sess_1/intents/compare",
+        json={
+            "left_artifact_id": "artifact_left",
+            "right_artifact_id": "artifact_right",
+            "compare_type": "weekday_aligned_yoy",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert isinstance(runtime.compare_payload, aoi.Compare)
+    assert runtime.compare_payload.left_artifact_id == "artifact_left"
+    assert runtime.compare_payload.right_artifact_id == "artifact_right"
+    assert runtime.compare_payload.compare_type == "weekday_aligned_yoy"
 
 
 def test_detect_requires_strategy() -> None:

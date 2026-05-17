@@ -122,6 +122,7 @@ def to_aoi_correlate_request(
     left_artifact_id: str,
     right_artifact_id: str,
     method: Literal["pearson", "spearman"] = None,  # type: ignore[assignment]  # noqa: RUF013
+    min_pairs: int | None = None,
 ) -> aoi.Correlate:
     return aoi.Correlate.model_validate(
         _omit_none(
@@ -129,6 +130,7 @@ def to_aoi_correlate_request(
                 "left_artifact_id": left_artifact_id,
                 "right_artifact_id": right_artifact_id,
                 "method": method,
+                "min_pairs": min_pairs,
             }
         )
     )
@@ -409,11 +411,22 @@ def register_correlate(server: Any, runtime: Any) -> None:
         left_artifact_id: TimeSeriesObserveArtifactId,
         right_artifact_id: TimeSeriesObserveArtifactId,
         method: Literal["pearson", "spearman"] = None,  # type: ignore[assignment]  # noqa: RUF013
+        min_pairs: Annotated[
+            int | None,
+            Field(
+                ge=1,
+                description=(
+                    "Minimum aligned numeric pair count required to run; omit to use "
+                    "the service default of 5."
+                ),
+            ),
+        ] = None,
     ) -> dict[str, Any]:
         request = to_aoi_correlate_request(
             left_artifact_id=left_artifact_id,
             right_artifact_id=right_artifact_id,
             method=method,
+            min_pairs=min_pairs,
         )
         return await call_runtime(runtime.correlate, session_id=session_id, request=request)
 

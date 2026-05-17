@@ -127,6 +127,7 @@ class Correlate(BaseModel):
     method: Literal["pearson", "spearman"] = None  # type: ignore[assignment]
     left_artifact_id: str = Field(..., min_length=1)
     right_artifact_id: str = Field(..., min_length=1)
+    min_pairs: int = Field(None, ge=1)  # type: ignore[assignment]
 
 
 class DeltaDecompositionResult(BaseModel):

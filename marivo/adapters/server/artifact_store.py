@@ -343,6 +343,21 @@ class MetadataArtifactStoreAdapter:
         )
         return json.loads(row["content_json"]) if row else None
 
+    def resolve_artifact_with_step_by_id(
+        self,
+        session_id: SessionId,
+        artifact_id: ArtifactId,
+    ) -> tuple[StepId, dict[str, Any]] | None:
+        row = self._metadata.query_one(
+            "SELECT step_id, content_json FROM artifacts "
+            "WHERE artifact_id = ? AND session_id = ? AND lifecycle = 'committed' "
+            "ORDER BY created_at DESC LIMIT 1",
+            [artifact_id, session_id],
+        )
+        if row is None:
+            return None
+        return StepId(str(row["step_id"])), json.loads(row["content_json"])
+
     def list_artifacts(
         self,
         session_id: SessionId,

@@ -197,9 +197,9 @@ projection 类型：`diagnose_projection`
    - 将请求 `scope` 与 `candidate.slice` 组合成 current/baseline 的共享 non-time scope
    - `observe(current_window, combined_scope)`
    - `observe(baseline_window, combined_scope)`
-   - `compare(left_ref=current_ref, right_ref=baseline_ref, mode="scalar")`
+   - `compare(left_artifact_id=current_artifact_id, right_artifact_id=baseline_artifact_id)`
    - 对 `candidate_dimensions` 中每个 dimension：
-     - `decompose(compare_ref, dimension, method="delta_share", limit=decomposition_limit)`
+     - `decompose(compare_artifact_id, dimension, limit=decomposition_limit)`
 
 ### Baseline Derivation
 

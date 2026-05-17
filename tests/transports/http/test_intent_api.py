@@ -258,6 +258,89 @@ class AoiGeneratedIntentModelTests(unittest.TestCase):
         self.assertEqual(request.left_artifact_id, "art_left")
         self.assertEqual(request.right_artifact_id, "art_right")
 
+    def test_aoi_compare_defaults_compare_type_to_normal(self) -> None:
+        request = aoi.Compare.model_validate(
+            {
+                "left_artifact_id": "art_left",
+                "right_artifact_id": "art_right",
+            }
+        )
+
+        self.assertEqual(request.compare_type, "normal")
+
+    def test_aoi_compare_accepts_all_compare_types(self) -> None:
+        for compare_type in (
+            "normal",
+            "yoy",
+            "mom",
+            "wow",
+            "holiday_aligned_yoy",
+            "weekday_aligned_yoy",
+            "weekday_aligned_mom",
+        ):
+            with self.subTest(compare_type=compare_type):
+                request = aoi.Compare.model_validate(
+                    {
+                        "left_artifact_id": "art_left",
+                        "right_artifact_id": "art_right",
+                        "compare_type": compare_type,
+                    }
+                )
+                self.assertEqual(request.compare_type, compare_type)
+
+    def test_aoi_compare_rejects_invalid_compare_type(self) -> None:
+        with self.assertRaises(ValidationError):
+            aoi.Compare.model_validate(
+                {
+                    "left_artifact_id": "art_left",
+                    "right_artifact_id": "art_right",
+                    "compare_type": "not_real",
+                }
+            )
+
+    def test_aoi_compare_rejects_extra_fields(self) -> None:
+        with self.assertRaises(ValidationError):
+            aoi.Compare.model_validate(
+                {
+                    "left_artifact_id": "art_left",
+                    "right_artifact_id": "art_right",
+                    "left_ref": {"step_id": "step_1"},
+                }
+            )
+
+    def test_aoi_compare_rejects_empty_artifact_ids(self) -> None:
+        for payload in (
+            {"left_artifact_id": "", "right_artifact_id": "art_right"},
+            {"left_artifact_id": "art_left", "right_artifact_id": ""},
+        ):
+            with self.subTest(payload=payload), self.assertRaises(ValidationError):
+                aoi.Compare.model_validate(payload)
+
+    def test_aoi_correlate_accepts_min_pairs(self) -> None:
+        request = aoi.Correlate.model_validate(
+            {
+                "left_artifact_id": "art_left",
+                "right_artifact_id": "art_right",
+                "method": "spearman",
+                "min_pairs": 6,
+            }
+        )
+
+        self.assertEqual(request.method, "spearman")
+        self.assertEqual(request.min_pairs, 6)
+
+    def test_aoi_correlate_rejects_legacy_refs_and_invalid_min_pairs(self) -> None:
+        for payload in (
+            {"left_ref": {"step_id": "step_1"}, "right_ref": {"step_id": "step_2"}},
+            {
+                "left_artifact_id": "art_left",
+                "right_artifact_id": "art_right",
+                "min_pairs": 0,
+            },
+        ):
+            with self.subTest(payload=payload), self.assertRaises(ValidationError):
+                aoi.Correlate.model_validate(payload)
+
     def test_aoi_forecast_requires_source_artifact_id(self) -> None:
         with self.assertRaises(ValidationError):
             aoi.Forecast.model_validate({"source_ref": {"step_id": "step_1"}, "horizon": 7})

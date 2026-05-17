@@ -300,16 +300,8 @@ def run_attribute_intent(
             runtime,
             session_id,
             {
-                "left_ref": {
-                    "step_id": left_step_id,
-                    "session_id": session_id,
-                    "step_type": "observe",
-                },
-                "right_ref": {
-                    "step_id": right_step_id,
-                    "session_id": session_id,
-                    "step_type": "observe",
-                },
+                "left_artifact_id": left_obs["artifact_id"],
+                "right_artifact_id": right_obs["artifact_id"],
             },
         )
     except Exception as exc:

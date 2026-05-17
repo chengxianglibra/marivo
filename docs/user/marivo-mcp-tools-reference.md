@@ -1559,8 +1559,9 @@ interface DiagnoseArtifact {
 | 参数 | 类型 | 必填 | 默认 | 说明 |
 |------|------|------|------|------|
 | method | `"pearson"` \| `"spearman"` | 否 | 省略 | 相关性方法（不支持 "kendall"）；不用时省略，不传 `null` |
+| min_pairs | integer | 否 | 5 | 运行相关性估计所需的最小对齐数值配对数，必须 >= 1；不用时省略，不传 `null` |
 
-注意：参数为字符串 artifact ID，非引用对象。无 `min_pairs` 参数。左右输入都必须是同一
+注意：参数为字符串 artifact ID，非引用对象。左右输入都必须是同一
 session 内已提交的 `observe(time_series)` artifact：先调用 `observe` 并设置 `granularity`，
 不要同时传 `dimensions`；不要传 scalar/segmented observe artifact。
 

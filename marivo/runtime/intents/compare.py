@@ -23,6 +23,10 @@ from marivo.runtime.semantic.calendar_data_runtime import (
 if TYPE_CHECKING:
     from marivo.runtime.runtime import MarivoRuntime
 
+_AOI_PARAM_KEYS: frozenset[str] = frozenset(
+    {"left_artifact_id", "right_artifact_id", "compare_type"}
+)
+
 
 def _normalize_window(window: dict[str, Any]) -> tuple[str, str]:
     start = str(window.get("start") or "")
@@ -250,33 +254,28 @@ def run_compare_intent(
 ) -> dict[str, Any]:
     """Execute a `compare` intent: compute typed delta between two observe artifacts.
 
-    Input: left_ref + right_ref (both ObservationRef pointing to committed observe artifacts).
+    Input: left_artifact_id + right_artifact_id (both committed observe artifacts).
     Output: committed compare_artifact (scalar_delta or segmented_delta).
 
     Empty semantics: hard-fails only on NOT_COMPARABLE (incompatible inputs); null values
     and empty segment sets produce data_incomplete issues with needs_attention status.
     """
     p = params or {}
+    extra_keys = sorted(set(p) - _AOI_PARAM_KEYS)
+    if extra_keys:
+        raise ValueError(
+            "compare: INVALID_ARGUMENT - unsupported parameter(s): "
+            f"{extra_keys}; compare accepts only AOI request fields"
+        )
 
-    left_ref_raw: dict[str, Any] = p.get("left_ref") or {}
-    right_ref_raw: dict[str, Any] = p.get("right_ref") or {}
     left_artifact_id_raw = p.get("left_artifact_id")
     right_artifact_id_raw = p.get("right_artifact_id")
     left_artifact_id = left_artifact_id_raw.strip() if isinstance(left_artifact_id_raw, str) else ""
     right_artifact_id = (
         right_artifact_id_raw.strip() if isinstance(right_artifact_id_raw, str) else ""
     )
-    uses_aoi_artifact_refs = bool(left_artifact_id or right_artifact_id) or (
-        "left_ref" not in p and "right_ref" not in p
-    )
-    left_step_id: str = "" if uses_aoi_artifact_refs else left_ref_raw.get("step_id") or ""
-    right_step_id: str = "" if uses_aoi_artifact_refs else right_ref_raw.get("step_id") or ""
-    left_session_id: str = (
-        session_id if uses_aoi_artifact_refs else left_ref_raw.get("session_id") or session_id
-    )
-    right_session_id: str = (
-        session_id if uses_aoi_artifact_refs else right_ref_raw.get("session_id") or session_id
-    )
+    left_session_id = session_id
+    right_session_id = session_id
     compare_type_raw = p.get("compare_type")
     compare_type = str(compare_type_raw or "normal").strip() or "normal"
     try:
@@ -284,47 +283,22 @@ def run_compare_intent(
     except ValueError as exc:
         raise ValueError(f"compare: INVALID_ARGUMENT - {exc}") from exc
 
-    if uses_aoi_artifact_refs:
-        if not left_artifact_id or not right_artifact_id:
-            raise ValueError(
-                "compare: INVALID_ARGUMENT - both left_artifact_id and right_artifact_id are required"
-            )
-        left_artifact = runtime.resolve_artifact_by_id(session_id, left_artifact_id)
-        if left_artifact is None:
-            raise ValueError(
-                f"compare: ARTIFACT_NOT_FOUND - no committed artifact for left_artifact_id '{left_artifact_id}'"
-            )
-        right_artifact = runtime.resolve_artifact_by_id(session_id, right_artifact_id)
-        if right_artifact is None:
-            raise ValueError(
-                f"compare: ARTIFACT_NOT_FOUND - no committed artifact for right_artifact_id '{right_artifact_id}'"
-            )
-    else:
-        if not left_step_id or not right_step_id:
-            raise ValueError("compare: both left_ref.step_id and right_ref.step_id are required")
-
-        # Validate step_type in refs — Pydantic enforces Literal["observe"] at the HTTP surface;
-        # guard here for direct callers that bypass the HTTP layer.
-        for _side, _ref_raw in (("left", left_ref_raw), ("right", right_ref_raw)):
-            _ref_step_type = _ref_raw.get("step_type")
-            if _ref_step_type is not None and _ref_step_type != "observe":
-                raise ValueError(
-                    f"compare: INVALID_ARGUMENT - {_side}_ref.step_type must be 'observe', "
-                    f"got '{_ref_step_type}'"
-                )
-
-        left_artifact = runtime.resolve_artifact_for_ref(left_session_id, left_step_id)
-        if left_artifact is None:
-            raise ValueError(
-                f"compare: STEP_NOT_FOUND - no committed artifact for step '{left_step_id}'"
-            )
-        right_artifact = runtime.resolve_artifact_for_ref(right_session_id, right_step_id)
-        if right_artifact is None:
-            raise ValueError(
-                f"compare: STEP_NOT_FOUND - no committed artifact for step '{right_step_id}'"
-            )
-        left_artifact_id = runtime.resolve_artifact_id_for_step(session_id, left_step_id) or ""
-        right_artifact_id = runtime.resolve_artifact_id_for_step(session_id, right_step_id) or ""
+    if not left_artifact_id or not right_artifact_id:
+        raise ValueError(
+            "compare: INVALID_ARGUMENT - both left_artifact_id and right_artifact_id are required"
+        )
+    left_resolved = runtime.resolve_artifact_with_step_by_id(session_id, left_artifact_id)
+    if left_resolved is None:
+        raise ValueError(
+            f"compare: ARTIFACT_NOT_FOUND - no committed artifact for left_artifact_id '{left_artifact_id}'"
+        )
+    left_step_id, left_artifact = left_resolved
+    right_resolved = runtime.resolve_artifact_with_step_by_id(session_id, right_artifact_id)
+    if right_resolved is None:
+        raise ValueError(
+            f"compare: ARTIFACT_NOT_FOUND - no committed artifact for right_artifact_id '{right_artifact_id}'"
+        )
+    right_step_id, right_artifact = right_resolved
 
     left_obs_type: str | None = left_artifact.get("observation_type")
     right_obs_type: str | None = right_artifact.get("observation_type")

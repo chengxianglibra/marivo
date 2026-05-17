@@ -20,15 +20,11 @@ raises :class:`FamilyEmptyError` if ``finding_count == 0``.  The runner already
 fails with ``NOT_COMPARABLE`` before writing an empty segmented artifact, so this
 gate is a belt-and-suspenders check at the commit boundary.
 
-left_ref / right_ref artifact_id limitation (v1):
--------------------------------------------------
-The v1 ``compare_artifact`` payload stores ``left_ref`` and ``right_ref`` as step
-refs (``session_id``, ``step_id``, ``step_type``) without embedding the upstream
-observation ``artifact_id``.  The extractor therefore cannot resolve the upstream
-artifact IDs without accessing session state, which is outside its authority
-boundary.  ``DeltaPayload.left_ref.artifact_id`` and ``.right_ref.artifact_id``
-are set to ``""`` as a v1 placeholder.  This will be resolved when the compare
-runner is updated to embed artifact IDs in its output refs.
+left_ref / right_ref artifact_id:
+---------------------------------
+The compare runner embeds upstream observation artifact IDs in its lineage refs.
+The extractor copies those IDs into delta findings and never resolves session
+state itself.
 """
 
 from __future__ import annotations
@@ -81,6 +77,11 @@ def _empty_quality() -> FindingQuality:
         quality_status=None,
         quality_warnings=[],
     )
+
+
+def _source_artifact_id(payload: dict[str, Any], side: str) -> str:
+    ref = payload.get(f"{side}_ref") or {}
+    return str(ref.get("artifact_id") or "")
 
 
 def _extract_comparability_payload(payload: dict[str, Any]) -> dict[str, Any]:
@@ -219,12 +220,13 @@ class CompareArtifactExtractor(FindingExtractor):
             direction_raw if direction_raw in _VALID_DIRECTIONS else "undefined",
         )
 
-        # v1 limitation: obs artifact_ids are not embedded in compare_artifact payload.
-        # Both left_ref and right_ref use artifact_id="" as placeholder (see module docstring).
-        # v1: obs artifact_ids not embedded; both refs use the same placeholder item_ref.
         _, obs_item_ref = make_item_identity("value")
-        left_ref = ArtifactItemRefRef(artifact_id="", item_ref=obs_item_ref)
-        right_ref = ArtifactItemRefRef(artifact_id="", item_ref=obs_item_ref)
+        left_ref = ArtifactItemRefRef(
+            artifact_id=_source_artifact_id(payload, "left"), item_ref=obs_item_ref
+        )
+        right_ref = ArtifactItemRefRef(
+            artifact_id=_source_artifact_id(payload, "right"), item_ref=obs_item_ref
+        )
         comparability_payload = _extract_comparability_payload(payload)
 
         delta_payload = DeltaPayload(
@@ -290,12 +292,14 @@ class CompareArtifactExtractor(FindingExtractor):
             presence_raw = row.get("presence")
             presence = presence_raw if presence_raw in _VALID_PRESENCES else None
 
-            # v1 limitation: obs artifact_ids not available (see module docstring).
-            # Separate calls mirror future split when artifact_ids become available.
             _, left_item_ref = make_item_identity("rows", key=stable_key)
             _, right_item_ref = make_item_identity("rows", key=stable_key)
-            left_ref = ArtifactItemRefRef(artifact_id="", item_ref=left_item_ref)
-            right_ref = ArtifactItemRefRef(artifact_id="", item_ref=right_item_ref)
+            left_ref = ArtifactItemRefRef(
+                artifact_id=_source_artifact_id(payload, "left"), item_ref=left_item_ref
+            )
+            right_ref = ArtifactItemRefRef(
+                artifact_id=_source_artifact_id(payload, "right"), item_ref=right_item_ref
+            )
 
             delta_payload = DeltaPayload(
                 delta_kind="segmented_delta",
@@ -365,8 +369,12 @@ class CompareArtifactExtractor(FindingExtractor):
                 if summary_direction_raw in _VALID_DIRECTIONS
                 else "undefined",
             )
-            left_ref = ArtifactItemRefRef(artifact_id="", item_ref=summary_item_ref)
-            right_ref = ArtifactItemRefRef(artifact_id="", item_ref=summary_item_ref)
+            left_ref = ArtifactItemRefRef(
+                artifact_id=_source_artifact_id(payload, "left"), item_ref=summary_item_ref
+            )
+            right_ref = ArtifactItemRefRef(
+                artifact_id=_source_artifact_id(payload, "right"), item_ref=summary_item_ref
+            )
             summary_payload = DeltaPayload(
                 delta_kind="time_series_delta",
                 left_ref=left_ref,
@@ -435,8 +443,12 @@ class CompareArtifactExtractor(FindingExtractor):
             presence = presence_raw if presence_raw in _VALID_PRESENCES else None
 
             _, bucket_item_ref = make_item_identity("buckets", key=bucket_start)
-            left_ref = ArtifactItemRefRef(artifact_id="", item_ref=bucket_item_ref)
-            right_ref = ArtifactItemRefRef(artifact_id="", item_ref=bucket_item_ref)
+            left_ref = ArtifactItemRefRef(
+                artifact_id=_source_artifact_id(payload, "left"), item_ref=bucket_item_ref
+            )
+            right_ref = ArtifactItemRefRef(
+                artifact_id=_source_artifact_id(payload, "right"), item_ref=bucket_item_ref
+            )
 
             delta_payload = DeltaPayload(
                 delta_kind="time_series_delta",

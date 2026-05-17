@@ -50,6 +50,8 @@ from tests.finding_identity_testutil import (
 _ART_ID = "art_compare_test001"
 _DECOMP_ART_ID = "art_decomp_test001"
 _COMPARE_ART_ID = "art_compare_upstream001"
+_LEFT_OBS_ART_ID = "art_obs_left001"
+_RIGHT_OBS_ART_ID = "art_obs_right001"
 _SESSION = "sess_cmp_test"
 _STEP_ID = "step_cmp_001"
 _STEP_REF: StepRef = StepRef(session_id=_SESSION, step_id=_STEP_ID, step_type="compare")
@@ -75,8 +77,18 @@ def _scalar_delta_payload(
         "schema_version": "1.0",
         "comparison_type": "scalar_delta",
         "metric": metric,
-        "left_ref": {"session_id": _SESSION, "step_id": "step_obs_left", "step_type": "observe"},
-        "right_ref": {"session_id": _SESSION, "step_id": "step_obs_right", "step_type": "observe"},
+        "left_ref": {
+            "session_id": _SESSION,
+            "step_id": "step_obs_left",
+            "step_type": "observe",
+            "artifact_id": _LEFT_OBS_ART_ID,
+        },
+        "right_ref": {
+            "session_id": _SESSION,
+            "step_id": "step_obs_right",
+            "step_type": "observe",
+            "artifact_id": _RIGHT_OBS_ART_ID,
+        },
         "unit": unit,
         "left_value": left_value,
         "right_value": right_value,
@@ -151,8 +163,18 @@ def _segmented_delta_payload(
         "schema_version": "1.0",
         "comparison_type": "segmented_delta",
         "metric": metric,
-        "left_ref": {"session_id": _SESSION, "step_id": "step_obs_left", "step_type": "observe"},
-        "right_ref": {"session_id": _SESSION, "step_id": "step_obs_right", "step_type": "observe"},
+        "left_ref": {
+            "session_id": _SESSION,
+            "step_id": "step_obs_left",
+            "step_type": "observe",
+            "artifact_id": _LEFT_OBS_ART_ID,
+        },
+        "right_ref": {
+            "session_id": _SESSION,
+            "step_id": "step_obs_right",
+            "step_type": "observe",
+            "artifact_id": _RIGHT_OBS_ART_ID,
+        },
         "dimensions": ["country"],
         "unit": unit,
         "rows": rows,
@@ -200,8 +222,18 @@ def _time_series_delta_payload(
         "schema_version": "1.0",
         "comparison_type": "time_series_delta",
         "metric": metric,
-        "left_ref": {"session_id": _SESSION, "step_id": "step_obs_left", "step_type": "observe"},
-        "right_ref": {"session_id": _SESSION, "step_id": "step_obs_right", "step_type": "observe"},
+        "left_ref": {
+            "session_id": _SESSION,
+            "step_id": "step_obs_left",
+            "step_type": "observe",
+            "artifact_id": _LEFT_OBS_ART_ID,
+        },
+        "right_ref": {
+            "session_id": _SESSION,
+            "step_id": "step_obs_right",
+            "step_type": "observe",
+            "artifact_id": _RIGHT_OBS_ART_ID,
+        },
         "granularity": granularity,
         "unit": unit,
         "rows": rows,
@@ -439,13 +471,17 @@ class TestCompareScalarDelta(unittest.TestCase):
         self.assertEqual(result["extractor_version"], "1.0.0")
         self.assertEqual(result["artifact_schema_version"], "v1")
 
-    def test_left_ref_artifact_id_is_empty_v1_limitation(self) -> None:
+    def test_left_ref_artifact_id_comes_from_compare_lineage(self) -> None:
         result = self._extract()
-        self.assertEqual(result["findings"][0]["payload"]["left_ref"]["artifact_id"], "")
+        self.assertEqual(
+            result["findings"][0]["payload"]["left_ref"]["artifact_id"], _LEFT_OBS_ART_ID
+        )
 
-    def test_right_ref_artifact_id_is_empty_v1_limitation(self) -> None:
+    def test_right_ref_artifact_id_comes_from_compare_lineage(self) -> None:
         result = self._extract()
-        self.assertEqual(result["findings"][0]["payload"]["right_ref"]["artifact_id"], "")
+        self.assertEqual(
+            result["findings"][0]["payload"]["right_ref"]["artifact_id"], _RIGHT_OBS_ART_ID
+        )
 
     def test_validate_for_commit_passes(self) -> None:
         result = self._extract()

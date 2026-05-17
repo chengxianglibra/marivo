@@ -150,11 +150,12 @@ POST /sessions/{session_id}/intents/correlate
 {
   "left_artifact_id": "art_left_timeseries",
   "right_artifact_id": "art_right_timeseries",
-  "method": "spearman"
+  "method": "spearman",
+  "min_pairs": 5
 }
 ```
 
-`method` may be `pearson` or `spearman`.
+`method` may be `pearson` or `spearman`. `min_pairs` is optional and must be at least 1.
 
 ### Detect
 

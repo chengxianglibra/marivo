@@ -64,6 +64,63 @@ def test_aoi_operation_registry_contains_atomic_operations() -> None:
     }
 
 
+def test_aoi_correlate_accepts_artifact_ids_method_and_min_pairs() -> None:
+    request = aoi.Correlate.model_validate(
+        {
+            "left_artifact_id": "art_left",
+            "right_artifact_id": "art_right",
+            "method": "pearson",
+            "min_pairs": 7,
+        }
+    )
+
+    assert request.left_artifact_id == "art_left"
+    assert request.right_artifact_id == "art_right"
+    assert request.method == "pearson"
+    assert request.min_pairs == 7
+
+
+def test_aoi_correlate_accepts_omitted_optional_parameters() -> None:
+    request = aoi.Correlate.model_validate(
+        {
+            "left_artifact_id": "art_left",
+            "right_artifact_id": "art_right",
+        }
+    )
+
+    assert request.method is None
+    assert request.min_pairs is None
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {
+            "left_ref": {"step_id": "step_left"},
+            "right_ref": {"step_id": "step_right"},
+        },
+        {
+            "left_artifact_id": "art_left",
+            "right_artifact_id": "art_right",
+            "method": "kendall",
+        },
+        {
+            "left_artifact_id": "art_left",
+            "right_artifact_id": "art_right",
+            "min_pairs": 0,
+        },
+        {
+            "left_artifact_id": "art_left",
+            "right_artifact_id": "art_right",
+            "min_pairs": None,
+        },
+    ],
+)
+def test_aoi_correlate_rejects_invalid_or_legacy_shape(payload: dict[str, object]) -> None:
+    with pytest.raises(ValidationError):
+        aoi.Correlate.model_validate(payload)
+
+
 def test_aoi_derived_operation_registry_contains_derived_operations() -> None:
     assert set(AOI_DERIVED_OPERATION_REGISTRY) == {"attribute", "diagnose", "validate"}
 

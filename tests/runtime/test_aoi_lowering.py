@@ -79,13 +79,26 @@ def test_lowers_compare_request_to_runner_params() -> None:
     request = aoi.Compare(
         left_artifact_id="artifact-left",
         right_artifact_id="artifact-right",
-        compare_type="yoy",
+        compare_type="holiday_aligned_yoy",
     )
 
     assert lower_aoi_request("compare", request) == {
         "left_artifact_id": "artifact-left",
         "right_artifact_id": "artifact-right",
-        "compare_type": "yoy",
+        "compare_type": "holiday_aligned_yoy",
+    }
+
+
+def test_lowers_compare_default_compare_type_to_runner_params() -> None:
+    request = aoi.Compare(
+        left_artifact_id="artifact-left",
+        right_artifact_id="artifact-right",
+    )
+
+    assert lower_aoi_request("compare", request) == {
+        "left_artifact_id": "artifact-left",
+        "right_artifact_id": "artifact-right",
+        "compare_type": "normal",
     }
 
 
@@ -100,6 +113,36 @@ def test_lowers_decompose_request_with_all_options_to_runner_params() -> None:
         "compare_artifact_id": "artifact-compare",
         "dimension": "region",
         "limit": 5,
+    }
+
+
+def test_lowers_correlate_request_with_all_options_to_runner_params() -> None:
+    request = aoi.Correlate(
+        left_artifact_id="artifact-left",
+        right_artifact_id="artifact-right",
+        method="pearson",
+        min_pairs=7,
+    )
+
+    assert lower_aoi_request("correlate", request) == {
+        "left_artifact_id": "artifact-left",
+        "right_artifact_id": "artifact-right",
+        "method": "pearson",
+        "min_pairs": 7,
+    }
+
+
+def test_lowers_correlate_omitted_options_to_none() -> None:
+    request = aoi.Correlate(
+        left_artifact_id="artifact-left",
+        right_artifact_id="artifact-right",
+    )
+
+    assert lower_aoi_request("correlate", request) == {
+        "left_artifact_id": "artifact-left",
+        "right_artifact_id": "artifact-right",
+        "method": None,
+        "min_pairs": None,
     }
 
 

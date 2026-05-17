@@ -446,6 +446,25 @@ def test_correlate_and_forecast_tool_schemas_document_time_series_artifact_input
     assert "datasource" in forecast_description
 
 
+def test_compare_tool_schema_exposes_compare_type_enum_and_default() -> None:
+    server = FastMCP("test")
+    register_tools(server, FakeRuntime(), transport="stdio")
+    tools = {tool.name: tool for tool in server._tool_manager.list_tools()}
+
+    compare_type = tools["compare"].parameters["properties"]["compare_type"]
+
+    assert compare_type["default"] == "normal"
+    assert compare_type["enum"] == [
+        "normal",
+        "yoy",
+        "mom",
+        "wow",
+        "holiday_aligned_yoy",
+        "weekday_aligned_yoy",
+        "weekday_aligned_mom",
+    ]
+
+
 def test_shared_tools_identical_schema():
     """Tools present in both modes have identical parameter schemas."""
     stdio_server = FastMCP("test-stdio")

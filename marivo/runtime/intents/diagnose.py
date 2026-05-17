@@ -657,16 +657,8 @@ def _follow_up_candidate(
                 runtime,
                 session_id,
                 {
-                    "left_ref": {
-                        "step_id": current_step_id,
-                        "session_id": session_id,
-                        "step_type": "observe",
-                    },
-                    "right_ref": {
-                        "step_id": baseline_step_id,
-                        "session_id": session_id,
-                        "step_type": "observe",
-                    },
+                    "left_artifact_id": current_obs["artifact_id"],
+                    "right_artifact_id": baseline_obs["artifact_id"],
                 },
             )
             compare_step_id = compare_result["step_ref"]["step_id"]

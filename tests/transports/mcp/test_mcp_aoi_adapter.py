@@ -100,13 +100,23 @@ def test_to_aoi_compare_request_builds_compare_model() -> None:
     request = to_aoi_compare_request(
         left_artifact_id="artifact_obs_left",
         right_artifact_id="artifact_obs_right",
-        compare_type="yoy",
+        compare_type="holiday_aligned_yoy",
     )
 
     assert isinstance(request, aoi.Compare)
     assert request.left_artifact_id == "artifact_obs_left"
     assert request.right_artifact_id == "artifact_obs_right"
-    assert request.compare_type == "yoy"
+    assert request.compare_type == "holiday_aligned_yoy"
+
+
+def test_to_aoi_compare_request_defaults_compare_type() -> None:
+    request = to_aoi_compare_request(
+        left_artifact_id="artifact_obs_left",
+        right_artifact_id="artifact_obs_right",
+    )
+
+    assert isinstance(request, aoi.Compare)
+    assert request.compare_type == "normal"
 
 
 def test_to_aoi_decompose_request_builds_decompose_model() -> None:
