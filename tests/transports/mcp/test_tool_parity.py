@@ -440,10 +440,49 @@ def test_correlate_and_forecast_tool_schemas_document_time_series_artifact_input
         assert "observe(time_series)" in description
         assert "granularity" in description
 
+    assert correlate_props["min_pairs"]["default"] is None
+    assert correlate_props["min_pairs"]["anyOf"][0]["minimum"] == 1
+    assert "service default of 5" in correlate_props["min_pairs"]["description"]
+
     forecast_description = forecast_props["source_artifact_id"]["description"]
     assert "observe(time_series)" in forecast_description
     assert "granularity" in forecast_description
     assert "datasource" in forecast_description
+
+
+def test_correlate_tool_passes_generated_request_with_min_pairs(monkeypatch) -> None:
+    calls = {}
+
+    async def fake_call_runtime(method, /, **kwargs):
+        calls["method"] = method
+        calls["kwargs"] = kwargs
+        return {"data": {}, "error": None}
+
+    monkeypatch.setattr("marivo.transports.mcp.tools.intents.call_runtime", fake_call_runtime)
+
+    server = FastMCP("test")
+    runtime = FakeRuntime()
+    register_tools(server, runtime, transport="stdio")
+    tool = {tool.name: tool for tool in server._tool_manager.list_tools()}["correlate"]
+
+    result = asyncio.run(
+        tool.fn(
+            session_id="sess_1",
+            left_artifact_id="art_left",
+            right_artifact_id="art_right",
+            method="pearson",
+            min_pairs=7,
+        )
+    )
+
+    assert result == {"data": {}, "error": None}
+    assert calls["method"] == runtime.correlate
+    request = calls["kwargs"]["request"]
+    assert isinstance(request, aoi.Correlate)
+    assert request.left_artifact_id == "art_left"
+    assert request.right_artifact_id == "art_right"
+    assert request.method == "pearson"
+    assert request.min_pairs == 7
 
 
 def test_compare_tool_schema_exposes_compare_type_enum_and_default() -> None:
