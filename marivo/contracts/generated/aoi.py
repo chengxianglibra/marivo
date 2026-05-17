@@ -417,7 +417,7 @@ class Diagnose(BaseModel):
     mode: Literal["auto_detect", "explicit_compare"] = "auto_detect"
     metric: str = Field(..., min_length=1)
     time_scope: TimeScope = None  # type: ignore[assignment]
-    granularity: Literal["hour", "day", "week", "month"] | None = None
+    granularity: Literal["hour", "day", "week", "month", "quarter", "year"] = None  # type: ignore[assignment]
     filter: Expression = None  # type: ignore[assignment]
     current: Slice = None  # type: ignore[assignment]
     baseline: Slice = None  # type: ignore[assignment]

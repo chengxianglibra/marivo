@@ -30,6 +30,7 @@ from marivo.runtime.intents.detect import run_detect_intent
 from marivo.runtime.intents.normalization import (
     normalize_dimensions,
     normalize_metric_ref,
+    validate_granularity,
 )
 from marivo.runtime.intents.observe import run_observe_intent
 from marivo.time_contracts import TimeGrain, normalize_hour_boundary, previous_adjacent_window
@@ -99,12 +100,13 @@ def _normalize_range_time_scope(
 
 def _normalize_granularity(raw: Any) -> TimeGrain:
     granularity = str(raw or "").lower()
-    if granularity not in {"hour", "day", "week", "month"}:
-        raise ValueError(
-            f"diagnose: INVALID_ARGUMENT - granularity must be one of "
-            f"'hour', 'day', 'week', 'month', got '{granularity}'"
-        )
-    return cast("TimeGrain", granularity)
+    try:
+        normalized = validate_granularity(granularity)
+    except ValueError as exc:
+        raise ValueError(f"diagnose: INVALID_ARGUMENT - {exc}") from exc
+    if normalized is None:
+        raise ValueError("diagnose: INVALID_ARGUMENT - granularity is required")
+    return cast("TimeGrain", normalized)
 
 
 def _normalize_strategy(raw_strategy: Any) -> str:

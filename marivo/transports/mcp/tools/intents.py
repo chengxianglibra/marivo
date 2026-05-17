@@ -245,7 +245,7 @@ def to_aoi_diagnose_request(
     strategy: Literal["point_anomaly", "period_shift"],
     mode: Literal["auto_detect", "explicit_compare"] = "auto_detect",
     time_scope: McpTimeScope | None = None,
-    granularity: Literal["hour", "day", "week", "month"] | None = None,
+    granularity: Literal["hour", "day", "week", "month", "quarter", "year"] | None = None,
     filter_expression: McpExpression | dict[str, Any] | None = None,
     current: McpAoiSliceRef | None = None,
     baseline: McpAoiSliceRef | None = None,
@@ -493,7 +493,7 @@ def register_diagnose(server: Any, runtime: Any) -> None:
             Field(description="Required when mode='auto_detect'; omit for explicit_compare."),
         ] = None,
         granularity: Annotated[
-            Literal["hour", "day", "week", "month"] | None,
+            Literal["hour", "day", "week", "month", "quarter", "year"] | None,
             Field(description="Required when mode='auto_detect'; omit for explicit_compare."),
         ] = None,
         filter_expression: Annotated[

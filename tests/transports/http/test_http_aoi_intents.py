@@ -22,6 +22,7 @@ class _FakeRuntime:
         self.forecast_payload: Any | None = None
         self.attribute_payload: Any | None = None
         self.validate_payload: Any | None = None
+        self.diagnose_payload: Any | None = None
 
     def observe(self, session_id: str, payload: Any) -> dict[str, Any]:
         self.observe_payload = payload
@@ -187,6 +188,26 @@ class _FakeRuntime:
                         },
                     }
                 ],
+            },
+            "provenance": {"mocked": True},
+            "product_metadata": None,
+        }
+
+    def diagnose(self, session_id: str, payload: Any) -> dict[str, Any]:
+        self.diagnose_payload = payload
+        return {
+            "intent_type": "diagnose",
+            "step_type": "diagnose",
+            "step_ref": {
+                "session_id": session_id,
+                "step_id": "step_diagnose_1",
+                "step_type": "diagnose",
+            },
+            "artifact_id": "art_diagnose_1",
+            "result": {
+                "bundle_type": "diagnosis_bundle",
+                "aoi_artifacts": [],
+                "diagnoses": [],
             },
             "provenance": {"mocked": True},
             "product_metadata": None,
@@ -361,6 +382,28 @@ def test_observe_accepts_time_series_aoi_request() -> None:
     assert response.status_code == 200, response.text
     assert isinstance(runtime.observe_payload, aoi.Observe2)
     assert runtime.observe_payload.granularity == "quarter"
+
+
+def test_diagnose_accepts_generic_time_granularity() -> None:
+    runtime = _FakeRuntime()
+    response = _client(runtime).post(
+        "/sessions/sess_1/intents/diagnose",
+        json={
+            "metric": "metric.revenue",
+            "time_scope": {
+                "field": "event_time",
+                "start": "2026-01-01T00:00:00Z",
+                "end": "2026-07-01T00:00:00Z",
+            },
+            "granularity": "quarter",
+            "candidate_dimensions": ["region"],
+            "strategy": "point_anomaly",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert isinstance(runtime.diagnose_payload, aoi.Diagnose)
+    assert runtime.diagnose_payload.granularity == "quarter"
 
 
 def test_observe_accepts_segmented_aoi_request() -> None:

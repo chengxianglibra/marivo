@@ -451,6 +451,52 @@ def test_followup_limit_truncation_is_reported_from_detect_artifact_payload() ->
     follow_up.assert_called_once()
 
 
+@pytest.mark.parametrize("granularity", ["quarter", "year"])
+def test_auto_detect_accepts_generic_time_granularities(granularity: str) -> None:
+    runtime = MagicMock()
+    runtime.core.normalize_intent_metric_ref.side_effect = lambda metric: f"metric.{metric}"
+    runtime.core.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
+    runtime.insert_artifact.return_value = "art_diag_bundle"
+    runtime.insert_step.return_value = None
+
+    detect_result = {
+        "step_ref": {"session_id": "sess_grain", "step_id": "step_detect", "step_type": "detect"},
+        "artifact_id": "art_detect",
+        "result": {
+            "artifact_id": "art_detect",
+            "detectability": {"status": "detectable", "issues": [], "guidance": None},
+            "scan_summary": {"total_candidate_count": 1},
+            "candidates": [
+                {
+                    "candidate_ref": {"item_ref": {"collection": "candidates", "index": 0}},
+                    "window": {"start": "2026-01-01", "end": "2026-04-01"},
+                    "slice": None,
+                    "candidate_score": 10.0,
+                }
+            ],
+        },
+    }
+
+    with (
+        patch(
+            "marivo.runtime.intents.diagnose.run_detect_intent", return_value=detect_result
+        ) as detect,
+        patch(
+            "marivo.runtime.intents.diagnose._follow_up_candidate",
+            return_value={"status": "diagnosed", "issues": []},
+        ) as follow_up,
+    ):
+        bundle = run_diagnose_intent(
+            runtime,
+            "sess_grain",
+            _auto_params(granularity=granularity),
+        )
+
+    assert _result(bundle)["granularity"] == granularity
+    assert detect.call_args.args[2]["granularity"] == granularity
+    assert follow_up.call_args.kwargs["grain"] == granularity
+
+
 @pytest.mark.parametrize(
     ("params", "message"),
     [
@@ -459,7 +505,7 @@ def test_followup_limit_truncation_is_reported_from_detect_artifact_payload() ->
             "metric",
         ),
         (_auto_params(candidate_dimensions=[]), "candidate_dimensions"),
-        (_auto_params(granularity="quarter"), "granularity"),
+        (_auto_params(granularity="minute"), "granularity"),
         (_auto_params(strategy="unknown"), "strategy"),
         (_auto_params(sensitivity="wild"), "sensitivity"),
         (_auto_params(candidate_limit=0), "candidate_limit"),

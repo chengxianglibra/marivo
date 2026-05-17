@@ -1484,7 +1484,7 @@ interface AttributeArtifact {
 | time_scope | McpTimeScope \| null | 否 | null | auto_detect 模式必填；explicit_compare 模式省略 |
 | current | McpAoiSliceRef \| null | 否 | null | explicit_compare 模式必填；auto_detect 模式省略 |
 | baseline | McpAoiSliceRef \| null | 否 | null | explicit_compare 模式必填；auto_detect 模式省略 |
-| granularity | `"hour"` \| `"day"` \| `"week"` \| `"month"` \| null | 否 | null | auto_detect 模式必填；explicit_compare 模式省略 |
+| granularity | `"hour"` \| `"day"` \| `"week"` \| `"month"` \| `"quarter"` \| `"year"` \| null | 否 | null | auto_detect 模式必填；explicit_compare 模式省略 |
 | filter_expression | McpExpression \| null | 否 | null | auto_detect 模式可选 AOI 过滤表达式；explicit_compare 模式省略 |
 | detect_dimension | string \| null | 否 | null | detect 阶段的单维扫描维度 |
 | strategy | `"point_anomaly"` \| `"period_shift"` | 是 | - | detect 阶段的检测策略 |
@@ -2107,7 +2107,7 @@ interface AnalysisFailure {
 - `test_intent.left/right` 使用 `McpAoiSliceRef`，支持 `filter`，不支持 derived intent 的 `scope`
 - `validate.left/right` 使用 `McpAoiSliceRef`，进入 runtime 前会构造 generated AOI `Validate` 模型；`validate.hypothesis` 不暴露 `family`，不支持 `alpha`、`label` 或 `method`
 - `attribute.left/right` 使用 `McpAoiSliceRef`，进入 runtime 前会构造 generated AOI `Attribute` 模型；不支持 derived intent 的 `scope`
-- `diagnose.current/baseline` 使用 `McpAoiSliceRef`，auto_detect 使用 `filter_expression`；进入 runtime 前会构造 generated AOI `Diagnose` 模型，granularity 仅接受 `hour`、`day`、`week`、`month`
+- `diagnose.current/baseline` 使用 `McpAoiSliceRef`，auto_detect 使用 `filter_expression`；进入 runtime 前会构造 generated AOI `Diagnose` 模型，granularity 接受 `hour`、`day`、`week`、`month`、`quarter`、`year`
 - `correlate` 仅支持 `"pearson"` 和 `"spearman"` 方法，不支持 `"kendall"`
 - `decompose` 仅支持 `"delta_share"` 方法，无 method 参数
 

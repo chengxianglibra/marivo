@@ -1172,7 +1172,27 @@ def test_aoi_diagnose_rejects_non_contract_fields_and_bad_mode_shapes(
 
 
 @pytest.mark.parametrize("granularity", ["quarter", "year"])
-def test_aoi_diagnose_rejects_unsupported_granularity(granularity: str) -> None:
+def test_aoi_diagnose_accepts_generic_time_granularities(granularity: str) -> None:
+    from marivo.contracts.generated import aoi
+
+    request = aoi.Diagnose.model_validate(
+        {
+            "metric": "revenue",
+            "time_scope": {
+                "field": "event_time",
+                "start": "2026-01-01T00:00:00Z",
+                "end": "2026-01-02T00:00:00Z",
+            },
+            "granularity": granularity,
+            "candidate_dimensions": ["region"],
+            "strategy": "point_anomaly",
+        }
+    )
+
+    assert request.granularity == granularity
+
+
+def test_aoi_diagnose_rejects_invalid_granularity() -> None:
     from marivo.contracts.generated import aoi
 
     with pytest.raises(ValidationError):
@@ -1184,7 +1204,7 @@ def test_aoi_diagnose_rejects_unsupported_granularity(granularity: str) -> None:
                     "start": "2026-01-01T00:00:00Z",
                     "end": "2026-01-02T00:00:00Z",
                 },
-                "granularity": granularity,
+                "granularity": "minute",
                 "candidate_dimensions": ["region"],
                 "strategy": "point_anomaly",
             }
