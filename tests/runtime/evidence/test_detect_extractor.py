@@ -95,7 +95,7 @@ def _artifact(
         "artifact_schema_version": "v1",
         "metric": metric,
         "scope": scope,
-        "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+        "time_scope": {"field": "time", "start": "2024-01-01", "end": "2024-01-08"},
         "granularity": grain,
         "candidates": candidates,
         "scan_summary": {
@@ -202,7 +202,7 @@ class TestDetectExtractorSingleCandidate(unittest.TestCase):
 
     def test_observed_window_range(self) -> None:
         f = self.result["findings"][0]
-        self.assertEqual(f["observed_window"]["kind"], "range")
+        self.assertEqual(f["observed_window"]["field"], "time")
         self.assertEqual(f["observed_window"]["start"], "2024-01-05")
         self.assertEqual(f["observed_window"]["end"], "2024-01-06")
 
@@ -585,7 +585,7 @@ class TestDetectExtractorGrain(unittest.TestCase):
             "artifact_type": "anomaly_candidates",
             "artifact_schema_version": "v1",
             "metric": "daily_users",
-            "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+            "time_scope": {"field": "time", "start": "2024-01-01", "end": "2024-01-08"},
             "candidates": [_candidate()],
         }
         result = _EXTRACTOR.extract(_ART_ID, payload, _STEP_REF, _SESSION)

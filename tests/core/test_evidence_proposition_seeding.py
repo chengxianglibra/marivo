@@ -162,8 +162,8 @@ def test_materialize_change_scalar_increase() -> None:
     }
     artifact = {
         "resolved_input_summary": {
-            "current_time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-02-01"},
-            "baseline_time_scope": {"kind": "range", "start": "2023-01-01", "end": "2023-02-01"},
+            "current_time_scope": {"field": "time", "start": "2024-01-01", "end": "2024-02-01"},
+            "baseline_time_scope": {"field": "time", "start": "2023-01-01", "end": "2023-02-01"},
         },
     }
     result = materialize_change_from_delta(
@@ -215,7 +215,7 @@ def test_materialize_anomaly_valid() -> None:
             "grain": "day",
             "analysis_axis": "anomaly",
         },
-        "observed_window_json": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+        "observed_window_json": {"field": "time", "start": "2024-01-01", "end": "2024-01-08"},
         "step_ref_json": {},
     }
     result = materialize_anomaly_from_candidate(
@@ -231,7 +231,7 @@ def test_materialize_anomaly_missing_candidate_ref_returns_none() -> None:
         "artifact_id": "art_1",
         "payload_json": {"candidate_ref": None},
         "subject_json": {},
-        "observed_window_json": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+        "observed_window_json": {"field": "time", "start": "2024-01-01", "end": "2024-01-08"},
         "step_ref_json": {},
     }
     result = materialize_anomaly_from_candidate(

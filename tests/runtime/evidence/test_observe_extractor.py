@@ -50,7 +50,7 @@ def _scalar_payload(
         "schema_version": "1.0",
         "observation_type": "scalar",
         "metric": metric,
-        "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+        "time_scope": {"field": "time", "start": "2024-01-01", "end": "2024-01-08"},
         "scope": scope or {},
         "unit": None,
         "value": value,
@@ -77,7 +77,7 @@ def _time_series_payload(
         "schema_version": "1.0",
         "observation_type": "time_series",
         "metric": "daily_users",
-        "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+        "time_scope": {"field": "time", "start": "2024-01-01", "end": "2024-01-08"},
         "scope": {},
         "unit": None,
         "granularity": granularity,
@@ -104,7 +104,7 @@ def _segmented_payload(
         "schema_version": "1.0",
         "observation_type": "segmented",
         "metric": "daily_users",
-        "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+        "time_scope": {"field": "time", "start": "2024-01-01", "end": "2024-01-08"},
         "scope": {},
         "unit": None,
         "dimensions": ["region"],
@@ -215,7 +215,7 @@ class TestObserveExtractorTimeSeries(unittest.TestCase):
     def test_observed_window_per_finding(self) -> None:
         result = _EXTRACTOR.extract(_ART_ID, _time_series_payload(), _STEP_REF, _SESSION)
         f0 = result["findings"][0]
-        self.assertEqual(f0["observed_window"]["kind"], "range")
+        self.assertEqual(f0["observed_window"]["field"], "time")
         self.assertEqual(f0["observed_window"]["start"], "2024-01-01")
         self.assertEqual(f0["observed_window"]["end"], "2024-01-02")
 

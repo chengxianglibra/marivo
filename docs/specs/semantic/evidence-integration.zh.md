@@ -357,7 +357,7 @@ semantic refs 回答：
     "metric": "orders_gmv",
     "slice": { "country": "US" }
   },
-  "observed_window": { "kind": "range", "start": "2024-03-01", "end": "2024-03-08" }
+  "observed_window": { "field": "time", "start": "2024-03-01", "end": "2024-03-08" }
 }
 ```
 

@@ -153,8 +153,8 @@ def _init_marivo_dir(root: Path) -> None:
 
 
 def _scalar_compare_artifact() -> dict:
-    left_window = {"kind": "range", "start": "2026-05-01", "end": "2026-05-08"}
-    right_window = {"kind": "range", "start": "2026-04-24", "end": "2026-05-01"}
+    left_window = {"field": "time", "start": "2026-05-01", "end": "2026-05-08"}
+    right_window = {"field": "time", "start": "2026-04-24", "end": "2026-05-01"}
     return {
         "comparison_type": "scalar_delta",
         "metric": "revenue",

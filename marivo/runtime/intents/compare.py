@@ -140,11 +140,13 @@ def _relative_position_pairing_basis(
     }
 
 
-def _matched_scope_from_windows(windows: list[tuple[str, str]]) -> dict[str, Any] | None:
+def _matched_scope_from_windows(
+    windows: list[tuple[str, str]], *, field: str | None
+) -> dict[str, Any] | None:
     if not windows:
         return None
     return {
-        "kind": "range",
+        "field": field or "time",
         "start": windows[0][0],
         "end": windows[-1][1],
     }
@@ -609,9 +611,19 @@ def run_compare_intent(
         summary_rel = _compute_relative_delta(summary_abs, summary_baseline_value)
         summary_dir = _compute_direction(summary_abs, summary_rel, flat_tolerance_relative)
 
-        matched_time_scope = _matched_scope_from_windows(matched_left_windows)
-        matched_current_time_scope = _matched_scope_from_windows(matched_left_windows)
-        matched_baseline_time_scope = _matched_scope_from_windows(matched_right_windows)
+        left_time_scope = left_artifact.get("time_scope") or {}
+        right_time_scope = right_artifact.get("time_scope") or {}
+        current_time_field = str(left_time_scope.get("field") or "time").strip() or "time"
+        baseline_time_field = str(right_time_scope.get("field") or "time").strip() or "time"
+        matched_time_scope = _matched_scope_from_windows(
+            matched_left_windows, field=current_time_field
+        )
+        matched_current_time_scope = _matched_scope_from_windows(
+            matched_left_windows, field=current_time_field
+        )
+        matched_baseline_time_scope = _matched_scope_from_windows(
+            matched_right_windows, field=baseline_time_field
+        )
 
         analytical_metadata.update(
             {

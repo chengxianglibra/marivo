@@ -890,7 +890,7 @@ action proposal 是面向 agent 的动作候选，不是事实。
     "analysis_axis": "segment"
   },
   "observed_window": {
-    "kind": "range",
+    "field": "time",
     "start": "2024-03-01",
     "end": "2024-03-08"
   },
@@ -964,7 +964,7 @@ action proposal 是面向 agent 的动作候选，不是事实。
     "analysis_axis": "time"
   },
   "observed_window": {
-    "kind": "range",
+    "field": "time",
     "start": "2024-03-07",
     "end": "2024-03-08"
   },

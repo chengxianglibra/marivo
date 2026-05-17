@@ -284,9 +284,11 @@ def run_observe_intent(
 
     # --- Resolve time scope → (start_str, end_str, resolved response shape) ---
     start_str, end_str, time_scope_field = resolve_time_scope(time_scope_raw)
-    resolved_time_scope: dict[str, Any] = {"kind": "range", "start": start_str, "end": end_str}
-    if time_scope_field:
-        resolved_time_scope["field"] = time_scope_field
+    resolved_time_scope: dict[str, Any] = {
+        "field": time_scope_field,
+        "start": start_str,
+        "end": end_str,
+    }
 
     if granularity == "hour":
         validate_hour_boundaries(

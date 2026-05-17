@@ -696,14 +696,10 @@ def _time_scope_has_datetime_boundary(time_scope: dict[str, Any]) -> bool:
 
 
 def _extract_date_range(time_scope: dict[str, Any]) -> tuple[str, str]:
-    """Extract (start_str, end_str) from a range time_scope dict."""
-    kind = time_scope.get("kind")
-    if kind == "range":
-        return time_scope["start"], time_scope["end"]
-    # Fallback: treat as range if keys present
+    """Extract (start_str, end_str) from a canonical time_scope dict."""
     if "start" in time_scope and "end" in time_scope:
         return time_scope["start"], time_scope["end"]
-    raise ValueError(f"decompose: cannot extract date range from time_scope with kind='{kind}'")
+    raise ValueError("decompose: cannot extract date range from time_scope without start/end")
 
 
 def _safe_float(v: Any) -> float | None:

@@ -45,7 +45,7 @@ def _scalar_observation(metric: str = "m1") -> dict[str, Any]:
             "additive_dimensions": ["country", "device", "date"],
             "row_count": 10,
         },
-        "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+        "time_scope": {"field": "time", "start": "2024-01-01", "end": "2024-01-08"},
         "scope": {},
     }
 
@@ -80,7 +80,7 @@ def _time_series_observation(
             "additive_dimensions": ["country", "device", "date"],
             "row_count": len(series),
         },
-        "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-03"},
+        "time_scope": {"field": "time", "start": "2024-01-01", "end": "2024-01-03"},
         "scope": {},
     }
     if aligned_baseline_series is not None:

@@ -203,7 +203,7 @@ def _observe_time_series_payload(series: list[dict[str, Any]] | None = None) -> 
         "schema_version": "1.0",
         "observation_type": "time_series",
         "metric": "daily_users",
-        "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+        "time_scope": {"field": "time", "start": "2024-01-01", "end": "2024-01-08"},
         "scope": {},
         "granularity": "day",
         "unit": None,
@@ -228,7 +228,7 @@ def _observe_segmented_payload(segments: list[dict[str, Any]] | None = None) -> 
         "schema_version": "1.0",
         "observation_type": "segmented",
         "metric": "revenue",
-        "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+        "time_scope": {"field": "time", "start": "2024-01-01", "end": "2024-01-08"},
         "scope": {},
         "dimensions": ["country"],
         "unit": "usd",
@@ -292,12 +292,12 @@ def _compare_segmented_payload(rows: list[dict[str, Any]] | None = None) -> dict
             "current_scope": {},
             "baseline_scope": {},
             "current_time_scope": {
-                "kind": "range",
+                "field": "time",
                 "start": "2024-01-01",
                 "end": "2024-01-08",
             },
             "baseline_time_scope": {
-                "kind": "range",
+                "field": "time",
                 "start": "2023-12-25",
                 "end": "2024-01-01",
             },
@@ -384,7 +384,7 @@ def _correlate_payload(
         },
         "analytical_metadata": {
             "pairing_rule": "intersection_by_time_bucket",
-            "matched_time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-12"},
+            "matched_time_scope": {"field": "time", "start": "2024-01-01", "end": "2024-01-12"},
         },
     }
 
@@ -792,7 +792,7 @@ class TestFindingIdReplayStability(unittest.TestCase):
             "schema_version": "1.0",
             "observation_type": "scalar",
             "metric": "dau",
-            "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+            "time_scope": {"field": "time", "start": "2024-01-01", "end": "2024-01-08"},
             "scope": {},
             "unit": None,
             "value": 1234.0,

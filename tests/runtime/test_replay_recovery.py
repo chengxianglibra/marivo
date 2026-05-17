@@ -39,8 +39,8 @@ _SESSION = "sess_rr_001"
 _ARTIFACT_ID = "art_rr_001"
 _FINDING_ID = "fnd_rr_001"
 
-_LEFT_WIN = {"kind": "range", "start": "2024-01-01", "end": "2024-01-07"}
-_RIGHT_WIN = {"kind": "range", "start": "2024-01-08", "end": "2024-01-14"}
+_LEFT_WIN = {"field": "time", "start": "2024-01-01", "end": "2024-01-07"}
+_RIGHT_WIN = {"field": "time", "start": "2024-01-08", "end": "2024-01-14"}
 
 _COMPARE_ARTIFACT_CONTENT: dict[str, Any] = {
     "comparison_type": "scalar_delta",
@@ -133,7 +133,7 @@ def _setup(store: SQLiteMetadataStore) -> None:
             "canonical_item_key": _FINDING_ID,
             "subject_json": json.dumps(subject),
             "observed_window_json": json.dumps(
-                {"kind": "range", "start": "2024-01-08", "end": "2024-01-14"}
+                {"field": "time", "start": "2024-01-08", "end": "2024-01-14"}
             ),
             "quality_json": json.dumps(quality),
             "provenance_json": json.dumps(provenance),

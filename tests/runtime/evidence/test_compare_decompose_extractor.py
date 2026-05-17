@@ -99,8 +99,8 @@ def _scalar_delta_payload(
             "current_scope": current_scope or {},
             "baseline_scope": {},
             "current_time_scope": current_time_scope
-            or {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
-            "baseline_time_scope": {"kind": "range", "start": "2023-12-25", "end": "2024-01-01"},
+            or {"field": "time", "start": "2024-01-01", "end": "2024-01-08"},
+            "baseline_time_scope": {"field": "time", "start": "2023-12-25", "end": "2024-01-01"},
         },
         "comparability": {"status": "comparable", "issues": []},
         "analytical_metadata": {},
@@ -181,8 +181,8 @@ def _segmented_delta_payload(
         "resolved_input_summary": {
             "current_scope": {},
             "baseline_scope": {},
-            "current_time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
-            "baseline_time_scope": {"kind": "range", "start": "2023-12-25", "end": "2024-01-01"},
+            "current_time_scope": {"field": "time", "start": "2024-01-01", "end": "2024-01-08"},
+            "baseline_time_scope": {"field": "time", "start": "2023-12-25", "end": "2024-01-01"},
         },
         "comparability": {"status": "comparable", "issues": []},
         "analytical_metadata": {},
@@ -245,8 +245,8 @@ def _time_series_delta_payload(
         "resolved_input_summary": {
             "current_scope": {},
             "baseline_scope": {},
-            "current_time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-03"},
-            "baseline_time_scope": {"kind": "range", "start": "2023-12-25", "end": "2023-12-27"},
+            "current_time_scope": {"field": "time", "start": "2024-01-01", "end": "2024-01-03"},
+            "baseline_time_scope": {"field": "time", "start": "2023-12-25", "end": "2023-12-27"},
         },
         "comparability": {"status": "comparable", "issues": []},
         "analytical_metadata": analytical_metadata
@@ -254,7 +254,7 @@ def _time_series_delta_payload(
             "pairing_basis": "observed_series",
             "pairing_rule": "intersection_by_time_bucket",
             "matched_time_scope": {
-                "kind": "range",
+                "field": "time",
                 "start": "2024-01-01",
                 "end": "2024-01-03",
             },
@@ -442,7 +442,7 @@ class TestCompareScalarDelta(unittest.TestCase):
         self.assertEqual(result["findings"][0]["subject"]["slice"], {"region": "APAC"})
 
     def test_observed_window_from_current_time_scope(self) -> None:
-        ts = {"kind": "range", "start": "2024-02-01", "end": "2024-02-08"}
+        ts = {"field": "time", "start": "2024-02-01", "end": "2024-02-08"}
         result = self._extract(current_time_scope=ts)
         self.assertEqual(result["findings"][0]["observed_window"], ts)
 
@@ -646,7 +646,7 @@ class TestCompareSegmentedDelta(unittest.TestCase):
     def test_observed_window_from_resolved_summary(self) -> None:
         """segmented_delta findings carry observed_window from resolved_input_summary."""
         result = self._extract()
-        ts = {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"}
+        ts = {"field": "time", "start": "2024-01-01", "end": "2024-01-08"}
         for f in result["findings"]:
             self.assertEqual(f["observed_window"], ts)
 
@@ -721,26 +721,26 @@ class TestCompareTimeSeriesDelta(unittest.TestCase):
         result = self._extract()
         self.assertEqual(
             result["findings"][1]["observed_window"],
-            {"kind": "range", "start": "2024-01-01", "end": "2024-01-02"},
+            {"field": "time", "start": "2024-01-01", "end": "2024-01-02"},
         )
 
     def test_summary_observed_window_uses_valid_matched_time_scope_only(self) -> None:
         payload = _time_series_delta_payload()
         payload["analytical_metadata"]["matched_time_scope"] = {
-            "kind": "range",
+            "field": "time",
             "start": "2024-01-01",
             "end": "2024-01-03",
         }
         result = _COMPARE_EXTRACTOR.extract(_ART_ID, payload, _STEP_REF, _SESSION)
         self.assertEqual(
             result["findings"][0]["observed_window"],
-            {"kind": "range", "start": "2024-01-01", "end": "2024-01-03"},
+            {"field": "time", "start": "2024-01-01", "end": "2024-01-03"},
         )
 
     def test_summary_observed_window_is_none_for_malformed_matched_time_scope(self) -> None:
         payload = _time_series_delta_payload()
         payload["analytical_metadata"]["matched_time_scope"] = {
-            "kind": "range",
+            "field": "time",
             "start": "2024-01-01",
         }
         result = _COMPARE_EXTRACTOR.extract(_ART_ID, payload, _STEP_REF, _SESSION)

@@ -144,7 +144,14 @@ class ForecastArtifactExtractor(FindingExtractor):
                 horizon_index = i + 1
 
             observed_window = (
-                {"kind": "range", "start": bucket_start, "end": bucket_end}
+                {
+                    "field": str(
+                        (artifact_payload.get("source_time_scope") or {}).get("field") or "time"
+                    ).strip()
+                    or "time",
+                    "start": bucket_start,
+                    "end": bucket_end,
+                }
                 if bucket_start and bucket_end
                 else None
             )

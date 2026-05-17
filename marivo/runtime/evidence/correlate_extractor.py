@@ -131,7 +131,7 @@ class CorrelateArtifactExtractor(FindingExtractor):
         matched_time_scope: dict[str, Any] | None = analytical.get("matched_time_scope")
         observed_window = (
             {
-                "kind": "range",
+                "field": str(matched_time_scope.get("field") or "time").strip() or "time",
                 "start": matched_time_scope["start"],
                 "end": matched_time_scope["end"],
             }

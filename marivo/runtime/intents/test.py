@@ -324,11 +324,19 @@ def run_test_intent(
     # ── Source lineage ────────────────────────────────────────────────────
     source_lineage: dict[str, Any] = {
         "current": {
-            "time_scope": {"kind": "range", "start": current_start, "end": current_end},
+            "time_scope": {
+                "field": current_time_scope.get("field"),
+                "start": current_start,
+                "end": current_end,
+            },
             "filter": current_filter,
         },
         "baseline": {
-            "time_scope": {"kind": "range", "start": baseline_start, "end": baseline_end},
+            "time_scope": {
+                "field": baseline_time_scope.get("field"),
+                "start": baseline_start,
+                "end": baseline_end,
+            },
             "filter": baseline_filter,
         },
     }

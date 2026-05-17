@@ -294,10 +294,12 @@ def materialize_forecast_from_point(
 
     subject_base = finding["subject_json"]
     subject: dict[str, Any] = {**subject_base, "analysis_axis": "forecast"}
+    observed_window = finding.get("observed_window_json") or {}
+    time_field = str(observed_window.get("field") or "time").strip() or "time"
 
     prop_payload: dict[str, Any] = {
         "forecast_kind": forecast_kind,
-        "forecast_window": {"kind": "range", "start": bucket_start, "end": bucket_end},
+        "forecast_window": {"field": time_field, "start": bucket_start, "end": bucket_end},
         "horizon_index": horizon_int,
         "expectation_direction": "open",
         "forecast_basis_ref": {"session_id": session_id, "finding_id": finding["finding_id"]},

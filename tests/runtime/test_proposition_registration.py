@@ -138,8 +138,8 @@ _SESSION = "sess_4e2"
 _ART_ID = "art_4e2_001"
 _FND_ID = "fnd_4e2_delta_001"
 
-_LEFT_WIN = {"kind": "range", "start": "2024-01-01", "end": "2024-01-07"}
-_RIGHT_WIN = {"kind": "range", "start": "2024-01-08", "end": "2024-01-14"}
+_LEFT_WIN = {"field": "time", "start": "2024-01-01", "end": "2024-01-07"}
+_RIGHT_WIN = {"field": "time", "start": "2024-01-08", "end": "2024-01-14"}
 
 _SUBJECT_CHANGE: dict[str, Any] = {
     "metric": "dau",
@@ -168,7 +168,7 @@ _PAYLOAD_CHANGE: dict[str, Any] = {
 
 _PAYLOAD_FORECAST: dict[str, Any] = {
     "forecast_kind": "point_forecast",
-    "forecast_window": {"kind": "range", "start": "2024-02-01", "end": "2024-02-02"},
+    "forecast_window": {"field": "time", "start": "2024-02-01", "end": "2024-02-02"},
     "horizon_index": 3,
     "expectation_direction": "open",
     "forecast_basis_ref": None,

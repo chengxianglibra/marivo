@@ -43,7 +43,7 @@ def _time_series_observation(
             "row_count": len(series),
         },
         "time_scope": {
-            "kind": "range",
+            "field": "time",
             "start": series[0]["window"]["start"],
             "end": series[-1]["window"]["end"],
         },
@@ -245,7 +245,7 @@ def test_correlate_drops_non_numeric_pairs_and_reports_counts() -> None:
     assert metadata["dropped_left_points"] == 2
     assert metadata["dropped_right_points"] == 2
     assert metadata["matched_time_scope"] == {
-        "kind": "range",
+        "field": "time",
         "start": "2024-01-01",
         "end": "2024-01-07",
     }
