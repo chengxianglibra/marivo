@@ -1604,6 +1604,11 @@ interface DiagnoseArtifact {
 }
 ```
 
+`diagnoses[*].anomaly_evidence` 表示 detect 阶段的异常证据：当前值、期望值和偏离幅度。
+`diagnoses[*].attribution_comparison` 表示后续归因实际使用的 current/baseline 窗口对比。
+对 `point_anomaly`，两者的 baseline 语义可能不同：detect 的期望值来自扫描窗口统计基线，
+而归因对比固定使用相邻等长 baseline window。
+
 **输入示例**：
 
 ```json
@@ -1635,7 +1640,19 @@ interface DiagnoseArtifact {
       "bundle_type": "diagnosis_bundle",
       "diagnoses": [
         {
-          "comparison": { "absolute_delta": 35867, "relative_delta": 1.95 },
+          "anomaly_evidence": {
+            "basis": "scan_window_zscore_mean",
+            "current_value": 45000,
+            "expected_value": 15230,
+            "deviation_pct": 1.95
+          },
+          "attribution_comparison": {
+            "basis": "previous_adjacent_equal_length",
+            "current_window": { "start": "2025-03-05", "end": "2025-03-06" },
+            "baseline_window": { "start": "2025-03-04", "end": "2025-03-05" },
+            "absolute_delta": 35867,
+            "relative_delta": 1.95
+          },
           "drivers": [
             {
               "dimension": "cluster",

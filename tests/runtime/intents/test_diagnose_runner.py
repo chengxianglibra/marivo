@@ -185,7 +185,25 @@ def test_auto_detect_follows_detect_artifact_candidates_and_builds_full_chain(
         "end": _BASELINE_END,
     }
     assert diagnosis["status"] == "diagnosed"
-    assert diagnosis["comparison"]["absolute_delta"] == 400.0
+    assert "comparison" not in diagnosis
+    assert diagnosis["anomaly_evidence"]["basis"] == "scan_window_zscore_mean"
+    assert diagnosis["anomaly_evidence"]["current_value"] == 500.0
+    assert diagnosis["anomaly_evidence"]["expected_value"] == pytest.approx(128.5714285714)
+    assert diagnosis["attribution_comparison"]["basis"] == "previous_adjacent_equal_length"
+    assert diagnosis["attribution_comparison"]["current_window"] == {
+        "start": _SPIKE_START,
+        "end": _SPIKE_END,
+    }
+    assert diagnosis["attribution_comparison"]["baseline_window"] == {
+        "start": _BASELINE_START,
+        "end": _BASELINE_END,
+    }
+    assert diagnosis["attribution_comparison"]["baseline_value"] == 100.0
+    assert (
+        diagnosis["anomaly_evidence"]["expected_value"]
+        != diagnosis["attribution_comparison"]["baseline_value"]
+    )
+    assert diagnosis["attribution_comparison"]["absolute_delta"] == 400.0
     assert driver["dimension"] == "cluster"
     assert driver["attribution_status"] == "attributable"
     assert driver["rows"][0]["key"] == "alpha"
@@ -222,8 +240,8 @@ def test_auto_detect_filter_is_applied_to_detect_and_followup(
     driver = diagnosis["drivers"][0]
 
     assert result["scope"] == {"predicate": "cluster = 'alpha'"}
-    assert diagnosis["comparison"]["current_value"] == 500.0
-    assert diagnosis["comparison"]["baseline_value"] == 100.0
+    assert diagnosis["attribution_comparison"]["current_value"] == 500.0
+    assert diagnosis["attribution_comparison"]["baseline_value"] == 100.0
     assert [row["key"] for row in driver["rows"]] == ["alpha"]
 
 
@@ -439,6 +457,49 @@ def test_auto_detect_accepts_generic_time_granularities(granularity: str) -> Non
     assert _result(bundle)["granularity"] == granularity
     assert detect.call_args.args[2]["granularity"] == granularity
     assert follow_up.call_args.kwargs["grain"] == granularity
+
+
+def test_candidate_baseline_failure_keeps_anomaly_evidence() -> None:
+    from marivo.runtime.intents.diagnose import _follow_up_candidate
+
+    runtime = MagicMock()
+    candidate = {
+        "candidate_ref": {"item_ref": {"collection": "candidates", "index": 0}},
+        "candidate_type": "point_anomaly",
+        "window": {"start": "", "end": "2026-01-03"},
+        "current_value": 500.0,
+        "baseline_value": 128.57,
+        "deviation_abs": 371.43,
+        "deviation_pct": 2.89,
+        "direction": "up",
+        "candidate_score": 3.1,
+        "flag_level": "high",
+    }
+
+    result = _follow_up_candidate(
+        runtime=runtime,
+        session_id="sess_bad_baseline",
+        candidate=candidate,
+        metric_ref="metric.detect_event_count",
+        base_scope=None,
+        dimensions=["cluster"],
+        decomposition_limit=5,
+        grain="day",
+    )
+
+    assert result["status"] == "needs_attention"
+    assert result["attribution_comparison"] is None
+    assert "comparison" not in result
+    assert result["anomaly_evidence"] == {
+        "basis": "scan_window_zscore_mean",
+        "current_value": 500.0,
+        "expected_value": 128.57,
+        "deviation_abs": 371.43,
+        "deviation_pct": 2.89,
+        "direction": "up",
+        "candidate_score": 3.1,
+        "flag_level": "high",
+    }
 
 
 @pytest.mark.parametrize(

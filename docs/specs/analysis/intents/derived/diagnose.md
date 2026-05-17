@@ -354,7 +354,8 @@ type DiagnoseCandidateResult = {
   current_ref: ObservationArtifactRef | null;
   baseline_ref: ObservationArtifactRef | null;
   compare_ref: CompareArtifactRef | null;
-  comparison: ScalarDeltaSummary | null;
+  anomaly_evidence: AnomalyEvidence;
+  attribution_comparison: AttributionComparisonSummary | null;
   drivers: DiagnoseDriverSet[];
   status: "diagnosed" | "needs_attention";
   issues: DiagnoseIssue[];
@@ -365,7 +366,8 @@ type DiagnoseCandidateProjection = {
   candidate: DetectCandidateSummary;
   baseline_derivation: BaselineDerivationMetadata;
   compare_ref: CompareArtifactRef | null;
-  comparison: ScalarDeltaSummary | null;
+  anomaly_evidence: AnomalyEvidence;
+  attribution_comparison: AttributionComparisonSummary | null;
   drivers: DiagnoseDriverProjection[];
   status: "diagnosed" | "needs_attention";
   issues: DiagnoseIssue[];
@@ -425,6 +427,17 @@ type DetectCandidateSummary = {
   direction: "up" | "down" | "flat" | "undefined";
 };
 
+type AnomalyEvidence = {
+  basis: "scan_window_zscore_mean" | "previous_adjacent_equal_length";
+  current_value: number | null;
+  expected_value: number | null;
+  deviation_abs: number | null;
+  deviation_pct: number | null;
+  direction: "up" | "down" | "flat" | "undefined";
+  candidate_score: number | null;
+  flag_level: "low" | "medium" | "high" | null;
+};
+
 type BaselineDerivationMetadata = {
   policy: "previous_adjacent_equal_length";
   current_window: {
@@ -437,8 +450,17 @@ type BaselineDerivationMetadata = {
   } | null;
 };
 
-type ScalarDeltaSummary = {
+type AttributionComparisonSummary = {
+  basis: "previous_adjacent_equal_length";
   comparison_type: "scalar_delta";
+  current_window: {
+    start: string;
+    end: string;
+  };
+  baseline_window: {
+    start: string;
+    end: string;
+  };
   current_value: number | null;
   baseline_value: number | null;
   absolute_delta: number | null;
@@ -533,13 +555,15 @@ type DiagnoseDriverProjection = {
 `diagnose` 的最终语义分三层承接：
 
 - “有没有异常”来自 `detect` candidate
-- “异常有多大”来自 follow-up `compare`
-- “主要由哪些维度驱动”来自每个 `decompose` 的 contribution rows
+- “异常有多大”来自 `anomaly_evidence`，它继承 `detect` 的 expected-baseline / deviation 语义
+- “哪些实际窗口差异被归因”来自 `attribution_comparison`
+- “主要由哪些维度驱动”来自每个 `decompose` 的 contribution rows，它解释 `attribution_comparison` 的 delta
 
 因此：
 
 - `detect` candidate 仍然是 candidate，不是 confirmed anomaly fact
-- `comparison.absolute_delta` / `relative_delta` 继承 `compare` 语义
+- `anomaly_evidence.expected_value` 是 detect 阶段的统计期望或 detect baseline，不保证对应一个可观测 baseline artifact
+- `attribution_comparison.absolute_delta` / `relative_delta` 继承 `compare` 语义，基于实际 current/baseline observe artifact
 - `drivers.top_segment` 是 `rows[0]` 的维度级摘要，用于避免调用方自行遍历时误读 driver 集合
 - `drivers.total_contribution` 是该维度所有 contribution rows 的 signed metric-domain 合计，不只限于返回的 top rows
 - `drivers.rows[*].contribution_share` 继承 `decompose` 的 signed share 语义
@@ -556,7 +580,7 @@ type DiagnoseDriverProjection = {
 - `current_ref = null`：current-side observe artifact 未产生；唯一允许原因是上游校验或执行失败已在 `issues` 中披露
 - `baseline_ref = null`：baseline-side observe artifact 未产生；唯一允许原因是 baseline 推导失败或 baseline observe 未产生
 - `compare_ref = null`：compare artifact 未产生；唯一允许原因是任一 observe 未产生或 compare 未通过原子兼容性校验
-- `comparison = null`：scalar delta summary 不可定义；唯一允许原因是 `compare_ref = null` 或 compare artifact 未能产生可读取 summary
+- `attribution_comparison = null`：scalar delta summary 不可定义；唯一允许原因是 `compare_ref = null` 或 compare artifact 未能产生可读取 summary
 - `drivers = []`：没有任何已请求维度的 driver result；唯一允许原因是该 candidate 未进入可执行 decompose 阶段
 - `drivers[*].top_segment = null`：该维度没有返回任何 contribution row；不得表示“未知 top segment 但 rows 有值”
 - `drivers[*].total_contribution = null`：该维度没有 contribution rows，或至少一个 row 的 `absolute_contribution` 不可定义
@@ -587,7 +611,7 @@ type DiagnoseDriverProjection = {
 
 ### DiagnoseCandidateResult.status
 
-- 仅当 `baseline_derivation.baseline_window` 可定义、`current_ref` / `baseline_ref` / `compare_ref` 全部存在、且 `comparison.comparability_status = "comparable"` 时，状态为 `diagnosed`
+- 仅当 `baseline_derivation.baseline_window` 可定义、`current_ref` / `baseline_ref` / `compare_ref` 全部存在、且 `attribution_comparison.comparability_status = "comparable"` 时，状态为 `diagnosed`
 - 出现 `baseline_derivation_failed`、`observe_failed` 或 `compare_not_comparable` 时，状态必须为 `needs_attention`
 - `compare_needs_attention` 也会把 candidate 状态降为 `needs_attention`
 - 任一维度 `decompose_not_attributable` 不会抹掉其他维度结果，但 candidate 状态仍降为 `needs_attention`
@@ -621,7 +645,7 @@ type DiagnoseDriverProjection = {
 以下状态或引用组合是非法的：
 
 - `DiagnoseCandidateResult.status = "diagnosed"` 但 `compare_ref = null`
-- `DiagnoseCandidateResult.status = "diagnosed"` 但 `comparison.comparability_status != "comparable"`
+- `DiagnoseCandidateResult.status = "diagnosed"` 但 `attribution_comparison.comparability_status != "comparable"`
 - `DiagnoseDriverSet.attribution_status = "attributable"` 但 `decompose_ref = null`
 - `baseline_derivation.baseline_window = null` 且 `baseline_ref != null`
 - `compare_ref != null` 但 `current_ref = null` 或 `baseline_ref = null`
