@@ -5,7 +5,6 @@ from typing import Any
 from fastapi import FastAPI
 
 from marivo.transports.http import (
-    calendar,
     datasources,
     health,
     metrics,
@@ -71,7 +70,6 @@ def include_api_routers(app: FastAPI) -> None:
         routing.router,
         semantic_v2.router,
         metrics.router,
-        calendar.router,
     ):
         app.include_router(router)
     _install_openapi_schema_patch(app)

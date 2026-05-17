@@ -1,5 +1,15 @@
 from __future__ import annotations
 
+from .calendar import (
+    CalendarDataListEnvelope,
+    CalendarDataListResponse,
+    CalendarDataQuery,
+    CalendarDataRow,
+    CalendarDataUpdateEnvelope,
+    CalendarDataUpdateRequest,
+    CalendarDataUpdateResponse,
+    CalendarDayKind,
+)
 from .errors import ConflictError, DomainError, ForbiddenError, NotFoundError, ValidationError
 from .evidence import Assessment, Evidence, Finding, Proposition
 from .ids import (
@@ -44,6 +54,14 @@ __all__ = [
     "AssessmentId",
     "AttemptId",
     "CacheKey",
+    "CalendarDataListEnvelope",
+    "CalendarDataListResponse",
+    "CalendarDataQuery",
+    "CalendarDataRow",
+    "CalendarDataUpdateEnvelope",
+    "CalendarDataUpdateRequest",
+    "CalendarDataUpdateResponse",
+    "CalendarDayKind",
     "ConflictError",
     "DatasourceId",
     "DomainError",

@@ -15,6 +15,8 @@ from marivo.ports.analytics import AnalyticsEngine
 from marivo.routing import QueryRouter
 from marivo.runtime.ports import RuntimePorts
 from marivo.runtime.runtime import MarivoRuntime
+from marivo.runtime.semantic.calendar_data_runtime import CalendarDataReader
+from marivo.runtime.semantic.calendar_data_service import CalendarDataService
 
 
 @dataclass
@@ -153,9 +155,11 @@ def create_server_runtime(config: ServerConfig) -> ServerComposition:
     runtime.register_service("semantic_v2", semantic_v2)
     runtime.register_service("semantic_repository", semantic_repo)
     runtime.register_service("query_router", query_router)
+    runtime.register_service("calendar_data", CalendarDataService(metadata_store))
     runtime.wire_evidence_repos(_build_evidence_repos(metadata_store))
     runtime.wire_metadata(metadata_store)
     runtime.wire_analytics(analytics_engine)
+    runtime.wire_calendar_data_reader(CalendarDataReader(metadata=metadata_store))
 
     from marivo.time_axis_metadata import TimeAxisMetadataProvider
 

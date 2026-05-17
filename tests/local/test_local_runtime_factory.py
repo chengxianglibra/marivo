@@ -37,6 +37,18 @@ def test_runtime_datasource_service_is_usable(tmp_path: Path):
     assert isinstance(datasources, list)
 
 
+def test_runtime_wires_calendar_data_service_and_reader(tmp_path: Path):
+    from marivo.runtime.semantic.calendar_data_runtime import CalendarDataReader
+    from marivo.runtime.semantic.calendar_data_service import CalendarDataService
+
+    _init_marivo_dir(tmp_path)
+    config = LocalConfig(workspace_root=tmp_path)
+    runtime = create_local_runtime(config)
+
+    assert isinstance(runtime.get_service("calendar_data"), CalendarDataService)
+    assert isinstance(runtime.calendar_data_reader, CalendarDataReader)
+
+
 def test_explicit_local_at_local_entry_succeeds(tmp_path: Path):
     _init_marivo_dir(tmp_path)
     config = LocalConfig(workspace_root=tmp_path)

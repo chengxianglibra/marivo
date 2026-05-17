@@ -13,7 +13,6 @@ SCOPED_PATH_PREFIXES = (
     "/routing",  # fully typed, GREEN
     "/policies",
     "/quality-rules",
-    "/calendar",
 )
 
 SCOPED_SESSION_PATHS = {
@@ -105,6 +104,7 @@ def test_dataset_native_grounding_removed_routes_are_not_registered() -> None:
         "/semantic/bindings/{binding_id}/activate",
         "/semantic/bindings/{binding_id}/deprecate",
         "/semantic/bindings/{binding_id}/publish",
+        "/calendar/data",
     }
 
     assert paths.isdisjoint(removed_paths)

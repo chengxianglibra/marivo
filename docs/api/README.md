@@ -76,7 +76,6 @@ Runtime/catalog availability is gated by `lifecycle_status` and `readiness_statu
 | [Datasources](sources.md) | `/datasources` | Datasource registration, live browse, and preview |
 | [Routing Resolution](engines.md) | `/routing/resolve` | Debug the datasource route selected for table names |
 | [Semantic Layer](semantic.md) | `/semantic-models` | OSI semantic models with dataset-native physical grounding |
-| Calendar Data | `/calendar/data` | Replace sparse holiday calendar rows used by calendar-aware analysis |
 | [Health & Observability](observability.md) | `/health`, `/metrics` | Service health and operational metrics |
 
 ## Additional Guides
