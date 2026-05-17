@@ -66,6 +66,9 @@ class MarivoMetricFilter(BaseModel):
     model_config = {"extra": "forbid"}
 
 
+_ADDITIVE_DIMENSIONS_ALL = "__all"
+
+
 class MarivoMetricExtension(BaseModel):
     additive_dimensions: list[str] = []
     aggregation_semantics: Literal["sum", "ratio", "weighted_average"] = "sum"
@@ -75,6 +78,15 @@ class MarivoMetricExtension(BaseModel):
 
     @model_validator(mode="after")
     def _validate_additive_dimensions(self) -> MarivoMetricExtension:
+        if any(dimension == "" for dimension in self.additive_dimensions):
+            raise ValueError("additive_dimensions entries must be non-empty strings")
+        if _ADDITIVE_DIMENSIONS_ALL in self.additive_dimensions and self.additive_dimensions != [
+            _ADDITIVE_DIMENSIONS_ALL
+        ]:
+            raise ValueError(
+                f"additive_dimensions uses {_ADDITIVE_DIMENSIONS_ALL!r} and must not "
+                "mix it with explicit fields"
+            )
         return self
 
     @property

@@ -14,7 +14,11 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from marivo.contracts.errors import ExecutionError
-from marivo.core.semantic.additivity import derive_additivity_capabilities
+from marivo.core.semantic.additivity import (
+    additive_dimension_allows,
+    additive_time_rollup_allowed,
+    derive_additivity_capabilities,
+)
 from marivo.runtime.intents._helpers import aoi_filter_to_scope
 from marivo.runtime.intents.compare import run_compare_intent
 from marivo.runtime.intents.decompose import run_decompose_intent
@@ -149,7 +153,7 @@ def run_attribute_intent(
     _time_scope_field = (
         str(current_time_scope.get("field") or "").strip() if current_time_scope else None
     )
-    time_rollup_allowed = _time_scope_field in _additive_dimensions if _time_scope_field else False
+    time_rollup_allowed = additive_time_rollup_allowed(_additive_dimensions, _time_scope_field)
 
     # Gate 2: metric must support decompose
     if not additivity_caps.supports_decompose:
@@ -208,7 +212,11 @@ def run_attribute_intent(
 
     if len(additivity_caps.additive_dimensions) > 0:
         allowed_set = set(additivity_caps.additive_dimensions)
-        disallowed_requested = [d for d in dimensions if d not in allowed_set]
+        disallowed_requested = [
+            d
+            for d in dimensions
+            if not additive_dimension_allows(additivity_caps.additive_dimensions, d)
+        ]
         if disallowed_requested:
             raise ExecutionError(
                 code="ADDITIVITY_CONSTRAINT_DIMENSION_NOT_ALLOWED",

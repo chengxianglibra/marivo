@@ -580,7 +580,7 @@ interface Metric {
 interface MetricExtension {
   vendor_name: string;                      // "MARIVO"
   data: {
-    additive_dimensions: string[];          // 可加维度列表，最少 1 项
+    additive_dimensions: string[];          // 可加维度列表；[] 表示不可加，["__all"] 表示所有已声明维度
   };
 }
 
@@ -2204,9 +2204,9 @@ interface AnalysisFailure {
 
 **关键限制**：
 - `AVG` / `APPROX_PERCENTILE` / 比率类指标为非可加指标，不可使用 `decompose` / `attribute` / `diagnose` 的归因拆解
-- 仅声明了 `additive_dimensions` 的 `SUM` 类指标可被分解
+- 仅声明了非空 `additive_dimensions` 的 `SUM` 类指标可被分解；`["__all"]` 表示所有已声明维度均可分解
 - metric/dimension 引用使用语义对象名称，不带 `metric.` / `dimension.` 前缀
-- 非可加指标不添加 MARIVO `custom_extension`（`additive_dimensions` 不能为空数组）
+- 非可加指标可省略 MARIVO metric `custom_extension` 或声明 `additive_dimensions: []`
 - `compare`、`decompose`、`correlate`、`forecast` 使用 artifact ID 字符串引用，非结构化引用对象
 - `holiday_aligned` / `holiday_and_weekday_aligned` compare 前先检查 calendar rows；缺失时不得编造节假日数据
 - `observe`/`detect` 的 `filter_expression` 必须为 `McpExpression` 结构化对象，不接受 JSON 字符串
@@ -2249,7 +2249,7 @@ OsiDocument
 ```
 
 **关键约束**：
-- 非可加指标：不添加 `custom_extensions`（`additive_dimensions` 不能为空数组，验证器会拒绝）
+- 非可加指标：不添加 metric `custom_extensions`，或声明 `additive_dimensions: []`
 - SQL 关键字列：在 `expression` 中使用双引号，如 `"schema"`、`"user"`
 - 时间字段：标记 `dimension: { is_time: true }`；`time_scope.field` 会展开该字段的
   `expression` 生成时间过滤 SQL，因此 varchar 时间列可声明为

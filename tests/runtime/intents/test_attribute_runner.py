@@ -179,6 +179,20 @@ def test_attribute_expands_child_runners_and_commits_bundle_in_request_order() -
     assert [driver["dimension"] for driver in result["result"]["drivers"]] == ["channel", "region"]
 
 
+def test_attribute_all_additive_dimensions_sentinel_allows_requested_dimensions() -> None:
+    params = _params()
+    runtime = _make_runtime(additive_dimensions=["__all"])
+
+    result, _, _, _, mock_decompose = _run_with_patched_children(params, runtime=runtime)
+
+    assert [call.args[2]["dimension"] for call in mock_decompose.call_args_list] == [
+        "channel",
+        "region",
+    ]
+    additivity_basis = result["product_metadata"]["projection_metadata"]["additivity_basis"]
+    assert additivity_basis["additive_dimensions"] == ["__all"]
+
+
 def test_attribute_defaults_to_delta_share_and_limit_five() -> None:
     result, _, _, _, _ = _run_with_patched_children(_params())
 

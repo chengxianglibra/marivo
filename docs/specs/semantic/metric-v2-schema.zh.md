@@ -846,14 +846,15 @@ metric 与 Dataset 的兼容性不应只在运行期碰运气。
 
 当前模型使用扁平化的设计：
 
-- `additive_dimensions: list[str]`：列出 metric 可加的维度字段名。空列表表示 metric 不在任何维度上可加。
+- `additive_dimensions: list[str]`：列出 metric 可加的维度字段名。空列表表示 metric 不在任何维度上可加；`["__all"]` 表示对 observed dataset 中所有已声明维度可加。
 - `aggregation_semantics: "sum" | "ratio" | "weighted_average"`：声明 metric 的聚合语义。
 
 ### additive_dimensions 规则
 
 - `additive_dimensions = []`：metric 不可在任意维度上做归因分解。适用于 rate / ratio / avg / percentile / score 类 metric，以及未确认稳定互斥维度的 distinct / UV / DAU 类 metric。
 - `additive_dimensions = ["dim1", ...]`：metric 仅在列出的维度上可做归因分解。运行时需校验请求维度是否在列表中。
-- 时间轴可加性由运行时通过 `time_scope.field in additive_dimensions` 检查，不再是独立的 schema 声明。
+- `additive_dimensions = ["__all"]`：metric 对所有已声明维度可做归因分解，包括 `dimension.is_time = true` 的时间维度；`"__all"` 不得与显式维度名混用。
+- 时间轴可加性由运行时通过 `time_scope.field` 是否被 `additive_dimensions` 允许来检查，不再是独立的 schema 声明。
 
 ### aggregation_semantics 规则
 
@@ -863,7 +864,7 @@ metric 与 Dataset 的兼容性不应只在运行期碰运气。
 
 ### 示例
 
-- `gmv`：`additive_dimensions = ["platform", "country", "app_version"]`, `aggregation_semantics = "sum"`
+- `gmv`：`additive_dimensions = ["__all"]`, `aggregation_semantics = "sum"`
 - `dau`（count_distinct）：`additive_dimensions = []`, `aggregation_semantics = "sum"`
 - `inventory_balance`：`additive_dimensions = ["warehouse"]`, `aggregation_semantics = "sum"`
 - `conversion_rate`：`additive_dimensions = []`, `aggregation_semantics = "ratio"`
@@ -871,7 +872,7 @@ metric 与 Dataset 的兼容性不应只在运行期碰运气。
 ### 约束规则
 
 - `additive_dimensions` 为空列表时，`supports_decompose = false`，blocker 为 `ADDITIVITY_NONE`
-- `additive_dimensions` 非空时，运行时需校验请求维度是否在列表中（`capability_condition = "dimension_must_be_allowed"`）
+- `additive_dimensions` 非空时，运行时需校验请求维度是否被该策略允许（`capability_condition = "dimension_must_be_allowed"`）
 - `MeasurementComponent.aggregation = "count_distinct"` 时，`additive_dimensions` 应为空或仅包含已确认可分解的维度
 - 缺少 `additive_dimensions` 声明的 metric 不得暴露虚假的 decompose / attribute 能力
 

@@ -6,7 +6,7 @@
 
 Marivo 使用扁平化的加法性模型替代了旧的 `additivity_constraints` 三态结构（`dimension_policy` + `time_axis_policy`）。当前模型由两个字段组成：
 
-- **`additive_dimensions`**：`list[str]`，列出 metric 可加的维度字段名。空列表表示 metric 不在任何维度上可加。非空列表表示 metric 仅在列出的维度上可加。
+- **`additive_dimensions`**：`list[str]`，列出 metric 可加的维度字段名。空列表表示 metric 不在任何维度上可加；普通非空列表表示 metric 仅在列出的维度上可加；单元素列表 `["__all"]` 表示 metric 对 observed dataset 中所有声明了 `dimension` 的字段可加，包括时间维度。`"__all"` 不得与显式维度名混用。
 - **`aggregation_semantics`**：`"sum" | "ratio" | "weighted_average"`，声明 metric 的聚合语义。默认值为 `"sum"`。
 
 **关键变化**：旧的 `dimension_policy`（`"all"` / `"subset"` / `"none"`）和 `time_axis_policy`（`"additive"` / `"non_additive"`）已被删除。能力推导直接基于 `additive_dimensions` 是否为空以及 `aggregation_semantics` 的值。
@@ -25,9 +25,9 @@ Marivo 使用扁平化的加法性模型替代了旧的 `additivity_constraints`
 
 当 `additive_dimensions` 为空时，`supports_decompose = false`，blocker 为 `ADDITIVITY_NONE`。
 
-当 `additive_dimensions` 非空时，`supports_decompose = true`，但运行时需校验请求维度是否在 `additive_dimensions` 列表中（`capability_condition = "dimension_must_be_allowed"`）。
+当 `additive_dimensions` 非空时，`supports_decompose = true`，但运行时需校验请求维度是否被 `additive_dimensions` 允许（`capability_condition = "dimension_must_be_allowed"`）。普通列表按成员关系校验；`["__all"]` 允许所有已声明维度，未知维度仍会被维度解析拒绝。
 
-时间轴可加性由运行时通过 `time_scope.field in additive_dimensions` 检查。
+时间轴可加性由运行时通过 `time_scope.field` 是否被 `additive_dimensions` 允许来检查；`["__all"]` 表示已声明时间维度也可加。
 
 ## 何时 `additive_dimensions` 为空列表
 
@@ -72,7 +72,7 @@ Marivo 使用扁平化的加法性模型替代了旧的 `additivity_constraints`
 
 ```json
 {
-  "additive_dimensions": ["platform", "app_version", "country", "network_type"],
+  "additive_dimensions": ["__all"],
   "aggregation_semantics": "sum"
 }
 ```
@@ -91,7 +91,7 @@ Marivo 使用扁平化的加法性模型替代了旧的 `additivity_constraints`
 这是最容易误解的点：
 
 - **维度可分解**（`additive_dimensions` 非空）只表示"可以按列出的维度做归因"，不表示"可以跨天/周/月再累计"
-- **时间轴可加**由运行时通过检查 `time_scope.field in additive_dimensions` 判断，不是独立的 schema 声明
+- **时间轴可加**由运行时通过检查 `time_scope.field` 是否被 `additive_dimensions` 允许来判断，不是独立的 schema 声明
 
 反例：
 - 一个 metric 可能在某些维度上可分解，但时间字段不在 `additive_dimensions` 中（时间轴不可加）

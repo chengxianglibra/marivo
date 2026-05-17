@@ -9,6 +9,11 @@ from pydantic import BaseModel, ConfigDict, Field
 from marivo.adapters.metadata import MetadataStore, MetadataTransaction
 from marivo.contracts.errors import ErrorCode, NotFoundError, ValidationError
 from marivo.contracts.generated import Dataset, Metric, OSIDocument, Relationship, SemanticModel
+from marivo.core.semantic.additivity import (
+    ADDITIVE_DIMENSIONS_ALL,
+    additive_dimensions_mix_all,
+    is_all_additive_dimensions,
+)
 from marivo.dialect import translate as translate_sql
 from marivo.runtime.semantic.osi_storage import (
     _storage_to_dataset,
@@ -1237,7 +1242,24 @@ def _metric_extension_issues(
                 json_pointer=f"{model_pointer}/metrics/{metric_index}/custom_extensions",
             )
         )
-    for dimension in extension_data.get("additive_dimensions") or []:
+    additive_dimensions = extension_data.get("additive_dimensions") or []
+    if isinstance(additive_dimensions, list) and additive_dimensions_mix_all(additive_dimensions):
+        issues.append(
+            SemanticValidationIssue(
+                code="INVALID_ADDITIVE_DIMENSIONS",
+                message=(
+                    f"additive_dimensions uses {ADDITIVE_DIMENSIONS_ALL!r} and must not "
+                    "mix it with explicit fields."
+                ),
+                json_pointer=f"{model_pointer}/metrics/{metric_index}/custom_extensions",
+                hint=f"Use either [{ADDITIVE_DIMENSIONS_ALL!r}] or explicit field names.",
+                context={"additive_dimensions": additive_dimensions},
+            )
+        )
+        return issues
+    if isinstance(additive_dimensions, list) and is_all_additive_dimensions(additive_dimensions):
+        return issues
+    for dimension in additive_dimensions:
         if (
             isinstance(observed_dataset, str)
             and observed_dataset in dataset_fields

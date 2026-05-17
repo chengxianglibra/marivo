@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from marivo.core.semantic.additivity import is_all_additive_dimensions
 from marivo.runtime.semantic.resolution_orchestrator import (
     ResolvedCompilerInputs,
 )
@@ -561,7 +562,7 @@ def _gate_dimension_additivity_condition(
         return issues
     if step_type not in ("decompose", "attribute"):
         return issues
-    if len(caps.additive_dimensions) == 0:
+    if len(caps.additive_dimensions) == 0 or is_all_additive_dimensions(caps.additive_dimensions):
         return issues
 
     # Check resolved canonical dimension refs against additive_dimensions.

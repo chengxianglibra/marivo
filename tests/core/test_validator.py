@@ -288,6 +288,32 @@ def test_gate_dimension_additivity_ok() -> None:
     assert len(issues) == 0
 
 
+def test_gate_dimension_additivity_all_sentinel_allows_resolved_dimensions() -> None:
+    caps = _FakeCapabilities(
+        capability_condition="dimension_must_be_allowed",
+        additive_dimensions=["__all"],
+    )
+    state = _FakeDerivedState(metric_capabilities=caps)
+
+    @dataclass
+    class _Req:
+        request_dimensions: list[str] = field(default_factory=list)
+
+    @dataclass
+    class _Inputs:
+        resolved_dimension_refs: list[str] = field(default_factory=list)
+        normalized_request: Any = None
+        resolved_metric: Any = None
+
+    inputs = _Inputs(
+        resolved_dimension_refs=["dimension.region"],
+        normalized_request=_Req(request_dimensions=["dimension.region"]),
+        resolved_metric=_FakeResolvedObject(),
+    )
+    issues = gate_dimension_additivity_condition("decompose", inputs, state)
+    assert len(issues) == 0
+
+
 def test_gate_dimension_additivity_blocked() -> None:
     caps = _FakeCapabilities(
         capability_condition="dimension_must_be_allowed",

@@ -7,7 +7,11 @@ from typing import TYPE_CHECKING, Any
 
 from marivo.contracts.errors import ExecutionError
 from marivo.core.intent.primitives import new_step_id
-from marivo.core.semantic.additivity import derive_additivity_capabilities
+from marivo.core.semantic.additivity import (
+    additive_dimension_allows,
+    additive_time_rollup_allowed,
+    derive_additivity_capabilities,
+)
 from marivo.core.semantic.ir import AnalysisStepIR
 from marivo.runtime.intents._helpers import commit_step_result
 from marivo.runtime.semantic.executor import execute_compiled
@@ -135,7 +139,7 @@ def run_decompose_intent(
     _time_scope_field = (
         str(current_time_scope.get("field") or "").strip() if current_time_scope else None
     )
-    time_rollup_allowed = _time_scope_field in dims_for_gate if _time_scope_field else False
+    time_rollup_allowed = additive_time_rollup_allowed(dims_for_gate, _time_scope_field)
     if not additivity_caps.supports_decompose:
         raise ExecutionError(
             code="ADDITIVITY_CONSTRAINT",
@@ -164,9 +168,8 @@ def run_decompose_intent(
             },
         )
 
-    if (
-        len(additivity_caps.additive_dimensions) > 0
-        and dimension not in additivity_caps.additive_dimensions
+    if len(additivity_caps.additive_dimensions) > 0 and not additive_dimension_allows(
+        additivity_caps.additive_dimensions, dimension
     ):
         disallowed = [dimension]
         raise ExecutionError(

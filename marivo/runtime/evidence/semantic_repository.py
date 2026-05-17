@@ -6,6 +6,7 @@ import json
 from typing import Any
 
 from marivo.adapters.metadata import MetadataStore
+from marivo.core.semantic.additivity import is_all_additive_dimensions
 from marivo.core.semantic.resolution import ResolvedSemanticObject, RuntimeSemanticAvailability
 from marivo.runtime.errors import SemanticRuntimeNotFoundError
 
@@ -82,7 +83,6 @@ class SemanticRuntimeRepository:
             )
         model_id = metric_row["model_id"]
         dataset_info = self._query_dataset(model_id)
-        dimensions = self._query_dimensions(model_id)
         definition_sql = _extract_ansi_sql(metric_row["expression"] or "{}")
         if definition_sql is None:
             raise SemanticRuntimeNotFoundError(
@@ -95,6 +95,16 @@ class SemanticRuntimeRepository:
                 additive_dims = json.loads(metric_row["additive_dimensions"])
             except (json.JSONDecodeError, TypeError):
                 additive_dims = None
+        additive_dimensions = (
+            [str(dimension) for dimension in additive_dims]
+            if isinstance(additive_dims, list)
+            else []
+        )
+        dimensions = (
+            self._query_single_dataset_dimensions(model_id) or []
+            if is_all_additive_dimensions(additive_dimensions)
+            else self._query_dimensions(model_id)
+        )
         payload: dict[str, Any] = {
             "definition_sql": definition_sql,
             "_dataset_grounding_ready": dataset_info is not None,
@@ -105,7 +115,7 @@ class SemanticRuntimeRepository:
             payload["datasource_id"] = dataset_info["datasource_id"]
         header: dict[str, Any] = {
             "metric_ref": metric_ref,
-            "additive_dimensions": additive_dims or [],
+            "additive_dimensions": additive_dimensions,
             "aggregation_semantics": metric_row.get("aggregation_semantics") or "sum",
         }
         return ResolvedSemanticObject(
@@ -148,6 +158,22 @@ class SemanticRuntimeRepository:
             "WHERE d.model_id = ? AND f.is_dimension = 1 "
             "ORDER BY f.name",
             [model_id],
+        )
+        return [r["name"] for r in rows]
+
+    def _query_single_dataset_dimensions(self, model_id: int) -> list[str] | None:
+        dataset_rows = self.metadata.query_rows(
+            "SELECT dataset_id FROM semantic_datasets WHERE model_id = ? ORDER BY dataset_id",
+            [model_id],
+        )
+        if len(dataset_rows) != 1:
+            return None
+        dataset_id = dataset_rows[0]["dataset_id"]
+        rows = self.metadata.query_rows(
+            "SELECT name FROM semantic_fields "
+            "WHERE dataset_id = ? AND is_dimension = 1 "
+            "ORDER BY name",
+            [dataset_id],
         )
         return [r["name"] for r in rows]
 

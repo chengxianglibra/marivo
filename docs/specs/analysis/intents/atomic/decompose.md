@@ -121,7 +121,7 @@ v1 支持的输入形态如下：
 - `compare_artifact_id` 必须解析到已完成的 `compare` artifact
 - 被引用的 compare 输出必须是 `scalar_delta` 或 `time_series_delta`
 - 被比较的 metric 的 `additive_dimensions` 必须非空（即 metric 支持至少一个维度的分解）
-- 该 metric 必须声明自己可按所请求的 `dimension` 做分解（`dimension` 必须在 `additive_dimensions` 列表内）
+- 该 metric 必须声明自己可按所请求的 `dimension` 做分解（普通列表要求 `dimension` 在 `additive_dimensions` 内；`["__all"]` 允许所有已声明维度）
 - `limit` 省略时返回实现默认的完整排序结果；提供时必须为正整数
 
 输出类型：`delta_decomposition`
@@ -383,7 +383,7 @@ empty semantics：
 - `dimension` 必须是单个 semantic dimension 名称
 - 请求不得包含引用对象或 `method`
 - `limit` 若提供必须为正整数；runtime 在稳定排序后返回前 `limit` 行
-- metric 的 `additive_dimensions` 必须非空，且被请求的 `dimension` 必须在该列表内；`additive_dimensions` 为空的 metric 在 v1 中必须拒绝
+- metric 的 `additive_dimensions` 必须非空，且被请求的 `dimension` 必须被该策略允许；普通列表要求成员匹配，`["__all"]` 允许所有已声明维度；`additive_dimensions` 为空的 metric 在 v1 中必须拒绝
 - one-sided rows 必须显式保留，并通过 `presence` 标记
 - 成功 artifact 必须至少包含一条 contribution row；若当前请求无法形成任何 canonical contribution row，请求必须失败
 - 当 `scope_absolute_delta` 为 `0` 或 `null` 时，`contribution_share` 必须为 `null`

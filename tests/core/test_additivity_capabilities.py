@@ -39,6 +39,15 @@ class DeriveAdditivityCapabilitiesTests(unittest.TestCase):
         self.assertTrue(caps.supports_attribute)
         self.assertFalse(caps.supports_detect)
 
+    def test_all_additive_dimensions_sentinel(self) -> None:
+        caps = derive_additivity_capabilities(
+            additive_dimensions=["__all"],
+        )
+        self.assertTrue(caps.supports_decompose)
+        self.assertTrue(caps.supports_attribute)
+        self.assertEqual(caps.additive_dimensions, ["__all"])
+        self.assertEqual(caps.capability_condition, "dimension_must_be_allowed")
+
     # -- non-additive metric (empty additive_dimensions) ----------------------
 
     def test_non_additive_metric(self) -> None:

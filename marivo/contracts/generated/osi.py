@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, RootModel
+from pydantic import BaseModel, ConfigDict, Field, RootModel, model_validator
 
 
 class AIContext1(BaseModel):
@@ -140,7 +140,7 @@ class MarivoDatasetExtension(BaseModel):
 
 
 class AdditiveDimension(RootModel[str]):
-    root: str = Field(..., min_length=0)
+    root: str = Field(..., min_length=1)
 
 
 class ObservationGrainItem(RootModel[str]):
@@ -157,7 +157,7 @@ class MarivoMetricExtension(BaseModel):
     )
     additive_dimensions: list[AdditiveDimension] | None = Field(
         None,
-        description="Field names across which the metric is additive, including ordinary dimensions and time fields. Empty array means the metric is not additive on any dimension.",
+        description='Field names across which the metric is additive, including ordinary dimensions and time fields. Empty array means the metric is not additive on any dimension. The single-item array ["__all"] means the metric is additive across all declared dimension fields in the observed dataset, including time dimensions. "__all" must not be mixed with explicit field names.',
     )
     aggregation_semantics: Literal["sum", "ratio", "weighted_average"] = Field(
         "sum",
@@ -177,6 +177,15 @@ class MarivoMetricExtension(BaseModel):
         description="Dataset field used as the metric's primary analysis time axis.",
         min_length=1,
     )
+
+    @model_validator(mode="after")
+    def _validate_additive_dimensions_all(self) -> MarivoMetricExtension:
+        if self.additive_dimensions is None:
+            return self
+        values = [dimension.root for dimension in self.additive_dimensions]
+        if "__all" in values and values != ["__all"]:
+            raise ValueError("additive_dimensions '__all' must not be mixed with explicit fields")
+        return self
 
 
 class MarivoDatasetCustomExtension(BaseModel):
