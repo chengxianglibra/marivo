@@ -28,6 +28,19 @@ TimeSeriesObserveArtifactId = Annotated[
     ),
 ]
 
+CompareObserveArtifactId = Annotated[
+    str,
+    Field(
+        description=(
+            "Committed observe artifact ID from this session. compare accepts scalar, "
+            "segmented, or time_series observe artifacts when left and right have the same "
+            "observation family. Segmented observe artifacts such as dimensions=['log_hour'] "
+            "are valid with compare_type='normal'; calendar-aligned compare types require "
+            "time_series artifacts."
+        )
+    ),
+]
+
 
 def _omit_none(payload: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in payload.items() if value is not None}
@@ -322,16 +335,31 @@ def register_observe(server: Any, runtime: Any) -> None:
 
 
 def register_compare(server: Any, runtime: Any) -> None:
-    @server.tool()  # type: ignore
+    @server.tool(  # type: ignore
+        description=(
+            "Compare two committed observe artifacts from the same session. scalar, segmented, "
+            "and time_series observations are valid for compare_type='normal'; "
+            "holiday_aligned, weekday_aligned, and holiday_and_weekday_aligned require "
+            "observe(time_series) inputs."
+        )
+    )
     async def compare(
         session_id: str,
-        left_artifact_id: str,
-        right_artifact_id: str,
-        compare_type: Literal[
-            "normal",
-            "holiday_aligned",
-            "weekday_aligned",
-            "holiday_and_weekday_aligned",
+        left_artifact_id: CompareObserveArtifactId,
+        right_artifact_id: CompareObserveArtifactId,
+        compare_type: Annotated[
+            Literal[
+                "normal",
+                "holiday_aligned",
+                "weekday_aligned",
+                "holiday_and_weekday_aligned",
+            ],
+            Field(
+                description=(
+                    "normal compares scalar, segmented, or time_series observations. "
+                    "Calendar-aligned values are only valid for time_series observations."
+                )
+            ),
         ] = "normal",
     ) -> dict[str, Any]:
         request = to_aoi_compare_request(

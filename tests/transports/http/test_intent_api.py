@@ -152,7 +152,7 @@ def _insert_observe_artifact(
         payload["granularity"] = granularity
     if series is not None:
         payload["series"] = series
-    artifact_id = service._insert_artifact(
+    artifact_id = service.insert_artifact(
         session_id,
         step_id,
         "observation",
@@ -170,7 +170,7 @@ def _insert_observe_artifact(
         "artifact_id": artifact_id,
         **payload,
     }
-    service._insert_step(
+    service.insert_step(
         step_id,
         session_id,
         "observe",
@@ -436,6 +436,78 @@ class LightweightIntentEndpointTests(_SessionBackedIntentEndpointMixin, unittest
             },
         )
         self.assertEqual(r.status_code, 404)
+
+
+class CompareSegmentedIntentEndpointTests(unittest.TestCase):
+    """HTTP compare should not reject segmented observe artifact IDs at the endpoint layer."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.temp_dir = tempfile.TemporaryDirectory()
+        db_path = Path(cls.temp_dir.name) / "compare_segmented.duckdb"
+        get_seeded_duckdb_path(db_path)
+        cls.app = create_app(db_path)
+        cls.service = cls.app.state.services.runtime
+        cls.client = TestClient(cls.app, headers={"X-Marivo-User": "test_user"})
+        response = cls.client.post("/sessions", json={"goal": "compare segmented"})
+        cls.session_id = response.json()["session_id"]
+        cls.left_artifact_id = _insert_observe_artifact(
+            cls.service,
+            session_id=cls.session_id,
+            step_id="step_segmented_left",
+            metric=_metric_ref("watch_time"),
+            observation_type="segmented",
+            time_scope={
+                "kind": "range",
+                "start": "2026-05-01",
+                "end": "2026-05-02",
+            },
+            value=160.0,
+            dimensions=["log_hour"],
+            segments=[
+                {"keys": {"log_hour": "09"}, "value": 100.0},
+                {"keys": {"log_hour": "10"}, "value": 60.0},
+            ],
+        )
+        cls.right_artifact_id = _insert_observe_artifact(
+            cls.service,
+            session_id=cls.session_id,
+            step_id="step_segmented_right",
+            metric=_metric_ref("watch_time"),
+            observation_type="segmented",
+            time_scope={
+                "kind": "range",
+                "start": "2026-04-30",
+                "end": "2026-05-01",
+            },
+            value=90.0,
+            dimensions=["log_hour"],
+            segments=[
+                {"keys": {"log_hour": "09"}, "value": 70.0},
+                {"keys": {"log_hour": "11"}, "value": 20.0},
+            ],
+        )
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.client.close()
+        cls.temp_dir.cleanup()
+
+    def test_compare_endpoint_accepts_segmented_observe_artifacts(self) -> None:
+        response = self.client.post(
+            f"/sessions/{self.session_id}/intents/compare",
+            json={
+                "left_artifact_id": self.left_artifact_id,
+                "right_artifact_id": self.right_artifact_id,
+                "compare_type": "normal",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        payload = response.json()
+        self.assertEqual(payload["step_type"], "compare")
+        self.assertEqual(payload["result"]["result"]["rows"][0]["keys"], {"log_hour": "09"})
+        self.assertEqual(len(payload["result"]["result"]["rows"]), 3)
 
 
 class ClosedSessionWriteGuardTests(unittest.TestCase):

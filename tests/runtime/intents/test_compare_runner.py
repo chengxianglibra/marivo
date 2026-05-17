@@ -219,7 +219,49 @@ def test_compare_segmented_commits_segmented_delta() -> None:
 
     assert result["comparison_type"] == "segmented_delta"
     assert result["scope_absolute_delta"] == 40.0
+    assert result["lineage"]["compare_type"] == "normal"
     assert {row["presence"] for row in result["rows"]} == {"both", "left_only", "right_only"}
+
+
+def test_compare_segmented_log_hour_commits_segmented_delta() -> None:
+    left = _segmented_observation("m1")
+    left["dimensions"] = ["log_hour"]
+    left["segments"] = [
+        {"keys": {"log_hour": "09"}, "value": 100.0},
+        {"keys": {"log_hour": "10"}, "value": 60.0},
+    ]
+    left["scope_value"] = 160.0
+    right = _segmented_observation("m1")
+    right["dimensions"] = ["log_hour"]
+    right["segments"] = [
+        {"keys": {"log_hour": "09"}, "value": 70.0},
+        {"keys": {"log_hour": "11"}, "value": 20.0},
+    ]
+    right["scope_value"] = 90.0
+    runtime = _make_runtime(left, right)
+
+    result = _run_compare(runtime)
+
+    assert result["comparison_type"] == "segmented_delta"
+    assert result["dimensions"] == ["log_hour"]
+    assert result["scope_absolute_delta"] == 70.0
+    assert {next(iter(row["keys"].items())) for row in result["rows"]} == {
+        ("log_hour", "09"),
+        ("log_hour", "10"),
+        ("log_hour", "11"),
+    }
+    assert {row["presence"] for row in result["rows"]} == {"both", "left_only", "right_only"}
+
+
+def test_compare_segmented_dimension_mismatch_is_not_comparable() -> None:
+    left = _segmented_observation("m1")
+    right = _segmented_observation("m1")
+    right["dimensions"] = ["device"]
+    right["segments"] = [{"keys": {"device": "ios"}, "value": 100.0}]
+    runtime = _make_runtime(left, right)
+
+    with pytest.raises(ValueError, match="compare: NOT_COMPARABLE - left dimensions"):
+        _run_compare(runtime)
 
 
 def test_compare_metric_mismatch_is_not_comparable() -> None:
