@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from datetime import UTC, datetime
 from pathlib import Path
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
@@ -158,6 +159,87 @@ class DiagnoseHTTPTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         body = resp.json()
         self.assertEqual(body["result"]["bundle_type"], "diagnosis_bundle")
+
+    def test_diagnose_response_preserves_driver_summary_fields(self) -> None:
+        """Diagnose response serialization keeps dimension-level driver summaries."""
+        result = {
+            "intent_type": "diagnose",
+            "step_type": "diagnose",
+            "step_ref": {
+                "session_id": self.session_id,
+                "step_id": "step_diag_summary",
+                "step_type": "diagnose",
+            },
+            "artifact_id": "art_diag_summary",
+            "result": {
+                "bundle_type": "diagnosis_bundle",
+                "aoi_artifacts": [],
+                "diagnoses": [
+                    {
+                        "drivers": [
+                            {
+                                "dimension": "channel",
+                                "decompose_ref": None,
+                                "attribution_status": "attributable",
+                                "top_segment": {
+                                    "key": "A",
+                                    "current_value": 700.0,
+                                    "baseline_value": 100.0,
+                                    "absolute_contribution": 600.0,
+                                    "contribution_share": 1.0,
+                                    "direction": "increase",
+                                    "presence": "both",
+                                },
+                                "total_contribution": 600.0,
+                                "total_contribution_share": 1.0,
+                                "rows": [
+                                    {
+                                        "key": "A",
+                                        "current_value": 700.0,
+                                        "baseline_value": 100.0,
+                                        "absolute_contribution": 600.0,
+                                        "contribution_share": 1.0,
+                                        "direction": "increase",
+                                        "presence": "both",
+                                    }
+                                ],
+                                "returned_row_count": 1,
+                                "total_row_count": 1,
+                                "is_truncated": False,
+                                "others_absolute_contribution": None,
+                                "others_contribution_share": None,
+                                "unexplained_absolute_delta": 0.0,
+                                "unexplained_share": 0.0,
+                                "unexplained_reason": None,
+                                "issues": [],
+                            }
+                        ]
+                    }
+                ],
+            },
+            "product_metadata": {"aoi_artifacts": []},
+        }
+
+        with patch("marivo.transports.http.sessions._run_intent", return_value=result):
+            resp = self.client.post(
+                f"/sessions/{self.session_id}/intents/diagnose",
+                json={
+                    "metric": _metric_ref(_METRIC),
+                    "time_scope": _aoi_detect_time_scope(),
+                    "granularity": "day",
+                    "dimensions": ["channel"],
+                    "strategy": "point_anomaly",
+                    "candidate_limit": 1,
+                },
+            )
+
+        self.assertEqual(resp.status_code, 200)
+        driver = resp.json()["result"]["diagnoses"][0]["drivers"][0]
+        self.assertEqual(driver["top_segment"]["key"], "A")
+        self.assertEqual(driver["top_segment"]["absolute_contribution"], 600.0)
+        self.assertEqual(driver["top_segment"]["contribution_share"], 1.0)
+        self.assertEqual(driver["total_contribution"], 600.0)
+        self.assertEqual(driver["total_contribution_share"], 1.0)
 
     def test_missing_dimensions_returns_422(self) -> None:
         """Missing required dimensions returns 422."""

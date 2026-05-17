@@ -451,6 +451,17 @@ type DiagnoseDriverSet = {
   dimension: string;
   decompose_ref: DecomposeArtifactRef | null;
   attribution_status: "attributable" | "needs_attention" | "not_attributable";
+  top_segment: {
+    key: string | number | boolean | null;
+    current_value: number | null;
+    baseline_value: number | null;
+    absolute_contribution: number | null;
+    contribution_share: number | null;
+    direction: "increase" | "decrease" | "flat" | "undefined";
+    presence: "both" | "current_only" | "baseline_only";
+  } | null;
+  total_contribution: number | null;
+  total_contribution_share: number | null;
   rows: Array<{
     key: string | number | boolean | null;
     current_value: number | null;
@@ -480,6 +491,17 @@ type DiagnoseDriverProjection = {
   dimension: string;
   decompose_ref: DecomposeArtifactRef | null;
   attribution_status: "attributable" | "needs_attention" | "not_attributable";
+  top_segment: {
+    key: string | number | boolean | null;
+    current_value: number | null;
+    baseline_value: number | null;
+    absolute_contribution: number | null;
+    contribution_share: number | null;
+    direction: "increase" | "decrease" | "flat" | "undefined";
+    presence: "both" | "current_only" | "baseline_only";
+  } | null;
+  total_contribution: number | null;
+  total_contribution_share: number | null;
   rows: Array<{
     key: string | number | boolean | null;
     current_value: number | null;
@@ -518,6 +540,8 @@ type DiagnoseDriverProjection = {
 
 - `detect` candidate 仍然是 candidate，不是 confirmed anomaly fact
 - `comparison.absolute_delta` / `relative_delta` 继承 `compare` 语义
+- `drivers.top_segment` 是 `rows[0]` 的维度级摘要，用于避免调用方自行遍历时误读 driver 集合
+- `drivers.total_contribution` 是该维度所有 contribution rows 的 signed metric-domain 合计，不只限于返回的 top rows
 - `drivers.rows[*].contribution_share` 继承 `decompose` 的 signed share 语义
 - `DiagnoseArtifact` 是可复现、可审计、可被下游引用的完整派生工件
 
@@ -534,6 +558,9 @@ type DiagnoseDriverProjection = {
 - `compare_ref = null`：compare artifact 未产生；唯一允许原因是任一 observe 未产生或 compare 未通过原子兼容性校验
 - `comparison = null`：scalar delta summary 不可定义；唯一允许原因是 `compare_ref = null` 或 compare artifact 未能产生可读取 summary
 - `drivers = []`：没有任何已请求维度的 driver result；唯一允许原因是该 candidate 未进入可执行 decompose 阶段
+- `drivers[*].top_segment = null`：该维度没有返回任何 contribution row；不得表示“未知 top segment 但 rows 有值”
+- `drivers[*].total_contribution = null`：该维度没有 contribution rows，或至少一个 row 的 `absolute_contribution` 不可定义
+- `drivers[*].total_contribution_share = null`：`total_contribution` 不可定义，或 scope delta 为 `0` / null
 - `total_row_count = null`：该 decompose artifact 未能稳定披露 total row count，而不是“0 rows”
 - `unexplained_reason = null`：不存在 unexplained remainder，或 remainder 已为 0；不得同时表示“未知为什么没解释完”
 - `validation.issues = []`：no-known diagnose-level issues
