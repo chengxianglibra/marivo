@@ -298,6 +298,13 @@ They do not accept additional wrapper fields.
 POST /sessions/{session_id}/intents/diagnose
 ```
 
+`include_details=false` may be passed as a query parameter to return a compact
+projection that omits embedded `aoi_artifacts` and `drivers[].rows`. The full
+diagnosis and child artifacts are still committed; callers can lazy-load driver
+rows from the returned `decompose_ref.artifact_id` via
+`GET /sessions/{session_id}/artifacts/{artifact_id}`. HTTP defaults to
+`include_details=true` for backward compatibility.
+
 Diagnose is auto-detect only:
 
 ```json

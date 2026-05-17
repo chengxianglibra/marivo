@@ -176,6 +176,7 @@ from .session import (
 )
 from .session_responses import (
     AnalysisSession,
+    ArtifactPayloadResponse,
     ArtifactRuntimeStatusResponse,
     PropositionContextView,
     PropositionRuntimeStatusResponse,
@@ -194,6 +195,7 @@ __all__ = [  # noqa: RUF022
     "AnalysisSession",
     "AnalysisTimeOverride",
     "ApiErrorDetail",
+    "ArtifactPayloadResponse",
     "ArtifactRuntimeStatusResponse",
     "AttributeChangeStep",
     "AttributeResponse",

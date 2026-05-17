@@ -7,6 +7,7 @@ from typing import Annotated, Any, Literal
 from pydantic import Field
 
 from marivo.contracts.generated import aoi
+from marivo.runtime.intents.diagnose_projection import compact_diagnose_envelope
 from marivo.transports.mcp.tools._async_bridge import call_runtime
 from marivo.transports.mcp.tools.schemas import (
     McpAoiSliceRef,
@@ -591,6 +592,16 @@ def register_diagnose(server: Any, runtime: Any) -> None:
                 ge=1,
             ),
         ] = 5,
+        include_details: Annotated[
+            bool,
+            Field(
+                description=(
+                    "Return full embedded AOI artifacts and driver rows. Defaults to false so "
+                    "agent-facing diagnose calls return a compact summary with refs for lazy "
+                    "detail loading."
+                )
+            ),
+        ] = False,
     ) -> dict[str, Any]:
         request = to_aoi_diagnose_request(
             metric=metric,
@@ -604,7 +615,10 @@ def register_diagnose(server: Any, runtime: Any) -> None:
             candidate_limit=candidate_limit if candidate_limit is not None else 3,
             decomposition_limit=decomposition_limit if decomposition_limit is not None else 5,
         )
-        return await call_runtime(runtime.diagnose, session_id=session_id, request=request)
+        response = await call_runtime(runtime.diagnose, session_id=session_id, request=request)
+        if not include_details and isinstance(response.get("data"), dict):
+            response = {**response, "data": compact_diagnose_envelope(response["data"])}
+        return response
 
 
 def register_test_intent(server: Any, runtime: Any) -> None:

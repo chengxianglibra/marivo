@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from copy import deepcopy
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
@@ -29,6 +30,70 @@ def _bundle_result(bundle: dict[str, object]) -> dict[str, object]:
 
 def _bundle_product_metadata(bundle: dict[str, object]) -> dict[str, object]:
     return bundle["product_metadata"]  # type: ignore[index]
+
+
+def _diagnose_envelope(session_id: str) -> dict[str, object]:
+    return {
+        "intent_type": "diagnose",
+        "step_type": "diagnose",
+        "step_ref": {
+            "session_id": session_id,
+            "step_id": "step_diag_projection",
+            "step_type": "diagnose",
+        },
+        "artifact_id": "art_diag_projection",
+        "result": {
+            "bundle_type": "diagnosis_bundle",
+            "aoi_artifacts": [
+                {
+                    "artifact_id": "art_decomp_projection",
+                    "result": {
+                        "artifact_type": "delta_decomposition",
+                        "rows": [{"key": "A", "absolute_contribution": 600.0}],
+                    },
+                }
+            ],
+            "diagnoses": [
+                {
+                    "drivers": [
+                        {
+                            "dimension": "channel",
+                            "decompose_ref": {
+                                "session_id": session_id,
+                                "step_id": "step_decomp_projection",
+                                "step_type": "decompose",
+                                "artifact_id": "art_decomp_projection",
+                            },
+                            "attribution_status": "attributable",
+                            "top_segment": {
+                                "key": "A",
+                                "absolute_contribution": 600.0,
+                                "contribution_share": 1.0,
+                            },
+                            "total_contribution": 600.0,
+                            "total_contribution_share": 1.0,
+                            "rows": [{"key": "A", "absolute_contribution": 600.0}],
+                            "returned_row_count": 1,
+                            "total_row_count": 3,
+                            "is_truncated": True,
+                            "issues": [],
+                        }
+                    ]
+                }
+            ],
+        },
+        "product_metadata": {
+            "aoi_artifacts": [
+                {
+                    "artifact_id": "art_decomp_projection",
+                    "result": {
+                        "artifact_type": "delta_decomposition",
+                        "rows": [{"key": "A", "absolute_contribution": 600.0}],
+                    },
+                }
+            ]
+        },
+    }
 
 
 # ── Constants ──────────────────────────────────────────────────────────────────
@@ -159,6 +224,70 @@ class DiagnoseHTTPTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         body = resp.json()
         self.assertEqual(body["result"]["bundle_type"], "diagnosis_bundle")
+
+    def test_diagnose_defaults_to_full_response_but_can_return_compact_projection(
+        self,
+    ) -> None:
+        payload = {
+            "metric": _metric_ref(_METRIC),
+            "time_scope": _aoi_detect_time_scope(),
+            "granularity": "day",
+            "dimensions": ["channel"],
+            "strategy": "point_anomaly",
+            "candidate_limit": 1,
+            "decomposition_limit": 1,
+        }
+
+        result = _diagnose_envelope(self.session_id)
+        with patch(
+            "marivo.transports.http.sessions._run_intent",
+            side_effect=[deepcopy(result), deepcopy(result)],
+        ):
+            full_resp = self.client.post(
+                f"/sessions/{self.session_id}/intents/diagnose",
+                json=payload,
+            )
+            compact_resp = self.client.post(
+                f"/sessions/{self.session_id}/intents/diagnose?include_details=false",
+                json=payload,
+            )
+
+        self.assertEqual(full_resp.status_code, 200)
+        self.assertEqual(compact_resp.status_code, 200)
+        full = full_resp.json()
+        compact = compact_resp.json()
+        full_driver = full["result"]["diagnoses"][0]["drivers"][0]
+        compact_driver = compact["result"]["diagnoses"][0]["drivers"][0]
+
+        self.assertTrue(full["result"]["aoi_artifacts"])
+        self.assertTrue(full["product_metadata"]["aoi_artifacts"])
+        self.assertIn("rows", full_driver)
+        self.assertEqual(compact["result"]["aoi_artifacts"], [])
+        self.assertEqual(compact["product_metadata"]["aoi_artifacts"], [])
+        self.assertNotIn("rows", compact_driver)
+        self.assertEqual(compact_driver["top_segment"], full_driver["top_segment"])
+        self.assertEqual(
+            compact_driver["total_contribution"],
+            full_driver["total_contribution"],
+        )
+        self.assertEqual(compact_driver["returned_row_count"], 1)
+        self.assertEqual(compact_driver["total_row_count"], full_driver["total_row_count"])
+        self.assertTrue(compact_driver["decompose_ref"]["artifact_id"])
+
+        artifact_id = compact_driver["decompose_ref"]["artifact_id"]
+        with patch.object(
+            self.client.app.state.services.runtime,
+            "resolve_artifact_by_id",
+            return_value={"rows": [{"key": "A", "absolute_contribution": 600.0}]},
+        ):
+            artifact_resp = self.client.get(
+                f"/sessions/{self.session_id}/artifacts/{artifact_id}",
+            )
+
+        self.assertEqual(artifact_resp.status_code, 200)
+        artifact = artifact_resp.json()
+        self.assertEqual(artifact["artifact_id"], artifact_id)
+        self.assertTrue(artifact["result"]["rows"])
 
     def test_diagnose_response_preserves_driver_summary_fields(self) -> None:
         """Diagnose response serialization keeps dimension-level driver summaries."""
