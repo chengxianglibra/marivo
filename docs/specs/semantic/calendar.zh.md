@@ -55,10 +55,8 @@ Holiday 对齐读取覆盖 current window 和右侧 artifact baseline window 的
 
 ### 数据加载
 
-Calendar data 通过以下入口加载：
-
-- HTTP `POST /calendar/data`：批量写入 calendar 行，同一 `calendar_version` 重复写入返回 409
-- CLI `marivo calendar load <file.csv> --version <version>`：从 CSV 文件加载，校验必填列与取值范围
+Calendar data 通过 HTTP `PUT /calendar/data` 加载。该入口使用替换语义：
+先删除现有 calendar 行，再批量写入请求中的 rows。
 
 加载时校验 `weekday` 在 1-7 范围内，`is_weekend` / `is_workday` 为 0 或 1。
 

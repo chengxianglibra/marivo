@@ -13,8 +13,6 @@ from marivo.transports.cli._output import (
     emit_text,
     format_error_json,
 )
-from marivo.transports.cli.cmd_calendar import add_arguments as calendar_add_arguments
-from marivo.transports.cli.cmd_calendar import handle as calendar_handle
 from marivo.transports.cli.cmd_doctor import add_arguments as doctor_add_arguments
 from marivo.transports.cli.cmd_doctor import handle as doctor_handle
 from marivo.transports.cli.cmd_init import add_arguments as init_add_arguments
@@ -82,11 +80,6 @@ def _build_parser() -> argparse.ArgumentParser:
     doctor_parser = subparsers.add_parser("doctor", help="Run diagnostic checks")
     doctor_add_arguments(doctor_parser)
     doctor_parser.set_defaults(handler=doctor_handle)
-
-    # marivo calendar
-    calendar_parser = subparsers.add_parser("calendar", help="Calendar data management")
-    calendar_add_arguments(calendar_parser)
-    calendar_parser.set_defaults(handler=calendar_handle)
 
     # marivo runtime (subcommand group)
     runtime_parser = subparsers.add_parser("runtime", help="Manage local runtime")
