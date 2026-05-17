@@ -11,7 +11,6 @@ Covers:
   - run_detect_intent: dimension scans independent series
   - run_detect_intent: strategy echoed in response
   - run_detect_intent: invalid sensitivity → ValueError
-  - run_detect_intent: invalid time scope kind → ValueError
   - run_detect_intent: invalid granularity → ValueError
   - run_detect_intent: invalid strategy → ValueError
 """
@@ -328,7 +327,7 @@ class DetectRunnerServiceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self._detect(session_id, self.spike_metric, strategy="zscore_raw")
 
-    # ── filter/scope ─────────────────────────────────────────────────────────
+    # ── filter ───────────────────────────────────────────────────────────────
 
     def test_detect_filter_limits_scanned_population(self) -> None:
         """AOI filter expression narrows the scan through runtime predicate scope."""
@@ -343,18 +342,10 @@ class DetectRunnerServiceTests(unittest.TestCase):
         self.assertEqual(result["scan_summary"]["total_candidate_count"], 0)
         self.assertEqual(result["candidates"], [])
 
-    def test_detect_scope_takes_precedence_over_filter(self) -> None:
-        """Internal scope remains authoritative when both scope and AOI filter are provided."""
+    def test_detect_invalid_filter_raises(self) -> None:
         session_id = self._make_session()
-        result = self._detect(
-            session_id,
-            self.spike_metric,
-            scope={"predicate": "cluster = 'alpha'"},
-            filter={"dialects": [{"dialect": "ANSI_SQL", "expression": "cluster = 'beta'"}]},
-        )
-
-        self.assertEqual(result["scope"], {"predicate": "cluster = 'alpha'"})
-        self.assertGreater(result["scan_summary"]["total_candidate_count"], 0)
+        with self.assertRaises(ValueError):
+            self._detect(session_id, self.spike_metric, filter={"dialects": []})
 
     # ── dimension ─────────────────────────────────────────────────────────────
 
@@ -371,32 +362,6 @@ class DetectRunnerServiceTests(unittest.TestCase):
         self.assertTrue(
             any(c["slice"] == {"dimension.cluster": "alpha"} for c in result["candidates"])
         )
-
-    def test_detect_dimension_max_series_limits_scan(self) -> None:
-        """max_series limits dimension fan-out and records excluded series."""
-        session_id = self._make_session()
-        result = self._detect(
-            session_id,
-            self.spike_metric,
-            dimension="dimension.cluster",
-            max_series=1,
-        )
-
-        self.assertEqual(result["scan_summary"]["eligible_series_count"], 2)
-        self.assertEqual(result["scan_summary"]["scanned_series_count"], 1)
-        self.assertEqual(result["scan_summary"]["excluded_series_count"], 1)
-        issues = result["detectability"]["issues"]
-        self.assertTrue(any(i["code"] == "series_limit_applied" for i in issues))
-
-    def test_detect_max_series_must_be_positive(self) -> None:
-        session_id = self._make_session()
-        with self.assertRaises(ValueError):
-            self._detect(
-                session_id,
-                self.spike_metric,
-                dimension="dimension.cluster",
-                max_series=0,
-            )
 
     def test_detect_dimension_unsupported_dimension_raises(self) -> None:
         """Unsupported split dimension is rejected instead of falling back to overall scan."""
@@ -430,6 +395,9 @@ class DetectRunnerServiceTests(unittest.TestCase):
         session_id = self._make_session()
         result = self._detect(session_id, self.spike_metric)
         self.assertIsNone(result["dimension"])
+        self.assertEqual(result["scan_summary"]["eligible_series_count"], 1)
+        self.assertEqual(result["scan_summary"]["scanned_series_count"], 1)
+        self.assertEqual(result["scan_summary"]["excluded_series_count"], 0)
 
     # ── limit truncation ──────────────────────────────────────────────────────
 
@@ -604,7 +572,13 @@ class TestDetectRunnerCommitPath(unittest.TestCase):
         runtime.build_step_semantic_metadata.return_value = {}
         return runtime
 
-    def _run_detect(self, runtime: MagicMock) -> dict[str, Any]:
+    def _run_detect(
+        self,
+        runtime: MagicMock,
+        *,
+        params_patch: dict[str, Any] | None = None,
+        rows: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
         from marivo.runtime.intents.detect import run_detect_intent
 
         runtime.core.normalize_intent_metric_ref.return_value = "m1"
@@ -623,14 +597,16 @@ class TestDetectRunnerCommitPath(unittest.TestCase):
 
         params = {
             "metric": "m1",
-            "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-31"},
+            "time_scope": {"field": "event_date", "start": "2024-01-01", "end": "2024-01-31"},
             "granularity": "day",
             "strategy": "point_anomaly",
         }
+        if params_patch:
+            params.update(params_patch)
         with patch("marivo.runtime.intents.detect.execute_compiled") as mock_exec:
             # 9 points with one spike (day 5 = 200) to produce ≥1 anomaly candidate.
             # mean≈111, std≈31, z(200)≈2.83 > balanced threshold 2.0.
-            mock_exec.return_value.rows = [
+            mock_exec.return_value.rows = rows or [
                 {"bucket_start": f"2024-01-{d:02d}", "value": 200.0 if d == 5 else 100.0}
                 for d in range(1, 10)
             ]
@@ -669,6 +645,32 @@ class TestDetectRunnerCommitPath(unittest.TestCase):
                 c["candidate_ref"]["artifact_ref"]["artifact_id"],
                 _FAKE_ARTIFACT_ID,
             )
+
+    def test_detect_hour_granularity_accepts_datetime_boundaries(self) -> None:
+        runtime = self._make_runtime()
+        envelope = self._run_detect(
+            runtime,
+            params_patch={
+                "time_scope": {
+                    "field": "event_time",
+                    "start": "2024-01-01T00:00:00",
+                    "end": "2024-01-01T09:00:00",
+                },
+                "granularity": "hour",
+            },
+            rows=[
+                {
+                    "bucket_start": f"2024-01-01T{h:02d}:00:00",
+                    "value": 200.0 if h == 4 else 100.0,
+                }
+                for h in range(9)
+            ],
+        )
+        result = envelope["result"]
+
+        self.assertEqual(result["granularity"], "hour")
+        self.assertEqual(result["time_scope"]["start"], "2024-01-01T00:00:00")
+        self.assertEqual(result["time_scope"]["end"], "2024-01-01T09:00:00")
 
 
 # ── correlate ─────────────────────────────────────────────────────────────────

@@ -89,6 +89,20 @@ def test_lowers_compare_request_to_runner_params() -> None:
     }
 
 
+def test_lowers_decompose_request_with_all_options_to_runner_params() -> None:
+    request = aoi.Decompose(
+        compare_artifact_id="artifact-compare",
+        dimension="region",
+        limit=5,
+    )
+
+    assert lower_aoi_request("decompose", request) == {
+        "compare_artifact_id": "artifact-compare",
+        "dimension": "region",
+        "limit": 5,
+    }
+
+
 def test_lowers_forecast_request_to_runner_params() -> None:
     request = aoi.Forecast(
         source_artifact_id="artifact-source",

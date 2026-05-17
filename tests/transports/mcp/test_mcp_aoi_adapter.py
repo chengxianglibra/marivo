@@ -122,6 +122,19 @@ def test_to_aoi_decompose_request_builds_decompose_model() -> None:
     assert request.limit == 10
 
 
+def test_to_aoi_decompose_request_omits_absent_optional_fields() -> None:
+    request = to_aoi_decompose_request(
+        compare_artifact_id="artifact_compare_1",
+        dimension="region",
+    )
+
+    dumped = request.model_dump(exclude_none=True)
+    assert dumped == {
+        "compare_artifact_id": "artifact_compare_1",
+        "dimension": "region",
+    }
+
+
 def test_to_aoi_detect_request_builds_detect_model() -> None:
     request = to_aoi_detect_request(
         metric="view_time",

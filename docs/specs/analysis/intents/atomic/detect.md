@@ -110,6 +110,7 @@ v1 支持的输入形态如下：
 - 快照式或相对式 time scope 别名；调用方必须传显式 range。
 - 多个 `dimension`。
 - 旧字段 `split_by`、`profile`、`patterns`。
+- 内部/legacy `scope` 或请求级 `max_series` 参数；公开过滤条件只使用 AOI `filter`。
 - 显式指定任意 baseline window。
 - 直接暴露算法名，如 `zscore`、`iqr`、`stl`。
 - 用户定义 seasonality、holiday、changepoint 等参数。
@@ -131,10 +132,11 @@ v1 支持的输入形态如下：
 
 ## 归一化规则
 
-- `sensitivity = null` 归一化为 `"aggressive"`。
-- `filter = null` 表示 no-extra non-time filter。
-- `dimension = ""` 归一化为 `null`。
-- `limit = null` 表示由实现决定默认返回数量。
+- 省略 `sensitivity` 归一化为 `"aggressive"`。
+- 省略 `filter` 表示 no-extra non-time filter。
+- 省略 `dimension` 表示 overall scan。
+- 省略 `limit` 表示由实现决定默认返回数量。
+- 显式 `null` optional fields 不属于 AOI detect 请求契约。
 - `dimension != null` 时，runtime 可使用内部默认 `max_series` 控制有界扇出，但 `max_series` 不属于公开 AOI/MCP detect contract。
 
 ## 字段语义

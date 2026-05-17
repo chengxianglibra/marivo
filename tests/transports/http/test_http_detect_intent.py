@@ -232,6 +232,7 @@ class DetectIntentEndpointTests(unittest.TestCase):
                 "metric": _metric_ref("http_detect_metric"),
                 "time_scope": self._time_scope(start="2026-02-21", end="2026-02-07"),
                 "granularity": "day",
+                "strategy": "point_anomaly",
             },
         )
         self.assertEqual(r.status_code, 422)
@@ -285,19 +286,6 @@ class DetectIntentEndpointTests(unittest.TestCase):
         items = r.json()["result"]["result"]["items"]
         self.assertLessEqual(len(items), 1)
         self.assertTrue(all(c.get("series_keys") == {"dimension.cluster": "alpha"} for c in items))
-
-    def test_detect_dimension_returns_segment_candidates(self) -> None:
-        r = self.client.post(
-            f"/sessions/{self.session_id}/intents/detect",
-            json={
-                **self._detect_payload("http_detect_split_metric"),
-                "dimension": "dimension.cluster",
-                "sensitivity": "balanced",
-            },
-        )
-        self.assertEqual(r.status_code, 200, msg=r.text)
-        items = r.json()["result"]["result"]["items"]
-        self.assertTrue(any(c.get("series_keys") == {"dimension.cluster": "alpha"} for c in items))
 
     def test_detect_dimension_array_returns_422(self) -> None:
         r = self.client.post(

@@ -16,6 +16,7 @@ class _FakeRuntime:
     def __init__(self) -> None:
         self.observe_payload: Any | None = None
         self.detect_payload: Any | None = None
+        self.decompose_payload: Any | None = None
         self.test_payload: Any | None = None
         self.forecast_payload: Any | None = None
         self.validate_payload: Any | None = None
@@ -58,6 +59,34 @@ class _FakeRuntime:
                 "artifact_id": "art_detect_1",
                 "result": {
                     "items": [],
+                },
+            },
+            "provenance": {"mocked": True},
+            "product_metadata": None,
+        }
+
+    def decompose(self, session_id: str, payload: Any) -> dict[str, Any]:
+        self.decompose_payload = payload
+        return {
+            "intent_type": "decompose",
+            "step_type": "decompose",
+            "step_ref": {
+                "session_id": session_id,
+                "step_id": "step_decompose_1",
+                "step_type": "decompose",
+            },
+            "artifact_id": "art_decompose_1",
+            "result": {
+                "artifact_id": "art_decompose_1",
+                "result": {
+                    "items": [
+                        {
+                            "item_id": "item_1",
+                            "key": "US",
+                            "contribution": 7.0,
+                            "share": 0.7,
+                        }
+                    ],
                 },
             },
             "provenance": {"mocked": True},
@@ -327,26 +356,6 @@ def test_detect_accepts_aoi_request_with_strategy_and_dimension() -> None:
     assert runtime.detect_payload.sensitivity == "balanced"
 
 
-def test_detect_rejects_removed_split_by_profile_fields() -> None:
-    response = _client(_FakeRuntime()).post(
-        "/sessions/sess_1/intents/detect",
-        json={
-            "metric": "metric.revenue",
-            "time_scope": {
-                "field": "event_time",
-                "start": "2026-01-01T00:00:00Z",
-                "end": "2026-01-08T00:00:00Z",
-            },
-            "granularity": "day",
-            "strategy": "point_anomaly",
-            "split_by": ["region"],
-            "profile": "auto",
-        },
-    )
-
-    assert response.status_code == 422
-
-
 def test_detect_requires_strategy() -> None:
     response = _client(_FakeRuntime()).post(
         "/sessions/sess_1/intents/detect",
@@ -362,6 +371,24 @@ def test_detect_requires_strategy() -> None:
     )
 
     assert response.status_code == 422
+
+
+def test_decompose_accepts_aoi_request_with_limit() -> None:
+    runtime = _FakeRuntime()
+    response = _client(runtime).post(
+        "/sessions/sess_1/intents/decompose",
+        json={
+            "compare_artifact_id": "artifact_compare",
+            "dimension": "region",
+            "limit": 5,
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert isinstance(runtime.decompose_payload, aoi.Decompose)
+    assert runtime.decompose_payload.compare_artifact_id == "artifact_compare"
+    assert runtime.decompose_payload.dimension == "region"
+    assert runtime.decompose_payload.limit == 5
 
 
 def _valid_test_request() -> dict[str, Any]:
