@@ -585,7 +585,10 @@ def test_compare_tool_schema_exposes_compare_type_enum_and_default() -> None:
     register_tools(server, FakeRuntime(), transport="stdio")
     tools = {tool.name: tool for tool in server._tool_manager.list_tools()}
 
-    compare_type = tools["compare"].parameters["properties"]["compare_type"]
+    compare = tools["compare"]
+    compare_type = compare.parameters["properties"]["compare_type"]
+    left_description = compare.parameters["properties"]["left_artifact_id"]["description"]
+    right_description = compare.parameters["properties"]["right_artifact_id"]["description"]
 
     assert compare_type["default"] == "normal"
     assert compare_type["enum"] == [
@@ -594,6 +597,42 @@ def test_compare_tool_schema_exposes_compare_type_enum_and_default() -> None:
         "weekday_aligned",
         "holiday_and_weekday_aligned",
     ]
+    assert "scalar, segmented, or time_series" in left_description
+    assert "dimensions=['log_hour']" in left_description
+    assert "calendar-aligned compare types require time_series" in right_description
+
+
+def test_compare_tool_passes_generated_request_for_segmented_artifact_ids(monkeypatch) -> None:
+    calls = {}
+
+    async def fake_call_runtime(method, /, **kwargs):
+        calls["method"] = method
+        calls["kwargs"] = kwargs
+        return {"data": {}, "error": None}
+
+    monkeypatch.setattr("marivo.transports.mcp.tools.intents.call_runtime", fake_call_runtime)
+
+    server = FastMCP("test")
+    runtime = FakeRuntime()
+    register_tools(server, runtime, transport="stdio")
+    tool = {tool.name: tool for tool in server._tool_manager.list_tools()}["compare"]
+
+    result = asyncio.run(
+        tool.fn(
+            session_id="sess_1",
+            left_artifact_id="art_segmented_left",
+            right_artifact_id="art_segmented_right",
+            compare_type="normal",
+        )
+    )
+
+    assert result == {"data": {}, "error": None}
+    assert calls["method"] == runtime.compare
+    request = calls["kwargs"]["request"]
+    assert isinstance(request, aoi.Compare)
+    assert request.left_artifact_id == "art_segmented_left"
+    assert request.right_artifact_id == "art_segmented_right"
+    assert request.compare_type == "normal"
 
 
 def test_calendar_tools_registered_in_both_modes() -> None:

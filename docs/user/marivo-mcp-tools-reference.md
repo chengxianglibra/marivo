@@ -1334,6 +1334,10 @@ interface AnomalyCandidate {
 | compare_type | `"normal"` \| `"holiday_aligned"` \| `"weekday_aligned"` \| `"holiday_and_weekday_aligned"` | 否 | `"normal"` | 对齐策略枚举 |
 
 注意：参数为 **字符串 artifact ID**（如 `"art_obs_1"`），非引用对象。compare_type 只表达桶对齐策略；同比、环比等时间关系由输入 observe artifact 的窗口决定。
+`compare_type: "normal"` 可比较 scalar、segmented 或 time_series observe artifact。对
+`dimensions: ["log_hour"]` 这类小时分区结果，它仍然是 segmented compare，会按 segment key
+返回 `SegmentedDeltaResult`；`holiday_aligned`、`weekday_aligned` 和
+`holiday_and_weekday_aligned` 只适用于 time_series observe artifact。
 
 **输出 — CompareArtifact**：
 

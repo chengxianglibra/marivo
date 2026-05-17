@@ -13,6 +13,10 @@
 | `holiday_aligned` | time_series | 读取 calendar data，优先 holiday group / relative key，失败后按相对位置配对 |
 | `holiday_and_weekday_aligned` | time_series | 读取 calendar data，优先 holiday group / relative key，再 weekday，最后按相对位置配对 |
 
+`dimensions: ["log_hour"]` 这类小时分区 observe 仍然是 segmented observation；
+`compare_type = "normal"` 可以比较它并产出 `segmented_delta`。它不等价于 hour 级
+time-series compare，也不能使用 calendar-aligned compare_type。
+
 `compare_type` 不表达同比、环比或周环比；这些时间关系由传入的左右 observe artifact 的 `time_scope` 决定。
 
 非 `normal` 值用于 scalar 或 segmented observation 时，runtime 返回：
