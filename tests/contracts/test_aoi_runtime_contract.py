@@ -121,6 +121,34 @@ def test_aoi_correlate_rejects_invalid_or_legacy_shape(payload: dict[str, object
         aoi.Correlate.model_validate(payload)
 
 
+def test_aoi_forecast_accepts_artifact_id_and_horizon_only() -> None:
+    request = aoi.Forecast.model_validate(
+        {
+            "source_artifact_id": "art_source",
+            "horizon": 7,
+        }
+    )
+
+    assert request.source_artifact_id == "art_source"
+    assert request.horizon == 7
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"source_ref": {"step_id": "step_1"}, "horizon": 7},
+        {"source_artifact_id": "art_source", "horizon": 7, "profile": "auto"},
+        {"source_artifact_id": "art_source", "horizon": 7, "interval_level": 0.95},
+        {"source_artifact_id": "art_source", "horizon": 0},
+        {"source_artifact_id": "art_source", "horizon": None},
+        {"source_artifact_id": None, "horizon": 7},
+    ],
+)
+def test_aoi_forecast_rejects_invalid_or_legacy_shape(payload: dict[str, object]) -> None:
+    with pytest.raises(ValidationError):
+        aoi.Forecast.model_validate(payload)
+
+
 def test_aoi_derived_operation_registry_contains_derived_operations() -> None:
     assert set(AOI_DERIVED_OPERATION_REGISTRY) == {"attribute", "diagnose", "validate"}
 

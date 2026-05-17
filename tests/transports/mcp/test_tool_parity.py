@@ -485,6 +485,38 @@ def test_correlate_tool_passes_generated_request_with_min_pairs(monkeypatch) -> 
     assert request.min_pairs == 7
 
 
+def test_forecast_tool_passes_generated_request(monkeypatch) -> None:
+    calls = {}
+
+    async def fake_call_runtime(method, /, **kwargs):
+        calls["method"] = method
+        calls["kwargs"] = kwargs
+        return {"data": {}, "error": None}
+
+    monkeypatch.setattr("marivo.transports.mcp.tools.intents.call_runtime", fake_call_runtime)
+
+    server = FastMCP("test")
+    runtime = FakeRuntime()
+    register_tools(server, runtime, transport="stdio")
+    tool = {tool.name: tool for tool in server._tool_manager.list_tools()}["forecast"]
+
+    result = asyncio.run(
+        tool.fn(
+            session_id="sess_1",
+            source_artifact_id="art_source",
+            horizon=14,
+        )
+    )
+
+    assert result == {"data": {}, "error": None}
+    assert calls["method"] == runtime.forecast
+    request = calls["kwargs"]["request"]
+    assert isinstance(request, aoi.Forecast)
+    assert request.source_artifact_id == "art_source"
+    assert request.horizon == 14
+    assert set(request.model_dump()) == {"source_artifact_id", "horizon"}
+
+
 def test_compare_tool_schema_exposes_compare_type_enum_and_default() -> None:
     server = FastMCP("test")
     register_tools(server, FakeRuntime(), transport="stdio")

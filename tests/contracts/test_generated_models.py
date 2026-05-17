@@ -598,6 +598,50 @@ def test_aoi_detect_requires_public_required_fields(missing_field: str) -> None:
         aoi.Detect.model_validate(payload)
 
 
+def test_aoi_forecast_accepts_public_required_fields() -> None:
+    from marivo.contracts.generated import aoi
+
+    request = aoi.Forecast.model_validate({"source_artifact_id": "artifact_source", "horizon": 7})
+
+    assert request.source_artifact_id == "artifact_source"
+    assert request.horizon == 7
+
+
+@pytest.mark.parametrize(
+    "payload_patch",
+    [
+        {"source_artifact_id": ""},
+        {"horizon": 0},
+        {"horizon": -1},
+        {"source_ref": {"step_id": "step_1"}},
+        {"profile": "auto"},
+        {"profile": None},
+        {"interval_level": 0.95},
+        {"interval_level": None},
+        {"unexpected": True},
+    ],
+)
+def test_aoi_forecast_rejects_invalid_contract_fields(payload_patch: dict[str, Any]) -> None:
+    from marivo.contracts.generated import aoi
+
+    payload = {"source_artifact_id": "artifact_source", "horizon": 7}
+    payload.update(payload_patch)
+
+    with pytest.raises(ValidationError):
+        aoi.Forecast.model_validate(payload)
+
+
+@pytest.mark.parametrize("missing_field", ["source_artifact_id", "horizon"])
+def test_aoi_forecast_requires_public_required_fields(missing_field: str) -> None:
+    from marivo.contracts.generated import aoi
+
+    payload = {"source_artifact_id": "artifact_source", "horizon": 7}
+    payload.pop(missing_field)
+
+    with pytest.raises(ValidationError):
+        aoi.Forecast.model_validate(payload)
+
+
 @pytest.mark.parametrize(
     ("model_name", "payload"),
     [

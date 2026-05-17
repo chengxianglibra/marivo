@@ -22,16 +22,13 @@ from marivo.runtime.intents._helpers import commit_step_result
 if TYPE_CHECKING:
     from marivo.runtime.runtime import MarivoRuntime
 
-_VALID_PROFILES: frozenset[str] = frozenset(
-    {"auto", "level", "trend", "seasonal", "seasonal_trend"}
-)
 _VALID_GRANULARITIES: frozenset[str] = frozenset({"hour", "day", "week", "month"})
 _MAX_HORIZON = 90
+_AOI_PARAM_KEYS: frozenset[str] = frozenset({"source_artifact_id", "horizon"})
+_DEFAULT_INTERVAL_LEVEL = 0.95
 
 # Minimum usable history points required per profile (v1).
-# "auto" minimum is 1; actual selection is decided after history is known.
 _MIN_POINTS: dict[str, int] = {
-    "auto": 1,
     "level": 1,
     "trend": 3,
 }
@@ -117,7 +114,7 @@ def run_forecast_intent(
     """Execute a `forecast` intent: project a time-series into future buckets.
 
     Consumes a single `time_series` observe artifact from the same session and
-    applies a v1 forecast profile (level carry-forward or OLS linear trend).
+    applies a v1 forecast profile selected by available history.
 
     Empty semantics: forecast must produce ≥1 bucket (non-empty success).
     Insufficient history raises ValueError without committing an artifact.
@@ -125,14 +122,17 @@ def run_forecast_intent(
     p = params or {}
     now = datetime.now(UTC).isoformat()
 
+    extra_keys = sorted(set(p) - _AOI_PARAM_KEYS)
+    if extra_keys:
+        raise ValueError(
+            "forecast: INVALID_ARGUMENT - unsupported parameter(s): "
+            f"{extra_keys}; forecast accepts only AOI request fields"
+        )
+
     source_artifact_id_raw = p.get("source_artifact_id")
-    uses_aoi_artifact_ref = source_artifact_id_raw is not None or "source_ref" not in p
     source_artifact_id = (
         source_artifact_id_raw.strip() if isinstance(source_artifact_id_raw, str) else ""
     )
-    src_step_id = ""
-    src_obs_type: str | None = None
-    resolved_artifact_id = source_artifact_id
 
     # ── Request parameter validation ───────────────────────────────────────────
     horizon_raw = p.get("horizon")
@@ -147,94 +147,27 @@ def run_forecast_intent(
             f"forecast: INVALID_ARGUMENT - horizon must be in [1, {_MAX_HORIZON}], got {horizon}"
         )
 
-    profile: str = str(p.get("profile") or "auto").lower()
-    if profile not in _VALID_PROFILES:
-        raise ValueError(
-            f"forecast: INVALID_ARGUMENT - profile must be one of "
-            f"{sorted(_VALID_PROFILES)}, got '{profile}'"
-        )
-
-    if profile in ("seasonal", "seasonal_trend"):
-        raise ValueError(
-            f"forecast: UNSUPPORTED_OPERATION - profile='{profile}' is not supported in v1; "
-            f"use 'auto', 'level', or 'trend'"
-        )
-
-    interval_level_raw = p.get("interval_level")
-    if interval_level_raw is None:
-        interval_level: float = 0.95
-    else:
-        try:
-            interval_level = float(interval_level_raw)
-        except (TypeError, ValueError) as exc:
-            raise ValueError(
-                "forecast: INVALID_ARGUMENT - 'interval_level' must be a number"
-            ) from exc
-        if not (0.0 < interval_level < 1.0):
-            raise ValueError(
-                f"forecast: INVALID_ARGUMENT - interval_level must be in (0, 1), "
-                f"got {interval_level}"
-            )
+    interval_level = _DEFAULT_INTERVAL_LEVEL
 
     # ── Resolve source artifact ────────────────────────────────────────────────
-    if uses_aoi_artifact_ref:
-        if not source_artifact_id:
-            raise ValueError("forecast: INVALID_ARGUMENT - source_artifact_id is required")
-        source_artifact = runtime.resolve_artifact_by_id(session_id, source_artifact_id)
-        if source_artifact is None:
-            raise ValueError(
-                "forecast: ARTIFACT_NOT_FOUND - no committed artifact for "
-                f"source_artifact_id '{source_artifact_id}'"
-            )
-    else:
-        source_ref_raw: dict[str, Any] = p.get("source_ref") or {}
-        src_step_id = source_ref_raw.get("step_id") or ""
-        src_session_id: str = source_ref_raw.get("session_id") or session_id
-        src_artifact_id: str | None = source_ref_raw.get("artifact_id") or None
-        src_step_type: str | None = source_ref_raw.get("step_type") or None
-        src_obs_type = source_ref_raw.get("observation_type") or None
-
-        if not src_step_id:
-            raise ValueError("forecast: INVALID_ARGUMENT - source_ref.step_id is required")
-
-        if src_step_type != "observe":
-            raise ValueError(
-                f"forecast: INVALID_ARGUMENT - source_ref.step_type must be 'observe', "
-                f"got {src_step_type!r}"
-            )
-
-        if src_session_id != session_id:
-            raise ValueError(
-                "forecast: CROSS_SESSION_NOT_ALLOWED - "
-                "source_ref.session_id must match the current session"
-            )
-
-        resolved = runtime.resolve_artifact_with_id(session_id, src_step_id)
-        if resolved is None:
-            raise ValueError(
-                f"forecast: STEP_NOT_FOUND - no committed artifact for source_ref step '{src_step_id}'"
-            )
-        resolved_artifact_id, source_artifact = resolved
-
-        if src_artifact_id is not None and src_artifact_id != resolved_artifact_id:
-            raise ValueError(
-                "forecast: INVALID_ARGUMENT - source_ref.artifact_id does not match the committed "
-                f"observe artifact (expected '{resolved_artifact_id}', got '{src_artifact_id}')"
-            )
+    if not source_artifact_id:
+        raise ValueError("forecast: INVALID_ARGUMENT - source_artifact_id is required")
+    resolved = runtime.resolve_artifact_with_step_by_id(session_id, source_artifact_id)
+    if resolved is None:
+        raise ValueError(
+            "forecast: ARTIFACT_NOT_FOUND - no committed artifact for "
+            f"source_artifact_id '{source_artifact_id}'"
+        )
+    src_step_id, source_artifact = resolved
+    resolved_artifact_id = source_artifact_id
 
     # ── Validate observation_type ─────────────────────────────────────────────
     artifact_obs_type: str | None = source_artifact.get("observation_type")
     if artifact_obs_type != "time_series":
         raise ValueError(
-            f"forecast: INVALID_ARGUMENT - source_ref must point to a 'time_series' observe "
+            f"forecast: INVALID_ARGUMENT - source_artifact_id must point to a 'time_series' observe "
             f"artifact, got observation_type='{artifact_obs_type}'"
         )
-    if src_obs_type is not None and src_obs_type != "time_series":
-        raise ValueError(
-            f"forecast: INVALID_ARGUMENT - source_ref.observation_type must be 'time_series', "
-            f"got '{src_obs_type}'"
-        )
-
     # ── Derive granularity from source artifact ───────────────────────────────
     granularity: str = str(source_artifact.get("granularity") or "").lower()
     if granularity not in _VALID_GRANULARITIES:
@@ -262,15 +195,13 @@ def run_forecast_intent(
     usable_count = len(usable)
     dropped_points = observed_points - usable_count
 
-    # Resolve "auto" to a concrete profile based on available history.
-    resolved_profile = profile
-    if profile == "auto":
-        resolved_profile = "trend" if usable_count >= _MIN_POINTS["trend"] else "level"
+    # Resolve a concrete profile based on available history.
+    resolved_profile = "trend" if usable_count >= _MIN_POINTS["trend"] else "level"
 
     min_required = _MIN_POINTS.get(resolved_profile, 1)
     if usable_count < min_required:
         raise ValueError(
-            f"forecast: INSUFFICIENT_HISTORY - profile='{profile}' requires at least "
+            f"forecast: INSUFFICIENT_HISTORY - profile='{resolved_profile}' requires at least "
             f"{min_required} usable history point(s), but only {usable_count} available"
         )
 
@@ -376,7 +307,7 @@ def run_forecast_intent(
     # ── Build artifact ─────────────────────────────────────────────────────────
     step_id = new_step_id()
 
-    _hash_input = f"{resolved_artifact_id}:{profile}:{granularity}:{horizon}"
+    _hash_input = f"{resolved_artifact_id}:{resolved_profile}:{granularity}:{horizon}"
     query_hash = hashlib.sha256(_hash_input.encode()).hexdigest()[:16]
 
     metric_name: str = source_artifact.get("metric") or ""
@@ -398,7 +329,7 @@ def run_forecast_intent(
         "source_ref": source_ref_out,
         "source_granularity": granularity,
         "source_time_scope": source_time_scope,
-        "profile": profile,
+        "profile": resolved_profile,
         "interval_level": interval_level,
         "forecastability": {
             "status": forecastability_status,
@@ -433,7 +364,7 @@ def run_forecast_intent(
 
     artifact_name = f"{metric_name}_forecast_series"
     summary = (
-        f"forecast {metric_name} [{profile}] granularity={granularity} "
+        f"forecast {metric_name} [{resolved_profile}] granularity={granularity} "
         f"horizon={horizon}: {len(forecast_buckets)} future bucket(s)"
     )
 

@@ -492,6 +492,10 @@ def _valid_test_request() -> dict[str, Any]:
             "/sessions/sess_1/intents/forecast",
             {"source_artifact_id": "art_timeseries", "horizon": 14, "profile": "auto"},
         ),
+        (
+            "/sessions/sess_1/intents/forecast",
+            {"source_artifact_id": "art_timeseries", "horizon": 14, "interval_level": 0.95},
+        ),
     ],
 )
 def test_aoi_request_rejects_removed_or_null_optional_fields(
