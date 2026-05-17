@@ -198,8 +198,6 @@ _TIE_BREAKER_FAILURE_CODES = frozenset({"weekday_pairing_tie", "alignment_tie_br
 _CALENDAR_ALIGNMENT_REQUIRED_STRING_FIELDS: tuple[str, ...] = (
     "policy_ref",
     "comparison_basis",
-    "resolved_calendar_source",
-    "resolved_calendar_version",
     "resolved_baseline_generation_rule",
 )
 _CALENDAR_ALIGNMENT_REQUIRED_DICT_FIELDS: tuple[str, ...] = (

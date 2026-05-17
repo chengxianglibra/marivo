@@ -94,7 +94,6 @@ class _FakeCalendarDataReader:
         *,
         current_window: tuple[date, date],
         baseline_window: tuple[date, date],
-        region_code: str | None = None,
     ) -> CalendarDataReadResult:
         return CalendarDataReadResult(
             annotation_rows=[
@@ -111,10 +110,5 @@ class _FakeCalendarDataReader:
                     year_relative_holiday_key="spring_festival_d+3",
                 ),
             ],
-            resolved_calendar_source="calendar",
-            resolved_calendar_version="cn_2026_v1",
-            source_lineage={
-                "table_fqn": "calendar",
-                "calendar_version": "cn_2026_v1",
-            },
+            source_lineage={"table_fqn": "calendar"},
         )

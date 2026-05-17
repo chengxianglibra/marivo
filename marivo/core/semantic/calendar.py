@@ -139,6 +139,8 @@ class CalendarAnnotationRow:
     weekday: int
     holiday_group_id: str | None = None
     year_relative_holiday_key: str | None = None
+    extra_holiday_group_ids: tuple[str, ...] = ()
+    extra_year_relative_holiday_keys: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -233,14 +235,38 @@ def build_calendar_annotation_rows(
 ) -> list[CalendarAnnotationRow]:
     """Build annotation rows from raw database rows.
 
+    Multiple raw rows for the same date (different holiday_group_id)
+    are merged into a single CalendarAnnotationRow with the first
+    non-empty holiday_group_id as primary and the rest as extras.
+
     This function fills in missing dates with default rows (weekday-only).
     The ``raw_rows`` parameter comes from database I/O, but the function
     itself is pure computation.
     """
-    rows_by_date: dict[date, CalendarAnnotationRow] = {}
+    grouped: dict[date, list[CalendarAnnotationRow]] = {}
     for raw_row in raw_rows or ():
         row = _coerce_annotation_row(raw_row)
-        rows_by_date[row.calendar_date] = row
+        grouped.setdefault(row.calendar_date, []).append(row)
+
+    rows_by_date: dict[date, CalendarAnnotationRow] = {}
+    for cal_date, row_group in grouped.items():
+        holiday_rows = [r for r in row_group if r.holiday_group_id]
+        if holiday_rows:
+            primary_row = holiday_rows[0]
+            extras = holiday_rows[1:]
+            merged = CalendarAnnotationRow(
+                calendar_date=cal_date,
+                weekday=primary_row.weekday,
+                holiday_group_id=primary_row.holiday_group_id,
+                year_relative_holiday_key=primary_row.year_relative_holiday_key,
+                extra_holiday_group_ids=tuple(r.holiday_group_id or "" for r in extras),
+                extra_year_relative_holiday_keys=tuple(
+                    r.year_relative_holiday_key or "" for r in extras
+                ),
+            )
+        else:
+            merged = row_group[0]
+        rows_by_date[cal_date] = merged
 
     all_rows: list[CalendarAnnotationRow] = []
     seen_dates: set[date] = set()
@@ -684,21 +710,32 @@ class _CalendarPairingResolver:
     ) -> tuple[date | None, list[str]]:
         matcher = step.matcher
         if matcher == "holiday_cluster":
-            if current_row.holiday_group_id is None:
+            all_group_ids: list[str] = []
+            if current_row.holiday_group_id is not None:
+                all_group_ids.append(current_row.holiday_group_id)
+            all_group_ids.extend(current_row.extra_holiday_group_ids)
+            if not all_group_ids:
                 return None, []
-            candidate = self.baseline_by_holiday_group.get(current_row.holiday_group_id)
-            if candidate is not None:
-                return candidate, []
-            if current_row.holiday_group_id in self.duplicate_holiday_groups:
-                return None, []
-            return None, ["holiday_cluster_unmapped"]
-        if matcher == "year_relative_holiday_key":
-            if current_row.holiday_group_id is None:
-                return None, []
-            if current_row.year_relative_holiday_key is None:
+            for gid in all_group_ids:
+                candidate = self.baseline_by_holiday_group.get(gid)
+                if candidate is not None and gid not in self.duplicate_holiday_groups:
+                    return candidate, []
+            unmapped = [gid for gid in all_group_ids if gid not in self.duplicate_holiday_groups]
+            if unmapped:
                 return None, ["holiday_cluster_unmapped"]
-            candidate = self.baseline_by_holiday_key.get(current_row.year_relative_holiday_key)
-            return candidate, [] if candidate is not None else ["holiday_cluster_unmapped"]
+            return None, []
+        if matcher == "year_relative_holiday_key":
+            all_keys: list[str] = []
+            if current_row.holiday_group_id is not None and current_row.year_relative_holiday_key is not None:
+                all_keys.append(current_row.year_relative_holiday_key)
+            all_keys.extend(current_row.extra_year_relative_holiday_keys)
+            if not all_keys:
+                return None, []
+            for key in all_keys:
+                candidate = self.baseline_by_holiday_key.get(key)
+                if candidate is not None:
+                    return candidate, []
+            return None, ["holiday_cluster_unmapped"]
         if matcher == "same_weekday_nearest":
             target_day = self.baseline_window[0] + timedelta(days=offset)
             candidate = _nearest_same_weekday(

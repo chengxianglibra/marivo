@@ -409,10 +409,6 @@ def test_compare_type_holiday_aligned_yoy_reads_calendar_data() -> None:
 
     assert result["rows"][0]["right_value"] == 100.0
     assert (
-        result["resolved_input_summary"]["calendar_alignment"]["resolved_calendar_version"]
-        == "cn_2026_v1"
-    )
-    assert (
         result["resolved_input_summary"]["calendar_alignment"]["bucket_pairing"][0][
             "pairing_reason"
         ]

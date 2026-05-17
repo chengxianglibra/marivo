@@ -373,51 +373,65 @@ def _build_notice_day_rows(
     return rows
 
 
-def _build_calendar_rows(start: date, end: date, calendar_version: str) -> list[tuple[object, ...]]:
-    holiday_by_date: dict[date, tuple[str, str, str]] = {}
+def _build_calendar_rows(start: date, end: date) -> list[tuple[object, ...]]:
+    """Build calendar rows with multi-holiday support.
+
+    Each row is: (calendar_date, weekday, is_weekend, is_workday,
+                  holiday_name, holiday_group_id, year_relative_holiday_key).
+    Same date with multiple holidays produces multiple rows.
+    Non-holiday dates have a single row with holiday_group_id=''.
+    """
+    holidays_by_date: dict[date, list[tuple[str, str, str]]] = {}
     adjusted_workdays = {
         workday for window in HOLIDAY_WINDOWS for workday in window.adjusted_workdays
     }
     for window in HOLIDAY_WINDOWS:
         for offset, holiday_date in enumerate(_iter_days(window.start, window.end)):
-            holiday_by_date[holiday_date] = (
-                window.holiday_name,
-                window.holiday_group_id,
-                f"{window.holiday_group_id}_d{_format_offset(offset)}",
+            holidays_by_date.setdefault(holiday_date, []).append(
+                (
+                    window.holiday_name,
+                    window.holiday_group_id,
+                    f"{window.holiday_group_id}_d{_format_offset(offset)}",
+                )
             )
 
     rows: list[tuple[object, ...]] = []
     for calendar_date in _iter_days(start, end):
         weekday = calendar_date.weekday() + 1
         is_weekend = weekday >= 6
-        holiday_annotation = holiday_by_date.get(calendar_date)
-        if holiday_annotation is not None:
-            holiday_name, holiday_group_id, year_relative_holiday_key = holiday_annotation
-            is_workday = False
+        holiday_annotations = holidays_by_date.get(calendar_date)
+        if holiday_annotations:
+            for holiday_name, holiday_group_id, year_relative_holiday_key in holiday_annotations:
+                rows.append(
+                    (
+                        calendar_date.isoformat(),
+                        weekday,
+                        is_weekend,
+                        False,
+                        holiday_name,
+                        holiday_group_id,
+                        year_relative_holiday_key,
+                    )
+                )
         else:
-            holiday_name = None
-            holiday_group_id = None
-            year_relative_holiday_key = None
             is_workday = (not is_weekend) or calendar_date in adjusted_workdays
-        rows.append(
-            (
-                calendar_date.isoformat(),
-                REGION_CODE,
-                calendar_version,
-                weekday,
-                is_weekend,
-                is_workday,
-                holiday_name,
-                holiday_group_id,
-                year_relative_holiday_key,
+            rows.append(
+                (
+                    calendar_date.isoformat(),
+                    weekday,
+                    is_weekend,
+                    is_workday,
+                    None,
+                    "",
+                    None,
+                )
             )
-        )
+    rows.sort(key=lambda row: (row[0], row[5]))
     return rows
 
 
 CSV_COLUMNS = (
     "calendar_date",
-    "region_code",
     "weekday",
     "is_weekend",
     "is_workday",
@@ -428,17 +442,13 @@ CSV_COLUMNS = (
 
 
 def _write_csv(output_path: Path, calendar_rows: list[tuple[object, ...]]) -> None:
-    """Write calendar rows to a CSV file (calendar_version column excluded)."""
+    """Write calendar rows to a CSV file."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow(CSV_COLUMNS)
         for row in calendar_rows:
-            # calendar_rows tuple layout: (calendar_date, region_code, calendar_version,
-            #   weekday, is_weekend, is_workday, holiday_name, holiday_group_id,
-            #   year_relative_holiday_key)
-            # CSV excludes calendar_version at index 2.
-            writer.writerow(row[:2] + row[3:])
+            writer.writerow(row)
 
 
 def _write_tables(
@@ -484,21 +494,20 @@ def _write_tables(
             """
             CREATE TABLE analytics.cn_public_holiday (
                 calendar_date DATE NOT NULL,
-                region_code VARCHAR NOT NULL,
-                calendar_version VARCHAR NOT NULL,
+                holiday_group_id VARCHAR NOT NULL DEFAULT '',
                 weekday INTEGER NOT NULL,
                 is_weekend BOOLEAN NOT NULL,
                 is_workday BOOLEAN NOT NULL,
                 holiday_name VARCHAR,
-                holiday_group_id VARCHAR,
-                year_relative_holiday_key VARCHAR
+                year_relative_holiday_key VARCHAR,
+                PRIMARY KEY (calendar_date, holiday_group_id)
             )
             """
         )
         connection.executemany(
             """
             INSERT INTO analytics.cn_public_holiday VALUES
-                (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (?, ?, ?, ?, ?, ?, ?)
             """,
             calendar_rows,
         )
@@ -581,7 +590,7 @@ def main() -> None:
     _validate_schedule()
     calendar_version = _calendar_version(BUILD_START, end_date)
     notice_rows = _build_notice_day_rows(BUILD_START, end_date, calendar_version)
-    calendar_rows = _build_calendar_rows(BUILD_START, end_date, calendar_version)
+    calendar_rows = _build_calendar_rows(BUILD_START, end_date)
 
     if args.format == "csv":
         csv_path = Path(args.csv_output)
@@ -593,8 +602,6 @@ def main() -> None:
         _verify_tables(db_path, BUILD_START, end_date, calendar_version)
         print(f"db_path={db_path.resolve()}")
 
-    print(f"calendar_version={calendar_version}")
-    print(f"resolved_calendar_version={_resolved_calendar_version(BUILD_START, end_date)}")
     print(f"effective_start={BUILD_START.isoformat()}")
     print(f"effective_end={(end_date + timedelta(days=1)).isoformat()}")
     print(f"notice_rows={len(notice_rows)}")
