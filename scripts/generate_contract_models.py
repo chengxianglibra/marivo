@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import importlib.util
 import inspect
 import json
 import re
@@ -291,8 +292,10 @@ def _find_model_with_fields(module: ModuleType, field_names: set[str]) -> type:
     raise RuntimeError(f"No generated model in {module.__name__} exposes {sorted(field_names)}")
 
 
-def _validate_osi_examples() -> None:
-    osi_models = importlib.import_module("marivo.contracts.generated.osi")
+def _validate_osi_examples(*, generated_root: Path | None = None) -> None:
+    osi_models = _import_generated_module(
+        "marivo.contracts.generated.osi", generated_root=generated_root
+    )
     root_model = _find_model_with_fields(osi_models, {"version", "semantic_model"})
 
     for example_path in sorted(OSI_EXAMPLES.rglob("*.json")):
@@ -334,7 +337,7 @@ def _validate_aoi_examples(*, generated_root: Path | None = None) -> None:
 
 
 def _validate_examples(*, generated_root: Path | None = None) -> None:
-    _validate_osi_examples()
+    _validate_osi_examples(generated_root=generated_root)
     _validate_aoi_examples(generated_root=generated_root)
     print("All examples validated successfully.")
 

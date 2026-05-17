@@ -45,7 +45,7 @@ class DialectExpression(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    dialect: Literal["ANSI_SQL", "SNOWFLAKE", "MDX", "TABLEAU", "DATABRICKS"] = Field(
+    dialect: Literal["ANSI_SQL", "SNOWFLAKE", "MDX", "TABLEAU", "DATABRICKS", "TRINO"] = Field(
         ..., description="Supported SQL and expression language dialects"
     )
     expression: str = Field(..., description="SQL or dialect-specific expression")
@@ -280,7 +280,9 @@ class OsiCoreMetadataSpecificationWithMarivoVendorExtensions(BaseModel):
         extra="forbid",
     )
     version: Literal["0.1.1"] = Field(..., description="OSI specification version")
-    dialects: list[Literal["ANSI_SQL", "SNOWFLAKE", "MDX", "TABLEAU", "DATABRICKS"]] | None = Field(
+    dialects: (
+        list[Literal["ANSI_SQL", "SNOWFLAKE", "MDX", "TABLEAU", "DATABRICKS", "TRINO"]] | None
+    ) = Field(
         None,
         description="Supported expression language dialects (enumeration definition)",
     )

@@ -16,6 +16,7 @@ dialects:
   - "MDX" # Multi-Dimensional Expressions
   - "TABLEAU" # Tableau
   - "DATABRICKS" # Databricks SQL
+  - "TRINO" # Trino SQL
   - "MAQL" # GoodData MAQL (Multi-Dimensional Analytical Query Language)
 
 # Supported vendors for custom extensions

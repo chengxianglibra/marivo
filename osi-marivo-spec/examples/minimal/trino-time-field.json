@@ -1,0 +1,52 @@
+{
+  "version": "0.1.1",
+  "dialects": [
+    "TRINO"
+  ],
+  "semantic_model": [
+    {
+      "name": "trino_query_logs",
+      "datasets": [
+        {
+          "name": "query_logs",
+          "source": "iceberg.analytics.query_logs",
+          "fields": [
+            {
+              "name": "query_id",
+              "expression": {
+                "dialects": [
+                  {
+                    "dialect": "TRINO",
+                    "expression": "query_id"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "query_date",
+              "expression": {
+                "dialects": [
+                  {
+                    "dialect": "TRINO",
+                    "expression": "date_parse(log_date, '%Y%m%d')"
+                  }
+                ]
+              },
+              "dimension": {
+                "is_time": true
+              }
+            }
+          ],
+          "custom_extensions": [
+            {
+              "vendor_name": "MARIVO",
+              "data": {
+                "datasource_id": "ds_trino_prod"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
