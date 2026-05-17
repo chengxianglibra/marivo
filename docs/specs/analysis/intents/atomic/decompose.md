@@ -129,7 +129,7 @@ v1 支持的输入形态如下：
 ## v1 不支持的输入
 
 - 直接传 `scope`
-- 直接传 `metric + left_scope + right_scope`
+- 直接传 `metric + current_scope + baseline_scope`
 - 引用对象或 `method`
 - 以 `segmented_delta` 作为主输入契约
 - 多个 dimensions
@@ -150,15 +150,15 @@ v1 支持的输入形态如下：
 
 沿用 `compare` 的约定：
 
-- `left_ref` 是被考察的一侧
-- `right_ref` 是基线一侧
-- `absolute_delta = left_value - right_value`
+- `current_ref` 是被考察的一侧
+- `baseline_ref` 是基线一侧
+- `absolute_delta = current_value - baseline_value`
 
 `decompose` 不会重定义这个 delta，只负责解释它。
 
 v1 要求 `compare_artifact_id` 解析到 `scalar_delta` 或 `time_series_delta`，而不是 `segmented_delta`。
 
-当上游是 `time_series_delta` 时，`decompose` 解释的是 compare 已对齐 bucket 之后的 summary delta，而不是为每个时间 bucket 单独生成一组 contribution rows。若 compare analytical metadata 提供 `matched_left_time_scope` / `matched_right_time_scope`，`decompose` 的 grouped 重算必须分别复用左右两侧的 matched 范围；若只有兼容字段 `matched_time_scope`，则可继续将其同时视作两侧范围，以保持与 summary delta 同一对账边界。
+当上游是 `time_series_delta` 时，`decompose` 解释的是 compare 已对齐 bucket 之后的 summary delta，而不是为每个时间 bucket 单独生成一组 contribution rows。若 compare analytical metadata 提供 `matched_current_time_scope` / `matched_baseline_time_scope`，`decompose` 的 grouped 重算必须分别复用左右两侧的 matched 范围；若只有兼容字段 `matched_time_scope`，则可继续将其同时视作两侧范围，以保持与 summary delta 同一对账边界。
 
 原因：
 
@@ -185,7 +185,7 @@ v1 只支持一个维度，因为：
 其含义为：
 
 - 在 `compare_ref` 继承的 left / right scopes 下，按请求 dimension 的每个取值重算 metric
-- 计算每个 segment 的 delta：`segment_left_value - segment_right_value`
+- 计算每个 segment 的 delta：`segment_current_value - segment_baseline_value`
 - 当数学和语义上都成立时，计算该 segment 对 scope delta 的带符号 share
 
 v1 将 `delta_share` 限制在 `additive_dimensions` 非空的 metrics 上；`additive_dimensions` 为空的 metrics 在 v1 中必须拒绝。
@@ -197,20 +197,20 @@ v1 将 `delta_share` 限制在 `additive_dimensions` 非空的 metrics 上；`ad
 取值：
 
 - `both`
-- `left_only`
-- `right_only`
+- `current_only`
+- `baseline_only`
 
 计算规则：
 
-- `both`：`absolute_contribution = left_value - right_value`
-- `left_only`：返回 `right_value = null`，但归因计算中视作 `0`
-- `right_only`：返回 `left_value = null`，但归因计算中视作 `0`
+- `both`：`absolute_contribution = current_value - baseline_value`
+- `current_only`：返回 `baseline_value = null`，但归因计算中视作 `0`
+- `baseline_only`：返回 `current_value = null`，但归因计算中视作 `0`
 
 解释语义：
 
 - `both`：持续存在的维度值发生了变化
-- `left_only`：新出现的维度值对总变化产生贡献
-- `right_only`：消失的维度值对总变化产生贡献
+- `current_only`：新出现的维度值对总变化产生贡献
+- `baseline_only`：消失的维度值对总变化产生贡献
 
 `presence` 是解释性元数据，不是单独的数学模式。对 additive metric 而言，单边行仍参与整体对账。
 
@@ -283,12 +283,12 @@ type ExecutionMetadata = {
 
 type DeltaDecompositionRow = {
   key: string | number | boolean | null;
-  left_value: number | null;
-  right_value: number | null;
+  current_value: number | null;
+  baseline_value: number | null;
   absolute_contribution: number | null;
   contribution_share: number | null;
   direction: "increase" | "decrease" | "flat" | "undefined";
-  presence: "both" | "left_only" | "right_only";
+  presence: "both" | "current_only" | "baseline_only";
 };
 
 type DeltaDecomposition = {
@@ -296,19 +296,19 @@ type DeltaDecomposition = {
   artifact_id: string;
   metric: string;
   compare_ref: CompareArtifactRef;
-  left_ref: ObservationArtifactRef;
-  right_ref: ObservationArtifactRef;
+  current_ref: ObservationArtifactRef;
+  baseline_ref: ObservationArtifactRef;
   dimension: string;
   method: "delta_share";
   unit: string | null;
-  left_time_scope: ResolvedTimeScope;
-  right_time_scope: ResolvedTimeScope;
+  current_time_scope: ResolvedTimeScope;
+  baseline_time_scope: ResolvedTimeScope;
   resolved_scopes: {
     left: Scope;
     right: Scope;
   };
-  scope_left_value: number | null;
-  scope_right_value: number | null;
+  scope_current_value: number | null;
+  scope_baseline_value: number | null;
   scope_absolute_delta: number | null;
   scope_relative_delta: number | null;
   scope_direction: "increase" | "decrease" | "flat" | "undefined";
@@ -359,12 +359,12 @@ empty semantics：
 
 - `unit = null`：metric 没有 canonical unit，语义为 `not_applicable`
 - `resolved_scopes.left/right` 必须保留完整 canonical scope；若该侧没有额外 non-time filter，应返回 `{}` 或其等价 normalized total scope，而不是 `null`
-- `scope_left_value` / `scope_right_value = null`：该侧 scope value 当前无法可靠解析，语义为 `not_yet_resolved`
+- `scope_current_value` / `scope_baseline_value = null`：该侧 scope value 当前无法可靠解析，语义为 `not_yet_resolved`
 - `scope_absolute_delta = null`：scope delta 当前无法可靠解析，语义为 `not_yet_resolved`
 - `scope_relative_delta = null`：相对变化不可定义，例如 baseline 为 0，语义为 `not_applicable`
 - `row.key = null`：source dimension value 本身为 null bucket，不表示 unknown
-- `row.left_value = null`：仅在 `presence = right_only` 时合法，语义为该侧不存在该 segment，`not_applicable`
-- `row.right_value = null`：仅在 `presence = left_only` 时合法，语义为该侧不存在该 segment，`not_applicable`
+- `row.current_value = null`：仅在 `presence = baseline_only` 时合法，语义为该侧不存在该 segment，`not_applicable`
+- `row.baseline_value = null`：仅在 `presence = current_only` 时合法，语义为该侧不存在该 segment，`not_applicable`
 - `absolute_contribution = null`：当前行 contribution 无法可靠计算，语义为 `not_yet_resolved`
 - `contribution_share = null`：share 不可定义，例如 `scope_absolute_delta = 0` 或 null，语义为 `not_applicable`
 - `left_row_count` / `right_row_count = null`：该侧 canonical row count 当前不可得，语义为 `not_yet_resolved`

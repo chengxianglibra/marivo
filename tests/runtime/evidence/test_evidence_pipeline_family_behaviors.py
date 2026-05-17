@@ -267,8 +267,8 @@ def _compare_segmented_payload(rows: list[dict[str, Any]] | None = None) -> dict
         rows = [
             {
                 "keys": {"country": "US"},
-                "left_value": 500.0,
-                "right_value": 400.0,
+                "current_value": 500.0,
+                "baseline_value": 400.0,
                 "absolute_delta": 100.0,
                 "relative_delta": 0.25,
                 "direction": "increase",
@@ -280,15 +280,27 @@ def _compare_segmented_payload(rows: list[dict[str, Any]] | None = None) -> dict
         "schema_version": "1.0",
         "comparison_type": "segmented_delta",
         "metric": "daily_users",
-        "left_ref": {"session_id": _SESSION, "step_id": "step_obs_l", "step_type": "observe"},
-        "right_ref": {"session_id": _SESSION, "step_id": "step_obs_r", "step_type": "observe"},
+        "current_ref": {"session_id": _SESSION, "step_id": "step_obs_l", "step_type": "observe"},
+        "baseline_ref": {
+            "session_id": _SESSION,
+            "step_id": "step_obs_r",
+            "step_type": "observe",
+        },
         "unit": None,
         "rows": rows,
         "resolved_input_summary": {
-            "left_scope": {},
-            "right_scope": {},
-            "left_time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
-            "right_time_scope": {"kind": "range", "start": "2023-12-25", "end": "2024-01-01"},
+            "current_scope": {},
+            "baseline_scope": {},
+            "current_time_scope": {
+                "kind": "range",
+                "start": "2024-01-01",
+                "end": "2024-01-08",
+            },
+            "baseline_time_scope": {
+                "kind": "range",
+                "start": "2023-12-25",
+                "end": "2024-01-01",
+            },
         },
         "comparability": {"status": "comparable", "issues": []},
         "analytical_metadata": {},
@@ -300,8 +312,8 @@ def _decompose_payload(rows: list[dict[str, Any]] | None = None) -> dict[str, An
         rows = [
             {
                 "key": "ios",
-                "left_value": 600.0,
-                "right_value": 500.0,
+                "current_value": 600.0,
+                "baseline_value": 500.0,
                 "absolute_contribution": 100.0,
                 "contribution_share": 0.5,
                 "direction": "increase",
@@ -320,13 +332,13 @@ def _decompose_payload(rows: list[dict[str, Any]] | None = None) -> dict[str, An
             "artifact_id": "art_upstream_001",
             "comparison_type": "scalar_delta",
         },
-        "left_ref": {
+        "current_ref": {
             "step_type": "observe",
             "session_id": _SESSION,
             "step_id": "step_obs_l",
             "artifact_id": None,
         },
-        "right_ref": {
+        "baseline_ref": {
             "step_type": "observe",
             "session_id": _SESSION,
             "step_id": "step_obs_r",

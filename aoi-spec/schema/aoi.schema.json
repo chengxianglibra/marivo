@@ -322,18 +322,18 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "left_artifact_id",
-          "right_artifact_id"
+          "current_artifact_id",
+          "baseline_artifact_id"
         ],
         "properties": {
           "compare_type": {
             "$ref": "#/$defs/primitives/CompareType"
           },
-          "left_artifact_id": {
+          "current_artifact_id": {
             "type": "string",
             "minLength": 1
           },
-          "right_artifact_id": {
+          "baseline_artifact_id": {
             "type": "string",
             "minLength": 1
           }
@@ -440,8 +440,8 @@
         "additionalProperties": false,
         "required": [
           "metric",
-          "left",
-          "right",
+          "current",
+          "baseline",
           "kind",
           "hypothesis"
         ],
@@ -450,10 +450,10 @@
             "type": "string",
             "minLength": 1
           },
-          "left": {
+          "current": {
             "$ref": "#/$defs/primitives/Slice"
           },
-          "right": {
+          "baseline": {
             "$ref": "#/$defs/primitives/Slice"
           },
           "kind": {
@@ -490,8 +490,8 @@
         "additionalProperties": false,
         "required": [
           "metric",
-          "left",
-          "right",
+          "current",
+          "baseline",
           "hypothesis"
         ],
         "properties": {
@@ -499,10 +499,10 @@
             "type": "string",
             "minLength": 1
           },
-          "left": {
+          "current": {
             "$ref": "#/$defs/primitives/Slice"
           },
-          "right": {
+          "baseline": {
             "$ref": "#/$defs/primitives/Slice"
           },
           "hypothesis": {
@@ -516,8 +516,8 @@
         "additionalProperties": false,
         "required": [
           "metric",
-          "left",
-          "right",
+          "current",
+          "baseline",
           "dimensions"
         ],
         "properties": {
@@ -525,10 +525,10 @@
             "type": "string",
             "minLength": 1
           },
-          "left": {
+          "current": {
             "$ref": "#/$defs/primitives/Slice"
           },
-          "right": {
+          "baseline": {
             "$ref": "#/$defs/primitives/Slice"
           },
           "dimensions": {
@@ -775,16 +775,16 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "left_value",
-          "right_value",
+          "current_value",
+          "baseline_value",
           "delta",
           "matched_time_scope"
         ],
         "properties": {
-          "left_value": {
+          "current_value": {
             "$ref": "#/$defs/primitives/NumberOrNull"
           },
-          "right_value": {
+          "baseline_value": {
             "$ref": "#/$defs/primitives/NumberOrNull"
           },
           "delta": {
@@ -1050,18 +1050,18 @@
         "additionalProperties": false,
         "required": [
           "bucket_start",
-          "left_value",
-          "right_value",
+          "current_value",
+          "baseline_value",
           "delta"
         ],
         "properties": {
           "bucket_start": {
             "$ref": "#/$defs/primitives/ISO8601"
           },
-          "left_value": {
+          "current_value": {
             "$ref": "#/$defs/primitives/NumberOrNull"
           },
-          "right_value": {
+          "baseline_value": {
             "$ref": "#/$defs/primitives/NumberOrNull"
           },
           "delta": {
@@ -1075,8 +1075,8 @@
         "required": [
           "item_id",
           "keys",
-          "left_value",
-          "right_value",
+          "current_value",
+          "baseline_value",
           "delta"
         ],
         "properties": {
@@ -1087,10 +1087,10 @@
           "keys": {
             "$ref": "#/$defs/primitives/DimensionKeyMap"
           },
-          "left_value": {
+          "current_value": {
             "$ref": "#/$defs/primitives/NumberOrNull"
           },
-          "right_value": {
+          "baseline_value": {
             "$ref": "#/$defs/primitives/NumberOrNull"
           },
           "delta": {

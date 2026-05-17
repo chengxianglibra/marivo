@@ -187,24 +187,24 @@ _COMPARE_ARTIFACT_CONTENT = {
     "metric": "dau",
     "direction": "decrease",
     "resolved_input_summary": {
-        "left_scope": {},
-        "left_time_scope": _LEFT_WIN,
-        "right_time_scope": _RIGHT_WIN,
+        "current_scope": {},
+        "current_time_scope": _LEFT_WIN,
+        "baseline_time_scope": _RIGHT_WIN,
     },
 }
 
 _DELTA_PAYLOAD = {
     "delta_kind": "scalar_delta",
-    "left_ref": {
+    "current_ref": {
         "artifact_id": "",
         "item_ref": {"collection": "value", "index": None, "key": None},
     },
-    "right_ref": {
+    "baseline_ref": {
         "artifact_id": "",
         "item_ref": {"collection": "value", "index": None, "key": None},
     },
-    "left_value": 1000.0,
-    "right_value": 900.0,
+    "current_value": 1000.0,
+    "baseline_value": 900.0,
     "absolute_delta": -100.0,
     "relative_delta": -0.1,
     "direction": "decrease",
@@ -231,8 +231,8 @@ _ANOMALY_PAYLOAD = {
     },
     "score": 0.95,
     "flag_level": "high",
-    "actual_value": 800.0,
-    "expected_value": 1000.0,
+    "current_value": 800.0,
+    "baseline_value": 1000.0,
     "deviation_absolute": -200.0,
     "deviation_relative": -0.2,
 }
@@ -492,13 +492,13 @@ class TestCreationConditionT1(_Base):
         result = self._run(["fnd_undef_both"])
         self.assertEqual(result["affected_proposition_ids"], [])
 
-    def test_undefined_direction_left_only_creates_proposition(self) -> None:
-        self._insert_delta("fnd_undef_left", direction="undefined", presence="left_only")
+    def test_undefined_direction_current_only_creates_proposition(self) -> None:
+        self._insert_delta("fnd_undef_left", direction="undefined", presence="current_only")
         result = self._run(["fnd_undef_left"])
         self.assertEqual(len(result["created_proposition_ids"]), 1)
 
-    def test_undefined_direction_right_only_creates_proposition(self) -> None:
-        self._insert_delta("fnd_undef_right", direction="undefined", presence="right_only")
+    def test_undefined_direction_baseline_only_creates_proposition(self) -> None:
+        self._insert_delta("fnd_undef_right", direction="undefined", presence="baseline_only")
         result = self._run(["fnd_undef_right"])
         self.assertEqual(len(result["created_proposition_ids"]), 1)
 
@@ -612,8 +612,8 @@ class TestSeedingRunT1Change(_Base):
         pid = result["created_proposition_ids"][0]
         row = self.prop_repo.get(pid)
         payload = row["payload_json"]
-        self.assertEqual(payload["comparison_window"]["left"], _LEFT_WIN)
-        self.assertEqual(payload["comparison_window"]["right"], _RIGHT_WIN)
+        self.assertEqual(payload["comparison_window"]["current"], _LEFT_WIN)
+        self.assertEqual(payload["comparison_window"]["baseline"], _RIGHT_WIN)
 
     def test_change_proposition_subject_analysis_axis(self) -> None:
         self._insert_delta("fnd_delta_001", direction="decrease")
@@ -622,8 +622,8 @@ class TestSeedingRunT1Change(_Base):
         row = self.prop_repo.get(pid)
         self.assertEqual(row["subject_json"]["analysis_axis"], "change")
 
-    def test_any_non_flat_direction_for_undefined_left_only(self) -> None:
-        self._insert_delta("fnd_undef_left", direction="undefined", presence="left_only")
+    def test_any_non_flat_direction_for_undefined_current_only(self) -> None:
+        self._insert_delta("fnd_undef_left", direction="undefined", presence="current_only")
         result = self._run(["fnd_undef_left"])
         pid = result["created_proposition_ids"][0]
         row = self.prop_repo.get(pid)
@@ -838,11 +838,11 @@ _CORRELATION_PAYLOAD = {
     "p_value": 0.02,
     "n": 14,
     "join_basis": {"kind": "time_aligned", "grain": "day", "key_fields": []},
-    "left_ref": {
+    "current_ref": {
         "artifact_id": "art_obs_left_001",
         "item_ref": {"collection": "result", "index": None, "key": None},
     },
-    "right_ref": {
+    "baseline_ref": {
         "artifact_id": "art_obs_right_001",
         "item_ref": {"collection": "result", "index": None, "key": None},
     },
@@ -856,11 +856,11 @@ _TEST_PAYLOAD = {
     "statistic_value": 2.5,
     "p_value": 0.02,
     "reject_null": True,
-    "left_ref": {
+    "current_ref": {
         "artifact_id": "art_obs_left_001",
         "item_ref": {"collection": "result", "index": None, "key": None},
     },
-    "right_ref": {
+    "baseline_ref": {
         "artifact_id": "art_obs_right_001",
         "item_ref": {"collection": "result", "index": None, "key": None},
     },
@@ -995,18 +995,18 @@ class _T245Base(_Base):
         self,
         finding_id: str = "fnd_test_001",
         alpha: float | None = 0.05,
-        left_artifact_id: str = "art_obs_left_001",
-        right_artifact_id: str = "art_obs_right_001",
+        current_artifact_id: str = "art_obs_left_001",
+        baseline_artifact_id: str = "art_obs_right_001",
     ) -> None:
         payload = {
             **_TEST_PAYLOAD,
             "alpha": alpha,
-            "left_ref": {
-                "artifact_id": left_artifact_id,
+            "current_ref": {
+                "artifact_id": current_artifact_id,
                 "item_ref": {"collection": "result", "index": None, "key": None},
             },
-            "right_ref": {
-                "artifact_id": right_artifact_id,
+            "baseline_ref": {
+                "artifact_id": baseline_artifact_id,
                 "item_ref": {"collection": "result", "index": None, "key": None},
             },
         }
@@ -1100,8 +1100,8 @@ class TestSeedingRunT2Decomposition(_T245Base):
         self.assertEqual(payload["dimension"], "country")
         self.assertEqual(payload["contribution_role"], "primary_driver")
         self.assertEqual(payload["scope_delta_ref"]["finding_id"], "fnd_delta_001")
-        self.assertEqual(payload["comparison_window"]["left"], _LEFT_WIN)
-        self.assertEqual(payload["comparison_window"]["right"], _RIGHT_WIN)
+        self.assertEqual(payload["comparison_window"]["current"], _LEFT_WIN)
+        self.assertEqual(payload["comparison_window"]["baseline"], _RIGHT_WIN)
 
     def test_decomposition_subject_from_trigger_finding(self) -> None:
         """Subject must come from the trigger (decomposition_item) finding, not delta finding."""
@@ -1298,15 +1298,15 @@ class TestCreationConditionT5(_T245Base):
         result = self._run(["fnd_test_no_alpha"])
         self.assertEqual(result["affected_proposition_ids"], [])
 
-    def test_missing_left_artifact_id_no_proposition(self) -> None:
-        """left_ref.artifact_id empty → ctx.get_artifact_payload returns None → false."""
-        self._insert_test_result("fnd_test_no_lid", left_artifact_id="")
+    def test_missing_current_artifact_id_no_proposition(self) -> None:
+        """current_ref.artifact_id empty -> ctx.get_artifact_payload returns None -> false."""
+        self._insert_test_result("fnd_test_no_lid", current_artifact_id="")
         result = self._run(["fnd_test_no_lid"])
         self.assertEqual(result["affected_proposition_ids"], [])
 
-    def test_unresolvable_right_artifact_no_proposition(self) -> None:
-        """right_ref points to non-existent artifact → no metric → false."""
-        self._insert_test_result("fnd_test_bad_ra", right_artifact_id="art_nonexistent_999")
+    def test_unresolvable_baseline_artifact_no_proposition(self) -> None:
+        """baseline_ref points to non-existent artifact -> no metric -> false."""
+        self._insert_test_result("fnd_test_bad_ra", baseline_artifact_id="art_nonexistent_999")
         result = self._run(["fnd_test_bad_ra"])
         self.assertEqual(result["affected_proposition_ids"], [])
 

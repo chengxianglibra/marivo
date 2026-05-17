@@ -435,8 +435,8 @@ def _follow_up_candidate(
         for k in (
             "window",
             "slice",
-            "observed_value",
-            "expected_value",
+            "current_value",
+            "baseline_value",
             "deviation_abs",
             "deviation_pct",
             "candidate_score",
@@ -605,8 +605,8 @@ def _follow_up_candidate(
                 runtime,
                 session_id,
                 {
-                    "left_artifact_id": current_obs["artifact_id"],
-                    "right_artifact_id": baseline_obs["artifact_id"],
+                    "current_artifact_id": current_obs["artifact_id"],
+                    "baseline_artifact_id": baseline_obs["artifact_id"],
                 },
             )
             compare_step_id = compare_result["step_ref"]["step_id"]
@@ -622,8 +622,8 @@ def _follow_up_candidate(
             comparability_status = comparability.get("status") or "comparable"
             comparison = {
                 "comparison_type": "scalar_delta",
-                "left_value": compare_result.get("left_value"),
-                "right_value": compare_result.get("right_value"),
+                "current_value": compare_result.get("current_value"),
+                "baseline_value": compare_result.get("baseline_value"),
                 "absolute_delta": compare_result.get("absolute_delta"),
                 "relative_delta": compare_result.get("relative_delta"),
                 "direction": compare_result.get("direction") or "undefined",

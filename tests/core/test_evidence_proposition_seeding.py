@@ -162,8 +162,8 @@ def test_materialize_change_scalar_increase() -> None:
     }
     artifact = {
         "resolved_input_summary": {
-            "left_time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-02-01"},
-            "right_time_scope": {"kind": "range", "start": "2023-01-01", "end": "2023-02-01"},
+            "current_time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-02-01"},
+            "baseline_time_scope": {"kind": "range", "start": "2023-01-01", "end": "2023-02-01"},
         },
     }
     result = materialize_change_from_delta(

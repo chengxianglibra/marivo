@@ -23,8 +23,8 @@ def lower_aoi_request(intent_type: str, request: AoiAtomicRequest) -> dict[str, 
         return _lower_observe(request)
     if isinstance(request, aoi.Compare):
         return {
-            "left_artifact_id": request.left_artifact_id,
-            "right_artifact_id": request.right_artifact_id,
+            "current_artifact_id": request.current_artifact_id,
+            "baseline_artifact_id": request.baseline_artifact_id,
             "compare_type": request.compare_type,
         }
     if isinstance(request, aoi.Decompose):
@@ -54,8 +54,8 @@ def lower_aoi_request(intent_type: str, request: AoiAtomicRequest) -> dict[str, 
     if isinstance(request, aoi.Test):
         return {
             "metric": request.metric,
-            "left": _dump_slice(request.left),
-            "right": _dump_slice(request.right),
+            "current": _dump_slice(request.current),
+            "baseline": _dump_slice(request.baseline),
             "kind": request.kind,
             "hypothesis": request.hypothesis.model_dump(exclude_none=True),
         }
@@ -70,15 +70,15 @@ def lower_aoi_derived_request(intent_type: str, request: AoiDerivedRequest) -> d
     if isinstance(request, aoi.Validate):
         return {
             "metric": request.metric,
-            "left": _dump_slice(request.left),
-            "right": _dump_slice(request.right),
+            "current": _dump_slice(request.current),
+            "baseline": _dump_slice(request.baseline),
             "hypothesis": request.hypothesis.model_dump(exclude_none=True),
         }
     if isinstance(request, aoi.Attribute):
         return {
             "metric": request.metric,
-            "left": _dump_slice(request.left),
-            "right": _dump_slice(request.right),
+            "current": _dump_slice(request.current),
+            "baseline": _dump_slice(request.baseline),
             "dimensions": _dump_model(request.dimensions),
             "decomposition_method": request.decomposition_method,
             "decomposition_limit": request.decomposition_limit,

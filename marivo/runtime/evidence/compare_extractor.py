@@ -20,7 +20,7 @@ raises :class:`FamilyEmptyError` if ``finding_count == 0``.  The runner already
 fails with ``NOT_COMPARABLE`` before writing an empty segmented artifact, so this
 gate is a belt-and-suspenders check at the commit boundary.
 
-left_ref / right_ref artifact_id:
+current_ref / baseline_ref artifact_id:
 ---------------------------------
 The compare runner embeds upstream observation artifact IDs in its lineage refs.
 The extractor copies those IDs into delta findings and never resolves session
@@ -51,7 +51,7 @@ from marivo.runtime.evidence.finding_extractor_registry import FindingExtractor
 # ---------------------------------------------------------------------------
 
 _VALID_DIRECTIONS = frozenset({"increase", "decrease", "flat", "undefined"})
-_VALID_PRESENCES = frozenset({"both", "left_only", "right_only"})
+_VALID_PRESENCES = frozenset({"both", "current_only", "baseline_only"})
 
 
 # ---------------------------------------------------------------------------
@@ -211,8 +211,8 @@ class CompareArtifactExtractor(FindingExtractor):
         finding_id = make_finding_id(artifact_id, "delta", canonical_item_key)
 
         resolved = payload.get("resolved_input_summary") or {}
-        left_scope: dict[str, Any] = resolved.get("left_scope") or {}
-        left_time_scope = resolved.get("left_time_scope")
+        current_scope: dict[str, Any] = resolved.get("current_scope") or {}
+        current_time_scope = resolved.get("current_time_scope")
 
         direction_raw = payload.get("direction") or "undefined"
         direction = cast(
@@ -221,20 +221,20 @@ class CompareArtifactExtractor(FindingExtractor):
         )
 
         _, obs_item_ref = make_item_identity("value")
-        left_ref = ArtifactItemRefRef(
-            artifact_id=_source_artifact_id(payload, "left"), item_ref=obs_item_ref
+        current_ref = ArtifactItemRefRef(
+            artifact_id=_source_artifact_id(payload, "current"), item_ref=obs_item_ref
         )
-        right_ref = ArtifactItemRefRef(
-            artifact_id=_source_artifact_id(payload, "right"), item_ref=obs_item_ref
+        baseline_ref = ArtifactItemRefRef(
+            artifact_id=_source_artifact_id(payload, "baseline"), item_ref=obs_item_ref
         )
         comparability_payload = _extract_comparability_payload(payload)
 
         delta_payload = DeltaPayload(
             delta_kind="scalar_delta",
-            left_ref=left_ref,
-            right_ref=right_ref,
-            left_value=_to_float_or_none(payload.get("left_value")),
-            right_value=_to_float_or_none(payload.get("right_value")),
+            current_ref=current_ref,
+            baseline_ref=baseline_ref,
+            current_value=_to_float_or_none(payload.get("current_value")),
+            baseline_value=_to_float_or_none(payload.get("baseline_value")),
             absolute_delta=_to_float_or_none(payload.get("absolute_delta")),
             relative_delta=_to_float_or_none(payload.get("relative_delta")),
             direction=direction,
@@ -251,11 +251,11 @@ class CompareArtifactExtractor(FindingExtractor):
             subject=FindingSubject(
                 metric=payload.get("metric"),
                 entity=None,
-                slice=left_scope,
+                slice=current_scope,
                 grain=None,
                 analysis_axis="scalar",
             ),
-            observed_window=left_time_scope,
+            observed_window=current_time_scope,
             quality=_empty_quality(),
             provenance=self._make_provenance(step_ref, canonical_item_key, item_ref),
             payload=delta_payload,
@@ -272,7 +272,7 @@ class CompareArtifactExtractor(FindingExtractor):
         metric: str | None = payload.get("metric")
         unit: str | None = payload.get("unit")
         resolved = payload.get("resolved_input_summary") or {}
-        left_time_scope = resolved.get("left_time_scope")
+        current_time_scope = resolved.get("current_time_scope")
         comparability_payload = _extract_comparability_payload(payload)
 
         findings: list[DeltaFinding] = []
@@ -294,19 +294,19 @@ class CompareArtifactExtractor(FindingExtractor):
 
             _, left_item_ref = make_item_identity("rows", key=stable_key)
             _, right_item_ref = make_item_identity("rows", key=stable_key)
-            left_ref = ArtifactItemRefRef(
-                artifact_id=_source_artifact_id(payload, "left"), item_ref=left_item_ref
+            current_ref = ArtifactItemRefRef(
+                artifact_id=_source_artifact_id(payload, "current"), item_ref=left_item_ref
             )
-            right_ref = ArtifactItemRefRef(
-                artifact_id=_source_artifact_id(payload, "right"), item_ref=right_item_ref
+            baseline_ref = ArtifactItemRefRef(
+                artifact_id=_source_artifact_id(payload, "baseline"), item_ref=right_item_ref
             )
 
             delta_payload = DeltaPayload(
                 delta_kind="segmented_delta",
-                left_ref=left_ref,
-                right_ref=right_ref,
-                left_value=_to_float_or_none(row.get("left_value")),
-                right_value=_to_float_or_none(row.get("right_value")),
+                current_ref=current_ref,
+                baseline_ref=baseline_ref,
+                current_value=_to_float_or_none(row.get("current_value")),
+                baseline_value=_to_float_or_none(row.get("baseline_value")),
                 absolute_delta=_to_float_or_none(row.get("absolute_delta")),
                 relative_delta=_to_float_or_none(row.get("relative_delta")),
                 direction=direction,
@@ -327,7 +327,7 @@ class CompareArtifactExtractor(FindingExtractor):
                     grain=None,
                     analysis_axis="segment",
                 ),
-                observed_window=left_time_scope,
+                observed_window=current_time_scope,
                 quality=_empty_quality(),
                 provenance=self._make_provenance(step_ref, canonical_item_key, item_ref),
                 payload=delta_payload,
@@ -352,8 +352,8 @@ class CompareArtifactExtractor(FindingExtractor):
         has_summary_delta = any(
             key in payload
             for key in (
-                "summary_left_value",
-                "summary_right_value",
+                "summary_current_value",
+                "summary_baseline_value",
                 "summary_absolute_delta",
                 "summary_relative_delta",
                 "summary_direction",
@@ -369,18 +369,18 @@ class CompareArtifactExtractor(FindingExtractor):
                 if summary_direction_raw in _VALID_DIRECTIONS
                 else "undefined",
             )
-            left_ref = ArtifactItemRefRef(
-                artifact_id=_source_artifact_id(payload, "left"), item_ref=summary_item_ref
+            current_ref = ArtifactItemRefRef(
+                artifact_id=_source_artifact_id(payload, "current"), item_ref=summary_item_ref
             )
-            right_ref = ArtifactItemRefRef(
-                artifact_id=_source_artifact_id(payload, "right"), item_ref=summary_item_ref
+            baseline_ref = ArtifactItemRefRef(
+                artifact_id=_source_artifact_id(payload, "baseline"), item_ref=summary_item_ref
             )
             summary_payload = DeltaPayload(
                 delta_kind="time_series_delta",
-                left_ref=left_ref,
-                right_ref=right_ref,
-                left_value=_to_float_or_none(payload.get("summary_left_value")),
-                right_value=_to_float_or_none(payload.get("summary_right_value")),
+                current_ref=current_ref,
+                baseline_ref=baseline_ref,
+                current_value=_to_float_or_none(payload.get("summary_current_value")),
+                baseline_value=_to_float_or_none(payload.get("summary_baseline_value")),
                 absolute_delta=_to_float_or_none(payload.get("summary_absolute_delta")),
                 relative_delta=_to_float_or_none(payload.get("summary_relative_delta")),
                 direction=summary_direction,
@@ -443,19 +443,19 @@ class CompareArtifactExtractor(FindingExtractor):
             presence = presence_raw if presence_raw in _VALID_PRESENCES else None
 
             _, bucket_item_ref = make_item_identity("buckets", key=bucket_start)
-            left_ref = ArtifactItemRefRef(
-                artifact_id=_source_artifact_id(payload, "left"), item_ref=bucket_item_ref
+            current_ref = ArtifactItemRefRef(
+                artifact_id=_source_artifact_id(payload, "current"), item_ref=bucket_item_ref
             )
-            right_ref = ArtifactItemRefRef(
-                artifact_id=_source_artifact_id(payload, "right"), item_ref=bucket_item_ref
+            baseline_ref = ArtifactItemRefRef(
+                artifact_id=_source_artifact_id(payload, "baseline"), item_ref=bucket_item_ref
             )
 
             delta_payload = DeltaPayload(
                 delta_kind="time_series_delta",
-                left_ref=left_ref,
-                right_ref=right_ref,
-                left_value=_to_float_or_none(row.get("left_value")),
-                right_value=_to_float_or_none(row.get("right_value")),
+                current_ref=current_ref,
+                baseline_ref=baseline_ref,
+                current_value=_to_float_or_none(row.get("current_value")),
+                baseline_value=_to_float_or_none(row.get("baseline_value")),
                 absolute_delta=_to_float_or_none(row.get("absolute_delta")),
                 relative_delta=_to_float_or_none(row.get("relative_delta")),
                 direction=direction,

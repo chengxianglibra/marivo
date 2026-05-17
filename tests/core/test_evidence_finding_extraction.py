@@ -200,15 +200,19 @@ def test_extract_compare_scalar_delta() -> None:
     payload = {
         "comparison_type": "scalar_delta",
         "metric": "revenue",
-        "left_value": 100,
-        "right_value": 120,
+        "current_value": 100,
+        "baseline_value": 120,
         "absolute_delta": 20,
         "relative_delta": 0.2,
         "direction": "increase",
         "unit": "USD",
         "resolved_input_summary": {
-            "left_scope": {"region": "US"},
-            "left_time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-02-01"},
+            "current_scope": {"region": "US"},
+            "current_time_scope": {
+                "kind": "range",
+                "start": "2024-01-01",
+                "end": "2024-02-01",
+            },
         },
     }
     findings = extract_compare_findings(
@@ -253,8 +257,8 @@ def test_extract_detect_time_bucket_candidate() -> None:
                 "window": {"start": "2024-01-15", "end": "2024-01-16"},
                 "candidate_score": 3.5,
                 "flag_level": "high",
-                "observed_value": 200,
-                "expected_value": 100,
+                "current_value": 200,
+                "baseline_value": 100,
                 "deviation_abs": 100,
                 "deviation_pct": 1.0,
             },
@@ -377,8 +381,8 @@ def test_extract_forecast_basic() -> None:
 def test_extract_test_basic() -> None:
     payload = {
         "method": "welch_t",
-        "left_ref": {"artifact_id": "left_art"},
-        "right_ref": {"artifact_id": "right_art"},
+        "current_ref": {"artifact_id": "left_art"},
+        "baseline_ref": {"artifact_id": "right_art"},
         "statistic": {"name": "t", "value": 2.5},
         "estimate": {"value": 0.15},
         "hypothesis": {"alpha": 0.05},

@@ -1324,8 +1324,8 @@ interface AnomalyCandidate {
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | session_id | string | 是 | 会话ID |
-| left_artifact_id | string | 是 | 左侧（通常为当前/异常）observe artifact ID |
-| right_artifact_id | string | 是 | 右侧（通常为基线）observe artifact ID |
+| current_artifact_id | string | 是 | 当前（通常为异常）observe artifact ID |
+| baseline_artifact_id | string | 是 | 基准 observe artifact ID |
 
 可选参数：
 
@@ -1349,8 +1349,8 @@ interface CompareArtifact {
 }
 
 interface ScalarDeltaResult {
-  left_value: number | null;
-  right_value: number | null;
+  current_value: number | null;
+  baseline_value: number | null;
   delta: number | null;
   matched_time_scope: object | null;
 }
@@ -1362,8 +1362,8 @@ interface TimeSeriesDeltaResult {
 
 interface DeltaPoint {
   bucket_start: string;
-  left_value: number | null;
-  right_value: number | null;
+  current_value: number | null;
+  baseline_value: number | null;
   delta: number | null;
 }
 
@@ -1375,8 +1375,8 @@ interface SegmentedDeltaResult {
 interface SegmentedDeltaRow {
   item_id: string;
   keys: object;
-  left_value: number | null;
-  right_value: number | null;
+  current_value: number | null;
+  baseline_value: number | null;
   delta: number | null;
 }
 ```
@@ -1386,8 +1386,8 @@ interface SegmentedDeltaRow {
 ```json
 {
   "session_id": "ses_abc123",
-  "left_artifact_id": "art_obs_current",
-  "right_artifact_id": "art_obs_baseline",
+  "current_artifact_id": "art_obs_current",
+  "baseline_artifact_id": "art_obs_baseline",
   "compare_type": "normal"
 }
 ```
@@ -1400,8 +1400,8 @@ interface SegmentedDeltaRow {
     "artifact_id": "art_compare_1",
     "result": {
       "rows": [
-        { "item_id": "item_0", "keys": { "cluster": "jscs-ai-offline" }, "left_value": 45000, "right_value": 15230, "delta": 29770 },
-        { "item_id": "item_1", "keys": { "cluster": "jscs-ai-online" }, "left_value": 15000, "right_value": 8910, "delta": 6090 }
+        { "item_id": "item_0", "keys": { "cluster": "jscs-ai-offline" }, "current_value": 45000, "baseline_value": 15230, "delta": 29770 },
+        { "item_id": "item_1", "keys": { "cluster": "jscs-ai-online" }, "current_value": 15000, "baseline_value": 8910, "delta": 6090 }
       ],
       "matched_time_scope": null
     },
@@ -1495,8 +1495,8 @@ interface DecompositionItem {
 |------|------|------|------|
 | session_id | string | 是 | 会话ID |
 | metric | string | 是 | 语义指标名称 |
-| left | McpAoiSliceRef | 是 | 当前/异常切片，使用 AOI `time_scope` + 可选 `filter` |
-| right | McpAoiSliceRef | 是 | 基线切片，使用 AOI `time_scope` + 可选 `filter` |
+| current | McpAoiSliceRef | 是 | 当前/异常切片，使用 AOI `time_scope` + 可选 `filter` |
+| baseline | McpAoiSliceRef | 是 | 基线切片，使用 AOI `time_scope` + 可选 `filter` |
 | dimensions | string[] | 是 | 拆解维度列表，如 `["cluster", "department"]` |
 
 可选参数：
@@ -1522,7 +1522,7 @@ interface AttributeArtifact {
 {
   "session_id": "ses_abc123",
   "metric": "total_query_count",
-  "left": {
+  "current": {
     "time_scope": {
       "field": "create_time",
       "start": "2025-02-25T00:00:00Z",
@@ -1537,7 +1537,7 @@ interface AttributeArtifact {
       ]
     }
   },
-  "right": {
+  "baseline": {
     "time_scope": {
       "field": "create_time",
       "start": "2025-03-04T00:00:00Z",
@@ -1726,11 +1726,11 @@ interface AssociationResult {
 |------|------|------|------|
 | session_id | string | 是 | 会话ID |
 | metric | string | 是 | 语义指标名称 |
-| left | McpAoiSliceRef | 是 | 左侧时间切片 |
-| right | McpAoiSliceRef | 是 | 右侧时间切片 |
+| current | McpAoiSliceRef | 是 | 当前时间切片 |
+| baseline | McpAoiSliceRef | 是 | 基准时间切片 |
 | hypothesis | object | 是 | 假设描述对象，仅包含 `alternative`、`significance` |
 
-注意：MCP 适配层内部固定使用 AOI `kind="numeric"` 和 `hypothesis.family="two_sample_mean"`；用户只需提供 `metric`、左右切片和 `hypothesis` 中的 `alternative`、`significance`。`hypothesis.significance` 支持 `"conservative"`（严格，内部 alpha=0.01）、`"balanced"`（默认，内部 alpha=0.05）、`"aggressive"`（探索性，内部 alpha=0.10）。`left/right` 可带 `filter`，不可带 derived intent 的 `scope`。`hypothesis` 需为结构化对象，不接受 JSON 字符串，且不支持 `family`、`alpha` 或 `label` 字段。`test_intent` 无 `kind` 或 `method` 参数。
+注意：MCP 适配层内部固定使用 AOI `kind="numeric"` 和 `hypothesis.family="two_sample_mean"`；用户只需提供 `metric`、当前/基准切片和 `hypothesis` 中的 `alternative`、`significance`。`hypothesis.significance` 支持 `"conservative"`（严格，内部 alpha=0.01）、`"balanced"`（默认，内部 alpha=0.05）、`"aggressive"`（探索性，内部 alpha=0.10）。`current/baseline` 可带 `filter`，不可带 derived intent 的 `scope`。`hypothesis` 需为结构化对象，不接受 JSON 字符串，且不支持 `family`、`alpha` 或 `label` 字段。`test_intent` 无 `kind` 或 `method` 参数。
 
 **输出 — TestIntentArtifact**：
 
@@ -1748,10 +1748,10 @@ interface TestIntentArtifact {
 {
   "session_id": "ses_abc123",
   "metric": "total_query_count",
-  "left": {
+  "current": {
     "time_scope": { "field": "create_time", "start": "2025-02-25", "end": "2025-03-04" }
   },
-  "right": {
+  "baseline": {
     "time_scope": { "field": "create_time", "start": "2025-03-04", "end": "2025-03-11" }
   },
   "hypothesis": { "alternative": "greater", "significance": "balanced" }
@@ -1788,8 +1788,8 @@ interface TestIntentArtifact {
 |------|------|------|------|
 | session_id | string | 是 | 会话ID |
 | metric | string | 是 | 语义指标名称 |
-| left | McpAoiSliceRef | 是 | 左侧 AOI 切片：`time_scope` + 可选 `filter` |
-| right | McpAoiSliceRef | 是 | 右侧 AOI 切片：`time_scope` + 可选 `filter` |
+| current | McpAoiSliceRef | 是 | 当前 AOI 切片：`time_scope` + 可选 `filter` |
+| baseline | McpAoiSliceRef | 是 | 基准 AOI 切片：`time_scope` + 可选 `filter` |
 
 可选参数：
 
@@ -1804,10 +1804,10 @@ interface TestIntentArtifact {
 {
   "session_id": "ses_abc123",
   "metric": "total_query_count",
-  "left": {
+  "current": {
     "time_scope": { "field": "create_time", "start": "2025-02-25", "end": "2025-03-04" }
   },
-  "right": {
+  "baseline": {
     "time_scope": { "field": "create_time", "start": "2025-03-04", "end": "2025-03-11" }
   },
   "hypothesis": { "alternative": "greater", "significance": "balanced" }

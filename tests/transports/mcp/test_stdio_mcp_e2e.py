@@ -398,14 +398,14 @@ async def test_stdio_validate_injects_fixed_hypothesis_family() -> None:
         {
             "session_id": "sess_test",
             "metric": "view_time",
-            "left": {
+            "current": {
                 "time_scope": {
                     "field": "log_time",
                     "start": "2026-05-01T00:00:00Z",
                     "end": "2026-05-08T00:00:00Z",
                 }
             },
-            "right": {
+            "baseline": {
                 "time_scope": {
                     "field": "log_time",
                     "start": "2026-04-24T00:00:00Z",
@@ -422,14 +422,14 @@ async def test_stdio_validate_injects_fixed_hypothesis_family() -> None:
     request = runtime.intent_calls[0][1]["request"]
     assert request.model_dump(mode="json", exclude_none=True) == {
         "metric": "view_time",
-        "left": {
+        "current": {
             "time_scope": {
                 "field": "log_time",
                 "start": "2026-05-01T00:00:00Z",
                 "end": "2026-05-08T00:00:00Z",
             }
         },
-        "right": {
+        "baseline": {
             "time_scope": {
                 "field": "log_time",
                 "start": "2026-04-24T00:00:00Z",
@@ -457,14 +457,14 @@ async def test_stdio_validate_preserves_partial_hypothesis_defaults() -> None:
         {
             "session_id": "sess_test",
             "metric": "view_time",
-            "left": {
+            "current": {
                 "time_scope": {
                     "field": "log_time",
                     "start": "2026-05-01T00:00:00Z",
                     "end": "2026-05-08T00:00:00Z",
                 }
             },
-            "right": {
+            "baseline": {
                 "time_scope": {
                     "field": "log_time",
                     "start": "2026-04-24T00:00:00Z",
@@ -497,14 +497,14 @@ async def test_stdio_validate_rejects_hypothesis_family() -> None:
             {
                 "session_id": "sess_test",
                 "metric": "view_time",
-                "left": {
+                "current": {
                     "time_scope": {
                         "field": "log_time",
                         "start": "2026-05-01T00:00:00Z",
                         "end": "2026-05-08T00:00:00Z",
                     }
                 },
-                "right": {
+                "baseline": {
                     "time_scope": {
                         "field": "log_time",
                         "start": "2026-04-24T00:00:00Z",
@@ -608,17 +608,17 @@ def _scalar_compare_artifact() -> dict[str, Any]:
     return {
         "comparison_type": "scalar_delta",
         "metric": "revenue",
-        "left_value": 120.0,
-        "right_value": 100.0,
+        "current_value": 120.0,
+        "baseline_value": 100.0,
         "absolute_delta": 20.0,
         "relative_delta": 0.2,
         "direction": "increase",
         "unit": "usd",
-        "left_ref": {"artifact_id": "art_left_observe"},
-        "right_ref": {"artifact_id": "art_right_observe"},
+        "current_ref": {"artifact_id": "art_left_observe"},
+        "baseline_ref": {"artifact_id": "art_right_observe"},
         "resolved_input_summary": {
-            "left_scope": {},
-            "left_time_scope": left_window,
-            "right_time_scope": right_window,
+            "current_scope": {},
+            "current_time_scope": left_window,
+            "baseline_time_scope": right_window,
         },
     }

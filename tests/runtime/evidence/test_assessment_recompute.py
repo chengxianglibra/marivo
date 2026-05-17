@@ -225,16 +225,16 @@ class _RecomputeBase(unittest.TestCase):
         row = _make_finding_row(finding_id, finding_type="delta", metric="dau")
         payload = {
             "delta_kind": "scalar_delta",
-            "left_ref": {
+            "current_ref": {
                 "artifact_id": "",
                 "item_ref": {"collection": "value", "index": None, "key": None},
             },
-            "right_ref": {
+            "baseline_ref": {
                 "artifact_id": "",
                 "item_ref": {"collection": "value", "index": None, "key": None},
             },
-            "left_value": 10.0,
-            "right_value": 8.0,
+            "current_value": 10.0,
+            "baseline_value": 8.0,
             "absolute_delta": 2.0,
             "relative_delta": 0.25,
             "direction": "increase",
@@ -268,8 +268,8 @@ class _RecomputeBase(unittest.TestCase):
                 "bucket_pairing": bucket_pairing,
                 "coverage_summary": dict(coverage),
                 "comparability_warnings": list(comparability_warnings or []),
-                "left_coverage_summary": dict(coverage),
-                "right_coverage_summary": dict(coverage),
+                "current_coverage_summary": dict(coverage),
+                "baseline_coverage_summary": dict(coverage),
                 "effective_coverage_summary": dict(coverage),
             }
             if calendar_alignment_overrides:
@@ -298,11 +298,11 @@ class _RecomputeBase(unittest.TestCase):
             return
 
         payload = {
-            "left_ref": {
+            "current_ref": {
                 "artifact_id": "art_left",
                 "item_ref": {"collection": "result", "index": None, "key": None},
             },
-            "right_ref": {
+            "baseline_ref": {
                 "artifact_id": "art_right",
                 "item_ref": {"collection": "result", "index": None, "key": None},
             },
@@ -340,8 +340,8 @@ class _RecomputeBase(unittest.TestCase):
                 "bucket_pairing": bucket_pairing,
                 "coverage_summary": dict(coverage),
                 "comparability_warnings": list(comparability_warnings or []),
-                "left_coverage_summary": dict(coverage),
-                "right_coverage_summary": dict(coverage),
+                "current_coverage_summary": dict(coverage),
+                "baseline_coverage_summary": dict(coverage),
                 "effective_coverage_summary": dict(coverage),
             }
             if calendar_alignment_overrides:

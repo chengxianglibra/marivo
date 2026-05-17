@@ -471,8 +471,8 @@ def _materialize_change_from_delta(
 
     Creation condition rules (finding-proposition-seeding.md T1):
     - direction == "flat" → creation condition false.
-    - direction == "undefined" + presence not in {left_only, right_only} → false.
-    - comparison_window (left/right time scopes) must be resolvable from artifact.
+    - direction == "undefined" + presence not in {current_only, baseline_only} → false.
+    - comparison_window (current/baseline time scopes) must be resolvable from artifact.
     - segmented_delta: dimension_keys must be parseable from canonical_item_key.
     """
     payload = finding["payload_json"]
@@ -483,7 +483,7 @@ def _materialize_change_from_delta(
     # Creation condition: direction check
     if direction == "flat":
         return None
-    if direction == "undefined" and presence not in ("left_only", "right_only"):
+    if direction == "undefined" and presence not in ("current_only", "baseline_only"):
         return None
 
     # direction_of_interest mapping
@@ -491,7 +491,7 @@ def _materialize_change_from_delta(
         direction_of_interest = "increase"
     elif direction == "decrease":
         direction_of_interest = "decrease"
-    else:  # undefined + left_only or right_only
+    else:  # undefined + current_only or baseline_only
         direction_of_interest = "any_non_flat"
 
     # change_kind mapping
@@ -511,11 +511,11 @@ def _materialize_change_from_delta(
     if not artifact_payload:
         return None
     resolved = artifact_payload.get("resolved_input_summary") or {}
-    left_time_scope = resolved.get("left_time_scope")
-    right_time_scope = resolved.get("right_time_scope")
-    if not left_time_scope or not right_time_scope:
+    current_time_scope = resolved.get("current_time_scope")
+    baseline_time_scope = resolved.get("baseline_time_scope")
+    if not current_time_scope or not baseline_time_scope:
         return None
-    comparison_window = {"left": left_time_scope, "right": right_time_scope}
+    comparison_window = {"current": current_time_scope, "baseline": baseline_time_scope}
 
     # comparison_basis: from artifact if available, else default
     comparison_basis = artifact_payload.get("comparison_basis") or "left_vs_right"
@@ -591,11 +591,11 @@ def _materialize_decomposition_from_item(
     if not artifact_payload:
         return None
     resolved = artifact_payload.get("resolved_input_summary") or {}
-    left_time_scope = resolved.get("left_time_scope")
-    right_time_scope = resolved.get("right_time_scope")
-    if not left_time_scope or not right_time_scope:
+    current_time_scope = resolved.get("current_time_scope")
+    baseline_time_scope = resolved.get("baseline_time_scope")
+    if not current_time_scope or not baseline_time_scope:
         return None
-    comparison_window = {"left": left_time_scope, "right": right_time_scope}
+    comparison_window = {"current": current_time_scope, "baseline": baseline_time_scope}
 
     # contribution_role: compare scope delta direction with item direction
     scope_direction: str = delta_payload.get("direction") or "undefined"
@@ -809,8 +809,8 @@ def _materialize_test_from_result(
     """T5: test_result finding → test_hypothesis proposition.
 
     Creation condition rules (finding-proposition-seeding.md T5):
-    - left_subject / right_subject must be resolvable from upstream observation
-      artifacts (left_ref.artifact_id / right_ref.artifact_id).
+    - current_subject / baseline_subject must be resolvable from upstream observation
+      artifacts (current_ref.artifact_id / baseline_ref.artifact_id).
     - alpha must be a valid non-None float.
     """
     payload = finding["payload_json"]
@@ -823,25 +823,25 @@ def _materialize_test_from_result(
     except (TypeError, ValueError):
         return None
 
-    # left/right subjects: prefer upstream observation step metadata.
-    left_ref: dict[str, Any] = payload.get("left_ref") or {}
-    right_ref: dict[str, Any] = payload.get("right_ref") or {}
-    left_artifact_id: str = left_ref.get("artifact_id") or ""
-    right_artifact_id: str = right_ref.get("artifact_id") or ""
+    # current/baseline subjects: prefer upstream observation step metadata.
+    current_ref: dict[str, Any] = payload.get("current_ref") or {}
+    baseline_ref: dict[str, Any] = payload.get("baseline_ref") or {}
+    current_artifact_id: str = current_ref.get("artifact_id") or ""
+    baseline_artifact_id: str = baseline_ref.get("artifact_id") or ""
 
-    if not left_artifact_id or not right_artifact_id:
+    if not current_artifact_id or not baseline_artifact_id:
         return None
 
-    left_subject = ctx.get_artifact_subject(left_artifact_id, analysis_axis="test")
-    right_subject = ctx.get_artifact_subject(right_artifact_id, analysis_axis="test")
+    left_subject = ctx.get_artifact_subject(current_artifact_id, analysis_axis="test")
+    right_subject = ctx.get_artifact_subject(baseline_artifact_id, analysis_axis="test")
     if left_subject is None or right_subject is None:
-        left_artifact = ctx.get_artifact_payload(left_artifact_id)
-        right_artifact = ctx.get_artifact_payload(right_artifact_id)
-        if not left_artifact or not right_artifact:
+        current_artifact = ctx.get_artifact_payload(current_artifact_id)
+        baseline_artifact = ctx.get_artifact_payload(baseline_artifact_id)
+        if not current_artifact or not baseline_artifact:
             return None
 
-        left_metric: str | None = left_artifact.get("metric")
-        right_metric: str | None = right_artifact.get("metric")
+        left_metric: str | None = current_artifact.get("metric")
+        right_metric: str | None = baseline_artifact.get("metric")
         if not left_metric or not right_metric:
             return None
 

@@ -259,8 +259,8 @@ def test_aoi_request_optional_fields_may_be_omitted() -> None:
     aoi.Test.model_validate(
         {
             "metric": "revenue",
-            "left": {"time_scope": time_scope},
-            "right": {"time_scope": time_scope},
+            "current": {"time_scope": time_scope},
+            "baseline": {"time_scope": time_scope},
             "kind": "numeric",
             "hypothesis": {
                 "family": "two_sample_mean",
@@ -270,7 +270,7 @@ def test_aoi_request_optional_fields_may_be_omitted() -> None:
         }
     )
     aoi.Compare.model_validate(
-        {"left_artifact_id": "artifact_left", "right_artifact_id": "artifact_right"}
+        {"current_artifact_id": "artifact_left", "baseline_artifact_id": "artifact_right"}
     )
     aoi.Decompose.model_validate({"compare_artifact_id": "artifact_compare", "dimension": "region"})
     aoi.Correlate.model_validate(
@@ -280,8 +280,8 @@ def test_aoi_request_optional_fields_may_be_omitted() -> None:
     aoi.Validate.model_validate(
         {
             "metric": "revenue",
-            "left": {"time_scope": time_scope},
-            "right": {"time_scope": time_scope},
+            "current": {"time_scope": time_scope},
+            "baseline": {"time_scope": time_scope},
             "hypothesis": {
                 "family": "two_sample_mean",
                 "alternative": "two_sided",
@@ -292,8 +292,8 @@ def test_aoi_request_optional_fields_may_be_omitted() -> None:
     attribute = aoi.Attribute.model_validate(
         {
             "metric": "revenue",
-            "left": {"time_scope": time_scope},
-            "right": {"time_scope": time_scope},
+            "current": {"time_scope": time_scope},
+            "baseline": {"time_scope": time_scope},
             "dimensions": ["region"],
         }
     )
@@ -316,8 +316,8 @@ def test_aoi_request_optional_fields_may_be_omitted() -> None:
 def _aoi_test_payload() -> dict[str, Any]:
     return {
         "metric": "revenue",
-        "left": {"time_scope": _aoi_time_scope()},
-        "right": {"time_scope": _aoi_time_scope()},
+        "current": {"time_scope": _aoi_time_scope()},
+        "baseline": {"time_scope": _aoi_time_scope()},
         "kind": "numeric",
         "hypothesis": {
             "family": "two_sample_mean",
@@ -333,8 +333,8 @@ def test_aoi_attribute_accepts_required_only_shape_with_defaults() -> None:
     request = aoi.Attribute.model_validate(
         {
             "metric": "revenue",
-            "left": {"time_scope": _aoi_time_scope()},
-            "right": {"time_scope": _aoi_time_scope()},
+            "current": {"time_scope": _aoi_time_scope()},
+            "baseline": {"time_scope": _aoi_time_scope()},
             "dimensions": ["region"],
         }
     )
@@ -350,19 +350,19 @@ def test_aoi_attribute_accepts_explicit_options_and_slice_filter() -> None:
     request = aoi.Attribute.model_validate(
         {
             "metric": "revenue",
-            "left": {
+            "current": {
                 "time_scope": _aoi_time_scope(),
                 "filter": {"dialects": [{"dialect": "ANSI_SQL", "expression": "region = 'US'"}]},
             },
-            "right": {"time_scope": _aoi_time_scope()},
+            "baseline": {"time_scope": _aoi_time_scope()},
             "dimensions": ["region", "channel"],
             "decomposition_method": "delta_share",
             "decomposition_limit": 10,
         }
     )
 
-    assert request.left.filter is not None
-    assert request.left.filter.model_dump(exclude_none=True) == {
+    assert request.current.filter is not None
+    assert request.current.filter.model_dump(exclude_none=True) == {
         "dialects": [{"dialect": "ANSI_SQL", "expression": "region = 'US'"}]
     }
     assert [dimension.root for dimension in request.dimensions] == ["region", "channel"]
@@ -376,7 +376,7 @@ def test_aoi_test_accepts_all_public_options(alternative: str, significance: str
     from marivo.contracts.generated import aoi
 
     payload = _aoi_test_payload()
-    payload["left"]["filter"] = {
+    payload["current"]["filter"] = {
         "dialects": [{"dialect": "ANSI_SQL", "expression": "region = 'US'"}]
     }
     payload["hypothesis"]["alternative"] = alternative
@@ -388,8 +388,8 @@ def test_aoi_test_accepts_all_public_options(alternative: str, significance: str
     assert request.hypothesis.family == "two_sample_mean"
     assert request.hypothesis.alternative == alternative
     assert request.hypothesis.significance == significance
-    assert request.left.filter is not None
-    assert request.left.filter.model_dump(exclude_none=True) == {
+    assert request.current.filter is not None
+    assert request.current.filter.model_dump(exclude_none=True) == {
         "dialects": [{"dialect": "ANSI_SQL", "expression": "region = 'US'"}]
     }
 
@@ -400,11 +400,11 @@ def test_aoi_test_omits_absent_optional_filter_fields() -> None:
     request = aoi.Test.model_validate(_aoi_test_payload())
 
     dumped = request.model_dump(exclude_none=True)
-    assert "filter" not in dumped["left"]
-    assert "filter" not in dumped["right"]
+    assert "filter" not in dumped["current"]
+    assert "filter" not in dumped["baseline"]
 
 
-@pytest.mark.parametrize("missing_field", ["metric", "left", "right", "kind", "hypothesis"])
+@pytest.mark.parametrize("missing_field", ["metric", "current", "baseline", "kind", "hypothesis"])
 def test_aoi_test_requires_public_required_fields(missing_field: str) -> None:
     from marivo.contracts.generated import aoi
 
@@ -432,8 +432,8 @@ def test_aoi_test_requires_hypothesis_fields(missing_field: str) -> None:
         {"kind": "rate"},
         {"kind": "Numeric"},
         {"method": "welch_t"},
-        {"left": {"scope": {"constraints": {"region": "US"}}}},
-        {"left": {"filter": None}},
+        {"current": {"scope": {"constraints": {"region": "US"}}}},
+        {"current": {"filter": None}},
         {"hypothesis": {"family": "two_sample_proportion"}},
         {"hypothesis": {"alternative": "not_equal"}},
         {"hypothesis": {"significance": "loose"}},
@@ -718,8 +718,8 @@ def test_aoi_forecast_requires_public_required_fields(missing_field: str) -> Non
         (
             "Compare",
             {
-                "left_artifact_id": "artifact_left",
-                "right_artifact_id": "artifact_right",
+                "current_artifact_id": "artifact_left",
+                "baseline_artifact_id": "artifact_right",
                 "compare_type": None,
             },
         ),
@@ -751,7 +751,7 @@ def test_aoi_forecast_requires_public_required_fields(missing_field: str) -> Non
             "Validate",
             {
                 "metric": "revenue",
-                "left": {
+                "current": {
                     "time_scope": {
                         "field": "event_time",
                         "start": "2026-01-01T00:00:00Z",
@@ -759,7 +759,7 @@ def test_aoi_forecast_requires_public_required_fields(missing_field: str) -> Non
                     },
                     "filter": None,
                 },
-                "right": {
+                "baseline": {
                     "time_scope": {
                         "field": "event_time",
                         "start": "2026-01-01T00:00:00Z",
@@ -777,7 +777,7 @@ def test_aoi_forecast_requires_public_required_fields(missing_field: str) -> Non
             "Attribute",
             {
                 "metric": "revenue",
-                "left": {
+                "current": {
                     "time_scope": {
                         "field": "event_time",
                         "start": "2026-01-01T00:00:00Z",
@@ -785,7 +785,7 @@ def test_aoi_forecast_requires_public_required_fields(missing_field: str) -> Non
                     },
                     "filter": None,
                 },
-                "right": {
+                "baseline": {
                     "time_scope": {
                         "field": "event_time",
                         "start": "2026-01-01T00:00:00Z",
@@ -799,14 +799,14 @@ def test_aoi_forecast_requires_public_required_fields(missing_field: str) -> Non
             "Attribute",
             {
                 "metric": "revenue",
-                "left": {
+                "current": {
                     "time_scope": {
                         "field": "event_time",
                         "start": "2026-01-01T00:00:00Z",
                         "end": "2026-01-02T00:00:00Z",
                     }
                 },
-                "right": {
+                "baseline": {
                     "time_scope": {
                         "field": "event_time",
                         "start": "2026-01-01T00:00:00Z",
@@ -821,14 +821,14 @@ def test_aoi_forecast_requires_public_required_fields(missing_field: str) -> Non
             "Attribute",
             {
                 "metric": "revenue",
-                "left": {
+                "current": {
                     "time_scope": {
                         "field": "event_time",
                         "start": "2026-01-01T00:00:00Z",
                         "end": "2026-01-02T00:00:00Z",
                     }
                 },
-                "right": {
+                "baseline": {
                     "time_scope": {
                         "field": "event_time",
                         "start": "2026-01-01T00:00:00Z",
@@ -903,7 +903,7 @@ def test_aoi_request_optional_fields_reject_explicit_null(
     [
         {
             "metric": "revenue",
-            "left": {
+            "current": {
                 "time_scope": {
                     "field": "event_time",
                     "start": "2026-01-01T00:00:00Z",
@@ -911,7 +911,7 @@ def test_aoi_request_optional_fields_reject_explicit_null(
                 },
                 "scope": {"constraints": {"region": "US"}},
             },
-            "right": {
+            "baseline": {
                 "time_scope": {
                     "field": "event_time",
                     "start": "2026-01-01T00:00:00Z",
@@ -926,14 +926,14 @@ def test_aoi_request_optional_fields_reject_explicit_null(
         },
         {
             "metric": "revenue",
-            "left": {
+            "current": {
                 "time_scope": {
                     "field": "event_time",
                     "start": "2026-01-01T00:00:00Z",
                     "end": "2026-01-02T00:00:00Z",
                 }
             },
-            "right": {
+            "baseline": {
                 "time_scope": {
                     "field": "event_time",
                     "start": "2026-01-01T00:00:00Z",
@@ -949,14 +949,14 @@ def test_aoi_request_optional_fields_reject_explicit_null(
         },
         {
             "metric": "revenue",
-            "left": {
+            "current": {
                 "time_scope": {
                     "field": "event_time",
                     "start": "2026-01-01T00:00:00Z",
                     "end": "2026-01-02T00:00:00Z",
                 }
             },
-            "right": {
+            "baseline": {
                 "time_scope": {
                     "field": "event_time",
                     "start": "2026-01-01T00:00:00Z",
@@ -978,7 +978,7 @@ def test_aoi_validate_rejects_non_contract_fields(payload: dict[str, Any]) -> No
     [
         {
             "metric": "revenue",
-            "left": {
+            "current": {
                 "time_scope": {
                     "field": "event_time",
                     "start": "2026-01-01T00:00:00Z",
@@ -986,7 +986,7 @@ def test_aoi_validate_rejects_non_contract_fields(payload: dict[str, Any]) -> No
                 },
                 "scope": {"constraints": {"region": "US"}},
             },
-            "right": {
+            "baseline": {
                 "time_scope": {
                     "field": "event_time",
                     "start": "2026-01-01T00:00:00Z",
@@ -997,14 +997,14 @@ def test_aoi_validate_rejects_non_contract_fields(payload: dict[str, Any]) -> No
         },
         {
             "metric": "revenue",
-            "left": {
+            "current": {
                 "time_scope": {
                     "field": "event_time",
                     "start": "2026-01-01T00:00:00Z",
                     "end": "2026-01-02T00:00:00Z",
                 }
             },
-            "right": {
+            "baseline": {
                 "time_scope": {
                     "field": "event_time",
                     "start": "2026-01-01T00:00:00Z",
@@ -1015,14 +1015,14 @@ def test_aoi_validate_rejects_non_contract_fields(payload: dict[str, Any]) -> No
         },
         {
             "metric": "revenue",
-            "left": {
+            "current": {
                 "time_scope": {
                     "field": "event_time",
                     "start": "2026-01-01T00:00:00Z",
                     "end": "2026-01-02T00:00:00Z",
                 }
             },
-            "right": {
+            "baseline": {
                 "time_scope": {
                     "field": "event_time",
                     "start": "2026-01-01T00:00:00Z",
@@ -1034,14 +1034,14 @@ def test_aoi_validate_rejects_non_contract_fields(payload: dict[str, Any]) -> No
         },
         {
             "metric": "revenue",
-            "left": {
+            "current": {
                 "time_scope": {
                     "field": "event_time",
                     "start": "2026-01-01T00:00:00Z",
                     "end": "2026-01-02T00:00:00Z",
                 }
             },
-            "right": {
+            "baseline": {
                 "time_scope": {
                     "field": "event_time",
                     "start": "2026-01-01T00:00:00Z",
@@ -1053,14 +1053,14 @@ def test_aoi_validate_rejects_non_contract_fields(payload: dict[str, Any]) -> No
         },
         {
             "metric": "revenue",
-            "left": {
+            "current": {
                 "time_scope": {
                     "field": "event_time",
                     "start": "2026-01-01T00:00:00Z",
                     "end": "2026-01-02T00:00:00Z",
                 }
             },
-            "right": {
+            "baseline": {
                 "time_scope": {
                     "field": "event_time",
                     "start": "2026-01-01T00:00:00Z",
@@ -1226,8 +1226,8 @@ def test_aoi_result_nullable_fields_still_accept_explicit_null() -> None:
     aoi.ScalarObservationResult.model_validate({"value": None})
     aoi.ScalarDeltaResult.model_validate(
         {
-            "left_value": None,
-            "right_value": None,
+            "current_value": None,
+            "baseline_value": None,
             "delta": None,
             "matched_time_scope": None,
         }

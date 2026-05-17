@@ -1,6 +1,6 @@
 """Attribute derived intent runner (Phase 3c-1).
 
-Deterministically expands to: observe(left) + observe(right) + compare + decompose × N
+Deterministically expands to: observe(current) + observe(baseline) + compare + decompose × N
 
 The expansion is fixed: given the same request and system state, it always produces the same
 logical DAG. No intermediate human decisions or planner involvement.
@@ -37,7 +37,7 @@ _DERIVED_LOGIC_VERSION = "1.0"
 _PROJECTION_VERSION = "attribute_bundle.v1"
 _SHARE_SUPPRESSION_POLICY = "suppress_on_reconciliation_needs_attention"
 _REQUEST_FIELDS: frozenset[str] = frozenset(
-    {"metric", "left", "right", "dimensions", "decomposition_method", "decomposition_limit"}
+    {"metric", "current", "baseline", "dimensions", "decomposition_method", "decomposition_limit"}
 )
 _SLICE_FIELDS: frozenset[str] = frozenset({"time_scope", "filter"})
 _TIME_SCOPE_FIELDS: frozenset[str] = frozenset({"field", "start", "end"})
@@ -54,12 +54,12 @@ def run_attribute_intent(
 ) -> dict[str, Any]:
     """Execute an `attribute` derived intent.
 
-    Expands to: observe(left) + observe(right) + compare + decompose × len(dimensions)
+    Expands to: observe(current) + observe(baseline) + compare + decompose × len(dimensions)
 
     Input (from generated AOI Attribute request after lowering):
       metric:               published semantic metric
-      left:                 { time_scope, filter? } — current / treatment side
-      right:                { time_scope, filter? } — baseline / control side
+      current:              { time_scope, filter? } — current / treatment side
+      baseline:             { time_scope, filter? } — baseline / control side
       dimensions:           non-empty list of attribution dimensions
       decomposition_method: "delta_share" (only v1 option, default)
       decomposition_limit:  max driver rows per dimension (default 5, max 100)
@@ -82,14 +82,18 @@ def run_attribute_intent(
     metric_ref = runtime.core.normalize_intent_metric_ref(metric_ref)
     metric_name = runtime.core.metric_name_from_ref(metric_ref)
 
-    left_input = _validate_slice(p["left"], label="left")
-    right_input = _validate_slice(p["right"], label="right")
-    current_time_scope = _validate_time_scope(left_input["time_scope"], label="left.time_scope")
-    baseline_time_scope = _validate_time_scope(right_input["time_scope"], label="right.time_scope")
+    current_input = _validate_slice(p["current"], label="current")
+    baseline_input = _validate_slice(p["baseline"], label="baseline")
+    current_time_scope = _validate_time_scope(
+        current_input["time_scope"], label="current.time_scope"
+    )
+    baseline_time_scope = _validate_time_scope(
+        baseline_input["time_scope"], label="baseline.time_scope"
+    )
 
     try:
-        left_scope = aoi_filter_to_scope(left_input.get("filter"), label="left.filter")
-        right_scope = aoi_filter_to_scope(right_input.get("filter"), label="right.filter")
+        current_scope = aoi_filter_to_scope(current_input.get("filter"), label="current.filter")
+        baseline_scope = aoi_filter_to_scope(baseline_input.get("filter"), label="baseline.filter")
     except ValueError as exc:
         raise ValueError(f"attribute: INVALID_ARGUMENT - {exc}") from exc
 
@@ -231,60 +235,60 @@ def run_attribute_intent(
                 },
             )
 
-    # ── Step 1: observe left (current) ────────────────────────────────────────
+    # ── Step 1: observe current ───────────────────────────────────────────────
     try:
-        left_obs = run_observe_intent(
+        current_obs = run_observe_intent(
             runtime,
             session_id,
             {
                 "metric": metric_ref,
                 "time_scope": current_time_scope,
-                "scope": left_scope,
+                "scope": current_scope,
                 # no granularity, no dimensions → scalar mode
             },
         )
     except Exception as exc:
         raise ValueError(f"attribute: OBSERVE_FAILED - current observation failed: {exc}") from exc
 
-    left_obs_type: str | None = left_obs.get("observation_type")
+    left_obs_type: str | None = current_obs.get("observation_type")
     if left_obs_type != "scalar":
         raise ValueError(
-            f"attribute: INVALID_ARGUMENT - left observe produced observation_type="
+            f"attribute: INVALID_ARGUMENT - current observe produced observation_type="
             f"'{left_obs_type}'; attribute v1 requires scalar observations"
         )
 
-    # ── Step 2: observe right (baseline) ──────────────────────────────────────
+    # ── Step 2: observe baseline ──────────────────────────────────────────────
     try:
-        right_obs = run_observe_intent(
+        baseline_obs = run_observe_intent(
             runtime,
             session_id,
             {
                 "metric": metric_ref,
                 "time_scope": baseline_time_scope,
-                "scope": right_scope,
+                "scope": baseline_scope,
             },
         )
     except Exception as exc:
         raise ValueError(f"attribute: OBSERVE_FAILED - baseline observation failed: {exc}") from exc
 
-    right_obs_type: str | None = right_obs.get("observation_type")
+    right_obs_type: str | None = baseline_obs.get("observation_type")
     if right_obs_type != "scalar":
         raise ValueError(
-            f"attribute: INVALID_ARGUMENT - right observe produced observation_type="
+            f"attribute: INVALID_ARGUMENT - baseline observe produced observation_type="
             f"'{right_obs_type}'; attribute v1 requires scalar observations"
         )
 
     # ── Step 3: compare ───────────────────────────────────────────────────────
-    left_step_id: str = left_obs["step_ref"]["step_id"]
-    right_step_id: str = right_obs["step_ref"]["step_id"]
+    left_step_id: str = current_obs["step_ref"]["step_id"]
+    right_step_id: str = baseline_obs["step_ref"]["step_id"]
 
     try:
         compare_result = run_compare_intent(
             runtime,
             session_id,
             {
-                "left_artifact_id": left_obs["artifact_id"],
-                "right_artifact_id": right_obs["artifact_id"],
+                "current_artifact_id": current_obs["artifact_id"],
+                "baseline_artifact_id": baseline_obs["artifact_id"],
             },
         )
     except Exception as exc:
@@ -434,21 +438,21 @@ def run_attribute_intent(
         validation_issues.append(_remap_compare_issue(issue))
 
     # ── Step 6: build typed refs ───────────────────────────────────────────────
-    left_artifact_id: str = left_obs["artifact_id"]
-    right_artifact_id: str = right_obs["artifact_id"]
+    current_artifact_id: str = current_obs["artifact_id"]
+    baseline_artifact_id: str = baseline_obs["artifact_id"]
 
-    left_ref_typed: dict[str, Any] = {
+    current_ref_typed: dict[str, Any] = {
         "step_type": "observe",
         "session_id": session_id,
         "step_id": left_step_id,
-        "artifact_id": left_artifact_id,
+        "artifact_id": current_artifact_id,
         "observation_type": "scalar",
     }
-    right_ref_typed: dict[str, Any] = {
+    baseline_ref_typed: dict[str, Any] = {
         "step_type": "observe",
         "session_id": session_id,
         "step_id": right_step_id,
-        "artifact_id": right_artifact_id,
+        "artifact_id": baseline_artifact_id,
         "observation_type": "scalar",
     }
 
@@ -456,7 +460,7 @@ def run_attribute_intent(
 
     lineage: dict[str, Any] = {
         "source_compare_ref": compare_ref,
-        "source_observation_refs": [left_ref_typed, right_ref_typed],
+        "source_observation_refs": [current_ref_typed, baseline_ref_typed],
         "source_decompose_refs": decompose_refs,
     }
 
@@ -469,8 +473,8 @@ def run_attribute_intent(
     # ── Step 7: build ScalarDeltaSummary from compare_result ──────────────────
     comparison: dict[str, Any] = {
         "comparison_type": "scalar_delta",
-        "left_value": compare_result.get("left_value"),
-        "right_value": compare_result.get("right_value"),
+        "current_value": compare_result.get("current_value"),
+        "baseline_value": compare_result.get("baseline_value"),
         "absolute_delta": compare_result.get("absolute_delta"),
         "relative_delta": compare_result.get("relative_delta"),
         "direction": compare_result.get("direction") or "undefined",
@@ -480,22 +484,22 @@ def run_attribute_intent(
     # ── Step 8: assemble payload ────────────────────────────────────────────────
     now = datetime.now(UTC).isoformat()
     left_resolved: dict[str, Any] = {
-        "time_scope": left_obs.get("time_scope") or current_time_scope,
-        "scope": left_scope,
+        "time_scope": current_obs.get("time_scope") or current_time_scope,
+        "scope": current_scope,
     }
     right_resolved: dict[str, Any] = {
-        "time_scope": right_obs.get("time_scope") or baseline_time_scope,
-        "scope": right_scope,
+        "time_scope": baseline_obs.get("time_scope") or baseline_time_scope,
+        "scope": baseline_scope,
     }
 
     result_payload: dict[str, Any] = {
         "metric": metric_ref,
-        "left": left_resolved,
-        "right": right_resolved,
+        "current": left_resolved,
+        "baseline": right_resolved,
         "dimensions": dimensions,
         "observation_refs": {
-            "left_ref": left_ref_typed,
-            "right_ref": right_ref_typed,
+            "current_ref": current_ref_typed,
+            "baseline_ref": baseline_ref_typed,
         },
         "compare_ref": compare_ref,
         "comparison": comparison,
@@ -536,8 +540,8 @@ def run_attribute_intent(
         f"Δ {compare_result.get('absolute_delta') if compare_result.get('absolute_delta') is not None else 'n/a'})"
     )
     provenance: dict[str, Any] = {
-        "left_step_id": left_step_id,
-        "right_step_id": right_step_id,
+        "current_step_id": left_step_id,
+        "baseline_step_id": right_step_id,
         "compare_step_id": compare_step_id,
         "decompose_step_ids": [d["decompose_ref"]["step_id"] for d in drivers],
         "dimensions": dimensions,
@@ -573,7 +577,7 @@ def _validate_request(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError("attribute: INVALID_ARGUMENT - params must be an attribute request object")
 
-    missing_fields = {"metric", "left", "right", "dimensions"} - set(value)
+    missing_fields = {"metric", "current", "baseline", "dimensions"} - set(value)
     if missing_fields:
         raise ValueError(
             f"attribute: INVALID_ARGUMENT - missing required field(s): {sorted(missing_fields)}"

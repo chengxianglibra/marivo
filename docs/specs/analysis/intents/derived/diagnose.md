@@ -182,7 +182,7 @@ projection 类型：`diagnose_projection`
    - 将请求 `filter` 与 `candidate.slice` 组合成 current/baseline 的共享 non-time scope
    - `observe(current_window, combined_scope)`
    - `observe(baseline_window, combined_scope)`
-   - `compare(left_artifact_id=current_artifact_id, right_artifact_id=baseline_artifact_id)`
+   - `compare(current_artifact_id=current_artifact_id, baseline_artifact_id=baseline_artifact_id)`
    - 对 `dimensions` 中每个 dimension：
      - `decompose(compare_artifact_id, dimension, limit=decomposition_limit)`
 
@@ -416,8 +416,8 @@ type DetectCandidateSummary = {
     end: string;
   };
   slice: Record<string, string> | null;
-  observed_value: number | null;
-  expected_value: number | null;
+  current_value: number | null;
+  baseline_value: number | null;
   deviation_abs: number | null;
   deviation_pct: number | null;
   candidate_score: number;
@@ -439,8 +439,8 @@ type BaselineDerivationMetadata = {
 
 type ScalarDeltaSummary = {
   comparison_type: "scalar_delta";
-  left_value: number | null;
-  right_value: number | null;
+  current_value: number | null;
+  baseline_value: number | null;
   absolute_delta: number | null;
   relative_delta: number | null;
   direction: "increase" | "decrease" | "flat" | "undefined";
@@ -453,12 +453,12 @@ type DiagnoseDriverSet = {
   attribution_status: "attributable" | "needs_attention" | "not_attributable";
   rows: Array<{
     key: string | number | boolean | null;
-    left_value: number | null;
-    right_value: number | null;
+    current_value: number | null;
+    baseline_value: number | null;
     absolute_contribution: number | null;
     contribution_share: number | null;
     direction: "increase" | "decrease" | "flat" | "undefined";
-    presence: "both" | "left_only" | "right_only";
+    presence: "both" | "current_only" | "baseline_only";
   }>;
   returned_row_count: number;
   total_row_count: number | null;
@@ -482,12 +482,12 @@ type DiagnoseDriverProjection = {
   attribution_status: "attributable" | "needs_attention" | "not_attributable";
   rows: Array<{
     key: string | number | boolean | null;
-    left_value: number | null;
-    right_value: number | null;
+    current_value: number | null;
+    baseline_value: number | null;
     absolute_contribution: number | null;
     contribution_share: number | null;
     direction: "increase" | "decrease" | "flat" | "undefined";
-    presence: "both" | "left_only" | "right_only";
+    presence: "both" | "current_only" | "baseline_only";
   }>;
   returned_row_count: number;
   total_row_count: number | null;

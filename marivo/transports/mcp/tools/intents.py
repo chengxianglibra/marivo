@@ -78,8 +78,8 @@ def to_aoi_observe_request(
 
 
 def to_aoi_compare_request(
-    left_artifact_id: str,
-    right_artifact_id: str,
+    current_artifact_id: str,
+    baseline_artifact_id: str,
     compare_type: Literal[
         "normal",
         "holiday_aligned",
@@ -90,8 +90,8 @@ def to_aoi_compare_request(
     return aoi.Compare.model_validate(
         _omit_none(
             {
-                "left_artifact_id": left_artifact_id,
-                "right_artifact_id": right_artifact_id,
+                "current_artifact_id": current_artifact_id,
+                "baseline_artifact_id": baseline_artifact_id,
                 "compare_type": compare_type,
             }
         )
@@ -183,8 +183,8 @@ def _to_aoi_slice(slice_ref: McpAoiSliceRef) -> dict[str, Any]:
 
 def to_aoi_test_request(
     metric: str,
-    left: McpAoiSliceRef,
-    right: McpAoiSliceRef,
+    current: McpAoiSliceRef,
+    baseline: McpAoiSliceRef,
     hypothesis: McpTestHypothesis | dict[str, Any],
 ) -> aoi.Test:
     hypothesis_model = (
@@ -195,8 +195,8 @@ def to_aoi_test_request(
     return aoi.Test.model_validate(
         {
             "metric": metric,
-            "left": _to_aoi_slice(left),
-            "right": _to_aoi_slice(right),
+            "current": _to_aoi_slice(current),
+            "baseline": _to_aoi_slice(baseline),
             "kind": "numeric",
             "hypothesis": {
                 "family": "two_sample_mean",
@@ -209,8 +209,8 @@ def to_aoi_test_request(
 
 def to_aoi_validate_request(
     metric: str,
-    left: McpAoiSliceRef,
-    right: McpAoiSliceRef,
+    current: McpAoiSliceRef,
+    baseline: McpAoiSliceRef,
     hypothesis: McpValidateHypothesis | dict[str, Any] | None = None,
 ) -> aoi.Validate:
     hypothesis_model = (
@@ -221,8 +221,8 @@ def to_aoi_validate_request(
     return aoi.Validate.model_validate(
         {
             "metric": metric,
-            "left": _to_aoi_slice(left),
-            "right": _to_aoi_slice(right),
+            "current": _to_aoi_slice(current),
+            "baseline": _to_aoi_slice(baseline),
             "hypothesis": {
                 "family": "two_sample_mean",
                 "alternative": hypothesis_model.alternative or "two_sided",
@@ -234,8 +234,8 @@ def to_aoi_validate_request(
 
 def to_aoi_attribute_request(
     metric: str,
-    left: McpAoiSliceRef,
-    right: McpAoiSliceRef,
+    current: McpAoiSliceRef,
+    baseline: McpAoiSliceRef,
     dimensions: list[str],
     decomposition_method: Literal["delta_share"] = "delta_share",
     decomposition_limit: int = 5,
@@ -243,8 +243,8 @@ def to_aoi_attribute_request(
     return aoi.Attribute.model_validate(
         {
             "metric": metric,
-            "left": _to_aoi_slice(left),
-            "right": _to_aoi_slice(right),
+            "current": _to_aoi_slice(current),
+            "baseline": _to_aoi_slice(baseline),
             "dimensions": dimensions,
             "decomposition_method": decomposition_method,
             "decomposition_limit": decomposition_limit,
@@ -337,8 +337,8 @@ def register_compare(server: Any, runtime: Any) -> None:
     )
     async def compare(
         session_id: str,
-        left_artifact_id: CompareObserveArtifactId,
-        right_artifact_id: CompareObserveArtifactId,
+        current_artifact_id: CompareObserveArtifactId,
+        baseline_artifact_id: CompareObserveArtifactId,
         compare_type: Annotated[
             Literal[
                 "normal",
@@ -355,8 +355,8 @@ def register_compare(server: Any, runtime: Any) -> None:
         ] = "normal",
     ) -> dict[str, Any]:
         request = to_aoi_compare_request(
-            left_artifact_id=left_artifact_id,
-            right_artifact_id=right_artifact_id,
+            current_artifact_id=current_artifact_id,
+            baseline_artifact_id=baseline_artifact_id,
             compare_type=compare_type,
         )
         return await call_runtime(runtime.compare, session_id=session_id, request=request)
@@ -467,16 +467,13 @@ def register_forecast(server: Any, runtime: Any) -> None:
 
 def register_attribute(server: Any, runtime: Any) -> None:
     @server.tool(  # type: ignore
-        description=(
-            "Attribute a known current-vs-baseline metric change. Use left for the "
-            "current slice and right for the baseline slice."
-        )
+        description=("Attribute a known current-vs-baseline metric change.")
     )
     async def attribute(
         session_id: str,
         metric: str,
-        left: McpAoiSliceRef,
-        right: McpAoiSliceRef,
+        current: McpAoiSliceRef,
+        baseline: McpAoiSliceRef,
         dimensions: Annotated[
             list[str],
             Field(
@@ -491,8 +488,8 @@ def register_attribute(server: Any, runtime: Any) -> None:
     ) -> dict[str, Any]:
         request = to_aoi_attribute_request(
             metric=metric,
-            left=left,
-            right=right,
+            current=current,
+            baseline=baseline,
             dimensions=dimensions,
             decomposition_method=decomposition_method,
             decomposition_limit=decomposition_limit,
@@ -615,14 +612,14 @@ def register_test_intent(server: Any, runtime: Any) -> None:
     async def test_intent(
         session_id: str,
         metric: str,
-        left: McpAoiSliceRef,
-        right: McpAoiSliceRef,
+        current: McpAoiSliceRef,
+        baseline: McpAoiSliceRef,
         hypothesis: McpTestHypothesis,
     ) -> dict[str, Any]:
         request = to_aoi_test_request(
             metric=metric,
-            left=left,
-            right=right,
+            current=current,
+            baseline=baseline,
             hypothesis=hypothesis,
         )
         return await call_runtime(runtime.test, session_id=session_id, request=request)
@@ -633,14 +630,14 @@ def register_validate(server: Any, runtime: Any) -> None:
     async def validate(
         session_id: str,
         metric: str,
-        left: McpAoiSliceRef,
-        right: McpAoiSliceRef,
+        current: McpAoiSliceRef,
+        baseline: McpAoiSliceRef,
         hypothesis: McpValidateHypothesis | None = None,
     ) -> dict[str, Any]:
         request = to_aoi_validate_request(
             metric=metric,
-            left=left,
-            right=right,
+            current=current,
+            baseline=baseline,
             hypothesis=hypothesis,
         )
         return await call_runtime(runtime.validate, session_id=session_id, request=request)

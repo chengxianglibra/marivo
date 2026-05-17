@@ -82,8 +82,8 @@ class _Runtime:
 def _params() -> dict[str, Any]:
     return {
         "metric": "metric.revenue",
-        "left": {"time_scope": {"start": "2026-01-01", "end": "2026-01-02"}},
-        "right": {"time_scope": {"start": "2026-01-08", "end": "2026-01-09"}},
+        "current": {"time_scope": {"start": "2026-01-01", "end": "2026-01-02"}},
+        "baseline": {"time_scope": {"start": "2026-01-08", "end": "2026-01-09"}},
     }
 
 
@@ -132,8 +132,8 @@ def test_aoi_artifact_dump_preserves_flat_runtime_payload_for_projection() -> No
         },
         "artifact_id": "art_compare",
         "comparison_type": "scalar_delta",
-        "left_value": 10.0,
-        "right_value": 7.0,
+        "current_value": 10.0,
+        "baseline_value": 7.0,
         "absolute_delta": 3.0,
         "provenance": {"query": "internal"},
         "product_metadata": {"debug": True},
@@ -146,8 +146,8 @@ def test_aoi_artifact_dump_preserves_flat_runtime_payload_for_projection() -> No
     assert artifact["result"]["comparison_type"] == "scalar_delta"
     assert "provenance" not in artifact["result"]
     assert projected["artifact_id"] == "art_compare"
-    assert projected["result"]["left_value"] == 10.0
-    assert projected["result"]["right_value"] == 7.0
+    assert projected["result"]["current_value"] == 10.0
+    assert projected["result"]["baseline_value"] == 7.0
     assert projected["result"]["delta"] == 3.0
 
 

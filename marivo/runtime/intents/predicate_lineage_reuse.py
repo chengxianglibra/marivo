@@ -69,7 +69,7 @@ _PREDICATE_LINEAGE_ISSUE_POLICIES: dict[str, _PredicateLineageIssuePolicy] = {
         "severity": "error",
         "blocking": True,
         "message_template": (
-            "left and right observations freeze different metric default predicates, "
+            "current and baseline observations freeze different metric default predicates, "
             "so the observations are not directly comparable"
         ),
         "next_action_template": (
@@ -81,7 +81,7 @@ _PREDICATE_LINEAGE_ISSUE_POLICIES: dict[str, _PredicateLineageIssuePolicy] = {
         "severity": "warning",
         "blocking": False,
         "message_template": (
-            "left and right observations have different shared effective scopes; "
+            "current and baseline observations have different shared effective scopes; "
             "this is expected for comparisons but should be noted when interpreting results"
         ),
         "next_action_template": (
@@ -142,23 +142,27 @@ def _normalize_optional_lineage(
 
 def resolve_predicate_lineage_reuse(
     *,
-    left_predicate_filter_lineage: Any,
-    right_predicate_filter_lineage: Any,
+    current_predicate_filter_lineage: Any,
+    baseline_predicate_filter_lineage: Any,
     error_factory: Callable[[], ValueError],
 ) -> dict[str, Any]:
     """Validate and summarize predicate lineage compatibility between two observations.
 
     Returns ``{issues, fatal_message, reuse_summary}``.
     """
-    left = _normalize_optional_lineage(left_predicate_filter_lineage, error_factory=error_factory)
-    right = _normalize_optional_lineage(right_predicate_filter_lineage, error_factory=error_factory)
+    current = _normalize_optional_lineage(
+        current_predicate_filter_lineage, error_factory=error_factory
+    )
+    baseline = _normalize_optional_lineage(
+        baseline_predicate_filter_lineage, error_factory=error_factory
+    )
 
     # Both absent: pre-predicate observations — no issues, no summary.
-    if left is None and right is None:
+    if current is None and baseline is None:
         return {"issues": [], "fatal_message": None, "reuse_summary": None}
 
     # One absent, one present: mismatch.
-    if left is None or right is None:
+    if current is None or baseline is None:
         issue = _build_issue("predicate_lineage_metadata_mismatch")
         return {"issues": [issue], "fatal_message": issue["message"], "reuse_summary": None}
 
@@ -168,17 +172,17 @@ def resolve_predicate_lineage_reuse(
 
     # metric_default_lineage.default_predicate_refs must match.
     left_defaults = sorted(
-        (left.get("metric_default_lineage") or {}).get("default_predicate_refs") or []
+        (current.get("metric_default_lineage") or {}).get("default_predicate_refs") or []
     )
     right_defaults = sorted(
-        (right.get("metric_default_lineage") or {}).get("default_predicate_refs") or []
+        (baseline.get("metric_default_lineage") or {}).get("default_predicate_refs") or []
     )
     if left_defaults != right_defaults:
         issue = _build_issue(
             "metric_default_predicate_mismatch",
             details={
-                "left_default_predicate_refs": left_defaults,
-                "right_default_predicate_refs": right_defaults,
+                "current_default_predicate_refs": left_defaults,
+                "baseline_default_predicate_refs": right_defaults,
             },
         )
         issues.append(issue)
@@ -186,15 +190,15 @@ def resolve_predicate_lineage_reuse(
             fatal_message = issue["message"]
 
     # shared_effective_scope divergence: warning only (expected for compare).
-    left_shared = _summarize_shared_scope(left.get("shared_effective_scope"))
-    right_shared = _summarize_shared_scope(right.get("shared_effective_scope"))
+    left_shared = _summarize_shared_scope(current.get("shared_effective_scope"))
+    right_shared = _summarize_shared_scope(baseline.get("shared_effective_scope"))
     if left_shared != right_shared:
         issues.append(
             _build_issue(
                 "scope_divergence",
                 details={
-                    "left_shared_effective_scope": left_shared,
-                    "right_shared_effective_scope": right_shared,
+                    "current_shared_effective_scope": left_shared,
+                    "baseline_shared_effective_scope": right_shared,
                 },
             )
         )
@@ -202,8 +206,8 @@ def resolve_predicate_lineage_reuse(
     reuse_summary: dict[str, Any] | None = {
         "reuse_source": "observation_predicate_filter_lineage",
         "metric_default_predicate_refs": left_defaults,
-        "left_shared_effective_scope": left_shared,
-        "right_shared_effective_scope": right_shared,
+        "current_shared_effective_scope": left_shared,
+        "baseline_shared_effective_scope": right_shared,
     }
     if fatal_message is not None:
         reuse_summary = None
@@ -214,13 +218,13 @@ def resolve_predicate_lineage_reuse(
 def resolve_predicate_lineage_reuse_for_intent(
     *,
     intent_name: str,
-    left_predicate_filter_lineage: Any,
-    right_predicate_filter_lineage: Any,
+    current_predicate_filter_lineage: Any,
+    baseline_predicate_filter_lineage: Any,
 ) -> dict[str, Any]:
     """Convenience wrapper providing a default ``error_factory``."""
     return resolve_predicate_lineage_reuse(
-        left_predicate_filter_lineage=left_predicate_filter_lineage,
-        right_predicate_filter_lineage=right_predicate_filter_lineage,
+        current_predicate_filter_lineage=current_predicate_filter_lineage,
+        baseline_predicate_filter_lineage=baseline_predicate_filter_lineage,
         error_factory=lambda: ValueError(
             f"{intent_name}: INVALID_ARGUMENT - malformed predicate filter lineage"
         ),

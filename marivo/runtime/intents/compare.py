@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     from marivo.runtime.runtime import MarivoRuntime
 
 _AOI_PARAM_KEYS: frozenset[str] = frozenset(
-    {"left_artifact_id", "right_artifact_id", "compare_type"}
+    {"current_artifact_id", "baseline_artifact_id", "compare_type"}
 )
 
 
@@ -187,8 +187,8 @@ def _resolve_time_series_pairing_basis(
             compare_type=compare_type,
         )
 
-    current_window = _time_scope_window(left_artifact, label="left")
-    baseline_window = _time_scope_window(right_artifact, label="right")
+    current_window = _time_scope_window(left_artifact, label="current")
+    baseline_window = _time_scope_window(right_artifact, label="baseline")
     if alignment_plan.requires_calendar_data:
         reader = runtime.calendar_data_reader
         if not isinstance(reader, CalendarDataReaderLike):
@@ -279,7 +279,7 @@ def run_compare_intent(
 ) -> dict[str, Any]:
     """Execute a `compare` intent: compute typed delta between two observe artifacts.
 
-    Input: left_artifact_id + right_artifact_id (both committed observe artifacts).
+    Input: current_artifact_id + baseline_artifact_id (both committed observe artifacts).
     Output: committed compare_artifact (scalar_delta or segmented_delta).
 
     Empty semantics: hard-fails only on NOT_COMPARABLE (incompatible inputs); null values
@@ -293,11 +293,13 @@ def run_compare_intent(
             f"{extra_keys}; compare accepts only AOI request fields"
         )
 
-    left_artifact_id_raw = p.get("left_artifact_id")
-    right_artifact_id_raw = p.get("right_artifact_id")
-    left_artifact_id = left_artifact_id_raw.strip() if isinstance(left_artifact_id_raw, str) else ""
-    right_artifact_id = (
-        right_artifact_id_raw.strip() if isinstance(right_artifact_id_raw, str) else ""
+    current_artifact_id_raw = p.get("current_artifact_id")
+    baseline_artifact_id_raw = p.get("baseline_artifact_id")
+    current_artifact_id = (
+        current_artifact_id_raw.strip() if isinstance(current_artifact_id_raw, str) else ""
+    )
+    baseline_artifact_id = (
+        baseline_artifact_id_raw.strip() if isinstance(baseline_artifact_id_raw, str) else ""
     )
     left_session_id = session_id
     right_session_id = session_id
@@ -308,20 +310,20 @@ def run_compare_intent(
     except ValueError as exc:
         raise ValueError(f"compare: INVALID_ARGUMENT - {exc}") from exc
 
-    if not left_artifact_id or not right_artifact_id:
+    if not current_artifact_id or not baseline_artifact_id:
         raise ValueError(
-            "compare: INVALID_ARGUMENT - both left_artifact_id and right_artifact_id are required"
+            "compare: INVALID_ARGUMENT - both current_artifact_id and baseline_artifact_id are required"
         )
-    left_resolved = runtime.resolve_artifact_with_step_by_id(session_id, left_artifact_id)
+    left_resolved = runtime.resolve_artifact_with_step_by_id(session_id, current_artifact_id)
     if left_resolved is None:
         raise ValueError(
-            f"compare: ARTIFACT_NOT_FOUND - no committed artifact for left_artifact_id '{left_artifact_id}'"
+            f"compare: ARTIFACT_NOT_FOUND - no committed artifact for current_artifact_id '{current_artifact_id}'"
         )
     left_step_id, left_artifact = left_resolved
-    right_resolved = runtime.resolve_artifact_with_step_by_id(session_id, right_artifact_id)
+    right_resolved = runtime.resolve_artifact_with_step_by_id(session_id, baseline_artifact_id)
     if right_resolved is None:
         raise ValueError(
-            f"compare: ARTIFACT_NOT_FOUND - no committed artifact for right_artifact_id '{right_artifact_id}'"
+            f"compare: ARTIFACT_NOT_FOUND - no committed artifact for baseline_artifact_id '{baseline_artifact_id}'"
         )
     right_step_id, right_artifact = right_resolved
 
@@ -414,8 +416,8 @@ def run_compare_intent(
 
     predicate_lineage_summary = resolve_predicate_lineage_reuse_for_intent(
         intent_name="compare",
-        left_predicate_filter_lineage=left_artifact.get("predicate_filter_lineage"),
-        right_predicate_filter_lineage=right_artifact.get("predicate_filter_lineage"),
+        current_predicate_filter_lineage=left_artifact.get("predicate_filter_lineage"),
+        baseline_predicate_filter_lineage=right_artifact.get("predicate_filter_lineage"),
     )
     issues.extend(predicate_lineage_summary["issues"])
     if predicate_lineage_summary["fatal_message"] is not None:
@@ -449,40 +451,40 @@ def run_compare_intent(
     now = datetime.now(UTC).isoformat()
     flat_tolerance_relative = 0.01
 
-    left_ref_out = {
+    current_ref_out = {
         "session_id": left_session_id,
         "step_id": left_step_id,
         "step_type": "observe",
-        "artifact_id": left_artifact_id,
+        "artifact_id": current_artifact_id,
     }
-    right_ref_out = {
+    baseline_ref_out = {
         "session_id": right_session_id,
         "step_id": right_step_id,
         "step_type": "observe",
-        "artifact_id": right_artifact_id,
+        "artifact_id": baseline_artifact_id,
     }
     lineage: dict[str, Any] = {
-        "left_source_ref": left_ref_out,
-        "right_source_ref": right_ref_out,
+        "current_source_ref": current_ref_out,
+        "baseline_source_ref": baseline_ref_out,
         "observation_schema_version": left_artifact.get("schema_version"),
         "derivation_version": "1.0",
         "compare_type": compare_type,
     }
     resolved_input_summary: dict[str, Any] = {
-        "left_time_scope": left_artifact.get("time_scope"),
-        "right_time_scope": right_artifact.get("time_scope"),
-        "left_scope": left_artifact.get("scope") or {},
-        "right_scope": right_artifact.get("scope") or {},
+        "current_time_scope": left_artifact.get("time_scope"),
+        "baseline_time_scope": right_artifact.get("time_scope"),
+        "current_scope": left_artifact.get("scope") or {},
+        "baseline_scope": right_artifact.get("scope") or {},
     }
     if predicate_lineage_summary["reuse_summary"] is not None:
         resolved_input_summary["predicate_lineage"] = predicate_lineage_summary["reuse_summary"]
     analytical_metadata: dict[str, Any] = {
         "aggregation_semantics": left_am.get("aggregation_semantics", "sum"),
         "additive_dimensions": left_am.get("additive_dimensions"),
-        "relative_delta_denominator": "right",
+        "relative_delta_denominator": "baseline",
         "flat_tolerance_relative": flat_tolerance_relative,
-        "left_row_count": left_am.get("row_count"),
-        "right_row_count": right_am.get("row_count"),
+        "current_row_count": left_am.get("row_count"),
+        "baseline_row_count": right_am.get("row_count"),
         "compare_type": compare_type,
     }
     execution_metadata: dict[str, Any] = {
@@ -494,8 +496,8 @@ def run_compare_intent(
         "artifact_type": "compare_artifact",
         "schema_version": "1.0",
         "metric": metric_name,
-        "left_ref": left_ref_out,
-        "right_ref": right_ref_out,
+        "current_ref": current_ref_out,
+        "baseline_ref": baseline_ref_out,
         "lineage": lineage,
         "resolved_input_summary": resolved_input_summary,
         "unit": left_unit,
@@ -509,16 +511,16 @@ def run_compare_intent(
     summary: str
 
     if left_obs_type == "scalar":
-        left_value: float | None = left_artifact.get("value")
-        right_value: float | None = right_artifact.get("value")
-        abs_delta = _compute_absolute_delta(left_value, right_value)
-        rel_delta = _compute_relative_delta(abs_delta, right_value)
+        current_value: float | None = left_artifact.get("value")
+        baseline_value: float | None = right_artifact.get("value")
+        abs_delta = _compute_absolute_delta(current_value, baseline_value)
+        rel_delta = _compute_relative_delta(abs_delta, baseline_value)
         direction = _compute_direction(abs_delta, rel_delta, flat_tolerance_relative)
         artifact = {
             **base,
             "comparison_type": "scalar_delta",
-            "left_value": left_value,
-            "right_value": right_value,
+            "current_value": current_value,
+            "baseline_value": baseline_value,
             "absolute_delta": abs_delta,
             "relative_delta": rel_delta,
             "direction": direction,
@@ -548,8 +550,8 @@ def run_compare_intent(
             )
 
         time_series_rows: list[dict[str, Any]] = []
-        matched_left_values: list[float] = []
-        matched_right_values: list[float] = []
+        matched_current_values: list[float] = []
+        matched_baseline_values: list[float] = []
         matched_left_windows: list[tuple[str, str]] = []
         matched_right_windows: list[tuple[str, str]] = []
 
@@ -558,33 +560,33 @@ def run_compare_intent(
             right_row = right_series_map.get(key)
             anchor = left_row or right_row or {}
             window = dict(anchor.get("window") or {})
-            left_value = _coerce_numeric_or_none(left_row.get("value")) if left_row else None
-            right_value = _coerce_numeric_or_none(right_row.get("value")) if right_row else None
-            if left_row and right_row and left_value is not None and right_value is not None:
+            current_value = _coerce_numeric_or_none(left_row.get("value")) if left_row else None
+            baseline_value = _coerce_numeric_or_none(right_row.get("value")) if right_row else None
+            if left_row and right_row and current_value is not None and baseline_value is not None:
                 presence = "both"
-                row_abs = _compute_absolute_delta(left_value, right_value)
-                row_rel = _compute_relative_delta(row_abs, right_value)
+                row_abs = _compute_absolute_delta(current_value, baseline_value)
+                row_rel = _compute_relative_delta(row_abs, baseline_value)
                 row_dir = _compute_direction(row_abs, row_rel, flat_tolerance_relative)
-                matched_left_values.append(left_value)
-                matched_right_values.append(right_value)
+                matched_current_values.append(current_value)
+                matched_baseline_values.append(baseline_value)
                 matched_left_windows.append(_normalize_window(left_row.get("window") or {}))
                 matched_right_windows.append(
                     _normalize_window(
                         right_row.get("_matched_window") or right_row.get("window") or {}
                     )
                 )
-            elif left_value is not None:
-                presence = "left_only"
-                row_abs = left_value
+            elif current_value is not None:
+                presence = "current_only"
+                row_abs = current_value
                 row_rel = None
                 row_dir = "undefined"
-            elif right_value is not None:
-                presence = "right_only"
-                row_abs = -right_value if right_value is not None else None
+            elif baseline_value is not None:
+                presence = "baseline_only"
+                row_abs = -baseline_value if baseline_value is not None else None
                 row_rel = None
                 row_dir = "undefined"
             else:
-                presence = "left_only" if left_row else "right_only"
+                presence = "current_only" if left_row else "baseline_only"
                 row_abs = None
                 row_rel = None
                 row_dir = "undefined"
@@ -592,8 +594,8 @@ def run_compare_intent(
             time_series_rows.append(
                 {
                     "window": window,
-                    "left_value": left_value,
-                    "right_value": right_value,
+                    "current_value": current_value,
+                    "baseline_value": baseline_value,
                     "absolute_delta": row_abs,
                     "relative_delta": row_rel,
                     "direction": row_dir,
@@ -601,41 +603,41 @@ def run_compare_intent(
                 }
             )
 
-        summary_left_value = sum(matched_left_values) if matched_left_values else None
-        summary_right_value = sum(matched_right_values) if matched_right_values else None
-        summary_abs = _compute_absolute_delta(summary_left_value, summary_right_value)
-        summary_rel = _compute_relative_delta(summary_abs, summary_right_value)
+        summary_current_value = sum(matched_current_values) if matched_current_values else None
+        summary_baseline_value = sum(matched_baseline_values) if matched_baseline_values else None
+        summary_abs = _compute_absolute_delta(summary_current_value, summary_baseline_value)
+        summary_rel = _compute_relative_delta(summary_abs, summary_baseline_value)
         summary_dir = _compute_direction(summary_abs, summary_rel, flat_tolerance_relative)
 
         matched_time_scope = _matched_scope_from_windows(matched_left_windows)
-        matched_left_time_scope = _matched_scope_from_windows(matched_left_windows)
-        matched_right_time_scope = _matched_scope_from_windows(matched_right_windows)
+        matched_current_time_scope = _matched_scope_from_windows(matched_left_windows)
+        matched_baseline_time_scope = _matched_scope_from_windows(matched_right_windows)
 
         analytical_metadata.update(
             {
-                "left_bucket_count": len(left_series),
-                "right_bucket_count": len(right_series),
-                "matched_bucket_count": len(matched_left_values),
-                "dropped_left_buckets": sum(
+                "current_bucket_count": len(left_series),
+                "baseline_bucket_count": len(right_series),
+                "matched_bucket_count": len(matched_current_values),
+                "dropped_current_buckets": sum(
                     1 for row in left_series if _coerce_numeric_or_none(row.get("value")) is None
                 )
                 + max(
                     0,
                     len(left_series)
-                    - len(matched_left_values)
+                    - len(matched_current_values)
                     - sum(
                         1
                         for row in left_series
                         if _coerce_numeric_or_none(row.get("value")) is None
                     ),
                 ),
-                "dropped_right_buckets": sum(
+                "dropped_baseline_buckets": sum(
                     1 for row in right_series if _coerce_numeric_or_none(row.get("value")) is None
                 )
                 + max(
                     0,
                     len(right_series)
-                    - len(matched_right_values)
+                    - len(matched_baseline_values)
                     - sum(
                         1
                         for row in right_series
@@ -645,8 +647,8 @@ def run_compare_intent(
                 "pairing_basis": pairing_basis["pairing_basis"],
                 "pairing_rule": pairing_basis["pairing_rule"],
                 "matched_time_scope": matched_time_scope,
-                "matched_left_time_scope": matched_left_time_scope,
-                "matched_right_time_scope": matched_right_time_scope,
+                "matched_current_time_scope": matched_current_time_scope,
+                "matched_baseline_time_scope": matched_baseline_time_scope,
             }
         )
         if "compare_type" in pairing_basis:
@@ -692,8 +694,8 @@ def run_compare_intent(
             "comparison_type": "time_series_delta",
             "granularity": granularity,
             "rows": time_series_rows,
-            "summary_left_value": summary_left_value,
-            "summary_right_value": summary_right_value,
+            "summary_current_value": summary_current_value,
+            "summary_baseline_value": summary_baseline_value,
             "summary_absolute_delta": summary_abs,
             "summary_relative_delta": summary_rel,
             "summary_direction": summary_dir,
@@ -736,26 +738,26 @@ def run_compare_intent(
                 row_rel = _compute_relative_delta(row_abs, rv)
                 row_dir = _compute_direction(row_abs, row_rel, flat_tolerance_relative)
             elif l_seg:
-                presence = "left_only"
+                presence = "current_only"
                 lv = l_seg.get("value")
                 rv = None
                 keys_dict = l_seg.get("keys") or {}
-                row_abs = lv  # absolute_delta = left_value per spec
+                row_abs = lv  # absolute_delta = current_value per spec
                 row_rel = None
                 row_dir = "undefined"
             else:
-                presence = "right_only"
+                presence = "baseline_only"
                 lv = None
                 rv = (r_seg or {}).get("value")
                 keys_dict = (r_seg or {}).get("keys") or {}
-                row_abs = (-rv) if rv is not None else None  # absolute_delta = -right_value
+                row_abs = (-rv) if rv is not None else None  # absolute_delta = -baseline_value
                 row_rel = None
                 row_dir = "undefined"
             segmented_rows.append(
                 {
                     "keys": keys_dict,
-                    "left_value": lv,
-                    "right_value": rv,
+                    "current_value": lv,
+                    "baseline_value": rv,
                     "absolute_delta": row_abs,
                     "relative_delta": row_rel,
                     "direction": row_dir,
@@ -774,8 +776,8 @@ def run_compare_intent(
             "comparison_type": "segmented_delta",
             "dimensions": dims,
             "rows": segmented_rows,
-            "scope_left_value": scope_lv,
-            "scope_right_value": scope_rv,
+            "scope_current_value": scope_lv,
+            "scope_baseline_value": scope_rv,
             "scope_absolute_delta": scope_abs,
             "scope_relative_delta": scope_rel,
             "scope_direction": scope_dir,
@@ -784,10 +786,10 @@ def run_compare_intent(
         summary = f"compare {metric_name} segmented: {len(segmented_rows)} delta rows"
 
     provenance: dict[str, Any] = {
-        "left_step_id": left_step_id,
-        "right_step_id": right_step_id,
-        "left_artifact_id": left_artifact_id,
-        "right_artifact_id": right_artifact_id,
+        "current_step_id": left_step_id,
+        "baseline_step_id": right_step_id,
+        "current_artifact_id": current_artifact_id,
+        "baseline_artifact_id": baseline_artifact_id,
     }
     result = commit_step_result(
         runtime,

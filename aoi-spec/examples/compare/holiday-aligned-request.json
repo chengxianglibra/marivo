@@ -1,5 +1,5 @@
 {
-  "left_artifact_id": "obs_daily_revenue_2026_spring_festival",
-  "right_artifact_id": "obs_daily_revenue_2025_spring_festival",
+  "current_artifact_id": "obs_daily_revenue_2026_spring_festival",
+  "baseline_artifact_id": "obs_daily_revenue_2025_spring_festival",
   "compare_type": "holiday_aligned"
 }

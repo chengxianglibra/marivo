@@ -17,7 +17,7 @@ INTENT_TAXONOMY: dict[str, dict[str, str]] = {
         "category": "atomic",
         "description": (
             "Compute a typed delta between two observations. "
-            "Params: left_artifact_id, right_artifact_id, compare_type."
+            "Params: current_artifact_id, baseline_artifact_id, compare_type."
         ),
     },
     "decompose": {
@@ -45,7 +45,7 @@ INTENT_TAXONOMY: dict[str, dict[str, str]] = {
         "category": "atomic",
         "description": (
             "Evaluate a typed statistical hypothesis. "
-            "Params: metric, left, right, kind, hypothesis."
+            "Params: metric, current, baseline, kind, hypothesis."
         ),
     },
     "forecast": {
@@ -60,7 +60,7 @@ INTENT_TAXONOMY: dict[str, dict[str, str]] = {
         "description": (
             "Derived intent: validate a metric hypothesis. "
             "Expands to a fixed-family statistical test and returns a validation bundle. "
-            "Params: metric, left, right, hypothesis."
+            "Params: metric, current, baseline, hypothesis."
         ),
     },
     "attribute": {

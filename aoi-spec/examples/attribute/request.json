@@ -1,6 +1,6 @@
 {
   "metric": "order_revenue",
-  "left": {
+  "current": {
     "time_scope": {
       "field": "order_date",
       "start": "2026-01-01T00:00:00Z",
@@ -15,7 +15,7 @@
       ]
     }
   },
-  "right": {
+  "baseline": {
     "time_scope": {
       "field": "order_date",
       "start": "2025-01-01T00:00:00Z",

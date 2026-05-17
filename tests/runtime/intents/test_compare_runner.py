@@ -58,8 +58,8 @@ def _make_runtime(
 
 def _compare_params(compare_type: str | None = None) -> dict[str, Any]:
     params = {
-        "left_artifact_id": _LEFT_ARTIFACT_ID,
-        "right_artifact_id": _RIGHT_ARTIFACT_ID,
+        "current_artifact_id": _LEFT_ARTIFACT_ID,
+        "baseline_artifact_id": _RIGHT_ARTIFACT_ID,
     }
     if compare_type is not None:
         params["compare_type"] = compare_type
@@ -106,13 +106,13 @@ def test_compare_resolves_inputs_by_artifact_id_and_records_lineage() -> None:
 
     result = _run_compare(runtime)
 
-    assert result["left_ref"]["step_id"] == _LEFT_STEP_ID
-    assert result["left_ref"]["artifact_id"] == _LEFT_ARTIFACT_ID
-    assert result["right_ref"]["step_id"] == _RIGHT_STEP_ID
-    assert result["right_ref"]["artifact_id"] == _RIGHT_ARTIFACT_ID
-    assert result["lineage"]["left_source_ref"]["artifact_id"] == _LEFT_ARTIFACT_ID
-    assert result["lineage"]["right_source_ref"]["artifact_id"] == _RIGHT_ARTIFACT_ID
-    assert result["resolved_input_summary"]["left_time_scope"] == {
+    assert result["current_ref"]["step_id"] == _LEFT_STEP_ID
+    assert result["current_ref"]["artifact_id"] == _LEFT_ARTIFACT_ID
+    assert result["baseline_ref"]["step_id"] == _RIGHT_STEP_ID
+    assert result["baseline_ref"]["artifact_id"] == _RIGHT_ARTIFACT_ID
+    assert result["lineage"]["current_source_ref"]["artifact_id"] == _LEFT_ARTIFACT_ID
+    assert result["lineage"]["baseline_source_ref"]["artifact_id"] == _RIGHT_ARTIFACT_ID
+    assert result["resolved_input_summary"]["current_time_scope"] == {
         "kind": "range",
         "start": "2024-01-01",
         "end": "2024-01-08",
@@ -131,16 +131,16 @@ def test_compare_omitted_compare_type_defaults_to_normal() -> None:
 @pytest.mark.parametrize(
     "payload",
     [
-        {"left_artifact_id": _LEFT_ARTIFACT_ID},
-        {"right_artifact_id": _RIGHT_ARTIFACT_ID},
-        {"left_artifact_id": " ", "right_artifact_id": _RIGHT_ARTIFACT_ID},
-        {"left_artifact_id": _LEFT_ARTIFACT_ID, "right_artifact_id": " "},
+        {"current_artifact_id": _LEFT_ARTIFACT_ID},
+        {"baseline_artifact_id": _RIGHT_ARTIFACT_ID},
+        {"current_artifact_id": " ", "baseline_artifact_id": _RIGHT_ARTIFACT_ID},
+        {"current_artifact_id": _LEFT_ARTIFACT_ID, "baseline_artifact_id": " "},
     ],
 )
 def test_compare_requires_both_artifact_ids(payload: dict[str, Any]) -> None:
     runtime = _make_runtime()
 
-    with pytest.raises(ValueError, match="both left_artifact_id and right_artifact_id"):
+    with pytest.raises(ValueError, match="both current_artifact_id and baseline_artifact_id"):
         _run_compare(runtime, payload)
 
 
@@ -151,22 +151,22 @@ def test_compare_rejects_unknown_compare_type() -> None:
         _run_compare(runtime, _compare_params("not_real"))
 
 
-def test_compare_reports_missing_left_artifact_id() -> None:
+def test_compare_reports_missing_current_artifact_id() -> None:
     runtime = MagicMock()
     runtime.resolve_artifact_with_step_by_id.return_value = None
 
-    with pytest.raises(ValueError, match="left_artifact_id 'art_left_obs'"):
+    with pytest.raises(ValueError, match="current_artifact_id 'art_left_obs'"):
         _run_compare(runtime)
 
 
-def test_compare_reports_missing_right_artifact_id() -> None:
+def test_compare_reports_missing_baseline_artifact_id() -> None:
     runtime = MagicMock()
     runtime.resolve_artifact_with_step_by_id.side_effect = [
         (_LEFT_STEP_ID, _scalar_observation("m1")),
         None,
     ]
 
-    with pytest.raises(ValueError, match="right_artifact_id 'art_right_obs'"):
+    with pytest.raises(ValueError, match="baseline_artifact_id 'art_right_obs'"):
         _run_compare(runtime)
 
 
@@ -200,8 +200,8 @@ def test_compare_time_series_commits_time_series_delta() -> None:
     assert result["comparison_type"] == "time_series_delta"
     assert result["granularity"] == "day"
     assert len(result["rows"]) == 2
-    assert result["summary_left_value"] == 30.0
-    assert result["summary_right_value"] == 23.0
+    assert result["summary_current_value"] == 30.0
+    assert result["summary_baseline_value"] == 23.0
     assert result["analytical_metadata"]["pairing_basis"] == "input_artifact_window_position"
     assert result["analytical_metadata"]["pairing_rule"] == "relative_bucket_position"
 
@@ -220,7 +220,7 @@ def test_compare_segmented_commits_segmented_delta() -> None:
     assert result["comparison_type"] == "segmented_delta"
     assert result["scope_absolute_delta"] == 40.0
     assert result["lineage"]["compare_type"] == "normal"
-    assert {row["presence"] for row in result["rows"]} == {"both", "left_only", "right_only"}
+    assert {row["presence"] for row in result["rows"]} == {"both", "current_only", "baseline_only"}
 
 
 def test_compare_segmented_log_hour_commits_segmented_delta() -> None:
@@ -250,7 +250,7 @@ def test_compare_segmented_log_hour_commits_segmented_delta() -> None:
         ("log_hour", "10"),
         ("log_hour", "11"),
     }
-    assert {row["presence"] for row in result["rows"]} == {"both", "left_only", "right_only"}
+    assert {row["presence"] for row in result["rows"]} == {"both", "current_only", "baseline_only"}
 
 
 def test_compare_segmented_dimension_mismatch_is_not_comparable() -> None:
@@ -295,21 +295,21 @@ def test_compare_type_normal_aligns_non_overlapping_windows_by_relative_position
     assert result["analytical_metadata"]["pairing_basis"] == "input_artifact_window_position"
     assert result["analytical_metadata"]["pairing_rule"] == "relative_bucket_position"
     assert result["analytical_metadata"]["compare_type"] == "normal"
-    assert result["summary_left_value"] == 22.0
-    assert result["summary_right_value"] == 20.0
+    assert result["summary_current_value"] == 22.0
+    assert result["summary_baseline_value"] == 20.0
     assert result["summary_absolute_delta"] == 2.0
-    assert result["analytical_metadata"]["matched_left_time_scope"] == {
+    assert result["analytical_metadata"]["matched_current_time_scope"] == {
         "kind": "range",
         "start": "2026-02-14",
         "end": "2026-02-16",
     }
-    assert result["analytical_metadata"]["matched_right_time_scope"] == {
+    assert result["analytical_metadata"]["matched_baseline_time_scope"] == {
         "kind": "range",
         "start": "2025-02-14",
         "end": "2025-02-16",
     }
-    assert result["rows"][0]["left_value"] == 10.0
-    assert result["rows"][0]["right_value"] == 9.0
+    assert result["rows"][0]["current_value"] == 10.0
+    assert result["rows"][0]["baseline_value"] == 9.0
 
 
 def test_compare_type_weekday_aligned_uses_nearest_weekday() -> None:
@@ -328,7 +328,7 @@ def test_compare_type_weekday_aligned_uses_nearest_weekday() -> None:
     result = _run_compare(runtime, _compare_params("weekday_aligned"))
 
     assert result["analytical_metadata"]["pairing_rule"] == "same_weekday"
-    assert result["rows"][0]["right_value"] == 100.0
+    assert result["rows"][0]["baseline_value"] == 100.0
     assert (
         result["resolved_input_summary"]["calendar_alignment"]["bucket_pairing"][0][
             "pairing_reason"
@@ -352,7 +352,7 @@ def test_compare_type_weekday_aligned_falls_back_to_relative_position() -> None:
 
     result = _run_compare(runtime, _compare_params("weekday_aligned"))
 
-    assert result["rows"][0]["right_value"] == 100.0
+    assert result["rows"][0]["baseline_value"] == 100.0
     assert (
         result["resolved_input_summary"]["calendar_alignment"]["bucket_pairing"][0][
             "pairing_reason"
@@ -377,7 +377,7 @@ def test_compare_type_holiday_aligned_reads_calendar_data() -> None:
 
     result = _run_compare(runtime, _compare_params("holiday_aligned"))
 
-    assert result["rows"][0]["right_value"] == 100.0
+    assert result["rows"][0]["baseline_value"] == 100.0
     assert (
         result["resolved_input_summary"]["calendar_alignment"]["bucket_pairing"][0][
             "pairing_reason"
@@ -402,7 +402,7 @@ def test_compare_type_holiday_and_weekday_aligned_falls_back_to_weekday() -> Non
 
     result = _run_compare(runtime, _compare_params("holiday_and_weekday_aligned"))
 
-    assert result["rows"][0]["right_value"] == 100.0
+    assert result["rows"][0]["baseline_value"] == 100.0
     assert (
         result["resolved_input_summary"]["calendar_alignment"]["bucket_pairing"][0][
             "pairing_reason"

@@ -166,7 +166,7 @@ def materialize_change_from_delta(
     # Creation condition: direction check
     if direction == "flat":
         return None
-    if direction == "undefined" and presence not in ("left_only", "right_only"):
+    if direction == "undefined" and presence not in ("current_only", "baseline_only"):
         return None
 
     # direction_of_interest mapping
@@ -189,11 +189,11 @@ def materialize_change_from_delta(
 
     # comparison_window from artifact payload
     resolved = artifact_payload.get("resolved_input_summary") or {}
-    left_time_scope = resolved.get("left_time_scope")
-    right_time_scope = resolved.get("right_time_scope")
-    if not left_time_scope or not right_time_scope:
+    current_time_scope = resolved.get("current_time_scope")
+    baseline_time_scope = resolved.get("baseline_time_scope")
+    if not current_time_scope or not baseline_time_scope:
         return None
-    comparison_window = {"left": left_time_scope, "right": right_time_scope}
+    comparison_window = {"current": current_time_scope, "baseline": baseline_time_scope}
 
     comparison_basis = artifact_payload.get("comparison_basis") or "left_vs_right"
 

@@ -87,8 +87,8 @@ lineage 中保留 typed references，而不是重新引入临时性的原始 sco
 
 推荐示例：
 
-- `compare(left_artifact_id, right_artifact_id)`，而不是 `compare(metric, scope_a, scope_b)`
-- `decompose(compare_artifact_id, dimension)`，而不是 `decompose(metric, left_scope, right_scope, ...)`
+- `compare(current_artifact_id, baseline_artifact_id)`，而不是 `compare(metric, scope_a, scope_b)`
+- `decompose(compare_artifact_id, dimension)`，而不是 `decompose(metric, current_scope, baseline_scope, ...)`
 - `correlate(left_artifact_id, right_artifact_id)`，而不是 `correlate(metric_a, metric_b, scope, ...)`
 
 ### 3. 单一分析职责
