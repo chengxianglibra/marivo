@@ -389,11 +389,19 @@ class TimeAxisResolver:
                     field_name=override,
                     expression=field_expression,
                     data_type=field_data_type,
+                    columns=columns,
                     metadata_chain=metadata_chain,
                 )
             if field_data_type is not None:
                 if _sql_type_is_date(field_data_type):
                     if self.request.time_scope.grain == "hour":
+                        partition_axis = self._partition_hour_axis_for_date_column(
+                            override,
+                            columns,
+                            metadata_chain,
+                        )
+                        if partition_axis is not None:
+                            return partition_axis
                         raise ValueError(
                             "time_axis.analysis_time.column must be hour-compatible for hour grain; "
                             "provide a timestamp column or rely on partition date/hour metadata"
@@ -409,6 +417,13 @@ class TimeAxisResolver:
                 if _sql_type_is_timestamp(field_data_type):
                     return _AnalysisAxis(kind="timestamp", expr=override, column=override)
             if self.request.time_scope.grain == "hour" and _looks_like_day_column(override):
+                partition_axis = self._partition_hour_axis_for_date_column(
+                    override,
+                    columns,
+                    metadata_chain,
+                )
+                if partition_axis is not None:
+                    return partition_axis
                 raise ValueError(
                     "time_axis.analysis_time.column must be hour-compatible for hour grain; "
                     "provide a timestamp column or rely on partition date/hour metadata"
@@ -541,10 +556,19 @@ class TimeAxisResolver:
         field_name: str,
         expression: str,
         data_type: str | None,
+        columns: tuple[str, ...],
         metadata_chain: list[_TimeCapabilities],
     ) -> _AnalysisAxis:
         if _is_simple_identifier(expression):
             if self.request.time_scope.grain == "hour" and _looks_like_day_column(expression):
+                partition_axis = self._partition_hour_axis_for_date_column(
+                    expression,
+                    columns,
+                    metadata_chain,
+                    field_name=field_name,
+                )
+                if partition_axis is not None:
+                    return partition_axis
                 raise ValueError(
                     "time_scope.field expression must be hour-compatible for hour grain; "
                     "provide a timestamp expression or date/hour metadata"
@@ -561,12 +585,54 @@ class TimeAxisResolver:
             return _AnalysisAxis(kind="timestamp", expr=expression, column=field_name)
 
         if _sql_type_is_timestamp(data_type) or _expression_returns_timestamp(expression):
-            return _AnalysisAxis(kind="timestamp", expr=expression, column=field_name)
+            return _AnalysisAxis(
+                kind="timestamp",
+                expr=_timestamp_expression_for_engine(expression, engine_type=self.engine_type),
+                column=field_name,
+            )
         if _sql_type_is_date(data_type) or _expression_returns_date(expression):
             return _AnalysisAxis(kind="date_expression", expr=expression, column=field_name)
         if self.request.time_scope.grain == "hour":
             return _AnalysisAxis(kind="timestamp", expr=expression, column=field_name)
         return _AnalysisAxis(kind="date_expression", expr=expression, column=field_name)
+
+    def _partition_hour_axis_for_date_column(
+        self,
+        date_column: str,
+        columns: tuple[str, ...],
+        metadata_chain: list[_TimeCapabilities],
+        *,
+        field_name: str | None = None,
+    ) -> _AnalysisAxis | None:
+        hour_column = self._hour_column_for_date_column(date_column, columns, metadata_chain)
+        if hour_column is None:
+            return None
+        self._ensure_known_column(hour_column, columns, "time_axis.analysis_time.hour_column")
+        date_format = self._analysis_date_format(metadata_chain, date_column)
+        return _AnalysisAxis(
+            kind="partition_fields",
+            expr=self._partition_hour_analysis_expr(date_column, hour_column, date_format),
+            column=field_name or date_column,
+            date_column=date_column,
+            date_format=date_format,
+            hour_column=hour_column,
+            hour_format=self._analysis_hour_format(metadata_chain, hour_column),
+        )
+
+    @staticmethod
+    def _hour_column_for_date_column(
+        date_column: str,
+        columns: tuple[str, ...],
+        metadata_chain: list[_TimeCapabilities],
+    ) -> str | None:
+        for caps in metadata_chain:
+            if caps.fallback_date_column == date_column and caps.fallback_hour_column is not None:
+                return caps.fallback_hour_column
+            if caps.partition_date_column == date_column and caps.partition_hour_column is not None:
+                return caps.partition_hour_column
+        if not _looks_like_day_column(date_column):
+            return None
+        return TimeAxisResolver._first_candidate(columns, _HOUR_CANDIDATES)
 
     def _resolve_partition_axis(
         self,
@@ -954,6 +1020,22 @@ def _expression_returns_timestamp(expression: str) -> bool:
     return bool(
         re.search(r"(?is)\bAS\s+TIMESTAMP(?:\s+WITH\s+TIME\s+ZONE)?\b", expression)
         or re.search(r"(?is)\b(?:DATE_PARSE|STRPTIME|TO_TIMESTAMP)\s*\(", expression)
+    )
+
+
+def _timestamp_expression_for_engine(expression: str, *, engine_type: str) -> str:
+    if engine_type.strip().lower() != "trino":
+        return expression
+    match = re.fullmatch(
+        r"(?is)CAST\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s+AS\s+TIMESTAMP\s*\)",
+        expression.strip(),
+    )
+    if match is None:
+        return expression
+    return _custom_format_timestamp_expr(
+        match.group(1),
+        "%Y-%m-%d %H:%M:%S",
+        engine_type="trino",
     )
 
 
