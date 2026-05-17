@@ -49,7 +49,6 @@
 - `tests/test_ports_init.py` -> `tests/contracts/test_ports_init.py`
 - `tests/test_identity.py` -> `tests/core/test_identity.py`
 - `tests/test_redaction.py` -> `tests/core/test_redaction.py`
-- `tests/test_build_cn_calendar.py` -> `tests/scripts/test_build_cn_calendar.py`
 - `tests/test_observability.py` -> `tests/runtime/test_observability.py`
 - `tests/test_soft_invalidation.py` -> `tests/runtime/evidence/test_soft_invalidation.py`
 - `tests/test_shared_fixtures.py` -> `tests/support/test_shared_fixtures.py`
@@ -110,9 +109,7 @@
 
 - `tests/test_additivity_capabilities.py`
 - `tests/test_analysis_ir.py`
-- `tests/test_calendar_alignment_baseline.py`
-- `tests/test_calendar_alignment_pairing.py`
-- `tests/test_calendar_policy_registry.py`
+- `tests/core/test_calendar.py`
 - `tests/test_canonical_finding.py`
 - `tests/test_canonical_refs.py`
 - `tests/test_family_contract.py`

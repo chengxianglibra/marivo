@@ -14,9 +14,7 @@ router = APIRouter(prefix="/calendar", tags=["calendar"])
 
 _COLUMNS = (
     "calendar_date",
-    "weekday",
-    "is_weekend",
-    "is_workday",
+    "day_kind",
     "holiday_name",
     "holiday_group_id",
     "year_relative_holiday_key",
@@ -24,9 +22,9 @@ _COLUMNS = (
 
 _INSERT_SQL = (
     "INSERT INTO calendar "
-    "(calendar_date, weekday, is_weekend, is_workday, holiday_name, "
+    "(calendar_date, day_kind, holiday_name, "
     "holiday_group_id, year_relative_holiday_key) "
-    "VALUES (?, ?, ?, ?, ?, ?, ?)"
+    "VALUES (?, ?, ?, ?, ?)"
 )
 
 
@@ -45,9 +43,7 @@ def load_calendar_data(
     params = [
         (
             row.calendar_date,
-            row.weekday,
-            row.is_weekend,
-            row.is_workday,
+            row.day_kind,
             row.holiday_name,
             row.holiday_group_id,
             row.year_relative_holiday_key,

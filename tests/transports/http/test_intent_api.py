@@ -31,16 +31,6 @@ def _metric_ref(name: str) -> str:
     return f"metric.{name}"
 
 
-_CALENDAR_VERSION = "cn_public_holiday_test_v1"
-
-
-def _weekday_of(iso_date: str) -> int:
-    """Return ISO weekday (1=Mon, 7=Sun) for an ISO date string."""
-    from datetime import date as _date
-
-    return _date.fromisoformat(iso_date).isoweekday()
-
-
 def _seed_calendar_table_to_duckdb(db_path: Path) -> None:
     """Create analytics.cn_public_holiday in the test DuckDB with minimal calendar data."""
     con = duckdb.connect(str(db_path))
@@ -50,11 +40,7 @@ def _seed_calendar_table_to_duckdb(db_path: Path) -> None:
             """
             CREATE TABLE IF NOT EXISTS analytics.cn_public_holiday (
                 calendar_date DATE NOT NULL,
-                region_code VARCHAR NOT NULL,
-                calendar_version VARCHAR NOT NULL,
-                weekday INTEGER NOT NULL,
-                is_weekend BOOLEAN NOT NULL,
-                is_workday BOOLEAN NOT NULL,
+                day_kind VARCHAR NOT NULL,
                 holiday_name VARCHAR,
                 holiday_group_id VARCHAR,
                 year_relative_holiday_key VARCHAR
@@ -63,26 +49,17 @@ def _seed_calendar_table_to_duckdb(db_path: Path) -> None:
         )
         rows: list[tuple] = []
         for year in (2025, 2026):
-            month = 4
-            for day in range(1, 9):
-                iso = f"{year:04d}-{month:02d}-{day:02d}"
-                wd = _weekday_of(iso)
-                is_we = wd >= 6
-                rows.append(
-                    (
-                        iso,
-                        "CN",
-                        _CALENDAR_VERSION,
-                        wd,
-                        is_we,
-                        not is_we,
-                        None,
-                        None,
-                        None,
-                    )
+            rows.append(
+                (
+                    f"{year:04d}-04-04",
+                    "holiday",
+                    "清明节",
+                    "qingming",
+                    f"qingming_{year}",
                 )
+            )
         con.executemany(
-            "INSERT INTO analytics.cn_public_holiday VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO analytics.cn_public_holiday VALUES (?, ?, ?, ?, ?)",
             rows,
         )
     finally:
@@ -93,21 +70,14 @@ def _seed_calendar_rows_to_metadata(metadata: SQLiteMetadataStore) -> None:
     """Seed the calendar table in the SQLite metadata store with test data."""
     rows: list[tuple] = []
     for year in (2025, 2026):
-        month = 4
-        for day in range(1, 9):
-            iso = f"{year:04d}-{month:02d}-{day:02d}"
-            wd = _weekday_of(iso)
-            is_we = 1 if wd >= 6 else 0
-            is_wd = 1 if wd < 6 else 0
-            rows.append((iso, "", wd, is_we, is_wd, None, None))
+        rows.append((f"{year:04d}-04-04", "holiday", "清明节", "qingming", f"qingming_{year}"))
     with metadata.connect() as con:
         con.executemany(
             """
             INSERT INTO calendar
-                (calendar_date, holiday_group_id, weekday,
-                 is_weekend, is_workday, holiday_name,
-                 year_relative_holiday_key)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+                (calendar_date, day_kind, holiday_name,
+                 holiday_group_id, year_relative_holiday_key)
+            VALUES (?, ?, ?, ?, ?)
             """,
             rows,
         )
@@ -130,7 +100,7 @@ def _seed_default_calendar_source_metadata(db_path: Path) -> None:
         now=now,
         connection={"path": str(db_path)},
         authority_locator={"catalog": "main", "schema": "analytics", "table": "cn_public_holiday"},
-        properties={"calendar_version": _CALENDAR_VERSION},
+        properties={},
         sync_version="test_sync_v1",
         synced_at=now,
     )

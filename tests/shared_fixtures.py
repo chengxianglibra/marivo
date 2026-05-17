@@ -393,7 +393,7 @@ def _template_lock_path(template_name: str) -> Path:
 # In-process flags: skip lock on repeated calls within the same worker.
 _TEMPLATE_READY: set[str] = set()
 
-_METADATA_TEMPLATE_VERSION = "sqlite_metadata_dataset_native_grounding_v1"
+_METADATA_TEMPLATE_VERSION = "sqlite_metadata_sparse_calendar_v1"
 _METADATA_TEMPLATE = Path(f"/tmp/marivo_test_{_METADATA_TEMPLATE_VERSION}.sqlite")
 _METADATA_LOCK = Path(f"/tmp/marivo_test_{_METADATA_TEMPLATE_VERSION}.lock")
 _METADATA_READY = False
@@ -504,6 +504,14 @@ def _metadata_template_valid(db_path: Path) -> bool:
                 "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('sessions', 'steps', 'artifacts', 'datasources', 'metadata_schema_marker')"
             ).fetchall()
         }
+        tables.update(
+            {
+                str(row[0])
+                for row in con.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'calendar'"
+                ).fetchall()
+            }
+        )
         # OSI v2 tables
         osi_v2_tables = {
             str(row[0])
@@ -519,6 +527,9 @@ def _metadata_template_valid(db_path: Path) -> bool:
         }
         session_columns = {
             str(row[1]) for row in con.execute("PRAGMA table_info(sessions)").fetchall()
+        }
+        calendar_columns = {
+            str(row[1]) for row in con.execute("PRAGMA table_info(calendar)").fetchall()
         }
         # OSI v2 model columns
         osi_model_columns = {
@@ -556,6 +567,7 @@ def _metadata_template_valid(db_path: Path) -> bool:
             "steps",
             "artifacts",
             "datasources",
+            "calendar",
             "metadata_schema_marker",
         }
         and osi_v2_tables
@@ -577,6 +589,14 @@ def _metadata_template_valid(db_path: Path) -> bool:
         }.issubset(session_columns)
         and {"visibility", "owner_user"}.issubset(osi_model_columns)
         and "revision" not in osi_model_columns
+        and {
+            "calendar_date",
+            "day_kind",
+            "holiday_group_id",
+            "holiday_name",
+            "year_relative_holiday_key",
+        }.issubset(calendar_columns)
+        and not {"weekday", "is_" + "weekend", "is_" + "workday"}.intersection(calendar_columns)
         and marker_rows == {"sqlite"}
         and actual_marker == expected_marker
     )
