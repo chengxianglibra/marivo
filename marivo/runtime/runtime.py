@@ -361,7 +361,7 @@ class MarivoRuntime:
     def terminate_session(
         self,
         session_id: SessionId,
-        actor: UserId,
+        actor: UserId | None = None,
         terminal_reason: str = "user_closed",
     ) -> None:
         """Terminate a session.  Raises NotFoundError/ForbiddenError/ValidationError.

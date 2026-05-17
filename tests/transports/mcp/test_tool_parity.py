@@ -19,6 +19,8 @@ from marivo.contracts.calendar import (
     CalendarDataUpdateResponse,
 )
 from marivo.contracts.generated import aoi
+from marivo.contracts.ids import UserId
+from marivo.identity import current_user, require_user
 from marivo.transports.mcp.tools import register_tools
 from marivo.transports.mcp.tools.schemas import McpAoiSliceRef, McpTimeScope
 
@@ -148,6 +150,25 @@ class FakeRuntime:
         return {}
 
 
+class RecordingTerminateRuntime(FakeRuntime):
+    def __init__(self) -> None:
+        self.terminate_call: dict[str, object] | None = None
+
+    def terminate_session(
+        self,
+        session_id: str,
+        actor: UserId | None = None,
+        terminal_reason: str = "user_closed",
+    ) -> None:
+        if actor is None:
+            actor = UserId(require_user())
+        self.terminate_call = {
+            "session_id": session_id,
+            "actor": actor,
+            "terminal_reason": terminal_reason,
+        }
+
+
 # Catalog / OpenAPI tools are only registered in HTTP mode.
 _HTTP_ONLY_TOOLS = frozenset(
     {
@@ -257,6 +278,27 @@ def test_mcp_semantic_tools_do_not_expose_requesting_user() -> None:
     for name in checked_names:
         assert "requesting_user" not in tools[name].parameters.get("properties", {})
         assert "owner_user" not in tools[name].parameters.get("properties", {})
+
+
+def test_terminate_session_tool_resolves_actor_from_current_user() -> None:
+    server = FastMCP("test")
+    runtime = RecordingTerminateRuntime()
+    register_tools(server, runtime, transport="stdio")
+    tool = {tool.name: tool for tool in server._tool_manager.list_tools()}["terminate_session"]
+
+    token = current_user.set("alice")
+    try:
+        result = asyncio.run(tool.fn(session_id="sess_1", terminal_reason="analysis_complete"))
+    finally:
+        current_user.reset(token)
+
+    assert result == {"data": None, "error": None}
+    assert runtime.terminate_call == {
+        "session_id": "sess_1",
+        "actor": UserId("alice"),
+        "terminal_reason": "analysis_complete",
+    }
+    assert "actor" not in tool.parameters["properties"]
 
 
 def test_delete_semantic_model_tool_schema_is_model_only() -> None:

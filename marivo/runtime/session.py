@@ -143,7 +143,7 @@ def assert_session_is_open(runtime: MarivoRuntime, session_id: SessionId) -> Ses
 def terminate_session(
     runtime: MarivoRuntime,
     session_id: SessionId,
-    actor: UserId,
+    actor: UserId | None = None,
     terminal_reason: str = "user_closed",
 ) -> SessionState:
     """Terminate a session, preventing further write operations.
@@ -152,6 +152,8 @@ def terminate_session(
     Raises ForbiddenError when *actor* does not own the session.
     Raises ValidationError when the session is already in a terminal state.
     """
+    if actor is None:
+        actor = UserId(require_user())
     events = runtime.ports.session_store.load_events(session_id)  # raises NotFoundError
     state = rebuild_session_state(events)
     _check_ownership_from_events(events, actor)
