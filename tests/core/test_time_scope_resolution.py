@@ -573,6 +573,59 @@ class TimeAxisResolverTests(unittest.TestCase):
         ).resolve()
         self.assertEqual(resolved.analysis_time_expr, "created_at")
 
+    def test_resolver_expands_time_scope_field_timestamp_expression(self) -> None:
+        request = self._compare_request(
+            grain="hour",
+            time_axis={"analysis_time": {"column": "query_time"}},
+        )
+        expression = "CAST(CONCAT(log_date, ' ', log_hour, ':00:00') AS TIMESTAMP)"
+
+        resolved = TimeAxisResolver(
+            request=request,
+            engine_type="trino",
+            available_columns=["query_time", "log_date", "log_hour"],
+            time_field_expressions={"query_time": expression},
+            time_field_data_types={"query_time": "timestamp"},
+        ).resolve()
+
+        self.assertEqual(resolved.analysis_time_kind, "timestamp")
+        self.assertEqual(resolved.analysis_time_expr, expression)
+
+    def test_resolver_expands_time_scope_field_date_expression_without_recasting(self) -> None:
+        request = self._compare_request(
+            grain="day",
+            time_axis={"analysis_time": {"column": "create_date"}},
+        )
+        expression = "CAST(SUBSTRING(create_time, 1, 10) AS DATE)"
+
+        resolved = TimeAxisResolver(
+            request=request,
+            engine_type="trino",
+            available_columns=["create_date", "create_time"],
+            time_field_expressions={"create_date": expression},
+            time_field_data_types={"create_date": "date"},
+        ).resolve()
+
+        self.assertEqual(resolved.analysis_time_kind, "date_expression")
+        self.assertEqual(resolved.analysis_time_expr, expression)
+
+    def test_resolver_uses_time_field_data_type_for_bare_date_expression(self) -> None:
+        request = self._compare_request(
+            grain="day",
+            time_axis={"analysis_time": {"column": "business_date"}},
+        )
+
+        resolved = TimeAxisResolver(
+            request=request,
+            engine_type="trino",
+            available_columns=["business_date"],
+            time_field_expressions={"business_date": "business_date"},
+            time_field_data_types={"business_date": "DATE"},
+        ).resolve()
+
+        self.assertEqual(resolved.analysis_time_kind, "date_field")
+        self.assertEqual(resolved.analysis_time_expr, "CAST(business_date AS DATE)")
+
     def test_resolver_rejects_metadata_columns_not_present_in_known_schema(self) -> None:
         request = self._compare_request(grain="day")
         with self.assertRaisesRegex(ValueError, "unknown column 'event_time'"):

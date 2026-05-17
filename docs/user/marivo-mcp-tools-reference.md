@@ -2237,6 +2237,8 @@ OsiDocument
 **关键约束**：
 - 非可加指标：不添加 `custom_extensions`（`additive_dimensions` 不能为空数组，验证器会拒绝）
 - SQL 关键字列：在 `expression` 中使用双引号，如 `"schema"`、`"user"`
-- 时间字段：标记 `dimension: { is_time: true }`，对 varchar 时间列使用 `CAST(col AS TIMESTAMP)`
+- 时间字段：标记 `dimension: { is_time: true }`；`time_scope.field` 会展开该字段的
+  `expression` 生成时间过滤 SQL，因此 varchar 时间列可声明为
+  `CAST(col AS TIMESTAMP)`，日期前缀可声明为 `CAST(SUBSTRING(col, 1, 10) AS DATE)`
 - 验证使用 `input_path`（本地文件方式），不用 inline `document`
 - 导入必须经用户明确批准后才调用 `import_osi_semantic_models`

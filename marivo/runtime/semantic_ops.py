@@ -880,6 +880,8 @@ def resolve_windowed_query_time_axis(
         available_columns=available_columns,
         entity_time_capabilities=metadata_context.entity_time_capabilities,
         source_time_capabilities=metadata_context.source_time_capabilities,
+        time_field_expressions=metadata_context.time_field_expressions,
+        time_field_data_types=metadata_context.time_field_data_types,
     )
     request.resolved_time_axis = resolver.resolve()
 
