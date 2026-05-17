@@ -66,6 +66,8 @@ class TestValidateHourBoundaries(unittest.TestCase):
     def test_hour_granularity_with_datetime_passes(self) -> None:
         validate_hour_boundaries("hour", "2024-01-01 00:00:00", "2024-01-02 00:00:00")
 
-    def test_hour_granularity_with_date_only_raises(self) -> None:
-        with self.assertRaises(ValueError):
-            validate_hour_boundaries("hour", "2024-01-01", "2024-01-02")
+    def test_hour_granularity_with_date_only_passes(self) -> None:
+        validate_hour_boundaries("hour", "2024-01-01", "2024-01-02")
+
+    def test_hour_granularity_with_timezone_aware_datetime_passes(self) -> None:
+        validate_hour_boundaries("hour", "2024-01-01T00:00:00Z", "2024-01-02T00:00:00Z")

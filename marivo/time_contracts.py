@@ -45,22 +45,16 @@ def validate_strftime_format(format_string: str) -> None:
 def normalize_hour_boundary(value: str, *, label: str) -> str:
     normalized = value.strip()
     if "T" not in normalized and " " not in normalized:
-        raise ValueError(
-            f"{label} must be a naive datetime string for hour grain "
-            "(for example, 2026-04-09 00:00:00)"
-        )
+        normalized = f"{normalized}T00:00:00"
     try:
-        parsed = datetime.fromisoformat(normalized)
+        parsed = datetime.fromisoformat(normalized.replace("Z", "+00:00"))
     except ValueError as exc:
         raise ValueError(
-            f"{label} must be a naive datetime string for hour grain "
+            f"{label} must be an ISO-8601 date or datetime string for hour grain "
             "(for example, 2026-04-09 00:00:00)"
         ) from exc
     if parsed.tzinfo is not None:
-        raise ValueError(
-            f"{label} must be a naive datetime string without timezone "
-            "(for example, 2026-04-09 00:00:00)"
-        )
+        parsed = parsed.astimezone().replace(tzinfo=None)
     return parsed.replace(microsecond=0).isoformat(timespec="seconds")
 
 

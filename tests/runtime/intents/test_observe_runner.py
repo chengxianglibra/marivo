@@ -316,26 +316,24 @@ class TestObserveRunner(unittest.TestCase):
                 },
             )
 
-    def test_observe_hour_granularity_rejects_date_only_range(self) -> None:
-        from marivo.runtime.intents.observe import run_observe_intent
-
-        runtime = self._make_runtime(time_axis="event_time", time_axis_kind="timestamp_field")
-        with self.assertRaisesRegex(
-            ValueError, "time_scope.start must be a naive datetime string for hour grain"
-        ):
-            run_observe_intent(
-                runtime,
-                _SESSION,
-                {
-                    "metric": "metric.m1",
-                    "time_scope": {
-                        "field": "event_time",
-                        "start": "2024-01-01",
-                        "end": "2024-01-02",
-                    },
-                    "granularity": "hour",
+    def test_observe_hour_granularity_accepts_date_only_range(self) -> None:
+        _, result = self._run_observe(
+            {
+                "metric": "metric.m1",
+                "time_scope": {
+                    "field": "event_time",
+                    "start": "2024-01-01",
+                    "end": "2024-01-02",
                 },
-            )
+                "granularity": "hour",
+            },
+            rows=[],
+            time_axis="event_time",
+            time_axis_kind="timestamp_field",
+        )
+
+        self.assertEqual(result["observation_type"], "time_series")
+        self.assertEqual(result["granularity"], "hour")
 
     def test_observe_malformed_aoi_filter_raises_invalid_argument(self) -> None:
         from marivo.runtime.intents.observe import run_observe_intent
