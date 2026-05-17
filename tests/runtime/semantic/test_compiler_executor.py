@@ -241,6 +241,35 @@ class CompilerTests(unittest.TestCase):
             compiled.sql,
         )
 
+    def test_compile_aggregate_query_uses_derived_date_expression_for_scoped_where(
+        self,
+    ) -> None:
+        expression = "CAST(SUBSTRING(create_time, 1, 10) AS DATE)"
+        compiled = compile_step(
+            AnalysisStepIR(
+                index=0,
+                step_type="aggregate_query",
+                params={
+                    "table": "analytics.watch_events",
+                    "measures": [{"expr": "COUNT(*)", "as": "value"}],
+                    "group_by": [],
+                    "scoped_query": {
+                        "mode": "single_window",
+                        "engine_type": "trino",
+                        "analysis_time_kind": "date_expression",
+                        "analysis_time_expr": expression,
+                        "current": {"start": "2026-03-25", "end": "2026-03-26"},
+                    },
+                },
+            ),
+            engine_type="trino",
+        )
+
+        self.assertIn(f"{expression} >= ?", compiled.sql)
+        self.assertIn(f"{expression} < ?", compiled.sql)
+        self.assertNotIn("CAST(create_time AS DATE)", compiled.sql)
+        self.assertEqual(compiled.params, ["2026-03-25", "2026-03-26"])
+
     def test_compile_metric_query_scoped_query_requires_valid_mode(self) -> None:
         with self.assertRaisesRegex(ValueError, "scoped_query.mode must be"):
             compile_step(

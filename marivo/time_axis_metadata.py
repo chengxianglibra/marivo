@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal
@@ -22,6 +23,8 @@ class TimeAxisMetadataContext:
     entity_time_capabilities: dict[str, Any] | None = None
     source_time_capabilities: dict[str, Any] | None = None
     available_columns: list[str] = field(default_factory=list)
+    time_field_expressions: dict[str, str] = field(default_factory=dict)
+    time_field_data_types: dict[str, str] = field(default_factory=dict)
     timezone_strategy: str = PHASE1_TIMEZONE_STRATEGY
     timezone_note: str = PHASE1_TIMEZONE_NOTE
     has_time_binding: bool = False
@@ -84,17 +87,25 @@ class TimeAxisMetadataProvider:
         table_name: str,
         metric_name: str | None = None,
     ) -> TimeAxisMetadataContext:
-        available_columns = self.load_available_columns(table_name)
+        available_rows = self._load_field_rows_for_metric(table_name, metric_name)
+        if not available_rows:
+            available_rows = self._load_field_rows_by_source(table_name)
+        available_columns = [row["name"] for row in available_rows]
         if not available_columns:
             return TimeAxisMetadataContext(available_columns=[])
 
-        time_rows = self.metadata.query_rows(
-            "SELECT f.name FROM semantic_fields f "
-            "JOIN semantic_datasets d ON f.dataset_id = d.dataset_id "
-            "WHERE d.source = ? AND f.is_time = 1 ORDER BY f.position",
-            [table_name],
-        )
+        time_rows = [row for row in available_rows if int(row.get("is_time") or 0) == 1]
         time_field_names = [row["name"] for row in time_rows]
+        time_field_expressions = {
+            row["name"]: expression
+            for row in time_rows
+            if (expression := _extract_ansi_sql(row.get("expression"))) is not None
+        }
+        time_field_data_types = {
+            row["name"]: data_type
+            for row in time_rows
+            if (data_type := _optional_str(row.get("data_type"))) is not None
+        }
 
         entity_time_capabilities = _infer_time_capabilities(time_field_names)
 
@@ -102,7 +113,33 @@ class TimeAxisMetadataProvider:
             entity_time_capabilities=entity_time_capabilities,
             source_time_capabilities=None,
             available_columns=available_columns,
+            time_field_expressions=time_field_expressions,
+            time_field_data_types=time_field_data_types,
             has_time_binding=bool(time_field_names),
+        )
+
+    def _load_field_rows_for_metric(
+        self,
+        table_name: str,
+        metric_name: str | None,
+    ) -> list[dict[str, Any]]:
+        normalized_metric_name = _metric_name(metric_name)
+        if normalized_metric_name is None:
+            return []
+        return self.metadata.query_rows(
+            "SELECT f.name, f.expression, f.data_type, f.is_time FROM semantic_fields f "
+            "JOIN semantic_datasets d ON f.dataset_id = d.dataset_id "
+            "JOIN semantic_metrics m ON m.model_id = d.model_id "
+            "WHERE d.source = ? AND m.name = ? ORDER BY f.position",
+            [table_name, normalized_metric_name],
+        )
+
+    def _load_field_rows_by_source(self, table_name: str) -> list[dict[str, Any]]:
+        return self.metadata.query_rows(
+            "SELECT f.name, f.expression, f.data_type, f.is_time FROM semantic_fields f "
+            "JOIN semantic_datasets d ON f.dataset_id = d.dataset_id "
+            "WHERE d.source = ? ORDER BY f.position",
+            [table_name],
         )
 
 
@@ -191,3 +228,40 @@ def _normalize_timestamp_format(value: Any) -> str | None:
 
 def _optional_str(value: Any) -> str | None:
     return optional_str(value)
+
+
+def _metric_name(metric_name: str | None) -> str | None:
+    normalized = _optional_str(metric_name)
+    if normalized is None:
+        return None
+    return normalized.removeprefix("metric.")
+
+
+def _extract_ansi_sql(expression_json: Any) -> str | None:
+    if isinstance(expression_json, str):
+        try:
+            expression = json.loads(expression_json)
+        except json.JSONDecodeError:
+            return None
+    elif isinstance(expression_json, Mapping):
+        expression = expression_json
+    else:
+        return None
+    dialects = expression.get("dialects") if isinstance(expression, Mapping) else None
+    if not isinstance(dialects, list):
+        return None
+    for dialect in dialects:
+        if not isinstance(dialect, Mapping):
+            continue
+        if str(dialect.get("dialect") or "").upper() != "ANSI_SQL":
+            continue
+        sql = _optional_str(dialect.get("expression"))
+        if sql is not None:
+            return sql
+    for dialect in dialects:
+        if not isinstance(dialect, Mapping):
+            continue
+        sql = _optional_str(dialect.get("expression"))
+        if sql is not None:
+            return sql
+    return None
