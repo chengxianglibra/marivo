@@ -87,6 +87,10 @@ def _diagnose_request() -> aoi.Diagnose:
     )
 
 
+def _forecast_request() -> aoi.Forecast:
+    return aoi.Forecast(source_artifact_id="artifact-source", horizon=14)
+
+
 def test_observe_accepts_aoi_request_and_dispatches_lowered_params(monkeypatch) -> None:
     runtime = object()
     calls: list[tuple[object, str, dict[str, object]]] = []
@@ -203,6 +207,34 @@ def test_decompose_accepts_aoi_request_and_dispatches_lowered_params(monkeypatch
                 "compare_artifact_id": "artifact-compare",
                 "dimension": "region",
                 "limit": 5,
+            },
+        )
+    ]
+
+
+def test_forecast_accepts_aoi_request_and_dispatches_lowered_params(monkeypatch) -> None:
+    runtime = object()
+    calls: list[tuple[object, str, dict[str, object]]] = []
+    expected = {"status": "ok"}
+
+    monkeypatch.setattr(intent_execution, "_assert_session_is_open", lambda *_: None)
+
+    def runner(runtime_arg, session_id, params):
+        calls.append((runtime_arg, session_id, params))
+        return expected
+
+    monkeypatch.setitem(intent_execution.AOI_RUNNERS, "forecast", runner)
+
+    result = intent_execution.forecast(runtime, "s1", _forecast_request())
+
+    assert result is expected
+    assert calls == [
+        (
+            runtime,
+            "s1",
+            {
+                "source_artifact_id": "artifact-source",
+                "horizon": 14,
             },
         )
     ]

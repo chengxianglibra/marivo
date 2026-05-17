@@ -664,15 +664,15 @@ derived intent 需要两层表达：
 
 ### 输入锚点
 
-- typed ref：`source_ref`
-- request bindings：`horizon`、`profile`、`interval_level`
+- typed artifact ID：`source_artifact_id`
+- request bindings：`horizon`
 
 ### 编译要求
 
 - source 必须是 canonical `observe(time_series)`
 - 需要 metric 的 time projection 能力
 - horizon 必须有界且在系统上限内
-- `source_ref` 必须通过显式 `InputBinding` 进入当前节点
+- `source_artifact_id` 解析出的 observe artifact 必须通过显式 `InputBinding` 进入当前节点
 
 ## 错误语义
 
