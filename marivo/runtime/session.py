@@ -380,17 +380,6 @@ def get_session_state_view(
     )
 
 
-def query_session_state(
-    runtime: MarivoRuntime, session_id: str, query: dict[str, Any]
-) -> dict[str, Any]:
-    """Return the canonical SessionStateView with a structured query body.
-
-    Identical to get_session_state_view; the HTTP layer separates GET
-    and POST but the implementation does not distinguish.
-    """
-    return get_session_state_view(runtime, SessionId(session_id), query)
-
-
 def get_proposition_context(
     runtime: MarivoRuntime, session_id: str, proposition_id: str
 ) -> dict[str, Any]:

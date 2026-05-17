@@ -370,19 +370,9 @@ class MarivoRuntime:
         """
         session_ops.terminate_session(self, session_id, actor, terminal_reason=terminal_reason)
 
-    def get_session_state(
-        self, session_id: SessionId, **kwargs: Any
-    ) -> SessionState | dict[str, Any]:
-        """Get session state view by ID.
-
-        When kwargs are provided (structured query from the API),
-        delegates to session_ops.get_session_state_view which uses
-        evidence_repos from runtime.ports (server mode).
-        Without kwargs, delegates to get_session.
-        """
-        if kwargs:
-            return session_ops.get_session_state_view(self, session_id, kwargs)
-        return self.get_session(session_id)
+    def get_session_state(self, session_id: SessionId, **query: Any) -> dict[str, Any]:
+        """Return the canonical SessionStateView for a session."""
+        return session_ops.get_session_state_view(self, session_id, query)
 
     def get_session_runtime_status(self, session_id: SessionId) -> dict[str, Any]:
         """Return session-level operator runtime status."""
@@ -401,10 +391,6 @@ class MarivoRuntime:
         return session_ops.get_proposition_runtime_status(self, session_id, proposition_id)
 
     # --- Evidence context / catalog (delegated to session_ops) ---
-
-    def query_session_state(self, session_id: str, query: dict[str, Any]) -> dict[str, Any]:
-        """Return the canonical SessionStateView with a structured query body."""
-        return session_ops.query_session_state(self, session_id, query)
 
     def get_proposition_context(self, session_id: str, proposition_id: str) -> dict[str, Any]:
         """Return PropositionContextView for a proposition."""

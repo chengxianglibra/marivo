@@ -92,8 +92,9 @@ def test_local_artifact_commit_syncs_canonical_context(tmp_path: Path) -> None:
     assert context["proposition"]["proposition_type"] == "change"
     assert context["seed_entries"][0]["finding"]["artifact_id"] == artifact_id
 
-    state_view = runtime.get_session_state(SessionId(session_id), limit=10)
+    state_view = runtime.get_session_state(SessionId(session_id))
     assert state_view["schema_version"] == "session_state_view.v1"
+    state_view = runtime.get_session_state(SessionId(session_id), limit=10)
     assert (
         state_view["active_propositions"][0]["proposition"]["proposition_id"]
         == proposition_rows[0]["proposition_id"]

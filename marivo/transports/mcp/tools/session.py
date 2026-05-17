@@ -63,41 +63,6 @@ def register_session_tools(server: Any, runtime: Any) -> None:
         session_id: str,
         metric: str | None = None,
         entity: str | None = None,
-        proposition_type: list[str] | None = None,
-        origin_kind: list[str] | None = None,
-        assessment_presence: str | None = None,
-        assessment_status: list[str] | None = None,
-        has_blocking_gaps: bool | None = None,
-        limit: int | None = None,
-        page_token: str | None = None,
-    ) -> dict[str, Any]:
-        """Read the session-level canonical decision surface via GET /sessions/{session_id}/state; use query_session_state when slice filtering is required."""
-        kwargs: dict[str, Any] = {}
-        if metric is not None:
-            kwargs["metric"] = metric
-        if entity is not None:
-            kwargs["entity"] = entity
-        if proposition_type is not None:
-            kwargs["proposition_type"] = proposition_type
-        if origin_kind is not None:
-            kwargs["origin_kind"] = origin_kind
-        if assessment_presence is not None:
-            kwargs["assessment_presence"] = assessment_presence
-        if assessment_status is not None:
-            kwargs["assessment_status"] = assessment_status
-        if has_blocking_gaps is not None:
-            kwargs["has_blocking_gaps"] = has_blocking_gaps
-        if limit is not None:
-            kwargs["limit"] = limit
-        if page_token is not None:
-            kwargs["page_token"] = page_token
-        return await call_runtime(runtime.get_session_state, session_id=session_id, **kwargs)
-
-    @server.tool()  # type: ignore
-    async def query_session_state(
-        session_id: str,
-        metric: str | None = None,
-        entity: str | None = None,
         slice: dict[str, Any] | None = None,
         proposition_types: list[str] | None = None,
         origin_kinds: list[str] | None = None,
@@ -107,29 +72,29 @@ def register_session_tools(server: Any, runtime: Any) -> None:
         limit: int | None = None,
         page_token: str | None = None,
     ) -> dict[str, Any]:
-        """Read the canonical session state via POST /sessions/{session_id}/state/query when structured filters such as slice are needed."""
-        query: dict[str, Any] = {}
+        """Read the session-level canonical decision surface via GET /sessions/{session_id}/state."""
+        kwargs: dict[str, Any] = {}
         if metric is not None:
-            query["metric"] = metric
+            kwargs["metric"] = metric
         if entity is not None:
-            query["entity"] = entity
+            kwargs["entity"] = entity
         if slice is not None:
-            query["slice"] = slice
+            kwargs["slice"] = slice
         if proposition_types is not None:
-            query["proposition_types"] = proposition_types
+            kwargs["proposition_types"] = proposition_types
         if origin_kinds is not None:
-            query["origin_kinds"] = origin_kinds
+            kwargs["origin_kinds"] = origin_kinds
         if assessment_presence is not None:
-            query["assessment_presence"] = assessment_presence
+            kwargs["assessment_presence"] = assessment_presence
         if assessment_statuses is not None:
-            query["assessment_statuses"] = assessment_statuses
+            kwargs["assessment_statuses"] = assessment_statuses
         if has_blocking_gaps is not None:
-            query["has_blocking_gaps"] = has_blocking_gaps
+            kwargs["has_blocking_gaps"] = has_blocking_gaps
         if limit is not None:
-            query["limit"] = limit
+            kwargs["limit"] = limit
         if page_token is not None:
-            query["page_token"] = page_token
-        return await call_runtime(runtime.query_session_state, session_id=session_id, query=query)
+            kwargs["page_token"] = page_token
+        return await call_runtime(runtime.get_session_state, session_id=session_id, **kwargs)
 
     @server.tool()  # type: ignore
     async def get_proposition_context(

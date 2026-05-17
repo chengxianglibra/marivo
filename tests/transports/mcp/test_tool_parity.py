@@ -143,9 +143,6 @@ class FakeRuntime:
     def get_session_state(self, **kw):
         return {}
 
-    def query_session_state(self, **kw):
-        return {}
-
     def get_proposition_context(self, **kw):
         return {}
 

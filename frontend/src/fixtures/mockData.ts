@@ -210,7 +210,7 @@ export const openapiIndex = {
   paths: [
     { path: "/datasources", operations: ["get", "post"] },
     { path: "/datasources/{datasource_id}", operations: ["get", "put", "delete"] },
-    { path: "/sessions/{session_id}/state", operations: ["get", "post"] },
+    { path: "/sessions/{session_id}/state", operations: ["get"] },
     { path: "/sessions/{session_id}/propositions/{proposition_id}/context", operations: ["get"] },
   ],
   schemas: ["DatasourceResponse", "SessionStateView"],

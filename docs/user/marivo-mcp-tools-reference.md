@@ -1900,10 +1900,11 @@ interface ForecastPoint {
 |------|------|------|------|
 | metric | string \| null | 否 | 按指标名称过滤 |
 | entity | string \| null | 否 | 按实体过滤 |
-| proposition_type | string[] \| null | 否 | 按命题类型过滤 |
-| origin_kind | string[] \| null | 否 | 按来源 intent 类型过滤 |
+| slice | object \| null | 否 | 切片过滤条件 |
+| proposition_types | string[] \| null | 否 | 按命题类型过滤 |
+| origin_kinds | string[] \| null | 否 | 按来源 intent 类型过滤 |
 | assessment_presence | string \| null | 否 | 按评估存在性过滤 |
-| assessment_status | string[] \| null | 否 | 按评估状态过滤 |
+| assessment_statuses | string[] \| null | 否 | 按评估状态过滤 |
 | has_blocking_gaps | boolean \| null | 否 | 是否有阻塞缺口 |
 | limit | integer \| null | 否 | 返回数量上限 |
 | page_token | string \| null | 否 | 分页 token |
@@ -1961,52 +1962,7 @@ interface SessionStateTruncation {
 
 ---
 
-### 3.15 query_session_state
-
-读取会话 state，支持结构化 slice 过滤。当需要按时间切片等复杂条件过滤时使用。
-
-**输入参数**：
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| session_id | string | 是 | 会话ID |
-
-可选过滤参数：
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| metric | string \| null | 否 | 按指标名称过滤 |
-| entity | string \| null | 否 | 按实体过滤 |
-| proposition_types | string[] \| null | 否 | 按命题类型过滤 |
-| origin_kinds | string[] \| null | 否 | 按来源 intent 类型过滤 |
-| assessment_presence | string \| null | 否 | 按评估存在性过滤 |
-| assessment_statuses | string[] \| null | 否 | 按评估状态过滤 |
-| has_blocking_gaps | boolean \| null | 否 | 是否有阻塞缺口 |
-| slice | object \| null | 否 | 切片过滤条件（McpSliceRef 结构） |
-| limit | integer \| null | 否 | 返回数量上限 |
-| page_token | string \| null | 否 | 分页 token |
-
-注意：`proposition_types` 和 `origin_kinds`（带 s 后缀）与 get_session_state 的 `proposition_type` 和 `origin_kind` 不同。
-
-**输出 — SessionStateView**：结构同 3.15 get_session_state，额外支持 slice 过滤。
-
-**输入示例**：
-
-```json
-{
-  "session_id": "ses_abc123",
-  "proposition_types": ["anomaly"],
-  "slice": {
-    "time_scope": { "field": "create_time", "start": "2025-03-04", "end": "2025-03-06" }
-  }
-}
-```
-
-**输出示例**：同 3.15 输出示例。
-
----
-
-### 3.16 get_proposition_context
+### 3.15 get_proposition_context
 
 读取单个 proposition 的局部证据闭包。仅在需要解释某个具体 proposition 时调用，不要批量读取。
 

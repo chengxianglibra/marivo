@@ -17,7 +17,6 @@ Do not use these endpoints as generic projection containers. They expose the can
 | Surface | Endpoint | Canonical payload |
 |--------|----------|-------------------|
 | Session state surface | `GET /sessions/{session_id}/state` | `SessionStateView` plus transport paging metadata |
-| Session state surface with structured filtering | `POST /sessions/{session_id}/state/query` | `SessionStateView` plus transport paging metadata |
 
 `SessionStateView` remains the session-level default read baseline. For the proposition-level minimal closure, use [`context-surface.md`](context-surface.md).
 
@@ -35,62 +34,28 @@ Supported query parameters:
 |-----------|------|-------|
 | `metric` | string | Matches `SessionStateQuery.metric` |
 | `entity` | string | Matches `SessionStateQuery.entity` |
-| `proposition_type` | repeated string | Repeated key form of `SessionStateQuery.proposition_types` |
-| `origin_kind` | repeated string | Repeated key form of `SessionStateQuery.origin_kinds` |
+| `slice` | URL-encoded JSON object string | Matches `SessionStateQuery.slice`; malformed JSON or non-object JSON returns `400` |
+| `proposition_types` | repeated string | Matches `SessionStateQuery.proposition_types` |
+| `origin_kinds` | repeated string | Matches `SessionStateQuery.origin_kinds` |
 | `assessment_presence` | string | `assessed` or `unassessed` |
-| `assessment_status` | repeated string | Repeated key form of `SessionStateQuery.assessment_statuses` |
+| `assessment_statuses` | repeated string | Matches `SessionStateQuery.assessment_statuses` |
 | `has_blocking_gaps` | boolean | Matches `SessionStateQuery.has_blocking_gaps` |
 | `limit` | integer | Applies only to `active_propositions` |
 | `page_token` | string | Opaque cursor for continuing the same normalized query |
 
-`slice` is intentionally not supported on the `GET` endpoint. Any request that needs `slice` must use `POST /sessions/{session_id}/state/query`.
-
 Example:
 
 ```bash
-curl -s "http://localhost:8000/sessions/sess_123/state?metric=watch_time&assessment_presence=assessed&has_blocking_gaps=true&limit=25" | jq .
+curl -s "http://localhost:8000/sessions/sess_123/state?metric=watch_time&slice=%7B%22country%22%3A%22US%22%7D&assessment_presence=assessed&has_blocking_gaps=true&limit=25" | jq .
 ```
-
-### `POST /sessions/{session_id}/state/query`
-
-Returns the session state view for a structured `SessionStateQuery`.
-
-Use this endpoint when the caller needs:
-
-- `slice`
-- multi-axis filtering that is awkward in query strings
-- a large or generated filter payload
-
-Request body:
-
-```json
-{
-  "metric": "watch_time",
-  "entity": "video",
-  "slice": {
-    "country": "US",
-    "device_type": "mobile"
-  },
-  "proposition_types": ["metric_status"],
-  "origin_kinds": ["system_seeded"],
-  "assessment_presence": "assessed",
-  "assessment_statuses": ["insufficient"],
-  "has_blocking_gaps": true,
-  "limit": 25
-}
-```
-
-`POST /state/query` accepts exactly the canonical `SessionStateQuery` fields in the request body. It does not introduce a parallel search DSL.
-
-`page_token` is a transport concern and is **not** part of the request body. When cursor pagination is implemented it will be passed as a URL query parameter on both `GET /state` and `POST /state/query`.
 
 ### Session State Query Rules
 
 The HTTP layer fixes the following behavior:
 
-- `metric`, `entity`, `assessment_presence`, `has_blocking_gaps`, and `limit` have the same meaning on `GET /state` and `POST /state/query`
-- `page_token` is a URL query parameter on both endpoints; it is not part of the `POST /state/query` request body
-- repeated query parameters on `GET /state` normalize to the array fields used by `POST /state/query`
+- `GET /state` accepts exactly the canonical `SessionStateQuery` fields as query parameters, plus transport-level `page_token`
+- `page_token` is a URL query parameter and is not part of the canonical query contract
+- repeated query parameters on `GET /state` normalize to the corresponding array fields
 - `slice` is a proposition subject slice subset exact match
 - `assessment_presence = "unassessed"` matches only entries where `latest_assessment = null`
 - `assessment_presence = "assessed"` matches only entries where `latest_assessment != null`
@@ -165,16 +130,14 @@ Common cases:
 
 | Status | Scenario |
 |--------|----------|
-| `400` | malformed `page_token`, `slice` passed to `GET /state`, invalid enum value, invalid boolean value |
+| `400` | malformed `page_token`, invalid `slice` JSON, invalid enum value, invalid boolean value |
 | `404` | session not found |
-| `422` | request body validation failure on `POST /state/query` |
 | `500` | unexpected server-side failure while materializing the view |
 
 Error behavior is fixed as follows:
 
 - `assessment_presence = "unassessed"` combined with `assessment_statuses` returns `200` with an empty result, not a validation error
 - an invalid or expired `page_token` returns `400`
-- the service must not silently downgrade `slice` on `GET /state`; callers must move to `POST /state/query`
 
 ## Relationship To Context Surface
 

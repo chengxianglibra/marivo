@@ -19,7 +19,7 @@ Skip this file if the real task is still datasource setup or semantic modeling.
 | Break down a compare result | `marivo-decompose` |
 | Attribute between slices | `marivo-attribute` |
 | Run correlation or forecasting | `marivo-correlate`, `marivo-forecast` |
-| Read session-level evidence state | `marivo-get_session_state`, `marivo-query_session_state` |
+| Read session-level evidence state | `marivo-get_session_state` |
 | Read one proposition closure | `marivo-get_proposition_context` |
 | Close the write flow | `marivo-terminate_session` |
 
