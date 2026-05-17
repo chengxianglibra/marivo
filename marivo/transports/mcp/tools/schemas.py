@@ -5,6 +5,7 @@ Validators for MCP tool parameter wire compatibility.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Annotated, Any, Literal, TypeAlias
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
@@ -34,6 +35,20 @@ def _reject_json_string(v: Any) -> Any:
 JsonObject: TypeAlias = dict[str, object]  # noqa: UP040
 
 
+def _parse_mcp_datetime(value: str, *, label: str) -> tuple[str, datetime]:
+    normalized = value.strip()
+    if "T" not in normalized and " " not in normalized:
+        normalized = f"{normalized}T00:00:00"
+    try:
+        parsed = datetime.fromisoformat(normalized.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError(f"{label} must be an ISO-8601 date or datetime string") from exc
+    if parsed.tzinfo is None:
+        parsed = parsed.astimezone()
+        normalized = parsed.isoformat()
+    return normalized, parsed
+
+
 class McpTimeScope(BaseModel):
     """AOI-aligned time_scope: half-open [start, end) on a named time field."""
 
@@ -44,13 +59,29 @@ class McpTimeScope(BaseModel):
         min_length=1,
         description="OSI dataset time field (e.g. 'log_time', 'event_time').",
     )
-    start: str = Field(description="Inclusive start, ISO-8601 date or datetime.")
-    end: str = Field(description="Exclusive end, ISO-8601 date or datetime.")
+    start: str = Field(
+        description=(
+            "Inclusive start, ISO-8601 date or datetime. Timezone may be omitted for MCP "
+            "input; Marivo defaults date-only and timezone-naive datetime values to the "
+            "service system timezone."
+        ),
+    )
+    end: str = Field(
+        description=(
+            "Exclusive end, ISO-8601 date or datetime. Timezone may be omitted for MCP "
+            "input; Marivo defaults date-only and timezone-naive datetime values to the "
+            "service system timezone."
+        ),
+    )
 
     @model_validator(mode="after")
     def _validate_start_before_end(self) -> McpTimeScope:
-        if self.start.strip() >= self.end.strip():
+        start, start_dt = _parse_mcp_datetime(self.start, label="time_scope.start")
+        end, end_dt = _parse_mcp_datetime(self.end, label="time_scope.end")
+        if start_dt >= end_dt:
             raise ValueError("time_scope.start must be strictly before time_scope.end")
+        self.start = start
+        self.end = end
         return self
 
 

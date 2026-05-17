@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 import pytest
 
 from marivo.contracts.generated import aoi
@@ -23,6 +25,10 @@ from marivo.transports.mcp.tools.schemas import (
     McpTimeScope,
     McpValidateHypothesis,
 )
+
+
+def _local_datetime(value: str) -> datetime:
+    return datetime.fromisoformat(value).astimezone()
 
 
 def test_to_aoi_observe_request_builds_scalar_model() -> None:
@@ -53,6 +59,38 @@ def test_to_aoi_observe_request_builds_time_series_model() -> None:
 
     assert isinstance(request, aoi.Observe2)
     assert request.granularity == "year"
+
+
+def test_to_aoi_observe_request_accepts_naive_mcp_time_scope() -> None:
+    request = to_aoi_observe_request(
+        metric="view_time",
+        time_scope=McpTimeScope(
+            field="log_time",
+            start="2026-05-01T00:00:00",
+            end="2026-05-08 00:00:00",
+        ),
+        granularity="day",
+    )
+
+    assert isinstance(request, aoi.Observe2)
+    assert request.time_scope.start == _local_datetime("2026-05-01T00:00:00")
+    assert request.time_scope.end == _local_datetime("2026-05-08T00:00:00")
+
+
+def test_to_aoi_observe_request_accepts_date_only_mcp_time_scope() -> None:
+    request = to_aoi_observe_request(
+        metric="view_time",
+        time_scope=McpTimeScope(
+            field="log_time",
+            start="2026-05-01",
+            end="2026-05-08",
+        ),
+        granularity="day",
+    )
+
+    assert isinstance(request, aoi.Observe2)
+    assert request.time_scope.start == _local_datetime("2026-05-01T00:00:00")
+    assert request.time_scope.end == _local_datetime("2026-05-08T00:00:00")
 
 
 def test_to_aoi_observe_request_builds_segmented_model() -> None:
@@ -193,6 +231,40 @@ def test_to_aoi_detect_request_omits_absent_optional_fields() -> None:
     assert "limit" not in dumped
 
 
+def test_to_aoi_detect_request_accepts_naive_mcp_time_scope() -> None:
+    request = to_aoi_detect_request(
+        metric="view_time",
+        time_scope=McpTimeScope(
+            field="log_time",
+            start="2026-05-01T00:00:00",
+            end="2026-05-08T00:00:00",
+        ),
+        granularity="day",
+        strategy="point_anomaly",
+    )
+
+    assert isinstance(request, aoi.Detect)
+    assert request.time_scope.start == _local_datetime("2026-05-01T00:00:00")
+    assert request.time_scope.end == _local_datetime("2026-05-08T00:00:00")
+
+
+def test_to_aoi_detect_request_accepts_date_only_mcp_time_scope() -> None:
+    request = to_aoi_detect_request(
+        metric="view_time",
+        time_scope=McpTimeScope(
+            field="log_time",
+            start="2026-05-01",
+            end="2026-05-08",
+        ),
+        granularity="day",
+        strategy="point_anomaly",
+    )
+
+    assert isinstance(request, aoi.Detect)
+    assert request.time_scope.start == _local_datetime("2026-05-01T00:00:00")
+    assert request.time_scope.end == _local_datetime("2026-05-08T00:00:00")
+
+
 def test_to_aoi_forecast_request_builds_forecast_model() -> None:
     request = to_aoi_forecast_request(
         source_artifact_id="artifact_obs_1",
@@ -233,6 +305,38 @@ def test_to_aoi_test_request_builds_test_model() -> None:
     assert "filter" not in request.model_dump(exclude_none=True)["left"]
     assert request.hypothesis.alternative == "greater"
     assert request.hypothesis.significance == "balanced"
+
+
+def test_to_aoi_test_request_accepts_naive_mcp_slice_time_scope() -> None:
+    request = to_aoi_test_request(
+        metric="view_time",
+        left=_slice("2026-05-01T00:00:00", "2026-05-08T00:00:00"),
+        right=_slice("2026-04-24 00:00:00", "2026-05-01 00:00:00"),
+        hypothesis=McpTestHypothesis(
+            alternative="greater",
+            significance="balanced",
+        ),
+    )
+
+    assert isinstance(request, aoi.Test)
+    assert request.left.time_scope.start == _local_datetime("2026-05-01T00:00:00")
+    assert request.right.time_scope.end == _local_datetime("2026-05-01T00:00:00")
+
+
+def test_to_aoi_test_request_accepts_date_only_mcp_slice_time_scope() -> None:
+    request = to_aoi_test_request(
+        metric="view_time",
+        left=_slice("2026-05-01", "2026-05-08"),
+        right=_slice("2026-04-24", "2026-05-01"),
+        hypothesis=McpTestHypothesis(
+            alternative="greater",
+            significance="balanced",
+        ),
+    )
+
+    assert isinstance(request, aoi.Test)
+    assert request.left.time_scope.start == _local_datetime("2026-05-01T00:00:00")
+    assert request.right.time_scope.end == _local_datetime("2026-05-01T00:00:00")
 
 
 @pytest.mark.parametrize("alternative", ["two_sided", "greater", "less"])
