@@ -3,8 +3,6 @@ from __future__ import annotations
 import unittest
 
 from marivo.core.semantic.compiler import (
-    _expand_group_by_aliases,
-    build_aggregate_comparison_query,
     build_metric_query,
 )
 from marivo.core.semantic.ir import AnalysisStepIR
@@ -21,6 +19,15 @@ class FakeEngine:
         self.last_sql = sql
         self.last_params = params
         return [{"ok": 1}]
+
+
+def _compare_scoped_query() -> dict[str, object]:
+    return {
+        "mode": "compare",
+        "analysis_time_expr": "event_time",
+        "current": {"start": "2026-03-25T10:00:00", "end": "2026-03-25T14:00:00"},
+        "baseline": {"start": "2026-03-25T06:00:00", "end": "2026-03-25T10:00:00"},
+    }
 
 
 class CompilerTests(unittest.TestCase):
@@ -43,7 +50,11 @@ class CompilerTests(unittest.TestCase):
             AnalysisStepIR(
                 index=0,
                 step_type="metric_query",
-                params={"metric": "watch_time", "table": "analytics.watch_events"},
+                params={
+                    "metric": "watch_time",
+                    "table": "analytics.watch_events",
+                    "scoped_query": _compare_scoped_query(),
+                },
             ),
             engine_type="duckdb",
             semantic_context={
@@ -56,7 +67,7 @@ class CompilerTests(unittest.TestCase):
         self.assertIn("current_value", compiled.sql)
         self.assertIn("baseline_value", compiled.sql)
         self.assertIn("analytics.watch_events", compiled.sql)
-        self.assertEqual(len(compiled.params), 6)
+        self.assertEqual(len(compiled.params), 8)
 
     def test_build_metric_query_helper_compare_mode(self) -> None:
         query = build_metric_query(
@@ -64,6 +75,7 @@ class CompilerTests(unittest.TestCase):
             table_name="analytics.watch_events",
             metric_sql="avg(play_duration_seconds)",
             dimensions=["platform", "app_version"],
+            scoped_query=_compare_scoped_query(),
         )
 
         self.assertIn("delta_pct", query)
@@ -97,6 +109,7 @@ class CompilerTests(unittest.TestCase):
             table_name="ods_trino_query_info",
             metric_sql="avg(CASE WHEN state='FAILED' THEN 1 ELSE 0 END)",
             dimensions=[],
+            scoped_query=_compare_scoped_query(),
         )
 
         self.assertIn("delta_pct", query)
@@ -113,7 +126,11 @@ class CompilerTests(unittest.TestCase):
             AnalysisStepIR(
                 index=0,
                 step_type="metric_query",
-                params={"metric": "failure_rate", "table": "ods_trino_query_info"},
+                params={
+                    "metric": "failure_rate",
+                    "table": "ods_trino_query_info",
+                    "scoped_query": _compare_scoped_query(),
+                },
             ),
             engine_type="duckdb",
             semantic_context={
@@ -125,7 +142,7 @@ class CompilerTests(unittest.TestCase):
 
         self.assertIn("current_value", compiled.sql)
         self.assertIn("baseline_value", compiled.sql)
-        self.assertEqual(len(compiled.params), 6)
+        self.assertEqual(len(compiled.params), 8)
 
     def test_compile_metric_query_single_window_scoped_query(self) -> None:
         compiled = compile_step(
@@ -199,12 +216,9 @@ class CompilerTests(unittest.TestCase):
                 step_type="aggregate_query",
                 params={
                     "table": "analytics.watch_events",
-                    "select": [
-                        "DATE_TRUNC('hour', CAST(CONCAT(log_date, ' ', log_hour, ':00:00') AS TIMESTAMP)) AS bucket_start",
-                        "COUNT(*) AS value",
-                    ],
-                    "group_by": ["bucket_start"],
-                    "order_by": "bucket_start",
+                    "measures": [{"expr": "COUNT(*)", "as": "value"}],
+                    "group_by": [],
+                    "order": "value DESC",
                     "scoped_query": {
                         "mode": "single_window",
                         "engine_type": "trino",
@@ -325,9 +339,12 @@ class CompilerTests(unittest.TestCase):
             table_name="ods_trino_query_info",
             metric_sql="avg(CASE WHEN state='FAILED' THEN 1 ELSE 0 END)",
             dimensions=["cluster"],
-            filter_expr="cluster = 'k8soneservice-oneservice'",
+            scoped_query={
+                **_compare_scoped_query(),
+                "scope_predicate_filter": "cluster = 'k8soneservice-oneservice'",
+            },
         )
-        self.assertIn("AND cluster = 'k8soneservice-oneservice'", query)
+        self.assertIn("cluster = 'k8soneservice-oneservice'", query)
         self.assertIn("delta_pct", query)
 
     def test_compile_metric_query_custom_order(self) -> None:
@@ -339,6 +356,7 @@ class CompilerTests(unittest.TestCase):
                     "metric": "watch_time",
                     "table": "analytics.watch_events",
                     "order": "DESC",
+                    "scoped_query": _compare_scoped_query(),
                 },
             ),
             engine_type="duckdb",
@@ -546,6 +564,7 @@ class CompilerTests(unittest.TestCase):
                         "metric": "watch_time",
                         "table": "analytics.watch_events",
                         "order": "DROP TABLE",
+                        "scoped_query": _compare_scoped_query(),
                     },
                 ),
                 engine_type="duckdb",
@@ -588,7 +607,11 @@ class CompilerTests(unittest.TestCase):
             AnalysisStepIR(
                 index=0,
                 step_type="metric_query",
-                params={"metric": "watch_time", "table": "analytics.watch_events"},
+                params={
+                    "metric": "watch_time",
+                    "table": "analytics.watch_events",
+                    "scoped_query": _compare_scoped_query(),
+                },
             ),
             engine_type="duckdb",
             semantic_context={
@@ -633,110 +656,14 @@ class CompilerTests(unittest.TestCase):
             )
 
 
-class AggregateGroupByAliasTests(unittest.TestCase):
-    def test_expand_aliases_replaces_alias_with_full_expression(self) -> None:
-        select_exprs = [
-            "CASE WHEN cluster IN ('k8sbi-bi1','k8sbi-bi2') THEN 'BI' ELSE 'other' END AS cluster_group",
-            "count(*) AS query_count",
-        ]
-        result = _expand_group_by_aliases(select_exprs, ["cluster_group"])
-        self.assertEqual(
-            result, ["CASE WHEN cluster IN ('k8sbi-bi1','k8sbi-bi2') THEN 'BI' ELSE 'other' END"]
-        )
-
-    def test_expand_aliases_leaves_plain_columns_unchanged(self) -> None:
-        select_exprs = ["platform", "count(*) AS query_count"]
-        result = _expand_group_by_aliases(select_exprs, ["platform"])
-        self.assertEqual(result, ["platform"])
-
-    def test_compile_aggregate_query_expands_alias_in_group_by(self) -> None:
-        compiled = compile_step(
-            AnalysisStepIR(
-                index=0,
-                step_type="aggregate_query",
-                params={
-                    "table_name": "events",
-                    "select": [
-                        "CASE WHEN cluster IN ('k8sbi-bi1','k8sbi-bi2') THEN 'BI' ELSE 'other' END AS cluster_group",
-                        "count(*) AS query_count",
-                    ],
-                    "group_by": ["cluster_group"],
-                },
-            ),
-            engine_type="trino",
-        )
-        self.assertIn("CASE WHEN cluster IN", compiled.sql)
-        self.assertNotIn("GROUP BY cluster_group", compiled.sql)
-
-    def test_compile_aggregate_query_single_window_scoped_query_uses_scoped_cte(self) -> None:
-        compiled = compile_step(
-            AnalysisStepIR(
-                index=0,
-                step_type="aggregate_query",
-                params={
-                    "table_name": "events",
-                    "select": ["platform", "count(*) AS query_count"],
-                    "group_by": ["platform"],
-                    "scoped_query": {
-                        "mode": "single_window",
-                        "analysis_time_expr": "event_time",
-                        "partition_pruning_predicate": "log_date = '20260325'",
-                        "current": {"start": "2026-03-25T10:00:00", "end": "2026-03-25T14:00:00"},
-                    },
-                },
-            ),
-            engine_type="duckdb",
-        )
-        self.assertIn("WITH", compiled.sql)
-        self.assertIn("FROM scoped", compiled.sql)
-        self.assertIn("event_time >= ? AND event_time < ?", compiled.sql)
-        self.assertEqual(compiled.params, ["2026-03-25T10:00:00", "2026-03-25T14:00:00"])
-
-    def test_compile_aggregate_query_scoped_query_formats_day_field_bounds(self) -> None:
-        compiled = compile_step(
-            AnalysisStepIR(
-                index=0,
-                step_type="aggregate_query",
-                params={
-                    "table_name": "events",
-                    "select": ["platform", "count(*) AS query_count"],
-                    "group_by": ["platform"],
-                    "scoped_query": {
-                        "mode": "single_window",
-                        "analysis_time_kind": "date_field",
-                        "analysis_time_expr": "ds",
-                        "analysis_time_format": "yyyymmdd",
-                        "current": {"start": "2026-03-25", "end": "2026-03-26"},
-                    },
-                },
-            ),
-            engine_type="duckdb",
-        )
-        self.assertIn("ds >= ? AND ds < ?", compiled.sql)
-        self.assertEqual(compiled.params, ["20260325", "20260326"])
-
-    def test_compile_aggregate_query_compare_period_expands_alias_in_by_period(self) -> None:
-        sql = build_aggregate_comparison_query(
-            table_name="events",
-            select_exprs=[
-                "CASE WHEN cluster IN ('k8sbi-bi1','k8sbi-bi2') THEN 'BI' ELSE 'other' END AS cluster_group",
-                "count(*) AS query_count",
-            ],
-            group_by=["cluster_group"],
-            date_column="log_date",
-        )
-        # by_period GROUP BY should use full expression, not alias
-        self.assertIn("GROUP BY _period, CASE WHEN cluster IN", sql)
-        # pivoted GROUP BY references by_period columns (alias-as-column-ref is fine)
-        self.assertIn("cluster_group", sql)
-
+class AggregateQueryTests(unittest.TestCase):
     def test_compile_typed_aggregate_query_single_window_uses_measures(self) -> None:
         compiled = compile_step(
             AnalysisStepIR(
                 index=0,
                 step_type="aggregate_query",
                 params={
-                    "table_name": "events",
+                    "table": "events",
                     "group_by": ["platform"],
                     "measures": [{"expr": "COUNT(*)", "as": "query_count"}],
                     "order": "query_count DESC",
@@ -759,7 +686,7 @@ class AggregateGroupByAliasTests(unittest.TestCase):
                 index=0,
                 step_type="aggregate_query",
                 params={
-                    "table_name": "events",
+                    "table": "events",
                     "group_by": ["platform"],
                     "measures": [{"expr": "COUNT(*)", "as": "query_count"}],
                     "scoped_query": {
@@ -797,7 +724,7 @@ class AggregateGroupByAliasTests(unittest.TestCase):
                 index=0,
                 step_type="aggregate_query",
                 params={
-                    "table_name": "events",
+                    "table": "events",
                     "group_by": ["platform"],
                     "measures": [{"expr": "COUNT(*)", "as": "query_count"}],
                     "scoped_query": {
@@ -860,7 +787,11 @@ class ExecutorTests(unittest.TestCase):
             AnalysisStepIR(
                 index=0,
                 step_type="metric_query",
-                params={"metric": "watch_time", "table": "analytics.watch_events"},
+                params={
+                    "metric": "watch_time",
+                    "table": "analytics.watch_events",
+                    "scoped_query": _compare_scoped_query(),
+                },
             ),
             engine_type="trino",
             semantic_context={

@@ -90,7 +90,6 @@ created: 2026-05-02
 | `2026-05-08-phase5-mcp-dual-mode.md` | archived | docs/archive/superpowers/plans/ |
 | `2026-05-08-phase6.1-runtime-self-sufficiency.md` | archived | docs/archive/superpowers/plans/ |
 | `2026-05-08-phase6.2-server-profile-boundary.md` | archived | docs/archive/superpowers/plans/ |
-| `2026-05-09-legacy-package-drain.md` | archived | docs/archive/superpowers/plans/ |
 | `2026-05-09-phase6.3-contract-parity-tests.md` | archived | docs/archive/superpowers/plans/ |
 | `2026-05-09-phase7-namespace-cutover.md` | archived | docs/archive/superpowers/plans/ |
 | `2026-05-09-phase9-production-server-adapters.md` | archived | docs/archive/superpowers/plans/ |

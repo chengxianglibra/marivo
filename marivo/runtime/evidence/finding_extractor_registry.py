@@ -6,7 +6,7 @@ Implements Decision D1 from
     D1 (approved): extractor dispatch key is
     ``(artifact_type, artifact_schema_version)``
 
-    NOT the legacy ``step_type`` used by the old ObservationExtractor seam.
+    NOT the runtime ``step_type`` used by earlier observation extractors.
 
 NULL ``artifact_schema_version`` values (artifacts created before versioning was
 added) are normalised to ``"v1"`` by the lenient ``find()`` lookup.  The strict

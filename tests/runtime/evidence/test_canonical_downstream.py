@@ -360,7 +360,7 @@ class TestDownstreamIdempotent(unittest.TestCase):
 
 
 class TestNoClaimsRequired(unittest.TestCase):
-    """Canonical pipeline produces propositions without any legacy claim tables."""
+    """Canonical pipeline produces propositions without claim tables."""
 
     def setUp(self) -> None:
         self.store = _make_store()

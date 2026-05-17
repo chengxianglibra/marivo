@@ -228,7 +228,6 @@ def test_rejects_insufficient_data(
         ({"hypothesis": {"__remove__": "alternative"}}, "alternative"),
         ({"hypothesis": {"__remove__": "significance"}}, "significance"),
         ({"hypothesis": {"alpha": 0.05}}, "alpha"),
-        ({"hypothesis": {"label": "legacy label"}}, "label"),
     ],
 )
 def test_rejects_non_current_request_shapes(

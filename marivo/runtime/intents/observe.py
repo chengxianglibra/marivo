@@ -370,7 +370,6 @@ def run_observe_intent(
     if granularity is not None:
         granularity_typed = cast("TimeGrain", granularity)
         # --- Time-series mode ---
-        # Use aggregate_query select path: bucket alias is reliable across engines.
         time_col = resolved.resolved_time_axis.analysis_time_expr
         if not time_col:
             raise ValueError("windowed execution requires resolved_time_axis.analysis_time_expr")
@@ -382,12 +381,9 @@ def run_observe_intent(
                 params={
                     "table": qualified_table,
                     "time_scope": mq_params["time_scope"],
-                    "select": [
-                        f"{bucket_expr} AS bucket_start",
-                        f"{metric_sql} AS value",
-                    ],
-                    "group_by": ["bucket_start"],  # alias-expanded by compiler for Trino
-                    "order_by": "bucket_start",
+                    "measures": [{"expr": metric_sql, "as": "value"}],
+                    "group_by": [f"{bucket_expr} AS bucket_start"],
+                    "order": "bucket_start",
                     "scoped_query": scoped_query,
                     "limit": 1000,
                 },

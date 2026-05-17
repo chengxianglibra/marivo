@@ -10,7 +10,6 @@ import pytest
 from marivo.core.semantic.compiler import (
     SemanticCompilerError,
     SemanticRequestCompatibilityError,
-    build_aggregate_comparison_query,
     build_calendar_alignment_coverage,
     build_intent_node,
     build_lowering_requirements,
@@ -78,28 +77,21 @@ def test_build_metric_query_single_window_scoped() -> None:
     assert "baseline" not in result
 
 
-def test_build_metric_query_legacy_no_scoped() -> None:
-    result = build_metric_query(
-        metric_name="revenue",
-        table_name="events",
-        metric_sql="SUM(amount)",
-        dimensions=["platform"],
-        date_column="event_date",
-        order="DELTA_PCT ASC",
-        limit=10,
-    )
-    assert "periodized" in result
-    assert "event_date BETWEEN ? AND ?" in result
-    assert "platform" in result
-
-
 def test_build_metric_query_no_dimensions() -> None:
+    scoped_query = {
+        "mode": "compare",
+        "analysis_time_expr": "event_date",
+        "analysis_time_kind": "date",
+        "engine_type": "duckdb",
+        "current": {"start": "2024-01-01", "end": "2024-01-08"},
+        "baseline": {"start": "2023-12-25", "end": "2024-01-01"},
+    }
     result = build_metric_query(
         metric_name="revenue",
         table_name="events",
         metric_sql="SUM(amount)",
         dimensions=[],
-        date_column="event_date",
+        scoped_query=scoped_query,
     )
     assert "GROUP BY period" in result
     # No dimension columns in SELECT
@@ -174,61 +166,6 @@ def test_build_windowed_aggregate_query_missing_alias() -> None:
             table_name="events",
             measures=[{"expr": "COUNT(*)"}],
             group_by=[],
-        )
-
-
-# ── build_aggregate_comparison_query ───────────────────────────────────
-
-
-def test_build_aggregate_comparison_query_scoped() -> None:
-    scoped_query = {
-        "mode": "compare",
-        "analysis_time_expr": "event_date",
-        "analysis_time_kind": "date",
-        "engine_type": "duckdb",
-        "current": {"start": "2024-01-01", "end": "2024-01-08"},
-        "baseline": {"start": "2023-12-25", "end": "2024-01-01"},
-    }
-    result = build_aggregate_comparison_query(
-        table_name="events",
-        select_exprs=["COUNT(*) AS cnt", "platform"],
-        group_by=["platform"],
-        date_column="event_date",
-        scoped_query=scoped_query,
-    )
-    assert "cnt_current" in result
-    assert "cnt_baseline" in result
-    assert "cnt_delta_pct" in result
-
-
-def test_build_aggregate_comparison_query_legacy() -> None:
-    result = build_aggregate_comparison_query(
-        table_name="events",
-        select_exprs=["COUNT(*) AS cnt", "platform"],
-        group_by=["platform"],
-        date_column="event_date",
-    )
-    assert "periodized" in result
-    assert "event_date BETWEEN ? AND ?" in result
-
-
-def test_build_aggregate_comparison_query_no_agg_raises() -> None:
-    with pytest.raises(ValueError, match="compare_period requires"):
-        build_aggregate_comparison_query(
-            table_name="events",
-            select_exprs=["platform"],
-            group_by=["platform"],
-            date_column="event_date",
-        )
-
-
-def test_build_aggregate_comparison_query_missing_alias_raises() -> None:
-    with pytest.raises(ValueError, match="requires aliases"):
-        build_aggregate_comparison_query(
-            table_name="events",
-            select_exprs=["COUNT(*)", "platform"],
-            group_by=["platform"],
-            date_column="event_date",
         )
 
 

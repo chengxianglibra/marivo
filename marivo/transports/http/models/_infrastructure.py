@@ -447,9 +447,7 @@ class MetricQueryStep(BaseModel):
     time_axis: TimeAxis | None = Field(
         default=None,
         description=(
-            "Advanced time-axis override. If omitted, Marivo resolves from metadata or heuristics. "
-            "Legacy fields period_start, period_end, baseline_start, baseline_end, comparison_type, "
-            "date_column, where, and filter are no longer supported."
+            "Advanced time-axis override. If omitted, Marivo resolves from metadata or heuristics."
         ),
     )
     order: str | None = Field(
@@ -464,8 +462,7 @@ class AggregateQueryStep(BaseModel):
     measures: list[Measure] = Field(
         min_length=1,
         description=(
-            "Aggregate measures. Each item must be an aggregate expression and must include an explicit alias. "
-            "Legacy fields select, where, compare_period, and date_column are no longer supported."
+            "Aggregate measures. Each item must be an aggregate expression and must include an explicit alias."
         ),
     )
     time_scope: TimeScope

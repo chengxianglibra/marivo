@@ -448,54 +448,6 @@ def _docs_url_for_path(path: str) -> str:
     return "docs/api/errors.md"
 
 
-_LEGACY_PHYSICAL_GROUNDING_FIELDS = frozenset(
-    {
-        "carrier_locator",
-        "physical_column",
-        "physical_name",
-        "source_object_ref",
-    }
-)
-
-
-def _detail_mentions_legacy_physical_grounding(detail: list[dict[str, Any]]) -> bool:
-    for item in detail:
-        loc = item.get("loc")
-        if isinstance(loc, list | tuple) and any(
-            str(part) in _LEGACY_PHYSICAL_GROUNDING_FIELDS for part in loc
-        ):
-            return True
-        message = str(item.get("msg") or "")
-        if any(field in message for field in _LEGACY_PHYSICAL_GROUNDING_FIELDS):
-            return True
-    return False
-
-
-def _add_entity_first_authoring_guidance(
-    guidance: dict[str, Any],
-    *,
-    detail: list[dict[str, Any]] | None = None,
-    route_path: str | None = None,
-) -> None:
-    semantic_routes = {
-        "/semantic/metrics",
-        "/semantic/process-objects",
-        "/semantic/dimensions",
-        "/semantic/time",
-        "/semantic/predicates",
-    }
-    if route_path not in semantic_routes:
-        return
-    if detail is not None and not (_detail_mentions_legacy_physical_grounding(detail)):
-        return
-    guidance["authoring_model"] = "dataset_native"
-    guidance["legacy_physical_grounding_fields"] = sorted(_LEGACY_PHYSICAL_GROUNDING_FIELDS)
-    guidance["dataset_native_next_action"] = (
-        "Move physical table/view and column grounding to OSI datasets and fields: "
-        "dataset.custom_extensions[].data.datasource_id, dataset.source, and field.expression."
-    )
-
-
 def build_validation_error_payload(
     request: Request,
     detail: list[dict[str, Any]],
@@ -516,7 +468,6 @@ def build_validation_error_payload(
     examples = _GUIDED_EXAMPLES.get((method, route_path))
     if examples is not None:
         guidance["examples"] = examples
-    _add_entity_first_authoring_guidance(guidance, detail=detail, route_path=route_path)
     guidance["next_action"] = (
         "Start with guidance.examples, then inspect guidance.schema_url for the exact request model, "
         "and use guidance.contract_url when nested refs or route-scoped rules are unclear."
@@ -569,7 +520,6 @@ def build_service_validation_error_payload(
         guidance["schema_url"] = f"/openapi/schemas/{schema_name}?depth=6"
     else:
         guidance["schema_url"] = "/openapi/schemas"
-    _add_entity_first_authoring_guidance(guidance, route_path=route_path if request else None)
     return {
         "message": message,
         "code": code,

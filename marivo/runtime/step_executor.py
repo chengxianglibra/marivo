@@ -19,9 +19,8 @@ if TYPE_CHECKING:
 class RuntimeWorkflowStepExecutor:
     """Implements WorkflowStepExecutor using MarivoRuntime and semantic_ops run_* functions.
 
-    Replaces the legacy _ServiceWorkflowStepExecutor that depended on
-    SemanticLayerService. This executor builds a step registry from the
-    runtime and delegates step execution to the registered runners.
+    Builds a step registry from the runtime and delegates step execution to the
+    registered runners.
     """
 
     def __init__(self, runtime: MarivoRuntime) -> None:

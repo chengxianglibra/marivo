@@ -71,11 +71,11 @@ def _router_only_openapi() -> dict[str, Any]:
     return app.openapi()
 
 
-def test_legacy_catalog_routes_are_not_registered() -> None:
+def test_removed_catalog_routes_are_not_registered() -> None:
     openapi = _router_only_openapi()
     paths = set(openapi["paths"])
 
-    legacy_paths = {
+    removed_paths = {
         "/catalog/search",
         "/catalog/objects/{object_kind}/{object_id}",
         "/catalog/graph",
@@ -83,7 +83,7 @@ def test_legacy_catalog_routes_are_not_registered() -> None:
         "/sessions/{session_id}/planner-context",
     }
 
-    assert paths.isdisjoint(legacy_paths)
+    assert paths.isdisjoint(removed_paths)
 
 
 def test_dataset_native_grounding_removed_routes_are_not_registered() -> None:
@@ -306,7 +306,7 @@ def test_scoped_openapi_schemas_are_agent_friendly() -> None:
 
 
 def test_contract_tables_removed_from_schema():
-    """Verify that legacy contract tables are not in the schema DDL."""
+    """Verify that retired contract tables are not in the schema DDL."""
     from marivo.adapters.schema import METADATA_DDL
 
     # Join all DDL statements into one string for searching

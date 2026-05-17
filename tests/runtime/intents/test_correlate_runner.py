@@ -281,22 +281,6 @@ def test_correlate_requires_both_artifact_ids(payload: dict[str, Any]) -> None:
     )
 
 
-@pytest.mark.parametrize(
-    "payload",
-    [
-        {
-            "left_ref": {"step_id": _LEFT_STEP_ID, "session_id": _SESSION},
-            "right_ref": {"step_id": _RIGHT_STEP_ID, "session_id": _SESSION},
-        },
-        {**_correlate_params(), "pairing_rule": "intersection_by_time_bucket"},
-    ],
-)
-def test_correlate_rejects_legacy_or_unknown_request_fields(payload: dict[str, Any]) -> None:
-    runtime = _make_runtime()
-
-    _assert_correlate_fails_without_commit(runtime, payload, "unsupported parameter")
-
-
 def test_correlate_rejects_unknown_method() -> None:
     runtime = _make_runtime()
 

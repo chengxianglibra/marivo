@@ -4,7 +4,7 @@ Covers:
   - Generated AOI request model schema validation
   - Intent HTTP endpoints: correct routing, schema errors (422), not-implemented (501)
   - AOI atomic request validation rules and artifact-id reference behavior
-  - Legacy /steps/* endpoints confirm 404
+  - Removed /steps/* endpoints confirm 404
   - run_intent: observe→metric_query execution (with semantic layer wired up)
   - run_intent: stub intents return NotImplementedError
 """
@@ -305,9 +305,8 @@ class AoiGeneratedIntentModelTests(unittest.TestCase):
         self.assertEqual(request.method, "spearman")
         self.assertEqual(request.min_pairs, 6)
 
-    def test_aoi_correlate_rejects_legacy_refs_and_invalid_min_pairs(self) -> None:
+    def test_aoi_correlate_rejects_invalid_min_pairs(self) -> None:
         for payload in (
-            {"left_ref": {"step_id": "step_1"}, "right_ref": {"step_id": "step_2"}},
             {
                 "left_artifact_id": "art_left",
                 "right_artifact_id": "art_right",
@@ -316,10 +315,6 @@ class AoiGeneratedIntentModelTests(unittest.TestCase):
         ):
             with self.subTest(payload=payload), self.assertRaises(ValidationError):
                 aoi.Correlate.model_validate(payload)
-
-    def test_aoi_forecast_requires_source_artifact_id(self) -> None:
-        with self.assertRaises(ValidationError):
-            aoi.Forecast.model_validate({"source_ref": {"step_id": "step_1"}, "horizon": 7})
 
 
 class LightweightIntentEndpointTests(_SessionBackedIntentEndpointMixin, unittest.TestCase):

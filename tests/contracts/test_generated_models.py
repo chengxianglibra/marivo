@@ -184,7 +184,7 @@ def test_marivo_metric_extension_matches_spec() -> None:
 
 
 def test_semantic_metrics_ddl_has_additive_dimensions() -> None:
-    """DDL must have additive_dimensions and must not have legacy metric columns."""
+    """DDL must have additive_dimensions and no retired metric columns."""
     from marivo.adapters.schema import METADATA_DDL
 
     metrics_ddl = [
@@ -448,7 +448,6 @@ def test_aoi_test_requires_hypothesis_fields(missing_field: str) -> None:
         {"hypothesis": {"alternative": "not_equal"}},
         {"hypothesis": {"significance": "loose"}},
         {"hypothesis": {"alpha": 0.05}},
-        {"hypothesis": {"label": "legacy label"}},
         {"hypothesis": {"family": None}},
         {"hypothesis": {"alternative": None}},
         {"hypothesis": {"significance": None}},

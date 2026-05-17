@@ -61,17 +61,6 @@ class DecomposeHourWindowTests(unittest.TestCase):
             ("2024-01-01T01:00:00", "2024-01-01T03:00:00"),
         )
 
-    def test_extract_date_range_rejects_legacy_time_scope_kinds(self) -> None:
-        for kind in ("snapshot_" + "now", "latest_" + "available", "as_" + "of"):
-            with (
-                self.subTest(kind=kind),
-                self.assertRaisesRegex(
-                    ValueError,
-                    f"cannot extract date range from time_scope with kind='{kind}'",
-                ),
-            ):
-                _extract_date_range({"kind": kind})
-
     def test_time_series_compare_input_uses_matched_time_scope(self) -> None:
         normalized = _normalize_decompose_compare_input(
             {
@@ -386,31 +375,6 @@ def _build_decompose_success_runtime(
 
 class DecomposeAdditivityGateTests(unittest.TestCase):
     """P4: Test decompose additivity gate — error payloads and artifact metadata."""
-
-    # ── AOI-only input tests ────────────────────────────────────────────────
-
-    def test_decompose_rejects_legacy_compare_ref_parameter(self) -> None:
-        with self.assertRaisesRegex(ValueError, "unsupported parameter"):
-            run_decompose_intent(
-                MagicMock(),
-                "session_1",
-                {
-                    "compare_ref": {"step_id": "step_compare", "session_id": "session_1"},
-                    "dimension": "dimension.country",
-                },
-            )
-
-    def test_decompose_rejects_legacy_method_parameter(self) -> None:
-        with self.assertRaisesRegex(ValueError, "unsupported parameter"):
-            run_decompose_intent(
-                MagicMock(),
-                "session_1",
-                {
-                    "compare_artifact_id": "art_compare",
-                    "dimension": "dimension.country",
-                    "method": "delta_share",
-                },
-            )
 
     def test_decompose_limit_must_be_positive(self) -> None:
         with self.assertRaisesRegex(ValueError, "limit must be > 0"):

@@ -60,8 +60,7 @@ v1 默认：
 
 ## Reference Contract
 
-`correlate` 的请求只消费 artifact ID，而不是 legacy `left_ref` / `right_ref`
-对象或裸字符串 step id。运行时会从 artifact 元数据重建输出 lineage refs。
+`correlate` 的请求只消费 artifact ID，而不是引用对象或裸字符串 step id。运行时会从 artifact 元数据重建输出 lineage refs。
 
 ```ts
 type ObservationArtifactRef = {
@@ -133,7 +132,7 @@ v1 支持的输入形态如下：
 - `segmented` 与任何类型
 - `matrix` 与任何类型
 - 直接传 `metric + scope`
-- legacy `left_ref` / `right_ref`、raw columns、`join_on`
+- 引用对象、raw columns、`join_on`
 - projection ref 作为输入
 - 在一次请求中要求多个 methods
 - 自动 lag search

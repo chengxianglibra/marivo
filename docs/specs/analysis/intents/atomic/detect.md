@@ -106,11 +106,11 @@ v1 支持的输入形态如下：
 
 ## v1 不支持的输入
 
-- legacy `time_scope.kind` / `mode` / `current` 形状。
+- 非 AOI `time_scope` 形状。
 - 快照式或相对式 time scope 别名；调用方必须传显式 range。
 - 多个 `dimension`。
 - 旧字段 `split_by`、`profile`、`patterns`。
-- 内部/legacy `scope` 或请求级 `max_series` 参数；公开过滤条件只使用 AOI `filter`。
+- 内部 `scope` 或请求级 `max_series` 参数；公开过滤条件只使用 AOI `filter`。
 - 显式指定任意 baseline window。
 - 直接暴露算法名，如 `zscore`、`iqr`、`stl`。
 - 用户定义 seasonality、holiday、changepoint 等参数。

@@ -23,8 +23,8 @@ _API_STATUS_MAP: dict[str, str] = {
 def _api_status(event_sourced_status: str) -> str:
     """Map an event-sourced session status to the API-facing status.
 
-    The event-sourced domain uses "active" / "terminated"; the API
-    and legacy sessions table use "open" / "closed".
+    The event-sourced domain uses "active" / "terminated"; the API uses
+    "open" / "closed".
     """
     return _API_STATUS_MAP.get(event_sourced_status, event_sourced_status)
 

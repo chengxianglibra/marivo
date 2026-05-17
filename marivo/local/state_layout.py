@@ -15,7 +15,7 @@ def dot_marivo_path(workspace_root: Path) -> Path:
 
 
 def bootstrap_config_path(workspace_root: Path) -> Path:
-    """Return the YAML bootstrap config path (legacy)."""
+    """Return the YAML bootstrap config path."""
     return workspace_root / ".marivo" / "marivo.yaml"
 
 
