@@ -141,15 +141,7 @@ from .calendar import (
     CalendarDataRow,
 )
 
-# Intent API models
-from .intent_request_models import (
-    AttributeObservationInput,
-    DetectTimeScope,
-    DiagnoseRequest,
-    ObserveScope,
-    ObserveTimeScope,
-    ObserveTimeScopeRange,
-)
+# Intent API routes use generated AOI request models directly.
 from .intent_response_models import (
     AttributeResponse,
     CompareResponse,
@@ -214,7 +206,6 @@ __all__ = [  # noqa: RUF022
     "ApiErrorDetail",
     "ArtifactRuntimeStatusResponse",
     "AttributeChangeStep",
-    "AttributeObservationInput",
     "AttributeResponse",
     "CompareResponse",
     "CorrelateResponse",
@@ -244,8 +235,6 @@ __all__ = [  # noqa: RUF022
     "DatasourceUpdateRequest",
     "Dataset",
     "DescriptorCardinality",
-    "DetectTimeScope",
-    "DiagnoseRequest",
     "DiagnoseResponse",
     "ForecastResponse",
     "DialectExpression",
@@ -294,9 +283,6 @@ __all__ = [  # noqa: RUF022
     "ObjectResponseBase",
     "ObjectStatus",
     "ObserveResponse",
-    "ObserveScope",
-    "ObserveTimeScope",
-    "ObserveTimeScopeRange",
     "OSIDocument",
     "OwnershipSemantics",
     "PartitionPruningOverride",
