@@ -3,11 +3,8 @@ from __future__ import annotations
 import argparse
 from typing import Any
 
-from marivo.contracts.errors import ValidationError
-from marivo.local.init import initialize_workspace
 from marivo.transports.cli._exitcodes import EXIT_WORKSPACE_ROOT_UNAVAILABLE
 from marivo.transports.cli._output import CliError
-from marivo.transports.cli._workspace import resolve_workspace_root
 
 
 def add_arguments(parser: argparse.ArgumentParser) -> None:
@@ -21,6 +18,10 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
 
 def handle(args: argparse.Namespace) -> dict[str, Any]:
     """Execute 'marivo init' -- create .marivo/ with TOML layout."""
+    from marivo.contracts.errors import ValidationError
+    from marivo.local.init import initialize_workspace
+    from marivo.transports.cli._workspace import resolve_workspace_root
+
     workspace_root = resolve_workspace_root(getattr(args, "workspace", None))
 
     try:

@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import getpass
+import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
 import pytest
-from mcp.server.fastmcp import FastMCP
 
 
 class _FakeSvc:
@@ -170,6 +171,12 @@ class RecordingRuntime(FakeRuntime):
         return {"validated": True}
 
 
+def _make_server(name: str) -> Any:
+    from mcp.server.fastmcp import FastMCP
+
+    return FastMCP(name)
+
+
 def test_marivo_mcp_entry_point_callable():
     """The marivo mcp subcommand handler is callable."""
     from marivo.transports.cli.cmd_mcp import handle
@@ -205,7 +212,7 @@ def test_stdio_server_registers_tools():
     """A stdio-configured FastMCP server registers tools without catalog/OpenAPI group."""
     from marivo.transports.mcp.tools import register_tools
 
-    server = FastMCP("marivo")  # Same name as cmd_mcp.py uses
+    server = _make_server("marivo")  # Same name as cmd_mcp.py uses
     register_tools(server, FakeRuntime(), transport="stdio")
 
     tools = server._tool_manager.list_tools()
@@ -268,7 +275,7 @@ async def test_stdio_semantic_document_tools_support_local_json_files(tmp_path: 
     from marivo.transports.mcp.tools import register_tools
 
     runtime = RecordingRuntime()
-    server = FastMCP("marivo")
+    server = _make_server("marivo")
     register_tools(server, runtime, transport="stdio")
     tools = {t.name: t for t in server._tool_manager.list_tools()}
 
@@ -302,7 +309,7 @@ async def test_stdio_preview_table_accepts_structured_filter_dict() -> None:
     from marivo.transports.mcp.tools import register_tools
 
     runtime = RecordingRuntime()
-    server = FastMCP("marivo")
+    server = _make_server("marivo")
     register_tools(server, runtime, transport="stdio")
     tools = {t.name: t for t in server._tool_manager.list_tools()}
 
@@ -335,7 +342,7 @@ async def test_stdio_preview_table_omits_missing_filters() -> None:
     from marivo.transports.mcp.tools import register_tools
 
     runtime = RecordingRuntime()
-    server = FastMCP("marivo")
+    server = _make_server("marivo")
     register_tools(server, runtime, transport="stdio")
     tools = {t.name: t for t in server._tool_manager.list_tools()}
 
@@ -365,7 +372,7 @@ async def test_stdio_preview_table_rejects_filter_array() -> None:
     from marivo.transports.mcp.tools import register_tools
 
     runtime = RecordingRuntime()
-    server = FastMCP("marivo")
+    server = _make_server("marivo")
     register_tools(server, runtime, transport="stdio")
     tools = {t.name: t for t in server._tool_manager.list_tools()}
 
@@ -385,7 +392,7 @@ async def test_stdio_validate_injects_fixed_hypothesis_family() -> None:
     from marivo.transports.mcp.tools import register_tools
 
     runtime = RecordingRuntime()
-    server = FastMCP("marivo")
+    server = _make_server("marivo")
     register_tools(server, runtime, transport="stdio")
     tools = {t.name: t for t in server._tool_manager.list_tools()}
 
@@ -444,7 +451,7 @@ async def test_stdio_validate_preserves_partial_hypothesis_defaults() -> None:
     from marivo.transports.mcp.tools import register_tools
 
     runtime = RecordingRuntime()
-    server = FastMCP("marivo")
+    server = _make_server("marivo")
     register_tools(server, runtime, transport="stdio")
     tools = {t.name: t for t in server._tool_manager.list_tools()}
 
@@ -483,7 +490,7 @@ async def test_stdio_validate_rejects_hypothesis_family() -> None:
     from marivo.transports.mcp.tools import register_tools
 
     runtime = RecordingRuntime()
-    server = FastMCP("marivo")
+    server = _make_server("marivo")
     register_tools(server, runtime, transport="stdio")
     tools = {t.name: t for t in server._tool_manager.list_tools()}
 
@@ -518,10 +525,21 @@ async def test_stdio_validate_rejects_hypothesis_family() -> None:
 def test_marivo_mcp_help_flag():
     """marivo mcp subcommand is registered and responds to --help."""
     marivo_bin = Path(sys.executable).parent / "marivo"
+    repo_root = Path(__file__).resolve().parents[3]
+    env = os.environ.copy()
+    env["PYTHONPATH"] = (
+        str(repo_root)
+        if not env.get("PYTHONPATH")
+        else f"{repo_root}{os.pathsep}{env['PYTHONPATH']}"
+    )
+    started = time.perf_counter()
     result = subprocess.run(
         [str(marivo_bin), "mcp", "--help"],
         capture_output=True,
+        env=env,
         text=True,
         timeout=5,
     )
+    elapsed = time.perf_counter() - started
     assert result.returncode == 0
+    assert elapsed < 2.0
