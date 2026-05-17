@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import io
 import signal
 import tempfile
 import unittest
@@ -8,7 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from marivo.config import resolve_metadata_path
-from marivo.transports.cli import _format_text_result
+from marivo.transports.cli import _build_parser, _format_text_result
 from marivo.transports.cli._exitcodes import (
     EXIT_CONFIG_INVALID,
     EXIT_FAILURE,
@@ -61,6 +62,23 @@ class ResolveMetadataPathTests(unittest.TestCase):
 
 
 class LocalCliContractTests(unittest.TestCase):
+    def test_top_level_help_omits_calendar_command(self) -> None:
+        help_text = _build_parser().format_help()
+
+        self.assertNotIn("calendar", help_text)
+        self.assertNotIn("Calendar data management", help_text)
+
+    def test_calendar_command_is_rejected_by_argparse(self) -> None:
+        parser = _build_parser()
+
+        with (
+            patch("sys.stderr", new_callable=io.StringIO),
+            self.assertRaises(SystemExit) as exc,
+        ):
+            parser.parse_args(["calendar"])
+
+        self.assertEqual(exc.exception.code, 2)
+
     def test_runtime_status_without_manifest_reports_stopped(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             resolved_root = Path(tmp).resolve()
