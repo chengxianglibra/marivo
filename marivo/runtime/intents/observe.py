@@ -30,6 +30,9 @@ if TYPE_CHECKING:
     from marivo.runtime.runtime import MarivoRuntime
 
 
+_OBSERVE_ROW_LIMIT = 1000
+
+
 def _build_step_metadata(compiled_queries: Any) -> dict[str, Any] | None:
     result = build_step_semantic_metadata(compiled_queries)
     if result is not None:
@@ -386,7 +389,7 @@ def run_observe_intent(
                     "group_by": [f"{bucket_expr} AS bucket_start"],
                     "order": "bucket_start",
                     "scoped_query": scoped_query,
-                    "limit": 1000,
+                    "limit": _OBSERVE_ROW_LIMIT,
                 },
             ),
             engine_type=engine_type,
@@ -453,6 +456,7 @@ def run_observe_intent(
             "metric": metric_name,
             "time_scope": mq_params["time_scope"],
             "scoped_query": scoped_query,
+            "limit": _OBSERVE_ROW_LIMIT,
         }
         if time_scope_field:
             step_params_seg["time_scope_field"] = time_scope_field

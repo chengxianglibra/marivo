@@ -101,6 +101,9 @@ it to the equivalent Trino parse expression during time-axis resolution.
 
 `granularity` accepts `hour`, `day`, `week`, `month`, `quarter`, or `year`.
 
+Segmented and time-series observe use a fixed internal row cap of 1000. The
+request contract does not expose an adjustable `limit` parameter.
+
 Segmented observation request:
 
 ```json

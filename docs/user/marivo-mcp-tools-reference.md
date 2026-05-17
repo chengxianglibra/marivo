@@ -1143,6 +1143,7 @@ interface SessionListResponse {
 | filter_expression | McpExpression | 否 | AOI 过滤表达式对象；不用时省略，不传 `null` |
 
 模式约束：`granularity` 和 `dimensions` 都省略时返回 scalar；只传 `granularity` 返回 time_series；只传 `dimensions` 返回 segmented。
+segmented 和 time_series observe 使用固定内部行数上限 1000；MCP `observe` 不暴露可调 `limit` 参数。
 
 小时级 time_series（`granularity: "hour"`）可以使用原生 timestamp 时间字段，也可以使用
 `log_date` + `log_hour` 这类日期/小时分区字段。`dimensions: ["log_hour"]` 是分段
