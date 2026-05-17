@@ -267,7 +267,7 @@ def _diagnose_request() -> aoi.Diagnose:
         metric="view_time",
         time_scope=_time_scope(),
         granularity="day",
-        candidate_dimensions=["region"],
+        dimensions=["region"],
         strategy="point_anomaly",
     )
 

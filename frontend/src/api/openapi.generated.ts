@@ -886,8 +886,6 @@ export interface components {
             /** Column Count */
             column_count?: number | null;
         };
-        /** CandidateDimension */
-        CandidateDimension: string;
         /** Compare */
         Compare: {
             /**
@@ -1202,44 +1200,36 @@ export interface components {
         };
         /** Diagnose */
         Diagnose: {
-            /**
-             * Mode
-             * @default auto_detect
-             * @enum {string}
-             */
-            mode: "auto_detect" | "explicit_compare";
-            /** Metric */
+            /** @description Semantic metric identifier to diagnose. Diagnose runs against exactly one metric. */
             metric: string;
-            time_scope?: components["schemas"]["TimeScope"];
-            /** Granularity */
-            granularity?: "hour" | "day" | "week" | "month" | "quarter" | "year";
+            /** @description Time range scanned by the internal detect step before follow-up diagnosis. */
+            time_scope: components["schemas"]["TimeScope"];
+            /** @description Time bucket granularity used by the internal detect scan. */
+            granularity: "hour" | "day" | "week" | "month" | "quarter" | "year";
+            /** @description Optional AOI expression applied to both candidate detection and follow-up observe/compare/decompose steps. */
             filter?: components["schemas"]["Expression-Input"];
-            current?: components["schemas"]["Slice"];
-            baseline?: components["schemas"]["Slice"];
-            /** Detect Dimension */
-            detect_dimension?: string;
-            /** Candidate Dimensions */
-            candidate_dimensions: components["schemas"]["CandidateDimension"][];
+            /** @description Optional single dimension used only to split the internal detect scan into independent time series. Omit to scan the overall metric series. */
+            scan_dimension?: string;
+            /** @description Non-empty attribution dimension list used after anomaly candidates are found. These dimensions drive follow-up decompose steps and are independent of scan_dimension. */
+            dimensions: components["schemas"]["Dimension-Input"][];
             /**
-             * Strategy
+             * @description Detection strategy passed to the internal detect step.
              * @enum {string}
              */
             strategy: "point_anomaly" | "period_shift";
             /**
-             * Sensitivity
+             * @description Detection sensitivity preset passed to the internal detect step. Defaults to aggressive.
              * @default aggressive
              * @enum {string}
              */
             sensitivity: "conservative" | "balanced" | "aggressive";
-            /** Candidate Limit */
-            candidate_limit?: number;
             /**
-             * Followup Limit
+             * @description Maximum number of anomaly candidates diagnosed end-to-end. This bounds follow-up candidates, not driver rows.
              * @default 3
              */
-            followup_limit: number;
+            candidate_limit: number;
             /**
-             * Decomposition Limit
+             * @description Maximum number of driver rows returned per diagnosed candidate and attribution dimension.
              * @default 5
              */
             decomposition_limit: number;

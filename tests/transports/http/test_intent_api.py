@@ -597,7 +597,7 @@ class ClosedSessionWriteGuardTests(unittest.TestCase):
                     "end": "2024-01-08T00:00:00Z",
                 },
                 "granularity": "day",
-                "candidate_dimensions": ["region"],
+                "dimensions": ["region"],
                 "strategy": "point_anomaly",
             },
         )

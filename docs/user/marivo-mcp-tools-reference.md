@@ -1495,8 +1495,8 @@ interface DecompositionItem {
 |------|------|------|------|
 | session_id | string | 是 | 会话ID |
 | metric | string | 是 | 语义指标名称 |
-| left | McpAoiSliceRef | 是 | 基准切片（通常为基线时段），使用 AOI `time_scope` + 可选 `filter` |
-| right | McpAoiSliceRef | 是 | 对比切片（通常为异常/当前时段），使用 AOI `time_scope` + 可选 `filter` |
+| left | McpAoiSliceRef | 是 | 当前/异常切片，使用 AOI `time_scope` + 可选 `filter` |
+| right | McpAoiSliceRef | 是 | 基线切片，使用 AOI `time_scope` + 可选 `filter` |
 | dimensions | string[] | 是 | 拆解维度列表，如 `["cluster", "department"]` |
 
 可选参数：
@@ -1571,7 +1571,7 @@ interface AttributeArtifact {
 
 ### 3.10 diagnose
 
-综合诊断异常。支持两种模式：auto_detect（自动发现异常并归因）和 explicit_compare（已知双窗口直接归因）。
+综合诊断异常。`diagnose` 只支持自动发现异常并归因；已知双窗口直接归因请使用 `attribute`。
 
 **输入参数**：
 
@@ -1579,24 +1579,20 @@ interface AttributeArtifact {
 |------|------|------|------|
 | session_id | string | 是 | 会话ID |
 | metric | string | 是 | 语义指标名称 |
-| candidate_dimensions | string[] | 是 | 候选归因维度列表 |
+| time_scope | McpTimeScope | 是 | detect 扫描窗口 |
+| granularity | `"hour"` \| `"day"` \| `"week"` \| `"month"` \| `"quarter"` \| `"year"` | 是 | detect 扫描粒度 |
+| dimensions | string[] | 是 | 归因维度列表；用于候选发现后的 decompose follow-up，可与 `scan_dimension` 不同 |
+| strategy | `"point_anomaly"` \| `"period_shift"` | 是 | detect 阶段的检测策略 |
 
 可选参数：
 
 | 参数 | 类型 | 必填 | 默认 | 说明 |
 |------|------|------|------|------|
-| mode | `"auto_detect"` \| `"explicit_compare"` | 否 | `"auto_detect"` | 诊断模式 |
-| time_scope | McpTimeScope \| null | 否 | null | auto_detect 模式必填；explicit_compare 模式省略 |
-| current | McpAoiSliceRef \| null | 否 | null | explicit_compare 模式必填；auto_detect 模式省略 |
-| baseline | McpAoiSliceRef \| null | 否 | null | explicit_compare 模式必填；auto_detect 模式省略 |
-| granularity | `"hour"` \| `"day"` \| `"week"` \| `"month"` \| `"quarter"` \| `"year"` \| null | 否 | null | auto_detect 模式必填；explicit_compare 模式省略 |
-| filter_expression | McpExpression \| null | 否 | null | auto_detect 模式可选 AOI 过滤表达式；explicit_compare 模式省略 |
-| detect_dimension | string \| null | 否 | null | detect 阶段的单维扫描维度 |
-| strategy | `"point_anomaly"` \| `"period_shift"` | 是 | - | detect 阶段的检测策略 |
+| filter_expression | McpExpression \| null | 否 | null | AOI 过滤表达式，作用于 detect 和后续归因 |
+| scan_dimension | string \| null | 否 | null | detect 阶段的单维扫描拆分轴；只影响异常候选发现，不影响归因拆解维度 |
 | sensitivity | `"conservative"` \| `"balanced"` \| `"aggressive"` | 否 | `"aggressive"` | detect 阶段的灵敏度 |
-| decomposition_limit | integer \| null | 否 | 5 | 归因拆解返回的维度值上限 |
-| candidate_limit | integer \| null | 否 | null | 候选维度数量上限 |
-| followup_limit | integer \| null | 否 | 3 | follow-up 维度数量上限 |
+| candidate_limit | integer \| null | 否 | 3 | 最多端到端诊断的异常候选数量；不控制 driver rows |
+| decomposition_limit | integer \| null | 否 | 5 | 每个候选、每个归因维度最多返回的 driver rows 数量；不控制候选数量 |
 
 **输出 — DiagnoseArtifact**：
 
@@ -1608,22 +1604,24 @@ interface DiagnoseArtifact {
 }
 ```
 
-**输入示例**（auto_detect 模式）：
+**输入示例**：
 
 ```json
 {
   "session_id": "ses_abc123",
   "metric": "total_query_count",
-  "candidate_dimensions": ["cluster", "department"],
-  "mode": "auto_detect",
   "time_scope": {
     "field": "create_time",
     "start": "2025-03-01",
     "end": "2025-03-08"
   },
   "granularity": "day",
+  "scan_dimension": "cluster",
+  "dimensions": ["cluster", "department"],
   "strategy": "point_anomaly",
-  "sensitivity": "aggressive"
+  "sensitivity": "aggressive",
+  "candidate_limit": 3,
+  "decomposition_limit": 5
 }
 ```
 
@@ -2191,8 +2189,8 @@ interface AnalysisFailure {
 | 问题本质 | 应使用的 Intent | 错误做法 |
 |---------|----------------|---------|
 | 观测当前值 | `observe` | — |
-| 发现异常窗口 | `detect` 或 `diagnose(mode="auto_detect")` | 用 observe 后肉眼判断 |
-| 已知双窗口做归因 | `diagnose(mode="explicit_compare")` | 两次 observe 后口头比较 |
+| 发现异常窗口 | `detect` 或 `diagnose` | 用 observe 后肉眼判断 |
+| 已知双窗口做归因 | `attribute` | 两次 observe 后口头比较 |
 | 对比两个已完成的 observe | `compare` | 口头比较数值差异 |
 | 拆解差异的维度贡献 | `decompose`（需先 compare） | grouped observe |
 | 维度归因（直接指定切片） | `attribute` | — |
@@ -2214,7 +2212,7 @@ interface AnalysisFailure {
 - `test_intent.left/right` 使用 `McpAoiSliceRef`，支持 `filter`，不支持 derived intent 的 `scope`
 - `validate.left/right` 使用 `McpAoiSliceRef`，进入 runtime 前会构造 generated AOI `Validate` 模型；`validate.hypothesis` 不暴露 `family`，不支持 `alpha`、`label` 或 `method`
 - `attribute.left/right` 使用 `McpAoiSliceRef`，进入 runtime 前会构造 generated AOI `Attribute` 模型；不支持 derived intent 的 `scope`
-- `diagnose.current/baseline` 使用 `McpAoiSliceRef`，auto_detect 使用 `filter_expression`；进入 runtime 前会构造 generated AOI `Diagnose` 模型，granularity 接受 `hour`、`day`、`week`、`month`、`quarter`、`year`
+- `diagnose` 只支持 auto-detect 异常诊断，使用 `filter_expression`；进入 runtime 前会构造 generated AOI `Diagnose` 模型，granularity 接受 `hour`、`day`、`week`、`month`、`quarter`、`year`
 - `correlate` 仅支持 `"pearson"` 和 `"spearman"` 方法，不支持 `"kendall"`
 - `decompose` 仅支持 `"delta_share"` 方法，无 method 参数
 

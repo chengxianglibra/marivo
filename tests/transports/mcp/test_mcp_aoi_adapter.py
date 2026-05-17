@@ -444,40 +444,22 @@ def test_to_aoi_diagnose_request_builds_auto_detect_model() -> None:
         filter_expression=McpExpression(
             dialects=[{"dialect": "ANSI_SQL", "expression": "region = 'US'"}]
         ),
-        detect_dimension="region",
-        candidate_dimensions=["region"],
+        scan_dimension="region",
+        dimensions=["region"],
         strategy="point_anomaly",
         candidate_limit=5,
     )
 
     assert isinstance(request, aoi.Diagnose)
-    assert request.mode == "auto_detect"
     assert request.granularity == "year"
-    assert request.time_scope is not None
     assert request.time_scope.field == "log_time"
     assert request.filter is not None
     assert request.filter.model_dump(exclude_none=True) == {
         "dialects": [{"dialect": "ANSI_SQL", "expression": "region = 'US'"}]
     }
-    assert [dimension.root for dimension in request.candidate_dimensions] == ["region"]
+    assert [dimension.root for dimension in request.dimensions] == ["region"]
+    assert request.scan_dimension == "region"
     assert request.candidate_limit == 5
-
-
-def test_to_aoi_diagnose_request_builds_explicit_compare_model() -> None:
-    request = to_aoi_diagnose_request(
-        metric="view_time",
-        mode="explicit_compare",
-        current=_slice("2026-05-01T00:00:00Z", "2026-05-08T00:00:00Z"),
-        baseline=_slice("2026-04-24T00:00:00Z", "2026-05-01T00:00:00Z"),
-        candidate_dimensions=["region"],
-        strategy="period_shift",
-    )
-
-    assert isinstance(request, aoi.Diagnose)
-    assert request.mode == "explicit_compare"
-    assert request.current is not None
-    assert request.baseline is not None
-    assert "time_scope" not in request.model_dump(exclude_none=True)
 
 
 def test_to_aoi_test_request_preserves_aoi_slice_filter() -> None:

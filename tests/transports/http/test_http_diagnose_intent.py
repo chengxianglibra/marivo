@@ -150,24 +150,24 @@ class DiagnoseHTTPTests(unittest.TestCase):
                 "metric": _metric_ref(_METRIC),
                 "time_scope": _aoi_detect_time_scope(),
                 "granularity": "day",
-                "candidate_dimensions": ["channel"],
+                "dimensions": ["channel"],
                 "strategy": "point_anomaly",
-                "followup_limit": 1,
+                "candidate_limit": 1,
             },
         )
         self.assertEqual(resp.status_code, 200)
         body = resp.json()
         self.assertEqual(body["result"]["bundle_type"], "diagnosis_bundle")
 
-    def test_missing_candidate_dimensions_returns_422(self) -> None:
-        """Missing required candidate_dimensions returns 422."""
+    def test_missing_dimensions_returns_422(self) -> None:
+        """Missing required dimensions returns 422."""
         resp = self.client.post(
             f"/sessions/{self.session_id}/intents/diagnose",
             json={
                 "metric": _metric_ref(_METRIC),
                 "time_scope": _aoi_detect_time_scope(),
                 "granularity": "day",
-                # no candidate_dimensions
+                # no dimensions
             },
         )
         self.assertEqual(resp.status_code, 422)
@@ -180,7 +180,7 @@ class DiagnoseHTTPTests(unittest.TestCase):
                 "metric": _metric_ref(_METRIC),
                 "time_scope": _aoi_detect_time_scope(),
                 "granularity": "day",
-                "candidate_dimensions": ["channel"],
+                "dimensions": ["channel"],
                 "strategy": "point_anomaly",
             },
         )

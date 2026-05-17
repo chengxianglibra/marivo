@@ -14,13 +14,12 @@
       }
     ]
   },
-  "detect_dimension": "country",
-  "candidate_dimensions": [
+  "scan_dimension": "country",
+  "dimensions": [
     "country"
   ],
   "strategy": "point_anomaly",
   "sensitivity": "balanced",
-  "candidate_limit": 10,
-  "followup_limit": 3,
+  "candidate_limit": 3,
   "decomposition_limit": 5
 }

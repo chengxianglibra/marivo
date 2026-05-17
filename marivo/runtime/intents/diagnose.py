@@ -1,14 +1,14 @@
 """Diagnose derived intent runner (Phase 3c-2).
 
 Deterministically expands to:
-  detect(metric, time_scope, ..., candidate_limit)
-  → for each top-followup_limit candidate:
+  detect(metric, time_scope, ..., limit=candidate_limit)
+  → for each top-candidate_limit candidate:
       observe(current_window) + observe(baseline_window)
       + compare(current_ref, baseline_ref, mode="scalar")
-      + decompose(compare_artifact_id, dimension, ...) × len(candidate_dimensions)
+      + decompose(compare_artifact_id, dimension, ...) × len(dimensions)
 
 Baseline policy: previous_adjacent_equal_length (fixed, not caller-configurable).
-Candidate follow-up is capped at followup_limit; untracked candidates are disclosed
+Candidate follow-up is capped at candidate_limit; untracked candidates are disclosed
 via detect_summary.truncated.
 
 Design contract: docs/analysis/intents/derived/diagnose.md
@@ -38,8 +38,8 @@ from marivo.time_contracts import TimeGrain, normalize_hour_boundary, previous_a
 if TYPE_CHECKING:
     from marivo.runtime.runtime import MarivoRuntime
 
-_DEFAULT_FOLLOWUP_LIMIT = 3
-_MAX_FOLLOWUP_LIMIT = 10
+_DEFAULT_CANDIDATE_LIMIT = 3
+_MAX_CANDIDATE_LIMIT = 10
 _DEFAULT_DECOMPOSITION_LIMIT = 5
 _MAX_DECOMPOSITION_LIMIT = 100
 _DERIVED_LOGIC_VERSION = "1.0"
@@ -49,22 +49,17 @@ _VALID_SENSITIVITIES = frozenset({"conservative", "balanced", "aggressive"})
 _AOI_PARAM_KEYS = frozenset(
     {
         "metric",
-        "mode",
         "time_scope",
         "granularity",
         "filter",
-        "current",
-        "baseline",
-        "detect_dimension",
-        "candidate_dimensions",
+        "scan_dimension",
+        "dimensions",
         "strategy",
         "sensitivity",
         "candidate_limit",
-        "followup_limit",
         "decomposition_limit",
     }
 )
-_AOI_SLICE_KEYS = frozenset({"time_scope", "filter"})
 
 
 def _normalize_range_time_scope(
@@ -124,9 +119,7 @@ def run_diagnose_intent(
 ) -> dict[str, Any]:
     """Execute a `diagnose` derived intent.
 
-    `mode="auto_detect"` expands detect + follow-up over top candidates.
-    `mode="explicit_compare"` expands observe(current) + observe(baseline)
-    + compare + decompose without running detect.
+    Expands detect + follow-up over top candidates.
     """
     p = params or {}
     extra_keys = sorted(set(p) - _AOI_PARAM_KEYS)
@@ -143,16 +136,11 @@ def run_diagnose_intent(
     metric_ref = runtime.core.normalize_intent_metric_ref(metric_ref)
     metric_name = runtime.core.metric_name_from_ref(metric_ref)
 
-    mode = str(p.get("mode") or "auto_detect").strip()
-    if mode not in {"auto_detect", "explicit_compare"}:
-        raise ValueError(
-            "diagnose: INVALID_ARGUMENT - mode must be 'auto_detect' or 'explicit_compare'"
-        )
     try:
         scope = aoi_filter_to_scope(p.get("filter"), label="filter")
     except ValueError as exc:
         raise ValueError(f"diagnose: INVALID_ARGUMENT - {exc}") from exc
-    detect_dimension: str | None = (p.get("detect_dimension") or "").strip() or None
+    scan_dimension: str | None = (p.get("scan_dimension") or "").strip() or None
     strategy = _normalize_strategy(p.get("strategy"))
     sensitivity: str = str(p.get("sensitivity") or "aggressive").lower()
     if sensitivity not in _VALID_SENSITIVITIES:
@@ -162,26 +150,24 @@ def run_diagnose_intent(
         )
     baseline_policy = "previous_adjacent_equal_length"
 
-    raw_dims = p.get("candidate_dimensions")
+    raw_dims = p.get("dimensions")
     dimensions = normalize_dimensions(raw_dims)
     if not dimensions:
-        raise ValueError(
-            "diagnose: INVALID_ARGUMENT - candidate_dimensions must be a non-empty list"
-        )
+        raise ValueError("diagnose: INVALID_ARGUMENT - dimensions must be a non-empty list")
 
-    raw_followup = p.get("followup_limit")
-    if raw_followup is None:
-        followup_limit = _DEFAULT_FOLLOWUP_LIMIT
+    raw_candidate_limit = p.get("candidate_limit")
+    if raw_candidate_limit is None:
+        candidate_limit = _DEFAULT_CANDIDATE_LIMIT
     else:
-        followup_limit = int(raw_followup)
-        if followup_limit <= 0:
+        candidate_limit = int(raw_candidate_limit)
+        if candidate_limit <= 0:
             raise ValueError(
-                f"diagnose: INVALID_ARGUMENT - followup_limit must be > 0, got {followup_limit}"
+                f"diagnose: INVALID_ARGUMENT - candidate_limit must be > 0, got {candidate_limit}"
             )
-        if followup_limit > _MAX_FOLLOWUP_LIMIT:
+        if candidate_limit > _MAX_CANDIDATE_LIMIT:
             raise ValueError(
-                f"diagnose: INVALID_ARGUMENT - followup_limit exceeds max allowed "
-                f"({_MAX_FOLLOWUP_LIMIT}), got {followup_limit}"
+                f"diagnose: INVALID_ARGUMENT - candidate_limit exceeds max allowed "
+                f"({_MAX_CANDIDATE_LIMIT}), got {candidate_limit}"
             )
 
     raw_decomp_limit = p.get("decomposition_limit")
@@ -209,232 +195,136 @@ def run_diagnose_intent(
     followed_candidate_count = 0
     detect_step_id: str | None = None
 
-    if mode == "explicit_compare":
-        if p.get("time_scope") is not None or p.get("granularity") is not None:
-            raise ValueError(
-                "diagnose: INVALID_ARGUMENT - time_scope/granularity are only valid "
-                "when mode='auto_detect'"
-            )
-        if p.get("filter") is not None or detect_dimension is not None:
-            raise ValueError(
-                "diagnose: INVALID_ARGUMENT - filter/detect_dimension are only valid "
-                "when mode='auto_detect'"
-            )
-        if p.get("candidate_limit") is not None:
-            raise ValueError(
-                "diagnose: INVALID_ARGUMENT - candidate_limit is only valid when mode='auto_detect'"
-            )
-        current_input = p.get("current")
-        baseline_input = p.get("baseline")
-        if not isinstance(current_input, dict) or not isinstance(baseline_input, dict):
-            raise ValueError(
-                "diagnose: INVALID_ARGUMENT - current and baseline are required "
-                "when mode='explicit_compare'"
-            )
-        for label, slice_input in (
-            ("current", current_input),
-            ("baseline", baseline_input),
-        ):
-            extra_slice_keys = sorted(set(slice_input) - _AOI_SLICE_KEYS)
-            if extra_slice_keys:
-                raise ValueError(
-                    "diagnose: INVALID_ARGUMENT - unsupported "
-                    f"{label} field(s): {extra_slice_keys}; slices accept only "
-                    "time_scope and filter"
-                )
-        try:
-            current_filter_scope = aoi_filter_to_scope(
-                current_input.get("filter"), label="current.filter"
-            )
-            baseline_filter_scope = aoi_filter_to_scope(
-                baseline_input.get("filter"), label="baseline.filter"
-            )
-        except ValueError as exc:
-            raise ValueError(f"diagnose: INVALID_ARGUMENT - {exc}") from exc
-        current_scope = current_filter_scope
-        baseline_scope = baseline_filter_scope
-        if current_scope != baseline_scope:
-            raise ValueError(
-                "diagnose: INVALID_ARGUMENT - explicit_compare current.scope and "
-                "baseline.scope must match"
-            )
-        explicit_granularity: TimeGrain = "day"
-        current_window = _normalize_range_time_scope(
-            current_input.get("time_scope"),
-            granularity=explicit_granularity,
-            label="current.time_scope",
+    ts_granularity = _normalize_granularity(p.get("granularity"))
+    granularity = ts_granularity
+    resolved_time_scope = _normalize_range_time_scope(
+        p.get("time_scope"),
+        granularity=ts_granularity,
+        label="time_scope",
+    )
+    detect_params: dict[str, Any] = {
+        "metric": metric_ref,
+        "time_scope": resolved_time_scope,
+        "granularity": granularity,
+        "sensitivity": sensitivity,
+        "strategy": strategy,
+    }
+    if p.get("filter") is not None:
+        detect_params["filter"] = p.get("filter")
+    if scan_dimension:
+        detect_params["dimension"] = scan_dimension
+    detect_params["limit"] = candidate_limit
+
+    try:
+        detect_result = run_detect_intent(
+            runtime,
+            session_id,
+            detect_params,
         )
-        baseline_window = _normalize_range_time_scope(
-            baseline_input.get("time_scope"),
-            granularity=explicit_granularity,
-            label="baseline.time_scope",
-        )
-        candidate = {
-            "candidate_type": "explicit_compare",
-            "window": {"start": current_window["start"], "end": current_window["end"]},
-            "slice": None,
-        }
-        result = _follow_up_candidate(
-            runtime=runtime,
-            session_id=session_id,
-            candidate=candidate,
-            metric_ref=metric_ref,
-            base_scope=current_scope,
-            dimensions=dimensions,
-            decomposition_limit=decomposition_limit,
-            grain=explicit_granularity,
-            baseline_window_override={
-                "start": baseline_window["start"],
-                "end": baseline_window["end"],
-            },
-            time_scope_field=current_window.get("field"),
-        )
-        diagnoses.append(result)
-        followed_candidate_count = 1
-        for issue in result.get("issues") or []:
-            if issue.get("severity") == "error":
-                top_level_issues.append(issue)
-    else:
-        if p.get("current") is not None or p.get("baseline") is not None:
-            raise ValueError(
-                "diagnose: INVALID_ARGUMENT - current/baseline are only valid "
-                "when mode='explicit_compare'"
-            )
-        ts_granularity = _normalize_granularity(p.get("granularity"))
-        granularity = ts_granularity
-        resolved_time_scope = _normalize_range_time_scope(
-            p.get("time_scope"),
-            granularity=ts_granularity,
-            label="time_scope",
-        )
-        raw_candidate_limit = p.get("candidate_limit")
-        candidate_limit: int | None = None
-        if raw_candidate_limit is not None:
-            candidate_limit = int(raw_candidate_limit)
-            if candidate_limit <= 0:
-                raise ValueError(
-                    f"diagnose: INVALID_ARGUMENT - candidate_limit must be > 0, "
-                    f"got {candidate_limit}"
-                )
+    except Exception as exc:
+        raise ValueError(f"diagnose: DETECT_FAILED - {exc}") from exc
 
-        detect_params: dict[str, Any] = {
-            "metric": metric_ref,
-            "time_scope": resolved_time_scope,
-            "granularity": granularity,
-            "sensitivity": sensitivity,
-            "strategy": strategy,
-        }
-        if p.get("filter") is not None:
-            detect_params["filter"] = p.get("filter")
-        if detect_dimension:
-            detect_params["dimension"] = detect_dimension
-        if candidate_limit is not None:
-            detect_params["limit"] = candidate_limit
-
-        try:
-            detect_result = run_detect_intent(
-                runtime,
-                session_id,
-                detect_params,
-            )
-        except Exception as exc:
-            raise ValueError(f"diagnose: DETECT_FAILED - {exc}") from exc
-
-        detect_step_id = detect_result["step_ref"]["step_id"]
-        detect_ref: dict[str, Any] = {
-            "session_id": session_id,
-            "step_id": detect_step_id,
-            "step_type": "detect",
-            "artifact_id": detect_result["artifact_id"],
-        }
-        detect_artifact: dict[str, Any] = detect_result.get("result") or detect_result
-        detectability: dict[str, Any] = detect_artifact.get("detectability") or {}
-        validation_guidance = detectability.get("guidance")
-        if detectability.get("status") == "needs_attention":
-            for iss in detectability.get("issues") or []:
-                top_level_issues.append(
-                    {
-                        "code": "detect_needs_attention",
-                        "severity": iss.get("severity", "warning"),
-                        "message": iss.get("message", "detect returned needs_attention"),
-                    }
-                )
-
-        all_candidates: list[dict[str, Any]] = detect_artifact.get("candidates") or []
-        total_candidate_count: int = (detect_artifact.get("scan_summary") or {}).get(
-            "total_candidate_count"
-        ) or 0
-        returned_candidate_count: int = len(all_candidates)
-        candidates_to_follow = all_candidates[:followup_limit]
-        followed_candidate_count = len(candidates_to_follow)
-        follow_up_truncated = returned_candidate_count > followup_limit
-
-        if total_candidate_count == 0:
+    detect_step_id = detect_result["step_ref"]["step_id"]
+    detect_ref: dict[str, Any] = {
+        "session_id": session_id,
+        "step_id": detect_step_id,
+        "step_type": "detect",
+        "artifact_id": detect_result["artifact_id"],
+    }
+    detect_artifact: dict[str, Any] = detect_result.get("result") or detect_result
+    detectability: dict[str, Any] = detect_artifact.get("detectability") or {}
+    validation_guidance = detectability.get("guidance")
+    if detectability.get("status") == "needs_attention":
+        for iss in detectability.get("issues") or []:
             top_level_issues.append(
                 {
-                    "code": "no_detect_candidates",
-                    "severity": "warning",
-                    "message": (
-                        "detect returned no candidates; use mode='explicit_compare' "
-                        "when the current and baseline windows are already known, "
-                        "or expand the scan window / enable period_shift."
-                    ),
+                    "code": "detect_needs_attention",
+                    "severity": iss.get("severity", "warning"),
+                    "message": iss.get("message", "detect returned needs_attention"),
                 }
             )
-            explicit_compare_guidance = {
-                "kind": "explicit_compare",
+
+    all_candidates: list[dict[str, Any]] = detect_artifact.get("candidates") or []
+    detect_truncation: dict[str, Any] = detect_artifact.get("truncation") or {}
+    total_candidate_count: int = (
+        (detect_artifact.get("scan_summary") or {}).get("total_candidate_count")
+        or detect_truncation.get("total_candidate_count")
+        or 0
+    )
+    returned_candidate_count: int = len(all_candidates)
+    candidates_to_follow = all_candidates[:candidate_limit]
+    followed_candidate_count = len(candidates_to_follow)
+    follow_up_truncated = bool(detect_truncation.get("truncated")) or (
+        total_candidate_count > followed_candidate_count
+    )
+
+    if total_candidate_count == 0:
+        top_level_issues.append(
+            {
+                "code": "no_detect_candidates",
+                "severity": "warning",
                 "message": (
-                    "Run diagnose(mode='explicit_compare') with current and baseline "
-                    "range windows when investigating structural degradation."
+                    "detect returned no candidates; use attribute with left/right slices "
+                    "when the current and baseline windows are already known, "
+                    "or expand the scan window / enable period_shift."
                 ),
             }
-            if validation_guidance is None:
-                validation_guidance = {
-                    "recommended_next_action": "use_explicit_compare_or_expand_scan",
-                    "fallback_path": explicit_compare_guidance,
-                }
-            else:
-                validation_guidance["explicit_compare_fallback"] = explicit_compare_guidance
-
-        for cand in candidates_to_follow:
-            cand_result = _follow_up_candidate(
-                runtime=runtime,
-                session_id=session_id,
-                candidate=cand,
-                metric_ref=metric_ref,
-                base_scope=scope,
-                dimensions=dimensions,
-                decomposition_limit=decomposition_limit,
-                grain=ts_granularity,
-                baseline_window_override=cand.get("baseline_window"),
-                time_scope_field=resolved_time_scope.get("field"),
-            )
-            diagnoses.append(cand_result)
-            for issue in cand_result.get("issues") or []:
-                if issue.get("severity") == "error":
-                    top_level_issues.append(issue)
-
-        if follow_up_truncated:
-            top_level_issues.append(
-                {
-                    "code": "candidate_followup_truncated",
-                    "severity": "warning",
-                    "message": (
-                        f"{returned_candidate_count} candidates returned by detect; "
-                        f"only {followed_candidate_count} followed up "
-                        f"(followup_limit={followup_limit})."
-                    ),
-                }
-            )
-
-        detect_summary = {
-            "detect_ref": detect_ref,
-            "returned_candidate_count": returned_candidate_count,
-            "total_candidate_count": total_candidate_count,
-            "followed_candidate_count": followed_candidate_count,
-            "truncated": follow_up_truncated,
-            "_aoi_artifact": aoi_artifact_dump(detect_result),
+        )
+        attribute_guidance = {
+            "kind": "attribute",
+            "message": (
+                "Run attribute with left=current and right=baseline slices when "
+                "investigating a known structural degradation."
+            ),
         }
+        if validation_guidance is None:
+            validation_guidance = {
+                "recommended_next_action": "use_attribute_or_expand_scan",
+                "fallback_path": attribute_guidance,
+            }
+        else:
+            validation_guidance["attribute_fallback"] = attribute_guidance
+
+    for cand in candidates_to_follow:
+        cand_result = _follow_up_candidate(
+            runtime=runtime,
+            session_id=session_id,
+            candidate=cand,
+            metric_ref=metric_ref,
+            base_scope=scope,
+            dimensions=dimensions,
+            decomposition_limit=decomposition_limit,
+            grain=ts_granularity,
+            baseline_window_override=cand.get("baseline_window"),
+            time_scope_field=resolved_time_scope.get("field"),
+        )
+        diagnoses.append(cand_result)
+        for issue in cand_result.get("issues") or []:
+            if issue.get("severity") == "error":
+                top_level_issues.append(issue)
+
+    if follow_up_truncated:
+        top_level_issues.append(
+            {
+                "code": "candidate_followup_truncated",
+                "severity": "warning",
+                "message": (
+                    f"{total_candidate_count} candidates found by detect; "
+                    f"{returned_candidate_count} returned and {followed_candidate_count} "
+                    f"followed up "
+                    f"(candidate_limit={candidate_limit})."
+                ),
+            }
+        )
+
+    detect_summary = {
+        "detect_ref": detect_ref,
+        "returned_candidate_count": returned_candidate_count,
+        "total_candidate_count": total_candidate_count,
+        "followed_candidate_count": followed_candidate_count,
+        "truncated": follow_up_truncated,
+        "_aoi_artifact": aoi_artifact_dump(detect_result),
+    }
 
     has_error_issue = any(i.get("severity") == "error" for i in top_level_issues)
     has_no_candidate_issue = any(i.get("code") == "no_detect_candidates" for i in top_level_issues)
@@ -455,12 +345,12 @@ def run_diagnose_intent(
         "time_scope": resolved_time_scope,
         "granularity": granularity,
         "scope": scope,
-        "detect_dimension": detect_dimension,
-        "candidate_dimensions": dimensions,
+        "scan_dimension": scan_dimension,
+        "dimensions": dimensions,
         "strategy": strategy,
         "sensitivity": sensitivity,
         "baseline_policy": baseline_policy,
-        "mode": mode,
+        "mode": "auto_detect",
         "detect_summary": detect_summary,
         "diagnoses": diagnoses,
     }
@@ -495,10 +385,10 @@ def run_diagnose_intent(
 
     provenance: dict[str, Any] = {
         "detect_step_id": detect_step_id,
-        "mode": mode,
+        "mode": "auto_detect",
         "followed_candidate_count": followed_candidate_count,
         "dimensions": dimensions,
-        "followup_limit": followup_limit,
+        "candidate_limit": candidate_limit,
         "decomposition_limit": decomposition_limit,
         "derived_logic_version": _DERIVED_LOGIC_VERSION,
         "projection_version": _PROJECTION_VERSION,

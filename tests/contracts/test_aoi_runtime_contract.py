@@ -259,7 +259,7 @@ def test_runtime_intent_envelope_accepts_generated_diagnose_request() -> None:
         metric="view_time",
         time_scope=_time_scope(),
         granularity="day",
-        candidate_dimensions=["region"],
+        dimensions=["region"],
         strategy="point_anomaly",
     )
 

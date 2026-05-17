@@ -7,16 +7,18 @@
 - Derived request namespace at `$defs.derived_requests`.
 - `validate` derived request contract using AOI `Slice` and `Hypothesis`.
 - `attribute` derived request contract using AOI `Slice`, non-empty `dimensions`, fixed `decomposition_method`, and bounded `decomposition_limit`.
-- `diagnose` derived request contract using AOI `TimeScope`, `Expression`, `Slice`, explicit `candidate_dimensions`, and bounded follow-up/decomposition limits.
+- `diagnose` derived request contract using AOI `TimeScope`, `Expression`, optional `scan_dimension`, explicit `dimensions`, and bounded candidate/decomposition limits.
 - Validate request example under `examples/validate/`.
 - Attribute request example under `examples/attribute/`.
-- Diagnose request examples under `examples/diagnose/`.
+- Diagnose auto-detect request example under `examples/diagnose/`.
 
 ### Changed
 
 - AOI scope now includes seven atomic requests plus the derived `validate`, `attribute`, and `diagnose` request contracts.
 - `CompareType` now exposes alignment strategies only: `normal`, `holiday_aligned`, `weekday_aligned`, and `holiday_and_weekday_aligned`.
 - `diagnose(auto_detect).granularity` now uses the standard `TimeGranularity` values instead of a narrower diagnose-only enum.
+- `diagnose` is now auto-detect only; known current/baseline change attribution uses `attribute.left` and `attribute.right`.
+- `diagnose.scan_dimension` names the detection split axis separately from attribution `dimensions`; `candidate_limit` now bounds end-to-end diagnosed candidates.
 
 ## 0.1.0 - 2026-05-08
 

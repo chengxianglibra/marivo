@@ -260,13 +260,13 @@ Derived requests live under `$defs.derived_requests` so they do not blur the ato
 | ---------------- | --------------- |
 | `validate` | `metric`, `left: { time_scope, filter? }`, `right: { time_scope, filter? }`, `hypothesis: Hypothesis` |
 | `attribute` | `metric`, `left: { time_scope, filter? }`, `right: { time_scope, filter? }`, `dimensions` |
-| `diagnose` | `metric`, `strategy`, `candidate_dimensions`, plus either `time_scope` + `granularity` for `auto_detect` or `current: Slice` + `baseline: Slice` for `explicit_compare` |
+| `diagnose` | `metric`, `time_scope`, `granularity`, `strategy`, `dimensions` |
 
 `validate` wraps a fixed-family numeric hypothesis validation workflow. It reuses the same `Slice` and `Hypothesis` primitives as atomic `test`; it does not define `kind`, `method`, `scope`, or private derivation metadata in the AOI request contract. Response bundles remain implementation-owned execution artifacts outside the AOI artifact result catalog for v0.2.
 
 `attribute` wraps a fixed change-attribution workflow that expands to scalar observations, compare, and decompose operations. It reuses AOI `Slice` for the left/right source inputs, so filters use `filter: Expression`; there is no separate `scope` wrapper. `dimensions` is a non-empty string list. `decomposition_method` is optional and fixed to `"delta_share"` when present; `decomposition_limit` is optional and defaults to `5`. Attribute response bundles remain implementation-owned execution artifacts outside the AOI artifact result catalog for v0.2.
 
-`diagnose` wraps a fixed anomaly-diagnosis workflow that expands to detect, scalar observations, compare, and decompose operations. In `auto_detect` mode it takes `time_scope`, `granularity` using the standard `TimeGranularity` values, optional `filter`, optional `detect_dimension`, and optional `candidate_limit`; omitted `mode` means `auto_detect`. In `explicit_compare` mode it takes `current` and `baseline` AOI `Slice` inputs and must omit auto-detect-only fields. `candidate_dimensions` is a non-empty string list. `followup_limit` is optional and defaults to `3`; `decomposition_limit` is optional and defaults to `5`. Baseline policy is fixed by implementations as derived workflow logic and is not an AOI request field. Diagnose response bundles remain implementation-owned execution artifacts outside the AOI artifact result catalog for v0.2.
+`diagnose` wraps a fixed anomaly-diagnosis workflow that expands to detect, scalar observations, compare, and decompose operations. It takes `time_scope`, `granularity` using the standard `TimeGranularity` values, optional `filter`, and optional `scan_dimension`. `scan_dimension` controls whether anomaly detection scans one overall series or independent series split by a single dimension. `dimensions` is a non-empty string list used for attribution follow-up after candidates are found. `candidate_limit` is optional and defaults to `3`; it bounds how many anomaly candidates are diagnosed end-to-end. `decomposition_limit` is optional and defaults to `5`; it bounds driver rows per candidate and attribution dimension. Baseline policy is fixed by implementations as derived workflow logic and is not an AOI request field. Known current/baseline change attribution uses the `attribute` derived request with `left` and `right` slices. Diagnose response bundles remain implementation-owned execution artifacts outside the AOI artifact result catalog for v0.2.
 
 ### 4.2 Response (Artifact) Contract
 
@@ -544,7 +544,6 @@ aoi-spec/
       request.json
     diagnose/
       request-auto-detect.json
-      request-explicit-compare.json
 
 ```
 
@@ -657,7 +656,7 @@ Concrete evidence of consolidation. This table is also the input list for Marivo
 |---------|----------|
 | `validate` typed intent | Standardized as `$defs.derived_requests.validate`, using `metric`, AOI `Slice` left/right inputs, and `Hypothesis`. |
 | `attribute` typed intent | Standardized as `$defs.derived_requests.attribute`, using `metric`, AOI `Slice` left/right inputs, non-empty `dimensions`, fixed `decomposition_method`, and bounded `decomposition_limit`. |
-| `diagnose` typed intent | Standardized as `$defs.derived_requests.diagnose`, using AOI `TimeScope`, `Expression`, and `Slice` inputs with explicit `candidate_dimensions` and bounded follow-up/decomposition limits. |
+| `diagnose` typed intent | Standardized as `$defs.derived_requests.diagnose`, using AOI `TimeScope`, `Expression`, optional `scan_dimension`, explicit `dimensions`, and bounded candidate/decomposition limits. |
 | `AttributeBundleVersion` (triple version), `DiagnoseProjection` separate top-level type, validate response bundle metadata, `share_suppression_policy`, `additivity_basis.capability_condition` | Not in AOI artifacts; Marivo internal. |
 
 ### 8.7 Compare type / calendar / additivity
