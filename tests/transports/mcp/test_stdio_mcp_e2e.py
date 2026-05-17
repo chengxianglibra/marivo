@@ -12,6 +12,8 @@ from typing import Any
 
 import pytest
 
+from marivo.contracts.ids import SessionId
+
 
 class _FakeSvc:
     """Minimal stub satisfying semantic_v2 / datasource service contracts."""
@@ -522,6 +524,46 @@ async def test_stdio_validate_rejects_hypothesis_family() -> None:
         )
 
 
+@pytest.mark.asyncio
+async def test_stdio_context_tools_use_local_canonical_evidence_repos(tmp_path: Path) -> None:
+    from marivo.profiles.local import LocalConfig, create_local_runtime
+    from marivo.transports.mcp.tools import register_tools
+
+    _init_marivo_dir(tmp_path)
+    runtime = create_local_runtime(LocalConfig(workspace_root=tmp_path))
+    session = runtime.create_session(goal="stdio context tools")
+    session_id = str(session.session_id)
+    runtime.commit_artifact_with_extraction(
+        SessionId(session_id),
+        "step_stdio_context_compare",
+        "compare_artifact",
+        "stdio_context_compare",
+        _scalar_compare_artifact(),
+        step_type="compare",
+        artifact_schema_version="v1",
+    )
+    proposition_id = runtime.metadata.query_one(
+        "SELECT proposition_id FROM propositions WHERE session_id = ?",
+        [session_id],
+    )["proposition_id"]
+
+    server = _make_server("marivo")
+    register_tools(server, runtime, transport="stdio")
+    tools = {t.name: t for t in server._tool_manager.list_tools()}
+
+    context_result = await tools["get_proposition_context"].run(
+        {"session_id": session_id, "proposition_id": proposition_id}
+    )
+    state_result = await tools["get_session_state"].run({"session_id": session_id, "limit": 10})
+
+    assert context_result["error"] is None
+    assert context_result["data"]["proposition"]["proposition_id"] == proposition_id
+    assert state_result["error"] is None
+    assert state_result["data"]["active_propositions"][0]["proposition"]["proposition_id"] == (
+        proposition_id
+    )
+
+
 def test_marivo_mcp_help_flag():
     """marivo mcp subcommand is registered and responds to --help."""
     marivo_bin = Path(sys.executable).parent / "marivo"
@@ -543,3 +585,36 @@ def test_marivo_mcp_help_flag():
     elapsed = time.perf_counter() - started
     assert result.returncode == 0
     assert elapsed < 2.0
+
+
+def _init_marivo_dir(root: Path) -> None:
+    marivo = root / ".marivo"
+    marivo.mkdir(exist_ok=True)
+    (marivo / "models").mkdir(exist_ok=True)
+    (marivo / "evidence").mkdir(exist_ok=True)
+    (marivo / "VERSION").write_text("1")
+    (marivo / "marivo.toml").write_text(
+        'profile = "local"\n\n[datasource]\ntype = "duckdb"\n\n[telemetry]\nsink = "none"\n'
+    )
+
+
+def _scalar_compare_artifact() -> dict[str, Any]:
+    left_window = {"kind": "range", "start": "2026-05-01", "end": "2026-05-08"}
+    right_window = {"kind": "range", "start": "2026-04-24", "end": "2026-05-01"}
+    return {
+        "comparison_type": "scalar_delta",
+        "metric": "revenue",
+        "left_value": 120.0,
+        "right_value": 100.0,
+        "absolute_delta": 20.0,
+        "relative_delta": 0.2,
+        "direction": "increase",
+        "unit": "usd",
+        "left_ref": {"artifact_id": "art_left_observe"},
+        "right_ref": {"artifact_id": "art_right_observe"},
+        "resolved_input_summary": {
+            "left_scope": {},
+            "left_time_scope": left_window,
+            "right_time_scope": right_window,
+        },
+    }

@@ -14,13 +14,18 @@ can return rich data without joining against a separate metadata table.
 
 from __future__ import annotations
 
+import contextlib
 import json
+import logging
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
 from marivo.contracts.ids import ArtifactId, SessionId, StepId
+
+logger = logging.getLogger(__name__)
 
 
 class FileArtifactStore:
@@ -32,8 +37,16 @@ class FileArtifactStore:
     efficient list_artifacts queries.
     """
 
-    def __init__(self, root: Path) -> None:
+    def __init__(
+        self,
+        root: Path,
+        *,
+        metadata_store: Any | None = None,
+        evidence_repos: dict[str, Any] | None = None,
+    ) -> None:
         self._root = root
+        self._metadata_store = metadata_store
+        self._evidence_repos = evidence_repos
         self._root.mkdir(parents=True, exist_ok=True)
 
     # ------------------------------------------------------------------
@@ -75,6 +88,125 @@ class FileArtifactStore:
         with index_path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(summary, sort_keys=True) + "\n")
 
+    @staticmethod
+    def _dump(value: Any) -> str:
+        return json.dumps(value, sort_keys=True, ensure_ascii=False, default=str)
+
+    def _sync_metadata_artifact(
+        self,
+        *,
+        session_id: SessionId,
+        step_id: StepId,
+        artifact_type: str,
+        name: str,
+        content: Any,
+        lifecycle: str,
+        artifact_schema_version: str | None,
+        artifact_id: ArtifactId,
+        findings: Sequence[Mapping[str, Any]],
+    ) -> None:
+        """Mirror a local file artifact into metadata-backed canonical evidence tables."""
+        metadata = self._metadata_store
+        if metadata is None:
+            return
+
+        with metadata.connect() as con:
+            metadata.execute_sql(
+                con,
+                metadata.insert_ignore_sql(
+                    "artifacts",
+                    [
+                        "artifact_id",
+                        "session_id",
+                        "step_id",
+                        "artifact_type",
+                        "name",
+                        "content_json",
+                        "lifecycle",
+                        "artifact_schema_version",
+                    ],
+                ),
+                [
+                    str(artifact_id),
+                    str(session_id),
+                    str(step_id),
+                    artifact_type,
+                    name,
+                    self._dump(content),
+                    lifecycle,
+                    artifact_schema_version,
+                ],
+            )
+            for finding in findings:
+                metadata.execute_sql(
+                    con,
+                    metadata.insert_ignore_sql(
+                        "findings",
+                        [
+                            "finding_id",
+                            "session_id",
+                            "artifact_id",
+                            "step_ref_json",
+                            "finding_type",
+                            "canonical_item_key",
+                            "subject_json",
+                            "observed_window_json",
+                            "quality_json",
+                            "provenance_json",
+                            "payload_json",
+                            "schema_version",
+                        ],
+                    ),
+                    [
+                        str(finding["finding_id"]),
+                        str(session_id),
+                        str(artifact_id),
+                        self._dump(finding["step_ref"]),
+                        str(finding["finding_type"]),
+                        str(finding["provenance"]["canonical_item_key"]),
+                        self._dump(finding["subject"]),
+                        self._dump(finding["observed_window"])
+                        if finding.get("observed_window") is not None
+                        else None,
+                        self._dump(finding["quality"]),
+                        self._dump(finding["provenance"]),
+                        self._dump(finding["payload"]),
+                        "v1",
+                    ],
+                )
+            con.commit()
+
+    def _run_canonical_downstream(
+        self,
+        *,
+        session_id: SessionId,
+        findings: Sequence[Mapping[str, Any]],
+    ) -> None:
+        repos = self._evidence_repos
+        metadata = self._metadata_store
+        if not findings or repos is None or metadata is None:
+            return
+
+        from marivo.runtime.evidence.canonical_pipeline import run_canonical_downstream
+
+        try:
+            run_canonical_downstream(
+                session_id=str(session_id),
+                trigger_finding_ids=[str(f["finding_id"]) for f in findings],
+                finding_repo=repos["finding_repo"],
+                proposition_repo=repos["proposition_repo"],
+                assessment_repo=repos["assessment_repo"],
+                gap_repo=repos["gap_repo"],
+                inference_record_repo=repos["inference_record_repo"],
+                proposal_repo=repos["proposal_repo"],
+                metadata_store=metadata,
+            )
+        except Exception:
+            logger.warning(
+                "canonical downstream error for local artifact sync (non-fatal)",
+                exc_info=True,
+            )
+
     def _read_index(self, session_id: SessionId) -> list[dict[str, Any]]:
         """Read all index entries for a session."""
         index_path = self._index_path(session_id)
@@ -86,6 +218,73 @@ class FileArtifactStore:
             if line:
                 entries.append(json.loads(line))
         return entries
+
+    def _write_artifact_record(
+        self,
+        *,
+        session_id: SessionId,
+        step_id: StepId,
+        artifact_type: str,
+        name: str,
+        content: Any,
+        lifecycle: str,
+        artifact_schema_version: str | None,
+        artifact_id: ArtifactId,
+        findings: Sequence[Mapping[str, Any]],
+    ) -> None:
+        record: dict[str, Any] = {
+            "artifact_id": artifact_id,
+            "session_id": session_id,
+            "step_id": step_id,
+            "artifact_type": artifact_type,
+            "name": name,
+            "lifecycle": lifecycle,
+            "artifact_schema_version": artifact_schema_version,
+            "content": content,
+            "created_at": self._now_iso(),
+        }
+        path = self._artifact_path(session_id, step_id)
+        artifact_tmp = path.with_suffix(f".tmp-{uuid4().hex[:8]}")
+        artifact_tmp.write_text(
+            json.dumps(record, sort_keys=True, ensure_ascii=False, default=str),
+            encoding="utf-8",
+        )
+
+        findings_tmp: Path | None = None
+        findings_path: Path | None = None
+        if findings:
+            findings_path = self._session_dir(session_id) / f"{step_id}.findings.json"
+            findings_tmp = (
+                self._session_dir(session_id) / f"{step_id}.findings.tmp-{uuid4().hex[:8]}"
+            )
+            findings_tmp.write_text(
+                json.dumps(findings, sort_keys=True, default=str),
+                encoding="utf-8",
+            )
+
+        try:
+            self._sync_metadata_artifact(
+                session_id=session_id,
+                step_id=step_id,
+                artifact_type=artifact_type,
+                name=name,
+                content=content,
+                lifecycle=lifecycle,
+                artifact_schema_version=artifact_schema_version,
+                artifact_id=artifact_id,
+                findings=findings,
+            )
+            artifact_tmp.replace(path)
+            if findings_tmp is not None and findings_path is not None:
+                findings_tmp.replace(findings_path)
+            self._append_index(session_id, record)
+        except BaseException:
+            with contextlib.suppress(OSError):
+                artifact_tmp.unlink()
+            if findings_tmp is not None:
+                with contextlib.suppress(OSError):
+                    findings_tmp.unlink()
+            raise
 
     # ------------------------------------------------------------------
     # ArtifactStore port methods
@@ -105,26 +304,17 @@ class FileArtifactStore:
     ) -> ArtifactId:
         if artifact_id is None:
             artifact_id = self._generate_artifact_id()
-        record: dict[str, Any] = {
-            "artifact_id": artifact_id,
-            "session_id": session_id,
-            "step_id": step_id,
-            "artifact_type": artifact_type,
-            "name": name,
-            "lifecycle": lifecycle,
-            "artifact_schema_version": artifact_schema_version,
-            "content": content,
-            "created_at": self._now_iso(),
-        }
-        # Atomic write: write to tmp then rename to prevent partial reads
-        path = self._artifact_path(session_id, step_id)
-        tmp = path.with_suffix(f".tmp-{uuid4().hex[:8]}")
-        tmp.write_text(
-            json.dumps(record, sort_keys=True, ensure_ascii=False, default=str),
-            encoding="utf-8",
+        self._write_artifact_record(
+            session_id=session_id,
+            step_id=step_id,
+            artifact_type=artifact_type,
+            name=name,
+            content=content,
+            lifecycle=lifecycle,
+            artifact_schema_version=artifact_schema_version,
+            artifact_id=artifact_id,
+            findings=[],
         )
-        tmp.replace(path)
-        self._append_index(session_id, record)
         return artifact_id
 
     def commit_artifact_with_extraction(
@@ -179,26 +369,22 @@ class FileArtifactStore:
 
         # Write primary artifact as committed using the same artifact_id
         # that was passed to the extractor.
-        aid = self.insert_artifact(
-            session_id,
-            step_id,
-            artifact_type,
-            name,
-            content,
+        self._write_artifact_record(
+            session_id=session_id,
+            step_id=step_id,
+            artifact_type=artifact_type,
+            name=name,
+            content=content,
             lifecycle="committed",
-            artifact_schema_version=artifact_schema_version,
             artifact_id=artifact_id,
+            artifact_schema_version=artifact_schema_version,
+            findings=result["findings"],
         )
 
-        # Write findings as sidecar if any.
         if result["findings"]:
-            findings_path = self._session_dir(session_id) / f"{step_id}.findings.json"
-            findings_path.write_text(
-                json.dumps(result["findings"], sort_keys=True, default=str),
-                encoding="utf-8",
-            )
+            self._run_canonical_downstream(session_id=session_id, findings=result["findings"])
 
-        return aid
+        return artifact_id
 
     def resolve_artifact_for_ref(
         self,

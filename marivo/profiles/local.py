@@ -69,6 +69,9 @@ def create_local_runtime(
 
     metadata_store = SQLiteMetadataStore(metadata_db_path(config.workspace_root))
     metadata_store.initialize()
+    from marivo.profiles.evidence import build_evidence_repos
+
+    evidence_repos = build_evidence_repos(metadata_store)
     datasource_service = DatasourceService(metadata_store)
     query_router = QueryRouter(metadata_store, datasource_service)
 
@@ -90,7 +93,11 @@ def create_local_runtime(
             sink=config.telemetry_sink, log_path=telemetry_log_path(config.workspace_root)
         ),
         runtime_config=TomlRuntimeConfig(toml_config_path(config.workspace_root)),
-        artifact_store=FileArtifactStore(artifacts_dir(config.workspace_root)),
+        artifact_store=FileArtifactStore(
+            artifacts_dir(config.workspace_root),
+            metadata_store=metadata_store,
+            evidence_repos=evidence_repos,
+        ),
         step_store=SqliteStepStore(state_db_path(config.workspace_root)),
     )
     core = CoreEngine()
@@ -105,6 +112,7 @@ def create_local_runtime(
     runtime.register_service("semantic_repository", semantic_repo)
     runtime.register_service("query_router", query_router)
     runtime.register_service("calendar_data", CalendarDataService(metadata_store))
+    runtime.wire_evidence_repos(evidence_repos)
     runtime.wire_metadata(metadata_store)
     runtime.wire_calendar_data_reader(CalendarDataReader(metadata=metadata_store))
 
