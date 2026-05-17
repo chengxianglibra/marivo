@@ -19,7 +19,6 @@ SCOPED_SESSION_PATHS = {
     "/sessions",
     "/sessions/{session_id}",
     "/sessions/{session_id}/state",
-    "/sessions/{session_id}/state/query",
     "/sessions/{session_id}/runtime-status",
     "/sessions/{session_id}/artifacts/{artifact_id}/runtime-status",
     "/sessions/{session_id}/propositions/{proposition_id}/context",

@@ -118,9 +118,6 @@ class FakeRuntime:
     def get_session_state(self, **kw):
         return {}
 
-    def query_session_state(self, **kw):
-        return {}
-
     def get_proposition_context(self, **kw):
         return {}
 
@@ -247,7 +244,6 @@ def test_stdio_server_registers_tools():
         "get_session",
         "terminate_session",
         "get_session_state",
-        "query_session_state",
         "get_proposition_context",
         # Semantic tools
         "list_semantic_models",
@@ -554,7 +550,15 @@ async def test_stdio_context_tools_use_local_canonical_evidence_repos(tmp_path: 
     context_result = await tools["get_proposition_context"].run(
         {"session_id": session_id, "proposition_id": proposition_id}
     )
-    state_result = await tools["get_session_state"].run({"session_id": session_id, "limit": 10})
+    state_result = await tools["get_session_state"].run(
+        {
+            "session_id": session_id,
+            "slice": {},
+            "proposition_types": ["change"],
+            "origin_kinds": ["system_seeded"],
+            "limit": 10,
+        }
+    )
 
     assert context_result["error"] is None
     assert context_result["data"]["proposition"]["proposition_id"] == proposition_id

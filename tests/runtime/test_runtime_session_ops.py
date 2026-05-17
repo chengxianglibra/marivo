@@ -286,20 +286,12 @@ def test_terminate_session_resolves_current_user_when_actor_omitted() -> None:
     assert events[1].actor == "test-user"
 
 
-def test_get_session_state_returns_rebuilt_state() -> None:
+def test_get_session_returns_rebuilt_state() -> None:
     rt = _make_runtime()
     state = rt.create_session("Test goal", actor=UserId("test-user"))
     rt.terminate_session(state.session_id, actor=UserId("test-user"))
-    fetched = rt.get_session_state(state.session_id)
+    fetched = rt.get_session(state.session_id)
     assert fetched.status == "terminated"
-
-
-def test_get_session_state_raises_not_found_for_unknown() -> None:
-    rt = _make_runtime()
-    import pytest
-
-    with pytest.raises(NotFoundError):
-        rt.get_session_state(SessionId("nonexistent"))
 
 
 # --- Semantic model ops tests ---

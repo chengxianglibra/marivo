@@ -392,7 +392,6 @@ _SCHEMA_NAME_BY_ROUTE: dict[tuple[str, str], str] = {
     ("POST", "/compiler/compatibility-profiles"): "CompatibilityProfileCreateRequest",
     ("PUT", "/compiler/compatibility-profiles/{profile_id}"): "CompatibilityProfileUpdateRequest",
     ("POST", "/sessions"): "SessionCreateRequest",
-    ("POST", "/sessions/{session_id}/state/query"): "SessionStateQueryRequest",
     ("POST", "/sessions/{session_id}/intents/observe"): "Observe1",
     ("POST", "/sessions/{session_id}/intents/compare"): "Compare",
     ("POST", "/sessions/{session_id}/intents/decompose"): "Decompose",

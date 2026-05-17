@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from typing import Annotated, Any
 
@@ -29,7 +30,6 @@ from marivo.transports.http.models import (
     SessionDetailResponse,
     SessionListResponse,
     SessionRuntimeStatusResponse,
-    SessionStateQueryRequest,
     SessionStateView,
     SessionTerminateRequest,
     SessionTerminateResponse,
@@ -216,35 +216,40 @@ def get_session_state(
     request: Request,
     metric: Annotated[str | None, Query()] = None,
     entity: Annotated[str | None, Query()] = None,
-    proposition_type: Annotated[list[str] | None, Query()] = None,
-    origin_kind: Annotated[list[str] | None, Query()] = None,
+    slice_: Annotated[str | None, Query(alias="slice")] = None,
+    proposition_types: Annotated[list[str] | None, Query()] = None,
+    origin_kinds: Annotated[list[str] | None, Query()] = None,
     assessment_presence: Annotated[str | None, Query()] = None,
-    assessment_status: Annotated[list[str] | None, Query()] = None,
+    assessment_statuses: Annotated[list[str] | None, Query()] = None,
     has_blocking_gaps: Annotated[bool | None, Query()] = None,
     limit: Annotated[int | None, Query()] = None,
     page_token: Annotated[str | None, Query()] = None,
 ) -> SessionStateView:
-    """Return the canonical SessionStateView for a session.
-
-    ``slice`` is intentionally not supported on this endpoint.
-    Use ``POST /sessions/{session_id}/state/query`` when ``slice`` filtering
-    is required.
-    """
-    if "slice" in request.query_params:
-        raise HTTPException(
-            status_code=400,
-            detail="'slice' is not supported on GET /state. Use POST /state/query instead.",
-        )
+    """Return the canonical SessionStateView for a session."""
     try:
         query: dict[str, Any] = {}
         if metric is not None:
             query["metric"] = metric
         if entity is not None:
             query["entity"] = entity
-        if proposition_type:
-            query["proposition_types"] = proposition_type
-        if origin_kind:
-            query["origin_kinds"] = origin_kind
+        if slice_ is not None:
+            try:
+                parsed_slice = json.loads(slice_)
+            except json.JSONDecodeError as error:
+                raise HTTPException(
+                    status_code=400,
+                    detail="'slice' must be a URL-encoded JSON object.",
+                ) from error
+            if not isinstance(parsed_slice, dict):
+                raise HTTPException(
+                    status_code=400,
+                    detail="'slice' must be a URL-encoded JSON object.",
+                )
+            query["slice"] = parsed_slice
+        if proposition_types:
+            query["proposition_types"] = proposition_types
+        if origin_kinds:
+            query["origin_kinds"] = origin_kinds
         if assessment_presence is not None:
             if assessment_presence not in ("assessed", "unassessed"):
                 raise HTTPException(
@@ -253,61 +258,16 @@ def get_session_state(
                     "Must be 'assessed' or 'unassessed'.",
                 )
             query["assessment_presence"] = assessment_presence
-        if assessment_status:
-            query["assessment_statuses"] = assessment_status
+        if assessment_statuses:
+            query["assessment_statuses"] = assessment_statuses
         if has_blocking_gaps is not None:
             query["has_blocking_gaps"] = has_blocking_gaps
         if limit is not None:
             query["limit"] = limit
         if page_token is not None:
             query["page_token"] = page_token
-        # When there are query kwargs, use runtime.get_session_state which
-        # falls through to svc for structured queries.  Without kwargs, use
-        # the service directly to get the full SessionStateView shape -- the
-        # runtime method returns a bare SessionState that lacks view fields.
-        if query:
-            result = get_services(request).runtime.get_session_state(SessionId(session_id), **query)
-        else:
-            result = get_services(request).runtime.query_session_state(session_id, query)
-        if isinstance(result, dict):
-            return SessionStateView.model_validate(result)
-        # result is a SessionState — build minimal view
-        if isinstance(result, SessionState):
-            return SessionStateView.model_validate(
-                {
-                    "session_id": str(result.session_id),
-                    "active_propositions": [],
-                    "backing_findings": [],
-                    "blocking_gaps": [],
-                    "artifact_refs": [],
-                    "focus_subjects": [],
-                    "schema_version": "analysis_session.v1",
-                }
-            )
+        result = get_services(request).runtime.get_session_state(SessionId(session_id), **query)
         return SessionStateView.model_validate(result)
-    except (KeyError, NotFoundError) as error:
-        raise HTTPException(status_code=404, detail=str(error)) from error
-
-
-@router.post(
-    "/sessions/{session_id}/state/query",
-    response_model=SessionStateView,
-)
-def query_session_state(
-    session_id: str,
-    payload: SessionStateQueryRequest,
-    request: Request,
-) -> SessionStateView:
-    """Return the canonical SessionStateView with a structured query body.
-
-    Use this endpoint when ``slice`` filtering or multi-axis query composition
-    is required.  Supports all ``SessionStateQuery`` fields.
-    """
-    try:
-        query = payload.model_dump(exclude_none=True)
-        return SessionStateView.model_validate(
-            get_services(request).runtime.query_session_state(session_id, query)
-        )
     except (KeyError, NotFoundError) as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
 

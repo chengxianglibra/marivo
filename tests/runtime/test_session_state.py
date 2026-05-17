@@ -2,7 +2,6 @@
 
 Coverage:
 - ``GET /sessions/{id}/state``                   — canonical session state surface
-- ``POST /sessions/{id}/state/query``            — filtered state surface
 - ``GET /sessions/{id}/artifacts/{id}/runtime-status`` — artifact-level runtime status
 - ``MarivoRuntime.get_artifact_runtime_status`` — unit tests for stage derivation
 - ``materialize_session_state_view``             — invariant checks with a published
@@ -326,31 +325,49 @@ class TestSessionStateAPI(unittest.TestCase):
         resp = self.client.get("/sessions/sess_missing_xyz/state")
         self.assertEqual(resp.status_code, 404)
 
-    def test_get_state_slice_param_returns_400(self) -> None:
+    def test_get_state_slice_param_accepts_json_object(self) -> None:
         sid = self._create_session()
-        resp = self.client.get(f"/sessions/{sid}/state?slice=%7B%7D")
+        resp = self.client.get(f"/sessions/{sid}/state", params={"slice": json.dumps({})})
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data["schema_version"], SESSION_STATE_VIEW_SCHEMA_VERSION)
+
+    def test_get_state_slice_param_rejects_malformed_json(self) -> None:
+        sid = self._create_session()
+        resp = self.client.get(f"/sessions/{sid}/state?slice=%7B")
         self.assertEqual(resp.status_code, 400)
+
+    def test_get_state_slice_param_rejects_non_object_json(self) -> None:
+        sid = self._create_session()
+        resp = self.client.get(f"/sessions/{sid}/state", params={"slice": json.dumps([])})
+        self.assertEqual(resp.status_code, 400)
+
+    def test_get_state_accepts_canonical_repeated_filters(self) -> None:
+        sid = self._create_session()
+        resp = self.client.get(
+            f"/sessions/{sid}/state",
+            params=[
+                ("proposition_types", "change"),
+                ("proposition_types", "anomaly"),
+                ("origin_kinds", "system_seeded"),
+                ("assessment_statuses", "supported"),
+            ],
+        )
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data["schema_version"], SESSION_STATE_VIEW_SCHEMA_VERSION)
 
     def test_get_state_invalid_assessment_presence_returns_400(self) -> None:
         sid = self._create_session()
         resp = self.client.get(f"/sessions/{sid}/state?assessment_presence=invalid_value")
         self.assertEqual(resp.status_code, 400)
 
-    # -- POST /state/query ----------------------------------------------------
-
-    def test_post_state_query_empty_body_returns_valid_schema(self) -> None:
-        sid = self._create_session()
-        resp = self.client.post(f"/sessions/{sid}/state/query", json={})
-        self.assertEqual(resp.status_code, 200)
-        data = resp.json()
-        self.assertEqual(data["schema_version"], SESSION_STATE_VIEW_SCHEMA_VERSION)
-
-    def test_post_state_query_unassessed_plus_statuses_returns_200_empty(self) -> None:
+    def test_get_state_unassessed_plus_statuses_returns_200_empty(self) -> None:
         """assessment_presence=unassessed + assessment_statuses → 200 with empty list."""
         sid = self._create_session()
-        resp = self.client.post(
-            f"/sessions/{sid}/state/query",
-            json={
+        resp = self.client.get(
+            f"/sessions/{sid}/state",
+            params={
                 "assessment_presence": "unassessed",
                 "assessment_statuses": ["supported"],
             },
@@ -358,22 +375,6 @@ class TestSessionStateAPI(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
         self.assertEqual(data["active_propositions"], [])
-
-    def test_post_state_query_unknown_session_returns_404(self) -> None:
-        resp = self.client.post(
-            "/sessions/sess_missing_xyz/state/query",
-            json={"assessment_presence": "assessed"},
-        )
-        self.assertEqual(resp.status_code, 404)
-
-    def test_post_state_query_accepts_slice(self) -> None:
-        """POST /state/query must accept slice without error."""
-        sid = self._create_session()
-        resp = self.client.post(
-            f"/sessions/{sid}/state/query",
-            json={"slice": {"country": "US"}},
-        )
-        self.assertEqual(resp.status_code, 200)
 
     # -- GET /artifacts/{id}/runtime-status -----------------------------------
 

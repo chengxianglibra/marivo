@@ -27,7 +27,7 @@ close-out. It does not own datasource discovery or reusable semantic authoring.
 - current and baseline windows are already known: `marivo-attribute`
 - two `observe` artifacts already exist: `marivo-compare`
 - one compare artifact needs segment drivers: `marivo-decompose`
-- you need the session-level picture: `marivo-get_session_state` or `marivo-query_session_state`
+- you need the session-level picture: `marivo-get_session_state`
 - you need one proposition's local evidence closure: `marivo-get_proposition_context`
 
 ## Default Operating Loop

@@ -171,37 +171,10 @@ export interface paths {
         /**
          * Get Session State
          * @description Return the canonical SessionStateView for a session.
-         *
-         *     ``slice`` is intentionally not supported on this endpoint.
-         *     Use ``POST /sessions/{session_id}/state/query`` when ``slice`` filtering
-         *     is required.
          */
         get: operations["get_session_state_sessions__session_id__state_get"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/sessions/{session_id}/state/query": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Query Session State
-         * @description Return the canonical SessionStateView with a structured query body.
-         *
-         *     Use this endpoint when ``slice`` filtering or multi-axis query composition
-         *     is required.  Supports all ``SessionStateQuery`` fields.
-         */
-        post: operations["query_session_state_sessions__session_id__state_query_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -930,6 +903,8 @@ export interface components {
             left_artifact_id: string;
             /** Right Artifact Id */
             right_artifact_id: string;
+            /** Min Pairs */
+            min_pairs?: number;
         };
         /** CorrelateResponse */
         CorrelateResponse: {
@@ -1200,35 +1175,52 @@ export interface components {
         };
         /** Diagnose */
         Diagnose: {
-            /** @description Semantic metric identifier to diagnose. Diagnose runs against exactly one metric. */
+            /**
+             * Metric
+             * @description Semantic metric identifier to diagnose. Diagnose runs against exactly one metric.
+             */
             metric: string;
             /** @description Time range scanned by the internal detect step before follow-up diagnosis. */
             time_scope: components["schemas"]["TimeScope"];
-            /** @description Time bucket granularity used by the internal detect scan. */
+            /**
+             * Granularity
+             * @description Time bucket granularity used by the internal detect scan.
+             * @enum {string}
+             */
             granularity: "hour" | "day" | "week" | "month" | "quarter" | "year";
             /** @description Optional AOI expression applied to both candidate detection and follow-up observe/compare/decompose steps. */
             filter?: components["schemas"]["Expression-Input"];
-            /** @description Optional single dimension used only to split the internal detect scan into independent time series. Omit to scan the overall metric series. */
+            /**
+             * Scan Dimension
+             * @description Optional single dimension used only to split the internal detect scan into independent time series. Omit to scan the overall metric series.
+             */
             scan_dimension?: string;
-            /** @description Non-empty attribution dimension list used after anomaly candidates are found. These dimensions drive follow-up decompose steps and are independent of scan_dimension. */
+            /**
+             * Dimensions
+             * @description Non-empty attribution dimension list used after anomaly candidates are found. These dimensions drive follow-up decompose steps and are independent of scan_dimension.
+             */
             dimensions: components["schemas"]["Dimension-Input"][];
             /**
+             * Strategy
              * @description Detection strategy passed to the internal detect step.
              * @enum {string}
              */
             strategy: "point_anomaly" | "period_shift";
             /**
+             * Sensitivity
              * @description Detection sensitivity preset passed to the internal detect step. Defaults to aggressive.
              * @default aggressive
              * @enum {string}
              */
             sensitivity: "conservative" | "balanced" | "aggressive";
             /**
+             * Candidate Limit
              * @description Maximum number of anomaly candidates diagnosed end-to-end. This bounds follow-up candidates, not driver rows.
              * @default 3
              */
             candidate_limit: number;
             /**
+             * Decomposition Limit
              * @description Maximum number of driver rows returned per diagnosed candidate and attribution dimension.
              * @default 5
              */
@@ -1273,7 +1265,7 @@ export interface components {
              * @description Supported SQL and expression language dialects
              * @enum {string}
              */
-            dialect: "ANSI_SQL" | "SNOWFLAKE" | "MDX" | "TABLEAU" | "DATABRICKS";
+            dialect: "ANSI_SQL" | "SNOWFLAKE" | "MDX" | "TABLEAU" | "DATABRICKS" | "TRINO";
             /**
              * Expression
              * @description SQL or dialect-specific expression
@@ -1500,6 +1492,21 @@ export interface components {
              * @enum {string}
              */
             aggregation_semantics: "sum" | "ratio" | "weighted_average";
+            /**
+             * Observed Dataset
+             * @description Dataset name that owns the metric expression. Required by Marivo validation when a semantic model has multiple datasets.
+             */
+            observed_dataset?: string | null;
+            /**
+             * Observation Grain
+             * @description Field names or semantic grain labels that describe one observation for the metric.
+             */
+            observation_grain?: components["schemas"]["ObservationGrainItem"][] | null;
+            /**
+             * Primary Time Field
+             * @description Dataset field used as the metric's primary analysis time axis.
+             */
+            primary_time_field?: string | null;
         };
         /**
          * Metric
@@ -1525,6 +1532,8 @@ export interface components {
             /** Custom Extensions */
             custom_extensions?: components["schemas"]["MarivoMetricCustomExtension"][] | null;
         };
+        /** ObservationGrainItem */
+        ObservationGrainItem: string;
         /** Observe1 */
         Observe1: {
             /** Metric */
@@ -1602,7 +1611,7 @@ export interface components {
              * Dialects
              * @description Supported expression language dialects (enumeration definition)
              */
-            dialects?: ("ANSI_SQL" | "SNOWFLAKE" | "MDX" | "TABLEAU" | "DATABRICKS")[] | null;
+            dialects?: ("ANSI_SQL" | "SNOWFLAKE" | "MDX" | "TABLEAU" | "DATABRICKS" | "TRINO")[] | null;
             /**
              * Vendors
              * @description Supported vendors for custom extensions (MARIVO only)
@@ -2115,53 +2124,6 @@ export interface components {
         };
         /** SessionScope */
         SessionScope: {
-            /** Constraints */
-            constraints?: {
-                [key: string]: string | number | boolean | null;
-            } | null;
-        };
-        /**
-         * SessionStateQueryRequest
-         * @description Request body for ``POST /sessions/{session_id}/state/query`` (Phase 5b).
-         *
-         *     All fields are optional.  Omitted fields apply no filter.
-         *     Mirrors the ``SessionStateQuery`` canonical contract from
-         *     ``docs/analysis/evidence-engine/schemas/state-surface-schema.md``.
-         *
-         *     ``page_token`` is intentionally absent: it is a transport concern, not part
-         *     of the canonical query contract.  When cursor pagination is implemented it
-         *     will be a separate HTTP query parameter on both GET and POST endpoints.
-         */
-        SessionStateQueryRequest: {
-            /** Metric */
-            metric?: string | null;
-            /** Entity */
-            entity?: string | null;
-            /** Slice */
-            slice?: components["schemas"]["SessionStateSlice"] | {
-                [key: string]: string | number | boolean | null;
-            } | null;
-            /** Proposition Types */
-            proposition_types?: string[] | null;
-            /** Origin Kinds */
-            origin_kinds?: string[] | null;
-            /** Assessment Presence */
-            assessment_presence?: ("assessed" | "unassessed") | null;
-            /** Assessment Statuses */
-            assessment_statuses?: string[] | null;
-            /** Has Blocking Gaps */
-            has_blocking_gaps?: boolean | null;
-            /** Limit */
-            limit?: number | null;
-        };
-        /** SessionStateSlice */
-        SessionStateSlice: {
-            /** Metric */
-            metric?: string | null;
-            /** Entity */
-            entity?: string | null;
-            /** Grain */
-            grain?: string | null;
             /** Constraints */
             constraints?: {
                 [key: string]: string | number | boolean | null;
@@ -2858,10 +2820,11 @@ export interface operations {
             query?: {
                 metric?: string | null;
                 entity?: string | null;
-                proposition_type?: string[] | null;
-                origin_kind?: string[] | null;
+                slice?: string | null;
+                proposition_types?: string[] | null;
+                origin_kinds?: string[] | null;
                 assessment_presence?: string | null;
-                assessment_status?: string[] | null;
+                assessment_statuses?: string[] | null;
                 has_blocking_gaps?: boolean | null;
                 limit?: number | null;
                 page_token?: string | null;
@@ -2873,41 +2836,6 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SessionStateView"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    query_session_state_sessions__session_id__state_query_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                session_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SessionStateQueryRequest"];
-            };
-        };
         responses: {
             /** @description Successful Response */
             200: {

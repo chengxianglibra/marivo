@@ -186,7 +186,6 @@ This document defines the proposition-level canonical read surface only.
 For the session-level decision surface, use [`session-state.md`](session-state.md):
 
 - `GET /sessions/{session_id}/state`
-- `POST /sessions/{session_id}/state/query`
 
 If a caller needs runtime progress or failure detail for the proposition publish path, that belongs to a separate operator-facing runtime status surface rather than this endpoint.
 

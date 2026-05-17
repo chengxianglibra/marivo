@@ -172,8 +172,6 @@ from .marivo_extensions import (
 from .session import (
     SessionBudget,
     SessionCreateRequest,
-    SessionStateQueryRequest,
-    SessionStateSlice,
     SessionTerminateRequest,
 )
 from .session_responses import (
@@ -311,8 +309,6 @@ __all__ = [  # noqa: RUF022
     "SessionDetailResponse",
     "SessionListResponse",
     "SessionRuntimeStatusResponse",
-    "SessionStateQueryRequest",
-    "SessionStateSlice",
     "SessionStateView",
     "SessionTerminateRequest",
     "SessionTerminateResponse",
