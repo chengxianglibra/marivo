@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from marivo.contracts.errors import (
@@ -10,7 +12,7 @@ from marivo.contracts.errors import (
     NotFoundError,
     ValidationError,
 )
-from marivo.transports.mcp.tools._async_bridge import call_runtime
+from marivo.transports.mcp.tools._async_bridge import _wrap_success, call_runtime
 
 
 @pytest.mark.parametrize(
@@ -90,3 +92,50 @@ async def test_success_none_return():
     result = await call_runtime(method)
     assert result["data"] is None
     assert result["error"] is None
+
+
+def test_wrap_success_list_of_dicts_produces_valid_json():
+    """list[dict] must survive serialization as valid JSON, not Python repr."""
+    items = [{"datasource_id": "ds_abc", "display_name": "My DB"}]
+    wrapped = _wrap_success(items)
+    # The data field must be the original list, not a str()-ified Python repr
+    assert wrapped["data"] == items
+    serialized = json.dumps(wrapped)
+    # Must be valid JSON (double-quoted), not Python repr (single-quoted)
+    assert "'datasource_id'" not in serialized
+    assert '"datasource_id"' in serialized
+
+
+def test_wrap_success_string_passthrough():
+    result = _wrap_success("hello")
+    assert result["data"] == "hello"
+
+
+def test_wrap_success_int_passthrough():
+    result = _wrap_success(42)
+    assert result["data"] == 42
+
+
+def test_wrap_success_bool_passthrough():
+    result = _wrap_success(True)
+    assert result["data"] is True
+
+
+def test_wrap_success_pydantic_model():
+    from pydantic import BaseModel
+
+    class Dummy(BaseModel):
+        name: str
+        value: int = 5
+
+    wrapped = _wrap_success(Dummy(name="test"))
+    assert wrapped["data"] == {"name": "test", "value": 5}
+
+
+def test_wrap_success_tuple_passthrough():
+    items = [{"a": 1}, {"b": 2}]
+    wrapped = _wrap_success(tuple(items))
+    assert wrapped["data"] == tuple(items)
+    # Serialization still produces valid JSON
+    serialized = json.dumps(wrapped)
+    assert "'a'" not in serialized
