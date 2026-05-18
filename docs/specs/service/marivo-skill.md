@@ -256,6 +256,10 @@ skills/
     references/
       modeling.md
       readiness.md
+  marivo-semantic-layer-onepass/
+    SKILL.md
+    references/
+      workflow.md
   marivo-analysis/
     SKILL.md
     references/
@@ -266,6 +270,7 @@ skills/
 
 - `marivo-datasource/SKILL.md`：datasource 注册、browse、preview 的最小决策入口
 - `marivo-semantic-layer/SKILL.md`：semantic model / dataset / metric / relationship / readiness 的最小决策入口
+- `marivo-semantic-layer-onepass/SKILL.md`：automation agent 在 prompt 已注入知识库和 Trino datasource 信息时，全自动构建并导入 semantic layer 的 onepass 入口
 - `marivo-analysis/SKILL.md`：session、analysis intent、state/context、close-out 的最小决策入口
 - `references/*.md`：每个 skill 只展开自己拥有的主题
 
@@ -278,6 +283,8 @@ skills/
 - `marivo-skill/marivo-semantic-layer/SKILL.md`：何时 intake 业务知识、何时建立 reusable semantic graph，何时检查 readiness，何时移交 analysis
 - `marivo-skill/marivo-semantic-layer/references/modeling.md`：semantic contract 起草、semantic model、dataset、field、metric、relationship 的创建顺序与最小示例
 - `marivo-skill/marivo-semantic-layer/references/readiness.md`：readiness 读取、blocker 定位与修复顺序
+- `marivo-skill/marivo-semantic-layer-onepass/SKILL.md`：无提问、无人工审批 semantic layer 自动构建 onepass 入口
+- `marivo-skill/marivo-semantic-layer-onepass/references/workflow.md`：prompt 解析、知识库摄取、Trino datasource grounding、OSI-Marivo 校验导入、失败闭环
 - `marivo-skill/marivo-analysis/SKILL.md`：何时创建/复用 session，如何做 semantic preflight 与 planner-led investigation，何时 close-out
 - `marivo-skill/marivo-analysis/references/workflow.md`：`create_session`、semantic preflight、analysis intents、state/context、terminate 的步骤与 ref chaining
 
@@ -285,6 +292,7 @@ skills/
 
 - `SKILL.md` 保持短小，避免变成第二份 README、inventory 或 schema 手册
 - `references/*.md` 只拥有一个主题，不跨主题重复展开同一 guardrail
+- onepass 自动化 skill 不改变通用 `marivo-semantic-layer` 的人工 approval gates
 
 ## 内容组织规则
 

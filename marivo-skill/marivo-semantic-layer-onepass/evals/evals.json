@@ -1,0 +1,29 @@
+{
+  "skill_name": "marivo-semantic-layer-onepass",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "An automation agent such as bxk is creating Marivo semantic-layer objects. The prompt includes a knowledge-base URL with metric definitions and a complete Trino datasource connection.",
+      "expected_output": "Uses marivo-semantic-layer-onepass, reads the prompt-provided knowledge base first, creates or reuses the Trino datasource without asking for connection details, browses and previews live metadata for grounding, reads references/osi-marivo.schema.json before generating semantic objects, drafts an OSI-Marivo JSON file with Trino SQL dialect expressions preferred over ANSI SQL, validates with marivo-validate_osi_semantic_models using input_path, imports with marivo-import_osi_semantic_models after validation, and confirms the imported semantic model.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "The onepass prompt supplied the business knowledge base and Trino datasource. Build the semantic layer automatically.",
+      "expected_output": "Does not ask the user for dataset scope, field semantics, metric definitions, relationship paths, validation approval, or import approval. Treats use of this onepass skill as approval to complete validation and import.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "Onepass validation found UNKNOWN_FIELD at a metric expression json_pointer while building the semantic layer.",
+      "expected_output": "Repairs the owning dataset field or metric expression using the knowledge base and live metadata, re-runs marivo-validate_osi_semantic_models from input_path, and imports only after validation succeeds.",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "The onepass skill was loaded, but the knowledge-base address cannot be read or the Trino datasource is not ready.",
+      "expected_output": "Fails closed with a concise report naming the unreadable knowledge-base entry or datasource readiness failure, including failure_code when available, and does not ask the user follow-up questions or import a partial semantic document.",
+      "files": []
+    }
+  ]
+}
