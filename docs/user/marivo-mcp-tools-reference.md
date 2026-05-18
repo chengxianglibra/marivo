@@ -761,7 +761,7 @@ interface ValidationSummary {
 
 **输出**：
 
-- 成功：`{"data": null, "error": null}`
+- 成功：`{"data": {"status": "success", "message": "OSI semantic models imported successfully."}, "error": null}`
 - 验证失败：`{"data": null, "error": {"code": "VALIDATION", "message": "..."}}`
 
 验证详情请先调用 `validate_osi_semantic_models`（2.4）获取。
@@ -780,7 +780,10 @@ interface ValidationSummary {
 
 ```json
 {
-  "data": null,
+  "data": {
+    "status": "success",
+    "message": "OSI semantic models imported successfully."
+  },
   "error": null
 }
 ```
