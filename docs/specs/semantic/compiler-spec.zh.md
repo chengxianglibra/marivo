@@ -126,7 +126,8 @@ compiler 必须优先复用 typed refs，而不是在下游请求里重建上游
 
 - `time_scope` 是唯一时间语义入口
 - `scope` 只承载非时间总体约束
-- `scope.predicate` 中出现时间条件必须硬失败
+- `scope.predicate` 中出现显式时间 SQL 构造必须硬失败；compiler/runtime 不根据
+  `event_time`、`log_date` 等列名猜测 predicate 是否为时间条件
 - 编译后的 normalized input 必须保留两者分离
 - `time_scope` 只表达本次请求的观察范围，不重写 catalog 中的时间语义；合法时间锚点仍由 metric 和 field 属性决定
 - compiler 必须把 `time_scope` 解析到单一的 `resolved_filter_time_field`

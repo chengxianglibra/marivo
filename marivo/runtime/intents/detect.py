@@ -182,6 +182,7 @@ def _query_scalar_window_values(
     all_dimensions: list[str],
     execution_context: Any,
     scope_raw: Any,
+    time_scope_field: str,
     start: str,
     end: str,
     granularity: str,
@@ -199,6 +200,7 @@ def _query_scalar_window_values(
     }
     if scope_raw:
         mq_params["scope"] = scope_raw
+    mq_params["time_scope_field"] = time_scope_field
     resolved = normalize_metric_query_request(mq_params)
     runtime.resolve_windowed_query_time_axis(
         resolved,
@@ -638,6 +640,7 @@ def run_detect_intent(
             all_dimensions=all_dimensions,
             execution_context=execution_context,
             scope_raw=scope_raw,
+            time_scope_field=time_scope_field,
             start=start_str,
             end=end_str,
             granularity=granularity,
@@ -656,6 +659,7 @@ def run_detect_intent(
             all_dimensions=all_dimensions,
             execution_context=execution_context,
             scope_raw=scope_raw,
+            time_scope_field=time_scope_field,
             start=baseline_window["start"],
             end=baseline_window["end"],
             granularity=granularity,

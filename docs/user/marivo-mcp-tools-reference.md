@@ -2271,5 +2271,7 @@ OsiDocument
   `support_min_granularity`。日期分区字段如 `log_date` 通常是 `day`；timestamp 字段或
   已验证的日期+小时表达式才声明为 `hour`。`time_scope.field` 会展开该字段的
   `expression` 生成时间过滤 SQL。
+- 运行时不会根据 `event_time`、`log_date`、`log_hour` 等列名自动推断时间轴或分区裁剪轴；
+  请求必须提供 `time_scope.field`，需要分区裁剪时必须由显式 metadata 声明。
 - 验证使用 `input_path`（本地文件方式），不用 inline `document`
 - 导入必须经用户明确批准后才调用 `import_osi_semantic_models`
