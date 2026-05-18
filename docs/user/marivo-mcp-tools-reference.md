@@ -2114,14 +2114,16 @@ interface McpSliceRef {
 
 ### 4.3 McpAoiSliceRef
 
-AOI-aligned 切片引用：时间范围 + 可选 AOI 过滤表达式。用于 `test_intent`、`validate`、`attribute`、`diagnose`。
+AOI-aligned 切片引用：时间范围 + 可选 AOI 过滤表达式。用于 `test_intent`、`validate`、`attribute` 的 `current` / `baseline` 参数。
 
 ```typescript
 interface McpAoiSliceRef {
   time_scope: McpTimeScope;     // 时间范围（必填）
-  filter: McpExpression | null; // AOI 过滤表达式（可选）
+  filter: McpExpression | null; // AOI 过滤表达式（可选）；字段名必须是 filter
 }
 ```
+
+注意：`McpAoiSliceRef` 内部只支持 `filter`，不支持 `filter_expression`。`filter_expression` 只用于 `observe`、`detect`、`diagnose` 的顶层参数。
 
 **示例**：
 
@@ -2214,9 +2216,9 @@ interface AnalysisFailure {
 - `holiday_aligned` / `holiday_and_weekday_aligned` compare 前先检查 calendar rows；缺失时不得编造节假日数据
 - `observe`/`detect` 的 `filter_expression` 必须为 `McpExpression` 结构化对象，不接受 JSON 字符串
 - `test_intent` 在 MCP 层不暴露固定的 `kind` 或 `hypothesis.family`；适配层内部固定为 AOI `kind="numeric"` 和 `hypothesis.family="two_sample_mean"`，要求 `grain` 为 `hour`、`day`、`week`、`month`、`quarter` 或 `year`，使用 `hypothesis.significance` 选择显著性档位，无 `method`、`hypothesis.alpha` 或 `hypothesis.label` 参数
-- `test_intent.left/right` 使用 `McpAoiSliceRef`，支持 `filter`，不支持 derived intent 的 `scope`
-- `validate.left/right` 使用 `McpAoiSliceRef`，`grain` 必填并传给底层假设检验，进入 runtime 前会构造 generated AOI `Validate` 模型；`validate.hypothesis` 不暴露 `family`，不支持 `alpha`、`label` 或 `method`
-- `attribute.left/right` 使用 `McpAoiSliceRef`，进入 runtime 前会构造 generated AOI `Attribute` 模型；不支持 derived intent 的 `scope`
+- `test_intent.current/baseline` 使用 `McpAoiSliceRef`，支持 `filter`，不支持 `filter_expression` 或 derived intent 的 `scope`
+- `validate.current/baseline` 使用 `McpAoiSliceRef`，支持 `filter`，不支持 `filter_expression` 或 derived intent 的 `scope`；`grain` 必填并传给底层假设检验，进入 runtime 前会构造 generated AOI `Validate` 模型；`validate.hypothesis` 不暴露 `family`，不支持 `alpha`、`label` 或 `method`
+- `attribute.current/baseline` 使用 `McpAoiSliceRef`，进入 runtime 前会构造 generated AOI `Attribute` 模型；不支持 `filter_expression` 或 derived intent 的 `scope`
 - `diagnose` 只支持 auto-detect 异常诊断，使用 `filter_expression`；进入 runtime 前会构造 generated AOI `Diagnose` 模型，granularity 接受 `hour`、`day`、`week`、`month`、`quarter`、`year`
 - `correlate` 仅支持 `"pearson"` 和 `"spearman"` 方法，不支持 `"kendall"`
 - `decompose` 仅支持 `"delta_share"` 方法，无 method 参数

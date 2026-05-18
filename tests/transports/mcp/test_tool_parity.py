@@ -8,6 +8,7 @@ FastAPI app and analytics engine required by those tools.
 from __future__ import annotations
 
 import asyncio
+from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
@@ -228,6 +229,17 @@ def _tool_names(server: FastMCP) -> set[str]:
     return {t.name for t in server._tool_manager.list_tools()}
 
 
+def _assert_aoi_slice_ref_schema_uses_filter(slice_schema: dict[str, Any]) -> None:
+    assert slice_schema["additionalProperties"] is False
+    assert set(slice_schema["properties"]) == {"time_scope", "filter"}
+    properties = slice_schema["properties"]
+    assert "filter_expression" not in properties
+    assert "half-open [start, end)" in properties["time_scope"]["description"]
+    assert "`filter` field" in properties["filter"]["description"]
+    assert "`filter_expression`" in properties["filter"]["description"]
+    assert "scope" not in properties
+
+
 def test_http_registers_all_tools():
     """HTTP transport registers the full tool surface including catalog tools."""
     server = FastMCP("test-http", stateless_http=True, json_response=True)
@@ -385,10 +397,7 @@ def test_test_intent_tool_schema_matches_current_aoi_surface() -> None:
     assert properties["grain"]["enum"] == ["hour", "day", "week", "month", "quarter", "year"]
     assert "Current AOI slice" in properties["current"]["description"]
     assert "Baseline AOI slice" in properties["baseline"]["description"]
-    assert slice_schema["additionalProperties"] is False
-    assert set(slice_schema["properties"]) == {"time_scope", "filter"}
-    assert "half-open [start, end)" in slice_schema["properties"]["time_scope"]["description"]
-    assert "scope" not in slice_schema["properties"]
+    _assert_aoi_slice_ref_schema_uses_filter(slice_schema)
     assert "hypothesis" in tools["test_intent"].parameters["required"]
     assert "grain" in tools["test_intent"].parameters["required"]
     assert properties["hypothesis"]["$ref"] == "#/$defs/McpTestHypothesis"
@@ -522,10 +531,7 @@ def test_validate_hypothesis_schema_omits_fixed_family() -> None:
     assert properties["grain"]["enum"] == ["hour", "day", "week", "month", "quarter", "year"]
     assert "Current AOI slice" in properties["current"]["description"]
     assert "Baseline AOI slice" in properties["baseline"]["description"]
-    assert slice_schema["additionalProperties"] is False
-    assert set(slice_schema["properties"]) == {"time_scope", "filter"}
-    assert "half-open [start, end)" in slice_schema["properties"]["time_scope"]["description"]
-    assert "scope" not in slice_schema["properties"]
+    _assert_aoi_slice_ref_schema_uses_filter(slice_schema)
     assert "grain" in tools["validate"].parameters["required"]
     assert properties["hypothesis"]["anyOf"][0] == {"$ref": "#/$defs/McpValidateHypothesis"}
     assert "family defaults internally" in properties["hypothesis"]["description"]
@@ -558,10 +564,7 @@ def test_attribute_schema_uses_aoi_slice_refs() -> None:
     assert properties["baseline"]["$ref"] == "#/$defs/McpAoiSliceRef"
     assert "Current AOI slice" in properties["current"]["description"]
     assert "Baseline AOI slice" in properties["baseline"]["description"]
-    assert slice_schema["additionalProperties"] is False
-    assert set(slice_schema["properties"]) == {"time_scope", "filter"}
-    assert "half-open [start, end)" in slice_schema["properties"]["time_scope"]["description"]
-    assert "scope" not in slice_schema["properties"]
+    _assert_aoi_slice_ref_schema_uses_filter(slice_schema)
     assert "known current-vs-baseline change" in properties["dimensions"]["description"]
     assert properties["dimensions"]["minItems"] == 1
     assert properties["decomposition_method"]["default"] == "delta_share"

@@ -199,7 +199,11 @@ class McpAoiSliceRef(BaseModel):
     )
     filter: McpExpression | None = Field(
         default=None,
-        description="Optional AOI Expression filter for this time slice.",
+        description=(
+            "Optional AOI Expression for this slice's `filter` field. Do not use "
+            "`filter_expression` inside McpAoiSliceRef; that name is only used by "
+            "top-level observe/detect/diagnose tool parameters."
+        ),
     )
 
 
