@@ -251,8 +251,6 @@ type NormalizedRequest = {
 最少应抽取：
 
 - `metric_name`（OSI name）
-- `observed_dataset`
-- `observation_grain`
 - `additivity`（additive_dimensions, aggregation_semantics）
 - `filters`
 
@@ -266,7 +264,7 @@ type NormalizedRequest = {
 | `supports_attribute` | `supports_compare` AND `supports_decompose` |
 | `supports_detect` | process 的 `anchor_time_ref` 存在 |
 
-注：`primary_time_field` 不再作为 metric 字段。时间语义通过 AOI `time_scope.field` 在请求时解析。
+注：时间语义通过 AOI `time_scope.field` 在请求时解析，不作为 metric extension 字段。
 
 ### dataset/field -> normalized grounding contract
 
@@ -341,11 +339,9 @@ Dimension 作为 Field 属性表达，不再是独立对象。compiler 抽取：
 
 重点校验：
 
-- metric 的 `observed_dataset` 引用的 dataset 是否存在
 - dataset 的 `source` 和 `datasource_id` 是否可解析
-- metric 引用的 field names 是否存在于对应 dataset 中
+- metric expression 是否能基于 dataset relationship graph 做解析/试跑
 - AOI `time_scope.field` 引用的 field 是否声明了 `is_time: true`（时间语义由 AOI `time_scope.field` 解析，编译时校验该 field 存在于 dataset 中且具有 `is_time: true`）
-- `observation_grain` 中的 field names 是否存在于 observed dataset 中
 - 跨 dataset 查询是否有 relationship 连接声明
 - datasource 是否可达（readiness 检查）
 
@@ -353,7 +349,7 @@ Dimension 作为 Field 属性表达，不再是独立对象。compiler 抽取：
 
 重点校验：
 
-- `request_dimensions` 中的 field names 是否存在于 metric 的 observed dataset 或关联 dataset 中
+- `request_dimensions` 中的 field names 是否存在于 metric 可通过 relationship graph 访问的 dataset 中
 - 对 `metric` 发起的请求中，dimensions 必须属于 metric 可消费的 field 集合
 - 跨 dataset 的 dimension 引用必须有 relationship 连接声明
 - 只有声明了 dimension 属性的 field 才能进入通用分组位

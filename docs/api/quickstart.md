@@ -130,13 +130,8 @@ curl -s -X POST http://localhost:8000/semantic-models/validate \
               {
                 "vendor_name": "MARIVO",
                 "data": {
-                  "observed_dataset": "orders",
-                  "observation_grain": ["day"],
-                  "primary_time_field": "order_date",
-                  "additivity": {
-                    "dimension_policy": "all",
-                    "time_axis_policy": "additive"
-                  }
+                  "additive_dimensions": ["__all"],
+                  "aggregation_semantics": "sum"
                 }
               }
             ]

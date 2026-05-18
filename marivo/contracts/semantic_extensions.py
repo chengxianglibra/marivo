@@ -72,9 +72,6 @@ _ADDITIVE_DIMENSIONS_ALL = "__all"
 class MarivoMetricExtension(BaseModel):
     additive_dimensions: list[str] = []
     aggregation_semantics: Literal["sum", "ratio", "weighted_average"] = "sum"
-    observed_dataset: str | None = None
-    observation_grain: list[str] | None = None
-    primary_time_field: str | None = None
 
     @model_validator(mode="after")
     def _validate_additive_dimensions(self) -> MarivoMetricExtension:

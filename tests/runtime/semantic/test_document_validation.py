@@ -91,13 +91,19 @@ class _FakeDatasourceService:
         columns: list[str] | None = None,
         fail: bool = False,
         engine: _FakeEngine | None = None,
+        engines_by_datasource: dict[str, _FakeEngine] | None = None,
     ) -> None:
-        self.columns = columns or ["order_id", "order_time", "amount"]
+        self.columns = columns or ["order_id", "order_time", "amount", "customer_id"]
+        self.columns_by_table = {
+            ("analytics", "orders"): self.columns,
+            ("analytics", "customers"): ["customer_id", "segment"],
+        }
         self.fail = fail
         self.engine = engine or _FakeEngine()
+        self.engines_by_datasource = engines_by_datasource or {"ds_001": self.engine}
 
     def get_datasource(self, datasource_id: str) -> dict:
-        if datasource_id != "ds_001" or self.fail:
+        if datasource_id not in {"ds_001", "ds_002"} or self.fail:
             raise KeyError(datasource_id)
         return {
             "datasource_id": datasource_id,
@@ -109,14 +115,17 @@ class _FakeDatasourceService:
     def browse_catalog_columns(
         self, datasource_id: str, schema_name: str, table_name: str
     ) -> list[dict]:
-        if datasource_id != "ds_001" or schema_name != "analytics" or table_name != "orders":
+        if datasource_id not in {"ds_001", "ds_002"}:
             raise KeyError((datasource_id, schema_name, table_name))
-        return [{"name": column} for column in self.columns]
+        columns = self.columns_by_table.get((schema_name, table_name))
+        if columns is None:
+            raise KeyError((datasource_id, schema_name, table_name))
+        return [{"name": column} for column in columns]
 
     def build_analytics_engine(self, datasource_id: str) -> _FakeEngine:
-        if datasource_id != "ds_001":
+        if datasource_id not in {"ds_001", "ds_002"}:
             raise KeyError(datasource_id)
-        return self.engine
+        return self.engines_by_datasource.setdefault(datasource_id, _FakeEngine())
 
 
 def test_validate_valid_document_returns_summary() -> None:
@@ -217,7 +226,7 @@ def test_validate_relationship_must_reference_known_datasets_and_fields() -> Non
     assert any(issue.code == "UNKNOWN_DATASET" for issue in result.errors)
 
 
-def test_validate_metric_extension_references_known_additive_dimensions() -> None:
+def test_validate_metric_extension_allows_unknown_additive_dimensions() -> None:
     doc = _valid_doc()
     doc["semantic_model"][0]["metrics"][0]["custom_extensions"][0]["data"][
         "additive_dimensions"
@@ -225,8 +234,8 @@ def test_validate_metric_extension_references_known_additive_dimensions() -> Non
 
     result = OsiSemanticDocumentValidator().validate(doc)
 
-    assert result.valid is False
-    assert any(issue.code == "UNKNOWN_FIELD" for issue in result.errors)
+    assert result.valid is True
+    assert result.errors == []
 
 
 def test_validate_metric_extension_all_additive_dimensions_sentinel() -> None:
@@ -327,7 +336,7 @@ def test_validate_metric_dry_run_uses_sampled_subquery_before_aggregation() -> N
     assert metric_sql != "SELECT SUM(amount) AS value FROM analytics.orders LIMIT 10"
 
 
-def test_validate_multi_dataset_metric_requires_observed_dataset() -> None:
+def test_validate_multi_dataset_metric_does_not_require_observed_dataset() -> None:
     doc = _valid_doc()
     doc["semantic_model"][0]["datasets"].append(
         {
@@ -347,6 +356,126 @@ def test_validate_multi_dataset_metric_requires_observed_dataset() -> None:
 
     result = OsiSemanticDocumentValidator().validate(doc)
 
+    assert result.valid is True
+    assert result.errors == []
+
+
+def test_validate_multi_dataset_metric_dry_run_joins_relationship_graph() -> None:
+    doc = _valid_doc()
+    doc["semantic_model"][0]["datasets"][0]["fields"].append(
+        {
+            "name": "customer_id",
+            "expression": {"dialects": [{"dialect": "ANSI_SQL", "expression": "customer_id"}]},
+        }
+    )
+    doc["semantic_model"][0]["datasets"].append(
+        {
+            "name": "customers",
+            "source": "analytics.customers",
+            "custom_extensions": [{"vendor_name": "MARIVO", "data": {"datasource_id": "ds_001"}}],
+            "fields": [
+                {
+                    "name": "customer_id",
+                    "expression": {
+                        "dialects": [{"dialect": "ANSI_SQL", "expression": "customer_id"}]
+                    },
+                },
+                {
+                    "name": "segment",
+                    "expression": {"dialects": [{"dialect": "ANSI_SQL", "expression": "segment"}]},
+                },
+            ],
+        }
+    )
+    doc["semantic_model"][0]["relationships"] = [
+        {
+            "name": "orders_to_customers",
+            "from": "orders",
+            "to": "customers",
+            "from_columns": ["customer_id"],
+            "to_columns": ["customer_id"],
+        }
+    ]
+    service = _FakeDatasourceService()
+
+    result = OsiSemanticDocumentValidator(datasource_service=service).validate(doc)
+
+    assert result.valid is True
+    metric_sql = service.engine.queries[-1]
+    assert metric_sql == (
+        "SELECT SUM(amount) AS value FROM "
+        "(SELECT * FROM analytics.orders LIMIT 10) orders "
+        "JOIN (SELECT * FROM analytics.customers LIMIT 10) customers "
+        "ON customers.customer_id = orders.customer_id"
+    )
+
+
+def test_validate_multi_dataset_metric_dry_run_reports_disconnected_graph() -> None:
+    doc = _valid_doc()
+    doc["semantic_model"][0]["datasets"].append(
+        {
+            "name": "customers",
+            "source": "analytics.customers",
+            "custom_extensions": [{"vendor_name": "MARIVO", "data": {"datasource_id": "ds_001"}}],
+            "fields": [
+                {
+                    "name": "customer_id",
+                    "expression": {
+                        "dialects": [{"dialect": "ANSI_SQL", "expression": "customer_id"}]
+                    },
+                }
+            ],
+        }
+    )
+
+    result = OsiSemanticDocumentValidator(datasource_service=_FakeDatasourceService()).validate(doc)
+
     assert result.valid is False
-    issue = next(issue for issue in result.errors if issue.code == "MISSING_OBSERVED_DATASET")
-    assert issue.json_pointer == "/semantic_model/0/metrics/0/custom_extensions"
+    issue = next(
+        issue for issue in result.errors if issue.code == "METRIC_DRY_RUN_JOIN_GRAPH_DISCONNECTED"
+    )
+    assert issue.json_pointer == "/semantic_model/0/metrics/0/expression"
+
+
+def test_validate_cross_datasource_metric_skips_joined_dry_run() -> None:
+    doc = _valid_doc()
+    doc["semantic_model"][0]["datasets"][0]["fields"].append(
+        {
+            "name": "customer_id",
+            "expression": {"dialects": [{"dialect": "ANSI_SQL", "expression": "customer_id"}]},
+        }
+    )
+    doc["semantic_model"][0]["datasets"].append(
+        {
+            "name": "customers",
+            "source": "analytics.customers",
+            "custom_extensions": [{"vendor_name": "MARIVO", "data": {"datasource_id": "ds_002"}}],
+            "fields": [
+                {
+                    "name": "customer_id",
+                    "expression": {
+                        "dialects": [{"dialect": "ANSI_SQL", "expression": "customer_id"}]
+                    },
+                }
+            ],
+        }
+    )
+    doc["semantic_model"][0]["relationships"] = [
+        {
+            "name": "orders_to_customers",
+            "from": "orders",
+            "to": "customers",
+            "from_columns": ["customer_id"],
+            "to_columns": ["customer_id"],
+        }
+    ]
+    ds1_engine = _FakeEngine()
+    ds2_engine = _FakeEngine()
+    service = _FakeDatasourceService(
+        engines_by_datasource={"ds_001": ds1_engine, "ds_002": ds2_engine}
+    )
+
+    result = OsiSemanticDocumentValidator(datasource_service=service).validate(doc)
+
+    assert result.valid is True
+    assert not any("JOIN" in query for query in ds1_engine.queries + ds2_engine.queries)

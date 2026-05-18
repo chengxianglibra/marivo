@@ -123,7 +123,7 @@ AOI v0.2 has no `Scope` wrapper. Filter conditions are expressed directly throug
 - `dialects[]` must contain at least one entry.
 - A given `dialect` value appears at most once in `dialects[]`.
 - The named `expression` must evaluate to a boolean in the declared dialect. AOI core schema cannot syntactically validate this; implementations check at query-plan time.
-- **Field-reference resolution**: identifiers in the expression resolve to fields of the metric's `observed_dataset` (same semantic as OSI `metric.filters`). Cross-dataset references are not in v0.2 scope.
+- **Field-reference resolution**: identifiers in the expression resolve against the semantic model dataset graph. Cross-dataset references use OSI relationships when the model defines them.
 - **Dialect registry**: AOI v0.2 defines no central dialect registry. Implementations must accept any dialect strings they claim through their own product documentation, but conforming AOI payloads use the OSI-style `{dialects: [{dialect, expression}]}` shape.
 - **Expression safety**: AOI does not specify how implementations defend against SQL injection or other expression-level attacks. Safe parameterization is implementation responsibility; AOI defines only the wire shape.
 
@@ -739,7 +739,7 @@ These are the responsibility of a separate Marivo refactor project, decoupled fr
 - Sample-summary statistics are computed inside `test` (not exposed as artifacts in v0.2). If a future use case beyond hypothesis testing emerges, a dedicated `summarize` intent could be added in a later revision; revisit then.
 - Should AOI v0.2 add a minimal mandatory `executed_at` timestamp on artifacts? Currently no — `executed_at` is not in core. Reconsider if cross-implementation lineage / staleness detection proves a common need.
 - **Dialect registry**: should AOI eventually maintain a central enumeration of recognized `dialect` values (mirroring how OSI may evolve)? v0.2 keeps dialect as an open string while standardizing the OSI-style expression shape; revisit once multiple implementations exist.
-- **Cross-dataset filter references**: AOI v0.2 confines filter expressions to fields of the metric's `observed_dataset`. A future revision may permit references to relationship-resolved fields (mirroring OSI relationship semantics). Out of scope for v0.2.
+- **Cross-dataset filter references**: AOI v0.2 resolves filter expressions against the semantic model dataset graph. Relationship-resolved fields are available when the OSI model defines a connected dataset graph.
 - Naming: `AOI` vs another acronym. Currently provisional; rename is permitted before v0.2 publication.
 
 ---

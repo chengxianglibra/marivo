@@ -355,7 +355,7 @@ Readiness Queue 是业务专家的默认工作台。
 优先支持：
 
 - Dataset Wizard：datasource、relation FQN、primary key、fields、preview。
-- Metric Wizard：observed dataset、expression、primary time field、grain、additivity。
+- Metric Wizard：expression、relationship graph preview、time field selection、additivity。
 - Relationship Wizard：from / to dataset、field alignment、cardinality。
 
 用户友好性要求：

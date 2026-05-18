@@ -1492,21 +1492,6 @@ export interface components {
              * @enum {string}
              */
             aggregation_semantics: "sum" | "ratio" | "weighted_average";
-            /**
-             * Observed Dataset
-             * @description Dataset name that owns the metric expression. Required by Marivo validation when a semantic model has multiple datasets.
-             */
-            observed_dataset?: string | null;
-            /**
-             * Observation Grain
-             * @description Field names or semantic grain labels that describe one observation for the metric.
-             */
-            observation_grain?: components["schemas"]["ObservationGrainItem"][] | null;
-            /**
-             * Primary Time Field
-             * @description Dataset field used as the metric's primary analysis time axis.
-             */
-            primary_time_field?: string | null;
         };
         /**
          * Metric
@@ -1532,8 +1517,6 @@ export interface components {
             /** Custom Extensions */
             custom_extensions?: components["schemas"]["MarivoMetricCustomExtension"][] | null;
         };
-        /** ObservationGrainItem */
-        ObservationGrainItem: string;
         /** Observe1 */
         Observe1: {
             /** Metric */
