@@ -277,14 +277,14 @@ def test_to_aoi_forecast_request_builds_forecast_model() -> None:
     assert "profile" not in request.model_dump()
 
 
-def _slice(start: str, end: str, filter_expression: McpExpression | None = None) -> McpAoiSliceRef:
+def _slice(start: str, end: str, slice_filter: McpExpression | None = None) -> McpAoiSliceRef:
     return McpAoiSliceRef(
         time_scope=McpTimeScope(
             field="log_time",
             start=start,
             end=end,
         ),
-        filter=filter_expression,
+        filter=slice_filter,
     )
 
 
@@ -537,6 +537,29 @@ def test_aoi_slice_ref_rejects_derived_scope() -> None:
         assert "scope" in str(error)
     else:
         raise AssertionError("expected AOI slice DTO to reject derived scope")
+
+
+def test_aoi_slice_ref_rejects_filter_expression_alias() -> None:
+    try:
+        McpAoiSliceRef.model_validate(
+            {
+                "time_scope": {
+                    "field": "log_time",
+                    "start": "2026-05-01T00:00:00Z",
+                    "end": "2026-05-08T00:00:00Z",
+                },
+                "filter_expression": {
+                    "dialects": [
+                        {"dialect": "ANSI_SQL", "expression": "region = 'US'"},
+                    ],
+                },
+            }
+        )
+    except ValueError as error:
+        assert "filter_expression" in str(error)
+        assert "Extra inputs are not permitted" in str(error)
+    else:
+        raise AssertionError("expected AOI slice DTO to reject filter_expression")
 
 
 def test_validate_hypothesis_rejects_non_mcp_fields() -> None:
