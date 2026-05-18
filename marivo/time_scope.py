@@ -16,6 +16,7 @@ from marivo.time_contracts import (
 CompareKind = Literal["semantic_metric", "ad_hoc_aggregate"]
 TimeScopeMode = Literal["single_window", "compare"]
 TimeScopeGrain = Literal["hour", "day", "week", "month", "quarter", "year"]
+TimeScopeBoundaryMode = Literal["grain", "exact"]
 _TIME_SCOPE_GRAINS = frozenset({"hour", "day", "week", "month", "quarter", "year"})
 _DATE_LIKE_GRAINS = frozenset({"day", "week", "month", "quarter", "year"})
 _TIME_GRANULARITY_ORDER = {
@@ -40,9 +41,10 @@ class ResolvedTimeWindow:
 @dataclass(slots=True)
 class ResolvedTimeScope:
     mode: TimeScopeMode
-    grain: TimeScopeGrain
+    grain: TimeScopeGrain | None
     current: ResolvedTimeWindow
     baseline: ResolvedTimeWindow | None = None
+    boundary_mode: TimeScopeBoundaryMode = "grain"
     warnings: list[dict[str, Any]] = field(default_factory=list)
 
 
@@ -62,7 +64,7 @@ class ResolvedTimeAxis:
     in TSU-02 and will be populated by later resolver work.
     """
 
-    observation_grain: TimeScopeGrain
+    observation_grain: TimeScopeGrain | None
     analysis_time_kind: str | None = None
     analysis_time_expr: str | None = None
     analysis_time_format: str | None = None
@@ -206,9 +208,35 @@ class TimeScopeResolver:
         if not isinstance(payload, Mapping):
             raise ValueError(f"{self.step_type} requires 'time_scope'")
         mode = _required_str(payload, "mode", self.step_type)
-        grain = _required_str(payload, "grain", self.step_type)
+        boundary_mode_raw = _optional_str(payload.get("boundary_mode")) or "grain"
+        if boundary_mode_raw not in {"grain", "exact"}:
+            raise ValueError("time_scope.boundary_mode must be 'grain' or 'exact'")
         if mode not in {"single_window", "compare"}:
             raise ValueError("time_scope.mode must be 'single_window' or 'compare'")
+        boundary_mode = cast("TimeScopeBoundaryMode", boundary_mode_raw)
+        grain_raw = payload.get("grain")
+        if boundary_mode == "exact":
+            if mode != "single_window":
+                raise ValueError(
+                    "time_scope.boundary_mode='exact' is only allowed with mode='single_window'"
+                )
+            if grain_raw is not None:
+                raise ValueError("time_scope.grain must be omitted when boundary_mode='exact'")
+            mode_typed = cast("TimeScopeMode", mode)
+            current = self._normalize_exact_time_window(
+                payload.get("current"), "time_scope.current"
+            )
+            if payload.get("baseline") is not None:
+                raise ValueError("time_scope.baseline is only allowed when mode='compare'")
+            return ResolvedTimeScope(
+                mode=mode_typed,
+                grain=None,
+                current=current,
+                baseline=None,
+                boundary_mode=boundary_mode,
+            )
+
+        grain = _required_str(payload, "grain", self.step_type)
         if grain not in _TIME_SCOPE_GRAINS:
             raise ValueError(_TIME_SCOPE_GRAIN_MESSAGE)
         mode_typed = cast("TimeScopeMode", mode)
@@ -248,6 +276,7 @@ class TimeScopeResolver:
             grain=grain_typed,
             current=current,
             baseline=baseline,
+            boundary_mode=boundary_mode,
             warnings=warnings,
         )
 
@@ -273,6 +302,21 @@ class TimeScopeResolver:
                 raise ValueError(f"{label} requires start < end")
         return ResolvedTimeWindow(start=start, end=end)
 
+    def _normalize_exact_time_window(
+        self,
+        payload: Any,
+        label: str,
+    ) -> ResolvedTimeWindow:
+        if not isinstance(payload, Mapping):
+            raise ValueError(f"{label} is required")
+        start = self._normalize_exact_boundary(
+            _required_str(payload, "start", label), f"{label}.start"
+        )
+        end = self._normalize_exact_boundary(_required_str(payload, "end", label), f"{label}.end")
+        if _parse_exact_boundary(start) >= _parse_exact_boundary(end):
+            raise ValueError(f"{label} requires start < end")
+        return ResolvedTimeWindow(start=start, end=end)
+
     @staticmethod
     def _normalize_boundary(value: str, label: str, grain: TimeScopeGrain) -> str:
         normalized = value.strip()
@@ -294,6 +338,22 @@ class TimeScopeResolver:
         if parsed_input.minute != 0 or parsed_input.second != 0 or parsed_input.microsecond != 0:
             raise ValueError(f"{label} must align to hour grain (whole hour)")
         return normalized_hour
+
+    @staticmethod
+    def _normalize_exact_boundary(value: str, label: str) -> str:
+        normalized = value.strip()
+        if "T" not in normalized and " " not in normalized:
+            try:
+                return date.fromisoformat(normalized).isoformat()
+            except ValueError as exc:
+                raise ValueError(f"{label} must be a date or datetime string") from exc
+        try:
+            parsed = datetime.fromisoformat(normalized.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError(f"{label} must be a date or datetime string") from exc
+        if parsed.tzinfo is not None:
+            parsed = parsed.astimezone().replace(tzinfo=None)
+        return parsed.isoformat()
 
     @staticmethod
     def _ensure_aligned_boundary(value: str, label: str, grain: TimeScopeGrain) -> None:
@@ -325,6 +385,39 @@ class TimeScopeResolver:
     @staticmethod
     def _window_duration(window: ResolvedTimeWindow, grain: TimeScopeGrain) -> int:
         return window_length_in_grain(window.start, window.end, grain=grain)
+
+
+def _parse_exact_boundary(value: str) -> datetime:
+    if "T" not in value and " " not in value:
+        return datetime.combine(date.fromisoformat(value), time.min)
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def _exact_boundary_is_subday(value: str) -> bool:
+    if "T" not in value and " " not in value:
+        return False
+    parsed = _parse_exact_boundary(value)
+    return parsed.time() != time.min
+
+
+def _exact_window_requires_subday_precision(time_scope: ResolvedTimeScope) -> bool:
+    if time_scope.boundary_mode != "exact":
+        return False
+    return _exact_boundary_is_subday(time_scope.current.start) or _exact_boundary_is_subday(
+        time_scope.current.end
+    )
+
+
+def _effective_time_scope_grain(time_scope: ResolvedTimeScope) -> TimeScopeGrain:
+    if time_scope.grain is not None:
+        return time_scope.grain
+    return "hour" if _exact_window_requires_subday_precision(time_scope) else "day"
+
+
+def _ceil_hour_for_partition_end(value: datetime) -> datetime:
+    if value.minute == 0 and value.second == 0 and value.microsecond == 0:
+        return value
+    return value.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
 
 
 @dataclass(slots=True)
@@ -436,10 +529,9 @@ class TimeAxisResolver:
                     metadata_chain=metadata_chain,
                 )
             if _sql_type_is_date(field_data_type):
-                if self.request.time_scope.grain == "hour":
+                if self._effective_grain() == "hour":
                     raise ValueError(
-                        "time_axis.analysis_time.column must be hour-compatible for hour grain; "
-                        "select a time field whose support_min_granularity is 'hour'"
+                        self._hour_compatibility_error("time_axis.analysis_time.column")
                     )
                 date_format = self._analysis_date_format(metadata_chain, override)
                 return _AnalysisAxis(
@@ -492,7 +584,7 @@ class TimeAxisResolver:
                 )
 
         for caps in metadata_chain:
-            if self.request.time_scope.grain == "hour":
+            if self._effective_grain() == "hour":
                 if caps.fallback_date_column and caps.fallback_hour_column:
                     self._ensure_known_column(
                         caps.fallback_date_column,
@@ -551,11 +643,8 @@ class TimeAxisResolver:
     ) -> _AnalysisAxis:
         if _is_simple_identifier(expression):
             if _sql_type_is_date(data_type):
-                if self.request.time_scope.grain == "hour":
-                    raise ValueError(
-                        "time_scope.field expression must be hour-compatible for hour grain; "
-                        "select a time field whose support_min_granularity is 'hour'"
-                    )
+                if self._effective_grain() == "hour":
+                    raise ValueError(self._hour_compatibility_error("time_scope.field expression"))
                 date_format = self._analysis_date_format(metadata_chain, expression)
                 return _AnalysisAxis(
                     kind="date_field",
@@ -601,8 +690,13 @@ class TimeAxisResolver:
                 f"time field '{field_name}' has invalid support_min_granularity "
                 f"'{support_min_granularity}'"
             )
-        requested = self.request.time_scope.grain
+        requested = self._effective_grain()
         if _TIME_GRANULARITY_ORDER[requested] < _TIME_GRANULARITY_ORDER[support_min_granularity]:
+            if self.request.time_scope.boundary_mode == "exact":
+                raise ValueError(
+                    f"time field '{field_name}' supports minimum granularity "
+                    f"'{support_min_granularity}' and cannot satisfy exact sub-day window"
+                )
             raise ValueError(
                 f"time field '{field_name}' supports minimum granularity "
                 f"'{support_min_granularity}' and cannot satisfy requested granularity "
@@ -701,7 +795,7 @@ class TimeAxisResolver:
 
         if date_column is None:
             return None
-        if self.request.time_scope.grain == "hour" and hour_column is None:
+        if self._effective_grain() == "hour" and hour_column is None:
             return _PartitionAxis(date_column=date_column, date_format=date_format)
         if hour_column is not None and date_column is None:
             raise ValueError("partition pruning hour_column requires a date_column")
@@ -715,7 +809,7 @@ class TimeAxisResolver:
     def _build_partition_pruning_predicate(self, axis: _PartitionAxis | None) -> str | None:
         if axis is None or axis.date_column is None:
             return None
-        if self.request.time_scope.grain != "hour":
+        if self._effective_grain() != "hour":
             return self._build_day_partition_pruning_predicate(axis)
 
         return self._build_hour_partition_pruning_predicate(axis)
@@ -737,21 +831,22 @@ class TimeAxisResolver:
             )
 
         start_day = start_dt.date()
+        end_partition_dt = _ceil_hour_for_partition_end(end_dt)
         last_day = (end_dt - timedelta(seconds=1)).date()
         if start_day == last_day:
             return self._build_same_day_hour_partition_pruning(
                 axis,
                 start_day=start_day,
                 start_hour=start_dt.hour,
-                end_day=end_dt.date(),
-                end_hour=end_dt.hour,
+                end_day=end_partition_dt.date(),
+                end_hour=end_partition_dt.hour,
             )
         return self._build_cross_day_hour_partition_pruning(
             axis,
             start_day=start_day,
             start_hour=start_dt.hour,
             last_day=last_day,
-            end_dt=end_dt,
+            end_dt=end_partition_dt,
         )
 
     def _build_same_day_hour_partition_pruning(
@@ -836,17 +931,31 @@ class TimeAxisResolver:
         windows = [self.request.time_scope.current]
         if self.request.time_scope.baseline is not None:
             windows.append(self.request.time_scope.baseline)
-        starts = [date.fromisoformat(window.start) for window in windows]
-        ends = [date.fromisoformat(window.end) for window in windows]
+        starts = [_parse_exact_boundary(window.start).date() for window in windows]
+        ends = [_parse_exact_boundary(window.end).date() for window in windows]
         return min(starts), max(ends)
 
     def _hour_envelope(self) -> tuple[datetime, datetime]:
         windows = [self.request.time_scope.current]
         if self.request.time_scope.baseline is not None:
             windows.append(self.request.time_scope.baseline)
-        starts = [datetime.fromisoformat(window.start) for window in windows]
-        ends = [datetime.fromisoformat(window.end) for window in windows]
+        starts = [_parse_exact_boundary(window.start) for window in windows]
+        ends = [_parse_exact_boundary(window.end) for window in windows]
         return min(starts), max(ends)
+
+    def _effective_grain(self) -> TimeScopeGrain:
+        return _effective_time_scope_grain(self.request.time_scope)
+
+    def _hour_compatibility_error(self, label: str) -> str:
+        if self.request.time_scope.boundary_mode == "exact":
+            return (
+                f"{label} must be hour-compatible for exact sub-day scalar windows; "
+                "select a time field whose support_min_granularity is 'hour'"
+            )
+        return (
+            f"{label} must be hour-compatible for hour grain; "
+            "select a time field whose support_min_granularity is 'hour'"
+        )
 
     @staticmethod
     def _ensure_known_column(column: str, columns: tuple[str, ...], label: str) -> None:
@@ -893,7 +1002,7 @@ def _normalize_scope(payload: Any) -> ResolvedScope:
     )
 
 
-def _normalize_time_axis(payload: Any, grain: TimeScopeGrain) -> ResolvedTimeAxis:
+def _normalize_time_axis(payload: Any, grain: TimeScopeGrain | None) -> ResolvedTimeAxis:
     if payload is None:
         return ResolvedTimeAxis(observation_grain=grain)
     if not isinstance(payload, Mapping):

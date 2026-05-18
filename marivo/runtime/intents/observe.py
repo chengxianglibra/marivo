@@ -297,18 +297,12 @@ def run_observe_intent(
             str(time_scope_raw.get("end") or ""),
         )
 
-    if granularity == "hour":
-        grain = "hour"
-    elif granularity is not None:
+    if granularity is not None:
         grain = granularity
     elif dimensions is not None:
         grain = "day"
     else:
-        grain = (
-            "hour"
-            if ("T" in start_str or (" " in start_str and ":" in start_str.split(" ", 1)[-1]))
-            else "day"
-        )
+        grain = None
 
     execution_context = runtime.resolve_metric_execution_context(metric_ref, session_id=session_id)
     resolved_metric = runtime.resolve_metric(metric_name)
@@ -324,14 +318,19 @@ def run_observe_intent(
             scope_raw = aoi_filter_to_scope(p.get("filter"), label="filter")
         except ValueError as exc:
             raise ValueError(f"observe: INVALID_ARGUMENT - {exc}") from exc
+    time_scope_params: dict[str, Any] = {
+        "mode": "single_window",
+        "current": {"start": start_str, "end": end_str},
+    }
+    if grain is None:
+        time_scope_params["boundary_mode"] = "exact"
+    else:
+        time_scope_params["grain"] = grain
+
     mq_params: dict[str, Any] = {
         "table": table,
         "metric": metric_ref,
-        "time_scope": {
-            "mode": "single_window",
-            "grain": grain,
-            "current": {"start": start_str, "end": end_str},
-        },
+        "time_scope": time_scope_params,
     }
     if scope_raw:
         mq_params["scope"] = scope_raw
