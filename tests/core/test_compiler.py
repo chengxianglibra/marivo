@@ -19,6 +19,7 @@ from marivo.core.semantic.compiler import (
     build_validation_summary,
     build_validation_trace,
     build_windowed_aggregate_query,
+    build_windowed_sample_summary_query,
     date_window_from_time_scope,
     metric_snapshot,
     process_snapshot,
@@ -149,6 +150,30 @@ def test_build_windowed_aggregate_query_no_scoped() -> None:
         group_by=["platform"],
     )
     assert "SELECT platform, COUNT(*) AS cnt FROM events" in result
+
+
+def test_build_windowed_sample_summary_query_summarizes_bucket_values() -> None:
+    scoped_query = {
+        "mode": "single_window",
+        "analysis_time_expr": "event_date",
+        "analysis_time_kind": "date",
+        "engine_type": "duckdb",
+        "current": {"start": "2024-01-01", "end": "2024-01-08"},
+    }
+
+    result = build_windowed_sample_summary_query(
+        table_name="events",
+        metric_expr="COUNT(*)",
+        bucket_expr="DATE_TRUNC('day', event_date)",
+        scoped_query=scoped_query,
+    )
+
+    assert "bucket_values AS" in result
+    assert "COUNT(*) AS value" in result
+    assert "GROUP BY DATE_TRUNC('day', event_date)" in result
+    assert "COUNT(value) AS n" in result
+    assert "AVG(value) AS mean" in result
+    assert "STDDEV_SAMP(value) AS standard_deviation" in result
 
 
 def test_build_windowed_aggregate_query_invalid_measures() -> None:

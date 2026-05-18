@@ -546,6 +546,52 @@ def build_windowed_aggregate_query(
     return f"SELECT {select_prefix}{agg_select} FROM {table_name}{group_clause}{order_clause} LIMIT {limit}"
 
 
+def build_windowed_sample_summary_query(
+    table_name: str,
+    *,
+    metric_expr: str,
+    bucket_expr: str,
+    scoped_query: Mapping[str, Any] | None = None,
+) -> str:
+    """Build a bucket-level sample-summary query for AOI test intent.
+
+    The statistical sample unit is one metric value per time bucket. This
+    query first computes bucket values using the metric expression, then
+    summarizes those bucket values for Welch's t-test.
+    """
+    metric_sql = str(metric_expr or "").strip()
+    bucket_sql = str(bucket_expr or "").strip()
+    if not metric_sql:
+        raise ValueError("sample_summary requires non-empty metric_expr")
+    if not bucket_sql:
+        raise ValueError("sample_summary requires non-empty bucket_expr")
+
+    source_table = "scoped" if scoped_query is not None else table_name
+    scoped_cte = ""
+    cte_separator = ""
+    if scoped_query is not None:
+        scoped = _build_scoped_query_parts(table_name, scoped_query, include_period=False)
+        scoped_cte = scoped.cte_sql
+        cte_separator = ","
+
+    return f"""
+        WITH {scoped_cte}{cte_separator}
+        bucket_values AS (
+            SELECT
+                {bucket_sql} AS bucket_start,
+                {metric_sql} AS value
+            FROM {source_table}
+            GROUP BY {bucket_sql}
+        )
+        SELECT
+            COUNT(value) AS n,
+            AVG(value) AS mean,
+            STDDEV_SAMP(value) AS standard_deviation
+        FROM bucket_values
+        WHERE value IS NOT NULL
+    """
+
+
 # ── Validation trace/summary builders ───────────────────────────────────
 
 
