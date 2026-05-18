@@ -1,15 +1,13 @@
 from __future__ import annotations
 
-import contextlib
-import math
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from marivo.contracts.aoi_runtime import artifact_to_envelope_result, validate_aoi_artifact
 from marivo.contracts.envelope import ExecutionEnvelope, StepRef
 from marivo.contracts.ids import ArtifactId
+from marivo.core.semantic.compiler import CompiledQuery, build_windowed_sample_summary_query
 from marivo.core.semantic.ir import AnalysisStepIR
-from marivo.core.semantic.value_expr import extract_value_expression
 from marivo.runtime.semantic.executor import execute_compiled
 from marivo.time_scope import TimeScopeGrain, normalize_metric_query_request
 
@@ -143,6 +141,24 @@ class SampleSummary:
         self.predicate_filter_lineage = predicate_filter_lineage
 
 
+def _coerce_optional_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _coerce_optional_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def compute_numeric_sample_summary(
     runtime: MarivoRuntime,
     session_id: str,
@@ -154,8 +170,8 @@ def compute_numeric_sample_summary(
     """Compute n/mean/stddev for one slice without creating intermediate artifacts.
 
     Used by the test intent (source-type) to compute sample summaries internally.
-    Raises ValueError if the metric does not support sample-summary computation
-    (requires aggregation_semantics='sum' and SUM(expr) definition_sql).
+    Raises ValueError if the metric does not support numeric sample-summary
+    computation (currently requires aggregation_semantics='sum').
     """
     metric_name = runtime.core.metric_name_from_ref(metric_ref)
 
@@ -196,17 +212,17 @@ def compute_numeric_sample_summary(
         fallback_columns=all_dimensions,
     )
 
-    # Resolve metric SQL and extract value expression
+    # Resolve metric SQL and gate semantic support. The metric expression itself
+    # can be any aggregate expression supported by the engine, e.g. SUM(x) or
+    # COUNT(*); the statistical sample unit is its bucket-level output value.
     metric_sql = runtime.resolve_metric_sql_for_execution(
         metric_ref, execution_context, engine_type=engine_type
     )
-    value_expr = extract_value_expression(metric_sql, aggregation_semantics)
-    if value_expr is None:
+    if aggregation_semantics != "sum":
         raise ValueError(
             f"test: INVALID_ARGUMENT - numeric kind requires a metric with "
-            f"aggregation_semantics='sum' and definition_sql matching SUM(expr); "
-            f"got aggregation_semantics='{aggregation_semantics}', "
-            f"definition_sql='{metric_sql}'"
+            f"aggregation_semantics='sum'; got aggregation_semantics="
+            f"'{aggregation_semantics}', definition_sql='{metric_sql}'"
         )
 
     # Build scoped query
@@ -231,8 +247,9 @@ def compute_numeric_sample_summary(
         raise ValueError("windowed execution requires resolved_time_axis.analysis_time_expr")
     bucket_expr = f"DATE_TRUNC('{grain}', {time_col})"
 
-    # Compile and execute one metric value per requested sample bucket.
-    compiled_query = runtime.compile_step(
+    # Compile the bucket-value query to reuse the normal semantic validation,
+    # scoped-query parameter construction, and predicate lineage metadata.
+    compiled_bucket_query = runtime.compile_step(
         AnalysisStepIR(
             index=0,
             step_type="aggregate_query",
@@ -252,25 +269,29 @@ def compute_numeric_sample_summary(
         engine_type=engine_type,
         semantic_context={"metric_execution_context": execution_context},
     )
-    rows = list(execute_compiled(engine, compiled_query, session_id=session_id).rows)
-    predicate_filter_lineage = extract_predicate_filter_lineage(compiled_query)
+    predicate_filter_lineage = extract_predicate_filter_lineage(compiled_bucket_query)
 
-    values: list[float] = []
-    for row in rows:
-        raw_value = row.get("value")
-        if raw_value is None:
-            continue
-        with contextlib.suppress(TypeError, ValueError):
-            values.append(float(raw_value))
+    summary_sql = build_windowed_sample_summary_query(
+        qualified_table,
+        metric_expr=metric_sql,
+        bucket_expr=bucket_expr,
+        scoped_query=scoped_query,
+    )
+    summary_query = CompiledQuery(
+        sql=summary_sql,
+        params=list(compiled_bucket_query.params),
+        metadata={
+            **compiled_bucket_query.metadata,
+            "sample_summary": True,
+        },
+        ir_bundle=compiled_bucket_query.ir_bundle,
+    )
+    rows = list(execute_compiled(engine, summary_query, session_id=session_id).rows)
+    row = rows[0] if rows else {}
 
-    n_val: int | None = len(values)
-    mean_val: float | None = None
-    stddev_val: float | None = None
-    if values:
-        mean_val = sum(values) / len(values)
-    if len(values) >= 2 and mean_val is not None:
-        variance = sum((value - mean_val) ** 2 for value in values) / (len(values) - 1)
-        stddev_val = math.sqrt(variance)
+    n_val = _coerce_optional_int(row.get("n"))
+    mean_val = _coerce_optional_float(row.get("mean"))
+    stddev_val = _coerce_optional_float(row.get("standard_deviation"))
 
     return SampleSummary(
         n=n_val,

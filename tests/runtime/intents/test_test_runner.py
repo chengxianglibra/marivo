@@ -224,7 +224,11 @@ def test_sample_summary_query_uses_required_grain(
         {"orders": "q_orders"},
     )
     runtime.resolve_metric_sql_for_execution.return_value = "SUM(revenue)"
-    runtime.compile_step.return_value = SimpleNamespace(ir_bundle={"plan": {"nodes": []}})
+    runtime.compile_step.return_value = SimpleNamespace(
+        params=[],
+        metadata={"engine_type": "duckdb"},
+        ir_bundle={"plan": {"nodes": []}},
+    )
 
     def _resolve_time_axis(resolved: Any, **_: Any) -> None:
         resolved.resolved_time_axis.analysis_time_expr = "event_time"
@@ -235,13 +239,15 @@ def test_sample_summary_query_uses_required_grain(
         patch("marivo.runtime.intents._helpers.build_scoped_query_for_window") as mock_scoped,
         patch("marivo.runtime.intents._helpers.execute_compiled") as mock_execute,
     ):
-        mock_scoped.return_value = {"source_sql": "select * from orders"}
+        mock_scoped.return_value = {
+            "mode": "single_window",
+            "analysis_time_expr": "event_time",
+            "analysis_time_kind": "timestamp",
+            "engine_type": "duckdb",
+            "current": {"start": start, "end": end},
+        }
         mock_execute.return_value = SimpleNamespace(
-            rows=[
-                {"bucket_start": "2026-01-01", "value": 10.0},
-                {"bucket_start": "2026-01-08", "value": 16.0},
-                {"bucket_start": "2026-01-15", "value": 22.0},
-            ]
+            rows=[{"n": 3, "mean": 16.0, "standard_deviation": 6.0}]
         )
 
         summary = compute_numeric_sample_summary(
@@ -267,6 +273,112 @@ def test_sample_summary_query_uses_required_grain(
         f"DATE_TRUNC('{bucket_expr}', event_time) AS bucket_start"
     ]
     assert compiled_step.params["order"] == "bucket_start"
+    executed_query = mock_execute.call_args.args[1]
+    assert "bucket_values AS" in executed_query.sql
+    assert "SUM(revenue) AS value" in executed_query.sql
+    assert "COUNT(value) AS n" in executed_query.sql
+    assert "AVG(value) AS mean" in executed_query.sql
+    assert "STDDEV_SAMP(value) AS standard_deviation" in executed_query.sql
+
+
+def test_sample_summary_accepts_count_metric_for_sum_semantics() -> None:
+    runtime = _runtime()
+    runtime.resolve_metric_execution_context.return_value = SimpleNamespace(table_name="orders")
+    runtime.resolve_metric.return_value = SimpleNamespace(
+        semantic_object={"header": {"aggregation_semantics": "sum"}}
+    )
+    runtime.resolve_metric_dimensions.return_value = ["event_time"]
+    runtime.resolve_engine_for_session.return_value = (
+        MagicMock(),
+        "duckdb",
+        {"orders": "q_orders"},
+    )
+    runtime.resolve_metric_sql_for_execution.return_value = "COUNT(*)"
+    runtime.compile_step.return_value = SimpleNamespace(
+        params=[],
+        metadata={"engine_type": "duckdb"},
+        ir_bundle={"plan": {"nodes": []}},
+    )
+
+    def _resolve_time_axis(resolved: Any, **_: Any) -> None:
+        resolved.resolved_time_axis.analysis_time_expr = "event_time"
+
+    runtime.resolve_windowed_query_time_axis.side_effect = _resolve_time_axis
+
+    with (
+        patch("marivo.runtime.intents._helpers.build_scoped_query_for_window") as mock_scoped,
+        patch("marivo.runtime.intents._helpers.execute_compiled") as mock_execute,
+    ):
+        mock_scoped.return_value = {
+            "mode": "single_window",
+            "analysis_time_expr": "event_time",
+            "analysis_time_kind": "timestamp",
+            "engine_type": "duckdb",
+            "current": {
+                "start": "2026-01-01T00:00:00Z",
+                "end": "2026-01-05T00:00:00Z",
+            },
+        }
+        mock_execute.return_value = SimpleNamespace(
+            rows=[{"n": "4", "mean": "12.5", "standard_deviation": "3.5"}]
+        )
+
+        summary = compute_numeric_sample_summary(
+            runtime,
+            "session-1",
+            "metric.test_metric",
+            {
+                "field": "event_time",
+                "start": "2026-01-01T00:00:00Z",
+                "end": "2026-01-05T00:00:00Z",
+            },
+            grain="day",
+        )
+
+    assert summary.n == 4
+    assert summary.mean == pytest.approx(12.5)
+    assert summary.standard_deviation == pytest.approx(3.5)
+    executed_query = mock_execute.call_args.args[1]
+    assert "COUNT(*) AS value" in executed_query.sql
+    assert "SUM(" not in executed_query.sql
+
+
+@pytest.mark.parametrize("aggregation_semantics", ["ratio", "weighted_average"])
+def test_sample_summary_rejects_non_sum_semantics_without_sum_shape_requirement(
+    aggregation_semantics: str,
+) -> None:
+    runtime = _runtime()
+    runtime.resolve_metric_execution_context.return_value = SimpleNamespace(table_name="orders")
+    runtime.resolve_metric.return_value = SimpleNamespace(
+        semantic_object={"header": {"aggregation_semantics": aggregation_semantics}}
+    )
+    runtime.resolve_metric_dimensions.return_value = ["event_time"]
+    runtime.resolve_engine_for_session.return_value = (
+        MagicMock(),
+        "duckdb",
+        {"orders": "q_orders"},
+    )
+    runtime.resolve_metric_sql_for_execution.return_value = "SUM(revenue)"
+
+    def _resolve_time_axis(resolved: Any, **_: Any) -> None:
+        resolved.resolved_time_axis.analysis_time_expr = "event_time"
+
+    runtime.resolve_windowed_query_time_axis.side_effect = _resolve_time_axis
+
+    with pytest.raises(ValueError, match="aggregation_semantics='sum'") as exc_info:
+        compute_numeric_sample_summary(
+            runtime,
+            "session-1",
+            "metric.test_metric",
+            {
+                "field": "event_time",
+                "start": "2026-01-01T00:00:00Z",
+                "end": "2026-01-05T00:00:00Z",
+            },
+            grain="day",
+        )
+
+    assert "SUM(expr)" not in str(exc_info.value)
 
 
 @pytest.mark.parametrize(
