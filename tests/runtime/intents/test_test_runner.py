@@ -9,7 +9,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from marivo.runtime.intents._helpers import SampleSummary, compute_numeric_sample_summary
+from marivo.runtime.intents._helpers import (
+    SampleSummary,
+    build_scoped_query_for_window,
+    compute_numeric_sample_summary,
+)
 from marivo.runtime.intents.test import _betai, _p_value_from_t, _t_sf, run_test_intent
 
 
@@ -167,18 +171,42 @@ def test_passes_filters_to_sample_summaries_and_source_lineage() -> None:
     params = _valid_params()
     left_filter = {"dialects": [{"dialect": "ANSI_SQL", "expression": "region = 'US'"}]}
     right_filter = {"dialects": [{"dialect": "ANSI_SQL", "expression": "region = 'CA'"}]}
+    left_scope = {"predicate": "region = 'US'"}
+    right_scope = {"predicate": "region = 'CA'"}
     params["current"]["filter"] = left_filter
     params["baseline"]["filter"] = right_filter
 
     artifact, mock_compute = _run_with_mock_data(params)
 
-    assert mock_compute.call_args_list[0].kwargs["scope_raw"] == left_filter
-    assert mock_compute.call_args_list[1].kwargs["scope_raw"] == right_filter
+    assert mock_compute.call_args_list[0].kwargs["scope_raw"] == left_scope
+    assert mock_compute.call_args_list[1].kwargs["scope_raw"] == right_scope
     assert mock_compute.call_args_list[0].kwargs["grain"] == "day"
     assert mock_compute.call_args_list[1].kwargs["grain"] == "day"
     assert artifact["source_lineage"]["grain"] == "day"
     assert artifact["source_lineage"]["current"]["filter"] == left_filter
     assert artifact["source_lineage"]["baseline"]["filter"] == right_filter
+
+
+def test_query_hash_includes_normalized_slice_filters() -> None:
+    params = _valid_params()
+    params["current"]["filter"] = {
+        "dialects": [{"dialect": "ANSI_SQL", "expression": "region = 'US'"}]
+    }
+    params["baseline"]["filter"] = {
+        "dialects": [{"dialect": "ANSI_SQL", "expression": "region = 'CA'"}]
+    }
+    filtered_artifact, _ = _run_with_mock_data(params)
+
+    other_params = deepcopy(params)
+    other_params["current"]["filter"] = {
+        "dialects": [{"dialect": "ANSI_SQL", "expression": "region = 'MX'"}]
+    }
+    other_artifact, _ = _run_with_mock_data(other_params)
+
+    assert (
+        filtered_artifact["execution_metadata"]["query_hash"]
+        != other_artifact["execution_metadata"]["query_hash"]
+    )
 
 
 @pytest.mark.parametrize("grain", ["quarter", "year"])
@@ -341,6 +369,36 @@ def test_sample_summary_preserves_aoi_time_scope_field_for_bucket_axis() -> None
     assert compiled_step.params["group_by"] == ["DATE_TRUNC('day', log_date_ts) AS bucket_start"]
 
 
+def test_scoped_query_for_window_lowers_normalized_scope_to_predicate_filter() -> None:
+    runtime = _runtime()
+
+    def _resolve_time_axis(resolved: Any, **_: Any) -> None:
+        resolved.resolved_time_axis.analysis_time_expr = "event_time"
+        resolved.resolved_time_axis.analysis_time_kind = "timestamp"
+
+    def _build_scoped_query(_session_id: str, request: Any, **_: Any) -> dict[str, Any]:
+        return {"scope_predicate_filter": request.scope.predicate}
+
+    runtime.resolve_windowed_query_time_axis.side_effect = _resolve_time_axis
+    runtime.build_scoped_query.side_effect = _build_scoped_query
+
+    scoped_query = build_scoped_query_for_window(
+        runtime,
+        session_id="session-1",
+        engine_type="duckdb",
+        metric_ref="metric.test_metric",
+        table="orders",
+        start="2026-01-01T00:00:00Z",
+        end="2026-01-05T00:00:00Z",
+        grain="day",
+        scope_raw={"predicate": "region = 'US'"},
+        all_dimensions=["event_time", "region"],
+        time_scope_field="event_time",
+    )
+
+    assert scoped_query["scope_predicate_filter"] == "region = 'US'"
+
+
 def test_sample_summary_accepts_count_metric_for_sum_semantics() -> None:
     runtime = _runtime()
     runtime.resolve_metric_execution_context.return_value = SimpleNamespace(table_name="orders")
@@ -466,6 +524,50 @@ def test_rejects_insufficient_data(
         mock_compute.side_effect = [left_summary, right_summary]
         with pytest.raises(ValueError, match=message):
             run_test_intent(runtime, "session-1", _valid_params())
+
+
+def test_time_derived_slice_filter_fails_fast_instead_of_running_unfiltered() -> None:
+    params = _valid_params()
+    params["current"]["filter"] = {
+        "dialects": [
+            {
+                "dialect": "ANSI_SQL",
+                "expression": "EXTRACT(DAY_OF_WEEK FROM event_time) BETWEEN 1 AND 5",
+            }
+        ]
+    }
+    runtime = _runtime()
+    runtime.resolve_metric_execution_context.return_value = SimpleNamespace(table_name="orders")
+    runtime.resolve_metric.return_value = SimpleNamespace(
+        semantic_object={"header": {"aggregation_semantics": "sum"}}
+    )
+    runtime.resolve_metric_dimensions.return_value = ["event_time"]
+    runtime.resolve_engine_for_session.return_value = (
+        MagicMock(),
+        "duckdb",
+        {"orders": "q_orders"},
+    )
+    runtime.resolve_metric_sql_for_execution.return_value = "COUNT(*)"
+
+    def _resolve_time_axis(resolved: Any, **_: Any) -> None:
+        resolved.resolved_time_axis.analysis_time_expr = "event_time"
+
+    runtime.resolve_windowed_query_time_axis.side_effect = _resolve_time_axis
+
+    with (
+        patch(
+            "marivo.runtime.intents.test.resolve_predicate_lineage_reuse_for_intent",
+            return_value={"issues": [], "fatal_message": None, "reuse_summary": None},
+        ),
+        pytest.raises(
+            ValueError,
+            match=(
+                r"test: INVALID_ARGUMENT - current\.filter "
+                r"scope\.predicate must not contain time-axis predicates"
+            ),
+        ),
+    ):
+        run_test_intent(runtime, "session-1", params)
 
 
 @pytest.mark.parametrize(

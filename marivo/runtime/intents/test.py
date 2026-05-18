@@ -15,12 +15,15 @@ external numeric dependencies are introduced.
 from __future__ import annotations
 
 import hashlib
+import json
 import math
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, cast
 
 from marivo.core.intent.primitives import new_step_id
 from marivo.runtime.intents._helpers import (
+    SampleSummary,
+    aoi_filter_to_scope,
     commit_step_result,
     compute_numeric_sample_summary,
     resolve_time_scope,
@@ -233,22 +236,31 @@ def run_test_intent(
             f"{sorted(_SIGNIFICANCE_ALPHA)}, got '{significance}'"
         ) from exc
 
+    # ── AOI filter conversion ───────────────────────────────────────────
+    try:
+        current_scope = aoi_filter_to_scope(current_filter, label="current.filter")
+        baseline_scope = aoi_filter_to_scope(baseline_filter, label="baseline.filter")
+    except ValueError as exc:
+        raise ValueError(f"test: INVALID_ARGUMENT - {exc}") from exc
+
     # ── Compute sample summaries (internal, no intermediate artifacts) ──
-    current_ss = compute_numeric_sample_summary(
-        runtime,
-        session_id,
-        metric_ref,
-        current_time_scope,
+    current_ss = _compute_sample_summary_for_slice(
+        label="current",
+        runtime=runtime,
+        session_id=session_id,
+        metric_ref=metric_ref,
+        time_scope=current_time_scope,
         grain=grain,
-        scope_raw=current_filter,
+        scope=current_scope,
     )
-    baseline_ss = compute_numeric_sample_summary(
-        runtime,
-        session_id,
-        metric_ref,
-        baseline_time_scope,
+    baseline_ss = _compute_sample_summary_for_slice(
+        label="baseline",
+        runtime=runtime,
+        session_id=session_id,
+        metric_ref=metric_ref,
+        time_scope=baseline_time_scope,
         grain=grain,
-        scope_raw=baseline_filter,
+        scope=baseline_scope,
     )
 
     # ── Predicate lineage comparison ─────────────────────────────────────
@@ -342,6 +354,8 @@ def run_test_intent(
         f"{metric_ref}:welch_t:{family}:{alternative}:{alpha}"
         f":grain[{grain}]:current[{current_start},{current_end}]"
         f":baseline[{baseline_start},{baseline_end}]"
+        f":current_scope[{_stable_hash_part(current_scope)}]"
+        f":baseline_scope[{_stable_hash_part(baseline_scope)}]"
     )
     query_hash = hashlib.sha256(_hash_input.encode()).hexdigest()[:16]
 
@@ -422,6 +436,36 @@ def run_test_intent(
         provenance=provenance,
     )
     return result
+
+
+def _stable_hash_part(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+
+
+def _compute_sample_summary_for_slice(
+    *,
+    label: str,
+    runtime: MarivoRuntime,
+    session_id: str,
+    metric_ref: str,
+    time_scope: dict[str, Any],
+    grain: TimeScopeGrain,
+    scope: dict[str, str] | None,
+) -> SampleSummary:
+    try:
+        return compute_numeric_sample_summary(
+            runtime,
+            session_id,
+            metric_ref,
+            time_scope,
+            grain=grain,
+            scope_raw=scope,
+        )
+    except ValueError as exc:
+        message = str(exc)
+        if scope is not None and "scope.predicate must not contain time-axis predicates" in message:
+            raise ValueError(f"test: INVALID_ARGUMENT - {label}.filter {message}") from exc
+        raise
 
 
 def _validate_slice(value: Any, *, label: str) -> dict[str, Any]:
