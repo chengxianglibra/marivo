@@ -18,6 +18,12 @@
       "prompt": "I only care about one proposition now. How do I inspect it without confusing session state and local evidence?",
       "expected_output": "Explains the state-first, context-second pattern and routes the deep inspection to marivo-get_proposition_context for the chosen proposition.",
       "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "Compare Spring Festival against the matching baseline and account for holiday alignment. What should the agent check first?",
+      "expected_output": "Uses marivo-list_calendar_data to inspect known holiday or adjusted-workday rows for the relevant date range, uses marivo-update_calendar_data only for trusted missing rows, confirms with marivo-list_calendar_data, then proceeds to observe and compare with a holiday-aligned compare_type.",
+      "files": []
     }
   ]
 }

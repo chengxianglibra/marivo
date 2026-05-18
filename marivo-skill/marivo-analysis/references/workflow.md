@@ -19,6 +19,8 @@ Skip this file if the real task is still datasource setup or semantic modeling.
 | Break down a compare result | `marivo-decompose` |
 | Attribute between slices | `marivo-attribute` |
 | Run correlation or forecasting | `marivo-correlate`, `marivo-forecast` |
+| Read holiday or adjusted-workday rows | `marivo-list_calendar_data` |
+| Add or correct trusted holiday rows | `marivo-update_calendar_data` |
 | Read session-level evidence state | `marivo-get_session_state` |
 | Read one proposition closure | `marivo-get_proposition_context` |
 | Close the write flow | `marivo-terminate_session` |
@@ -47,7 +49,8 @@ of compensating with ad hoc filters, joins, or one-off explanations.
 ## Holiday-Aware Calendar Preflight
 
 When the user asks for holiday-aligned, holiday-aware, festival-window, named-holiday, or similar
-calendar-aware comparison, check calendar data before running the formal comparison.
+calendar-aware comparison, or when they simply need known holiday information, check MCP calendar
+data before running the formal comparison or answering from memory.
 
 Use this sequence:
 
