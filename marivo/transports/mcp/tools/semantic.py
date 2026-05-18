@@ -101,10 +101,19 @@ def register_semantic_tools(server: Any, runtime: Any) -> None:
         - 'ratio' for proportions / binary-outcome rates (conversion rate, CTR).
         - 'weighted_average' for ratio-of-sums metrics (AOV = SUM/COUNT).
         """
-        return await call_runtime(
+        result = await call_runtime(
             svc.import_osi_semantic_models,
             doc_data=_load_document_input(input),
         )
+        if result.get("error") is not None:
+            return result
+        return {
+            "data": {
+                "status": "success",
+                "message": "OSI semantic models imported successfully.",
+            },
+            "error": None,
+        }
 
     @server.tool()  # type: ignore
     async def export_osi_semantic_models(

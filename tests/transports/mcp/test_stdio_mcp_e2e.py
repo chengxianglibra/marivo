@@ -283,7 +283,7 @@ async def test_stdio_semantic_document_tools_support_local_json_files(tmp_path: 
     input_path.write_text('{"version":"0.1.1","semantic_model":[]}', encoding="utf-8")
 
     await tools["validate_osi_semantic_models"].run({"input": {"input_path": str(input_path)}})
-    await tools["import_osi_semantic_models"].run({"input": {"document": doc}})
+    import_result = await tools["import_osi_semantic_models"].run({"input": {"document": doc}})
     export_result = await tools["export_osi_semantic_models"].run(
         {"semantic_model_name": "commerce", "output_path": str(output_path)}
     )
@@ -299,6 +299,13 @@ async def test_stdio_semantic_document_tools_support_local_json_files(tmp_path: 
         '{\n  "version": "0.1.1",\n  "semantic_model": []\n}\n'
     )
     assert export_result["data"]["output_path"] == str(output_path)
+    assert import_result == {
+        "data": {
+            "status": "success",
+            "message": "OSI semantic models imported successfully.",
+        },
+        "error": None,
+    }
     assert delete_result == {"data": None, "error": None}
 
 
