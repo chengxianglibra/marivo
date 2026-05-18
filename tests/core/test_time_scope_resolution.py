@@ -219,6 +219,58 @@ class TimeScopeNormalizationTests(unittest.TestCase):
             self._local_naive_datetime("2026-03-25T14:00:00+08:00"),
         )
 
+    def test_exact_boundary_mode_omits_grain_and_preserves_datetime_boundaries(self) -> None:
+        resolved = TimeScopeResolver(step_type="metric_query").resolve(
+            {
+                "mode": "single_window",
+                "boundary_mode": "exact",
+                "current": {
+                    "start": "2026-03-25T10:15:30",
+                    "end": "2026-03-25T14:45:00",
+                },
+            }
+        )
+
+        self.assertIsNone(resolved.grain)
+        self.assertEqual(resolved.boundary_mode, "exact")
+        self.assertEqual(resolved.current.start, "2026-03-25T10:15:30")
+        self.assertEqual(resolved.current.end, "2026-03-25T14:45:00")
+
+    def test_exact_boundary_mode_rejects_grain(self) -> None:
+        with self.assertRaisesRegex(ValueError, "grain must be omitted"):
+            TimeScopeResolver(step_type="metric_query").resolve(
+                {
+                    "mode": "single_window",
+                    "boundary_mode": "exact",
+                    "grain": "day",
+                    "current": {"start": "2026-03-25", "end": "2026-03-26"},
+                }
+            )
+
+    def test_exact_boundary_mode_is_single_window_only(self) -> None:
+        with self.assertRaisesRegex(ValueError, "only allowed with mode='single_window'"):
+            TimeScopeResolver(step_type="metric_query").resolve(
+                {
+                    "mode": "compare",
+                    "boundary_mode": "exact",
+                    "current": {"start": "2026-03-25", "end": "2026-03-26"},
+                    "baseline": {"start": "2026-03-24", "end": "2026-03-25"},
+                }
+            )
+
+    def test_exact_boundary_mode_rejects_start_greater_than_end(self) -> None:
+        with self.assertRaisesRegex(ValueError, "requires start < end"):
+            TimeScopeResolver(step_type="metric_query").resolve(
+                {
+                    "mode": "single_window",
+                    "boundary_mode": "exact",
+                    "current": {
+                        "start": "2026-03-25T14:00:00",
+                        "end": "2026-03-25T10:00:00",
+                    },
+                }
+            )
+
     def test_compare_mode_requires_baseline_window(self) -> None:
         with self.assertRaisesRegex(ValueError, "time_scope.baseline is required"):
             TimeScopeResolver(step_type="metric_query").resolve(
@@ -379,6 +431,26 @@ class TimeAxisResolverTests(unittest.TestCase):
             payload["time_axis"] = time_axis
         return normalize_metric_query_request(payload)
 
+    def _exact_request(
+        self,
+        *,
+        start: str,
+        end: str,
+        time_axis: dict[str, object] | None = None,
+    ):
+        payload: dict[str, object] = {
+            "table": "iceberg.analytics.query_events",
+            "metric": "queued_time",
+            "time_scope": {
+                "mode": "single_window",
+                "boundary_mode": "exact",
+                "current": {"start": start, "end": end},
+            },
+        }
+        if time_axis is not None:
+            payload["time_axis"] = time_axis
+        return normalize_metric_query_request(payload)
+
     def test_resolver_prefers_timestamp_analysis_with_partition_pruning_for_mixed_layout(
         self,
     ) -> None:
@@ -408,6 +480,72 @@ class TimeAxisResolverTests(unittest.TestCase):
         self.assertIn("log_date = '20260325'", resolved.partition_pruning_predicate)
         self.assertIn("log_hour >= '06'", resolved.partition_pruning_predicate)
         self.assertIn("log_hour < '14'", resolved.partition_pruning_predicate)
+
+    def test_exact_midnight_datetime_window_can_use_day_time_field(self) -> None:
+        request = self._exact_request(
+            start="2026-03-25T00:00:00",
+            end="2026-03-26T00:00:00",
+            time_axis={"analysis_time": {"column": "log_date"}},
+        )
+
+        resolved = TimeAxisResolver(
+            request=request,
+            engine_type="duckdb",
+            available_columns=["log_date"],
+            time_field_data_types={"log_date": "date"},
+            time_field_support_min_granularities={"log_date": "day"},
+        ).resolve()
+
+        self.assertIsNone(resolved.observation_grain)
+        self.assertEqual(resolved.analysis_time_kind, "date_field")
+        self.assertEqual(
+            resolved.partition_pruning_predicate,
+            "log_date >= '2026-03-25' AND log_date < '2026-03-26'",
+        )
+
+    def test_exact_subday_window_requires_hour_capable_time_field(self) -> None:
+        request = self._exact_request(
+            start="2026-03-25T10:15:00",
+            end="2026-03-25T14:45:00",
+            time_axis={"analysis_time": {"column": "log_date"}},
+        )
+
+        with self.assertRaisesRegex(ValueError, "cannot satisfy exact sub-day window"):
+            TimeAxisResolver(
+                request=request,
+                engine_type="duckdb",
+                available_columns=["log_date"],
+                time_field_data_types={"log_date": "date"},
+                time_field_support_min_granularities={"log_date": "day"},
+            ).resolve()
+
+    def test_exact_subday_window_uses_hour_partition_pruning_when_available(self) -> None:
+        request = self._exact_request(
+            start="2026-03-25T10:15:00",
+            end="2026-03-25T14:45:00",
+        )
+
+        resolved = TimeAxisResolver(
+            request=request,
+            engine_type="duckdb",
+            available_columns=["event_time", "log_date", "log_hour"],
+            entity_time_capabilities={
+                "analysis_time": {"timestamp_column": "event_time"},
+                "partition_time": {
+                    "date_column": "log_date",
+                    "hour_column": "log_hour",
+                    "hour_format": "hh",
+                },
+            },
+            time_field_support_min_granularities={"event_time": "hour", "log_date": "day"},
+        ).resolve()
+
+        self.assertIsNone(resolved.observation_grain)
+        self.assertEqual(resolved.analysis_time_kind, "timestamp")
+        self.assertEqual(
+            resolved.partition_pruning_predicate,
+            "log_date = '2026-03-25' AND log_hour >= '10' AND log_hour < '15'",
+        )
 
     def test_resolver_builds_partition_only_hour_expression(self) -> None:
         request = self._compare_request()

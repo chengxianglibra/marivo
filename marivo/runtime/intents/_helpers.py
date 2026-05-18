@@ -92,10 +92,13 @@ def build_scoped_query_for_window(
         "metric": metric_ref,
         "time_scope": {
             "mode": "single_window",
-            "grain": grain,
             "current": {"start": start, "end": end},
         },
     }
+    if grain is None:
+        mq_params["time_scope"]["boundary_mode"] = "exact"
+    else:
+        mq_params["time_scope"]["grain"] = grain
     if scope_raw:
         mq_params["scope"] = scope_raw
     if time_scope_field:

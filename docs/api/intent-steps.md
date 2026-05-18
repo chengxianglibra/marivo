@@ -75,6 +75,10 @@ Scalar observation request:
 }
 ```
 
+Scalar observe returns one metric value for the full half-open `time_scope` window. It has no
+`granularity`; datetime boundaries are preserved as exact scalar filters when the selected time
+field can support them. Use `granularity` only when requesting time-series buckets.
+
 Time-series observation request:
 
 ```json

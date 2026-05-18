@@ -100,6 +100,78 @@ class TestObserveRunner(unittest.TestCase):
         self.assertEqual(kwargs["step_type"], "observe")
         self.assertEqual(args[4]["observation_type"], "scalar")
 
+    def test_scalar_observe_uses_exact_internal_window_without_grain(self) -> None:
+        runtime, result = self._run_observe(
+            {
+                "metric": "metric.m1",
+                "time_scope": {
+                    "field": "event_date",
+                    "start": "2024-01-01",
+                    "end": "2024-01-08",
+                },
+            },
+            rows=[{"current_value": "42.5", "current_sessions": "7"}],
+        )
+
+        scoped_call = runtime.build_scoped_query.call_args.args[1]
+        self.assertEqual(scoped_call.time_scope.boundary_mode, "exact")
+        self.assertIsNone(scoped_call.time_scope.grain)
+        compiled_call = runtime.compile_step.call_args.args[0]
+        self.assertEqual(
+            compiled_call.params["time_scope"],
+            {
+                "mode": "single_window",
+                "boundary_mode": "exact",
+                "current": {"start": "2024-01-01", "end": "2024-01-08"},
+            },
+        )
+        self.assertEqual(result["observation_type"], "scalar")
+        self.assertNotIn("granularity", result)
+
+    def test_scalar_observe_midnight_datetime_window_is_not_treated_as_hour(self) -> None:
+        runtime, result = self._run_observe(
+            {
+                "metric": "metric.m1",
+                "time_scope": {
+                    "field": "event_date",
+                    "start": "2024-01-01T00:00:00",
+                    "end": "2024-01-08T00:00:00",
+                },
+            },
+            rows=[{"current_value": "42.5", "current_sessions": "7"}],
+        )
+
+        scoped_call = runtime.build_scoped_query.call_args.args[1]
+        self.assertEqual(scoped_call.time_scope.boundary_mode, "exact")
+        self.assertIsNone(scoped_call.time_scope.grain)
+        self.assertEqual(scoped_call.time_scope.current.start, "2024-01-01T00:00:00")
+        self.assertEqual(scoped_call.time_scope.current.end, "2024-01-08T00:00:00")
+        self.assertEqual(result["time_scope"]["start"], "2024-01-01T00:00:00")
+        self.assertNotIn("granularity", result)
+
+    def test_scalar_observe_subday_datetime_window_preserves_exact_boundaries(self) -> None:
+        runtime, result = self._run_observe(
+            {
+                "metric": "metric.m1",
+                "time_scope": {
+                    "field": "event_time",
+                    "start": "2024-01-01T10:15:00",
+                    "end": "2024-01-01T14:45:00",
+                },
+            },
+            rows=[{"current_value": "42.5", "current_sessions": "7"}],
+            time_axis="event_time",
+            time_axis_kind="timestamp",
+        )
+
+        scoped_call = runtime.build_scoped_query.call_args.args[1]
+        self.assertEqual(scoped_call.time_scope.boundary_mode, "exact")
+        self.assertIsNone(scoped_call.time_scope.grain)
+        self.assertEqual(scoped_call.time_scope.current.start, "2024-01-01T10:15:00")
+        self.assertEqual(scoped_call.time_scope.current.end, "2024-01-01T14:45:00")
+        self.assertEqual(result["time_scope"]["start"], "2024-01-01T10:15:00")
+        self.assertNotIn("granularity", result)
+
     def test_observe_aoi_filter_is_consumed_as_scope_predicate(self) -> None:
         runtime = self._make_runtime()
         captured: dict[str, Any] = {}

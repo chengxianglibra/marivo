@@ -397,6 +397,8 @@ def metric_query_summary(
 
 def window_length(request: ResolvedWindowedQueryRequest, which: str) -> int:
     """Return the length of the current or baseline window in the request's grain."""
+    if request.time_scope.grain is None:
+        raise ValueError("window_length requires a grain-based time scope")
     if which == "current":
         window = request.time_scope.current
     else:
@@ -1378,7 +1380,7 @@ def run_metric_query(
         mode=mode,
         debug=_debug,
         dimensions=dimensions,
-        grain=resolved.time_scope.grain,
+        grain=resolved.time_scope.grain or "day",
         current_len=current_len,
         baseline_len=baseline_len,
     )
