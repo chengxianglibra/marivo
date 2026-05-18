@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import Callable
 from contextvars import copy_context
 from typing import Any
@@ -58,8 +59,15 @@ def _wrap_success(result: Any) -> dict[str, Any]:
     # Pydantic BaseModel subclasses (e.g. SessionState)
     if hasattr(result, "model_dump") and callable(result.model_dump):
         return {"data": result.model_dump(exclude_none=True), "error": None}
-    # SessionId or other non-dict return types
-    return {"data": str(result), "error": None}
+    # Lists/tuples pass through — downstream json serialization handles them
+    if isinstance(result, (list, tuple)):
+        return {"data": result, "error": None}
+    # Primitive JSON types (str, int, float, bool) pass through directly
+    if isinstance(result, (str, int, float, bool)):
+        return {"data": result, "error": None}
+    # Non-serializable objects: convert via json.dumps with default=str so
+    # the output is valid JSON (double-quoted), not Python repr (single-quoted)
+    return {"data": json.loads(json.dumps(result, default=str)), "error": None}
 
 
 def _wrap_error(code: str, message: str) -> dict[str, Any]:
