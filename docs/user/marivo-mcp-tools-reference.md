@@ -546,7 +546,7 @@ interface Field {
   label: string | undefined;                // 分类标签
   description: string | undefined;          // 字段描述
   ai_context: AiContext | undefined;
-  custom_extensions: object[] | undefined;
+  custom_extensions: FieldExtension[] | undefined; // 时间字段必填
 }
 
 interface Expression {
@@ -560,6 +560,13 @@ interface DialectExpression {
 
 interface Dimension {
   is_time: boolean | undefined;             // true 表示时间维度
+}
+
+interface FieldExtension {
+  vendor_name: string;                      // "MARIVO"
+  data: {
+    support_min_granularity: "hour" | "day" | "week" | "month" | "quarter" | "year";
+  };
 }
 
 interface DatasetExtension {
@@ -623,7 +630,7 @@ interface Relationship {
             "fields": [
               { "name": "cluster", "expression": { "dialects": [{ "dialect": "ANSI_SQL", "expression": "cluster" }] }, "dimension": {}, "description": "集群标识" },
               { "name": "query_count", "expression": { "dialects": [{ "dialect": "ANSI_SQL", "expression": "query_count" }] }, "dimension": undefined, "description": "查询数量" },
-              { "name": "create_time", "expression": { "dialects": [{ "dialect": "ANSI_SQL", "expression": "create_time" }] }, "dimension": { "is_time": true }, "description": "查询时间" }
+              { "name": "create_time", "expression": { "dialects": [{ "dialect": "ANSI_SQL", "expression": "create_time" }] }, "dimension": { "is_time": true }, "description": "查询时间", "custom_extensions": [{ "vendor_name": "MARIVO", "data": { "support_min_granularity": "hour" } }] }
             ],
             "custom_extensions": [{ "vendor_name": "MARIVO", "data": { "datasource_id": "ds_15c11b454309" } }]
           }
@@ -2243,6 +2250,7 @@ OsiDocument
       │   ├── fields[]
       │   │   ├── name, expression (DialectExpression)
       │   │   ├── dimension?: { is_time?: boolean }
+      │   │   ├── custom_extensions[]: MARIVO support_min_granularity（时间字段必填）
       │   │   └── description
       │   └── custom_extensions[]: MARIVO datasource_id
       ├── metrics[]
@@ -2256,8 +2264,9 @@ OsiDocument
 **关键约束**：
 - 非可加指标：不添加 metric `custom_extensions`，或声明 `additive_dimensions: []`
 - SQL 关键字列：在 `expression` 中使用双引号，如 `"schema"`、`"user"`
-- 时间字段：标记 `dimension: { is_time: true }`；`time_scope.field` 会展开该字段的
-  `expression` 生成时间过滤 SQL，因此 varchar 时间列可声明为
-  `CAST(col AS TIMESTAMP)`，日期前缀可声明为 `CAST(SUBSTRING(col, 1, 10) AS DATE)`
+- 时间字段：标记 `dimension: { is_time: true }`，并添加 MARIVO
+  `support_min_granularity`。日期分区字段如 `log_date` 通常是 `day`；timestamp 字段或
+  已验证的日期+小时表达式才声明为 `hour`。`time_scope.field` 会展开该字段的
+  `expression` 生成时间过滤 SQL。
 - 验证使用 `input_path`（本地文件方式），不用 inline `document`
 - 导入必须经用户明确批准后才调用 `import_osi_semantic_models`

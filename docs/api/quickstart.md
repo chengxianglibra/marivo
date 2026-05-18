@@ -103,7 +103,7 @@ curl -s -X POST http://localhost:8000/semantic-models/validate \
                 "custom_extensions": [
                   {
                     "vendor_name": "MARIVO",
-                    "data": {"data_type": "date"}
+                    "data": {"support_min_granularity": "day"}
                   }
                 ]
               },
@@ -114,12 +114,6 @@ curl -s -X POST http://localhost:8000/semantic-models/validate \
                     {"dialect": "ANSI_SQL", "expression": "amount"}
                   ]
                 },
-                "custom_extensions": [
-                  {
-                    "vendor_name": "MARIVO",
-                    "data": {"data_type": "number"}
-                  }
-                ]
               }
             ]
           }

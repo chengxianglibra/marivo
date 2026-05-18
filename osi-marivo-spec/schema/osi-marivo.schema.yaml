@@ -29,11 +29,24 @@ vendors:
   - "GOODDATA"
   - "MARIVO"
 
+# Supported time granularities, ordered from finest to coarsest.
+time_granularities:
+  - "hour"
+  - "day"
+  - "week"
+  - "month"
+  - "quarter"
+  - "year"
+
 # Extension payload schemas
 
 # MARIVO extension for Dataset.
 dataset_extension:
   datasource_id: string # Required. Marivo datasource reference for routing and schema resolution.
+
+# MARIVO extension for time Fields.
+field_extension:
+  support_min_granularity: string # Required for time fields. enum: hour | day | week | month | quarter | year
 
 # MARIVO extension for Metric.
 metric_extension:
@@ -204,11 +217,12 @@ fields:
     # Helps LLMs understand the field meaning and generate better queries
     ai_context: string
 
-    # Optional: Vendor-specific attributes for extensibility
-    # Extension: MARIVO does not define field extensions in the current schema.
+    # Required when dimension.is_time is true; forbidden otherwise.
+    # Extension: MARIVO field custom extension payload.
     custom_extensions:
       - vendor_name: string # Must be one of the values from 'vendors' enum above
-        data: string
+        data:
+          support_min_granularity: string # enum: hour | day | week | month | quarter | year
 # Metrics Schema
 # Quantitative measures defined on business data
 # Represents key calculations like sums, averages, ratios, etc.

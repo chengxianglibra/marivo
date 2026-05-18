@@ -46,6 +46,12 @@ def _make_model_payload() -> dict:
                             "dialects": [{"dialect": "ANSI_SQL", "expression": "order_date"}]
                         },
                         "dimension": {"is_time": True},
+                        "custom_extensions": [
+                            {
+                                "vendor_name": "MARIVO",
+                                "data": {"support_min_granularity": "day"},
+                            }
+                        ],
                     },
                     {
                         "name": "amount",

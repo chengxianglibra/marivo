@@ -78,6 +78,7 @@ def test_field_minimal():
 
 def test_field_with_dimension_is_time():
     from marivo.contracts.generated import DialectExpression, Dimension, Expression, Field
+    from marivo.contracts.generated.osi import MarivoFieldCustomExtension, MarivoFieldExtension
 
     field = Field(
         name="ss_sold_time",
@@ -85,6 +86,12 @@ def test_field_with_dimension_is_time():
             dialects=[DialectExpression(dialect="ANSI_SQL", expression="ss_sold_time_sk")]
         ),
         dimension=Dimension(is_time=True),
+        custom_extensions=[
+            MarivoFieldCustomExtension(
+                vendor_name="MARIVO",
+                data=MarivoFieldExtension(support_min_granularity="hour"),
+            )
+        ],
     )
     assert field.dimension is not None
     assert field.dimension.is_time is True
@@ -249,8 +256,75 @@ def test_marivo_dataset_extension():
 def test_marivo_field_extension():
     from marivo.transports.http.models.marivo_extensions import MarivoFieldExtension
 
-    ext = MarivoFieldExtension(data_type="integer")
-    assert ext.data_type == "integer"
+    ext = MarivoFieldExtension(support_min_granularity="day")
+    assert ext.support_min_granularity == "day"
+
+
+def test_time_field_accepts_marivo_support_min_granularity_extension():
+    from marivo.contracts.generated import DialectExpression, Dimension, Expression, Field
+    from marivo.contracts.generated.osi import (
+        MarivoFieldCustomExtension,
+        MarivoFieldExtension,
+    )
+
+    field = Field(
+        name="log_date",
+        expression=Expression(
+            dialects=[DialectExpression(dialect="ANSI_SQL", expression="log_date")]
+        ),
+        dimension=Dimension(is_time=True),
+        custom_extensions=[
+            MarivoFieldCustomExtension(
+                vendor_name="MARIVO",
+                data=MarivoFieldExtension(support_min_granularity="day"),
+            )
+        ],
+    )
+
+    assert field.custom_extensions is not None
+    assert field.custom_extensions[0].data.support_min_granularity == "day"
+
+
+def test_time_field_requires_marivo_support_min_granularity_extension():
+    from marivo.contracts.generated import DialectExpression, Dimension, Expression, Field
+
+    with pytest.raises(ValidationError, match="time fields must define exactly one"):
+        Field(
+            name="log_date",
+            expression=Expression(
+                dialects=[DialectExpression(dialect="ANSI_SQL", expression="log_date")]
+            ),
+            dimension=Dimension(is_time=True),
+        )
+
+
+def test_non_time_field_rejects_marivo_field_extension():
+    from marivo.contracts.generated import DialectExpression, Expression, Field
+    from marivo.contracts.generated.osi import (
+        MarivoFieldCustomExtension,
+        MarivoFieldExtension,
+    )
+
+    with pytest.raises(ValidationError, match="non-time fields must not define"):
+        Field(
+            name="country",
+            expression=Expression(
+                dialects=[DialectExpression(dialect="ANSI_SQL", expression="country")]
+            ),
+            custom_extensions=[
+                MarivoFieldCustomExtension(
+                    vendor_name="MARIVO",
+                    data=MarivoFieldExtension(support_min_granularity="day"),
+                )
+            ],
+        )
+
+
+def test_field_extension_rejects_invalid_support_min_granularity():
+    from marivo.contracts.generated.osi import MarivoFieldExtension
+
+    with pytest.raises(ValidationError):
+        MarivoFieldExtension(support_min_granularity="minute")
 
 
 def test_marivo_relationship_extension():

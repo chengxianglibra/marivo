@@ -7,7 +7,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Literal
 
-METADATA_SCHEMA_VERSION = "metadata.sparse_calendar.v1"
+METADATA_SCHEMA_VERSION = "metadata.time_field_granularity.v1"
 METADATA_SCHEMA_MARKER_TABLE = "metadata_schema_marker"
 
 METADATA_DDL: list[str] = [
@@ -141,6 +141,11 @@ METADATA_DDL: list[str] = [
         description  TEXT,
         ai_context   TEXT,
         data_type    TEXT,
+        support_min_granularity TEXT CHECK (
+            support_min_granularity IS NULL OR support_min_granularity IN (
+                'hour', 'day', 'week', 'month', 'quarter', 'year'
+            )
+        ),
         position     INTEGER NOT NULL,
         created_at   TEXT NOT NULL DEFAULT (datetime('now')),
         updated_at   TEXT NOT NULL DEFAULT (datetime('now')),

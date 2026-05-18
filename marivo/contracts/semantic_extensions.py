@@ -31,11 +31,11 @@ class MarivoDatasetExtension(BaseModel):
     model_config = {"extra": "forbid"}
 
 
-MarivoFieldDataType = Literal["string", "integer", "number", "boolean", "date", "datetime"]
+TimeGranularity = Literal["hour", "day", "week", "month", "quarter", "year"]
 
 
 class MarivoFieldExtension(BaseModel):
-    data_type: MarivoFieldDataType | None = None
+    support_min_granularity: TimeGranularity
 
     model_config = {"extra": "forbid"}
 

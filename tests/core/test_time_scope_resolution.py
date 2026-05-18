@@ -384,6 +384,7 @@ class TimeAxisResolverTests(unittest.TestCase):
                     "hour_format": "hh",
                 },
             },
+            time_field_support_min_granularities={"event_time": "hour", "log_date": "day"},
         ).resolve()
         self.assertEqual(resolved.analysis_time_kind, "timestamp")
         self.assertEqual(resolved.analysis_time_expr, "event_time")
@@ -409,6 +410,7 @@ class TimeAxisResolverTests(unittest.TestCase):
                     "hour_format": "hh",
                 },
             },
+            time_field_support_min_granularities={"log_date": "hour"},
         ).resolve()
         self.assertEqual(resolved.analysis_time_kind, "partition_fields")
         self.assertIn("CAST(CONCAT(", resolved.analysis_time_expr)
@@ -436,6 +438,7 @@ class TimeAxisResolverTests(unittest.TestCase):
                     "hour_format": "hh",
                 },
             },
+            time_field_support_min_granularities={"ds": "hour"},
         ).resolve()
         self.assertEqual(resolved.analysis_time_kind, "partition_fields")
         self.assertEqual(resolved.analysis_time_format, "yyyymmdd")
@@ -451,6 +454,7 @@ class TimeAxisResolverTests(unittest.TestCase):
             request=request,
             engine_type="duckdb",
             available_columns=["log_date", "resource_group"],
+            time_field_support_min_granularities={"log_date": "day"},
         ).resolve()
         self.assertEqual(resolved.analysis_time_kind, "date_field")
         # log_date defaults to yyyymmdd format, so analysis_time_expr should be a CAST expression
@@ -478,6 +482,7 @@ class TimeAxisResolverTests(unittest.TestCase):
                     "date_format": "yyyymmdd",
                 },
             },
+            time_field_support_min_granularities={"ds": "day"},
         ).resolve()
         self.assertEqual(resolved.analysis_time_kind, "date_field")
         # yyyymmdd format requires CAST expression for DATE_TRUNC compatibility
@@ -507,6 +512,7 @@ class TimeAxisResolverTests(unittest.TestCase):
             request=request,
             engine_type="trino",
             available_columns=["log_date", "resource_group"],
+            time_field_support_min_granularities={"log_date": "day"},
         ).resolve()
         self.assertEqual(resolved.analysis_time_kind, "date_field")
         self.assertEqual(
@@ -549,6 +555,7 @@ class TimeAxisResolverTests(unittest.TestCase):
                     "hour_format": "hh",
                 },
             },
+            time_field_support_min_granularities={"log_date": "hour"},
         ).resolve()
         self.assertEqual(
             resolved.partition_pruning_predicate,
@@ -592,6 +599,7 @@ class TimeAxisResolverTests(unittest.TestCase):
                     "hour_format": "hh",
                 },
             },
+            time_field_support_min_granularities={"log_date": "hour"},
         ).resolve()
         self.assertEqual(
             resolved.partition_pruning_predicate,
@@ -604,6 +612,7 @@ class TimeAxisResolverTests(unittest.TestCase):
             request=request,
             engine_type="duckdb",
             available_columns=["event_time", "log_date", "log_hour"],
+            time_field_support_min_granularities={"event_time": "hour", "log_date": "day"},
         ).resolve()
         self.assertEqual(resolved.analysis_time_kind, "timestamp")
         self.assertEqual(resolved.analysis_time_expr, "event_time")
@@ -615,6 +624,7 @@ class TimeAxisResolverTests(unittest.TestCase):
             request=request,
             engine_type="duckdb",
             available_columns=["event_time", "platform"],
+            time_field_support_min_granularities={"event_time": "hour"},
         ).resolve()
         self.assertEqual(resolved.analysis_time_kind, "timestamp")
         self.assertEqual(resolved.analysis_time_expr, "event_time")
@@ -632,6 +642,7 @@ class TimeAxisResolverTests(unittest.TestCase):
                     "timestamp_format": "native",
                 },
             },
+            time_field_support_min_granularities={"created_at": "hour"},
         ).resolve()
         self.assertEqual(resolved.analysis_time_kind, "timestamp")
         self.assertEqual(resolved.analysis_time_expr, "created_at")
@@ -652,6 +663,7 @@ class TimeAxisResolverTests(unittest.TestCase):
                     "date_format": "yyyymmdd",
                 },
             },
+            time_field_support_min_granularities={"create_time": "hour", "log_date": "day"},
         ).resolve()
         self.assertEqual(resolved.analysis_time_kind, "timestamp")
         self.assertEqual(
@@ -676,6 +688,7 @@ class TimeAxisResolverTests(unittest.TestCase):
                     "date_format": "yyyymmdd",
                 },
             },
+            time_field_support_min_granularities={"create_time": "hour", "log_date": "day"},
         ).resolve()
         self.assertEqual(resolved.analysis_time_kind, "timestamp")
         # Trino uses DATE_PARSE(col, format) for custom formats
@@ -691,28 +704,23 @@ class TimeAxisResolverTests(unittest.TestCase):
             engine_type="duckdb",
             available_columns=["event_time", "created_at"],
             entity_time_capabilities={"analysis_time": {"timestamp_column": "event_time"}},
+            time_field_support_min_granularities={"event_time": "hour", "created_at": "hour"},
         ).resolve()
         self.assertEqual(resolved.analysis_time_expr, "created_at")
 
-    def test_resolver_hour_override_on_date_column_uses_partition_hour_axis(self) -> None:
+    def test_resolver_hour_override_on_date_column_rejects_unsupported_grain(self) -> None:
         request = self._compare_request(
             grain="hour",
             time_axis={"analysis_time": {"column": "log_date"}},
         )
 
-        resolved = TimeAxisResolver(
-            request=request,
-            engine_type="trino",
-            available_columns=["log_date", "log_hour"],
-        ).resolve()
-
-        self.assertEqual(resolved.analysis_time_kind, "partition_fields")
-        self.assertIn("SUBSTR(CAST(log_date AS VARCHAR), 1, 4)", resolved.analysis_time_expr)
-        self.assertIn("log_hour", resolved.analysis_time_expr)
-        self.assertEqual(
-            resolved.partition_pruning_predicate,
-            "log_date = '20260325' AND log_hour >= '06' AND log_hour < '14'",
-        )
+        with self.assertRaisesRegex(ValueError, "cannot satisfy requested granularity 'hour'"):
+            TimeAxisResolver(
+                request=request,
+                engine_type="trino",
+                available_columns=["log_date", "log_hour"],
+                time_field_support_min_granularities={"log_date": "day"},
+            ).resolve()
 
     def test_resolver_expands_time_scope_field_timestamp_expression(self) -> None:
         request = self._compare_request(
@@ -727,29 +735,27 @@ class TimeAxisResolverTests(unittest.TestCase):
             available_columns=["query_time", "log_date", "log_hour"],
             time_field_expressions={"query_time": expression},
             time_field_data_types={"query_time": "timestamp"},
+            time_field_support_min_granularities={"query_time": "hour"},
         ).resolve()
 
         self.assertEqual(resolved.analysis_time_kind, "timestamp")
         self.assertEqual(resolved.analysis_time_expr, expression)
 
-    def test_resolver_expands_date_time_scope_field_to_partition_hour_axis(self) -> None:
+    def test_resolver_rejects_date_time_scope_field_for_hour_axis(self) -> None:
         request = self._compare_request(
             grain="hour",
             time_axis={"analysis_time": {"column": "analysis_date"}},
         )
 
-        resolved = TimeAxisResolver(
-            request=request,
-            engine_type="trino",
-            available_columns=["analysis_date", "log_date", "log_hour"],
-            time_field_expressions={"analysis_date": "log_date"},
-            time_field_data_types={"analysis_date": "date"},
-        ).resolve()
-
-        self.assertEqual(resolved.analysis_time_kind, "partition_fields")
-        self.assertEqual(resolved.override_analysis_time_column, "analysis_date")
-        self.assertIn("log_date", resolved.analysis_time_expr)
-        self.assertIn("log_hour", resolved.analysis_time_expr)
+        with self.assertRaisesRegex(ValueError, "hour-compatible"):
+            TimeAxisResolver(
+                request=request,
+                engine_type="trino",
+                available_columns=["analysis_date", "log_date", "log_hour"],
+                time_field_expressions={"analysis_date": "log_date"},
+                time_field_data_types={"analysis_date": "date"},
+                time_field_support_min_granularities={"analysis_date": "hour"},
+            ).resolve()
 
     def test_resolver_rejects_unpaired_date_time_scope_field_for_hour_axis(self) -> None:
         request = self._compare_request(
@@ -764,6 +770,7 @@ class TimeAxisResolverTests(unittest.TestCase):
                 available_columns=["business_date", "log_hour"],
                 time_field_expressions={"business_date": "business_date"},
                 time_field_data_types={"business_date": "date"},
+                time_field_support_min_granularities={"business_date": "hour"},
             ).resolve()
 
     def test_resolver_rewrites_trino_ansi_timestamp_cast_and_keeps_partition_pruning(
@@ -780,6 +787,7 @@ class TimeAxisResolverTests(unittest.TestCase):
             available_columns=["query_start_time", "create_time", "log_date", "log_hour"],
             time_field_expressions={"query_start_time": "CAST(create_time AS TIMESTAMP)"},
             time_field_data_types={"query_start_time": "timestamp"},
+            time_field_support_min_granularities={"query_start_time": "hour"},
         ).resolve()
 
         self.assertEqual(resolved.analysis_time_kind, "timestamp")
@@ -805,6 +813,7 @@ class TimeAxisResolverTests(unittest.TestCase):
             available_columns=["create_date", "create_time"],
             time_field_expressions={"create_date": expression},
             time_field_data_types={"create_date": "date"},
+            time_field_support_min_granularities={"create_date": "day"},
         ).resolve()
 
         self.assertEqual(resolved.analysis_time_kind, "date_expression")
@@ -822,6 +831,7 @@ class TimeAxisResolverTests(unittest.TestCase):
             available_columns=["business_date"],
             time_field_expressions={"business_date": "business_date"},
             time_field_data_types={"business_date": "DATE"},
+            time_field_support_min_granularities={"business_date": "day"},
         ).resolve()
 
         self.assertEqual(resolved.analysis_time_kind, "date_field")
@@ -835,6 +845,7 @@ class TimeAxisResolverTests(unittest.TestCase):
                 engine_type="duckdb",
                 available_columns=["event_date"],
                 source_time_capabilities={"analysis_time": {"timestamp_column": "event_time"}},
+                time_field_support_min_granularities={"event_time": "hour"},
             ).resolve()
 
     def test_resolver_rejects_hour_grain_without_hour_capable_axis(self) -> None:

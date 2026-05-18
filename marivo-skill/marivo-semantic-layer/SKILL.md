@@ -154,7 +154,11 @@ inside this skill.
   that choice explicit in the approval gate.
 - If the scenario must use event time, snapshot time, or ingestion time instead of an available time
   partition, explain the business reason before asking for approval.
-- Mark time fields with `dimension.is_time: true`.
+- Mark time fields with `dimension.is_time: true` and a MARIVO field extension
+  `support_min_granularity`.
+- Infer `support_min_granularity` from datasource metadata and sampled values: date partition fields
+  such as `log_date` are normally `day`; timestamp fields or proven date+hour expressions may be
+  `hour`.
 - Keep measures in the metric stage, not the field stage.
 - Do not write fields into the document until the user explicitly approves the primary key, unique
   keys, time fields, and dimensions.

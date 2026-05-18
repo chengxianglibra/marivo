@@ -100,6 +100,9 @@ as the dataset time field by default. Prefer it over event, creation, update, in
 timestamp-like fields because partition fields give Marivo a stable pruning and time-scope
 grounding path. Use a different time field only when the knowledge base explicitly defines another
 time semantics as the business time axis, and carry that decision into the document description.
+For every time field, write a MARIVO field extension with `support_min_granularity`. Infer it from
+metadata and samples: date partition fields such as `log_date` are normally `day`; timestamp fields
+or explicit date+hour expressions are `hour` only when sample values prove hour-level precision.
 
 Do not wait for approval at this stage.
 

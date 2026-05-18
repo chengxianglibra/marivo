@@ -76,27 +76,6 @@ class Dimension(BaseModel):
     )
 
 
-class FieldModel(BaseModel):
-    """
-    Row-level attribute for grouping, filtering, and metric expressions
-    """
-
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    name: str = Field(..., description="Unique identifier for the field within the dataset")
-    expression: Expression
-    dimension: Dimension | None = None
-    label: str | None = Field(None, description="Label for categorization")
-    description: str | None = Field(None, description="Human-readable description")
-    ai_context: str | AIContext1 | None = Field(None, description="Additional context for AI tools")
-    custom_extensions: list[Any] | None = Field(
-        None,
-        description="No MARIVO custom extensions are defined for fields.",
-        max_length=0,
-    )
-
-
 class Relationship(BaseModel):
     """
     Foreign key relationship between datasets
@@ -136,6 +115,20 @@ class MarivoDatasetExtension(BaseModel):
         ...,
         description="Marivo datasource reference used for routing, readiness, and schema resolution.",
         min_length=1,
+    )
+
+
+class MarivoFieldExtension(BaseModel):
+    """
+    MARIVO extension payload for Field.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    support_min_granularity: Literal["hour", "day", "week", "month", "quarter", "year"] = Field(
+        ...,
+        description="Finest time granularity supported by this time field. Requests must use this granularity or a coarser one.",
     )
 
 
@@ -200,6 +193,18 @@ class MarivoDatasetCustomExtension(BaseModel):
     data: MarivoDatasetExtension
 
 
+class MarivoFieldCustomExtension(BaseModel):
+    """
+    MARIVO custom extension for Field.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    vendor_name: Literal["MARIVO"]
+    data: MarivoFieldExtension
+
+
 class MarivoMetricCustomExtension(BaseModel):
     """
     MARIVO custom extension for Metric.
@@ -210,6 +215,37 @@ class MarivoMetricCustomExtension(BaseModel):
     )
     vendor_name: Literal["MARIVO"]
     data: MarivoMetricExtension
+
+
+class FieldModel(BaseModel):
+    """
+    Row-level attribute for grouping, filtering, and metric expressions
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    name: str = Field(..., description="Unique identifier for the field within the dataset")
+    expression: Expression
+    dimension: Dimension | None = None
+    label: str | None = Field(None, description="Label for categorization")
+    description: str | None = Field(None, description="Human-readable description")
+    ai_context: str | AIContext1 | None = Field(None, description="Additional context for AI tools")
+    custom_extensions: list[MarivoFieldCustomExtension] | None = Field(
+        None,
+        description="MARIVO field custom extension payload. Required for time fields; not allowed for non-time fields.",
+        max_length=1,
+    )
+
+    @model_validator(mode="after")
+    def _validate_marivo_time_field_extension(self) -> FieldModel:
+        is_time = self.dimension is not None and self.dimension.is_time is True
+        extension_count = len(self.custom_extensions or [])
+        if is_time and extension_count != 1:
+            raise ValueError("time fields must define exactly one MARIVO field extension")
+        if not is_time and extension_count:
+            raise ValueError("non-time fields must not define MARIVO field extensions")
+        return self
 
 
 class Dataset(BaseModel):

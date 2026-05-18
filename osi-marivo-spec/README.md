@@ -4,7 +4,7 @@ MARIVO vendor extensions for the OSI (Open Semantic Interchange) Core Metadata S
 
 ## Status
 
-Version: 0.1.0
+Version: 1.0.0
 
 Status: draft
 

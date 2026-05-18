@@ -57,6 +57,18 @@
       ],
       "description": "Supported vendor for custom extensions."
     },
+    "TimeGranularity": {
+      "type": "string",
+      "enum": [
+        "hour",
+        "day",
+        "week",
+        "month",
+        "quarter",
+        "year"
+      ],
+      "description": "Supported time granularities, ordered from finest to coarsest."
+    },
     "AIContext": {
       "description": "Additional context for AI tools",
       "oneOf": [
@@ -180,13 +192,55 @@
         },
         "custom_extensions": {
           "type": "array",
-          "maxItems": 0,
-          "description": "No MARIVO custom extensions are defined for fields."
+          "items": {
+            "$ref": "#/$defs/MarivoFieldCustomExtension"
+          },
+          "maxItems": 1,
+          "description": "MARIVO field custom extension payload. Required for time fields; not allowed for non-time fields."
         }
       },
       "required": [
         "name",
         "expression"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "dimension"
+            ],
+            "properties": {
+              "dimension": {
+                "required": [
+                  "is_time"
+                ],
+                "properties": {
+                  "is_time": {
+                    "const": true
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "custom_extensions"
+            ],
+            "properties": {
+              "custom_extensions": {
+                "minItems": 1,
+                "maxItems": 1
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "custom_extensions": {
+                "maxItems": 0
+              }
+            }
+          }
+        }
       ],
       "additionalProperties": false
     },
@@ -390,6 +444,20 @@
       ],
       "additionalProperties": false
     },
+    "MarivoFieldExtension": {
+      "type": "object",
+      "description": "MARIVO extension payload for Field.",
+      "properties": {
+        "support_min_granularity": {
+          "$ref": "#/$defs/TimeGranularity",
+          "description": "Finest time granularity supported by this time field. Requests must use this granularity or a coarser one."
+        }
+      },
+      "required": [
+        "support_min_granularity"
+      ],
+      "additionalProperties": false
+    },
     "MarivoMetricExtension": {
       "type": "object",
       "description": "MARIVO extension payload for Metric.",
@@ -449,6 +517,23 @@
         },
         "data": {
           "$ref": "#/$defs/MarivoDatasetExtension"
+        }
+      },
+      "required": [
+        "vendor_name",
+        "data"
+      ],
+      "additionalProperties": false
+    },
+    "MarivoFieldCustomExtension": {
+      "type": "object",
+      "description": "MARIVO custom extension for Field.",
+      "properties": {
+        "vendor_name": {
+          "const": "MARIVO"
+        },
+        "data": {
+          "$ref": "#/$defs/MarivoFieldExtension"
         }
       },
       "required": [

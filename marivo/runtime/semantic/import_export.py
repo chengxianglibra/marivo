@@ -27,6 +27,8 @@ from marivo.runtime.semantic.osi_storage import (
     storage_to_model,
 )
 
+TIME_GRANULARITIES: frozenset[str] = frozenset({"hour", "day", "week", "month", "quarter", "year"})
+
 
 class ImportCounter(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -104,9 +106,17 @@ class OsiSemanticDocumentValidator:
 
     def validate(self, document: dict[str, Any]) -> OsiSemanticValidationResult:
         errors: list[SemanticValidationIssue] = []
+        field_extension_errors = _document_field_extension_issues(document)
         try:
             parsed = OSIDocument.model_validate(document)
         except Exception as exc:
+            if field_extension_errors:
+                return OsiSemanticValidationResult(
+                    valid=False,
+                    schema_version=str(document.get("version") or "0.1.1"),
+                    errors=field_extension_errors,
+                    summary=_summarize_document(document),
+                )
             return OsiSemanticValidationResult(
                 valid=False,
                 schema_version=str(document.get("version") or "0.1.1"),
@@ -167,6 +177,13 @@ class OsiSemanticDocumentValidator:
                             dataset.get("fields") or [],
                             "field",
                             f"{model_pointer}/datasets/{dataset_index}/fields",
+                        )
+                    )
+                    errors.extend(
+                        _field_extension_issues(
+                            dataset,
+                            dataset_index,
+                            model_pointer,
                         )
                     )
                     source = str(dataset.get("source") or "").strip()
@@ -804,8 +821,8 @@ class SemanticImportExecutor:
             """
             INSERT INTO semantic_fields
                 (dataset_id, name, expression, is_time, is_dimension, label, description,
-                 ai_context, data_type, position)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 ai_context, data_type, support_min_granularity, position)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 f_storage["dataset_id"],
@@ -817,6 +834,7 @@ class SemanticImportExecutor:
                 f_storage["description"],
                 f_storage["ai_context"],
                 f_storage["data_type"],
+                f_storage["support_min_granularity"],
                 f_storage["position"],
             ],
         )
@@ -1189,6 +1207,106 @@ def _reference_issues(model: dict[str, Any], model_pointer: str) -> list[Semanti
             issues.extend(
                 _metric_extension_issues(metric, metric_index, dataset_fields, model_pointer)
             )
+    return issues
+
+
+def _field_extension_issues(
+    dataset: dict[str, Any],
+    dataset_index: int,
+    model_pointer: str,
+) -> list[SemanticValidationIssue]:
+    issues: list[SemanticValidationIssue] = []
+    dataset_name = str(dataset.get("name") or "")
+    fields_raw = dataset.get("fields")
+    fields: list[Any] = fields_raw if isinstance(fields_raw, list) else []
+    for field_index, field_obj in enumerate(fields):
+        if not isinstance(field_obj, dict):
+            continue
+        field_name = str(field_obj.get("name") or "")
+        dimension = field_obj.get("dimension")
+        is_time = isinstance(dimension, dict) and dimension.get("is_time") is True
+        pointer = f"{model_pointer}/datasets/{dataset_index}/fields/{field_index}/custom_extensions"
+        marivo_extensions = [
+            extension
+            for extension in field_obj.get("custom_extensions") or []
+            if isinstance(extension, dict) and extension.get("vendor_name") == "MARIVO"
+        ]
+        if not is_time:
+            if marivo_extensions:
+                issues.append(
+                    SemanticValidationIssue(
+                        code="FIELD_EXTENSION_NOT_ALLOWED",
+                        message=(
+                            f"Field {field_name!r} on dataset {dataset_name!r} is not a time "
+                            "field and must not define a MARIVO field extension."
+                        ),
+                        json_pointer=pointer,
+                        hint="Remove custom_extensions or mark the field as dimension.is_time=true.",
+                        context={"dataset": dataset_name, "field": field_name},
+                    )
+                )
+            continue
+        if len(marivo_extensions) != 1:
+            issues.append(
+                SemanticValidationIssue(
+                    code="MISSING_TIME_FIELD_EXTENSION",
+                    message=(
+                        f"Time field {field_name!r} on dataset {dataset_name!r} must define "
+                        "exactly one MARIVO field extension."
+                    ),
+                    json_pointer=pointer,
+                    hint=(
+                        "Add custom_extensions=[{vendor_name: 'MARIVO', "
+                        "data: {support_min_granularity: 'day'}}] with the correct granularity."
+                    ),
+                    context={"dataset": dataset_name, "field": field_name},
+                )
+            )
+            continue
+        data = marivo_extensions[0].get("data")
+        if isinstance(data, str):
+            try:
+                data = json.loads(data)
+            except json.JSONDecodeError:
+                data = None
+        support_min_granularity = (
+            data.get("support_min_granularity") if isinstance(data, dict) else None
+        )
+        if support_min_granularity not in TIME_GRANULARITIES:
+            issues.append(
+                SemanticValidationIssue(
+                    code="INVALID_SUPPORT_MIN_GRANULARITY",
+                    message=(
+                        f"Time field {field_name!r} on dataset {dataset_name!r} has invalid "
+                        f"support_min_granularity {support_min_granularity!r}."
+                    ),
+                    json_pointer=f"{pointer}/0/data/support_min_granularity",
+                    hint=("Use one of: hour, day, week, month, quarter, year."),
+                    context={
+                        "dataset": dataset_name,
+                        "field": field_name,
+                        "support_min_granularity": support_min_granularity,
+                    },
+                )
+            )
+    return issues
+
+
+def _document_field_extension_issues(document: dict[str, Any]) -> list[SemanticValidationIssue]:
+    semantic_models = document.get("semantic_model")
+    if not isinstance(semantic_models, list):
+        return []
+    issues: list[SemanticValidationIssue] = []
+    for model_index, model in enumerate(semantic_models):
+        if not isinstance(model, dict):
+            continue
+        datasets = model.get("datasets")
+        if not isinstance(datasets, list):
+            continue
+        model_pointer = f"/semantic_model/{model_index}"
+        for dataset_index, dataset in enumerate(datasets):
+            if isinstance(dataset, dict):
+                issues.extend(_field_extension_issues(dataset, dataset_index, model_pointer))
     return issues
 
 

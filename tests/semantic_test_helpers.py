@@ -503,6 +503,7 @@ def _ensure_dataset_field(
     is_time: bool,
     is_dimension: bool,
     data_type: str | None,
+    support_min_granularity: str | None = None,
 ) -> None:
     existing = metadata.query_one(
         "SELECT field_id, position FROM semantic_fields WHERE dataset_id = ? AND name = ?",
@@ -520,8 +521,8 @@ def _ensure_dataset_field(
             """
             INSERT INTO semantic_fields (
                 dataset_id, name, expression, is_time, is_dimension,
-                data_type, position, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                data_type, support_min_granularity, position, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 dataset_id,
@@ -530,6 +531,7 @@ def _ensure_dataset_field(
                 1 if is_time else 0,
                 1 if is_dimension else 0,
                 data_type,
+                support_min_granularity if is_time else None,
                 next_position,
                 now,
                 now,
@@ -540,6 +542,7 @@ def _ensure_dataset_field(
         """
         UPDATE semantic_fields
         SET expression = ?, is_time = ?, is_dimension = ?, data_type = ?,
+            support_min_granularity = ?,
             updated_at = datetime('now')
         WHERE field_id = ?
         """,
@@ -548,6 +551,7 @@ def _ensure_dataset_field(
             1 if is_time else 0,
             1 if is_dimension else 0,
             data_type,
+            support_min_granularity if is_time else None,
             existing["field_id"],
         ],
     )
@@ -758,6 +762,7 @@ def ensure_published_typed_metric(
             is_time=is_time,
             is_dimension=True,
             data_type="date" if is_time else None,
+            support_min_granularity="day" if is_time else None,
         )
     metric_expression = json.dumps(
         {"dialects": [{"dialect": "ANSI_SQL", "expression": metric_sql}]}

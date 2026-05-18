@@ -236,8 +236,8 @@ def _patch_aoi_optional_non_null_fields(output: Path) -> None:
     output.write_text(text, encoding="utf-8")
 
 
-def _patch_osi_additive_dimensions_all(output: Path) -> None:
-    """Preserve additive_dimensions ``__all`` exclusivity in generated OSI models."""
+def _patch_osi_generated_model_validators(output: Path) -> None:
+    """Preserve OSI invariants that datamodel-code-generator cannot express."""
 
     text = output.read_text(encoding="utf-8")
     text = text.replace(
@@ -266,6 +266,33 @@ def _patch_osi_additive_dimensions_all(output: Path) -> None:
         "class MarivoDatasetCustomExtension",
         1,
     )
+    text, field_validator_count = re.subn(
+        r"(?P<field_model>"
+        r"class FieldModel\(BaseModel\):\n"
+        r"(?:(?!\nclass Dataset).)*?"
+        r"    custom_extensions: list\[MarivoFieldCustomExtension\] \| None = Field\(\n"
+        r"        None,\n"
+        r"(?:(?!\nclass Dataset).)*?"
+        r"        max_length=1,\n"
+        r"    \)\n"
+        r")\n\nclass Dataset",
+        r"\g<field_model>\n"
+        "    @model_validator(mode='after')\n"
+        "    def _validate_marivo_time_field_extension(self) -> FieldModel:\n"
+        "        is_time = self.dimension is not None and self.dimension.is_time is True\n"
+        "        extension_count = len(self.custom_extensions or [])\n"
+        "        if is_time and extension_count != 1:\n"
+        "            raise ValueError('time fields must define exactly one MARIVO field extension')\n"
+        "        if not is_time and extension_count:\n"
+        "            raise ValueError('non-time fields must not define MARIVO field extensions')\n"
+        "        return self\n\n\n"
+        "class Dataset",
+        text,
+        count=1,
+        flags=re.DOTALL,
+    )
+    if field_validator_count != 1:
+        raise RuntimeError("Failed to patch OSI FieldModel MARIVO field extension validator")
     output.write_text(text, encoding="utf-8")
 
 
@@ -273,7 +300,7 @@ def _write_generated_package(output_dir: Path) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     osi_output = output_dir / "osi.py"
     _run_codegen(OSI_SCHEMA, osi_output, "OSI")
-    _patch_osi_additive_dimensions_all(osi_output)
+    _patch_osi_generated_model_validators(osi_output)
     aoi_output = output_dir / "aoi.py"
     _run_codegen(AOI_SCHEMA, aoi_output, "AOI")
     _patch_aoi_optional_non_null_fields(aoi_output)
