@@ -396,8 +396,8 @@ transport defaults before constructing that generated model:
 ```
 
 `current` and `baseline` use AOI `Slice` (`time_scope` plus optional `filter`).
-`grain` is required and is passed to the wrapped hypothesis test as the
-statistical sample unit (`hour`, `day`, `week`, `month`, `quarter`, or `year`).
+`grain` is required and uses AOI `TimeGranularity` values as the statistical
+sample unit (`hour`, `day`, `week`, `month`, `quarter`, or `year`).
 Time slice boundaries must align to the selected `grain`. Derived `scope` and
 `method` are not part of the runtime contract.
 

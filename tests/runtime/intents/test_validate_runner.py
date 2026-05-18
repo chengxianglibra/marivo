@@ -133,7 +133,7 @@ def test_forwards_filters_to_test_and_bundle_payload() -> None:
 
 
 @pytest.mark.parametrize("grain", ["quarter", "year"])
-def test_validate_accepts_extended_sample_grains(grain: str) -> None:
+def test_validate_accepts_time_granularity_grain(grain: str) -> None:
     params = _valid_params()
     params["grain"] = grain
 

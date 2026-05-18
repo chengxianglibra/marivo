@@ -182,7 +182,7 @@ def test_passes_filters_to_sample_summaries_and_source_lineage() -> None:
 
 
 @pytest.mark.parametrize("grain", ["quarter", "year"])
-def test_accepts_extended_sample_grains(grain: str) -> None:
+def test_accepts_time_granularity_grain(grain: str) -> None:
     params = _valid_params()
     params["grain"] = grain
 

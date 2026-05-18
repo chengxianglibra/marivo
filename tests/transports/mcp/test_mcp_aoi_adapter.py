@@ -310,7 +310,7 @@ def test_to_aoi_test_request_builds_test_model() -> None:
 
 
 @pytest.mark.parametrize("grain", ["quarter", "year"])
-def test_to_aoi_test_request_accepts_extended_sample_grains(grain: str) -> None:
+def test_to_aoi_test_request_accepts_time_granularity_grain(grain: str) -> None:
     request = to_aoi_test_request(
         metric="view_time",
         current=_slice("2026-01-01T00:00:00Z", "2027-01-01T00:00:00Z"),
@@ -400,7 +400,7 @@ def test_to_aoi_validate_request_builds_validate_model_with_defaults() -> None:
 
 
 @pytest.mark.parametrize("grain", ["quarter", "year"])
-def test_to_aoi_validate_request_accepts_extended_sample_grains(grain: str) -> None:
+def test_to_aoi_validate_request_accepts_time_granularity_grain(grain: str) -> None:
     request = to_aoi_validate_request(
         metric="view_time",
         current=_slice("2026-01-01T00:00:00Z", "2027-01-01T00:00:00Z"),
