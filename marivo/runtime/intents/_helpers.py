@@ -199,6 +199,7 @@ def compute_numeric_sample_summary(
                 "grain": grain,
                 "current": {"start": start_str, "end": end_str},
             },
+            "time_scope_field": time_scope_field,
         }
     )
     engine_resolution = runtime.resolve_engine_for_session(session_id, [resolved.table])

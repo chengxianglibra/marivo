@@ -97,7 +97,6 @@ class TimeAxisMetadataProvider:
             return TimeAxisMetadataContext(available_columns=[])
 
         time_rows = [row for row in available_rows if int(row.get("is_time") or 0) == 1]
-        time_field_names = [row["name"] for row in time_rows]
         time_field_expressions = {
             row["name"]: expression
             for row in time_rows
@@ -121,16 +120,14 @@ class TimeAxisMetadataProvider:
             is not None
         }
 
-        entity_time_capabilities = _infer_time_capabilities(time_field_names)
-
         return TimeAxisMetadataContext(
-            entity_time_capabilities=entity_time_capabilities,
+            entity_time_capabilities=None,
             source_time_capabilities=None,
             available_columns=available_columns,
             time_field_expressions=time_field_expressions,
             time_field_data_types=time_field_data_types,
             time_field_support_min_granularities=time_field_support_min_granularities,
-            has_time_binding=bool(time_field_names),
+            has_time_binding=bool(time_rows),
         )
 
     def _load_field_rows_for_metric(
@@ -158,40 +155,6 @@ class TimeAxisMetadataProvider:
             "WHERE d.source = ? ORDER BY f.position",
             [table_name],
         )
-
-
-def _infer_time_capabilities(time_fields: list[str]) -> dict[str, Any] | None:
-    if not time_fields:
-        return None
-
-    analysis_time: dict[str, str] = {}
-    partition_time: dict[str, str] = {}
-
-    for name in time_fields:
-        lowered = name.lower()
-        if lowered in ("ctime", "event_time", "timestamp", "created_at", "updated_at", "time"):
-            analysis_time.setdefault("timestamp_column", name)
-        elif lowered in ("log_date", "event_date", "dt", "date", "day"):
-            if "fallback_date_column" not in analysis_time:
-                analysis_time["fallback_date_column"] = name
-            partition_time["date_column"] = name
-            if lowered in ("log_date", "dt"):
-                partition_time["date_format"] = "yyyymmdd"
-        elif lowered in ("log_hour", "hour", "event_hour"):
-            analysis_time["fallback_hour_column"] = name
-            partition_time["hour_column"] = name
-            partition_time["hour_format"] = "int"
-
-    if not analysis_time and not partition_time:
-        first = time_fields[0]
-        analysis_time["timestamp_column"] = first
-
-    result: dict[str, Any] = {}
-    if analysis_time:
-        result["analysis_time"] = analysis_time
-    if partition_time:
-        result["partition_time"] = partition_time
-    return result or None
 
 
 def _normalize_analysis_time_section(

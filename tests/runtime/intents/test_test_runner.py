@@ -281,6 +281,66 @@ def test_sample_summary_query_uses_required_grain(
     assert "STDDEV_SAMP(value) AS standard_deviation" in executed_query.sql
 
 
+def test_sample_summary_preserves_aoi_time_scope_field_for_bucket_axis() -> None:
+    runtime = _runtime()
+    runtime.resolve_metric_execution_context.return_value = SimpleNamespace(table_name="orders")
+    runtime.resolve_metric.return_value = SimpleNamespace(
+        semantic_object={"header": {"aggregation_semantics": "sum"}}
+    )
+    runtime.resolve_metric_dimensions.return_value = ["log_date_ts", "log_hour"]
+    runtime.resolve_engine_for_session.return_value = (
+        MagicMock(),
+        "trino",
+        {"orders": "q_orders"},
+    )
+    runtime.resolve_metric_sql_for_execution.return_value = "COUNT(*)"
+    runtime.compile_step.return_value = SimpleNamespace(
+        params=[],
+        metadata={"engine_type": "trino"},
+        ir_bundle={"plan": {"nodes": []}},
+    )
+
+    def _resolve_time_axis(resolved: Any, **_: Any) -> None:
+        override = resolved.resolved_time_axis.override_analysis_time_column
+        resolved.resolved_time_axis.analysis_time_expr = override
+
+    runtime.resolve_windowed_query_time_axis.side_effect = _resolve_time_axis
+
+    with (
+        patch("marivo.runtime.intents._helpers.build_scoped_query_for_window") as mock_scoped,
+        patch("marivo.runtime.intents._helpers.execute_compiled") as mock_execute,
+    ):
+        mock_scoped.return_value = {
+            "mode": "single_window",
+            "analysis_time_expr": "log_date_ts",
+            "analysis_time_kind": "timestamp",
+            "engine_type": "trino",
+            "current": {"start": "2026-04-18", "end": "2026-05-18"},
+        }
+        mock_execute.return_value = SimpleNamespace(
+            rows=[{"n": 30, "mean": 16.0, "standard_deviation": 6.0}]
+        )
+
+        compute_numeric_sample_summary(
+            runtime,
+            "session-1",
+            "metric.test_metric",
+            {
+                "field": "log_date_ts",
+                "start": "2026-04-18",
+                "end": "2026-05-18",
+            },
+            grain="day",
+        )
+
+    first_resolved = runtime.resolve_windowed_query_time_axis.call_args_list[0].args[0]
+    assert first_resolved.resolved_time_axis.override_analysis_time_column == "log_date_ts"
+    scoped_kwargs = mock_scoped.call_args.kwargs
+    assert scoped_kwargs["time_scope_field"] == "log_date_ts"
+    compiled_step = runtime.compile_step.call_args.args[0]
+    assert compiled_step.params["group_by"] == ["DATE_TRUNC('day', log_date_ts) AS bucket_start"]
+
+
 def test_sample_summary_accepts_count_metric_for_sum_semantics() -> None:
     runtime = _runtime()
     runtime.resolve_metric_execution_context.return_value = SimpleNamespace(table_name="orders")

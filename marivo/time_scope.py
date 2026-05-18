@@ -133,8 +133,6 @@ _AGGREGATE_QUERY_FIELDS = frozenset(
 _TIME_PREDICATE_PATTERN = re.compile(
     r"(?ix)"
     r"("
-    r"\b(?:event_time|created_at|updated_at|event_date|log_date|event_hour|log_hour|dt_hour)\b"
-    r"|"
     r"\b(?:current_date|current_timestamp|date_trunc|strftime)\s*\("
     r"|"
     r"\bextract\s*\("
@@ -142,11 +140,6 @@ _TIME_PREDICATE_PATTERN = re.compile(
     r"\btimestamp\b"
     r")"
 )
-
-_TIMESTAMP_CANDIDATES = ("event_time", "timestamp", "created_at", "updated_at", "time")
-_DAY_CANDIDATES = ("log_date", "event_date", "dt", "date", "day")
-_HOUR_CANDIDATES = ("log_hour", "event_hour", "hour", "dt_hour")
-_EMPTY_SCHEMA_DAY_CANDIDATES = ("event_date", "date", "day", "dt", "log_date")
 
 
 def normalize_metric_query_request(params: Mapping[str, Any]) -> ResolvedWindowedQueryRequest:
@@ -442,29 +435,12 @@ class TimeAxisResolver:
                     columns=columns,
                     metadata_chain=metadata_chain,
                 )
-            if field_data_type is not None:
-                if _sql_type_is_date(field_data_type):
-                    if self.request.time_scope.grain == "hour":
-                        raise ValueError(
-                            "time_axis.analysis_time.column must be hour-compatible for hour grain; "
-                            "select a time field whose support_min_granularity is 'hour'"
-                        )
-                    date_format = self._analysis_date_format(metadata_chain, override)
-                    return _AnalysisAxis(
-                        kind="date_field",
-                        expr=self._date_field_analysis_expr(override, date_format),
-                        column=override,
-                        date_column=override,
-                        date_format=date_format,
+            if _sql_type_is_date(field_data_type):
+                if self.request.time_scope.grain == "hour":
+                    raise ValueError(
+                        "time_axis.analysis_time.column must be hour-compatible for hour grain; "
+                        "select a time field whose support_min_granularity is 'hour'"
                     )
-                if _sql_type_is_timestamp(field_data_type):
-                    return _AnalysisAxis(kind="timestamp", expr=override, column=override)
-            if self.request.time_scope.grain == "hour" and _looks_like_day_column(override):
-                raise ValueError(
-                    "time_axis.analysis_time.column must be hour-compatible for hour grain; "
-                    "select a time field whose support_min_granularity is 'hour'"
-                )
-            if _looks_like_day_column(override):
                 date_format = self._analysis_date_format(metadata_chain, override)
                 return _AnalysisAxis(
                     kind="date_field",
@@ -473,7 +449,29 @@ class TimeAxisResolver:
                     date_column=override,
                     date_format=date_format,
                 )
-            return _AnalysisAxis(kind="timestamp", expr=override, column=override)
+            if _sql_type_is_timestamp(field_data_type):
+                return _AnalysisAxis(kind="timestamp", expr=override, column=override)
+            for caps in metadata_chain:
+                if caps.timestamp_column == override:
+                    timestamp_expr = _timestamp_field_expr(
+                        override,
+                        caps.timestamp_format,
+                        engine_type=self.engine_type,
+                    )
+                    return _AnalysisAxis(kind="timestamp", expr=timestamp_expr, column=override)
+                if caps.fallback_date_column == override:
+                    date_format = self._analysis_date_format(metadata_chain, override)
+                    return _AnalysisAxis(
+                        kind="date_field",
+                        expr=self._date_field_analysis_expr(override, date_format),
+                        column=override,
+                        date_column=override,
+                        date_format=date_format,
+                    )
+            raise ValueError(
+                f"time_axis.analysis_time.column '{override}' requires explicit "
+                "time field data_type or time_capabilities metadata"
+            )
 
         for caps in metadata_chain:
             if caps.timestamp_column is not None:
@@ -537,53 +535,9 @@ class TimeAxisResolver:
                     date_format=date_format,
                 )
 
-        if not columns and self.request.time_scope.grain == "day":
-            day_column = self._first_candidate(columns, _EMPTY_SCHEMA_DAY_CANDIDATES)
-            if day_column is not None:
-                date_format = self._analysis_date_format(metadata_chain, day_column)
-                return _AnalysisAxis(
-                    kind="date_field",
-                    expr=self._date_field_analysis_expr(day_column, date_format),
-                    column=day_column,
-                    date_column=day_column,
-                    date_format=date_format,
-                )
-
-        timestamp_column = self._first_candidate(columns, _TIMESTAMP_CANDIDATES)
-        if timestamp_column is not None:
-            return _AnalysisAxis(kind="timestamp", expr=timestamp_column, column=timestamp_column)
-
-        day_column = self._first_candidate(columns, _DAY_CANDIDATES)
-        hour_column = self._first_candidate(columns, _HOUR_CANDIDATES)
-        if self.request.time_scope.grain == "hour":
-            if day_column is not None and hour_column is not None:
-                return _AnalysisAxis(
-                    kind="partition_fields",
-                    expr=self._partition_hour_analysis_expr(
-                        day_column,
-                        hour_column,
-                        self._analysis_date_format(metadata_chain, day_column),
-                    ),
-                    date_column=day_column,
-                    date_format=self._analysis_date_format(metadata_chain, day_column),
-                    hour_column=hour_column,
-                    hour_format=self._analysis_hour_format(metadata_chain, hour_column),
-                )
-            raise ValueError(
-                f"could not resolve an hour-compatible time axis for {self.request.table}; "
-                "provide time_axis override or metadata-backed timestamp/date+hour columns"
-            )
-        if day_column is not None:
-            date_format = self._analysis_date_format(metadata_chain, day_column)
-            return _AnalysisAxis(
-                kind="date_field",
-                expr=self._date_field_analysis_expr(day_column, date_format),
-                column=day_column,
-                date_column=day_column,
-                date_format=date_format,
-            )
         raise ValueError(
-            f"could not resolve a time axis for {self.request.table}; provide time_axis override or metadata"
+            f"could not resolve a time axis for {self.request.table}; "
+            "provide time_axis override or explicit time_capabilities metadata"
         )
 
     def _analysis_axis_from_time_field_expression(
@@ -596,12 +550,12 @@ class TimeAxisResolver:
         metadata_chain: list[_TimeCapabilities],
     ) -> _AnalysisAxis:
         if _is_simple_identifier(expression):
-            if self.request.time_scope.grain == "hour" and _looks_like_day_column(expression):
-                raise ValueError(
-                    "time_scope.field expression must be hour-compatible for hour grain; "
-                    "select a time field whose support_min_granularity is 'hour'"
-                )
-            if _looks_like_day_column(expression) or _sql_type_is_date(data_type):
+            if _sql_type_is_date(data_type):
+                if self.request.time_scope.grain == "hour":
+                    raise ValueError(
+                        "time_scope.field expression must be hour-compatible for hour grain; "
+                        "select a time field whose support_min_granularity is 'hour'"
+                    )
                 date_format = self._analysis_date_format(metadata_chain, expression)
                 return _AnalysisAxis(
                     kind="date_field",
@@ -610,7 +564,9 @@ class TimeAxisResolver:
                     date_column=expression,
                     date_format=date_format,
                 )
-            return _AnalysisAxis(kind="timestamp", expr=expression, column=field_name)
+            if _sql_type_is_timestamp(data_type):
+                return _AnalysisAxis(kind="timestamp", expr=expression, column=field_name)
+            raise ValueError(f"time field '{field_name}' expression requires explicit data_type")
 
         if _sql_type_is_timestamp(data_type) or _expression_returns_timestamp(expression):
             return _AnalysisAxis(
@@ -620,9 +576,10 @@ class TimeAxisResolver:
             )
         if _sql_type_is_date(data_type) or _expression_returns_date(expression):
             return _AnalysisAxis(kind="date_expression", expr=expression, column=field_name)
-        if self.request.time_scope.grain == "hour":
-            return _AnalysisAxis(kind="timestamp", expr=expression, column=field_name)
-        return _AnalysisAxis(kind="date_expression", expr=expression, column=field_name)
+        raise ValueError(
+            f"time field '{field_name}' expression requires explicit data_type "
+            "or a timestamp/date cast"
+        )
 
     def _validate_supported_granularity(self, analysis: _AnalysisAxis) -> None:
         field_name = analysis.column or analysis.date_column
@@ -686,9 +643,7 @@ class TimeAxisResolver:
                 return caps.fallback_hour_column
             if caps.partition_date_column == date_column and caps.partition_hour_column is not None:
                 return caps.partition_hour_column
-        if not _looks_like_day_column(date_column):
-            return None
-        return TimeAxisResolver._first_candidate(columns, _HOUR_CANDIDATES)
+        return None
 
     def _resolve_partition_axis(
         self,
@@ -709,7 +664,7 @@ class TimeAxisResolver:
 
         date_column = override_date
         hour_column = override_hour
-        date_format = _default_date_format_for_column(date_column) if date_column else None
+        date_format = None
         hour_format = _default_hour_format_for_column(hour_column) if hour_column else None
 
         if date_column is None:
@@ -721,9 +676,7 @@ class TimeAxisResolver:
                         "time_capabilities.partition_time.date_column",
                     )
                     date_column = caps.partition_date_column
-                    date_format = caps.partition_date_format or _default_date_format_for_column(
-                        date_column
-                    )
+                    date_format = caps.partition_date_format
                     break
         if hour_column is None:
             for caps in metadata_chain:
@@ -741,19 +694,10 @@ class TimeAxisResolver:
 
         if date_column is None and analysis.date_column is not None:
             date_column = analysis.date_column
-            date_format = analysis.date_format or _default_date_format_for_column(date_column)
+            date_format = analysis.date_format
         if hour_column is None and analysis.hour_column is not None:
             hour_column = analysis.hour_column
             hour_format = analysis.hour_format or _default_hour_format_for_column(hour_column)
-
-        if date_column is None:
-            date_column = self._first_candidate(columns, _DAY_CANDIDATES)
-            if date_column is not None:
-                date_format = _default_date_format_for_column(date_column)
-        if hour_column is None:
-            hour_column = self._first_candidate(columns, _HOUR_CANDIDATES)
-            if hour_column is not None:
-                hour_format = _default_hour_format_for_column(hour_column)
 
         if date_column is None:
             return None
@@ -905,16 +849,6 @@ class TimeAxisResolver:
         return min(starts), max(ends)
 
     @staticmethod
-    def _first_candidate(columns: tuple[str, ...], candidates: Sequence[str]) -> str | None:
-        if columns:
-            column_set = set(columns)
-            for candidate in candidates:
-                if candidate in column_set:
-                    return candidate
-            return None
-        return candidates[0] if candidates else None
-
-    @staticmethod
     def _ensure_known_column(column: str, columns: tuple[str, ...], label: str) -> None:
         if columns and column not in set(columns):
             raise ValueError(f"{label} references unknown column '{column}'")
@@ -926,7 +860,7 @@ class TimeAxisResolver:
         for caps in metadata_chain:
             if caps.partition_date_column == date_column and caps.partition_date_format is not None:
                 return caps.partition_date_format
-        return _default_date_format_for_column(date_column)
+        return None
 
     @staticmethod
     def _analysis_hour_format(
@@ -1041,10 +975,6 @@ def _normalize_columns(columns: Sequence[str]) -> tuple[str, ...]:
     return tuple(normalized)
 
 
-def _looks_like_day_column(column: str) -> bool:
-    return column in _DAY_CANDIDATES
-
-
 def _is_simple_identifier(expression: str) -> bool:
     return bool(re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", expression.strip()))
 
@@ -1121,12 +1051,6 @@ def _normalize_hour_format(value: Any) -> str | None:
 
 def _normalize_timestamp_format(value: Any) -> str | None:
     return normalize_timestamp_format(value)
-
-
-def _default_date_format_for_column(column: str | None) -> str | None:
-    if column in {"log_date", "dt"}:
-        return "yyyymmdd"
-    return None
 
 
 def _default_hour_format_for_column(column: str | None) -> str | None:

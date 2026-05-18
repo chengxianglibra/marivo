@@ -124,6 +124,23 @@ class TimeScopeNormalizationTests(unittest.TestCase):
             resolved.scope.predicate, "business_hour = 9 AND state_date = '2026-03-01'"
         )
 
+    def test_normalizers_do_not_infer_scope_time_predicates_from_column_names(self) -> None:
+        resolved = normalize_metric_query_request(
+            {
+                "table": "analytics.watch_events",
+                "metric": "watch_time",
+                "time_scope": {
+                    "mode": "compare",
+                    "grain": "day",
+                    "current": {"start": "2026-03-10", "end": "2026-03-17"},
+                    "baseline": {"start": "2026-03-03", "end": "2026-03-10"},
+                },
+                "scope": {"predicate": "event_time = '2026-03-01'"},
+            }
+        )
+
+        self.assertEqual(resolved.scope.predicate, "event_time = '2026-03-01'")
+
     def test_day_grain_normalizes_datetime_boundaries_to_dates(self) -> None:
         resolved = normalize_metric_query_request(
             {
@@ -448,12 +465,16 @@ class TimeAxisResolverTests(unittest.TestCase):
             "ds = '20260325' AND hh >= '06' AND hh < '14'",
         )
 
-    def test_resolver_falls_back_to_date_field_for_day_partition_layout(self) -> None:
+    def test_resolver_uses_explicit_date_capabilities_for_day_partition_layout(self) -> None:
         request = self._compare_request(grain="day")
         resolved = TimeAxisResolver(
             request=request,
             engine_type="duckdb",
             available_columns=["log_date", "resource_group"],
+            source_time_capabilities={
+                "analysis_time": {"fallback_date_column": "log_date"},
+                "partition_time": {"date_column": "log_date", "date_format": "yyyymmdd"},
+            },
             time_field_support_min_granularities={"log_date": "day"},
         ).resolve()
         self.assertEqual(resolved.analysis_time_kind, "date_field")
@@ -512,6 +533,10 @@ class TimeAxisResolverTests(unittest.TestCase):
             request=request,
             engine_type="trino",
             available_columns=["log_date", "resource_group"],
+            source_time_capabilities={
+                "analysis_time": {"fallback_date_column": "log_date"},
+                "partition_time": {"date_column": "log_date", "date_format": "yyyymmdd"},
+            },
             time_field_support_min_granularities={"log_date": "day"},
         ).resolve()
         self.assertEqual(resolved.analysis_time_kind, "date_field")
@@ -606,12 +631,21 @@ class TimeAxisResolverTests(unittest.TestCase):
             "(log_date = '20260324' AND log_hour >= '22') OR (log_date = '20260325')",
         )
 
-    def test_resolver_heuristics_prefer_timestamp_when_mixed_columns_exist(self) -> None:
+    def test_resolver_uses_explicit_timestamp_capabilities_when_mixed_columns_exist(self) -> None:
         request = self._compare_request()
         resolved = TimeAxisResolver(
             request=request,
             engine_type="duckdb",
             available_columns=["event_time", "log_date", "log_hour"],
+            source_time_capabilities={
+                "analysis_time": {"timestamp_column": "event_time"},
+                "partition_time": {
+                    "date_column": "log_date",
+                    "date_format": "yyyymmdd",
+                    "hour_column": "log_hour",
+                    "hour_format": "int",
+                },
+            },
             time_field_support_min_granularities={"event_time": "hour", "log_date": "day"},
         ).resolve()
         self.assertEqual(resolved.analysis_time_kind, "timestamp")
@@ -624,13 +658,24 @@ class TimeAxisResolverTests(unittest.TestCase):
             request=request,
             engine_type="duckdb",
             available_columns=["event_time", "platform"],
+            source_time_capabilities={"analysis_time": {"timestamp_column": "event_time"}},
             time_field_support_min_granularities={"event_time": "hour"},
         ).resolve()
         self.assertEqual(resolved.analysis_time_kind, "timestamp")
         self.assertEqual(resolved.analysis_time_expr, "event_time")
         self.assertIsNone(resolved.partition_pruning_predicate)
 
-    def test_resolver_prefers_metadata_over_timestamp_heuristic_candidates(self) -> None:
+    def test_resolver_does_not_infer_timestamp_axis_from_column_name(self) -> None:
+        request = self._compare_request()
+        with self.assertRaisesRegex(ValueError, "could not resolve a time axis"):
+            TimeAxisResolver(
+                request=request,
+                engine_type="duckdb",
+                available_columns=["event_time", "platform"],
+                time_field_support_min_granularities={"event_time": "hour"},
+            ).resolve()
+
+    def test_resolver_uses_declared_timestamp_metadata(self) -> None:
         request = self._compare_request()
         resolved = TimeAxisResolver(
             request=request,
@@ -704,6 +749,7 @@ class TimeAxisResolverTests(unittest.TestCase):
             engine_type="duckdb",
             available_columns=["event_time", "created_at"],
             entity_time_capabilities={"analysis_time": {"timestamp_column": "event_time"}},
+            time_field_data_types={"created_at": "timestamp"},
             time_field_support_min_granularities={"event_time": "hour", "created_at": "hour"},
         ).resolve()
         self.assertEqual(resolved.analysis_time_expr, "created_at")
@@ -785,6 +831,14 @@ class TimeAxisResolverTests(unittest.TestCase):
             request=request,
             engine_type="trino",
             available_columns=["query_start_time", "create_time", "log_date", "log_hour"],
+            source_time_capabilities={
+                "partition_time": {
+                    "date_column": "log_date",
+                    "date_format": "yyyymmdd",
+                    "hour_column": "log_hour",
+                    "hour_format": "hh",
+                }
+            },
             time_field_expressions={"query_start_time": "CAST(create_time AS TIMESTAMP)"},
             time_field_data_types={"query_start_time": "timestamp"},
             time_field_support_min_granularities={"query_start_time": "hour"},
@@ -850,7 +904,7 @@ class TimeAxisResolverTests(unittest.TestCase):
 
     def test_resolver_rejects_hour_grain_without_hour_capable_axis(self) -> None:
         request = self._compare_request()
-        with self.assertRaisesRegex(ValueError, "hour-compatible time axis"):
+        with self.assertRaisesRegex(ValueError, "could not resolve a time axis"):
             TimeAxisResolver(
                 request=request,
                 engine_type="duckdb",

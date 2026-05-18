@@ -212,7 +212,47 @@ class TimeAxisMetadataProviderTests(unittest.TestCase):
         self.assertEqual(context.time_field_data_types["query_time"], "timestamp")
         self.assertEqual(context.time_field_support_min_granularities["query_time"], "hour")
         self.assertEqual(context.time_field_support_min_granularities["create_date"], "day")
+        self.assertIsNone(context.entity_time_capabilities)
         self.assertTrue(context.has_time_binding)
+
+    def test_load_for_windowed_query_does_not_infer_time_capabilities(self) -> None:
+        class TimeMetadataStub:
+            def query_rows(self, sql: str, params: list[Any] | None = None) -> list[dict[str, Any]]:
+                if "JOIN semantic_metrics m" in sql:
+                    return [
+                        {
+                            "name": "log_date_ts",
+                            "expression": json.dumps(
+                                {
+                                    "dialects": [
+                                        {
+                                            "dialect": "TRINO",
+                                            "expression": "CAST(parse_datetime(log_date, 'yyyyMMdd') AS date)",
+                                        }
+                                    ]
+                                }
+                            ),
+                            "data_type": "timestamp",
+                            "support_min_granularity": "day",
+                            "is_time": 1,
+                        },
+                        {
+                            "name": "log_hour",
+                            "expression": None,
+                            "data_type": "integer",
+                            "support_min_granularity": "hour",
+                            "is_time": 1,
+                        },
+                    ]
+                return []
+
+        context = TimeAxisMetadataProvider(TimeMetadataStub()).load_for_windowed_query(
+            table_name="analytics.events",
+            metric_name="metric.event_count",
+            engine_type="trino",
+        )
+
+        self.assertIsNone(context.entity_time_capabilities)
 
     def test_load_for_windowed_query_falls_back_to_source_fields_without_metric(self) -> None:
         context = TimeAxisMetadataProvider(_MetadataStub()).load_for_windowed_query(
