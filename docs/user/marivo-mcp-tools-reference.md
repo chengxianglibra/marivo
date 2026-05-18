@@ -1773,9 +1773,10 @@ interface AssociationResult {
 | metric | string | 是 | 语义指标名称 |
 | current | McpAoiSliceRef | 是 | 当前时间切片 |
 | baseline | McpAoiSliceRef | 是 | 基准时间切片 |
+| grain | `"hour"` \| `"day"` \| `"week"` \| `"month"` \| `"quarter"` \| `"year"` | 是 | 统计样本粒度，用于把两个时间切片拆成样本；不是输出 selector |
 | hypothesis | object | 是 | 假设描述对象，仅包含 `alternative`、`significance` |
 
-注意：MCP 适配层内部固定使用 AOI `kind="numeric"` 和 `hypothesis.family="two_sample_mean"`；用户只需提供 `metric`、当前/基准切片和 `hypothesis` 中的 `alternative`、`significance`。`hypothesis.significance` 支持 `"conservative"`（严格，内部 alpha=0.01）、`"balanced"`（默认，内部 alpha=0.05）、`"aggressive"`（探索性，内部 alpha=0.10）。`current/baseline` 可带 `filter`，不可带 derived intent 的 `scope`。`hypothesis` 需为结构化对象，不接受 JSON 字符串，且不支持 `family`、`alpha` 或 `label` 字段。`test_intent` 无 `kind` 或 `method` 参数。
+注意：MCP 适配层内部固定使用 AOI `kind="numeric"` 和 `hypothesis.family="two_sample_mean"`；用户需提供 `metric`、当前/基准切片、`grain` 和 `hypothesis` 中的 `alternative`、`significance`。`grain` 定义检验使用的样本单位，例如两周总量比较可传 `"day"` 表示按天形成两组样本；时间窗口边界必须与所选 `grain` 对齐。`hypothesis.significance` 支持 `"conservative"`（严格，内部 alpha=0.01）、`"balanced"`（默认，内部 alpha=0.05）、`"aggressive"`（探索性，内部 alpha=0.10）。`current/baseline` 可带 `filter`，不可带 derived intent 的 `scope`。`hypothesis` 需为结构化对象，不接受 JSON 字符串，且不支持 `family`、`alpha` 或 `label` 字段。`test_intent` 无 `kind` 或 `method` 参数。
 
 **输出 — TestIntentArtifact**：
 
@@ -1799,6 +1800,7 @@ interface TestIntentArtifact {
   "baseline": {
     "time_scope": { "field": "create_time", "start": "2025-03-04", "end": "2025-03-11" }
   },
+  "grain": "day",
   "hypothesis": { "alternative": "greater", "significance": "balanced" }
 }
 ```
@@ -1835,13 +1837,14 @@ interface TestIntentArtifact {
 | metric | string | 是 | 语义指标名称 |
 | current | McpAoiSliceRef | 是 | 当前 AOI 切片：`time_scope` + 可选 `filter` |
 | baseline | McpAoiSliceRef | 是 | 基准 AOI 切片：`time_scope` + 可选 `filter` |
+| grain | `"hour"` \| `"day"` \| `"week"` \| `"month"` \| `"quarter"` \| `"year"` | 是 | 传给底层假设检验的统计样本粒度 |
 
 可选参数：
 
 | 参数 | 类型 | 必填 | 默认 | 说明 |
 |------|------|------|------|------|
 | hypothesis | object | 否 | 省略 | 可包含 `alternative`、`significance`；不暴露 `family`，未传字段由 MCP 适配层补为默认值 |
-注意：MCP 层不暴露 `hypothesis.family`；适配层内部固定为 `"two_sample_mean"`，默认 `alternative="two_sided"`、`significance="balanced"`，并在进入 runtime 前构造 generated AOI `Validate` 模型。runtime 只接受完整 generated AOI `Validate` 降级后的参数。`hypothesis` 不支持 `family`、`alpha` 或 `label` 字段；`validate` 不支持 `method` 或 derived `scope`。
+注意：MCP 层不暴露 `hypothesis.family`；适配层内部固定为 `"two_sample_mean"`，默认 `alternative="two_sided"`、`significance="balanced"`，并在进入 runtime 前构造 generated AOI `Validate` 模型。`grain` 必填，用于指定底层检验如何把左右窗口拆成样本；时间窗口边界必须与所选 `grain` 对齐。runtime 只接受完整 generated AOI `Validate` 降级后的参数。`hypothesis` 不支持 `family`、`alpha` 或 `label` 字段；`validate` 不支持 `method` 或 derived `scope`。
 
 **输入示例**：
 
@@ -1855,6 +1858,7 @@ interface TestIntentArtifact {
   "baseline": {
     "time_scope": { "field": "create_time", "start": "2025-03-04", "end": "2025-03-11" }
   },
+  "grain": "day",
   "hypothesis": { "alternative": "greater", "significance": "balanced" }
 }
 ```
@@ -2209,9 +2213,9 @@ interface AnalysisFailure {
 - `compare`、`decompose`、`correlate`、`forecast` 使用 artifact ID 字符串引用，非结构化引用对象
 - `holiday_aligned` / `holiday_and_weekday_aligned` compare 前先检查 calendar rows；缺失时不得编造节假日数据
 - `observe`/`detect` 的 `filter_expression` 必须为 `McpExpression` 结构化对象，不接受 JSON 字符串
-- `test_intent` 在 MCP 层不暴露固定的 `kind` 或 `hypothesis.family`；适配层内部固定为 AOI `kind="numeric"` 和 `hypothesis.family="two_sample_mean"`，使用 `hypothesis.significance` 选择显著性档位，无 `method`、`hypothesis.alpha` 或 `hypothesis.label` 参数
+- `test_intent` 在 MCP 层不暴露固定的 `kind` 或 `hypothesis.family`；适配层内部固定为 AOI `kind="numeric"` 和 `hypothesis.family="two_sample_mean"`，要求 `grain` 为 `hour`、`day`、`week`、`month`、`quarter` 或 `year`，使用 `hypothesis.significance` 选择显著性档位，无 `method`、`hypothesis.alpha` 或 `hypothesis.label` 参数
 - `test_intent.left/right` 使用 `McpAoiSliceRef`，支持 `filter`，不支持 derived intent 的 `scope`
-- `validate.left/right` 使用 `McpAoiSliceRef`，进入 runtime 前会构造 generated AOI `Validate` 模型；`validate.hypothesis` 不暴露 `family`，不支持 `alpha`、`label` 或 `method`
+- `validate.left/right` 使用 `McpAoiSliceRef`，`grain` 必填并传给底层假设检验，进入 runtime 前会构造 generated AOI `Validate` 模型；`validate.hypothesis` 不暴露 `family`，不支持 `alpha`、`label` 或 `method`
 - `attribute.left/right` 使用 `McpAoiSliceRef`，进入 runtime 前会构造 generated AOI `Attribute` 模型；不支持 derived intent 的 `scope`
 - `diagnose` 只支持 auto-detect 异常诊断，使用 `filter_expression`；进入 runtime 前会构造 generated AOI `Diagnose` 模型，granularity 接受 `hour`、`day`、`week`、`month`、`quarter`、`year`
 - `correlate` 仅支持 `"pearson"` 和 `"spearman"` 方法，不支持 `"kendall"`

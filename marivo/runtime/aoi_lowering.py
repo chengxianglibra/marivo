@@ -56,6 +56,7 @@ def lower_aoi_request(intent_type: str, request: AoiAtomicRequest) -> dict[str, 
             "metric": request.metric,
             "current": _dump_slice(request.current),
             "baseline": _dump_slice(request.baseline),
+            "grain": request.grain,
             "kind": request.kind,
             "hypothesis": request.hypothesis.model_dump(exclude_none=True),
         }
@@ -72,6 +73,7 @@ def lower_aoi_derived_request(intent_type: str, request: AoiDerivedRequest) -> d
             "metric": request.metric,
             "current": _dump_slice(request.current),
             "baseline": _dump_slice(request.baseline),
+            "grain": request.grain,
             "hypothesis": request.hypothesis.model_dump(exclude_none=True),
         }
     if isinstance(request, aoi.Attribute):

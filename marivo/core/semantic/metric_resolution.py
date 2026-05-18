@@ -8,8 +8,9 @@ responsible for fetching any required data before invoking these functions.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date, datetime
 from typing import Any
+
+from marivo.time_contracts import window_length_in_grain
 
 # ── Shared helper ────────────────────────────────────────────────────
 
@@ -274,10 +275,10 @@ def metric_query_summary(
         if not debug["window_length_match"]:
             if current_len is None or baseline_len is None:
                 raise ValueError("metric_query compare summary requires both window lengths")
-            unit = "h" if grain == "hour" else "d"
+            unit = _window_length_unit(grain)
             summary += (
-                f" Window size mismatch: current={current_len}{unit}, "
-                f"baseline={baseline_len}{unit}; count/sum metrics may not be comparable."
+                f" Window size mismatch: current={current_len} {unit}, "
+                f"baseline={baseline_len} {unit}; count/sum metrics may not be comparable."
             )
         return summary
 
@@ -335,19 +336,24 @@ def window_length(
     window_end: str,
     grain: str,
 ) -> int:
-    """Compute the length of a time window in hours or days.
+    """Compute the length of a time window in the requested grain.
 
     Parameters
     ----------
     window_start, window_end:
         ISO-format datetime strings.
     grain:
-        ``"hour"`` for hours; anything else for days.
+        Supported values are hour, day, week, month, quarter, and year.
     """
-    if grain == "hour":
-        start_dt = datetime.fromisoformat(window_start)
-        end_dt = datetime.fromisoformat(window_end)
-        return int((end_dt - start_dt).total_seconds() // 3600)
-    start_day = date.fromisoformat(window_start)
-    end_day = date.fromisoformat(window_end)
-    return (end_day - start_day).days
+    return window_length_in_grain(window_start, window_end, grain=grain)
+
+
+def _window_length_unit(grain: str) -> str:
+    return {
+        "hour": "hour(s)",
+        "day": "day(s)",
+        "week": "week(s)",
+        "month": "month(s)",
+        "quarter": "quarter(s)",
+        "year": "year(s)",
+    }.get(grain, f"{grain}(s)")

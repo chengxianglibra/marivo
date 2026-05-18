@@ -17,7 +17,7 @@ from __future__ import annotations
 import hashlib
 import math
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from marivo.core.intent.primitives import new_step_id
 from marivo.runtime.intents._helpers import (
@@ -29,6 +29,7 @@ from marivo.runtime.intents.normalization import normalize_metric_ref
 from marivo.runtime.intents.predicate_lineage_reuse import (
     resolve_predicate_lineage_reuse_for_intent,
 )
+from marivo.time_scope import TimeScopeGrain
 
 if TYPE_CHECKING:
     from marivo.runtime.runtime import MarivoRuntime
@@ -36,12 +37,15 @@ if TYPE_CHECKING:
 _VALID_KINDS: frozenset[str] = frozenset({"numeric"})
 _VALID_FAMILIES: frozenset[str] = frozenset({"two_sample_mean"})
 _VALID_ALTERNATIVES: frozenset[str] = frozenset({"two_sided", "greater", "less"})
+_VALID_GRAINS: frozenset[str] = frozenset({"hour", "day", "week", "month", "quarter", "year"})
 _SIGNIFICANCE_ALPHA: dict[str, float] = {
     "conservative": 0.01,
     "balanced": 0.05,
     "aggressive": 0.10,
 }
-_REQUEST_FIELDS: frozenset[str] = frozenset({"metric", "current", "baseline", "kind", "hypothesis"})
+_REQUEST_FIELDS: frozenset[str] = frozenset(
+    {"metric", "current", "baseline", "grain", "kind", "hypothesis"}
+)
 _SLICE_FIELDS: frozenset[str] = frozenset({"time_scope", "filter"})
 _HYPOTHESIS_FIELDS: frozenset[str] = frozenset({"family", "alternative", "significance"})
 
@@ -172,6 +176,15 @@ def run_test_intent(
     baseline_time_scope: dict[str, Any] = baseline_raw["time_scope"]
     current_filter: Any = current_raw.get("filter")
     baseline_filter: Any = baseline_raw.get("filter")
+    grain_raw = p["grain"]
+    if not isinstance(grain_raw, str):
+        raise ValueError("test: INVALID_ARGUMENT - grain must be a string")
+    if grain_raw not in _VALID_GRAINS:
+        raise ValueError(
+            f"test: INVALID_ARGUMENT - grain must be one of {sorted(_VALID_GRAINS)}, "
+            f"got '{grain_raw}'"
+        )
+    grain = cast("TimeScopeGrain", grain_raw)
 
     # ── Hypothesis validation ────────────────────────────────────────────
     hypothesis_raw = p["hypothesis"]
@@ -222,10 +235,20 @@ def run_test_intent(
 
     # ── Compute sample summaries (internal, no intermediate artifacts) ──
     current_ss = compute_numeric_sample_summary(
-        runtime, session_id, metric_ref, current_time_scope, scope_raw=current_filter
+        runtime,
+        session_id,
+        metric_ref,
+        current_time_scope,
+        grain=grain,
+        scope_raw=current_filter,
     )
     baseline_ss = compute_numeric_sample_summary(
-        runtime, session_id, metric_ref, baseline_time_scope, scope_raw=baseline_filter
+        runtime,
+        session_id,
+        metric_ref,
+        baseline_time_scope,
+        grain=grain,
+        scope_raw=baseline_filter,
     )
 
     # ── Predicate lineage comparison ─────────────────────────────────────
@@ -317,12 +340,14 @@ def run_test_intent(
     baseline_start, baseline_end, _ = resolve_time_scope(baseline_time_scope)
     _hash_input = (
         f"{metric_ref}:welch_t:{family}:{alternative}:{alpha}"
-        f":current[{current_start},{current_end}]:baseline[{baseline_start},{baseline_end}]"
+        f":grain[{grain}]:current[{current_start},{current_end}]"
+        f":baseline[{baseline_start},{baseline_end}]"
     )
     query_hash = hashlib.sha256(_hash_input.encode()).hexdigest()[:16]
 
     # ── Source lineage ────────────────────────────────────────────────────
     source_lineage: dict[str, Any] = {
+        "grain": grain,
         "current": {
             "time_scope": {
                 "field": current_time_scope.get("field"),
@@ -375,13 +400,14 @@ def run_test_intent(
     decision_label = "reject" if reject_null else "fail-to-reject"
     summary = (
         f"test {metrics_label} [welch_t] alternative={alternative} alpha={alpha}: "
-        f"{decision_label} null (p={p_value:.4g})"
+        f"{decision_label} null (p={p_value:.4g}, grain={grain})"
     )
 
     provenance: dict[str, Any] = {
         "query_hash": query_hash,
         "engine": "service",
         "timestamp": now,
+        "grain": grain,
         "param_count": 0,
     }
     result = commit_step_result(

@@ -205,6 +205,7 @@ def test_lowers_test_request_to_runner_params() -> None:
                 end=datetime(2026, 5, 1, tzinfo=UTC),
             )
         ),
+        grain="day",
         kind="numeric",
         hypothesis=aoi.Hypothesis(
             family="two_sample_mean",
@@ -229,6 +230,7 @@ def test_lowers_test_request_to_runner_params() -> None:
                 "end": "2026-05-01T00:00:00Z",
             }
         },
+        "grain": "day",
         "kind": "numeric",
         "hypothesis": {
             "family": "two_sample_mean",
@@ -261,6 +263,7 @@ def test_lowers_test_request_with_filters_to_runner_params() -> None:
                 dialects=[aoi.Dialect(dialect="ANSI_SQL", expression="region = 'CA'")]
             ),
         ),
+        grain="hour",
         kind="numeric",
         hypothesis=aoi.Hypothesis(
             family="two_sample_mean",
@@ -287,6 +290,7 @@ def test_lowers_test_request_with_filters_to_runner_params() -> None:
             },
             "filter": {"dialects": [{"dialect": "ANSI_SQL", "expression": "region = 'CA'"}]},
         },
+        "grain": "hour",
         "kind": "numeric",
         "hypothesis": {
             "family": "two_sample_mean",
@@ -316,6 +320,7 @@ def test_lowers_validate_request_to_runner_params() -> None:
                 end=datetime(2026, 5, 1, tzinfo=UTC),
             ),
         ),
+        grain="day",
         hypothesis=aoi.Hypothesis(
             family="two_sample_mean",
             alternative="greater",
@@ -340,6 +345,7 @@ def test_lowers_validate_request_to_runner_params() -> None:
                 "end": "2026-05-01T00:00:00Z",
             }
         },
+        "grain": "day",
         "hypothesis": {
             "family": "two_sample_mean",
             "alternative": "greater",

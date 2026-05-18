@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 from datetime import datetime
 
+from marivo.time_contracts import previous_adjacent_window
 from marivo.time_scope import (
     AdHocAggregateValueSpec,
     SemanticMetricValueSpec,
@@ -141,19 +142,32 @@ class TimeScopeNormalizationTests(unittest.TestCase):
         self.assertEqual(resolved.time_scope.current.start, "2026-03-10")
         self.assertEqual(resolved.time_scope.current.end, "2026-03-17")
 
-    def test_hour_grain_normalizes_to_second_precision(self) -> None:
+    def test_hour_grain_accepts_whole_hour_boundaries(self) -> None:
         resolved = TimeScopeResolver(step_type="metric_query").resolve(
             {
                 "mode": "single_window",
                 "grain": "hour",
                 "current": {
-                    "start": "2026-03-25 10:00:00.999999",
+                    "start": "2026-03-25 10:00:00",
                     "end": "2026-03-25T14:00:00",
                 },
             }
         )
         self.assertEqual(resolved.current.start, "2026-03-25T10:00:00")
         self.assertEqual(resolved.current.end, "2026-03-25T14:00:00")
+
+    def test_hour_grain_rejects_non_whole_hour_boundaries(self) -> None:
+        with self.assertRaisesRegex(ValueError, "must align to hour grain"):
+            TimeScopeResolver(step_type="metric_query").resolve(
+                {
+                    "mode": "single_window",
+                    "grain": "hour",
+                    "current": {
+                        "start": "2026-03-25T10:00:00.999999",
+                        "end": "2026-03-25T14:00:00",
+                    },
+                }
+            )
 
     def test_hour_grain_accepts_date_only_boundaries(self) -> None:
         resolved = TimeScopeResolver(step_type="metric_query").resolve(
@@ -232,6 +246,98 @@ class TimeScopeNormalizationTests(unittest.TestCase):
         self.assertEqual(resolved.warnings[0]["code"], "window_length_mismatch")
         self.assertEqual(resolved.warnings[0]["current_duration"], 7)
         self.assertEqual(resolved.warnings[0]["baseline_duration"], 2)
+
+    def test_time_scope_accepts_aligned_quarter_and_year_grains(self) -> None:
+        quarter = TimeScopeResolver(step_type="metric_query").resolve(
+            {
+                "mode": "single_window",
+                "grain": "quarter",
+                "current": {"start": "2026-01-01", "end": "2026-07-01"},
+            }
+        )
+        year = TimeScopeResolver(step_type="metric_query").resolve(
+            {
+                "mode": "single_window",
+                "grain": "year",
+                "current": {"start": "2025-01-01", "end": "2027-01-01"},
+            }
+        )
+
+        self.assertEqual(quarter.current.start, "2026-01-01")
+        self.assertEqual(quarter.current.end, "2026-07-01")
+        self.assertEqual(year.current.start, "2025-01-01")
+        self.assertEqual(year.current.end, "2027-01-01")
+
+    def test_time_scope_rejects_unaligned_date_like_boundaries(self) -> None:
+        cases = [
+            ("week", "2026-01-01", "2026-01-08", "week"),
+            ("month", "2026-01-02", "2026-02-01", "month"),
+            ("quarter", "2026-02-01", "2026-04-01", "quarter"),
+            ("year", "2026-04-01", "2027-01-01", "year"),
+        ]
+
+        for grain, start, end, message in cases:
+            with self.subTest(grain=grain), self.assertRaisesRegex(ValueError, message):
+                TimeScopeResolver(step_type="metric_query").resolve(
+                    {
+                        "mode": "single_window",
+                        "grain": grain,
+                        "current": {"start": start, "end": end},
+                    }
+                )
+
+    def test_date_like_datetime_boundaries_truncate_then_validate_alignment(self) -> None:
+        resolved = TimeScopeResolver(step_type="metric_query").resolve(
+            {
+                "mode": "single_window",
+                "grain": "week",
+                "current": {
+                    "start": "2026-01-05T12:34:00",
+                    "end": "2026-01-12T23:59:59",
+                },
+            }
+        )
+
+        self.assertEqual(resolved.current.start, "2026-01-05")
+        self.assertEqual(resolved.current.end, "2026-01-12")
+
+    def test_quarter_compare_windows_use_bucket_count_for_duration(self) -> None:
+        resolved = TimeScopeResolver(step_type="metric_query").resolve(
+            {
+                "mode": "compare",
+                "grain": "quarter",
+                "current": {"start": "2026-01-01", "end": "2026-04-01"},
+                "baseline": {"start": "2026-04-01", "end": "2026-07-01"},
+            }
+        )
+
+        self.assertEqual(resolved.warnings, [])
+
+    def test_previous_adjacent_window_preserves_calendar_grain_alignment(self) -> None:
+        cases = [
+            ("week", "2026-01-05", "2026-01-19", {"start": "2025-12-22", "end": "2026-01-05"}),
+            ("month", "2026-03-01", "2026-05-01", {"start": "2026-01-01", "end": "2026-03-01"}),
+            (
+                "quarter",
+                "2026-01-01",
+                "2026-04-01",
+                {"start": "2025-10-01", "end": "2026-01-01"},
+            ),
+            ("year", "2025-01-01", "2026-01-01", {"start": "2024-01-01", "end": "2025-01-01"}),
+        ]
+
+        for grain, start, end, expected in cases:
+            with self.subTest(grain=grain):
+                baseline = previous_adjacent_window(start, end, grain=grain)
+
+                self.assertEqual(baseline, expected)
+                TimeScopeResolver(step_type="metric_query").resolve(
+                    {
+                        "mode": "single_window",
+                        "grain": grain,
+                        "current": baseline,
+                    }
+                )
 
 
 class TimeAxisResolverTests(unittest.TestCase):

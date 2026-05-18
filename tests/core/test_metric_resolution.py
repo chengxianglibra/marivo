@@ -257,6 +257,11 @@ def test_window_length_hour_grain() -> None:
     assert result == 12
 
 
+def test_window_length_quarter_and_year_grains() -> None:
+    assert window_length(window_start="2024-01-01", window_end="2024-07-01", grain="quarter") == 2
+    assert window_length(window_start="2024-01-01", window_end="2026-01-01", grain="year") == 2
+
+
 # ── Data classes ─────────────────────────────────────────────────────
 
 

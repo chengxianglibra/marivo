@@ -677,7 +677,7 @@ def _infer_compare_grain(
     ):
         return "hour"
 
-    if fallback_grain in {"hour", "day", "week", "month"}:
+    if fallback_grain in {"hour", "day", "week", "month", "quarter", "year"}:
         return fallback_grain
 
     return "day"
@@ -685,7 +685,7 @@ def _infer_compare_grain(
 
 def _time_scope_grain(time_scope: dict[str, Any]) -> str | None:
     grain = time_scope.get("grain")
-    if grain in {"hour", "day", "week", "month"}:
+    if grain in {"hour", "day", "week", "month", "quarter", "year"}:
         return str(grain)
     return None
 

@@ -42,6 +42,16 @@ CompareObserveArtifactId = Annotated[
     ),
 ]
 
+SampleGrain = Annotated[
+    Literal["hour", "day", "week", "month", "quarter", "year"],
+    Field(
+        description=(
+            "Required statistical sample grain used to split each source slice for "
+            "hypothesis testing. This is not an observe output selector."
+        )
+    ),
+]
+
 
 def _omit_none(payload: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in payload.items() if value is not None}
@@ -186,6 +196,7 @@ def to_aoi_test_request(
     metric: str,
     current: McpAoiSliceRef,
     baseline: McpAoiSliceRef,
+    grain: Literal["hour", "day", "week", "month", "quarter", "year"],
     hypothesis: McpTestHypothesis | dict[str, Any],
 ) -> aoi.Test:
     hypothesis_model = (
@@ -198,6 +209,7 @@ def to_aoi_test_request(
             "metric": metric,
             "current": _to_aoi_slice(current),
             "baseline": _to_aoi_slice(baseline),
+            "grain": grain,
             "kind": "numeric",
             "hypothesis": {
                 "family": "two_sample_mean",
@@ -212,6 +224,7 @@ def to_aoi_validate_request(
     metric: str,
     current: McpAoiSliceRef,
     baseline: McpAoiSliceRef,
+    grain: Literal["hour", "day", "week", "month", "quarter", "year"],
     hypothesis: McpValidateHypothesis | dict[str, Any] | None = None,
 ) -> aoi.Validate:
     hypothesis_model = (
@@ -224,6 +237,7 @@ def to_aoi_validate_request(
             "metric": metric,
             "current": _to_aoi_slice(current),
             "baseline": _to_aoi_slice(baseline),
+            "grain": grain,
             "hypothesis": {
                 "family": "two_sample_mean",
                 "alternative": hypothesis_model.alternative or "two_sided",
@@ -763,7 +777,8 @@ def register_test_intent(server: Any, runtime: Any) -> None:
         description=(
             "Run a fixed-family numeric hypothesis test over current and baseline AOI slices. "
             "MCP fixes kind='numeric' and hypothesis.family='two_sample_mean'; do not pass "
-            "kind, method, family, alpha, or label."
+            "kind, method, family, alpha, or label. grain is required and defines the "
+            "statistical sample unit."
         )
     )
     async def test_intent(
@@ -786,6 +801,7 @@ def register_test_intent(server: Any, runtime: Any) -> None:
             McpAoiSliceRef,
             Field(description="Baseline AOI slice: time_scope plus optional filter."),
         ],
+        grain: SampleGrain,
         hypothesis: Annotated[
             McpTestHypothesis,
             Field(
@@ -800,6 +816,7 @@ def register_test_intent(server: Any, runtime: Any) -> None:
             metric=metric,
             current=current,
             baseline=baseline,
+            grain=grain,
             hypothesis=hypothesis,
         )
         return await call_runtime(runtime.test, session_id=session_id, request=request)
@@ -810,7 +827,8 @@ def register_validate(server: Any, runtime: Any) -> None:
         description=(
             "Run derived validation for current and baseline AOI slices using the fixed "
             "two_sample_mean hypothesis family. MCP fills missing hypothesis defaults and "
-            "does not expose method, family, alpha, or label."
+            "does not expose method, family, alpha, or label. grain is required and defines "
+            "the statistical sample unit for the wrapped test."
         )
     )
     async def validate(
@@ -833,6 +851,7 @@ def register_validate(server: Any, runtime: Any) -> None:
             McpAoiSliceRef,
             Field(description="Baseline AOI slice: time_scope plus optional filter."),
         ],
+        grain: SampleGrain,
         hypothesis: Annotated[
             McpValidateHypothesis | None,
             Field(
@@ -847,6 +866,7 @@ def register_validate(server: Any, runtime: Any) -> None:
             metric=metric,
             current=current,
             baseline=baseline,
+            grain=grain,
             hypothesis=hypothesis,
         )
         return await call_runtime(runtime.validate, session_id=session_id, request=request)

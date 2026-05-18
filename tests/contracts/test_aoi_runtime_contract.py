@@ -163,6 +163,7 @@ def test_runtime_intent_envelope_accepts_generated_validate_request() -> None:
         metric="view_time",
         current=aoi.Slice(time_scope=_time_scope()),
         baseline=aoi.Slice(time_scope=_time_scope()),
+        grain="day",
         hypothesis=aoi.Hypothesis(
             family="two_sample_mean",
             alternative="two_sided",
@@ -191,6 +192,7 @@ def test_aoi_validate_accepts_full_current_shape_with_filters() -> None:
                 "time_scope": _time_scope_payload(),
                 "filter": {"dialects": [{"dialect": "ANSI_SQL", "expression": "region = 'CA'"}]},
             },
+            "grain": "day",
             "hypothesis": {
                 "family": "two_sample_mean",
                 "alternative": "greater",
@@ -225,6 +227,7 @@ def test_aoi_validate_rejects_invalid_shape(
         "metric": "view_time",
         "current": {"time_scope": _time_scope_payload()},
         "baseline": {"time_scope": _time_scope_payload()},
+        "grain": "day",
         "hypothesis": {
             "family": "two_sample_mean",
             "alternative": "two_sided",
@@ -277,6 +280,7 @@ def test_assert_derived_request_matches_intent_rejects_operation_mismatch() -> N
         metric="view_time",
         current=aoi.Slice(time_scope=_time_scope()),
         baseline=aoi.Slice(time_scope=_time_scope()),
+        grain="day",
         hypothesis=aoi.Hypothesis(
             family="two_sample_mean",
             alternative="two_sided",

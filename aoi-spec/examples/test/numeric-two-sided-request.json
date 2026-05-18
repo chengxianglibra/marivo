@@ -30,6 +30,7 @@
       ]
     }
   },
+  "grain": "day",
   "kind": "numeric",
   "hypothesis": {
     "family": "two_sample_mean",

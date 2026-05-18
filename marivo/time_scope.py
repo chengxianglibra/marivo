@@ -7,11 +7,20 @@ from datetime import date, datetime, time, timedelta
 from typing import Any, Literal, cast
 
 from marivo.time_axis_metadata import normalize_time_capabilities
-from marivo.time_contracts import normalize_hour_boundary, normalize_timestamp_format
+from marivo.time_contracts import (
+    normalize_hour_boundary,
+    normalize_timestamp_format,
+    window_length_in_grain,
+)
 
 CompareKind = Literal["semantic_metric", "ad_hoc_aggregate"]
 TimeScopeMode = Literal["single_window", "compare"]
-TimeScopeGrain = Literal["hour", "day", "week", "month"]
+TimeScopeGrain = Literal["hour", "day", "week", "month", "quarter", "year"]
+_TIME_SCOPE_GRAINS = frozenset({"hour", "day", "week", "month", "quarter", "year"})
+_DATE_LIKE_GRAINS = frozenset({"day", "week", "month", "quarter", "year"})
+_TIME_SCOPE_GRAIN_MESSAGE = (
+    "time_scope.grain must be one of 'hour', 'day', 'week', 'month', 'quarter', 'year'"
+)
 
 
 @dataclass(slots=True)
@@ -199,8 +208,8 @@ class TimeScopeResolver:
         grain = _required_str(payload, "grain", self.step_type)
         if mode not in {"single_window", "compare"}:
             raise ValueError("time_scope.mode must be 'single_window' or 'compare'")
-        if grain not in {"hour", "day", "week", "month"}:
-            raise ValueError("time_scope.grain must be one of 'hour', 'day', 'week', 'month'")
+        if grain not in _TIME_SCOPE_GRAINS:
+            raise ValueError(_TIME_SCOPE_GRAIN_MESSAGE)
         mode_typed = cast("TimeScopeMode", mode)
         grain_typed = cast("TimeScopeGrain", grain)
 
@@ -253,7 +262,9 @@ class TimeScopeResolver:
             _required_str(payload, "start", label), f"{label}.start", grain
         )
         end = self._normalize_boundary(_required_str(payload, "end", label), f"{label}.end", grain)
-        if grain in {"day", "week", "month"}:
+        self._ensure_aligned_boundary(start, f"{label}.start", grain)
+        self._ensure_aligned_boundary(end, f"{label}.end", grain)
+        if grain in _DATE_LIKE_GRAINS:
             if date.fromisoformat(start) >= date.fromisoformat(end):
                 raise ValueError(f"{label} requires start < end")
         else:
@@ -264,7 +275,7 @@ class TimeScopeResolver:
     @staticmethod
     def _normalize_boundary(value: str, label: str, grain: TimeScopeGrain) -> str:
         normalized = value.strip()
-        if grain in {"day", "week", "month"}:
+        if grain in _DATE_LIKE_GRAINS:
             try:
                 return date.fromisoformat(normalized).isoformat()
             except ValueError:
@@ -274,17 +285,45 @@ class TimeScopeResolver:
             except ValueError as exc:
                 raise ValueError(f"{label} must be a date or datetime string") from exc
 
-        return normalize_hour_boundary(normalized, label=label)
+        normalized_hour = normalize_hour_boundary(normalized, label=label)
+        hour_input = normalized
+        if "T" not in hour_input and " " not in hour_input:
+            hour_input = f"{hour_input}T00:00:00"
+        parsed_input = datetime.fromisoformat(hour_input.replace("Z", "+00:00"))
+        if parsed_input.minute != 0 or parsed_input.second != 0 or parsed_input.microsecond != 0:
+            raise ValueError(f"{label} must align to hour grain (whole hour)")
+        return normalized_hour
+
+    @staticmethod
+    def _ensure_aligned_boundary(value: str, label: str, grain: TimeScopeGrain) -> None:
+        if grain == "hour":
+            parsed = datetime.fromisoformat(value)
+            if parsed.minute != 0 or parsed.second != 0 or parsed.microsecond != 0:
+                raise ValueError(f"{label} must align to hour grain (whole hour)")
+            return
+
+        parsed_date = date.fromisoformat(value)
+        if grain == "day":
+            return
+        if grain == "week" and parsed_date.weekday() == 0:
+            return
+        if grain == "month" and parsed_date.day == 1:
+            return
+        if grain == "quarter" and parsed_date.day == 1 and parsed_date.month in {1, 4, 7, 10}:
+            return
+        if grain == "year" and parsed_date.month == 1 and parsed_date.day == 1:
+            return
+        hints = {
+            "week": "Monday",
+            "month": "the first day of a month",
+            "quarter": "the first day of Jan, Apr, Jul, or Oct",
+            "year": "Jan 1",
+        }
+        raise ValueError(f"{label} must align to {grain} grain ({hints.get(grain, grain)})")
 
     @staticmethod
     def _window_duration(window: ResolvedTimeWindow, grain: TimeScopeGrain) -> int:
-        if grain in {"day", "week", "month"}:
-            return (date.fromisoformat(window.end) - date.fromisoformat(window.start)).days
-        return int(
-            (
-                datetime.fromisoformat(window.end) - datetime.fromisoformat(window.start)
-            ).total_seconds()
-        )
+        return window_length_in_grain(window.start, window.end, grain=grain)
 
 
 @dataclass(slots=True)
@@ -715,7 +754,7 @@ class TimeAxisResolver:
     def _build_partition_pruning_predicate(self, axis: _PartitionAxis | None) -> str | None:
         if axis is None or axis.date_column is None:
             return None
-        if self.request.time_scope.grain == "day":
+        if self.request.time_scope.grain != "hour":
             return self._build_day_partition_pruning_predicate(axis)
 
         return self._build_hour_partition_pruning_predicate(axis)

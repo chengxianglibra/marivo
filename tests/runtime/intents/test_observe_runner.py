@@ -218,7 +218,7 @@ class TestObserveRunner(unittest.TestCase):
         ]
         for granularity, start, end, expected_series in cases:
             with self.subTest(granularity=granularity):
-                _, result = self._run_observe(
+                runtime, result = self._run_observe(
                     {
                         "metric": "metric.m1",
                         "time_scope": {
@@ -230,6 +230,8 @@ class TestObserveRunner(unittest.TestCase):
                     },
                     rows=[],
                 )
+                scoped_call = runtime.build_scoped_query.call_args.args[1]
+                self.assertEqual(scoped_call.time_scope.grain, granularity)
                 self.assertEqual(result["series"], expected_series)
 
     def test_observe_hour_granularity_uses_hour_internal_grain(self) -> None:
@@ -250,6 +252,21 @@ class TestObserveRunner(unittest.TestCase):
 
         scoped_call = runtime.build_scoped_query.call_args.args[1]
         self.assertEqual(scoped_call.time_scope.grain, "hour")
+
+    def test_observe_rejects_unaligned_time_series_boundaries(self) -> None:
+        with self.assertRaisesRegex(ValueError, "must align to month grain"):
+            self._run_observe(
+                {
+                    "metric": "metric.m1",
+                    "time_scope": {
+                        "field": "event_date",
+                        "start": "2026-01-15",
+                        "end": "2026-03-01",
+                    },
+                    "granularity": "month",
+                },
+                rows=[],
+            )
 
     def test_segmented_observe_builds_sorted_segments(self) -> None:
         runtime, result = self._run_observe(

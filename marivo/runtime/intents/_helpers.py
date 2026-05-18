@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import math
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
@@ -10,7 +11,7 @@ from marivo.contracts.ids import ArtifactId
 from marivo.core.semantic.ir import AnalysisStepIR
 from marivo.core.semantic.value_expr import extract_value_expression
 from marivo.runtime.semantic.executor import execute_compiled
-from marivo.time_scope import normalize_metric_query_request
+from marivo.time_scope import TimeScopeGrain, normalize_metric_query_request
 
 if TYPE_CHECKING:
     from marivo.runtime.runtime import MarivoRuntime
@@ -86,7 +87,7 @@ def build_scoped_query_for_window(
 ) -> dict[str, Any]:
     """Build a scoped query dict for a single time window.
 
-    Reused by observe and test (which passes grain=None for scalar mode).
+    Reused by observe and test. For test, grain is the statistical sample unit.
     """
     mq_params: dict[str, Any] = {
         "table": table,
@@ -147,6 +148,7 @@ def compute_numeric_sample_summary(
     session_id: str,
     metric_ref: str,
     time_scope_raw: dict[str, Any],
+    grain: TimeScopeGrain,
     scope_raw: Any = None,
 ) -> SampleSummary:
     """Compute n/mean/stddev for one slice without creating intermediate artifacts.
@@ -167,6 +169,10 @@ def compute_numeric_sample_summary(
     table = execution_context.table_name
     all_dimensions = runtime.resolve_metric_dimensions(metric_ref)
 
+    # Resolve the caller's AOI time scope before building internal metric-query
+    # requests so the backend never sees placeholder windows.
+    start_str, end_str, time_scope_field = resolve_time_scope(time_scope_raw)
+
     # Resolve engine
     resolved = normalize_metric_query_request(
         {
@@ -174,8 +180,8 @@ def compute_numeric_sample_summary(
             "metric": metric_ref,
             "time_scope": {
                 "mode": "single_window",
-                "grain": None,
-                "current": {"start": "", "end": ""},
+                "grain": grain,
+                "current": {"start": start_str, "end": end_str},
             },
         }
     )
@@ -183,9 +189,12 @@ def compute_numeric_sample_summary(
     if not isinstance(engine_resolution, tuple) or len(engine_resolution) != 3:
         engine_resolution = runtime.resolve_engine([resolved.table])
     engine, engine_type, qualified = engine_resolution
-
-    # Resolve time scope
-    start_str, end_str, time_scope_field = resolve_time_scope(time_scope_raw)
+    runtime.resolve_windowed_query_time_axis(
+        resolved,
+        engine_type=engine_type,
+        metric_name=metric_ref,
+        fallback_columns=all_dimensions,
+    )
 
     # Resolve metric SQL and extract value expression
     metric_sql = runtime.resolve_metric_sql_for_execution(
@@ -209,7 +218,7 @@ def compute_numeric_sample_summary(
         table=table,
         start=start_str,
         end=end_str,
-        grain=None,
+        grain=grain,
         scope_raw=scope_raw,
         all_dimensions=all_dimensions,
         time_scope_field=time_scope_field,
@@ -217,7 +226,12 @@ def compute_numeric_sample_summary(
 
     qualified_table = qualified.get(resolved.table, resolved.table)
 
-    # Compile and execute
+    time_col = resolved.resolved_time_axis.analysis_time_expr
+    if not time_col:
+        raise ValueError("windowed execution requires resolved_time_axis.analysis_time_expr")
+    bucket_expr = f"DATE_TRUNC('{grain}', {time_col})"
+
+    # Compile and execute one metric value per requested sample bucket.
     compiled_query = runtime.compile_step(
         AnalysisStepIR(
             index=0,
@@ -226,14 +240,12 @@ def compute_numeric_sample_summary(
                 "table": qualified_table,
                 "time_scope": {
                     "mode": "single_window",
-                    "grain": None,
+                    "grain": grain,
                     "current": {"start": start_str, "end": end_str},
                 },
-                "measures": [
-                    {"expr": "COUNT(*)", "as": "n"},
-                    {"expr": f"AVG({value_expr})", "as": "mean"},
-                    {"expr": f"STDDEV_SAMP({value_expr})", "as": "standard_deviation"},
-                ],
+                "measures": [{"expr": metric_sql, "as": "value"}],
+                "group_by": [f"{bucket_expr} AS bucket_start"],
+                "order": "bucket_start",
                 "scoped_query": scoped_query,
             },
         ),
@@ -243,23 +255,22 @@ def compute_numeric_sample_summary(
     rows = list(execute_compiled(engine, compiled_query, session_id=session_id).rows)
     predicate_filter_lineage = extract_predicate_filter_lineage(compiled_query)
 
-    n_val: int | None = None
+    values: list[float] = []
+    for row in rows:
+        raw_value = row.get("value")
+        if raw_value is None:
+            continue
+        with contextlib.suppress(TypeError, ValueError):
+            values.append(float(raw_value))
+
+    n_val: int | None = len(values)
     mean_val: float | None = None
     stddev_val: float | None = None
-    if rows:
-        row = rows[0]
-        raw_n = row.get("n")
-        if raw_n is not None:
-            with contextlib.suppress(TypeError, ValueError):
-                n_val = int(raw_n)
-        raw_mean = row.get("mean")
-        if raw_mean is not None:
-            with contextlib.suppress(TypeError, ValueError):
-                mean_val = float(raw_mean)
-        raw_stddev = row.get("standard_deviation")
-        if raw_stddev is not None:
-            with contextlib.suppress(TypeError, ValueError):
-                stddev_val = float(raw_stddev)
+    if values:
+        mean_val = sum(values) / len(values)
+    if len(values) >= 2 and mean_val is not None:
+        variance = sum((value - mean_val) ** 2 for value in values) / (len(values) - 1)
+        stddev_val = math.sqrt(variance)
 
     return SampleSummary(
         n=n_val,

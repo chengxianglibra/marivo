@@ -96,6 +96,21 @@ def previous_adjacent_window(start: str, end: str, *, grain: TimeGrain) -> dict[
 
     start_date = date.fromisoformat(start[:10])
     end_date = date.fromisoformat(end[:10])
+    if grain in {"month", "quarter", "year"}:
+        duration_months = _month_delta(start_date, end_date)
+        if duration_months <= 0:
+            raise ValueError(f"candidate window duration is non-positive: start={start}, end={end}")
+        if grain == "quarter" and duration_months % 3 != 0:
+            raise ValueError(
+                f"candidate window duration is not quarter-aligned: start={start}, end={end}"
+            )
+        if grain == "year" and duration_months % 12 != 0:
+            raise ValueError(
+                f"candidate window duration is not year-aligned: start={start}, end={end}"
+            )
+        baseline_start_date = _shift_months(start_date, -duration_months)
+        return {"start": baseline_start_date.isoformat(), "end": start_date.isoformat()}
+
     duration_days = end_date - start_date
     if duration_days.days <= 0:
         raise ValueError(f"candidate window duration is non-positive: start={start}, end={end}")
@@ -125,8 +140,36 @@ def recommended_minimum_window(end: str, *, grain: TimeGrain, bucket_count: int)
     return {"start": start_date.isoformat(), "end": end_date.isoformat()}
 
 
+def window_length_in_grain(start: str, end: str, *, grain: TimeGrain | str) -> int:
+    """Return a normalized window length in the requested time grain."""
+    if grain == "hour":
+        start_dt = datetime.fromisoformat(start)
+        end_dt = datetime.fromisoformat(end)
+        return int((end_dt - start_dt).total_seconds() // 3600)
+
+    start_date = date.fromisoformat(start[:10])
+    end_date = date.fromisoformat(end[:10])
+    if grain == "day":
+        return (end_date - start_date).days
+    if grain == "week":
+        return (end_date - start_date).days // 7
+
+    month_delta = _month_delta(start_date, end_date)
+    if grain == "month":
+        return month_delta
+    if grain == "quarter":
+        return month_delta // 3
+    if grain == "year":
+        return month_delta // 12
+    raise ValueError(f"unsupported time grain: {grain}")
+
+
 def _shift_months(value: date, months: int) -> date:
     zero_based_month = value.month - 1 + months
     year = value.year + zero_based_month // 12
     month = zero_based_month % 12 + 1
     return date(year, month, 1)
+
+
+def _month_delta(start: date, end: date) -> int:
+    return (end.year - start.year) * 12 + end.month - start.month
