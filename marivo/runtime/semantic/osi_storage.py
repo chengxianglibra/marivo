@@ -56,6 +56,11 @@ def _ai_context_from_json(raw: Any) -> Any:
     return json.loads(raw)
 
 
+def _model_dump_json(value: BaseModel) -> dict[str, Any]:
+    """Dump Pydantic models in JSON mode so string enums stay wire-compatible."""
+    return value.model_dump(mode="json", exclude_none=True)
+
+
 def build_custom_extensions(
     marivo_ext: BaseModel | None = None,
 ) -> list[OsiCustomExtensionLike]:
@@ -73,27 +78,21 @@ def build_custom_extensions(
         result.append(
             MarivoDatasetCustomExtension(
                 vendor_name="MARIVO",
-                data=OsiMarivoDatasetExtension.model_validate(
-                    marivo_ext.model_dump(exclude_none=True)
-                ),
+                data=OsiMarivoDatasetExtension.model_validate(_model_dump_json(marivo_ext)),
             )
         )
     elif isinstance(marivo_ext, MarivoMetricExtension):
         result.append(
             MarivoMetricCustomExtension(
                 vendor_name="MARIVO",
-                data=OsiMarivoMetricExtension.model_validate(
-                    marivo_ext.model_dump(exclude_none=True)
-                ),
+                data=OsiMarivoMetricExtension.model_validate(_model_dump_json(marivo_ext)),
             )
         )
     elif isinstance(marivo_ext, MarivoFieldExtension):
         result.append(
             MarivoFieldCustomExtension(
                 vendor_name="MARIVO",
-                data=OsiMarivoFieldExtension.model_validate(
-                    marivo_ext.model_dump(exclude_none=True)
-                ),
+                data=OsiMarivoFieldExtension.model_validate(_model_dump_json(marivo_ext)),
             )
         )
     return result
@@ -101,7 +100,7 @@ def build_custom_extensions(
 
 def _ext_to_dicts(extensions: list[Any]) -> list[dict[str, Any]]:
     """Convert a list of CustomExtension Pydantic objects to plain dicts."""
-    return [ext.model_dump(exclude_none=True) for ext in extensions]
+    return [ext.model_dump(mode="json", exclude_none=True) for ext in extensions]
 
 
 # ---------------------------------------------------------------------------
@@ -290,7 +289,7 @@ def _storage_to_metric(row: dict[str, Any]) -> dict[str, Any]:
         if row.get("additive_dimensions") is not None
         else None
     )
-    aggregation_semantics: Literal["sum", "ratio", "weighted_average"] = cast(
+    aggregation_semantics = cast(
         "Literal['sum', 'ratio', 'weighted_average']", row.get("aggregation_semantics") or "sum"
     )
     marivo_ext = MarivoMetricExtension(

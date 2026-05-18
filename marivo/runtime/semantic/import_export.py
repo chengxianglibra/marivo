@@ -29,6 +29,7 @@ from marivo.runtime.semantic.osi_storage import (
 )
 
 TIME_GRANULARITIES: frozenset[str] = frozenset({"hour", "day", "week", "month", "quarter", "year"})
+AGGREGATION_SEMANTICS_VALUES: tuple[str, ...] = ("sum", "ratio", "weighted_average")
 
 
 class ImportCounter(BaseModel):
@@ -1358,17 +1359,19 @@ def _metric_extension_issues(
     if isinstance(additive_dimensions, list) and is_all_additive_dimensions(additive_dimensions):
         return issues
     aggregation_semantics = extension_data.get("aggregation_semantics")
-    if isinstance(aggregation_semantics, str) and aggregation_semantics not in {
-        "sum",
-        "ratio",
-        "weighted_average",
-    }:
+    if (
+        isinstance(aggregation_semantics, str)
+        and aggregation_semantics not in AGGREGATION_SEMANTICS_VALUES
+    ):
         issues.append(
             SemanticValidationIssue(
                 code="INVALID_AGGREGATION_SEMANTICS",
                 message=f"aggregation_semantics '{aggregation_semantics}' is not a valid enum value.",
                 json_pointer=f"{model_pointer}/metrics/{metric_index}/custom_extensions",
-                hint="Valid values: 'sum', 'ratio', 'weighted_average'.",
+                hint=(
+                    "Valid values: "
+                    f"{', '.join(repr(value) for value in AGGREGATION_SEMANTICS_VALUES)}."
+                ),
                 context={"aggregation_semantics": aggregation_semantics},
             )
         )

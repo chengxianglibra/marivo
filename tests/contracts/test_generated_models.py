@@ -184,6 +184,54 @@ def test_marivo_metric_extension_matches_spec() -> None:
     }
 
 
+def test_aggregation_semantics_does_not_generate_named_enum() -> None:
+    from marivo.contracts.generated import osi
+
+    assert not hasattr(osi, "AggregationSemantics")
+
+
+@pytest.mark.parametrize("value", ["sum", "ratio", "weighted_average"])
+def test_generated_metric_extension_accepts_aggregation_semantics_literals(value: str) -> None:
+    from marivo.contracts.generated.osi import MarivoMetricExtension
+
+    ext = MarivoMetricExtension.model_validate({"aggregation_semantics": value})
+
+    assert ext.aggregation_semantics == value
+    assert ext.model_dump(mode="json")["aggregation_semantics"] == value
+
+
+def test_generated_metric_extension_rejects_invalid_aggregation_semantics() -> None:
+    from marivo.contracts.generated.osi import MarivoMetricExtension
+
+    ext = MarivoMetricExtension()
+    assert ext.aggregation_semantics == "sum"
+    assert ext.model_dump(mode="json")["aggregation_semantics"] == "sum"
+
+    with pytest.raises(ValidationError):
+        MarivoMetricExtension.model_validate({"aggregation_semantics": "average"})
+
+
+@pytest.mark.parametrize("value", ["sum", "ratio", "weighted_average"])
+def test_handwritten_metric_extension_accepts_aggregation_semantics_literals(value: str) -> None:
+    from marivo.contracts.semantic_extensions import MarivoMetricExtension
+
+    ext = MarivoMetricExtension(aggregation_semantics=value)
+
+    assert ext.aggregation_semantics == value
+    assert ext.model_dump(mode="json")["aggregation_semantics"] == value
+
+
+def test_handwritten_metric_extension_rejects_invalid_aggregation_semantics() -> None:
+    from marivo.contracts.semantic_extensions import MarivoMetricExtension
+
+    ext = MarivoMetricExtension()
+    assert ext.aggregation_semantics == "sum"
+    assert ext.model_dump(mode="json")["aggregation_semantics"] == "sum"
+
+    with pytest.raises(ValidationError):
+        MarivoMetricExtension(aggregation_semantics="average")
+
+
 def test_marivo_metric_extension_rejects_retired_fields() -> None:
     from marivo.contracts.generated.osi import MarivoMetricExtension
 

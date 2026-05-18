@@ -38,6 +38,12 @@ time_granularities:
   - "quarter"
   - "year"
 
+# Supported metric aggregation semantics.
+aggregation_semantics:
+  - "sum"
+  - "ratio"
+  - "weighted_average"
+
 # Extension payload schemas
 
 # MARIVO extension for Dataset.
@@ -61,7 +67,7 @@ metric_extension:
   #   - If the metric is a ratio of two additive sums (numerator SUM / denominator COUNT)
   #     → "weighted_average"  (e.g. AOV = SUM(revenue)/COUNT(orders), avg_latency)
   # Default: "sum". NOT NULL.
-  aggregation_semantics: string # enum: sum | ratio | weighted_average
+  aggregation_semantics: AggregationSemantics
 
 # Top-level semantic model definition
 semantic_model:
