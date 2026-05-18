@@ -69,6 +69,15 @@
       ],
       "description": "Supported time granularities, ordered from finest to coarsest."
     },
+    "AggregationSemantics": {
+      "type": "string",
+      "enum": [
+        "sum",
+        "ratio",
+        "weighted_average"
+      ],
+      "description": "Supported metric aggregation semantics."
+    },
     "AIContext": {
       "description": "Additional context for AI tools",
       "oneOf": [
@@ -478,12 +487,7 @@
           "description": "Field names across which the metric is additive, including ordinary dimensions and time fields. Empty array means the metric is not additive on any dimension. The single-item array [\"__all\"] means the metric is additive across all declared dimension fields in the semantic model, including time dimensions. \"__all\" must not be mixed with explicit field names."
         },
         "aggregation_semantics": {
-          "type": "string",
-          "enum": [
-            "sum",
-            "ratio",
-            "weighted_average"
-          ],
+          "$ref": "#/$defs/AggregationSemantics",
           "default": "sum",
           "description": "Aggregation semantics of the metric. Determines inferential summary mode, statistical test method, and which analysis intents are supported. Decision rule: (1) 'sum' if the metric measures an additive quantity \u2014 values sum across groups (e.g. revenue, latency, duration, inventory balance) \u2014 uses Welch's t-test and expects reconcileable delta decomposition. (2) 'ratio' if the metric is a proportion or binary-outcome rate (e.g. conversion rate, click-through rate, signup rate) \u2014 uses two-proportion z-test. (3) 'weighted_average' if the metric is a ratio of two additive sums, i.e. numerator SUM / denominator COUNT (e.g. AOV = SUM(revenue)/COUNT(orders), avg_latency) \u2014 uses delta method / weighted-average decomposition, delta is NOT expected to reconcile."
         }

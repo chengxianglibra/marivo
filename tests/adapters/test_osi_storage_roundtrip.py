@@ -41,6 +41,32 @@ def test_metric_roundtrip_with_additive_dimensions() -> None:
     assert marivo_ext["additive_dimensions"] == ["region", "channel"]
 
 
+def test_metric_roundtrip_preserves_aggregation_semantics_as_string() -> None:
+    """Literal-backed aggregation semantics remains a plain string on storage/export paths."""
+    ext = MarivoMetricExtension(
+        additive_dimensions=["region"],
+        aggregation_semantics="weighted_average",
+    )
+    metric = Metric(
+        name="aov",
+        expression=Expression(
+            dialects=[DialectExpression(dialect="ANSI_SQL", expression="SUM(revenue)/COUNT(*)")]
+        ),
+        custom_extensions=build_custom_extensions(ext),
+    )
+
+    extension_dump = metric.custom_extensions[0].model_dump(mode="json")
+    assert extension_dump["data"]["aggregation_semantics"] == "weighted_average"
+
+    storage = metric_to_storage(metric, model_id=1)
+    assert storage["aggregation_semantics"] == "weighted_average"
+
+    reconstructed = _storage_to_metric(storage)
+    marivo_ext = reconstructed["custom_extensions"][0]["data"]
+    assert marivo_ext["aggregation_semantics"] == "weighted_average"
+    assert isinstance(marivo_ext["aggregation_semantics"], str)
+
+
 def test_metric_roundtrip_preserves_all_additive_dimensions_sentinel() -> None:
     """Storage preserves ["__all"] as policy instead of expanding dimensions."""
     ext = MarivoMetricExtension(additive_dimensions=["__all"])

@@ -96,7 +96,7 @@ The `data` field is a JSON object. Its structure MUST conform to the MARIVO exte
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `additive_dimensions` | string[] | Optional | Field names across which the metric is additive, including ordinary dimensions and time fields. `[]` means non-additive; `["__all"]` means all declared dimension fields in the semantic model, including time dimensions. `__all` must be the only item when used. |
-| `aggregation_semantics` | string enum | Optional | Metric aggregation semantics: `sum`, `ratio`, or `weighted_average`. Defaults to `sum`. |
+| `aggregation_semantics` | AggregationSemantics enum | Optional | Metric aggregation semantics: `sum`, `ratio`, or `weighted_average`. Defaults to `sum`. |
 
 **Example:** See `examples/per-entity/metric-full.json`
 
