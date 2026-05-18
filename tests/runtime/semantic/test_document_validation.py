@@ -34,6 +34,12 @@ def _valid_doc() -> dict:
                                     ]
                                 },
                                 "dimension": {"is_time": True},
+                                "custom_extensions": [
+                                    {
+                                        "vendor_name": "MARIVO",
+                                        "data": {"support_min_granularity": "hour"},
+                                    }
+                                ],
                             },
                             {
                                 "name": "amount",
@@ -142,6 +148,31 @@ def test_validate_schema_failure_returns_structured_error() -> None:
     assert result.valid is False
     assert result.errors[0].code == "SCHEMA_VALIDATION_FAILED"
     assert result.schema_version == "0.1.1"
+
+
+def test_validate_time_field_requires_support_min_granularity_extension() -> None:
+    doc = _valid_doc()
+    doc["semantic_model"][0]["datasets"][0]["fields"][1].pop("custom_extensions")
+
+    result = OsiSemanticDocumentValidator().validate(doc)
+
+    assert result.valid is False
+    assert result.errors[0].code == "MISSING_TIME_FIELD_EXTENSION"
+    assert (
+        result.errors[0].json_pointer == "/semantic_model/0/datasets/0/fields/1/custom_extensions"
+    )
+
+
+def test_validate_non_time_field_rejects_field_extension() -> None:
+    doc = _valid_doc()
+    doc["semantic_model"][0]["datasets"][0]["fields"][0]["custom_extensions"] = [
+        {"vendor_name": "MARIVO", "data": {"support_min_granularity": "day"}}
+    ]
+
+    result = OsiSemanticDocumentValidator().validate(doc)
+
+    assert result.valid is False
+    assert result.errors[0].code == "FIELD_EXTENSION_NOT_ALLOWED"
 
 
 def test_validate_duplicate_dataset_names_returns_json_pointer() -> None:

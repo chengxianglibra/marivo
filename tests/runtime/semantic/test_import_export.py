@@ -23,8 +23,14 @@ from marivo.runtime.semantic.semantic_service import SemanticModelV2Service
 from tests.shared_fixtures import ManagedSQLiteMetadataStore, make_temp_metadata_store
 
 
-def _field(name: str, expression: str | None = None) -> dict[str, object]:
-    return {
+def _field(
+    name: str,
+    expression: str | None = None,
+    *,
+    is_time: bool = False,
+    support_min_granularity: str | None = None,
+) -> dict[str, object]:
+    field: dict[str, object] = {
         "name": name,
         "expression": {
             "dialects": [
@@ -32,6 +38,15 @@ def _field(name: str, expression: str | None = None) -> dict[str, object]:
             ],
         },
     }
+    if is_time:
+        field["dimension"] = {"is_time": True}
+        field["custom_extensions"] = [
+            {
+                "vendor_name": "MARIVO",
+                "data": {"support_min_granularity": support_min_granularity or "day"},
+            }
+        ]
+    return field
 
 
 def _dataset(
@@ -276,6 +291,38 @@ class SemanticImportExportServiceTests(unittest.TestCase):
         self.assertEqual(
             dataset["custom_extensions"][0]["data"]["datasource_id"],
             "ds_001",
+        )
+
+    def test_import_export_round_trips_time_field_support_min_granularity(self) -> None:
+        token = set_current_user("alice")
+        try:
+            self.service.import_osi_semantic_models(
+                _doc(
+                    datasets=[
+                        _dataset(
+                            "orders",
+                            fields=[
+                                _field("order_id"),
+                                _field(
+                                    "order_time",
+                                    "order_time",
+                                    is_time=True,
+                                    support_min_granularity="hour",
+                                ),
+                            ],
+                        )
+                    ]
+                )
+            )
+            exported = self.service.export_osi_semantic_models("commerce")
+        finally:
+            reset_current_user(token)
+
+        fields = exported["semantic_model"][0]["datasets"][0]["fields"]
+        time_field = next(field for field in fields if field["name"] == "order_time")
+        self.assertEqual(
+            time_field["custom_extensions"][0]["data"]["support_min_granularity"],
+            "hour",
         )
 
     def test_import_rolls_back_existing_model_when_mid_replace_field_insert_fails(self) -> None:

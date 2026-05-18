@@ -25,6 +25,7 @@ class TimeAxisMetadataContext:
     available_columns: list[str] = field(default_factory=list)
     time_field_expressions: dict[str, str] = field(default_factory=dict)
     time_field_data_types: dict[str, str] = field(default_factory=dict)
+    time_field_support_min_granularities: dict[str, str] = field(default_factory=dict)
     timezone_strategy: str = PHASE1_TIMEZONE_STRATEGY
     timezone_note: str = PHASE1_TIMEZONE_NOTE
     has_time_binding: bool = False
@@ -113,6 +114,12 @@ class TimeAxisMetadataProvider:
             for row in time_rows
             if (data_type := _optional_str(row.get("data_type"))) is not None
         }
+        time_field_support_min_granularities = {
+            row["name"]: support_min_granularity
+            for row in time_rows
+            if (support_min_granularity := _optional_str(row.get("support_min_granularity")))
+            is not None
+        }
 
         entity_time_capabilities = _infer_time_capabilities(time_field_names)
 
@@ -122,6 +129,7 @@ class TimeAxisMetadataProvider:
             available_columns=available_columns,
             time_field_expressions=time_field_expressions,
             time_field_data_types=time_field_data_types,
+            time_field_support_min_granularities=time_field_support_min_granularities,
             has_time_binding=bool(time_field_names),
         )
 
@@ -134,7 +142,8 @@ class TimeAxisMetadataProvider:
         if normalized_metric_name is None:
             return []
         return self.metadata.query_rows(
-            "SELECT f.name, f.expression, f.data_type, f.is_time FROM semantic_fields f "
+            "SELECT f.name, f.expression, f.data_type, f.is_time, f.support_min_granularity "
+            "FROM semantic_fields f "
             "JOIN semantic_datasets d ON f.dataset_id = d.dataset_id "
             "JOIN semantic_metrics m ON m.model_id = d.model_id "
             "WHERE d.source = ? AND m.name = ? ORDER BY f.position",
@@ -143,7 +152,8 @@ class TimeAxisMetadataProvider:
 
     def _load_field_rows_by_source(self, table_name: str) -> list[dict[str, Any]]:
         return self.metadata.query_rows(
-            "SELECT f.name, f.expression, f.data_type, f.is_time FROM semantic_fields f "
+            "SELECT f.name, f.expression, f.data_type, f.is_time, f.support_min_granularity "
+            "FROM semantic_fields f "
             "JOIN semantic_datasets d ON f.dataset_id = d.dataset_id "
             "WHERE d.source = ? ORDER BY f.position",
             [table_name],

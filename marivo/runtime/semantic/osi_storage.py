@@ -22,10 +22,14 @@ from marivo.contracts.generated.osi import (
     MarivoDatasetExtension as OsiMarivoDatasetExtension,
 )
 from marivo.contracts.generated.osi import (
+    MarivoFieldExtension as OsiMarivoFieldExtension,
+)
+from marivo.contracts.generated.osi import (
     MarivoMetricExtension as OsiMarivoMetricExtension,
 )
 from marivo.contracts.semantic_extensions import (
     MarivoDatasetExtension,
+    MarivoFieldExtension,
     MarivoMetricExtension,
 )
 from marivo.core.semantic.extensions import (
@@ -58,6 +62,7 @@ def build_custom_extensions(
     """Build a custom_extensions list for schema-defined MARIVO extension payloads."""
     from marivo.contracts.generated.osi import (
         MarivoDatasetCustomExtension,
+        MarivoFieldCustomExtension,
         MarivoMetricCustomExtension,
     )
 
@@ -78,6 +83,15 @@ def build_custom_extensions(
             MarivoMetricCustomExtension(
                 vendor_name="MARIVO",
                 data=OsiMarivoMetricExtension.model_validate(
+                    marivo_ext.model_dump(exclude_none=True)
+                ),
+            )
+        )
+    elif isinstance(marivo_ext, MarivoFieldExtension):
+        result.append(
+            MarivoFieldCustomExtension(
+                vendor_name="MARIVO",
+                data=OsiMarivoFieldExtension.model_validate(
                     marivo_ext.model_dump(exclude_none=True)
                 ),
             )
@@ -135,6 +149,7 @@ def field_to_storage(field: Field, dataset_id: int, position: int) -> dict[str, 
     """Extract fields for a ``semantic_fields`` row."""
     is_dimension = field.dimension is not None
     is_time = field.dimension.is_time if field.dimension else False
+    marivo_ext = extract_marivo_extension(field.custom_extensions, MarivoFieldExtension)
     expression = json.dumps(field.expression.model_dump(exclude_none=True))
     ai_context = _ai_context_to_json(field.ai_context)
     return {
@@ -147,6 +162,9 @@ def field_to_storage(field: Field, dataset_id: int, position: int) -> dict[str, 
         "description": field.description,
         "ai_context": ai_context,
         "data_type": None,
+        "support_min_granularity": (
+            marivo_ext.support_min_granularity if marivo_ext is not None else None
+        ),
         "position": position,
     }
 
@@ -233,6 +251,12 @@ def _storage_to_field(row: dict[str, Any]) -> dict[str, Any]:
     is_dimension = bool(row.get("is_dimension", 0))
     if is_time:
         result["dimension"] = {"is_time": True}
+        support_min_granularity = row.get("support_min_granularity")
+        if support_min_granularity is not None:
+            marivo_ext = MarivoFieldExtension(
+                support_min_granularity=support_min_granularity,
+            )
+            result["custom_extensions"] = _ext_to_dicts(build_custom_extensions(marivo_ext))
     elif is_dimension:
         result["dimension"] = {"is_time": False}
     if row.get("label") is not None:

@@ -214,6 +214,18 @@ class DetectRunnerServiceTests(unittest.TestCase):
         self.assertFalse(result["truncation"]["truncated"])
         self.assertEqual(result["candidates"], [])
 
+    def test_detect_hour_granularity_rejects_day_time_field(self) -> None:
+        session_id = self._make_session()
+
+        with self.assertRaisesRegex(ValueError, "cannot satisfy requested granularity 'hour'"):
+            self._detect(
+                session_id,
+                self.spike_metric,
+                start="2026-01-01T00:00:00",
+                end="2026-01-02T00:00:00",
+                granularity="hour",
+            )
+
     # ── Spike detection ────────────────────────────────────────────────────────
 
     def test_detect_with_spike_returns_candidate(self) -> None:

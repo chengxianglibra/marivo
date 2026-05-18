@@ -1,5 +1,13 @@
 # OSI-Marivo Extensions Changelog
 
+## 1.0.0 - 2026-05-18
+
+### Changed
+
+- Added the `time_granularities` enum: `hour`, `day`, `week`, `month`, `quarter`, `year`.
+- Added required MARIVO field extension payload `support_min_granularity` for every time field.
+- Time fields now require exactly one MARIVO field extension; non-time fields reject field extensions.
+
 ## 0.1.0 - 2026-05-09
 
 Initial publication.

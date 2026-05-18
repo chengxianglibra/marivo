@@ -535,6 +535,9 @@ def _metadata_template_valid(db_path: Path) -> bool:
         osi_model_columns = {
             str(row[1]) for row in con.execute("PRAGMA table_info(semantic_models)").fetchall()
         }
+        osi_field_columns = {
+            str(row[1]) for row in con.execute("PRAGMA table_info(semantic_fields)").fetchall()
+        }
         marker_rows = {
             str(row[0])
             for row in con.execute(
@@ -588,6 +591,7 @@ def _metadata_template_valid(db_path: Path) -> bool:
             "owner_user",
         }.issubset(session_columns)
         and {"visibility", "owner_user"}.issubset(osi_model_columns)
+        and "support_min_granularity" in osi_field_columns
         and "revision" not in osi_model_columns
         and {
             "calendar_date",

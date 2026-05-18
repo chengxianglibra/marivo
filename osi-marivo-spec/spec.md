@@ -59,7 +59,37 @@ The `data` field is a JSON object. Its structure MUST conform to the MARIVO exte
 
 **Example:** See `examples/per-entity/dataset-datasource.json`
 
-### 3.2 Metric Extensions
+### 3.2 Field Extensions
+
+**Payload schema:** `MarivoFieldExtension`
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `support_min_granularity` | `time_granularities` enum | Required | Finest time granularity supported by this time field. Requests must use this granularity or a coarser one. |
+
+**Semantics:** Every field with `dimension.is_time: true` MUST include exactly one MARIVO field extension. Fields that are not time dimensions MUST NOT include a MARIVO field extension. The `time_granularities` enum is ordered from finest to coarsest as `hour`, `day`, `week`, `month`, `quarter`, `year`; a field supports its declared minimum granularity and every coarser granularity.
+
+**Example:**
+
+```json
+{
+  "name": "log_date",
+  "expression": {
+    "dialects": [
+      { "dialect": "TRINO", "expression": "log_date" }
+    ]
+  },
+  "dimension": { "is_time": true },
+  "custom_extensions": [
+    {
+      "vendor_name": "MARIVO",
+      "data": { "support_min_granularity": "day" }
+    }
+  ]
+}
+```
+
+### 3.3 Metric Extensions
 
 **Payload schema:** `MarivoMetricExtension`
 
@@ -77,7 +107,17 @@ The `data` field is a JSON object. Its structure MUST conform to the MARIVO exte
 
 ## 4. Shared Types
 
-### 4.1 Expression (reused from OSI Core)
+### 4.1 TimeGranularity
+
+`time_granularities` is the shared MARIVO time grain vocabulary:
+
+```text
+hour, day, week, month, quarter, year
+```
+
+The values are ordered from finest to coarsest. Runtime time-series requests are valid only when the requested granularity is equal to or coarser than the selected time field's `support_min_granularity`.
+
+### 4.2 Expression (reused from OSI Core)
 
 MARIVO metrics reuse the OSI Core `Expression` type for metric logic and any embedded conditions:
 
@@ -91,7 +131,7 @@ MARIVO metrics reuse the OSI Core `Expression` type for metric logic and any emb
 
 The `dialect` field uses the OSI `Dialect` enum: `ANSI_SQL`, `SNOWFLAKE`, `MDX`, `TABLEAU`, `DATABRICKS`, `TRINO`.
 
-### 4.2 AIContext (reused from OSI Core)
+### 4.3 AIContext (reused from OSI Core)
 
 All OSI entities support an `ai_context` field for AI tool guidance. This is an OSI Core feature, not a MARIVO extension, but is noted here because it interacts with MARIVO's semantic layer usage.
 
@@ -127,7 +167,7 @@ MARIVO extensions follow semantic versioning independently of OSI Core:
 
 - **Patch** (0.1.x): Documentation fixes, no schema changes.
 - **Minor** (0.x.0): New optional fields added to extension payloads. Existing documents remain valid.
-- **Major** (x.0.0): Breaking changes to extension payload schemas.
+- **Major** (x.0.0): Breaking changes to extension payload schemas or conformance rules.
 
 ### 6.3 Backwards Compatibility
 

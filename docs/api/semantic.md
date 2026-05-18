@@ -68,6 +68,7 @@ Physical grounding lives in the semantic document:
 | `dataset.custom_extensions[].data.datasource_id` | Marivo datasource id that owns the relation. |
 | `dataset.source` | Datasource-local relation FQN, usually `schema.table` or `catalog.schema.table`. |
 | `field.expression.dialects[]` | Column name or computed SQL expression for a semantic field. |
+| `field.custom_extensions[].data.support_min_granularity` | Required for `dimension.is_time=true`; finest supported time grain. |
 
 ## Complete Document Example
 
@@ -120,7 +121,7 @@ Physical grounding lives in the semantic document:
                 {
                   "vendor_name": "MARIVO",
                   "data": {
-                    "data_type": "date"
+                    "support_min_granularity": "day"
                   }
                 }
               ]
@@ -146,14 +147,6 @@ Physical grounding lives in the semantic document:
                   }
                 ]
               },
-              "custom_extensions": [
-                {
-                  "vendor_name": "MARIVO",
-                  "data": {
-                    "data_type": "number"
-                  }
-                }
-              ]
             }
           ]
         },

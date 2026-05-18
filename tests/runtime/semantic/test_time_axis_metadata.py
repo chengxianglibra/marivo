@@ -31,6 +31,7 @@ class _MetadataStub:
                         }
                     ),
                     "data_type": "timestamp",
+                    "support_min_granularity": "hour",
                     "is_time": 1,
                 },
                 {
@@ -46,6 +47,7 @@ class _MetadataStub:
                         }
                     ),
                     "data_type": "date",
+                    "support_min_granularity": "day",
                     "is_time": 1,
                 },
                 {
@@ -58,6 +60,7 @@ class _MetadataStub:
                         }
                     ),
                     "data_type": "varchar",
+                    "support_min_granularity": None,
                     "is_time": 0,
                 },
             ]
@@ -73,6 +76,7 @@ class _MetadataStub:
                         }
                     ),
                     "data_type": "timestamp",
+                    "support_min_granularity": "hour",
                     "is_time": 1,
                 },
             ]
@@ -90,6 +94,7 @@ class _DialectMetadataStub:
                     "name": "query_time",
                     "expression": json.dumps({"dialects": self._dialects}),
                     "data_type": "timestamp",
+                    "support_min_granularity": "hour",
                     "is_time": 1,
                 }
             ]
@@ -112,6 +117,7 @@ class _RecordingTimeProvider:
         return TimeAxisMetadataContext(
             entity_time_capabilities={"analysis_time": {"timestamp_column": "event_time"}},
             available_columns=["event_time"],
+            time_field_support_min_granularities={"event_time": "hour"},
         )
 
     def load_available_columns(self, table_name: str) -> list[str]:
@@ -204,6 +210,8 @@ class TimeAxisMetadataProviderTests(unittest.TestCase):
             "CAST(SUBSTRING(create_time, 1, 10) AS DATE)",
         )
         self.assertEqual(context.time_field_data_types["query_time"], "timestamp")
+        self.assertEqual(context.time_field_support_min_granularities["query_time"], "hour")
+        self.assertEqual(context.time_field_support_min_granularities["create_date"], "day")
         self.assertTrue(context.has_time_binding)
 
     def test_load_for_windowed_query_falls_back_to_source_fields_without_metric(self) -> None:

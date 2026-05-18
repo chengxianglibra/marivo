@@ -57,6 +57,9 @@ information. Produce a concise failure report that names the missing or blocked 
   Trino datasource.
 - When a time partition field such as `log_date` exists, use it as the time field unless the
   knowledge base explicitly requires another time semantics.
+- Every time field must include MARIVO `support_min_granularity`; infer it from datasource metadata
+  and sampled values. Date partition fields are usually `day`; timestamp fields or proven date+hour
+  expressions may be `hour`.
 - Prefer explicit time fields and carry time parsing uncertainty into the document description or
   failure report.
 - If validation cannot be repaired from the knowledge base and live metadata, fail closed instead of

@@ -895,6 +895,9 @@ def resolve_windowed_query_time_axis(
         source_time_capabilities=metadata_context.source_time_capabilities,
         time_field_expressions=metadata_context.time_field_expressions,
         time_field_data_types=metadata_context.time_field_data_types,
+        time_field_support_min_granularities=(
+            metadata_context.time_field_support_min_granularities
+        ),
     )
     request.resolved_time_axis = resolver.resolve()
 

@@ -18,6 +18,14 @@ TimeScopeMode = Literal["single_window", "compare"]
 TimeScopeGrain = Literal["hour", "day", "week", "month", "quarter", "year"]
 _TIME_SCOPE_GRAINS = frozenset({"hour", "day", "week", "month", "quarter", "year"})
 _DATE_LIKE_GRAINS = frozenset({"day", "week", "month", "quarter", "year"})
+_TIME_GRANULARITY_ORDER = {
+    "hour": 0,
+    "day": 1,
+    "week": 2,
+    "month": 3,
+    "quarter": 4,
+    "year": 5,
+}
 _TIME_SCOPE_GRAIN_MESSAGE = (
     "time_scope.grain must be one of 'hour', 'day', 'week', 'month', 'quarter', 'year'"
 )
@@ -393,6 +401,7 @@ class TimeAxisResolver:
     source_time_capabilities: Mapping[str, Any] | None = None
     time_field_expressions: Mapping[str, str] | None = None
     time_field_data_types: Mapping[str, str] | None = None
+    time_field_support_min_granularities: Mapping[str, str] | None = None
 
     def resolve(self) -> ResolvedTimeAxis:
         columns = _normalize_columns(self.available_columns)
@@ -401,6 +410,7 @@ class TimeAxisResolver:
             _TimeCapabilities.from_mapping(self.source_time_capabilities),
         ]
         analysis = self._resolve_analysis_axis(columns, metadata_chain)
+        self._validate_supported_granularity(analysis)
         pruning = self._resolve_partition_axis(columns, metadata_chain, analysis)
         return ResolvedTimeAxis(
             observation_grain=self.request.time_scope.grain,
@@ -421,6 +431,7 @@ class TimeAxisResolver:
         override = self.request.resolved_time_axis.override_analysis_time_column
         if override is not None:
             self._ensure_known_column(override, columns, "time_axis.analysis_time.column")
+            self._validate_field_granularity(override)
             field_expression = _mapping_optional_str(self.time_field_expressions, override)
             field_data_type = _mapping_optional_str(self.time_field_data_types, override)
             if field_expression is not None and field_expression != override:
@@ -434,16 +445,9 @@ class TimeAxisResolver:
             if field_data_type is not None:
                 if _sql_type_is_date(field_data_type):
                     if self.request.time_scope.grain == "hour":
-                        partition_axis = self._partition_hour_axis_for_date_column(
-                            override,
-                            columns,
-                            metadata_chain,
-                        )
-                        if partition_axis is not None:
-                            return partition_axis
                         raise ValueError(
                             "time_axis.analysis_time.column must be hour-compatible for hour grain; "
-                            "provide a timestamp column or rely on partition date/hour metadata"
+                            "select a time field whose support_min_granularity is 'hour'"
                         )
                     date_format = self._analysis_date_format(metadata_chain, override)
                     return _AnalysisAxis(
@@ -456,16 +460,9 @@ class TimeAxisResolver:
                 if _sql_type_is_timestamp(field_data_type):
                     return _AnalysisAxis(kind="timestamp", expr=override, column=override)
             if self.request.time_scope.grain == "hour" and _looks_like_day_column(override):
-                partition_axis = self._partition_hour_axis_for_date_column(
-                    override,
-                    columns,
-                    metadata_chain,
-                )
-                if partition_axis is not None:
-                    return partition_axis
                 raise ValueError(
                     "time_axis.analysis_time.column must be hour-compatible for hour grain; "
-                    "provide a timestamp column or rely on partition date/hour metadata"
+                    "select a time field whose support_min_granularity is 'hour'"
                 )
             if _looks_like_day_column(override):
                 date_format = self._analysis_date_format(metadata_chain, override)
@@ -600,17 +597,9 @@ class TimeAxisResolver:
     ) -> _AnalysisAxis:
         if _is_simple_identifier(expression):
             if self.request.time_scope.grain == "hour" and _looks_like_day_column(expression):
-                partition_axis = self._partition_hour_axis_for_date_column(
-                    expression,
-                    columns,
-                    metadata_chain,
-                    field_name=field_name,
-                )
-                if partition_axis is not None:
-                    return partition_axis
                 raise ValueError(
                     "time_scope.field expression must be hour-compatible for hour grain; "
-                    "provide a timestamp expression or date/hour metadata"
+                    "select a time field whose support_min_granularity is 'hour'"
                 )
             if _looks_like_day_column(expression) or _sql_type_is_date(data_type):
                 date_format = self._analysis_date_format(metadata_chain, expression)
@@ -634,6 +623,34 @@ class TimeAxisResolver:
         if self.request.time_scope.grain == "hour":
             return _AnalysisAxis(kind="timestamp", expr=expression, column=field_name)
         return _AnalysisAxis(kind="date_expression", expr=expression, column=field_name)
+
+    def _validate_supported_granularity(self, analysis: _AnalysisAxis) -> None:
+        field_name = analysis.column or analysis.date_column
+        if field_name is None:
+            raise ValueError(
+                f"time field for {self.request.table} must declare support_min_granularity"
+            )
+        self._validate_field_granularity(field_name)
+
+    def _validate_field_granularity(self, field_name: str) -> None:
+        support_min_granularity = _mapping_optional_str(
+            self.time_field_support_min_granularities,
+            field_name,
+        )
+        if support_min_granularity is None:
+            raise ValueError(f"time field '{field_name}' must declare support_min_granularity")
+        if support_min_granularity not in _TIME_GRANULARITY_ORDER:
+            raise ValueError(
+                f"time field '{field_name}' has invalid support_min_granularity "
+                f"'{support_min_granularity}'"
+            )
+        requested = self.request.time_scope.grain
+        if _TIME_GRANULARITY_ORDER[requested] < _TIME_GRANULARITY_ORDER[support_min_granularity]:
+            raise ValueError(
+                f"time field '{field_name}' supports minimum granularity "
+                f"'{support_min_granularity}' and cannot satisfy requested granularity "
+                f"'{requested}'"
+            )
 
     def _partition_hour_axis_for_date_column(
         self,
