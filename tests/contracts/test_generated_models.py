@@ -181,10 +181,30 @@ def test_marivo_metric_extension_matches_spec() -> None:
     assert set(MarivoMetricExtension.model_fields) == {
         "additive_dimensions",
         "aggregation_semantics",
-        "observed_dataset",
-        "observation_grain",
-        "primary_time_field",
     }
+
+
+def test_marivo_metric_extension_rejects_retired_fields() -> None:
+    from marivo.contracts.generated.osi import MarivoMetricExtension
+
+    with pytest.raises(ValidationError):
+        MarivoMetricExtension.model_validate(
+            {
+                "additive_dimensions": ["region"],
+                "observed_dataset": "orders",
+                "observation_grain": ["day"],
+                "primary_time_field": "order_date",
+            }
+        )
+
+
+def test_generated_osi_has_no_retired_metric_extension_types() -> None:
+    from marivo.contracts.generated import osi
+
+    assert not hasattr(osi, "ObservationGrainItem")
+    assert "observed_dataset" not in osi.MarivoMetricExtension.model_fields
+    assert "observation_grain" not in osi.MarivoMetricExtension.model_fields
+    assert "primary_time_field" not in osi.MarivoMetricExtension.model_fields
 
 
 def test_semantic_metrics_ddl_has_additive_dimensions() -> None:

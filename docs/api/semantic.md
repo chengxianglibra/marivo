@@ -221,9 +221,6 @@ Physical grounding lives in the semantic document:
             {
               "vendor_name": "MARIVO",
               "data": {
-                "observed_dataset": "orders",
-                "observation_grain": ["day"],
-                "primary_time_field": "order_date",
                 "additive_dimensions": ["__all"]
               }
             }
@@ -247,9 +244,9 @@ Physical grounding lives in the semantic document:
     {
       "code": "UNKNOWN_FIELD",
       "message": "Metric order_revenue references missing field amount.",
-      "json_pointer": "/semantic_model/0/metrics/0/custom_extensions/0/data",
+      "json_pointer": "/semantic_model/0/metrics/0/expression",
       "severity": "error",
-      "hint": "Add the field to the observed dataset or update the metric expression.",
+      "hint": "Add the field to a dataset in the relationship graph or update the metric expression.",
       "context": {
         "model": "commerce",
         "metric": "order_revenue"
@@ -271,6 +268,8 @@ When a datasource is available and ready, validation also smoke-tests SQL execut
 and metric expressions. Field expressions run as `SELECT <expression> FROM <table> LIMIT 10`.
 Metric expressions run over a bounded input sample:
 `SELECT <metric_expression> FROM (SELECT * FROM <table> LIMIT 10) __marivo_sample`.
+For multi-dataset models, validation uses declared OSI relationships to join sampled datasets before
+running metric expressions. Cross-datasource relationship graphs skip metric expression dry-runs.
 This catches parser, type, and sample-row format problems before import, but it is not a full data
 quality scan; malformed rows outside the sampled input can still pass validation.
 
@@ -282,8 +281,8 @@ Typical validation failures:
 | Dataset has an empty `source`. | Set `dataset.source` to the live relation FQN from browse. |
 | Relationship references an unknown dataset. | Set `from` and `to` to dataset names in the same model. |
 | Relationship references an unknown field. | Set `from_columns` and `to_columns` to field names in their datasets. |
-| Metric references an unknown dataset or field. | Update metric extension fields and expressions to match current datasets and fields. |
-| Multi-dataset metric has no observed dataset. | Add `custom_extensions[].data.observed_dataset` to the metric. |
+| Metric expression references an unknown field. | Update the metric expression or connect datasets with relationships so validation can resolve a joined sample. |
+| Multi-dataset metric dry-run graph is disconnected. | Add relationships connecting all datasets that participate in the model. |
 | Field expression dry-run fails. | Update the field expression so the datasource can parse it on a small sample. |
 | Metric expression dry-run fails. | Update the metric expression so the datasource can parse it over `LIMIT 10` input rows. |
 

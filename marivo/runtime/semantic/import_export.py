@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -403,15 +404,25 @@ class OsiSemanticDocumentValidator:
             expression = _first_ansi_expression(metric)
             if not expression:
                 continue
-            metric_context = _metric_observed_dataset_context(metric, datasets)
-            if metric_context is None or metric_context.datasource_id is None:
+            metric_plan = _metric_dry_run_plan(
+                expression=expression,
+                model=model,
+                datasets=datasets,
+                json_pointer=f"{model_pointer}/metrics/{metric_index}/expression",
+                ready_datasource_ids=set(engines_by_datasource),
+            )
+            if metric_plan.issue is not None:
+                issues.append(metric_plan.issue)
                 continue
-            datasource_id = metric_context.datasource_id
+            if metric_plan.sql is None or metric_plan.datasource_id is None:
+                continue
+            datasource_id = metric_plan.datasource_id
             engine = engines_by_datasource.get(datasource_id)
             if engine is None:
                 continue
-            sql = _metric_dry_run_sql(expression, metric_context.source)
-            translated_sql = translate_sql(sql, datasource_types.get(datasource_id, "duckdb"))
+            translated_sql = translate_sql(
+                metric_plan.sql, datasource_types.get(datasource_id, "duckdb")
+            )
             try:
                 engine.query_rows(translated_sql)
             except Exception as exc:
@@ -420,7 +431,7 @@ class OsiSemanticDocumentValidator:
                         code="METRIC_EXPRESSION_DRY_RUN_FAILED",
                         message=(
                             f"Metric {metric.get('name')!r} expression could not be "
-                            f"executed against dataset {metric_context.dataset_name!r}: {exc}"
+                            f"executed against semantic model datasets: {exc}"
                         ),
                         json_pointer=f"{model_pointer}/metrics/{metric_index}/expression",
                         hint=(
@@ -428,10 +439,10 @@ class OsiSemanticDocumentValidator:
                             "over a small input sample."
                         ),
                         context={
-                            "dataset": metric_context.dataset_name,
+                            "datasets": metric_plan.datasets,
                             "metric": str(metric.get("name") or ""),
                             "datasource_id": datasource_id,
-                            "source": metric_context.source,
+                            "source": metric_plan.source,
                             "query_sql": translated_sql,
                         },
                     )
@@ -1085,6 +1096,15 @@ class _DatasetValidationContext:
     fields: list[dict[str, Any]]
 
 
+@dataclass(frozen=True)
+class _MetricDryRunPlan:
+    sql: str | None
+    datasource_id: str | None
+    datasets: list[str]
+    source: str
+    issue: SemanticValidationIssue | None = None
+
+
 def _dataset_contexts(model: dict[str, Any]) -> dict[str, _DatasetValidationContext]:
     datasets_raw = model.get("datasets")
     datasets: list[Any] = datasets_raw if isinstance(datasets_raw, list) else []
@@ -1319,47 +1339,7 @@ def _metric_extension_issues(
     issues: list[SemanticValidationIssue] = []
     extension_data = _extract_marivo_extension_data(metric)
     if extension_data is None:
-        if len(dataset_fields) > 1:
-            issues.append(
-                _missing_observed_dataset_issue(
-                    metric=metric,
-                    json_pointer=f"{model_pointer}/metrics/{metric_index}/custom_extensions",
-                )
-            )
         return issues
-    observed_dataset = extension_data.get("observed_dataset")
-    if not isinstance(observed_dataset, str) and len(dataset_fields) == 1:
-        observed_dataset = next(iter(dataset_fields))
-    if not isinstance(observed_dataset, str) and len(dataset_fields) > 1:
-        issues.append(
-            _missing_observed_dataset_issue(
-                metric=metric,
-                json_pointer=f"{model_pointer}/metrics/{metric_index}/custom_extensions",
-            )
-        )
-        return issues
-    if isinstance(observed_dataset, str) and observed_dataset not in dataset_fields:
-        issues.append(
-            _unknown_dataset_issue(
-                dataset=observed_dataset,
-                json_pointer=f"{model_pointer}/metrics/{metric_index}/custom_extensions",
-            )
-        )
-        return issues
-    primary_time_field = extension_data.get("primary_time_field")
-    if (
-        isinstance(observed_dataset, str)
-        and observed_dataset in dataset_fields
-        and isinstance(primary_time_field, str)
-        and primary_time_field not in dataset_fields[observed_dataset]
-    ):
-        issues.append(
-            _unknown_field_issue(
-                field_name=primary_time_field,
-                dataset=observed_dataset,
-                json_pointer=f"{model_pointer}/metrics/{metric_index}/custom_extensions",
-            )
-        )
     additive_dimensions = extension_data.get("additive_dimensions") or []
     if isinstance(additive_dimensions, list) and additive_dimensions_mix_all(additive_dimensions):
         issues.append(
@@ -1377,20 +1357,6 @@ def _metric_extension_issues(
         return issues
     if isinstance(additive_dimensions, list) and is_all_additive_dimensions(additive_dimensions):
         return issues
-    for dimension in additive_dimensions:
-        if (
-            isinstance(observed_dataset, str)
-            and observed_dataset in dataset_fields
-            and isinstance(dimension, str)
-            and dimension not in dataset_fields[observed_dataset]
-        ):
-            issues.append(
-                _unknown_field_issue(
-                    field_name=dimension,
-                    dataset=observed_dataset,
-                    json_pointer=f"{model_pointer}/metrics/{metric_index}/custom_extensions",
-                )
-            )
     aggregation_semantics = extension_data.get("aggregation_semantics")
     if isinstance(aggregation_semantics, str) and aggregation_semantics not in {
         "sum",
@@ -1407,23 +1373,6 @@ def _metric_extension_issues(
             )
         )
     return issues
-
-
-def _missing_observed_dataset_issue(
-    *,
-    metric: dict[str, Any],
-    json_pointer: str,
-) -> SemanticValidationIssue:
-    return SemanticValidationIssue(
-        code="MISSING_OBSERVED_DATASET",
-        message=(
-            f"Metric {metric.get('name')!r} must declare MARIVO "
-            "custom_extensions.data.observed_dataset when the semantic model has multiple datasets."
-        ),
-        json_pointer=json_pointer,
-        hint="Add observed_dataset to the metric MARIVO custom extension.",
-        context={"metric": str(metric.get("name") or "")},
-    )
 
 
 def _unknown_dataset_issue(dataset: str, json_pointer: str) -> SemanticValidationIssue:
@@ -1485,17 +1434,218 @@ def _looks_like_column_reference(expression: str) -> bool:
     return stripped.replace("_", "").isalnum() and "." not in stripped
 
 
-def _metric_observed_dataset_context(
-    metric: dict[str, Any],
+_SQL_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _metric_dry_run_plan(
+    *,
+    expression: str,
+    model: dict[str, Any],
     datasets: dict[str, _DatasetValidationContext],
-) -> _DatasetValidationContext | None:
-    extension_data = _extract_marivo_extension_data(metric)
-    observed_dataset = extension_data.get("observed_dataset") if extension_data else None
-    if isinstance(observed_dataset, str):
-        return datasets.get(observed_dataset)
+    json_pointer: str,
+    ready_datasource_ids: set[str],
+) -> _MetricDryRunPlan:
     if len(datasets) == 1:
-        return next(iter(datasets.values()))
-    return None
+        context = next(iter(datasets.values()))
+        if (
+            context.datasource_id is None
+            or context.parsed_source is None
+            or context.datasource_id not in ready_datasource_ids
+        ):
+            return _MetricDryRunPlan(None, None, [context.dataset_name], context.source)
+        return _MetricDryRunPlan(
+            sql=_metric_dry_run_sql(expression, context.source),
+            datasource_id=context.datasource_id,
+            datasets=[context.dataset_name],
+            source=context.source,
+        )
+
+    if any(context.parsed_source is None for context in datasets.values()):
+        return _MetricDryRunPlan(
+            None,
+            None,
+            [context.dataset_name for context in datasets.values()],
+            "invalid_dataset_source",
+        )
+
+    datasource_ids = {context.datasource_id for context in datasets.values()}
+    if len(datasource_ids) != 1 or None in datasource_ids:
+        return _MetricDryRunPlan(
+            None,
+            None,
+            [context.dataset_name for context in datasets.values()],
+            "cross_datasource_relationship_graph",
+        )
+    datasource_id = next(iter(datasource_ids))
+    if datasource_id not in ready_datasource_ids:
+        return _MetricDryRunPlan(
+            None,
+            None,
+            [context.dataset_name for context in datasets.values()],
+            "datasource_not_ready",
+        )
+
+    joined = _joined_metric_dry_run_sql(
+        expression=expression,
+        model=model,
+        datasets=datasets,
+        json_pointer=json_pointer,
+    )
+    if isinstance(joined, SemanticValidationIssue):
+        return _MetricDryRunPlan(
+            None,
+            datasource_id,
+            [context.dataset_name for context in datasets.values()],
+            "relationship_graph",
+            issue=joined,
+        )
+    return _MetricDryRunPlan(
+        sql=joined,
+        datasource_id=datasource_id,
+        datasets=[context.dataset_name for context in datasets.values()],
+        source="relationship_graph",
+    )
+
+
+def _joined_metric_dry_run_sql(
+    *,
+    expression: str,
+    model: dict[str, Any],
+    datasets: dict[str, _DatasetValidationContext],
+    json_pointer: str,
+) -> str | SemanticValidationIssue:
+    dataset_items = list(datasets.items())
+    aliases = {
+        name: _dataset_sql_alias(name, index)
+        for index, (name, _context) in enumerate(dataset_items)
+    }
+    connected: set[str] = {dataset_items[0][0]}
+    join_clauses: list[str] = [
+        _sampled_dataset_sql(dataset_items[0][1].source, aliases[dataset_items[0][0]])
+    ]
+    relationships = [
+        relationship
+        for relationship in model.get("relationships") or []
+        if isinstance(relationship, dict)
+    ]
+
+    while len(connected) < len(datasets):
+        progressed = False
+        for relationship in relationships:
+            from_dataset = str(relationship.get("from") or "")
+            to_dataset = str(relationship.get("to") or "")
+            if from_dataset in connected and to_dataset in datasets and to_dataset not in connected:
+                clause = _relationship_join_clause(
+                    relationship=relationship,
+                    join_dataset=to_dataset,
+                    connected_dataset=from_dataset,
+                    datasets=datasets,
+                    aliases=aliases,
+                    reverse=False,
+                )
+            elif (
+                to_dataset in connected
+                and from_dataset in datasets
+                and from_dataset not in connected
+            ):
+                clause = _relationship_join_clause(
+                    relationship=relationship,
+                    join_dataset=from_dataset,
+                    connected_dataset=to_dataset,
+                    datasets=datasets,
+                    aliases=aliases,
+                    reverse=True,
+                )
+            else:
+                continue
+            if clause is None:
+                return _relationship_join_unavailable_issue(json_pointer)
+            join_clauses.append(clause)
+            connected.add(to_dataset if from_dataset in connected else from_dataset)
+            progressed = True
+            break
+        if not progressed:
+            missing = [name for name in datasets if name not in connected]
+            return SemanticValidationIssue(
+                code="METRIC_DRY_RUN_JOIN_GRAPH_DISCONNECTED",
+                message=(
+                    "Metric expression dry-run requires relationships connecting all datasets "
+                    "in a multi-dataset semantic model."
+                ),
+                json_pointer=json_pointer,
+                hint="Add relationships connecting the dataset graph or validate without live dry-run.",
+                context={
+                    "connected_datasets": sorted(connected),
+                    "missing_datasets": missing,
+                },
+            )
+
+    relation_sql = " ".join(join_clauses)
+    return f"SELECT {expression} AS value FROM {relation_sql}"
+
+
+def _dataset_sql_alias(dataset_name: str, index: int) -> str:
+    if _SQL_IDENTIFIER_RE.match(dataset_name):
+        return dataset_name
+    return f"__marivo_ds{index}"
+
+
+def _sampled_dataset_sql(source: str, alias: str) -> str:
+    limit = OsiSemanticDocumentValidator._DRY_RUN_SAMPLE_LIMIT
+    return f"(SELECT * FROM {source} LIMIT {limit}) {alias}"
+
+
+def _relationship_join_clause(
+    *,
+    relationship: dict[str, Any],
+    join_dataset: str,
+    connected_dataset: str,
+    datasets: dict[str, _DatasetValidationContext],
+    aliases: dict[str, str],
+    reverse: bool,
+) -> str | None:
+    from_columns = relationship.get("from_columns")
+    to_columns = relationship.get("to_columns")
+    if not isinstance(from_columns, list) or not isinstance(to_columns, list):
+        return None
+    if len(from_columns) != len(to_columns) or not from_columns:
+        return None
+
+    if reverse:
+        join_columns, connected_columns = from_columns, to_columns
+    else:
+        join_columns, connected_columns = to_columns, from_columns
+
+    conditions = [
+        (
+            f"{_sql_column_ref(aliases[join_dataset], str(join_column))} = "
+            f"{_sql_column_ref(aliases[connected_dataset], str(connected_column))}"
+        )
+        for join_column, connected_column in zip(join_columns, connected_columns, strict=True)
+    ]
+    return (
+        f"JOIN {_sampled_dataset_sql(datasets[join_dataset].source, aliases[join_dataset])} "
+        f"ON {' AND '.join(conditions)}"
+    )
+
+
+def _sql_column_ref(alias: str, column: str) -> str:
+    return f"{alias}.{_quote_sql_identifier(column)}"
+
+
+def _quote_sql_identifier(identifier: str) -> str:
+    if _SQL_IDENTIFIER_RE.match(identifier):
+        return identifier
+    return '"' + identifier.replace('"', '""') + '"'
+
+
+def _relationship_join_unavailable_issue(json_pointer: str) -> SemanticValidationIssue:
+    return SemanticValidationIssue(
+        code="METRIC_DRY_RUN_JOIN_UNAVAILABLE",
+        message="Metric expression dry-run could not build a relationship join from this model.",
+        json_pointer=json_pointer,
+        hint="Ensure each relationship has matching non-empty from_columns and to_columns.",
+    )
 
 
 def _field_dry_run_sql(expression: str, source: str) -> str:

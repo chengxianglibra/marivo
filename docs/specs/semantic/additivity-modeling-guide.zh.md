@@ -6,7 +6,7 @@
 
 Marivo 使用扁平化的加法性模型替代了旧的 `additivity_constraints` 三态结构（`dimension_policy` + `time_axis_policy`）。当前模型由两个字段组成：
 
-- **`additive_dimensions`**：`list[str]`，列出 metric 可加的维度字段名。空列表表示 metric 不在任何维度上可加；普通非空列表表示 metric 仅在列出的维度上可加；单元素列表 `["__all"]` 表示 metric 对 observed dataset 中所有声明了 `dimension` 的字段可加，包括时间维度。`"__all"` 不得与显式维度名混用。
+- **`additive_dimensions`**：`list[str]`，列出 metric 可加的维度字段名。空列表表示 metric 不在任何维度上可加；普通非空列表表示 metric 仅在列出的维度上可加；单元素列表 `["__all"]` 表示 metric 对 semantic model 中所有声明了 `dimension` 的字段可加，包括时间维度。`"__all"` 不得与显式维度名混用。
 - **`aggregation_semantics`**：`"sum" | "ratio" | "weighted_average"`，声明 metric 的聚合语义。默认值为 `"sum"`。
 
 **关键变化**：旧的 `dimension_policy`（`"all"` / `"subset"` / `"none"`）和 `time_axis_policy`（`"additive"` / `"non_additive"`）已被删除。能力推导直接基于 `additive_dimensions` 是否为空以及 `aggregation_semantics` 的值。

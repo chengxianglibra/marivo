@@ -50,7 +50,7 @@ field_extension:
 
 # MARIVO extension for Metric.
 metric_extension:
-  additive_dimensions: # Dimension and time fields across which the metric is additive. [] means non-additive; ["__all"] means all declared dimension fields in the observed dataset, including time dimensions. "__all" must be the only item when used.
+  additive_dimensions: # Dimension and time fields across which the metric is additive. [] means non-additive; ["__all"] means all declared dimension fields in the semantic model, including time dimensions. "__all" must be the only item when used.
     - string
   # Aggregation semantics determines statistical test method and decomposition strategy.
   # Decision rule:
@@ -62,10 +62,6 @@ metric_extension:
   #     → "weighted_average"  (e.g. AOV = SUM(revenue)/COUNT(orders), avg_latency)
   # Default: "sum". NOT NULL.
   aggregation_semantics: string # enum: sum | ratio | weighted_average
-  observed_dataset: string # Dataset name that owns the metric expression.
-  observation_grain: # Observation grain fields or semantic grain labels.
-    - string
-  primary_time_field: string # Dataset field used as the primary analysis time axis.
 
 # Top-level semantic model definition
 semantic_model:
