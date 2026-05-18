@@ -640,7 +640,7 @@ def test_test_accepts_aoi_request_and_returns_execution_envelope() -> None:
 
 
 @pytest.mark.parametrize("grain", ["quarter", "year"])
-def test_test_accepts_extended_sample_grains(grain: str) -> None:
+def test_test_accepts_time_granularity_grain(grain: str) -> None:
     runtime = _FakeRuntime()
     payload = _valid_test_request()
     payload["grain"] = grain
@@ -688,7 +688,7 @@ def test_validate_accepts_aoi_request_and_returns_typed_bundle() -> None:
 
 
 @pytest.mark.parametrize("grain", ["quarter", "year"])
-def test_validate_accepts_extended_sample_grains(grain: str) -> None:
+def test_validate_accepts_time_granularity_grain(grain: str) -> None:
     runtime = _FakeRuntime()
     payload = _valid_validate_request()
     payload["grain"] = grain

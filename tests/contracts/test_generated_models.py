@@ -410,7 +410,7 @@ def test_aoi_test_omits_absent_optional_filter_fields() -> None:
 
 
 @pytest.mark.parametrize("grain", ["hour", "day", "week", "month", "quarter", "year"])
-def test_aoi_test_accepts_time_granularity_sample_grains(grain: str) -> None:
+def test_aoi_test_accepts_time_granularity_grain(grain: str) -> None:
     from marivo.contracts.generated import aoi
 
     payload = _aoi_test_payload()
@@ -422,7 +422,7 @@ def test_aoi_test_accepts_time_granularity_sample_grains(grain: str) -> None:
 
 
 @pytest.mark.parametrize("grain", ["hour", "day", "week", "month", "quarter", "year"])
-def test_aoi_validate_accepts_time_granularity_sample_grains(grain: str) -> None:
+def test_aoi_validate_accepts_time_granularity_grain(grain: str) -> None:
     from marivo.contracts.generated import aoi
 
     request = aoi.Validate.model_validate(
@@ -442,11 +442,17 @@ def test_aoi_validate_accepts_time_granularity_sample_grains(grain: str) -> None
     assert request.grain == grain
 
 
-def test_aoi_sample_grain_matches_time_granularity_values() -> None:
+def test_aoi_grain_uses_time_granularity_directly() -> None:
     schema = _load_json(REPO_ROOT / "aoi-spec" / "schema" / "aoi.schema.json")
     primitives = schema["$defs"]["primitives"]
 
-    assert primitives["SampleGrain"] == {"$ref": "#/$defs/primitives/TimeGranularity"}
+    assert "SampleGrain" not in primitives
+    assert schema["$defs"]["requests"]["test"]["properties"]["grain"] == {
+        "$ref": "#/$defs/primitives/TimeGranularity"
+    }
+    assert schema["$defs"]["derived_requests"]["validate"]["properties"]["grain"] == {
+        "$ref": "#/$defs/primitives/TimeGranularity"
+    }
 
 
 @pytest.mark.parametrize(

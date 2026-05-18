@@ -395,6 +395,7 @@ def test_test_intent_tool_schema_matches_current_aoi_surface() -> None:
     assert properties["current"]["$ref"] == "#/$defs/McpAoiSliceRef"
     assert properties["baseline"]["$ref"] == "#/$defs/McpAoiSliceRef"
     assert properties["grain"]["enum"] == ["hour", "day", "week", "month", "quarter", "year"]
+    assert "AOI time granularity" in properties["grain"]["description"]
     assert "Current AOI slice" in properties["current"]["description"]
     assert "Baseline AOI slice" in properties["baseline"]["description"]
     _assert_aoi_slice_ref_schema_uses_filter(slice_schema)
@@ -529,6 +530,7 @@ def test_validate_hypothesis_schema_omits_fixed_family() -> None:
     assert properties["current"]["$ref"] == "#/$defs/McpAoiSliceRef"
     assert properties["baseline"]["$ref"] == "#/$defs/McpAoiSliceRef"
     assert properties["grain"]["enum"] == ["hour", "day", "week", "month", "quarter", "year"]
+    assert "AOI time granularity" in properties["grain"]["description"]
     assert "Current AOI slice" in properties["current"]["description"]
     assert "Baseline AOI slice" in properties["baseline"]["description"]
     _assert_aoi_slice_ref_schema_uses_filter(slice_schema)

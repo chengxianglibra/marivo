@@ -42,12 +42,12 @@ CompareObserveArtifactId = Annotated[
     ),
 ]
 
-SampleGrain = Annotated[
+TimeGranularity = Annotated[
     Literal["hour", "day", "week", "month", "quarter", "year"],
     Field(
         description=(
-            "Required statistical sample grain used to split each source slice for "
-            "hypothesis testing. This is not an observe output selector."
+            "Required AOI time granularity used as the statistical sample unit for "
+            "the `grain` field in hypothesis testing. This is not an observe output selector."
         )
     ),
 ]
@@ -777,8 +777,8 @@ def register_test_intent(server: Any, runtime: Any) -> None:
         description=(
             "Run a fixed-family numeric hypothesis test over current and baseline AOI slices. "
             "MCP fixes kind='numeric' and hypothesis.family='two_sample_mean'; do not pass "
-            "kind, method, family, alpha, or label. grain is required and defines the "
-            "statistical sample unit."
+            "kind, method, family, alpha, or label. grain is required, uses AOI "
+            "TimeGranularity values, and defines the statistical sample unit."
         )
     )
     async def test_intent(
@@ -801,7 +801,7 @@ def register_test_intent(server: Any, runtime: Any) -> None:
             McpAoiSliceRef,
             Field(description="Baseline AOI slice: time_scope plus optional filter."),
         ],
-        grain: SampleGrain,
+        grain: TimeGranularity,
         hypothesis: Annotated[
             McpTestHypothesis,
             Field(
@@ -827,8 +827,9 @@ def register_validate(server: Any, runtime: Any) -> None:
         description=(
             "Run derived validation for current and baseline AOI slices using the fixed "
             "two_sample_mean hypothesis family. MCP fills missing hypothesis defaults and "
-            "does not expose method, family, alpha, or label. grain is required and defines "
-            "the statistical sample unit for the wrapped test."
+            "does not expose method, family, alpha, or label. grain is required, uses AOI "
+            "TimeGranularity values, and defines the statistical sample unit for the "
+            "wrapped test."
         )
     )
     async def validate(
@@ -851,7 +852,7 @@ def register_validate(server: Any, runtime: Any) -> None:
             McpAoiSliceRef,
             Field(description="Baseline AOI slice: time_scope plus optional filter."),
         ],
-        grain: SampleGrain,
+        grain: TimeGranularity,
         hypothesis: Annotated[
             McpValidateHypothesis | None,
             Field(
