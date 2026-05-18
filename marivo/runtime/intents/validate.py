@@ -10,24 +10,28 @@ derived namespace. The response bundle remains Marivo-owned.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from marivo.runtime.intents.derived_envelopes import (
     aoi_artifact_dump,
     build_derived_bundle_envelope,
 )
 from marivo.runtime.intents.test import _SIGNIFICANCE_ALPHA, run_test_intent
+from marivo.time_scope import TimeScopeGrain
 
 if TYPE_CHECKING:
     from marivo.runtime.runtime import MarivoRuntime
 
 _DERIVED_LOGIC_VERSION = "1.0"
 _PROJECTION_VERSION = "validation_bundle.v1"
-_REQUEST_FIELDS: frozenset[str] = frozenset({"metric", "current", "baseline", "hypothesis"})
+_REQUEST_FIELDS: frozenset[str] = frozenset(
+    {"metric", "current", "baseline", "grain", "hypothesis"}
+)
 _SLICE_FIELDS: frozenset[str] = frozenset({"time_scope", "filter"})
 _HYPOTHESIS_FIELDS: frozenset[str] = frozenset({"family", "alternative", "significance"})
 _VALID_FAMILIES: frozenset[str] = frozenset({"two_sample_mean"})
 _VALID_ALTERNATIVES: frozenset[str] = frozenset({"two_sided", "greater", "less"})
+_VALID_GRAINS: frozenset[str] = frozenset({"hour", "day", "week", "month", "quarter", "year"})
 
 
 def run_validate_intent(
@@ -47,6 +51,7 @@ def run_validate_intent(
     baseline_time_scope: dict[str, Any] = baseline_raw["time_scope"]
     current_filter: Any = current_raw.get("filter")
     baseline_filter: Any = baseline_raw.get("filter")
+    grain = _validate_grain(p["grain"])
 
     hypothesis_raw = _validate_hypothesis(p["hypothesis"])
     family: str = hypothesis_raw["family"]
@@ -67,6 +72,7 @@ def run_validate_intent(
         "metric": metric_ref,
         "current": current_test_slice,
         "baseline": baseline_test_slice,
+        "grain": grain,
         "kind": "numeric",
         "hypothesis": {
             "family": family,
@@ -146,6 +152,7 @@ def run_validate_intent(
         "metric": metric_ref,
         "current": {"time_scope": current_time_scope, "filter": current_filter},
         "baseline": {"time_scope": baseline_time_scope, "filter": baseline_filter},
+        "grain": grain,
         "kind": "numeric",
         "hypothesis": hypothesis_out,
         "method": resolved_method,
@@ -184,6 +191,7 @@ def run_validate_intent(
     provenance: dict[str, Any] = {
         "test_step_id": test_step_id,
         "kind": "numeric",
+        "grain": grain,
         "derived_logic_version": _DERIVED_LOGIC_VERSION,
         "projection_version": _PROJECTION_VERSION,
     }
@@ -228,6 +236,17 @@ def _validate_request(value: Any) -> dict[str, Any]:
             f"validate: INVALID_ARGUMENT - unsupported field(s): {sorted(unexpected_fields)}"
         )
     return value
+
+
+def _validate_grain(value: Any) -> TimeScopeGrain:
+    if not isinstance(value, str):
+        raise ValueError("validate: INVALID_ARGUMENT - grain must be a string")
+    if value not in _VALID_GRAINS:
+        raise ValueError(
+            f"validate: INVALID_ARGUMENT - grain must be one of {sorted(_VALID_GRAINS)}, "
+            f"got '{value}'"
+        )
+    return cast("TimeScopeGrain", value)
 
 
 def _validate_slice(value: Any, *, label: str) -> dict[str, Any]:

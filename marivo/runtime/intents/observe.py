@@ -299,7 +299,9 @@ def run_observe_intent(
 
     if granularity == "hour":
         grain = "hour"
-    elif granularity is not None or dimensions is not None:
+    elif granularity is not None:
+        grain = granularity
+    elif dimensions is not None:
         grain = "day"
     else:
         grain = (

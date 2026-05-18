@@ -12,6 +12,7 @@ from pydantic import ValidationError
 ROOT = Path(__file__).resolve().parent.parent
 OSI_EXAMPLES = ROOT / "osi-marivo-spec" / "examples"
 AOI_EXAMPLES = ROOT / "aoi-spec" / "examples"
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _collect_json_files(base: Path) -> list[Path]:
@@ -261,6 +262,7 @@ def test_aoi_request_optional_fields_may_be_omitted() -> None:
             "metric": "revenue",
             "current": {"time_scope": time_scope},
             "baseline": {"time_scope": time_scope},
+            "grain": "day",
             "kind": "numeric",
             "hypothesis": {
                 "family": "two_sample_mean",
@@ -282,6 +284,7 @@ def test_aoi_request_optional_fields_may_be_omitted() -> None:
             "metric": "revenue",
             "current": {"time_scope": time_scope},
             "baseline": {"time_scope": time_scope},
+            "grain": "day",
             "hypothesis": {
                 "family": "two_sample_mean",
                 "alternative": "two_sided",
@@ -318,6 +321,7 @@ def _aoi_test_payload() -> dict[str, Any]:
         "metric": "revenue",
         "current": {"time_scope": _aoi_time_scope()},
         "baseline": {"time_scope": _aoi_time_scope()},
+        "grain": "day",
         "kind": "numeric",
         "hypothesis": {
             "family": "two_sample_mean",
@@ -385,6 +389,7 @@ def test_aoi_test_accepts_all_public_options(alternative: str, significance: str
     request = aoi.Test.model_validate(payload)
 
     assert request.kind == "numeric"
+    assert request.grain == "day"
     assert request.hypothesis.family == "two_sample_mean"
     assert request.hypothesis.alternative == alternative
     assert request.hypothesis.significance == significance
@@ -404,7 +409,49 @@ def test_aoi_test_omits_absent_optional_filter_fields() -> None:
     assert "filter" not in dumped["baseline"]
 
 
-@pytest.mark.parametrize("missing_field", ["metric", "current", "baseline", "kind", "hypothesis"])
+@pytest.mark.parametrize("grain", ["hour", "day", "week", "month", "quarter", "year"])
+def test_aoi_test_accepts_time_granularity_sample_grains(grain: str) -> None:
+    from marivo.contracts.generated import aoi
+
+    payload = _aoi_test_payload()
+    payload["grain"] = grain
+
+    request = aoi.Test.model_validate(payload)
+
+    assert request.grain == grain
+
+
+@pytest.mark.parametrize("grain", ["hour", "day", "week", "month", "quarter", "year"])
+def test_aoi_validate_accepts_time_granularity_sample_grains(grain: str) -> None:
+    from marivo.contracts.generated import aoi
+
+    request = aoi.Validate.model_validate(
+        {
+            "metric": "revenue",
+            "current": {"time_scope": _aoi_time_scope()},
+            "baseline": {"time_scope": _aoi_time_scope()},
+            "grain": grain,
+            "hypothesis": {
+                "family": "two_sample_mean",
+                "alternative": "two_sided",
+                "significance": "balanced",
+            },
+        }
+    )
+
+    assert request.grain == grain
+
+
+def test_aoi_sample_grain_matches_time_granularity_values() -> None:
+    schema = _load_json(REPO_ROOT / "aoi-spec" / "schema" / "aoi.schema.json")
+    primitives = schema["$defs"]["primitives"]
+
+    assert primitives["SampleGrain"] == {"$ref": "#/$defs/primitives/TimeGranularity"}
+
+
+@pytest.mark.parametrize(
+    "missing_field", ["metric", "current", "baseline", "grain", "kind", "hypothesis"]
+)
 def test_aoi_test_requires_public_required_fields(missing_field: str) -> None:
     from marivo.contracts.generated import aoi
 
@@ -431,6 +478,8 @@ def test_aoi_test_requires_hypothesis_fields(missing_field: str) -> None:
     [
         {"kind": "rate"},
         {"kind": "Numeric"},
+        {"grain": "minute"},
+        {"grain": None},
         {"method": "welch_t"},
         {"current": {"scope": {"constraints": {"region": "US"}}}},
         {"current": {"filter": None}},
@@ -767,6 +816,7 @@ def test_aoi_forecast_requires_public_required_fields(missing_field: str) -> Non
                         "end": "2026-01-02T00:00:00Z",
                     }
                 },
+                "grain": "day",
                 "hypothesis": {
                     "family": "two_sample_mean",
                     "alternative": "two_sided",
@@ -919,6 +969,7 @@ def test_aoi_request_optional_fields_reject_explicit_null(
                     "end": "2026-01-02T00:00:00Z",
                 }
             },
+            "grain": "day",
             "hypothesis": {
                 "family": "two_sample_mean",
                 "alternative": "two_sided",
@@ -941,12 +992,36 @@ def test_aoi_request_optional_fields_reject_explicit_null(
                     "end": "2026-01-02T00:00:00Z",
                 }
             },
+            "grain": "day",
             "hypothesis": {
                 "family": "two_sample_mean",
                 "alternative": "two_sided",
                 "significance": "balanced",
             },
             "method": "welch_t",
+        },
+        {
+            "metric": "revenue",
+            "current": {
+                "time_scope": {
+                    "field": "event_time",
+                    "start": "2026-01-01T00:00:00Z",
+                    "end": "2026-01-02T00:00:00Z",
+                }
+            },
+            "baseline": {
+                "time_scope": {
+                    "field": "event_time",
+                    "start": "2026-01-01T00:00:00Z",
+                    "end": "2026-01-02T00:00:00Z",
+                }
+            },
+            "grain": "minute",
+            "hypothesis": {
+                "family": "two_sample_mean",
+                "alternative": "two_sided",
+                "significance": "balanced",
+            },
         },
         {
             "metric": "revenue",

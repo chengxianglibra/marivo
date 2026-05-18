@@ -462,6 +462,7 @@ class Validate(BaseModel):
     metric: str = Field(..., min_length=1)
     current: Slice
     baseline: Slice
+    grain: Literal["hour", "day", "week", "month", "quarter", "year"]
     hypothesis: Hypothesis
 
 
@@ -472,6 +473,7 @@ class Test(BaseModel):
     metric: str = Field(..., min_length=1)
     current: Slice
     baseline: Slice
+    grain: Literal["hour", "day", "week", "month", "quarter", "year"]
     kind: Literal["numeric"]
     hypothesis: Hypothesis
 

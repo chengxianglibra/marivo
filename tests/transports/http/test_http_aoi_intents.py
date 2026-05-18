@@ -523,6 +523,7 @@ def _valid_test_request() -> dict[str, Any]:
                 "end": "2026-01-15T00:00:00Z",
             }
         },
+        "grain": "day",
         "kind": "numeric",
         "hypothesis": {
             "family": "two_sample_mean",
@@ -631,16 +632,30 @@ def test_test_accepts_aoi_request_and_returns_execution_envelope() -> None:
     assert response.status_code == 200, response.text
     assert isinstance(runtime.test_payload, aoi.Test)
     assert runtime.test_payload.kind == "numeric"
+    assert runtime.test_payload.grain == "day"
     assert runtime.test_payload.hypothesis.family == "two_sample_mean"
     body = response.json()
     assert body["intent_type"] == "test"
     assert body["artifact_id"] == "art_test_1"
 
 
+@pytest.mark.parametrize("grain", ["quarter", "year"])
+def test_test_accepts_extended_sample_grains(grain: str) -> None:
+    runtime = _FakeRuntime()
+    payload = _valid_test_request()
+    payload["grain"] = grain
+
+    response = _client(runtime).post("/sessions/sess_1/intents/test", json=payload)
+
+    assert response.status_code == 200, response.text
+    assert runtime.test_payload.grain == grain
+
+
 @pytest.mark.parametrize(
     ("path", "value"),
     [
         (("method",), "welch_t"),
+        (("grain",), "minute"),
         (("hypothesis", "alpha"), 0.05),
     ],
 )
@@ -665,10 +680,23 @@ def test_validate_accepts_aoi_request_and_returns_typed_bundle() -> None:
 
     assert response.status_code == 200, response.text
     assert isinstance(runtime.validate_payload, aoi.Validate)
+    assert runtime.validate_payload.grain == "day"
     body = response.json()
     assert body["intent_type"] == "validate"
     assert body["result"]["bundle_type"] == "validation_bundle"
     assert body["result"]["aoi_artifacts"][0]["result"]["p_value"] == 0.04
+
+
+@pytest.mark.parametrize("grain", ["quarter", "year"])
+def test_validate_accepts_extended_sample_grains(grain: str) -> None:
+    runtime = _FakeRuntime()
+    payload = _valid_validate_request()
+    payload["grain"] = grain
+
+    response = _client(runtime).post("/sessions/sess_1/intents/validate", json=payload)
+
+    assert response.status_code == 200, response.text
+    assert runtime.validate_payload.grain == grain
 
 
 def test_attribute_accepts_aoi_request_and_returns_typed_bundle() -> None:
@@ -693,6 +721,7 @@ def test_attribute_accepts_aoi_request_and_returns_typed_bundle() -> None:
     [
         (("method",), "welch_t"),
         (("kind",), "numeric"),
+        (("grain",), "minute"),
         (("current", "scope"), {"predicate": "region = 'US'"}),
         (("hypothesis", "alpha"), 0.05),
     ],

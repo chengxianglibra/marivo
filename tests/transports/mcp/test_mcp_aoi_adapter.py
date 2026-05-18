@@ -293,6 +293,7 @@ def test_to_aoi_test_request_builds_test_model() -> None:
         metric="view_time",
         current=_slice("2026-05-01T00:00:00Z", "2026-05-08T00:00:00Z"),
         baseline=_slice("2026-04-24T00:00:00Z", "2026-05-01T00:00:00Z"),
+        grain="day",
         hypothesis=McpTestHypothesis(
             alternative="greater",
             significance="balanced",
@@ -301,10 +302,27 @@ def test_to_aoi_test_request_builds_test_model() -> None:
 
     assert isinstance(request, aoi.Test)
     assert request.kind == "numeric"
+    assert request.grain == "day"
     assert request.hypothesis.family == "two_sample_mean"
     assert "filter" not in request.model_dump(exclude_none=True)["current"]
     assert request.hypothesis.alternative == "greater"
     assert request.hypothesis.significance == "balanced"
+
+
+@pytest.mark.parametrize("grain", ["quarter", "year"])
+def test_to_aoi_test_request_accepts_extended_sample_grains(grain: str) -> None:
+    request = to_aoi_test_request(
+        metric="view_time",
+        current=_slice("2026-01-01T00:00:00Z", "2027-01-01T00:00:00Z"),
+        baseline=_slice("2025-01-01T00:00:00Z", "2026-01-01T00:00:00Z"),
+        grain=grain,  # type: ignore[arg-type]
+        hypothesis=McpTestHypothesis(
+            alternative="two_sided",
+            significance="balanced",
+        ),
+    )
+
+    assert request.grain == grain
 
 
 def test_to_aoi_test_request_accepts_naive_mcp_slice_time_scope() -> None:
@@ -312,6 +330,7 @@ def test_to_aoi_test_request_accepts_naive_mcp_slice_time_scope() -> None:
         metric="view_time",
         current=_slice("2026-05-01T00:00:00", "2026-05-08T00:00:00"),
         baseline=_slice("2026-04-24 00:00:00", "2026-05-01 00:00:00"),
+        grain="day",
         hypothesis=McpTestHypothesis(
             alternative="greater",
             significance="balanced",
@@ -328,6 +347,7 @@ def test_to_aoi_test_request_accepts_date_only_mcp_slice_time_scope() -> None:
         metric="view_time",
         current=_slice("2026-05-01", "2026-05-08"),
         baseline=_slice("2026-04-24", "2026-05-01"),
+        grain="day",
         hypothesis=McpTestHypothesis(
             alternative="greater",
             significance="balanced",
@@ -349,6 +369,7 @@ def test_to_aoi_test_request_passes_supported_hypothesis_options(
         metric="view_time",
         current=_slice("2026-05-01T00:00:00Z", "2026-05-08T00:00:00Z"),
         baseline=_slice("2026-04-24T00:00:00Z", "2026-05-01T00:00:00Z"),
+        grain="week",
         hypothesis=McpTestHypothesis(
             alternative=alternative,
             significance=significance,
@@ -356,6 +377,7 @@ def test_to_aoi_test_request_passes_supported_hypothesis_options(
     )
 
     assert request.kind == "numeric"
+    assert request.grain == "week"
     assert request.hypothesis.family == "two_sample_mean"
     assert request.hypothesis.alternative == alternative
     assert request.hypothesis.significance == significance
@@ -366,13 +388,27 @@ def test_to_aoi_validate_request_builds_validate_model_with_defaults() -> None:
         metric="view_time",
         current=_slice("2026-05-01T00:00:00Z", "2026-05-08T00:00:00Z"),
         baseline=_slice("2026-04-24T00:00:00Z", "2026-05-01T00:00:00Z"),
+        grain="day",
     )
 
     assert isinstance(request, aoi.Validate)
+    assert request.grain == "day"
     assert request.hypothesis.family == "two_sample_mean"
     assert request.hypothesis.alternative == "two_sided"
     assert request.hypothesis.significance == "balanced"
     assert "filter" not in request.model_dump(exclude_none=True)["current"]
+
+
+@pytest.mark.parametrize("grain", ["quarter", "year"])
+def test_to_aoi_validate_request_accepts_extended_sample_grains(grain: str) -> None:
+    request = to_aoi_validate_request(
+        metric="view_time",
+        current=_slice("2026-01-01T00:00:00Z", "2027-01-01T00:00:00Z"),
+        baseline=_slice("2025-01-01T00:00:00Z", "2026-01-01T00:00:00Z"),
+        grain=grain,  # type: ignore[arg-type]
+    )
+
+    assert request.grain == grain
 
 
 def test_to_aoi_validate_request_preserves_aoi_slice_filter() -> None:
@@ -384,6 +420,7 @@ def test_to_aoi_validate_request_preserves_aoi_slice_filter() -> None:
             McpExpression(dialects=[{"dialect": "ANSI_SQL", "expression": "region = 'US'"}]),
         ),
         baseline=_slice("2026-04-24T00:00:00Z", "2026-05-01T00:00:00Z"),
+        grain="day",
         hypothesis=McpValidateHypothesis(alternative="greater"),
     )
 
@@ -471,6 +508,7 @@ def test_to_aoi_test_request_preserves_aoi_slice_filter() -> None:
             McpExpression(dialects=[{"dialect": "ANSI_SQL", "expression": "region = 'US'"}]),
         ),
         baseline=_slice("2026-04-24T00:00:00Z", "2026-05-01T00:00:00Z"),
+        grain="day",
         hypothesis=McpTestHypothesis(
             alternative="greater",
             significance="balanced",
@@ -533,6 +571,7 @@ def test_to_aoi_validate_request_rejects_non_mcp_hypothesis_fields(
             metric="view_time",
             current=_slice("2026-05-01T00:00:00Z", "2026-05-08T00:00:00Z"),
             baseline=_slice("2026-04-24T00:00:00Z", "2026-05-01T00:00:00Z"),
+            grain="day",
             hypothesis={
                 "alternative": "greater",
                 "significance": "balanced",
@@ -557,6 +596,7 @@ def test_to_aoi_test_request_rejects_non_mcp_hypothesis_fields(
             metric="view_time",
             current=_slice("2026-05-01T00:00:00Z", "2026-05-08T00:00:00Z"),
             baseline=_slice("2026-04-24T00:00:00Z", "2026-05-01T00:00:00Z"),
+            grain="day",
             hypothesis={
                 "alternative": "greater",
                 "significance": "balanced",

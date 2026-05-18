@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from typing import TYPE_CHECKING, Any
 
 from marivo.contracts.errors import ErrorCode, NotFoundError
@@ -32,6 +32,7 @@ from marivo.runtime.errors import (
 from marivo.runtime.semantic.compile_step import compile_step
 from marivo.runtime.semantic.feedback import compile_failure_from_error
 from marivo.time_axis_metadata import TimeAxisMetadataContext
+from marivo.time_contracts import window_length_in_grain
 from marivo.time_scope import (
     ResolvedWindowedQueryRequest,
     SemanticMetricValueSpec,
@@ -369,10 +370,10 @@ def metric_query_summary(
         if not debug["window_length_match"]:
             if current_len is None or baseline_len is None:
                 raise ValueError("metric_query compare summary requires both window lengths")
-            unit = "h" if grain == "hour" else "d"
+            unit = _window_length_unit(grain)
             summary += (
-                f" Window size mismatch: current={current_len}{unit}, "
-                f"baseline={baseline_len}{unit}; count/sum metrics may not be comparable."
+                f" Window size mismatch: current={current_len} {unit}, "
+                f"baseline={baseline_len} {unit}; count/sum metrics may not be comparable."
             )
         return summary
 
@@ -402,13 +403,18 @@ def window_length(request: ResolvedWindowedQueryRequest, which: str) -> int:
         if request.time_scope.baseline is None:
             raise ValueError("baseline window is not available")
         window = request.time_scope.baseline
-    if request.time_scope.grain == "hour":
-        start_dt = datetime.fromisoformat(window.start)
-        end_dt = datetime.fromisoformat(window.end)
-        return int((end_dt - start_dt).total_seconds() // 3600)
-    start_day = date.fromisoformat(window.start)
-    end_day = date.fromisoformat(window.end)
-    return (end_day - start_day).days
+    return window_length_in_grain(window.start, window.end, grain=request.time_scope.grain)
+
+
+def _window_length_unit(grain: str) -> str:
+    return {
+        "hour": "hour(s)",
+        "day": "day(s)",
+        "week": "week(s)",
+        "month": "month(s)",
+        "quarter": "quarter(s)",
+        "year": "year(s)",
+    }.get(grain, f"{grain}(s)")
 
 
 def normalize_metric_query_order(order: str | None, *, mode: str) -> str | None:

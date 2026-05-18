@@ -18,6 +18,15 @@ time_granularities:
   - quarter   # Calendar quarter bucket.
   - year      # Calendar year bucket.
 
+# Statistical sample grains for source-type test and validate requests.
+sample_grains:
+  - hour   # Calendar hour sample.
+  - day    # Calendar day sample.
+  - week   # Calendar week sample.
+  - month  # Calendar month sample.
+  - quarter # Calendar quarter sample.
+  - year    # Calendar year sample.
+
 # Supported comparison modes for compare requests.
 compare_types:
   - normal                       # Pair time-series buckets by relative position in the input artifact windows.
@@ -212,6 +221,9 @@ test:
   # Required: baseline source slice.
   baseline: slice
 
+  # Required: statistical sample grain used to split each source slice into observations.
+  grain: sample_grains
+
   # Required: metric kind, one of test_kinds.
   kind: test_kinds
 
@@ -238,6 +250,9 @@ validate:
 
   # Required: baseline source slice.
   baseline: slice
+
+  # Required: statistical sample grain passed to the wrapped hypothesis test.
+  grain: sample_grains
 
   # Required: hypothesis configuration.
   hypothesis: hypothesis

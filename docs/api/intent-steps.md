@@ -232,6 +232,7 @@ POST /sessions/{session_id}/intents/test
       "end": "2026-01-01T00:00:00Z"
     }
   },
+  "grain": "day",
   "kind": "numeric",
   "hypothesis": {
     "family": "two_sample_mean",
@@ -245,7 +246,11 @@ POST /sessions/{session_id}/intents/test
 `two_sample_mean`; `hypothesis` has no label field and `test` has no request
 `method` parameter. `hypothesis.significance` accepts `conservative`,
 `balanced`, or `aggressive`; these resolve internally to alpha thresholds
-`0.01`, `0.05`, and `0.10`.
+`0.01`, `0.05`, and `0.10`. `grain` is required and defines the statistical
+sample unit used to split each source slice before computing the test; it is
+not an output selector. Supported values are `hour`, `day`, `week`, `month`,
+`quarter`, and `year`. Time slice boundaries must align to the selected
+`grain`; for example, `quarter` windows start and end on Jan/Apr/Jul/Oct 1.
 
 ## Derived Intents
 
@@ -381,6 +386,7 @@ transport defaults before constructing that generated model:
       "end": "2025-02-01T00:00:00Z"
     }
   },
+  "grain": "day",
   "hypothesis": {
     "family": "two_sample_mean",
     "alternative": "greater",
@@ -390,7 +396,10 @@ transport defaults before constructing that generated model:
 ```
 
 `current` and `baseline` use AOI `Slice` (`time_scope` plus optional `filter`).
-Derived `scope` and `method` are not part of the runtime contract.
+`grain` is required and is passed to the wrapped hypothesis test as the
+statistical sample unit (`hour`, `day`, `week`, `month`, `quarter`, or `year`).
+Time slice boundaries must align to the selected `grain`. Derived `scope` and
+`method` are not part of the runtime contract.
 
 ## Errors
 

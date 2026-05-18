@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from marivo.runtime.intents._helpers import SampleSummary
+from marivo.runtime.intents._helpers import SampleSummary, compute_numeric_sample_summary
 from marivo.runtime.intents.test import _betai, _p_value_from_t, _t_sf, run_test_intent
 
 
@@ -29,6 +30,7 @@ def _valid_params() -> dict[str, Any]:
                 "end": "2026-01-15T00:00:00Z",
             }
         },
+        "grain": "day",
         "kind": "numeric",
         "hypothesis": {
             "family": "two_sample_mean",
@@ -172,14 +174,99 @@ def test_passes_filters_to_sample_summaries_and_source_lineage() -> None:
 
     assert mock_compute.call_args_list[0].kwargs["scope_raw"] == left_filter
     assert mock_compute.call_args_list[1].kwargs["scope_raw"] == right_filter
+    assert mock_compute.call_args_list[0].kwargs["grain"] == "day"
+    assert mock_compute.call_args_list[1].kwargs["grain"] == "day"
+    assert artifact["source_lineage"]["grain"] == "day"
     assert artifact["source_lineage"]["current"]["filter"] == left_filter
     assert artifact["source_lineage"]["baseline"]["filter"] == right_filter
+
+
+@pytest.mark.parametrize("grain", ["quarter", "year"])
+def test_accepts_extended_sample_grains(grain: str) -> None:
+    params = _valid_params()
+    params["grain"] = grain
+
+    artifact, mock_compute = _run_with_mock_data(params)
+
+    assert mock_compute.call_args_list[0].kwargs["grain"] == grain
+    assert artifact["source_lineage"]["grain"] == grain
 
 
 def test_zero_variance_slice_adds_assumption_note() -> None:
     artifact, _ = _run_with_mock_data(left_summary=_sample(standard_deviation=0.0))
 
     assert any("zero variance" in note for note in artifact["assumption_notes"])
+
+
+@pytest.mark.parametrize(
+    ("grain", "start", "end", "bucket_expr"),
+    [
+        ("week", "2026-01-05T00:00:00Z", "2026-01-26T00:00:00Z", "week"),
+        ("quarter", "2026-01-01T00:00:00Z", "2026-10-01T00:00:00Z", "quarter"),
+        ("year", "2024-01-01T00:00:00Z", "2027-01-01T00:00:00Z", "year"),
+    ],
+)
+def test_sample_summary_query_uses_required_grain(
+    grain: str,
+    start: str,
+    end: str,
+    bucket_expr: str,
+) -> None:
+    runtime = _runtime()
+    runtime.resolve_metric_execution_context.return_value = SimpleNamespace(table_name="orders")
+    runtime.resolve_metric.return_value = SimpleNamespace(
+        semantic_object={"header": {"aggregation_semantics": "sum"}}
+    )
+    runtime.resolve_metric_dimensions.return_value = ["event_time"]
+    runtime.resolve_engine_for_session.return_value = (
+        MagicMock(),
+        "duckdb",
+        {"orders": "q_orders"},
+    )
+    runtime.resolve_metric_sql_for_execution.return_value = "SUM(revenue)"
+    runtime.compile_step.return_value = SimpleNamespace(ir_bundle={"plan": {"nodes": []}})
+
+    def _resolve_time_axis(resolved: Any, **_: Any) -> None:
+        resolved.resolved_time_axis.analysis_time_expr = "event_time"
+
+    runtime.resolve_windowed_query_time_axis.side_effect = _resolve_time_axis
+
+    with (
+        patch("marivo.runtime.intents._helpers.build_scoped_query_for_window") as mock_scoped,
+        patch("marivo.runtime.intents._helpers.execute_compiled") as mock_execute,
+    ):
+        mock_scoped.return_value = {"source_sql": "select * from orders"}
+        mock_execute.return_value = SimpleNamespace(
+            rows=[
+                {"bucket_start": "2026-01-01", "value": 10.0},
+                {"bucket_start": "2026-01-08", "value": 16.0},
+                {"bucket_start": "2026-01-15", "value": 22.0},
+            ]
+        )
+
+        summary = compute_numeric_sample_summary(
+            runtime,
+            "session-1",
+            "metric.test_metric",
+            {
+                "field": "event_time",
+                "start": start,
+                "end": end,
+            },
+            grain=grain,  # type: ignore[arg-type]
+        )
+
+    assert summary.n == 3
+    assert summary.mean == pytest.approx(16.0)
+    assert summary.standard_deviation == pytest.approx(6.0)
+    assert mock_scoped.call_args.kwargs["grain"] == grain
+    compiled_step = runtime.compile_step.call_args.args[0]
+    assert compiled_step.params["time_scope"]["grain"] == grain
+    assert compiled_step.params["measures"] == [{"expr": "SUM(revenue)", "as": "value"}]
+    assert compiled_step.params["group_by"] == [
+        f"DATE_TRUNC('{bucket_expr}', event_time) AS bucket_start"
+    ]
+    assert compiled_step.params["order"] == "bucket_start"
 
 
 @pytest.mark.parametrize(
@@ -215,10 +302,13 @@ def test_rejects_insufficient_data(
         (None, "params"),
         ({"__remove__": "metric"}, "metric"),
         ({"__remove__": "kind"}, "kind"),
+        ({"__remove__": "grain"}, "grain"),
         ({"__remove__": "hypothesis"}, "hypothesis"),
         ({"method": "welch_t"}, "method"),
         ({"kind": "Numeric"}, "kind"),
         ({"kind": "rate"}, "kind"),
+        ({"grain": "minute"}, "grain"),
+        ({"grain": None}, "grain"),
         ({"current": {"scope": {"predicate": "region = 'US'"}}}, "scope"),
         ({"current": {"filter": None}}, "filter"),
         ({"hypothesis": {"family": "two_sample_proportion"}}, "family"),

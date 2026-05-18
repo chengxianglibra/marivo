@@ -132,6 +132,8 @@ AOI v0.2 has no `Scope` wrapper. Filter conditions are expressed directly throug
 - `TimeScope` represents the dataset time field plus "what time range is the analysis over". It does not carry granularity because bucketing is meaningless for some outputs (e.g. a scalar observation has no buckets) and belongs in request-specific fields where it does apply.
 - `TimeScope.field` is a required string that references the OSI dataset field used as the time axis for the slice.
 - `TimeGranularity` is referenced from intents that need bucketing — `observe.granularity`, `detect.granularity`, and bucketed producing steps where downstream consumers need to know the bucket size.
+- When a request supplies a grain or granularity, its `TimeScope` boundaries must align to that grain so implementations do not produce partial buckets.
+- `SampleGrain` is referenced from `test.grain` and `validate.grain`; it defines the statistical sample unit for internal sample-summary computation and is not an output mode selector. Its values are aligned with `TimeGranularity`: `hour`, `day`, `week`, `month`, `quarter`, and `year`.
 - There is no separate `ResolvedTimeScope` in core; calendar-resolution details (matched-bucket counts, calendar policy summaries, holiday alignment) are execution/audit metadata outside v0.2.
 - Named relative ranges (`"last_7_days"`) are out of scope. Callers resolve to absolute timestamps before invoking AOI; relative-range semantics depend on `now()` and timezone, which the spec does not define.
 
@@ -215,13 +217,13 @@ The request contract is per-intent. Every atomic request is either **source-type
 | ----------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | `observe`   | source          | `metric`, `time_scope`, `filter?`, `granularity?`, `dimensions?` (mutually exclusive mode selectors, see 4.1.2)                            |
 | `detect`    | source          | `metric`, `time_scope`, `granularity: TimeGranularity`, `filter?`, `dimension?`, `strategy: "point_anomaly" \| "period_shift"`, `sensitivity?`, `limit?` |
-| `test`      | source (paired) | `metric`, `current: { time_scope, filter? }`, `baseline: { time_scope, filter? }`, `kind: "numeric"`, `hypothesis: Hypothesis` |
+| `test`      | source (paired) | `metric`, `current: { time_scope, filter? }`, `baseline: { time_scope, filter? }`, `grain: SampleGrain`, `kind: "numeric"`, `hypothesis: Hypothesis` |
 | `forecast`  | ref             | `source_artifact_id: string`, `horizon`                                                                             |
 | `compare`   | ref             | `current_artifact_id: string`, `baseline_artifact_id: string`, `compare_type?: CompareType`                                                             |
 | `decompose` | ref             | `compare_artifact_id: string`, `dimension`, `limit?`                                                                                          |
 | `correlate` | ref             | `left_artifact_id: string`, `right_artifact_id: string` (both time_series), `method?`, `min_pairs?`                                              |
 
-`test` is source-type with a *paired* slice spec: it embeds two slices directly rather than referencing upstream observations. Sample-summary statistics (count, mean, std_dev) are computed inside `test` from the underlying data — they are not exposed as a separate AOI artifact. This keeps the standard from carrying a primitive whose only consumer is `test`.
+`test` is source-type with a *paired* slice spec: it embeds two slices directly rather than referencing upstream observations. Sample-summary statistics (count, mean, std_dev) are computed inside `test` from the underlying data at the required `grain` — they are not exposed as a separate AOI artifact. This keeps the standard from carrying a primitive whose only consumer is `test`.
 
 #### 4.1.2 `observe` output mode inference
 
@@ -258,11 +260,11 @@ Derived requests live under `$defs.derived_requests` so they do not blur the ato
 
 | Derived request | Required inputs |
 | ---------------- | --------------- |
-| `validate` | `metric`, `left: { time_scope, filter? }`, `right: { time_scope, filter? }`, `hypothesis: Hypothesis` |
+| `validate` | `metric`, `current: { time_scope, filter? }`, `baseline: { time_scope, filter? }`, `grain: SampleGrain`, `hypothesis: Hypothesis` |
 | `attribute` | `metric`, `left: { time_scope, filter? }`, `right: { time_scope, filter? }`, `dimensions` |
 | `diagnose` | `metric`, `time_scope`, `granularity`, `strategy`, `dimensions` |
 
-`validate` wraps a fixed-family numeric hypothesis validation workflow. It reuses the same `Slice` and `Hypothesis` primitives as atomic `test`; it does not define `kind`, `method`, `scope`, or private derivation metadata in the AOI request contract. Response bundles remain implementation-owned execution artifacts outside the AOI artifact result catalog for v0.2.
+`validate` wraps a fixed-family numeric hypothesis validation workflow. It reuses the same `Slice`, `SampleGrain`, and `Hypothesis` primitives as atomic `test`; it does not define `kind`, `method`, `scope`, or private derivation metadata in the AOI request contract. Response bundles remain implementation-owned execution artifacts outside the AOI artifact result catalog for v0.2.
 
 `attribute` wraps a fixed change-attribution workflow that expands to scalar observations, compare, and decompose operations. It reuses AOI `Slice` for the left/right source inputs, so filters use `filter: Expression`; there is no separate `scope` wrapper. `dimensions` is a non-empty string list. `decomposition_method` is optional and fixed to `"delta_share"` when present; `decomposition_limit` is optional and defaults to `5`. Attribute response bundles remain implementation-owned execution artifacts outside the AOI artifact result catalog for v0.2.
 

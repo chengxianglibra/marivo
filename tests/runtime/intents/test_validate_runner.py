@@ -28,6 +28,7 @@ def _valid_params() -> dict[str, Any]:
                 "end": "2026-01-15T00:00:00Z",
             }
         },
+        "grain": "day",
         "hypothesis": {
             "family": "two_sample_mean",
             "alternative": "two_sided",
@@ -94,6 +95,7 @@ def test_records_supported_alternatives(alternative: str) -> None:
     result, _, mock_test = _run_with_mock_test(params)
 
     assert mock_test.call_args[0][2]["hypothesis"]["alternative"] == alternative
+    assert mock_test.call_args[0][2]["grain"] == "day"
     assert result["result"]["hypothesis"]["alternative"] == alternative
 
 
@@ -124,8 +126,21 @@ def test_forwards_filters_to_test_and_bundle_payload() -> None:
     delegated_params = mock_test.call_args[0][2]
     assert delegated_params["current"]["filter"] == left_filter
     assert delegated_params["baseline"]["filter"] == right_filter
+    assert delegated_params["grain"] == "day"
     assert result["result"]["current"]["filter"] == left_filter
     assert result["result"]["baseline"]["filter"] == right_filter
+    assert result["result"]["grain"] == "day"
+
+
+@pytest.mark.parametrize("grain", ["quarter", "year"])
+def test_validate_accepts_extended_sample_grains(grain: str) -> None:
+    params = _valid_params()
+    params["grain"] = grain
+
+    result, _, mock_test = _run_with_mock_test(params)
+
+    assert mock_test.call_args[0][2]["grain"] == grain
+    assert result["result"]["grain"] == grain
 
 
 @pytest.mark.parametrize(
@@ -148,6 +163,7 @@ def test_returns_validation_bundle_envelope_with_underlying_test_artifact() -> N
     assert result["step_type"] == "validate"
     assert result["artifact_id"] == "art-validate"
     assert result["result"]["bundle_type"] == "validation_bundle"
+    assert result["result"]["grain"] == "day"
     assert result["result"]["aoi_artifacts"] == [
         {
             "artifact_id": "art-test",
@@ -221,10 +237,13 @@ def test_test_failure_is_wrapped() -> None:
         ({"__remove__": "metric"}, "metric"),
         ({"__remove__": "current"}, "current"),
         ({"__remove__": "baseline"}, "baseline"),
+        ({"__remove__": "grain"}, "grain"),
         ({"__remove__": "hypothesis"}, "hypothesis"),
         ({"method": "welch_t"}, "method"),
         ({"kind": "numeric"}, "kind"),
         ({"metric": ""}, "metric"),
+        ({"grain": "minute"}, "grain"),
+        ({"grain": None}, "grain"),
         ({"current": []}, "current"),
         ({"baseline": []}, "baseline"),
         ({"current": {"scope": {"predicate": "region = 'US'"}}}, "scope"),

@@ -412,6 +412,7 @@ async def test_stdio_validate_injects_fixed_hypothesis_family() -> None:
                     "end": "2026-05-01T00:00:00Z",
                 }
             },
+            "grain": "day",
             "hypothesis": {"alternative": "greater", "significance": "balanced"},
         }
     )
@@ -436,6 +437,7 @@ async def test_stdio_validate_injects_fixed_hypothesis_family() -> None:
                 "end": "2026-05-01T00:00:00Z",
             }
         },
+        "grain": "day",
         "hypothesis": {
             "family": "two_sample_mean",
             "alternative": "greater",
@@ -471,6 +473,7 @@ async def test_stdio_validate_preserves_partial_hypothesis_defaults() -> None:
                     "end": "2026-05-01T00:00:00Z",
                 }
             },
+            "grain": "day",
             "hypothesis": {"alternative": "greater"},
         }
     )
@@ -511,6 +514,7 @@ async def test_stdio_validate_rejects_hypothesis_family() -> None:
                         "end": "2026-05-01T00:00:00Z",
                     }
                 },
+                "grain": "day",
                 "hypothesis": {
                     "family": "two_sample_mean",
                     "alternative": "greater",

@@ -382,6 +382,7 @@ def test_test_intent_tool_schema_matches_current_aoi_surface() -> None:
     assert "kind" not in properties
     assert properties["current"]["$ref"] == "#/$defs/McpAoiSliceRef"
     assert properties["baseline"]["$ref"] == "#/$defs/McpAoiSliceRef"
+    assert properties["grain"]["enum"] == ["hour", "day", "week", "month", "quarter", "year"]
     assert "Current AOI slice" in properties["current"]["description"]
     assert "Baseline AOI slice" in properties["baseline"]["description"]
     assert slice_schema["additionalProperties"] is False
@@ -389,6 +390,7 @@ def test_test_intent_tool_schema_matches_current_aoi_surface() -> None:
     assert "half-open [start, end)" in slice_schema["properties"]["time_scope"]["description"]
     assert "scope" not in slice_schema["properties"]
     assert "hypothesis" in tools["test_intent"].parameters["required"]
+    assert "grain" in tools["test_intent"].parameters["required"]
     assert properties["hypothesis"]["$ref"] == "#/$defs/McpTestHypothesis"
     assert "family is fixed internally" in properties["hypothesis"]["description"]
     assert hypothesis_schema["additionalProperties"] is False
@@ -517,12 +519,14 @@ def test_validate_hypothesis_schema_omits_fixed_family() -> None:
     assert "method" not in properties
     assert properties["current"]["$ref"] == "#/$defs/McpAoiSliceRef"
     assert properties["baseline"]["$ref"] == "#/$defs/McpAoiSliceRef"
+    assert properties["grain"]["enum"] == ["hour", "day", "week", "month", "quarter", "year"]
     assert "Current AOI slice" in properties["current"]["description"]
     assert "Baseline AOI slice" in properties["baseline"]["description"]
     assert slice_schema["additionalProperties"] is False
     assert set(slice_schema["properties"]) == {"time_scope", "filter"}
     assert "half-open [start, end)" in slice_schema["properties"]["time_scope"]["description"]
     assert "scope" not in slice_schema["properties"]
+    assert "grain" in tools["validate"].parameters["required"]
     assert properties["hypothesis"]["anyOf"][0] == {"$ref": "#/$defs/McpValidateHypothesis"}
     assert "family defaults internally" in properties["hypothesis"]["description"]
     assert hypothesis_schema["additionalProperties"] is False

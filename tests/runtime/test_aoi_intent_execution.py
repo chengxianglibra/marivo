@@ -64,6 +64,7 @@ def _validate_request() -> aoi.Validate:
                 end=datetime(2026, 5, 1, tzinfo=UTC),
             )
         ),
+        grain="day",
         hypothesis=aoi.Hypothesis(
             family="two_sample_mean",
             alternative="greater",
@@ -276,6 +277,7 @@ def test_validate_accepts_aoi_request_and_dispatches_lowered_params(monkeypatch)
                         "end": "2026-05-01T00:00:00Z",
                     }
                 },
+                "grain": "day",
                 "hypothesis": {
                     "family": "two_sample_mean",
                     "alternative": "greater",

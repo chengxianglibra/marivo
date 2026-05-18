@@ -77,6 +77,9 @@
           "year"
         ]
       },
+      "SampleGrain": {
+        "$ref": "#/$defs/primitives/TimeGranularity"
+      },
       "CompareType": {
         "type": "string",
         "default": "normal",
@@ -442,6 +445,7 @@
           "metric",
           "current",
           "baseline",
+          "grain",
           "kind",
           "hypothesis"
         ],
@@ -455,6 +459,9 @@
           },
           "baseline": {
             "$ref": "#/$defs/primitives/Slice"
+          },
+          "grain": {
+            "$ref": "#/$defs/primitives/SampleGrain"
           },
           "kind": {
             "$ref": "#/$defs/primitives/TestKind"
@@ -492,6 +499,7 @@
           "metric",
           "current",
           "baseline",
+          "grain",
           "hypothesis"
         ],
         "properties": {
@@ -504,6 +512,9 @@
           },
           "baseline": {
             "$ref": "#/$defs/primitives/Slice"
+          },
+          "grain": {
+            "$ref": "#/$defs/primitives/SampleGrain"
           },
           "hypothesis": {
             "$ref": "#/$defs/primitives/Hypothesis"
