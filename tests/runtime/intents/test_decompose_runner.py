@@ -8,7 +8,6 @@ from unittest.mock import MagicMock, patch
 from marivo.contracts.errors import ExecutionError
 from marivo.runtime.intents.decompose import (
     _extract_date_range,
-    _infer_compare_grain,
     _normalize_decompose_compare_input,
     _run_segmented_query,
     run_decompose_intent,
@@ -21,34 +20,6 @@ from tests.runtime.intents._runner_fixtures import (
 
 
 class DecomposeHourWindowTests(unittest.TestCase):
-    def test_infer_compare_grain_prefers_hour_for_datetime_windows_over_metric_day(self) -> None:
-        self.assertEqual(
-            _infer_compare_grain(
-                current_time_scope={
-                    "field": "time",
-                    "start": "2024-01-01T01:00:00",
-                    "end": "2024-01-01T03:00:00",
-                },
-                baseline_time_scope={
-                    "field": "time",
-                    "start": "2024-01-01T00:00:00",
-                    "end": "2024-01-01T01:00:00",
-                },
-                fallback_grain="day",
-            ),
-            "hour",
-        )
-
-    def test_infer_compare_grain_falls_back_to_metric_grain_for_date_windows(self) -> None:
-        self.assertEqual(
-            _infer_compare_grain(
-                current_time_scope={"field": "time", "start": "2024-01-01", "end": "2024-01-08"},
-                baseline_time_scope={"field": "time", "start": "2023-12-25", "end": "2024-01-01"},
-                fallback_grain="day",
-            ),
-            "day",
-        )
-
     def test_extract_date_range_preserves_hour_boundaries(self) -> None:
         self.assertEqual(
             _extract_date_range(
@@ -169,7 +140,7 @@ class DecomposeHourWindowTests(unittest.TestCase):
             "calendar_aligned_bucket_pairing",
         )
 
-    def test_run_segmented_query_uses_hour_grain_with_datetime_boundaries(self) -> None:
+    def test_run_segmented_query_uses_exact_window_with_datetime_boundaries(self) -> None:
         captured: dict[str, object] = {}
 
         class _FakeRuntime:
@@ -228,7 +199,6 @@ class DecomposeHourWindowTests(unittest.TestCase):
                 {},
                 object(),
                 "duckdb",
-                "hour",
             )
 
         self.assertEqual(rows, [])
@@ -240,7 +210,7 @@ class DecomposeHourWindowTests(unittest.TestCase):
                 "metric": "metric.attr_hourly",
                 "time_scope": {
                     "mode": "single_window",
-                    "grain": "hour",
+                    "boundary_mode": "exact",
                     "current": {
                         "start": "2024-01-01T01:00:00",
                         "end": "2024-01-01T03:00:00",
@@ -250,6 +220,77 @@ class DecomposeHourWindowTests(unittest.TestCase):
                 "time_scope_field": "time",
             },
         )
+
+    def test_run_segmented_query_does_not_infer_hour_from_midnight_datetime(self) -> None:
+        captured: dict[str, object] = {}
+
+        class _FakeRuntime:
+            @staticmethod
+            def resolve_windowed_query_time_axis(
+                request: object,
+                *,
+                engine_type: str,
+                metric_name: str | None = None,
+                fallback_columns: list[str] | None = None,
+            ) -> None:
+                _ = (request, engine_type, metric_name, fallback_columns)
+
+            @staticmethod
+            def build_scoped_query(session_id: str, resolved: object, *, engine_type: str) -> dict:
+                _ = (session_id, resolved, engine_type)
+                return {"sql": "SELECT 1"}
+
+            @staticmethod
+            def compile_step(
+                step: object,
+                *,
+                engine_type: str,
+                semantic_context: dict,
+            ) -> SimpleNamespace:
+                _ = (step, engine_type, semantic_context)
+                return SimpleNamespace(sql="SELECT 1", params={})
+
+        def _capture_normalize(params: dict) -> SimpleNamespace:
+            captured["params"] = params
+            return SimpleNamespace(table="analytics.attr_events")
+
+        with (
+            patch(
+                "marivo.runtime.intents.decompose.normalize_metric_query_request",
+                side_effect=_capture_normalize,
+            ),
+            patch(
+                "marivo.runtime.intents.decompose.execute_compiled",
+                return_value=SimpleNamespace(rows=[], metadata={"translated_sql": "SELECT 1"}),
+            ),
+        ):
+            rows, query_hash = _run_segmented_query(
+                _FakeRuntime(),
+                "sess_decompose_midnight",
+                "metric.attr_daily",
+                "SUM(value)",
+                "analytics.attr_events",
+                "cluster",
+                ["log_date", "cluster"],
+                {
+                    "field": "log_date",
+                    "start": "2026-05-10T00:00:00+08:00",
+                    "end": "2026-05-17T00:00:00+08:00",
+                },
+                {},
+                object(),
+                "duckdb",
+            )
+
+        self.assertEqual(rows, [])
+        self.assertIsNotNone(query_hash)
+        params = captured["params"]
+        self.assertIsInstance(params, dict)
+        time_scope = params["time_scope"]
+        self.assertIsInstance(time_scope, dict)
+        self.assertEqual(time_scope["boundary_mode"], "exact")
+        self.assertNotIn("grain", time_scope)
+        self.assertEqual(params["time_scope_field"], "log_date")
 
 
 # ── P4: Decompose additivity gate tests ────────────────────────────────────────
