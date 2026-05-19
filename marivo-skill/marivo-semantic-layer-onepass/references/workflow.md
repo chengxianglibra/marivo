@@ -100,9 +100,45 @@ as the dataset time field by default. Prefer it over event, creation, update, in
 timestamp-like fields because partition fields give Marivo a stable pruning and time-scope
 grounding path. Use a different time field only when the knowledge base explicitly defines another
 time semantics as the business time axis, and carry that decision into the document description.
-For every time field, write a MARIVO field extension with `support_min_granularity`. Infer it from
-metadata and samples: date partition fields such as `log_date` are normally `day`; timestamp fields
-or explicit date+hour expressions are `hour` only when sample values prove hour-level precision.
+
+For every time field, write a MARIVO field extension with `support_min_granularity`, `data_type`,
+and (when required) `format` and `required_prefix`. Every time field must declare `data_type`.
+When data_type is "string" or "integer", `format` is also required. When format is "hh" or "h",
+`required_prefix` is required.
+
+Infer `data_type` from the SQL column type returned by browse_columns:
+
+| SQL column type | OSI `data_type` |
+|---|---|
+| DATE | `"date"` |
+| TIMESTAMP, TIMESTAMPTZ, DATETIME | `"timestamp"` |
+| VARCHAR, TEXT, CHAR, STRING | `"string"` |
+| INTEGER, BIGINT, SMALLINT, TINYINT | `"integer"` |
+
+When data_type is "string" or "integer", infer `format` from preview sample values:
+
+| Sample value | `format` | Notes |
+|---|---|---|
+| `'20260325'` (8-char string) | `"yyyymmdd"` | Date partition |
+| `'2026-03-25'` (ISO string) | `"yyyy-mm-dd"` | ISO date partition |
+| `'2026032514'` (10-char string) | `"yyyymmddhh"` | Hour-precision single column |
+| `'14'` or `'03'` (1-2 digit string) | `"hh"` | Hour-only, requires `required_prefix` |
+| `14` or `3` (integer 0-23) | `"h"` | Hour-only integer, requires `required_prefix` |
+| `20260325` (8-digit integer) | `"yyyymmdd"` | Integer date partition |
+| `1711344000` (large integer) | `"epoch_seconds"` | Unix epoch seconds |
+| `18836` (moderate integer) | `"epoch_days"` | Days since epoch |
+
+See `references/time-field-patterns.md` for the complete format catalog, composite pattern guide,
+and JSON examples for all five time field layouts.
+
+Infer `support_min_granularity` from metadata and samples: date partition fields such as `log_date`
+are normally `day`; timestamp fields or explicit date+hour expressions are `hour` only when sample
+values prove hour-level precision.
+
+When two time-like columns appear together (e.g., `log_date` with values `'20260325'` and
+`log_hour` with values `'14'` or `14`), model them as composite time fields: the date field gets a
+date format, and the hour field gets format `"hh"` (or `"h"` if integer) with `required_prefix`
+set to the date field name.
 
 Do not wait for approval at this stage.
 
@@ -172,3 +208,5 @@ Do not ask the user to provide more information inside this skill.
 - importing before validation passes from `input_path`
 - using session analysis to compensate for an incomplete semantic contract
 - starting `marivo-analysis` instead of ending after import confirmation
+- omitting data_type, format, or required_prefix on time fields, which causes schema validation
+  to fail; every time field needs data_type, and string/integer time fields also need format

@@ -133,6 +133,10 @@ inside this skill.
   columns needed by the target scenarios.
 - Identify available time partition fields from datasource metadata or sample rows, and include them
   in the candidate time fields.
+- Note the SQL column type from browse_columns output for each candidate time field. Column types
+  like DATE, TIMESTAMP, VARCHAR, and BIGINT determine the OSI `data_type`. When the SQL type is
+  VARCHAR or an integer type, also inspect sample values to determine the `format` pattern.
+  See `references/time-field-patterns.md` for the full decision guide.
 - Verify actual value shapes before writing expressions: date strings such as `YYYYMMDD` versus
   `YYYY-MM-DD`, status values such as `SUCCEED` versus guessed labels, variable-width hour values,
   and null, blank, or sentinel patterns.
@@ -154,8 +158,21 @@ inside this skill.
   that choice explicit in the approval gate.
 - If the scenario must use event time, snapshot time, or ingestion time instead of an available time
   partition, explain the business reason before asking for approval.
-- Mark time fields with `dimension.is_time: true` and a MARIVO field extension
-  `support_min_granularity`.
+- Mark time fields with `dimension.is_time: true` and a MARIVO field extension containing
+  `support_min_granularity`, `data_type`, and (when required) `format` and `required_prefix`.
+  Every time field must declare `data_type`. When data_type is "string" or "integer", `format`
+  is also required. When format is "hh" or "h", `required_prefix` is required.
+  See `references/time-field-patterns.md` for the complete decision guide and examples.
+- Infer `data_type` from the SQL column type returned by browse_columns: DATE columns are "date",
+  TIMESTAMP columns are "timestamp", VARCHAR/TEXT columns are "string", INTEGER/BIGINT columns are
+  "integer".
+- When data_type is "string" or "integer", infer `format` from preview sample values: 8-character
+  strings like '20260325' are "yyyymmdd", 10-character strings like '2026032514' are "yyyymmddhh",
+  1-2 digit hour values like '14' or 14 are "hh" or "h". See `references/time-field-patterns.md`
+  for the full format catalog.
+- When two time-like columns appear together (e.g., log_date + log_hour), model them as composite
+  time fields: the date field gets a date format, and the hour field gets format "hh" or "h" with
+  `required_prefix` set to the date field name.
 - Infer `support_min_granularity` from datasource metadata and sampled values: date partition fields
   such as `log_date` are normally `day`; timestamp fields or proven date+hour expressions may be
   `hour`.
@@ -252,4 +269,6 @@ get import approval again before continuing analysis.
 
 - defining field expressions from column names alone without previewing representative values
 - assuming time formats, success states, hour padding, or enum values before checking sample rows
+- omitting data_type, format, or required_prefix on time fields, which causes schema validation
+  to fail; every time field needs data_type, and string/integer time fields also need format
 - treating preview rows as proof of a business conclusion instead of metadata grounding
