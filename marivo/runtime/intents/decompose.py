@@ -219,11 +219,6 @@ def run_decompose_intent(
         )
 
     all_dimensions = list(runtime_dimensions or resolved_metric.dimensions)
-    compare_grain = _infer_compare_grain(
-        current_time_scope=current_time_scope,
-        baseline_time_scope=baseline_time_scope,
-        fallback_grain=None,
-    )
 
     table = runtime.resolve_metric_table(metric_name, session_id=session_id)
     if table is None:
@@ -258,7 +253,6 @@ def run_decompose_intent(
         current_scope,
         engine,
         engine_type,
-        compare_grain,
         table_name=table,
     )
     right_rows, _ = _run_segmented_query(
@@ -273,7 +267,6 @@ def run_decompose_intent(
         baseline_scope,
         engine,
         engine_type,
-        compare_grain,
         table_name=table,
     )
 
@@ -600,7 +593,6 @@ def _run_segmented_query(
     scope: dict[str, Any],
     engine: Any,
     engine_type: str,
-    grain: str,
     table_name: str | None = None,
 ) -> tuple[list[dict[str, Any]], str | None]:
     """Run a single segmented metric query for one time scope.
@@ -614,7 +606,7 @@ def _run_segmented_query(
         "metric": metric_name,
         "time_scope": {
             "mode": "single_window",
-            "grain": grain,
+            "boundary_mode": "exact",
             "current": {"start": start_str, "end": end_str},
         },
         "dimensions": [dimension],
@@ -652,50 +644,6 @@ def _run_segmented_query(
     sql = result.metadata.get("translated_sql") or ""
     query_hash: str | None = hashlib.md5(sql.encode()).hexdigest() if sql else None
     return list(result.rows), query_hash
-
-
-def _infer_compare_grain(
-    *,
-    current_time_scope: dict[str, Any],
-    baseline_time_scope: dict[str, Any],
-    fallback_grain: str | None,
-) -> str:
-    """Infer the effective compare grain from upstream observation windows.
-
-    Decompose must preserve the actual compare/observe window semantics instead of
-    blindly falling back to the metric contract grain. This avoids collapsing
-    hour-level ranges like 2026-04-09T14:00:00..15:00:00 into a day-level empty
-    window during follow-up metric_query normalization.
-    """
-
-    explicit_grain = _time_scope_grain(current_time_scope) or _time_scope_grain(baseline_time_scope)
-    if explicit_grain is not None:
-        return explicit_grain
-
-    if _time_scope_has_datetime_boundary(current_time_scope) or _time_scope_has_datetime_boundary(
-        baseline_time_scope
-    ):
-        return "hour"
-
-    if fallback_grain in {"hour", "day", "week", "month", "quarter", "year"}:
-        return fallback_grain
-
-    return "day"
-
-
-def _time_scope_grain(time_scope: dict[str, Any]) -> str | None:
-    grain = time_scope.get("grain")
-    if grain in {"hour", "day", "week", "month", "quarter", "year"}:
-        return str(grain)
-    return None
-
-
-def _time_scope_has_datetime_boundary(time_scope: dict[str, Any]) -> bool:
-    for key in ("start", "end", "at"):
-        value = time_scope.get(key)
-        if isinstance(value, str) and ("T" in value or " " in value):
-            return True
-    return False
 
 
 def _extract_date_range(time_scope: dict[str, Any]) -> tuple[str, str]:
