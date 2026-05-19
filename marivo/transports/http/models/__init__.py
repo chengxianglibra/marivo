@@ -186,6 +186,9 @@ from .session_responses import (
     SessionRuntimeStatusResponse,
     SessionStateView,
     SessionTerminateResponse,
+    SessionTraceStep,
+    SessionTraceView,
+    SessionTraceWarning,
 )
 
 __all__ = [  # noqa: RUF022
@@ -314,6 +317,9 @@ __all__ = [  # noqa: RUF022
     "SessionStateView",
     "SessionTerminateRequest",
     "SessionTerminateResponse",
+    "SessionTraceStep",
+    "SessionTraceView",
+    "SessionTraceWarning",
     "StateSpec",
     "StepSpec",
     "StructureKind",

@@ -1,6 +1,6 @@
 # Marivo MCP 工具参考文档
 
-本文档介绍 Marivo MCP 所有 34 个工具的完整输入参数与输出结构，按 Datasource / Semantic Layer / Analysis 及其 calendar data preflight 工具组织。每个字段标注明确类型，每项工具附带输入输出示例 JSON。
+本文档介绍 Marivo MCP 工具的完整输入参数与输出结构，按 Datasource / Semantic Layer / Analysis 及其 calendar data preflight 工具组织。每个字段标注明确类型，每项工具附带输入输出示例 JSON。
 
 ---
 
@@ -2021,7 +2021,102 @@ interface SessionStateTruncation {
 
 ---
 
-### 3.15 get_proposition_context
+### 3.15 get_session_trace
+
+读取会话的 agent-facing execution trace。用于了解哪些 step 已运行、有哪些稳定 artifact handles，以及每个 step 是否存在 trace warning。
+
+Trace 只解释执行过程，不是证据结论来源。最终证据综合前，先调用 `get_session_trace(session_id)` 了解执行轨迹，再结合 `get_session_state(session_id, ...)` 和每个被引用 proposition 的 `get_proposition_context(session_id, proposition_id)`；不要只凭 trace 产出结论。
+
+**输入参数**：
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| session_id | string | 是 | 会话ID |
+
+**输出 — SessionTraceView**：
+
+```typescript
+interface SessionTraceView {
+  session_id: string;                       // 会话ID
+  goal: string | null;                      // 会话目标
+  lifecycle_status: string;                 // 会话生命周期状态
+  created_at: string;                       // ISO-8601 datetime
+  updated_at: string;                       // ISO-8601 datetime
+  steps: SessionTraceStep[];                // 按 created_at ASC, step_id ASC 排序
+  artifact_ids: string[];                   // 去重后的 artifact handles，按 trace 首次出现顺序
+  schema_version: string;                   // "session_trace.v1"
+}
+
+interface SessionTraceStep {
+  step_id: string;
+  step_type: string;
+  created_at: string;
+  summary: string | null;
+  artifact_id: string | null;
+  output_summary: object | null;
+  provenance: object | null;
+  semantic_metadata: object | null;
+  warnings: SessionTraceWarning[];
+}
+
+interface SessionTraceWarning {
+  code: string;                             // artifact_id_unresolved 等
+  message: string;
+  field: string | null;
+}
+```
+
+`output_summary` 只包含浅层标量摘要字段，如 `intent_type`、`step_type`、`artifact_id`、`status`、`result_type`、`artifact_type`、`artifact_schema_version`、`row_count`、`candidate_count`、`finding_count`、`driver_count`。不会内联 artifact rows、AOI artifacts、driver rows、backing findings、assessments 或 proposition contexts。
+
+**输入示例**：
+
+```json
+{ "session_id": "sess_123" }
+```
+
+**输出示例**（精简）：
+
+```json
+{
+  "data": {
+    "session_id": "sess_123",
+    "goal": "Explain revenue change",
+    "lifecycle_status": "active",
+    "created_at": "2026-05-18T00:00:00+00:00",
+    "updated_at": "2026-05-18T00:01:00+00:00",
+    "steps": [
+      {
+        "step_id": "step_1",
+        "step_type": "observe",
+        "created_at": "2026-05-18T00:01:00+00:00",
+        "summary": "Observed revenue",
+        "artifact_id": "art_1",
+        "output_summary": { "intent_type": "observe", "status": "success", "row_count": 10 },
+        "provenance": { "runner": "observe" },
+        "semantic_metadata": { "metric": "revenue" },
+        "warnings": []
+      }
+    ],
+    "artifact_ids": ["art_1"],
+    "schema_version": "session_trace.v1"
+  },
+  "error": null
+}
+```
+
+**Agent Workflow Contract**：
+
+最终生成 evidence-based answer 前，agent 必须读取：
+
+1. `get_session_trace(session_id)`：确认哪些 step 已运行、哪些 artifact handles 存在。
+2. `get_session_state(session_id, ...)`：读取 active propositions、backing findings、blocking gaps 和 artifact refs。
+3. `get_proposition_context(session_id, proposition_id)`：为每个被引用为证据的 proposition 读取局部证据闭包。
+
+如果 trace warnings 影响被引用证据，应说明相关 caveat，不要把结论描述为完全验证。
+
+---
+
+### 3.16 get_proposition_context
 
 读取单个 proposition 的局部证据闭包。仅在需要解释某个具体 proposition 时调用，不要批量读取。
 
