@@ -17,6 +17,7 @@ close-out. It does not own datasource discovery or reusable semantic authoring.
 - choosing the first analysis intent
 - chaining follow-up intents with returned artifact IDs
 - planning and executing a multi-step investigation with those artifact IDs
+- reading session trace before evidence-based close-out
 - reading session state and proposition context
 - terminating the session after final writes
 
@@ -27,6 +28,7 @@ close-out. It does not own datasource discovery or reusable semantic authoring.
 - current and baseline windows are already known: `marivo-attribute`
 - two `observe` artifacts already exist: `marivo-compare`
 - one compare artifact needs segment drivers: `marivo-decompose`
+- you need the execution timeline and artifact handles: `marivo-get_session_trace`
 - you need the session-level picture: `marivo-get_session_state`
 - you need one proposition's local evidence closure: `marivo-get_proposition_context`
 
@@ -38,7 +40,8 @@ close-out. It does not own datasource discovery or reusable semantic authoring.
 3. Choose the first analysis intent.
 4. Plan and execute a bounded multi-step investigation using returned artifact IDs and session state.
 5. Read state after each meaningful branch point.
-6. Read proposition context only for the proposition that matters.
+6. Before an evidence-based final answer, read trace, then state, then proposition context for cited
+   propositions.
 7. If the investigation exposes a semantic gap or contract conflict, bounce back to
    `marivo-semantic-layer`.
 8. Terminate the session explicitly when no more writes are needed.
@@ -53,7 +56,11 @@ close-out. It does not own datasource discovery or reusable semantic authoring.
 - For `marivo-observe`, choose **either** `granularity` **or** `dimensions`.
 - `marivo-correlate` and `marivo-forecast` require committed `observe(time_series)` artifact IDs
   produced by `marivo-observe(granularity=...)`; scalar or segmented observe artifacts are invalid.
+- `marivo-get_session_trace` explains what ran and which artifact handles exist; it is not the
+  evidence conclusion surface.
 - Read state first, then proposition context only when a specific claim needs explanation.
+- For final answers, read trace before state/context and mention trace warnings when they affect
+  cited evidence.
 - Use returned artifact IDs for downstream tools such as `marivo-compare` or `marivo-decompose`;
   do not invent ad hoc IDs.
 - Do not rewrite approved metric meaning, join logic, or exclusions inside the investigation loop.
@@ -67,6 +74,8 @@ close-out. It does not own datasource discovery or reusable semantic authoring.
 - running holiday-aware comparison without checking `marivo-list_calendar_data` for the relevant rows
 - passing scalar or segmented observe artifacts into `marivo-correlate` or `marivo-forecast`
 - using the investigation loop to improvise reusable metric definitions
+- answering from memory or state alone without checking `marivo-get_session_trace` for the executed
+  step/artifact timeline
 - treating session lists or runtime-ish status as a substitute for state or proposition context
 - finishing the reasoning mentally but forgetting to terminate the active session
 

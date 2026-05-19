@@ -31,9 +31,9 @@ class SessionAPITests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.temp_dir = tempfile.TemporaryDirectory()
-        db_path = Path(cls.temp_dir.name) / "test.duckdb"
-        get_seeded_duckdb_path(db_path)
-        cls.client = TestClient(create_app(db_path), headers={"X-Marivo-User": "test_user"})
+        cls.db_path = Path(cls.temp_dir.name) / "test.duckdb"
+        get_seeded_duckdb_path(cls.db_path)
+        cls.client = TestClient(create_app(cls.db_path), headers={"X-Marivo-User": "test_user"})
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -183,6 +183,70 @@ class SessionAPITests(unittest.TestCase):
         """GET /sessions/{id}/runtime-status with unknown ID should 404."""
         resp = self.client.get("/sessions/sess_nonexistent/runtime-status")
         self.assertEqual(resp.status_code, 404)
+
+    def test_get_session_trace_empty_session(self) -> None:
+        create_response = self.client.post(
+            "/sessions",
+            json={"goal": "Explain revenue change"},
+        )
+        session_id = create_response.json()["session_id"]
+
+        response = self.client.get(f"/sessions/{session_id}/trace")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["session_id"], session_id)
+        self.assertEqual(body["goal"], "Explain revenue change")
+        self.assertEqual(body["lifecycle_status"], "active")
+        self.assertEqual(body["steps"], [])
+        self.assertEqual(body["artifact_ids"], [])
+        self.assertEqual(body["schema_version"], "session_trace.v1")
+
+    def test_get_session_trace_unknown_session_returns_404(self) -> None:
+        response = self.client.get("/sessions/sess_missing/trace")
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_get_session_trace_requires_identity(self) -> None:
+        create_response = self.client.post(
+            "/sessions",
+            json={"goal": "Explain revenue change"},
+        )
+        session_id = create_response.json()["session_id"]
+        anonymous_client = TestClient(create_app(self.db_path))
+        self.addCleanup(anonymous_client.close)
+
+        trace_response = anonymous_client.get(f"/sessions/{session_id}/trace")
+
+        self.assertEqual(trace_response.status_code, 401)
+
+    def test_get_session_trace_denies_cross_user_access(self) -> None:
+        create_response = self.client.post(
+            "/sessions",
+            json={"goal": "Explain revenue change"},
+        )
+        session_id = create_response.json()["session_id"]
+        other_client = TestClient(
+            create_app(self.db_path),
+            headers={"X-Marivo-User": "other_user"},
+        )
+        self.addCleanup(other_client.close)
+
+        trace_response = other_client.get(f"/sessions/{session_id}/trace")
+
+        self.assertEqual(trace_response.status_code, 403)
+        body = trace_response.json()
+        leaked_trace_fields = {
+            "session_id",
+            "goal",
+            "lifecycle_status",
+            "created_at",
+            "updated_at",
+            "steps",
+            "artifact_ids",
+            "schema_version",
+        }
+        self.assertTrue(leaked_trace_fields.isdisjoint(body))
 
     def test_list_sessions_supports_session_id_filter(self) -> None:
         create_resp = self.client.post("/sessions", json={"goal": "Filter by id"})

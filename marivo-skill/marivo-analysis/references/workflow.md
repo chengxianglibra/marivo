@@ -21,6 +21,7 @@ Skip this file if the real task is still datasource setup or semantic modeling.
 | Run correlation or forecasting | `marivo-correlate`, `marivo-forecast` |
 | Read holiday or adjusted-workday rows | `marivo-list_calendar_data` |
 | Add or correct trusted holiday rows | `marivo-update_calendar_data` |
+| Read execution trace and artifact handles | `marivo-get_session_trace` |
 | Read session-level evidence state | `marivo-get_session_state` |
 | Read one proposition closure | `marivo-get_proposition_context` |
 | Close the write flow | `marivo-terminate_session` |
@@ -201,12 +202,22 @@ same session. A typical flow can chain:
 3. `marivo-attribute`, `marivo-test_intent`, `marivo-correlate`, or `marivo-forecast` when the current
    evidence needs a narrower check
 
-Read `marivo-get_session_state` after meaningful branch points. Read
-`marivo-get_proposition_context` only for the proposition that now matters. If the evidence points
-to a reusable semantic gap instead of an analytical branch, pause the session work and repair the
-semantic layer first.
+Read `marivo-get_session_state` after meaningful branch points. Before an evidence-based final
+answer, read `marivo-get_session_trace` to verify the executed step timeline and artifact handles,
+then read `marivo-get_session_state`, then read `marivo-get_proposition_context` only for cited
+propositions. If the evidence points to a reusable semantic gap instead of an analytical branch,
+pause the session work and repair the semantic layer first.
 
-## State, Context, And Close-Out
+## Trace, State, Context, And Close-Out
+
+Read the execution trace before final evidence synthesis:
+
+```text
+marivo-get_session_trace(session_id="sess_123")
+```
+
+Trace tells you what ran, which artifact IDs exist, and whether any step has trace warnings. It is
+not proof that a conclusion is valid.
 
 Read the session-level picture first:
 
@@ -238,6 +249,8 @@ marivo-terminate_session(
 - using the analysis session to settle reusable metric definitions that should have been approved in
   the semantic layer
 - trying to use datasource browse output as evidence for an investigation conclusion
+- skipping `marivo-get_session_trace` before final synthesis, so the answer cannot explain which
+  steps and artifact handles support the cited state/context
 - passing scalar or grouped observe artifacts into `marivo-correlate` or `marivo-forecast`
 - skipping `marivo-get_session_state` and jumping straight to proposition context without knowing
   which proposition matters

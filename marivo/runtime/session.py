@@ -25,6 +25,27 @@ def _utcnow_iso() -> str:
     return datetime.now(UTC).isoformat()
 
 
+TRACE_OUTPUT_SUMMARY_KEYS = frozenset(
+    {
+        "intent_type",
+        "step_type",
+        "artifact_id",
+        "status",
+        "result_type",
+        "artifact_type",
+        "artifact_schema_version",
+    }
+)
+TRACE_OUTPUT_SUMMARY_COUNT_KEYS = frozenset(
+    {
+        "row_count",
+        "candidate_count",
+        "finding_count",
+        "driver_count",
+    }
+)
+
+
 # ---------------------------------------------------------------------------
 # Ownership check
 # ---------------------------------------------------------------------------
@@ -122,6 +143,81 @@ def assert_session_exists(runtime: MarivoRuntime, session_id: SessionId) -> Sess
     return get_session(runtime, session_id)
 
 
+def _is_trace_scalar(value: Any) -> bool:
+    return value is None or isinstance(value, str | int | float | bool)
+
+
+def _artifact_id_for_step(runtime: MarivoRuntime, step: Any) -> tuple[str | None, bool]:
+    result = step.result if isinstance(step.result, dict) else {}
+    artifact_id = result.get("artifact_id")
+    if artifact_id is not None:
+        return str(artifact_id), False
+
+    try:
+        resolved = runtime.ports.artifact_store.resolve_artifact_id_for_step(
+            step.session_id,
+            step.step_id,
+        )
+    except Exception:
+        # Trace fallback is best-effort: an artifact-index miss, corrupt
+        # artifact record, or store outage should degrade only this step.
+        return None, True
+
+    return (str(resolved), False) if resolved is not None else (None, False)
+
+
+def _output_summary_for_step(step: Any) -> dict[str, Any] | None:
+    result = step.result if isinstance(step.result, dict) else {}
+    summary: dict[str, Any] = {}
+    for key in sorted(TRACE_OUTPUT_SUMMARY_KEYS | TRACE_OUTPUT_SUMMARY_COUNT_KEYS):
+        if key in result and _is_trace_scalar(result[key]):
+            summary[key] = result[key]
+    return summary or None
+
+
+def _warnings_for_step(
+    step: Any,
+    *,
+    artifact_id: str | None,
+    artifact_lookup_failed: bool,
+    output_summary: dict[str, Any] | None,
+) -> list[dict[str, str | None]]:
+    warnings: list[dict[str, str | None]] = []
+    if artifact_id is None or artifact_lookup_failed:
+        warnings.append(
+            {
+                "code": "artifact_id_unresolved",
+                "message": "Artifact id could not be resolved for this step.",
+                "field": "artifact_id",
+            }
+        )
+    if output_summary is None:
+        warnings.append(
+            {
+                "code": "output_summary_unavailable",
+                "message": "No whitelisted scalar output summary fields are available.",
+                "field": "output_summary",
+            }
+        )
+    if step.provenance is None:
+        warnings.append(
+            {
+                "code": "provenance_missing",
+                "message": "Step provenance is unavailable.",
+                "field": "provenance",
+            }
+        )
+    if step.semantic_metadata is None:
+        warnings.append(
+            {
+                "code": "semantic_metadata_unavailable",
+                "message": "Step semantic metadata is unavailable.",
+                "field": "semantic_metadata",
+            }
+        )
+    return warnings
+
+
 def assert_session_is_open(runtime: MarivoRuntime, session_id: SessionId) -> SessionState:
     """Assert that *session_id* exists and is in an open/active state.
 
@@ -176,6 +272,67 @@ def terminate_session(
     )
     # Reload to return the updated state
     return rebuild_session_state(runtime.ports.session_store.load_events(session_id))
+
+
+def get_session_trace(
+    runtime: MarivoRuntime,
+    session_id: SessionId,
+    actor: UserId | None = None,
+) -> dict[str, Any]:
+    """Return the agent-facing trace view for a session.
+
+    Trace explains execution chronology and lightweight handles only.
+    Evidence truth stays in SessionStateView and PropositionContextView.
+    """
+    if actor is None:
+        state = assert_session_exists(runtime, session_id)
+    else:
+        events = runtime.ports.session_store.load_events(session_id)  # raises NotFoundError
+        _check_ownership_from_events(events, actor)
+        state = rebuild_session_state(events)
+    steps = sorted(
+        runtime.ports.step_store.list_steps(session_id),
+        key=lambda step: (step.created_at, str(step.step_id)),
+    )
+
+    trace_steps: list[dict[str, Any]] = []
+    artifact_ids: list[str] = []
+    seen_artifact_ids: set[str] = set()
+    for step in steps:
+        artifact_id, artifact_lookup_failed = _artifact_id_for_step(runtime, step)
+        output_summary = _output_summary_for_step(step)
+        if artifact_id is not None and artifact_id not in seen_artifact_ids:
+            artifact_ids.append(artifact_id)
+            seen_artifact_ids.add(artifact_id)
+        trace_steps.append(
+            {
+                "step_id": str(step.step_id),
+                "step_type": step.step_type,
+                "created_at": step.created_at,
+                "summary": step.summary,
+                "artifact_id": artifact_id,
+                "output_summary": output_summary,
+                "provenance": step.provenance,
+                "semantic_metadata": step.semantic_metadata,
+                "warnings": _warnings_for_step(
+                    step,
+                    artifact_id=artifact_id,
+                    artifact_lookup_failed=artifact_lookup_failed,
+                    output_summary=output_summary,
+                ),
+            }
+        )
+
+    return {
+        "session_id": str(state.session_id),
+        "goal": state.goal,
+        "lifecycle_status": state.status,
+        "created_at": state.created_at,
+        "updated_at": state.updated_at,
+        "steps": trace_steps,
+        "artifact_ids": artifact_ids,
+        "schema_version": "session_trace.v1",
+    }
 
 
 # ---------------------------------------------------------------------------

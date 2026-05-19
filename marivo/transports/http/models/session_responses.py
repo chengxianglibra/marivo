@@ -88,6 +88,41 @@ class SessionRuntimeStatusResponse(BaseModel):
     schema_version: str
 
 
+class SessionTraceWarning(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: str
+    message: str
+    field: str | None = None
+
+
+class SessionTraceStep(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    step_id: str
+    step_type: str
+    created_at: str
+    summary: str | None = None
+    artifact_id: str | None = None
+    output_summary: JsonObject | None = None
+    provenance: JsonObject | None = None
+    semantic_metadata: JsonObject | None = None
+    warnings: list[SessionTraceWarning]
+
+
+class SessionTraceView(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    session_id: str
+    goal: str | None = None
+    lifecycle_status: str
+    created_at: str
+    updated_at: str
+    steps: list[SessionTraceStep]
+    artifact_ids: list[str]
+    schema_version: str
+
+
 class ArtifactExtractorKey(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

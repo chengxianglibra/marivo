@@ -112,6 +112,18 @@ class FakeRuntime:
     def get_session(self, **kw):
         return {}
 
+    def get_session_trace(self, **kw):
+        return {
+            "session_id": kw["session_id"],
+            "goal": None,
+            "lifecycle_status": "active",
+            "created_at": "2026-05-18T00:00:00+00:00",
+            "updated_at": "2026-05-18T00:00:00+00:00",
+            "steps": [],
+            "artifact_ids": [],
+            "schema_version": "session_trace.v1",
+        }
+
     def terminate_session(self, **kw):
         return {}
 
@@ -242,6 +254,7 @@ def test_stdio_server_registers_tools():
         "create_session",
         "list_sessions",
         "get_session",
+        "get_session_trace",
         "terminate_session",
         "get_session_state",
         "get_proposition_context",
@@ -266,6 +279,32 @@ def test_stdio_server_registers_tools():
 
     for tool_name in expected_tools:
         assert tool_name in tool_names, f"Missing tool: {tool_name}"
+
+
+@pytest.mark.asyncio
+async def test_stdio_get_session_trace_calls_runtime() -> None:
+    from marivo.transports.mcp.tools import register_tools
+
+    runtime = FakeRuntime()
+    server = _make_server("marivo")
+    register_tools(server, runtime, transport="stdio")
+    tools = {t.name: t for t in server._tool_manager.list_tools()}
+
+    result = await tools["get_session_trace"].run({"session_id": "sess_trace"})
+
+    assert result == {
+        "data": {
+            "session_id": "sess_trace",
+            "goal": None,
+            "lifecycle_status": "active",
+            "created_at": "2026-05-18T00:00:00+00:00",
+            "updated_at": "2026-05-18T00:00:00+00:00",
+            "steps": [],
+            "artifact_ids": [],
+            "schema_version": "session_trace.v1",
+        },
+        "error": None,
+    }
 
 
 @pytest.mark.asyncio

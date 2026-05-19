@@ -54,6 +54,11 @@ Fields that store structured data are represented as JSON objects in responses. 
 
 ### Lifecycle Status Values
 
+These values describe the session root `lifecycle.status` field and semantic object
+lifecycle fields. Derived runtime/session views may expose their own status fields,
+such as Session Trace `lifecycle_status`, and document those values on their
+dedicated pages.
+
 | Resource | Status values |
 |----------|---------------|
 | Session | `open`, `closed`, `aborted` |
@@ -69,6 +74,7 @@ Runtime/catalog availability is gated by `lifecycle_status` and `readiness_statu
 |--------|-------------|-------------|
 | [Session Lifecycle](session-lifecycle.md) | `/sessions` | Session root lifecycle: create, read, list, and terminate |
 | [Intent Step Submission](intent-steps.md) | `/sessions/{id}/intents/*` | Current per-intent execution surface for atomic and derived analysis intents |
+| [Session Trace](session-trace.md) | `/sessions/{id}/trace` | Agent-facing execution chronology for sessions |
 | [Session State Surface](session-state.md) | `/sessions/{id}/state` | Canonical session-level decision surface |
 | [Context Surface](context-surface.md) | `/sessions/{id}/propositions/{pid}/context` | Canonical proposition-level minimal closure |
 | [Runtime Status Surface](runtime-status.md) | `/sessions/{id}/**/runtime-status` | Operator-facing runtime stage, attempt, failure, and backlog status |
@@ -82,6 +88,7 @@ Runtime/catalog availability is gated by `lifecycle_status` and `readiness_statu
 
 - [Session Lifecycle](session-lifecycle.md) — current session root lifecycle HTTP contract
 - [Intent Step Submission](intent-steps.md) — current per-intent write contract for atomic and derived analysis intents
+- [Session Trace](session-trace.md) — agent-facing execution chronology for sessions
 - [Session State Surface](session-state.md) — canonical session-level decision surface HTTP contract
 - [Context Surface](context-surface.md) — canonical proposition-level minimal closure HTTP contract
 - [Runtime Status Surface](runtime-status.md) — operator-facing runtime stage and failure HTTP contract
