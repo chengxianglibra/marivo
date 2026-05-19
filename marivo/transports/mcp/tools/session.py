@@ -47,6 +47,11 @@ def register_session_tools(server: Any, runtime: Any) -> None:
         return await call_runtime(runtime.get_session, session_id=session_id)
 
     @server.tool()  # type: ignore
+    async def get_session_trace(session_id: str) -> dict[str, Any]:
+        """Read the agent-facing execution trace via GET /sessions/{session_id}/trace; use state/context tools for evidence conclusions."""
+        return await call_runtime(runtime.get_session_trace, session_id=session_id)
+
+    @server.tool()  # type: ignore
     async def terminate_session(
         session_id: str,
         terminal_reason: str = "user_closed",

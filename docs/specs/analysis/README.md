@@ -37,6 +37,7 @@ Evidence Engine 的目标态规范链路为：
 6. [Evidence Engine Python DSL Proof Engine](evidence-engine/python-dsl-proof-engine.md)
 7. [Graph And Reference Semantics](evidence-engine/graph-and-reference-semantics.md)
 8. [Evidence Engine Read Surfaces](evidence-engine/read-surfaces.md)
+9. [Agent-Facing Auditability V1](evidence-engine/agent-auditability-v1.md)
 
 这些主线文档负责解释：
 
@@ -47,6 +48,7 @@ Evidence Engine 的目标态规范链路为：
 - judgment/proof 层如何通过 Python DSL 演进为显式 proof case / obligation / evaluation 模型
 - edge taxonomy、typed refs、closure integrity
 - session/state/context 读取面的主题关系
+- agent-facing 一期可审计读取面、MCP 增强与 skill 约束
 
 ## Evidence Engine 对象 Schema
 
