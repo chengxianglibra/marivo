@@ -64,18 +64,18 @@ def register_semantic_tools(server: Any, runtime: Any) -> None:
 
         dataset.source must be a relation FQN (schema.table or catalog.schema.table); SQL queries are not accepted.
 
-        Key field in the MARIVO metric extension: additive_dimensions.
-        Use [] for non-additive metrics, explicit field names for subset-additive metrics,
-        or ["__all"] when the metric is additive across all declared dimension fields in
-        the semantic model, including time dimensions. "__all" must be the only item
-        when used.
+        Key fields in the MARIVO metric extension: additive_dimensions and aggregation_semantics.
+        See the import tool description for details.
 
-        Key field in the MARIVO metric extension: aggregation_semantics
-        (enum: sum | ratio | weighted_average, default: sum).
-        Decision rule:
-        - 'sum' for additive quantities — values sum across groups (revenue, latency).
-        - 'ratio' for proportions / binary-outcome rates (conversion rate, CTR).
-        - 'weighted_average' for ratio-of-sums metrics (AOV = SUM/COUNT).
+        Key fields in the MARIVO field extension (required for all time fields):
+        - support_min_granularity: Finest time granularity (hour, day, week, month, quarter, year).
+        - data_type: Physical SQL data type of the time field column. One of: date, timestamp, string, integer.
+        - format: Temporal format pattern for string/integer time fields. Required when data_type is 'string' or 'integer'.
+          Examples: 'yyyymmdd' for YYYYMMDD string partitions, 'yyyy-mm-dd' for ISO date strings,
+          'yyyymmddhh' for combined date+hour strings, 'hh' for standalone hour columns,
+          'epoch_seconds' for Unix epoch integers.
+        - required_prefix: Field name of the date-format time field that provides date context for hour-only fields.
+          Required when format is 'hh' or 'h'. Must reference a time field on the same dataset.
         """
         return await call_runtime(
             svc.validate_osi_semantic_models,
@@ -100,6 +100,15 @@ def register_semantic_tools(server: Any, runtime: Any) -> None:
         - 'sum' for additive quantities — values sum across groups (revenue, latency).
         - 'ratio' for proportions / binary-outcome rates (conversion rate, CTR).
         - 'weighted_average' for ratio-of-sums metrics (AOV = SUM/COUNT).
+
+        Key fields in the MARIVO field extension (required for all time fields):
+        - data_type: Physical SQL data type of the time field column. One of: date, timestamp, string, integer.
+        - format: Required when data_type is 'string' or 'integer'. Temporal format pattern.
+          Examples: 'yyyymmdd' for YYYYMMDD string partitions, 'yyyy-mm-dd' for ISO date strings,
+          'yyyymmddhh' for combined date+hour strings, 'hh' for standalone hour columns,
+          'epoch_seconds' for Unix epoch integers.
+        - required_prefix: Field name of the date-format time field that provides date context for hour-only fields.
+          Required when format is 'hh' or 'h'. Must reference a time field on the same dataset.
         """
         result = await call_runtime(
             svc.import_osi_semantic_models,

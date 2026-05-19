@@ -6,10 +6,8 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 from typing import Any, Literal, cast
 
-from marivo.time_axis_metadata import normalize_time_capabilities
 from marivo.time_contracts import (
     normalize_hour_boundary,
-    normalize_timestamp_format,
     window_length_in_grain,
 )
 
@@ -68,7 +66,14 @@ class ResolvedTimeAxis:
     analysis_time_kind: str | None = None
     analysis_time_expr: str | None = None
     analysis_time_format: str | None = None
+    analysis_time_data_type: str | None = None
     partition_pruning_predicate: str | None = None
+    partition_date_column: str | None = None
+    partition_date_format: str | None = None
+    partition_date_data_type: str | None = None
+    partition_hour_column: str | None = None
+    partition_hour_format: str | None = None
+    partition_hour_data_type: str | None = None
     override_analysis_time_column: str | None = None
     override_partition_date_column: str | None = None
     override_partition_hour_column: str | None = None
@@ -421,61 +426,17 @@ def _ceil_hour_for_partition_end(value: datetime) -> datetime:
 
 
 @dataclass(slots=True)
-class _TimeCapabilities:
-    timestamp_column: str | None = None
-    timestamp_format: str | None = None
-    fallback_date_column: str | None = None
-    fallback_hour_column: str | None = None
-    partition_date_column: str | None = None
-    partition_date_format: str | None = None
-    partition_hour_column: str | None = None
-    partition_hour_format: str | None = None
-    default_compare_grain: TimeScopeGrain | None = None
-
-    @classmethod
-    def from_mapping(cls, payload: Mapping[str, Any] | None) -> _TimeCapabilities:
-        normalized_payload = normalize_time_capabilities(payload)
-        if not isinstance(normalized_payload, Mapping):
-            return cls()
-        analysis_time = normalized_payload.get("analysis_time")
-        partition_time = normalized_payload.get("partition_time")
-        if not isinstance(analysis_time, Mapping):
-            analysis_time = {}
-        if not isinstance(partition_time, Mapping):
-            partition_time = {}
-        return cls(
-            timestamp_column=_optional_str(analysis_time.get("timestamp_column")),
-            timestamp_format=_normalize_timestamp_format(analysis_time.get("timestamp_format")),
-            fallback_date_column=_optional_str(analysis_time.get("fallback_date_column")),
-            fallback_hour_column=_optional_str(analysis_time.get("fallback_hour_column")),
-            partition_date_column=_optional_str(partition_time.get("date_column")),
-            partition_date_format=_normalize_date_format(partition_time.get("date_format")),
-            partition_hour_column=_optional_str(partition_time.get("hour_column")),
-            partition_hour_format=_normalize_hour_format(partition_time.get("hour_format")),
-            default_compare_grain=cast(
-                "TimeScopeGrain | None",
-                _optional_str(normalized_payload.get("default_compare_grain")),
-            ),
-        )
-
-
-@dataclass(slots=True)
 class _AnalysisAxis:
     kind: str
     expr: str
     column: str | None = None
+    data_type: str | None = None
     date_column: str | None = None
     date_format: str | None = None
+    date_data_type: str | None = None
     hour_column: str | None = None
     hour_format: str | None = None
-
-
-@dataclass(slots=True)
-class _PartitionAxis:
-    date_column: str | None = None
-    date_format: str | None = None
-    hour_column: str | None = None
-    hour_format: str | None = None
+    hour_data_type: str | None = None
 
 
 @dataclass(slots=True)
@@ -483,153 +444,172 @@ class TimeAxisResolver:
     request: ResolvedWindowedQueryRequest
     engine_type: str
     available_columns: Sequence[str] = ()
-    entity_time_capabilities: Mapping[str, Any] | None = None
-    source_time_capabilities: Mapping[str, Any] | None = None
     time_field_expressions: Mapping[str, str] | None = None
     time_field_data_types: Mapping[str, str] | None = None
+    time_field_formats: Mapping[str, str] | None = None
+    time_field_required_prefixes: Mapping[str, str] | None = None
     time_field_support_min_granularities: Mapping[str, str] | None = None
 
     def resolve(self) -> ResolvedTimeAxis:
         columns = _normalize_columns(self.available_columns)
-        metadata_chain = [
-            _TimeCapabilities.from_mapping(self.entity_time_capabilities),
-            _TimeCapabilities.from_mapping(self.source_time_capabilities),
-        ]
-        analysis = self._resolve_analysis_axis(columns, metadata_chain)
+        analysis = self._resolve_analysis_axis(columns)
         self._validate_supported_granularity(analysis)
-        pruning = self._resolve_partition_axis(columns, metadata_chain, analysis)
+
+        # Populate per-column data types on analysis axis
+        if analysis.date_column is not None:
+            analysis.date_data_type = _mapping_optional_str(
+                self.time_field_data_types, analysis.date_column
+            )
+        if analysis.hour_column is not None:
+            analysis.hour_data_type = _mapping_optional_str(
+                self.time_field_data_types, analysis.hour_column
+            )
+
+        # --- Compute effective pruning columns ---
+        override_date = self.request.resolved_time_axis.override_partition_date_column
+        override_hour = self.request.resolved_time_axis.override_partition_hour_column
+        if override_date is not None:
+            self._ensure_known_column(
+                override_date, columns, "time_axis.partition_pruning.date_column"
+            )
+        if override_hour is not None:
+            self._ensure_known_column(
+                override_hour, columns, "time_axis.partition_pruning.hour_column"
+            )
+
+        prune_date_column = override_date or analysis.date_column
+        prune_hour_column = override_hour or analysis.hour_column
+
+        # Compute format and data_type for each pruning column
+        if override_date is not None:
+            prune_date_format = self._analysis_date_format(override_date)
+            prune_date_data_type = _mapping_optional_str(self.time_field_data_types, override_date)
+        elif analysis.date_column is not None:
+            prune_date_format = analysis.date_format
+            prune_date_data_type = analysis.date_data_type
+        else:
+            prune_date_format = None
+            prune_date_data_type = None
+
+        if override_hour is not None:
+            prune_hour_format = self._analysis_hour_format(
+                override_hour
+            ) or _default_hour_format_for_column(override_hour)
+            prune_hour_data_type = _mapping_optional_str(self.time_field_data_types, override_hour)
+        elif analysis.hour_column is not None:
+            prune_hour_format = self._analysis_hour_format(
+                analysis.hour_column
+            ) or _default_hour_format_for_column(analysis.hour_column)
+            prune_hour_data_type = analysis.hour_data_type
+        else:
+            prune_hour_format = None
+            prune_hour_data_type = None
+
+        if prune_hour_column is not None and prune_date_column is None:
+            raise ValueError("partition pruning hour_column requires a date_column")
+
+        has_partition = prune_date_column is not None
+
+        predicate = None
+        if has_partition:
+            predicate = self._build_partition_pruning_predicate(
+                date_column=prune_date_column,
+                date_format=prune_date_format,
+                date_data_type=prune_date_data_type,
+                hour_column=prune_hour_column,
+                hour_format=prune_hour_format,
+                hour_data_type=prune_hour_data_type,
+            )
+
         return ResolvedTimeAxis(
             observation_grain=self.request.time_scope.grain,
             analysis_time_kind=analysis.kind,
             analysis_time_expr=analysis.expr,
             analysis_time_format=analysis.date_format,
-            partition_pruning_predicate=self._build_partition_pruning_predicate(pruning),
+            analysis_time_data_type=analysis.data_type,
+            partition_pruning_predicate=predicate,
+            partition_date_column=prune_date_column if has_partition else None,
+            partition_date_format=prune_date_format if has_partition else None,
+            partition_date_data_type=prune_date_data_type if has_partition else None,
+            partition_hour_column=prune_hour_column if has_partition else None,
+            partition_hour_format=prune_hour_format if has_partition else None,
+            partition_hour_data_type=prune_hour_data_type if has_partition else None,
             override_analysis_time_column=self.request.resolved_time_axis.override_analysis_time_column,
-            override_partition_date_column=self.request.resolved_time_axis.override_partition_date_column,
-            override_partition_hour_column=self.request.resolved_time_axis.override_partition_hour_column,
+            override_partition_date_column=override_date,
+            override_partition_hour_column=override_hour,
         )
 
     def _resolve_analysis_axis(
         self,
         columns: tuple[str, ...],
-        metadata_chain: list[_TimeCapabilities],
     ) -> _AnalysisAxis:
         override = self.request.resolved_time_axis.override_analysis_time_column
         if override is not None:
             self._ensure_known_column(override, columns, "time_axis.analysis_time.column")
-            self._validate_field_granularity(override)
+            # Granularity validation deferred to _validate_supported_granularity which
+            # considers composite axis (date + paired hour field) capability.
             field_expression = _mapping_optional_str(self.time_field_expressions, override)
             field_data_type = _mapping_optional_str(self.time_field_data_types, override)
+            field_format = _mapping_optional_str(self.time_field_formats, override)
             if field_expression is not None and field_expression != override:
                 return self._analysis_axis_from_time_field_expression(
                     field_name=override,
                     expression=field_expression,
                     data_type=field_data_type,
+                    format=field_format,
                     columns=columns,
-                    metadata_chain=metadata_chain,
                 )
             if _sql_type_is_date(field_data_type):
                 if self._effective_grain() == "hour":
                     raise ValueError(
                         self._hour_compatibility_error("time_axis.analysis_time.column")
                     )
-                date_format = self._analysis_date_format(metadata_chain, override)
+                date_format = field_format or self._analysis_date_format(override)
                 return _AnalysisAxis(
                     kind="date_field",
                     expr=self._date_field_analysis_expr(override, date_format),
                     column=override,
+                    data_type="date",
                     date_column=override,
                     date_format=date_format,
                 )
             if _sql_type_is_timestamp(field_data_type):
-                return _AnalysisAxis(kind="timestamp", expr=override, column=override)
-            for caps in metadata_chain:
-                if caps.timestamp_column == override:
-                    timestamp_expr = _timestamp_field_expr(
-                        override,
-                        caps.timestamp_format,
-                        engine_type=self.engine_type,
+                return _AnalysisAxis(
+                    kind="timestamp", expr=override, column=override, data_type="timestamp"
+                )
+            if _sql_type_is_string(field_data_type):
+                normalized_format = _normalize_date_format(field_format)
+                if normalized_format in _HOUR_ONLY_FORMATS:
+                    return self._analysis_axis_from_hour_only_field(
+                        field_name=override,
+                        format=normalized_format,
+                        columns=columns,
                     )
-                    return _AnalysisAxis(kind="timestamp", expr=timestamp_expr, column=override)
-                if caps.fallback_date_column == override:
-                    date_format = self._analysis_date_format(metadata_chain, override)
-                    return _AnalysisAxis(
-                        kind="date_field",
-                        expr=self._date_field_analysis_expr(override, date_format),
-                        column=override,
-                        date_column=override,
-                        date_format=date_format,
+                return self._analysis_axis_from_string_field(
+                    field_name=override,
+                    format=field_format,
+                    columns=columns,
+                )
+            if _sql_type_is_integer(field_data_type):
+                normalized = _normalize_date_format(field_format)
+                if normalized in _HOUR_ONLY_FORMATS:
+                    return self._analysis_axis_from_hour_only_field(
+                        field_name=override,
+                        format=normalized,
+                        columns=columns,
                     )
+                return self._analysis_axis_from_integer_field(
+                    field_name=override,
+                    format=field_format,
+                    columns=columns,
+                )
             raise ValueError(
                 f"time_axis.analysis_time.column '{override}' requires explicit "
-                "time field data_type or time_capabilities metadata"
+                "time field data_type"
             )
 
-        for caps in metadata_chain:
-            if caps.timestamp_column is not None:
-                self._ensure_known_column(
-                    caps.timestamp_column,
-                    columns,
-                    "time_capabilities.analysis_time.timestamp_column",
-                )
-                timestamp_expr = _timestamp_field_expr(
-                    caps.timestamp_column,
-                    caps.timestamp_format,
-                    engine_type=self.engine_type,
-                )
-                return _AnalysisAxis(
-                    kind="timestamp",
-                    expr=timestamp_expr,
-                    column=caps.timestamp_column,
-                )
-
-        for caps in metadata_chain:
-            if self._effective_grain() == "hour":
-                if caps.fallback_date_column and caps.fallback_hour_column:
-                    self._ensure_known_column(
-                        caps.fallback_date_column,
-                        columns,
-                        "time_capabilities.analysis_time.fallback_date_column",
-                    )
-                    self._ensure_known_column(
-                        caps.fallback_hour_column,
-                        columns,
-                        "time_capabilities.analysis_time.fallback_hour_column",
-                    )
-                    return _AnalysisAxis(
-                        kind="partition_fields",
-                        expr=self._partition_hour_analysis_expr(
-                            caps.fallback_date_column,
-                            caps.fallback_hour_column,
-                            self._analysis_date_format(metadata_chain, caps.fallback_date_column),
-                        ),
-                        date_column=caps.fallback_date_column,
-                        date_format=self._analysis_date_format(
-                            metadata_chain, caps.fallback_date_column
-                        ),
-                        hour_column=caps.fallback_hour_column,
-                        hour_format=self._analysis_hour_format(
-                            metadata_chain, caps.fallback_hour_column
-                        ),
-                    )
-            elif caps.fallback_date_column:
-                self._ensure_known_column(
-                    caps.fallback_date_column,
-                    columns,
-                    "time_capabilities.analysis_time.fallback_date_column",
-                )
-                date_format = self._analysis_date_format(metadata_chain, caps.fallback_date_column)
-                return _AnalysisAxis(
-                    kind="date_field",
-                    expr=self._date_field_analysis_expr(caps.fallback_date_column, date_format),
-                    column=caps.fallback_date_column,
-                    date_column=caps.fallback_date_column,
-                    date_format=date_format,
-                )
-
         raise ValueError(
-            f"could not resolve a time axis for {self.request.table}; "
-            "provide time_axis override or explicit time_capabilities metadata"
+            f"could not resolve a time axis for {self.request.table}; provide time_scope.field"
         )
 
     def _analysis_axis_from_time_field_expression(
@@ -638,23 +618,40 @@ class TimeAxisResolver:
         field_name: str,
         expression: str,
         data_type: str | None,
+        format: str | None,
         columns: tuple[str, ...],
-        metadata_chain: list[_TimeCapabilities],
     ) -> _AnalysisAxis:
         if _is_simple_identifier(expression):
             if _sql_type_is_date(data_type):
                 if self._effective_grain() == "hour":
                     raise ValueError(self._hour_compatibility_error("time_scope.field expression"))
-                date_format = self._analysis_date_format(metadata_chain, expression)
+                date_format = format or self._analysis_date_format(expression)
                 return _AnalysisAxis(
                     kind="date_field",
                     expr=self._date_field_analysis_expr(expression, date_format),
                     column=field_name,
+                    data_type="date",
                     date_column=expression,
                     date_format=date_format,
                 )
             if _sql_type_is_timestamp(data_type):
-                return _AnalysisAxis(kind="timestamp", expr=expression, column=field_name)
+                return _AnalysisAxis(
+                    kind="timestamp", expr=expression, column=field_name, data_type="timestamp"
+                )
+            if _sql_type_is_string(data_type):
+                return self._analysis_axis_from_string_field(
+                    field_name=field_name,
+                    format=format,
+                    columns=columns,
+                    column_name=expression,
+                )
+            if _sql_type_is_integer(data_type):
+                return self._analysis_axis_from_integer_field(
+                    field_name=field_name,
+                    format=format,
+                    columns=columns,
+                    column_name=expression,
+                )
             raise ValueError(f"time field '{field_name}' expression requires explicit data_type")
 
         if _sql_type_is_timestamp(data_type) or _expression_returns_timestamp(expression):
@@ -662,9 +659,37 @@ class TimeAxisResolver:
                 kind="timestamp",
                 expr=_timestamp_expression_for_engine(expression, engine_type=self.engine_type),
                 column=field_name,
+                data_type=_canonical_data_type(data_type) or "timestamp",
             )
         if _sql_type_is_date(data_type) or _expression_returns_date(expression):
-            return _AnalysisAxis(kind="date_expression", expr=expression, column=field_name)
+            return _AnalysisAxis(
+                kind="date_expression",
+                expr=expression,
+                column=field_name,
+                data_type=_canonical_data_type(data_type) or "date",
+            )
+        if _sql_type_is_string(data_type):
+            if format is None:
+                raise ValueError(
+                    f"time field '{field_name}' with data_type='string' requires format"
+                )
+            normalized_format = _normalize_date_format(format)
+            if normalized_format in _HOUR_PRECISION_FORMATS:
+                return _AnalysisAxis(
+                    kind="timestamp",
+                    expr=_timestamp_expression_for_engine(expression, engine_type=self.engine_type),
+                    column=field_name,
+                    data_type="string",
+                    date_column=field_name,
+                    date_format=normalized_format,
+                )
+            return _AnalysisAxis(
+                kind="date_expression",
+                expr=expression,
+                column=field_name,
+                data_type="string",
+                date_format=normalized_format,
+            )
         raise ValueError(
             f"time field '{field_name}' expression requires explicit data_type "
             "or a timestamp/date cast"
@@ -676,6 +701,17 @@ class TimeAxisResolver:
             raise ValueError(
                 f"time field for {self.request.table} must declare support_min_granularity"
             )
+        requested = self._effective_grain()
+        # Composite axis (date + paired hour field) satisfies hour granularity
+        # even if the date field alone only supports day granularity.
+        if requested == "hour" and analysis.hour_column is not None:
+            hour_field = analysis.hour_column
+            hour_support = _mapping_optional_str(
+                self.time_field_support_min_granularities,
+                hour_field,
+            )
+            if hour_support == "hour":
+                return  # Composite capability satisfies hour granularity
         self._validate_field_granularity(field_name)
 
     def _validate_field_granularity(self, field_name: str) -> None:
@@ -707,15 +743,14 @@ class TimeAxisResolver:
         self,
         date_column: str,
         columns: tuple[str, ...],
-        metadata_chain: list[_TimeCapabilities],
         *,
         field_name: str | None = None,
     ) -> _AnalysisAxis | None:
-        hour_column = self._hour_column_for_date_column(date_column, columns, metadata_chain)
+        hour_column = self._hour_column_for_date_column(date_column, columns)
         if hour_column is None:
             return None
         self._ensure_known_column(hour_column, columns, "time_axis.analysis_time.hour_column")
-        date_format = self._analysis_date_format(metadata_chain, date_column)
+        date_format = self._analysis_date_format(date_column)
         return _AnalysisAxis(
             kind="partition_fields",
             expr=self._partition_hour_analysis_expr(date_column, hour_column, date_format),
@@ -723,126 +758,290 @@ class TimeAxisResolver:
             date_column=date_column,
             date_format=date_format,
             hour_column=hour_column,
-            hour_format=self._analysis_hour_format(metadata_chain, hour_column),
+            hour_format=self._analysis_hour_format(hour_column),
         )
 
-    @staticmethod
-    def _hour_column_for_date_column(
-        date_column: str,
-        columns: tuple[str, ...],
-        metadata_chain: list[_TimeCapabilities],
-    ) -> str | None:
-        for caps in metadata_chain:
-            if caps.fallback_date_column == date_column and caps.fallback_hour_column is not None:
-                return caps.fallback_hour_column
-            if caps.partition_date_column == date_column and caps.partition_hour_column is not None:
-                return caps.partition_hour_column
-        return None
-
-    def _resolve_partition_axis(
+    def _analysis_axis_from_hour_only_field(
         self,
+        *,
+        field_name: str,
+        format: str | None,
         columns: tuple[str, ...],
-        metadata_chain: list[_TimeCapabilities],
-        analysis: _AnalysisAxis,
-    ) -> _PartitionAxis | None:
-        override_date = self.request.resolved_time_axis.override_partition_date_column
-        override_hour = self.request.resolved_time_axis.override_partition_hour_column
-        if override_date is not None:
-            self._ensure_known_column(
-                override_date, columns, "time_axis.partition_pruning.date_column"
+    ) -> _AnalysisAxis:
+        """Handle a time field with hour-only format (hh/h) as analysis axis override.
+
+        An hour-only field cannot be a standalone analysis axis — it needs a date-format
+        field declared via required_prefix. This method finds the required_prefix field
+        and resolves the composite axis (date + hour → partition_fields).
+        """
+        prefix_field = _mapping_optional_str(self.time_field_required_prefixes, field_name)
+        if prefix_field is None:
+            raise ValueError(
+                f"time field '{field_name}' with format '{format}' cannot be used as "
+                "a standalone analysis axis; it requires a date-format time field "
+                "declared via required_prefix"
             )
-        if override_hour is not None:
-            self._ensure_known_column(
-                override_hour, columns, "time_axis.partition_pruning.hour_column"
-            )
-
-        date_column = override_date
-        hour_column = override_hour
-        date_format = None
-        hour_format = _default_hour_format_for_column(hour_column) if hour_column else None
-
-        if date_column is None:
-            for caps in metadata_chain:
-                if caps.partition_date_column is not None:
-                    self._ensure_known_column(
-                        caps.partition_date_column,
-                        columns,
-                        "time_capabilities.partition_time.date_column",
-                    )
-                    date_column = caps.partition_date_column
-                    date_format = caps.partition_date_format
-                    break
-        if hour_column is None:
-            for caps in metadata_chain:
-                if caps.partition_hour_column is not None:
-                    self._ensure_known_column(
-                        caps.partition_hour_column,
-                        columns,
-                        "time_capabilities.partition_time.hour_column",
-                    )
-                    hour_column = caps.partition_hour_column
-                    hour_format = caps.partition_hour_format or _default_hour_format_for_column(
-                        hour_column
-                    )
-                    break
-
-        if date_column is None and analysis.date_column is not None:
-            date_column = analysis.date_column
-            date_format = analysis.date_format
-        if hour_column is None and analysis.hour_column is not None:
-            hour_column = analysis.hour_column
-            hour_format = analysis.hour_format or _default_hour_format_for_column(hour_column)
-
-        if date_column is None:
-            return None
-        if self._effective_grain() == "hour" and hour_column is None:
-            return _PartitionAxis(date_column=date_column, date_format=date_format)
-        if hour_column is not None and date_column is None:
-            raise ValueError("partition pruning hour_column requires a date_column")
-        return _PartitionAxis(
+        self._ensure_known_column(prefix_field, columns, "required_prefix field")
+        # Resolve using the prefix (date) field with this hour field as paired
+        prefix_format = _mapping_optional_str(self.time_field_formats, prefix_field)
+        date_format = prefix_format or self._analysis_date_format(prefix_field)
+        hour_format = "hh"  # hour-only format is always hh
+        hour_column = field_name
+        date_column = prefix_field
+        date_text_expr = _partition_date_text_expr(
+            date_column, date_format, engine_type=self.engine_type
+        )
+        hour_text_expr = _partition_hour_text_expr(hour_column, engine_type=self.engine_type)
+        expr = _partition_hour_timestamp_expr(
+            date_text_expr,
+            hour_text_expr,
+            engine_type=self.engine_type,
+        )
+        return _AnalysisAxis(
+            kind="partition_fields",
+            expr=expr,
+            column=prefix_field,
+            data_type="string",
             date_column=date_column,
             date_format=date_format,
             hour_column=hour_column,
             hour_format=hour_format,
         )
 
-    def _build_partition_pruning_predicate(self, axis: _PartitionAxis | None) -> str | None:
-        if axis is None or axis.date_column is None:
-            return None
-        if self._effective_grain() != "hour":
-            return self._build_day_partition_pruning_predicate(axis)
+    def _analysis_axis_from_string_field(
+        self,
+        *,
+        field_name: str,
+        format: str | None,
+        columns: tuple[str, ...],
+        column_name: str | None = None,
+    ) -> _AnalysisAxis:
+        if format is None:
+            raise ValueError(f"time field '{field_name}' with data_type='string' requires format")
+        normalized_format = _normalize_date_format(format)
+        if normalized_format in _HOUR_ONLY_FORMATS:
+            raise ValueError(
+                f"time field '{field_name}' with format '{format}' cannot be used as "
+                "a standalone analysis axis; it must be paired with a date-format "
+                "time field via required_prefix"
+            )
+        actual_column = column_name or field_name
 
-        return self._build_hour_partition_pruning_predicate(axis)
+        if normalized_format in {"yyyymmdd", "yyyy-mm-dd"}:
+            if self._effective_grain() == "hour":
+                raise ValueError(
+                    f"time field '{field_name}' with format '{format}' and "
+                    f"support_min_granularity 'day' cannot satisfy requested granularity 'hour'"
+                )
+            date_format = normalized_format
+            expr = _date_field_expr(actual_column, date_format, engine_type=self.engine_type)
+            return _AnalysisAxis(
+                kind="date_field",
+                expr=expr,
+                column=field_name,
+                data_type="string",
+                date_column=actual_column,
+                date_format=date_format,
+            )
 
-    def _build_day_partition_pruning_predicate(self, axis: _PartitionAxis) -> str:
-        start_day, end_day = self._day_envelope()
-        return (
-            f"{axis.date_column} >= '{self._format_partition_date_literal(start_day, axis.date_format)}' "
-            f"AND {axis.date_column} < '{self._format_partition_date_literal(end_day, axis.date_format)}'"
+        if normalized_format in _HOUR_PRECISION_FORMATS:
+            expr = _custom_format_timestamp_expr(
+                actual_column,
+                _format_to_strptime_pattern(normalized_format),
+                engine_type=self.engine_type,
+            )
+            return _AnalysisAxis(
+                kind="timestamp",
+                expr=expr,
+                column=field_name,
+                data_type="string",
+                date_column=actual_column,
+                date_format=normalized_format,
+            )
+
+        raise ValueError(
+            f"time field '{field_name}' with data_type='string' and format "
+            f"'{format}' is not recognized; supported formats: "
+            "yyyymmdd, yyyy-mm-dd, yyyymmddhh, yyyymmdd-hh, yyyy-mm-dd-hh, yyyymmddthh, hh"
         )
 
-    def _build_hour_partition_pruning_predicate(self, axis: _PartitionAxis) -> str:
-        start_dt, end_dt = self._hour_envelope()
-        if axis.hour_column is None:
-            last_day = (end_dt - timedelta(seconds=1)).date()
-            return (
-                f"{axis.date_column} >= '{self._format_partition_date_literal(start_dt.date(), axis.date_format)}' "
-                f"AND {axis.date_column} < '{self._format_partition_date_literal(last_day + timedelta(days=1), axis.date_format)}'"
+    def _analysis_axis_from_integer_field(
+        self,
+        *,
+        field_name: str,
+        format: str | None,
+        columns: tuple[str, ...],
+        column_name: str | None = None,
+    ) -> _AnalysisAxis:
+        if format is None:
+            raise ValueError(f"time field '{field_name}' with data_type='integer' requires format")
+        normalized_format = _normalize_date_format(format)
+        actual_column = column_name or field_name
+
+        if normalized_format == "yyyymmdd":
+            if self._effective_grain() == "hour":
+                hour_axis = self._partition_hour_axis_for_date_column(
+                    actual_column,
+                    columns,
+                    field_name=field_name,
+                )
+                if hour_axis is not None:
+                    hour_axis.data_type = "integer"
+                    return hour_axis
+                raise ValueError(
+                    f"time field '{field_name}' with format '{format}' cannot "
+                    "satisfy hour granularity without a separate hour column"
+                )
+            varchar_expr = _varchar_cast_expr(actual_column, engine_type=self.engine_type)
+            text_expr = _partition_date_text_expr_from_varchar(varchar_expr, normalized_format)
+            expr = f"CAST({text_expr} AS DATE)"
+            return _AnalysisAxis(
+                kind="date_field",
+                expr=expr,
+                column=field_name,
+                data_type="integer",
+                date_column=actual_column,
+                date_format=normalized_format,
             )
+
+        if normalized_format in {"epochseconds", "epochdays"}:
+            if normalized_format == "epochseconds":
+                expr = f"CAST({actual_column} / 86400 AS DATE)"
+            else:
+                expr = f"CAST({actual_column} AS DATE)"
+            return _AnalysisAxis(
+                kind="date_field",
+                expr=expr,
+                column=field_name,
+                data_type="integer",
+                date_format=normalized_format,
+            )
+
+        raise ValueError(
+            f"time field '{field_name}' with data_type='integer' and format "
+            f"'{format}' is not recognized; supported formats: "
+            "yyyymmdd, epoch_seconds, epoch_days"
+        )
+
+    def _hour_column_for_date_column(
+        self,
+        date_column: str,
+        columns: tuple[str, ...],
+    ) -> str | None:
+        # Discover from required_prefix declarations: find an hour-only field whose
+        # required_prefix references this date column.
+        if self.time_field_required_prefixes is not None:
+            for field_name, prefix in self.time_field_required_prefixes.items():
+                if prefix == date_column and field_name in columns:
+                    return field_name
+        return None
+
+    def _build_partition_pruning_predicate(
+        self,
+        *,
+        date_column: str | None = None,
+        date_format: str | None = None,
+        date_data_type: str | None = None,
+        hour_column: str | None = None,
+        hour_format: str | None = None,
+        hour_data_type: str | None = None,
+    ) -> str | None:
+        if date_column is None:
+            return None
+        if self._effective_grain() != "hour":
+            return self._build_day_partition_pruning_predicate(
+                date_column=date_column,
+                date_format=date_format,
+                date_data_type=date_data_type,
+            )
+
+        return self._build_hour_partition_pruning_predicate(
+            date_column=date_column,
+            date_format=date_format,
+            date_data_type=date_data_type,
+            hour_column=hour_column,
+            hour_format=hour_format,
+            hour_data_type=hour_data_type,
+        )
+
+    def _build_day_partition_pruning_predicate(
+        self,
+        *,
+        date_column: str,
+        date_format: str | None = None,
+        date_data_type: str | None = None,
+    ) -> str:
+        start_day, end_day = self._day_envelope()
+        start_literal = self._format_partition_date_literal(start_day, date_format)
+        end_literal = self._format_partition_date_literal(end_day, date_format)
+        if date_data_type == "integer":
+            return f"{date_column} >= {start_literal} AND {date_column} < {end_literal}"
+        return f"{date_column} >= '{start_literal}' AND {date_column} < '{end_literal}'"
+
+    def _build_hour_precision_single_column_pruning(
+        self,
+        *,
+        date_column: str,
+        date_format: str | None = None,
+        date_data_type: str | None = None,
+    ) -> str:
+        start_dt, end_dt = self._hour_envelope()
+        start_literal = _format_hour_precision_partition_literal(start_dt, date_format)
+        end_literal = _format_hour_precision_partition_literal(end_dt, date_format)
+        if date_data_type == "integer":
+            return f"{date_column} >= {start_literal} AND {date_column} < {end_literal}"
+        return f"{date_column} >= '{start_literal}' AND {date_column} < '{end_literal}'"
+
+    def _build_hour_partition_pruning_predicate(
+        self,
+        *,
+        date_column: str,
+        date_format: str | None = None,
+        date_data_type: str | None = None,
+        hour_column: str | None = None,
+        hour_format: str | None = None,
+        hour_data_type: str | None = None,
+    ) -> str:
+        start_dt, end_dt = self._hour_envelope()
+        if hour_column is None:
+            if date_format in _HOUR_PRECISION_FORMATS:
+                return self._build_hour_precision_single_column_pruning(
+                    date_column=date_column,
+                    date_format=date_format,
+                    date_data_type=date_data_type,
+                )
+            last_day = (end_dt - timedelta(seconds=1)).date()
+            start_literal = self._format_partition_date_literal(start_dt.date(), date_format)
+            end_literal = self._format_partition_date_literal(
+                last_day + timedelta(days=1), date_format
+            )
+            if date_data_type == "integer":
+                return f"{date_column} >= {start_literal} AND {date_column} < {end_literal}"
+            return f"{date_column} >= '{start_literal}' AND {date_column} < '{end_literal}'"
 
         start_day = start_dt.date()
         end_partition_dt = _ceil_hour_for_partition_end(end_dt)
         last_day = (end_dt - timedelta(seconds=1)).date()
         if start_day == last_day:
             return self._build_same_day_hour_partition_pruning(
-                axis,
+                date_column=date_column,
+                date_format=date_format,
+                date_data_type=date_data_type,
+                hour_column=hour_column,
+                hour_format=hour_format,
+                hour_data_type=hour_data_type,
                 start_day=start_day,
                 start_hour=start_dt.hour,
                 end_day=end_partition_dt.date(),
                 end_hour=end_partition_dt.hour,
             )
         return self._build_cross_day_hour_partition_pruning(
-            axis,
+            date_column=date_column,
+            date_format=date_format,
+            date_data_type=date_data_type,
+            hour_column=hour_column,
+            hour_format=hour_format,
+            hour_data_type=hour_data_type,
             start_day=start_day,
             start_hour=start_dt.hour,
             last_day=last_day,
@@ -851,51 +1050,66 @@ class TimeAxisResolver:
 
     def _build_same_day_hour_partition_pruning(
         self,
-        axis: _PartitionAxis,
         *,
+        date_column: str,
+        date_format: str | None = None,
+        date_data_type: str | None = None,
+        hour_column: str,
+        hour_format: str | None = None,
+        hour_data_type: str | None = None,
         start_day: date,
         start_hour: int,
         end_day: date,
         end_hour: int,
     ) -> str:
+        date_literal = self._format_partition_date_literal(start_day, date_format)
+        start_hour_literal = self._format_partition_hour_literal(start_hour, hour_format)
+        end_hour_literal = self._format_partition_hour_literal(end_hour, hour_format)
+        date_q = "" if date_data_type == "integer" else "'"
+        hour_q = "" if hour_data_type == "integer" else "'"
         parts = [
-            f"{axis.date_column} = '{self._format_partition_date_literal(start_day, axis.date_format)}'",
-            f"{axis.hour_column} >= '{self._format_partition_hour_literal(start_hour, axis.hour_format)}'",
+            f"{date_column} = {date_q}{date_literal}{date_q}",
+            f"{hour_column} >= {hour_q}{start_hour_literal}{hour_q}",
         ]
         if end_day == start_day:
-            parts.append(
-                f"{axis.hour_column} < '{self._format_partition_hour_literal(end_hour, axis.hour_format)}'"
-            )
+            parts.append(f"{hour_column} < {hour_q}{end_hour_literal}{hour_q}")
         return " AND ".join(parts)
 
     def _build_cross_day_hour_partition_pruning(
         self,
-        axis: _PartitionAxis,
         *,
+        date_column: str,
+        date_format: str | None = None,
+        date_data_type: str | None = None,
+        hour_column: str,
+        hour_format: str | None = None,
+        hour_data_type: str | None = None,
         start_day: date,
         start_hour: int,
         last_day: date,
         end_dt: datetime,
     ) -> str:
+        date_q = "" if date_data_type == "integer" else "'"
+        hour_q = "" if hour_data_type == "integer" else "'"
         clauses = [
             (
-                f"{axis.date_column} = '{self._format_partition_date_literal(start_day, axis.date_format)}' "
-                f"AND {axis.hour_column} >= '{self._format_partition_hour_literal(start_hour, axis.hour_format)}'"
+                f"{date_column} = {date_q}{self._format_partition_date_literal(start_day, date_format)}{date_q} "
+                f"AND {hour_column} >= {hour_q}{self._format_partition_hour_literal(start_hour, hour_format)}{hour_q}"
             )
         ]
         if start_day + timedelta(days=1) <= last_day - timedelta(days=1):
             clauses.append(
-                f"{axis.date_column} > '{self._format_partition_date_literal(start_day, axis.date_format)}' "
-                f"AND {axis.date_column} < '{self._format_partition_date_literal(last_day, axis.date_format)}'"
+                f"{date_column} > {date_q}{self._format_partition_date_literal(start_day, date_format)}{date_q} "
+                f"AND {date_column} < {date_q}{self._format_partition_date_literal(last_day, date_format)}{date_q}"
             )
         if end_dt.time() == time(0, 0):
             clauses.append(
-                f"{axis.date_column} = '{self._format_partition_date_literal(last_day, axis.date_format)}'"
+                f"{date_column} = {date_q}{self._format_partition_date_literal(last_day, date_format)}{date_q}"
             )
         else:
             clauses.append(
-                f"{axis.date_column} = '{self._format_partition_date_literal(last_day, axis.date_format)}' "
-                f"AND {axis.hour_column} < '{self._format_partition_hour_literal(end_dt.hour, axis.hour_format)}'"
+                f"{date_column} = {date_q}{self._format_partition_date_literal(last_day, date_format)}{date_q} "
+                f"AND {hour_column} < {hour_q}{self._format_partition_hour_literal(end_dt.hour, hour_format)}{hour_q}"
             )
         return "(" + ") OR (".join(clauses) + ")"
 
@@ -962,22 +1176,22 @@ class TimeAxisResolver:
         if columns and column not in set(columns):
             raise ValueError(f"{label} references unknown column '{column}'")
 
-    @staticmethod
-    def _analysis_date_format(
-        metadata_chain: list[_TimeCapabilities], date_column: str | None
-    ) -> str | None:
-        for caps in metadata_chain:
-            if caps.partition_date_column == date_column and caps.partition_date_format is not None:
-                return caps.partition_date_format
+    def _analysis_date_format(self, date_column: str | None) -> str | None:
+        if date_column is not None:
+            field_format = _mapping_optional_str(self.time_field_formats, date_column)
+            if field_format is not None:
+                normalized = _normalize_date_format(field_format)
+                if normalized in {"yyyymmdd", "yyyy-mm-dd"}:
+                    return normalized
         return None
 
-    @staticmethod
-    def _analysis_hour_format(
-        metadata_chain: list[_TimeCapabilities], hour_column: str | None
-    ) -> str | None:
-        for caps in metadata_chain:
-            if caps.partition_hour_column == hour_column and caps.partition_hour_format is not None:
-                return caps.partition_hour_format
+    def _analysis_hour_format(self, hour_column: str | None) -> str | None:
+        if hour_column is not None:
+            field_format = _mapping_optional_str(self.time_field_formats, hour_column)
+            if field_format is not None:
+                normalized = _normalize_date_format(field_format)
+                if normalized in _HOUR_ONLY_FORMATS:
+                    return normalized
         return _default_hour_format_for_column(hour_column)
 
 
@@ -1107,6 +1321,33 @@ def _sql_type_is_timestamp(data_type: str | None) -> bool:
     }
 
 
+def _sql_type_is_string(data_type: str | None) -> bool:
+    normalized = _normalized_sql_type(data_type)
+    return normalized in {"string", "varchar", "text", "char", "nvarchar"}
+
+
+def _sql_type_is_integer(data_type: str | None) -> bool:
+    normalized = _normalized_sql_type(data_type)
+    return normalized in {"integer", "int", "bigint", "smallint", "tinyint"}
+
+
+_TIME_FIELD_DATA_TYPES = {"date", "timestamp", "string", "integer"}
+_HOUR_PRECISION_FORMATS = {"yyyymmddhh", "yyyymmddthh", "yyyymmdd-hh", "yyyy-mm-dd-hh"}
+_HOUR_ONLY_FORMATS = {"hh", "h"}
+
+
+def _canonical_data_type(data_type: str | None) -> str | None:
+    if _sql_type_is_date(data_type):
+        return "date"
+    if _sql_type_is_timestamp(data_type):
+        return "timestamp"
+    if _sql_type_is_string(data_type):
+        return "string"
+    if _sql_type_is_integer(data_type):
+        return "integer"
+    return None
+
+
 def _expression_returns_date(expression: str) -> bool:
     return bool(re.search(r"(?is)\bAS\s+DATE\b", expression))
 
@@ -1138,28 +1379,27 @@ def _normalize_date_format(value: Any) -> str | None:
     normalized = _optional_str(value)
     if normalized is None:
         return None
-    lowered = normalized.lower().replace("_", "").replace("-", "")
-    if lowered in {"yyyymmdd"}:
-        return "yyyymmdd"
-    if lowered in {"iso", "yyyymmddhh", "yyyymmddthh"}:
-        return normalized.lower()
-    if lowered in {"yyyymmdddate", "yyyymmddday"}:
-        return "yyyymmdd"
-    return normalized.lower()
-
-
-def _normalize_hour_format(value: Any) -> str | None:
-    normalized = _optional_str(value)
-    if normalized is None:
-        return None
     lowered = normalized.lower()
-    if lowered in {"hh", "h", "int"}:
-        return lowered
+    stripped = lowered.replace("_", "").replace("-", "")
+    if stripped in {"yyyymmdd"}:
+        if lowered == "yyyy-mm-dd":
+            return "yyyy-mm-dd"
+        return "yyyymmdd"
+    if stripped in {"yyyymmddhh"}:
+        if lowered == "yyyymmdd-hh" or lowered == "yyyy-mm-dd-hh":
+            return lowered
+        return "yyyymmddhh"
+    if stripped in {"yyyymmddthh"}:
+        return "yyyymmddthh"
+    if stripped in {"hh"}:
+        return "hh"
+    if stripped in {"int"}:
+        return "h"
+    if stripped in {"iso"}:
+        return "iso"
+    if stripped in {"epochseconds", "epochdays"}:
+        return stripped
     return lowered
-
-
-def _normalize_timestamp_format(value: Any) -> str | None:
-    return normalize_timestamp_format(value)
 
 
 def _default_hour_format_for_column(column: str | None) -> str | None:
@@ -1178,6 +1418,24 @@ def _partition_date_text_expr(column: str, date_format: str | None, *, engine_ty
     if date_format == "yyyymmdd":
         return f"CONCAT(SUBSTR({raw}, 1, 4), '-', SUBSTR({raw}, 5, 2), '-', SUBSTR({raw}, 7, 2))"
     return raw
+
+
+def _partition_date_text_expr_from_varchar(varchar_expr: str, date_format: str | None) -> str:
+    if date_format == "yyyymmdd":
+        return f"CONCAT(SUBSTR({varchar_expr}, 1, 4), '-', SUBSTR({varchar_expr}, 5, 2), '-', SUBSTR({varchar_expr}, 7, 2))"
+    return varchar_expr
+
+
+def _format_to_strptime_pattern(format: str) -> str:
+    if format == "yyyymmddhh":
+        return "%Y%m%d%H"
+    if format == "yyyymmddthh":
+        return "%Y%m%dT%H"
+    if format == "yyyymmdd-hh":
+        return "%Y%m%d-%H"
+    if format == "yyyy-mm-dd-hh":
+        return "%Y-%m-%d-%H"
+    return format
 
 
 def _date_field_expr(column: str, date_format: str | None, *, engine_type: str) -> str:
@@ -1320,7 +1578,24 @@ def _format_partition_date(value: date, date_format: str | None, *, engine_type:
     del engine_type  # Phase-1 engines share literal formatting.
     if date_format == "yyyymmdd":
         return value.strftime("%Y%m%d")
+    if date_format == "yyyy-mm-dd":
+        return value.isoformat()
+    if date_format in {"epochdays"}:
+        epoch = date(1970, 1, 1)
+        return str((value - epoch).days)
     return value.isoformat()
+
+
+def _format_hour_precision_partition_literal(dt: datetime, date_format: str | None) -> str:
+    if date_format == "yyyymmddhh":
+        return dt.strftime("%Y%m%d%H")
+    if date_format == "yyyymmdd-hh":
+        return dt.strftime("%Y%m%d-%H")
+    if date_format == "yyyy-mm-dd-hh":
+        return dt.strftime("%Y-%m-%d-%H")
+    if date_format == "yyyymmddthh":
+        return dt.strftime("%Y%m%dT%H")
+    return dt.strftime("%Y%m%d%H")
 
 
 def _format_partition_hour(value: int, hour_format: str | None, *, engine_type: str) -> str:

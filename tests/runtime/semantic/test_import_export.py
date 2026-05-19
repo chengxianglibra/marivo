@@ -29,6 +29,7 @@ def _field(
     *,
     is_time: bool = False,
     support_min_granularity: str | None = None,
+    data_type: str | None = None,
 ) -> dict[str, object]:
     field: dict[str, object] = {
         "name": name,
@@ -43,7 +44,10 @@ def _field(
         field["custom_extensions"] = [
             {
                 "vendor_name": "MARIVO",
-                "data": {"support_min_granularity": support_min_granularity or "day"},
+                "data": {
+                    "support_min_granularity": support_min_granularity or "day",
+                    "data_type": data_type or "date",
+                },
             }
         ]
     return field
@@ -301,6 +305,7 @@ class SemanticImportExportServiceTests(unittest.TestCase):
                                     "order_time",
                                     is_time=True,
                                     support_min_granularity="hour",
+                                    data_type="timestamp",
                                 ),
                             ],
                         )

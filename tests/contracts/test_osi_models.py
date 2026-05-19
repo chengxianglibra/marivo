@@ -89,7 +89,7 @@ def test_field_with_dimension_is_time():
         custom_extensions=[
             MarivoFieldCustomExtension(
                 vendor_name="MARIVO",
-                data=MarivoFieldExtension(support_min_granularity="hour"),
+                data=MarivoFieldExtension(support_min_granularity="hour", data_type="date"),
             )
         ],
     )
@@ -256,7 +256,7 @@ def test_marivo_dataset_extension():
 def test_marivo_field_extension():
     from marivo.transports.http.models.marivo_extensions import MarivoFieldExtension
 
-    ext = MarivoFieldExtension(support_min_granularity="day")
+    ext = MarivoFieldExtension(support_min_granularity="day", data_type="date")
     assert ext.support_min_granularity == "day"
 
 
@@ -276,7 +276,7 @@ def test_time_field_accepts_marivo_support_min_granularity_extension():
         custom_extensions=[
             MarivoFieldCustomExtension(
                 vendor_name="MARIVO",
-                data=MarivoFieldExtension(support_min_granularity="day"),
+                data=MarivoFieldExtension(support_min_granularity="day", data_type="date"),
             )
         ],
     )
@@ -314,7 +314,7 @@ def test_non_time_field_rejects_marivo_field_extension():
             custom_extensions=[
                 MarivoFieldCustomExtension(
                     vendor_name="MARIVO",
-                    data=MarivoFieldExtension(support_min_granularity="day"),
+                    data=MarivoFieldExtension(support_min_granularity="day", data_type="date"),
                 )
             ],
         )
@@ -324,7 +324,7 @@ def test_field_extension_rejects_invalid_support_min_granularity():
     from marivo.contracts.generated.osi import MarivoFieldExtension
 
     with pytest.raises(ValidationError):
-        MarivoFieldExtension(support_min_granularity="minute")
+        MarivoFieldExtension(support_min_granularity="minute", data_type="date")
 
 
 def test_marivo_relationship_extension():

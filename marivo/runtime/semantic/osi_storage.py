@@ -160,7 +160,9 @@ def field_to_storage(field: Field, dataset_id: int, position: int) -> dict[str, 
         "label": field.label,
         "description": field.description,
         "ai_context": ai_context,
-        "data_type": None,
+        "data_type": marivo_ext.data_type if marivo_ext is not None else None,
+        "format": marivo_ext.format if marivo_ext is not None else None,
+        "required_prefix": marivo_ext.required_prefix if marivo_ext is not None else None,
         "support_min_granularity": (
             marivo_ext.support_min_granularity if marivo_ext is not None else None
         ),
@@ -251,9 +253,15 @@ def _storage_to_field(row: dict[str, Any]) -> dict[str, Any]:
     if is_time:
         result["dimension"] = {"is_time": True}
         support_min_granularity = row.get("support_min_granularity")
-        if support_min_granularity is not None:
+        data_type = row.get("data_type")
+        format_value = row.get("format")
+        required_prefix = row.get("required_prefix")
+        if support_min_granularity is not None and data_type is not None:
             marivo_ext = MarivoFieldExtension(
                 support_min_granularity=support_min_granularity,
+                data_type=data_type,
+                format=format_value,
+                required_prefix=required_prefix,
             )
             result["custom_extensions"] = _ext_to_dicts(build_custom_extensions(marivo_ext))
     elif is_dimension:

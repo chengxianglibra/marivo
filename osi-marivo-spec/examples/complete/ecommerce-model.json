@@ -59,7 +59,8 @@
                 {
                   "vendor_name": "MARIVO",
                   "data": {
-                    "support_min_granularity": "day"
+                    "support_min_granularity": "day",
+                    "data_type": "date"
                   }
                 }
               ]
@@ -165,7 +166,8 @@
                 {
                   "vendor_name": "MARIVO",
                   "data": {
-                    "support_min_granularity": "day"
+                    "support_min_granularity": "day",
+                    "data_type": "date"
                   }
                 }
               ]

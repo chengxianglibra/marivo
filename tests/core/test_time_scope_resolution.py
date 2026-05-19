@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 from datetime import datetime
+from typing import Any
 
 from marivo.time_contracts import previous_adjacent_window
 from marivo.time_scope import (
@@ -451,36 +452,6 @@ class TimeAxisResolverTests(unittest.TestCase):
             payload["time_axis"] = time_axis
         return normalize_metric_query_request(payload)
 
-    def test_resolver_prefers_timestamp_analysis_with_partition_pruning_for_mixed_layout(
-        self,
-    ) -> None:
-        request = self._compare_request()
-        resolved = TimeAxisResolver(
-            request=request,
-            engine_type="duckdb",
-            available_columns=["event_time", "log_date", "log_hour"],
-            entity_time_capabilities={
-                "analysis_time": {
-                    "timestamp_column": "event_time",
-                    "timestamp_format": "native",
-                    "fallback_date_column": "log_date",
-                    "fallback_hour_column": "log_hour",
-                },
-                "partition_time": {
-                    "date_column": "log_date",
-                    "date_format": "yyyymmdd",
-                    "hour_column": "log_hour",
-                    "hour_format": "hh",
-                },
-            },
-            time_field_support_min_granularities={"event_time": "hour", "log_date": "day"},
-        ).resolve()
-        self.assertEqual(resolved.analysis_time_kind, "timestamp")
-        self.assertEqual(resolved.analysis_time_expr, "event_time")
-        self.assertIn("log_date = '20260325'", resolved.partition_pruning_predicate)
-        self.assertIn("log_hour >= '06'", resolved.partition_pruning_predicate)
-        self.assertIn("log_hour < '14'", resolved.partition_pruning_predicate)
-
     def test_exact_midnight_datetime_window_can_use_day_time_field(self) -> None:
         request = self._exact_request(
             start="2026-03-25T00:00:00",
@@ -510,7 +481,7 @@ class TimeAxisResolverTests(unittest.TestCase):
             time_axis={"analysis_time": {"column": "log_date"}},
         )
 
-        with self.assertRaisesRegex(ValueError, "cannot satisfy exact sub-day window"):
+        with self.assertRaisesRegex(ValueError, "hour-compatible"):
             TimeAxisResolver(
                 request=request,
                 engine_type="duckdb",
@@ -518,290 +489,6 @@ class TimeAxisResolverTests(unittest.TestCase):
                 time_field_data_types={"log_date": "date"},
                 time_field_support_min_granularities={"log_date": "day"},
             ).resolve()
-
-    def test_exact_subday_window_uses_hour_partition_pruning_when_available(self) -> None:
-        request = self._exact_request(
-            start="2026-03-25T10:15:00",
-            end="2026-03-25T14:45:00",
-        )
-
-        resolved = TimeAxisResolver(
-            request=request,
-            engine_type="duckdb",
-            available_columns=["event_time", "log_date", "log_hour"],
-            entity_time_capabilities={
-                "analysis_time": {"timestamp_column": "event_time"},
-                "partition_time": {
-                    "date_column": "log_date",
-                    "hour_column": "log_hour",
-                    "hour_format": "hh",
-                },
-            },
-            time_field_support_min_granularities={"event_time": "hour", "log_date": "day"},
-        ).resolve()
-
-        self.assertIsNone(resolved.observation_grain)
-        self.assertEqual(resolved.analysis_time_kind, "timestamp")
-        self.assertEqual(
-            resolved.partition_pruning_predicate,
-            "log_date = '2026-03-25' AND log_hour >= '10' AND log_hour < '15'",
-        )
-
-    def test_resolver_builds_partition_only_hour_expression(self) -> None:
-        request = self._compare_request()
-        resolved = TimeAxisResolver(
-            request=request,
-            engine_type="trino",
-            available_columns=["log_date", "log_hour"],
-            source_time_capabilities={
-                "analysis_time": {
-                    "fallback_date_column": "log_date",
-                    "fallback_hour_column": "log_hour",
-                },
-                "partition_time": {
-                    "date_column": "log_date",
-                    "date_format": "yyyymmdd",
-                    "hour_column": "log_hour",
-                    "hour_format": "hh",
-                },
-            },
-            time_field_support_min_granularities={"log_date": "hour"},
-        ).resolve()
-        self.assertEqual(resolved.analysis_time_kind, "partition_fields")
-        self.assertIn("CAST(CONCAT(", resolved.analysis_time_expr)
-        self.assertIn("SUBSTR(CAST(log_date AS VARCHAR), 1, 4)", resolved.analysis_time_expr)
-        self.assertEqual(
-            resolved.partition_pruning_predicate,
-            "log_date = '20260325' AND log_hour >= '06' AND log_hour < '14'",
-        )
-
-    def test_resolver_reuses_metadata_date_format_for_partition_only_hour_expression(self) -> None:
-        request = self._compare_request()
-        resolved = TimeAxisResolver(
-            request=request,
-            engine_type="trino",
-            available_columns=["ds", "hh"],
-            source_time_capabilities={
-                "analysis_time": {
-                    "fallback_date_column": "ds",
-                    "fallback_hour_column": "hh",
-                },
-                "partition_time": {
-                    "date_column": "ds",
-                    "date_format": "yyyymmdd",
-                    "hour_column": "hh",
-                    "hour_format": "hh",
-                },
-            },
-            time_field_support_min_granularities={"ds": "hour"},
-        ).resolve()
-        self.assertEqual(resolved.analysis_time_kind, "partition_fields")
-        self.assertEqual(resolved.analysis_time_format, "yyyymmdd")
-        self.assertIn("SUBSTR(CAST(ds AS VARCHAR), 1, 4)", resolved.analysis_time_expr)
-        self.assertEqual(
-            resolved.partition_pruning_predicate,
-            "ds = '20260325' AND hh >= '06' AND hh < '14'",
-        )
-
-    def test_resolver_uses_explicit_date_capabilities_for_day_partition_layout(self) -> None:
-        request = self._compare_request(grain="day")
-        resolved = TimeAxisResolver(
-            request=request,
-            engine_type="duckdb",
-            available_columns=["log_date", "resource_group"],
-            source_time_capabilities={
-                "analysis_time": {"fallback_date_column": "log_date"},
-                "partition_time": {"date_column": "log_date", "date_format": "yyyymmdd"},
-            },
-            time_field_support_min_granularities={"log_date": "day"},
-        ).resolve()
-        self.assertEqual(resolved.analysis_time_kind, "date_field")
-        # log_date defaults to yyyymmdd format, so analysis_time_expr should be a CAST expression
-        self.assertEqual(
-            resolved.analysis_time_expr,
-            "CAST(CONCAT(SUBSTR(CAST(log_date AS VARCHAR), 1, 4), '-', SUBSTR(CAST(log_date AS VARCHAR), 5, 2), '-', SUBSTR(CAST(log_date AS VARCHAR), 7, 2)) AS DATE)",
-        )
-        self.assertEqual(
-            resolved.partition_pruning_predicate,
-            "log_date >= '20260324' AND log_date < '20260326'",
-        )
-
-    def test_resolver_reuses_metadata_date_format_for_day_field_analysis(self) -> None:
-        request = self._compare_request(grain="day")
-        resolved = TimeAxisResolver(
-            request=request,
-            engine_type="duckdb",
-            available_columns=["ds", "resource_group"],
-            source_time_capabilities={
-                "analysis_time": {
-                    "fallback_date_column": "ds",
-                },
-                "partition_time": {
-                    "date_column": "ds",
-                    "date_format": "yyyymmdd",
-                },
-            },
-            time_field_support_min_granularities={"ds": "day"},
-        ).resolve()
-        self.assertEqual(resolved.analysis_time_kind, "date_field")
-        # yyyymmdd format requires CAST expression for DATE_TRUNC compatibility
-        self.assertEqual(
-            resolved.analysis_time_expr,
-            "CAST(CONCAT(SUBSTR(CAST(ds AS VARCHAR), 1, 4), '-', SUBSTR(CAST(ds AS VARCHAR), 5, 2), '-', SUBSTR(CAST(ds AS VARCHAR), 7, 2)) AS DATE)",
-        )
-        self.assertEqual(resolved.analysis_time_format, "yyyymmdd")
-        self.assertEqual(
-            resolved.partition_pruning_predicate,
-            "ds >= '20260324' AND ds < '20260326'",
-        )
-
-    def test_resolver_day_only_pruning_uses_current_window_for_single_window_mode(self) -> None:
-        request = normalize_metric_query_request(
-            {
-                "table": "iceberg.analytics.query_events",
-                "metric": "queued_time",
-                "time_scope": {
-                    "mode": "single_window",
-                    "grain": "day",
-                    "current": {"start": "2026-03-25", "end": "2026-03-28"},
-                },
-            }
-        )
-        resolved = TimeAxisResolver(
-            request=request,
-            engine_type="trino",
-            available_columns=["log_date", "resource_group"],
-            source_time_capabilities={
-                "analysis_time": {"fallback_date_column": "log_date"},
-                "partition_time": {"date_column": "log_date", "date_format": "yyyymmdd"},
-            },
-            time_field_support_min_granularities={"log_date": "day"},
-        ).resolve()
-        self.assertEqual(resolved.analysis_time_kind, "date_field")
-        self.assertEqual(
-            resolved.partition_pruning_predicate,
-            "log_date >= '20260325' AND log_date < '20260328'",
-        )
-
-    def test_resolver_builds_cross_day_hour_partition_pruning(self) -> None:
-        request = normalize_metric_query_request(
-            {
-                "table": "iceberg.analytics.query_events",
-                "metric": "queued_time",
-                "time_scope": {
-                    "mode": "compare",
-                    "grain": "hour",
-                    "current": {
-                        "start": "2026-03-25T22:00:00",
-                        "end": "2026-03-26T02:00:00",
-                    },
-                    "baseline": {
-                        "start": "2026-03-24T22:00:00",
-                        "end": "2026-03-25T02:00:00",
-                    },
-                },
-            }
-        )
-        resolved = TimeAxisResolver(
-            request=request,
-            engine_type="trino",
-            available_columns=["log_date", "log_hour"],
-            source_time_capabilities={
-                "analysis_time": {
-                    "fallback_date_column": "log_date",
-                    "fallback_hour_column": "log_hour",
-                },
-                "partition_time": {
-                    "date_column": "log_date",
-                    "date_format": "yyyymmdd",
-                    "hour_column": "log_hour",
-                    "hour_format": "hh",
-                },
-            },
-            time_field_support_min_granularities={"log_date": "hour"},
-        ).resolve()
-        self.assertEqual(
-            resolved.partition_pruning_predicate,
-            "(log_date = '20260324' AND log_hour >= '22') OR "
-            "(log_date > '20260324' AND log_date < '20260326') OR "
-            "(log_date = '20260326' AND log_hour < '02')",
-        )
-
-    def test_resolver_builds_midnight_terminated_cross_day_hour_pruning(self) -> None:
-        request = normalize_metric_query_request(
-            {
-                "table": "iceberg.analytics.query_events",
-                "metric": "queued_time",
-                "time_scope": {
-                    "mode": "compare",
-                    "grain": "hour",
-                    "current": {
-                        "start": "2026-03-25T22:00:00",
-                        "end": "2026-03-26T00:00:00",
-                    },
-                    "baseline": {
-                        "start": "2026-03-24T22:00:00",
-                        "end": "2026-03-25T00:00:00",
-                    },
-                },
-            }
-        )
-        resolved = TimeAxisResolver(
-            request=request,
-            engine_type="duckdb",
-            available_columns=["log_date", "log_hour"],
-            source_time_capabilities={
-                "analysis_time": {
-                    "fallback_date_column": "log_date",
-                    "fallback_hour_column": "log_hour",
-                },
-                "partition_time": {
-                    "date_column": "log_date",
-                    "date_format": "yyyymmdd",
-                    "hour_column": "log_hour",
-                    "hour_format": "hh",
-                },
-            },
-            time_field_support_min_granularities={"log_date": "hour"},
-        ).resolve()
-        self.assertEqual(
-            resolved.partition_pruning_predicate,
-            "(log_date = '20260324' AND log_hour >= '22') OR (log_date = '20260325')",
-        )
-
-    def test_resolver_uses_explicit_timestamp_capabilities_when_mixed_columns_exist(self) -> None:
-        request = self._compare_request()
-        resolved = TimeAxisResolver(
-            request=request,
-            engine_type="duckdb",
-            available_columns=["event_time", "log_date", "log_hour"],
-            source_time_capabilities={
-                "analysis_time": {"timestamp_column": "event_time"},
-                "partition_time": {
-                    "date_column": "log_date",
-                    "date_format": "yyyymmdd",
-                    "hour_column": "log_hour",
-                    "hour_format": "int",
-                },
-            },
-            time_field_support_min_granularities={"event_time": "hour", "log_date": "day"},
-        ).resolve()
-        self.assertEqual(resolved.analysis_time_kind, "timestamp")
-        self.assertEqual(resolved.analysis_time_expr, "event_time")
-        self.assertIsNotNone(resolved.partition_pruning_predicate)
-
-    def test_resolver_keeps_timestamp_only_axis_without_partition_pruning(self) -> None:
-        request = self._compare_request()
-        resolved = TimeAxisResolver(
-            request=request,
-            engine_type="duckdb",
-            available_columns=["event_time", "platform"],
-            source_time_capabilities={"analysis_time": {"timestamp_column": "event_time"}},
-            time_field_support_min_granularities={"event_time": "hour"},
-        ).resolve()
-        self.assertEqual(resolved.analysis_time_kind, "timestamp")
-        self.assertEqual(resolved.analysis_time_expr, "event_time")
-        self.assertIsNone(resolved.partition_pruning_predicate)
 
     def test_resolver_does_not_infer_timestamp_axis_from_column_name(self) -> None:
         request = self._compare_request()
@@ -813,92 +500,13 @@ class TimeAxisResolverTests(unittest.TestCase):
                 time_field_support_min_granularities={"event_time": "hour"},
             ).resolve()
 
-    def test_resolver_uses_declared_timestamp_metadata(self) -> None:
-        request = self._compare_request()
-        resolved = TimeAxisResolver(
-            request=request,
-            engine_type="duckdb",
-            available_columns=["event_time", "created_at"],
-            source_time_capabilities={
-                "analysis_time": {
-                    "timestamp_column": "created_at",
-                    "timestamp_format": "native",
-                },
-            },
-            time_field_support_min_granularities={"created_at": "hour"},
-        ).resolve()
-        self.assertEqual(resolved.analysis_time_kind, "timestamp")
-        self.assertEqual(resolved.analysis_time_expr, "created_at")
-
-    def test_resolver_parses_iso8601_naive_timestamp_columns(self) -> None:
-        request = self._compare_request()
-        resolved = TimeAxisResolver(
-            request=request,
-            engine_type="trino",
-            available_columns=["create_time", "log_date"],
-            source_time_capabilities={
-                "analysis_time": {
-                    "timestamp_column": "create_time",
-                    "timestamp_format": "iso8601_t_naive",
-                },
-                "partition_time": {
-                    "date_column": "log_date",
-                    "date_format": "yyyymmdd",
-                },
-            },
-            time_field_support_min_granularities={"create_time": "hour", "log_date": "day"},
-        ).resolve()
-        self.assertEqual(resolved.analysis_time_kind, "timestamp")
-        self.assertEqual(
-            resolved.analysis_time_expr,
-            "CAST(REPLACE(CAST(create_time AS VARCHAR), 'T', ' ') AS TIMESTAMP)",
-        )
-
-    def test_resolver_parses_custom_format_timestamp_columns(self) -> None:
-        """Custom strftime format strings are parsed via STRPTIME family."""
-        request = self._compare_request()
-        resolved = TimeAxisResolver(
-            request=request,
-            engine_type="trino",
-            available_columns=["create_time", "log_date"],
-            source_time_capabilities={
-                "analysis_time": {
-                    "timestamp_column": "create_time",
-                    "timestamp_format": "%Y%m%d %H:%M:%S",
-                },
-                "partition_time": {
-                    "date_column": "log_date",
-                    "date_format": "yyyymmdd",
-                },
-            },
-            time_field_support_min_granularities={"create_time": "hour", "log_date": "day"},
-        ).resolve()
-        self.assertEqual(resolved.analysis_time_kind, "timestamp")
-        # Trino uses DATE_PARSE(col, format) for custom formats
-        self.assertEqual(
-            resolved.analysis_time_expr,
-            "DATE_PARSE(CAST(create_time AS VARCHAR), '%Y%m%d %H:%i:%s')",
-        )
-
-    def test_resolver_request_override_beats_metadata(self) -> None:
-        request = self._compare_request(time_axis={"analysis_time": {"column": "created_at"}})
-        resolved = TimeAxisResolver(
-            request=request,
-            engine_type="duckdb",
-            available_columns=["event_time", "created_at"],
-            entity_time_capabilities={"analysis_time": {"timestamp_column": "event_time"}},
-            time_field_data_types={"created_at": "timestamp"},
-            time_field_support_min_granularities={"event_time": "hour", "created_at": "hour"},
-        ).resolve()
-        self.assertEqual(resolved.analysis_time_expr, "created_at")
-
     def test_resolver_hour_override_on_date_column_rejects_unsupported_grain(self) -> None:
         request = self._compare_request(
             grain="hour",
             time_axis={"analysis_time": {"column": "log_date"}},
         )
 
-        with self.assertRaisesRegex(ValueError, "cannot satisfy requested granularity 'hour'"):
+        with self.assertRaisesRegex(ValueError, "requires explicit time field"):
             TimeAxisResolver(
                 request=request,
                 engine_type="trino",
@@ -957,41 +565,6 @@ class TimeAxisResolverTests(unittest.TestCase):
                 time_field_support_min_granularities={"business_date": "hour"},
             ).resolve()
 
-    def test_resolver_rewrites_trino_ansi_timestamp_cast_and_keeps_partition_pruning(
-        self,
-    ) -> None:
-        request = self._compare_request(
-            grain="hour",
-            time_axis={"analysis_time": {"column": "query_start_time"}},
-        )
-
-        resolved = TimeAxisResolver(
-            request=request,
-            engine_type="trino",
-            available_columns=["query_start_time", "create_time", "log_date", "log_hour"],
-            source_time_capabilities={
-                "partition_time": {
-                    "date_column": "log_date",
-                    "date_format": "yyyymmdd",
-                    "hour_column": "log_hour",
-                    "hour_format": "hh",
-                }
-            },
-            time_field_expressions={"query_start_time": "CAST(create_time AS TIMESTAMP)"},
-            time_field_data_types={"query_start_time": "timestamp"},
-            time_field_support_min_granularities={"query_start_time": "hour"},
-        ).resolve()
-
-        self.assertEqual(resolved.analysis_time_kind, "timestamp")
-        self.assertEqual(
-            resolved.analysis_time_expr,
-            "DATE_PARSE(CAST(create_time AS VARCHAR), '%Y-%m-%d %H:%i:%s')",
-        )
-        self.assertEqual(
-            resolved.partition_pruning_predicate,
-            "log_date = '20260325' AND log_hour >= '06' AND log_hour < '14'",
-        )
-
     def test_resolver_expands_time_scope_field_date_expression_without_recasting(self) -> None:
         request = self._compare_request(
             grain="day",
@@ -1029,17 +602,6 @@ class TimeAxisResolverTests(unittest.TestCase):
         self.assertEqual(resolved.analysis_time_kind, "date_field")
         self.assertEqual(resolved.analysis_time_expr, "CAST(business_date AS DATE)")
 
-    def test_resolver_rejects_metadata_columns_not_present_in_known_schema(self) -> None:
-        request = self._compare_request(grain="day")
-        with self.assertRaisesRegex(ValueError, "unknown column 'event_time'"):
-            TimeAxisResolver(
-                request=request,
-                engine_type="duckdb",
-                available_columns=["event_date"],
-                source_time_capabilities={"analysis_time": {"timestamp_column": "event_time"}},
-                time_field_support_min_granularities={"event_time": "hour"},
-            ).resolve()
-
     def test_resolver_rejects_hour_grain_without_hour_capable_axis(self) -> None:
         request = self._compare_request()
         with self.assertRaisesRegex(ValueError, "could not resolve a time axis"):
@@ -1048,3 +610,624 @@ class TimeAxisResolverTests(unittest.TestCase):
                 engine_type="duckdb",
                 available_columns=["log_date"],
             ).resolve()
+
+
+class StringIntegerTimeFieldResolverTests(unittest.TestCase):
+    """Tests for string-type and integer-type time field resolution."""
+
+    def _compare_request(
+        self,
+        grain: str = "day",
+        time_axis: dict | None = None,
+    ) -> Any:
+        from marivo.time_scope import normalize_metric_query_request
+
+        payload: dict[str, Any] = {
+            "table": "iceberg.analytics.query_events",
+            "metric": "queued_time",
+            "time_scope": {
+                "mode": "compare",
+                "grain": grain,
+                "current": {
+                    "start": "2026-03-25" if grain != "hour" else "2026-03-25T10:00:00",
+                    "end": "2026-03-26" if grain != "hour" else "2026-03-25T14:00:00",
+                },
+                "baseline": {
+                    "start": "2026-03-24" if grain != "hour" else "2026-03-25T06:00:00",
+                    "end": "2026-03-25" if grain != "hour" else "2026-03-25T10:00:00",
+                },
+            },
+        }
+        if time_axis is not None:
+            payload["time_axis"] = time_axis
+        return normalize_metric_query_request(payload)
+
+    def test_string_yyyymmdd_day_grain(self) -> None:
+        resolved = TimeAxisResolver(
+            request=self._compare_request(
+                grain="day",
+                time_axis={"analysis_time": {"column": "log_date"}},
+            ),
+            engine_type="duckdb",
+            available_columns=["log_date"],
+            time_field_data_types={"log_date": "string"},
+            time_field_formats={"log_date": "yyyymmdd"},
+            time_field_support_min_granularities={"log_date": "day"},
+        ).resolve()
+        self.assertEqual(resolved.analysis_time_kind, "date_field")
+        self.assertIn("CAST", resolved.analysis_time_expr)
+        self.assertEqual(resolved.analysis_time_data_type, "string")
+        self.assertIsNotNone(resolved.partition_pruning_predicate)
+        self.assertIn("log_date >= '20260324'", resolved.partition_pruning_predicate)
+        self.assertIn("log_date < '20260326'", resolved.partition_pruning_predicate)
+
+    def test_string_yyyy_mm_dd_day_grain(self) -> None:
+        resolved = TimeAxisResolver(
+            request=self._compare_request(
+                grain="day",
+                time_axis={"analysis_time": {"column": "log_date"}},
+            ),
+            engine_type="duckdb",
+            available_columns=["log_date"],
+            time_field_data_types={"log_date": "string"},
+            time_field_formats={"log_date": "yyyy-mm-dd"},
+            time_field_support_min_granularities={"log_date": "day"},
+        ).resolve()
+        self.assertEqual(resolved.analysis_time_kind, "date_field")
+        self.assertEqual(resolved.analysis_time_data_type, "string")
+        self.assertIn("CAST", resolved.analysis_time_expr)
+        self.assertIsNotNone(resolved.partition_pruning_predicate)
+        self.assertIn("log_date >= '2026-03-24'", resolved.partition_pruning_predicate)
+        self.assertIn("log_date < '2026-03-26'", resolved.partition_pruning_predicate)
+
+    def test_string_yyyymmdd_without_format_raises(self) -> None:
+        with self.assertRaisesRegex(ValueError, "requires format"):
+            TimeAxisResolver(
+                request=self._compare_request(
+                    grain="day",
+                    time_axis={"analysis_time": {"column": "log_date"}},
+                ),
+                engine_type="duckdb",
+                available_columns=["log_date"],
+                time_field_data_types={"log_date": "string"},
+                time_field_formats={"log_date": None},
+                time_field_support_min_granularities={"log_date": "day"},
+            ).resolve()
+
+    def test_string_yyyymmdd_hour_grain_with_hour_column(self) -> None:
+        """String yyyymmdd date + hh hour via required_prefix at hour grain."""
+        resolved = TimeAxisResolver(
+            request=self._compare_request(
+                grain="hour",
+                time_axis={"analysis_time": {"column": "log_hour"}},
+            ),
+            engine_type="trino",
+            available_columns=["log_date", "log_hour"],
+            time_field_data_types={"log_date": "string", "log_hour": "string"},
+            time_field_formats={"log_date": "yyyymmdd", "log_hour": "hh"},
+            time_field_required_prefixes={"log_hour": "log_date"},
+            time_field_support_min_granularities={"log_date": "day", "log_hour": "hour"},
+        ).resolve()
+        self.assertEqual(resolved.analysis_time_kind, "partition_fields")
+        self.assertEqual(resolved.analysis_time_data_type, "string")
+        self.assertIn("CAST(CONCAT(", resolved.analysis_time_expr)
+        self.assertEqual(resolved.partition_hour_data_type, "string")
+
+    def test_integer_yyyymmdd_day_grain(self) -> None:
+        resolved = TimeAxisResolver(
+            request=self._compare_request(
+                grain="day",
+                time_axis={"analysis_time": {"column": "log_date"}},
+            ),
+            engine_type="duckdb",
+            available_columns=["log_date"],
+            time_field_data_types={"log_date": "integer"},
+            time_field_formats={"log_date": "yyyymmdd"},
+            time_field_support_min_granularities={"log_date": "day"},
+        ).resolve()
+        self.assertEqual(resolved.analysis_time_kind, "date_field")
+        self.assertEqual(resolved.analysis_time_data_type, "integer")
+        self.assertIn("CAST", resolved.analysis_time_expr)
+        self.assertIsNotNone(resolved.partition_pruning_predicate)
+        self.assertIn("log_date >= 20260324", resolved.partition_pruning_predicate)
+        self.assertIn("log_date < 20260326", resolved.partition_pruning_predicate)
+        self.assertNotIn("'2026032", resolved.partition_pruning_predicate)
+
+    def test_integer_without_format_raises(self) -> None:
+        with self.assertRaisesRegex(ValueError, "requires format"):
+            TimeAxisResolver(
+                request=self._compare_request(
+                    grain="day",
+                    time_axis={"analysis_time": {"column": "log_date"}},
+                ),
+                engine_type="duckdb",
+                available_columns=["log_date"],
+                time_field_data_types={"log_date": "integer"},
+                time_field_formats={"log_date": None},
+                time_field_support_min_granularities={"log_date": "day"},
+            ).resolve()
+
+    def test_string_yyyymmdd_compare_mode_partition_period(self) -> None:
+        """Compare mode with string partition uses partition-column predicates for _period."""
+        resolved = TimeAxisResolver(
+            request=self._compare_request(
+                grain="day",
+                time_axis={"analysis_time": {"column": "log_date"}},
+            ),
+            engine_type="duckdb",
+            available_columns=["log_date"],
+            time_field_data_types={"log_date": "string"},
+            time_field_formats={"log_date": "yyyymmdd"},
+            time_field_support_min_granularities={"log_date": "day"},
+        ).resolve()
+        # Verify that compare mode no longer raises for date_field with CAST
+        self.assertEqual(resolved.analysis_time_kind, "date_field")
+        self.assertEqual(resolved.analysis_time_data_type, "string")
+        # Verify partition pruning predicate exists
+        self.assertIsNotNone(resolved.partition_pruning_predicate)
+        self.assertEqual(resolved.partition_date_column, "log_date")
+        self.assertEqual(resolved.partition_date_data_type, "string")
+
+    def test_string_expression_with_date_parse(self) -> None:
+        """String field with a date_parse expression in Field.expression."""
+        resolved = TimeAxisResolver(
+            request=self._compare_request(
+                grain="day",
+                time_axis={"analysis_time": {"column": "log_date"}},
+            ),
+            engine_type="trino",
+            available_columns=["log_date"],
+            time_field_expressions={"log_date": "date_parse(log_date, '%Y%m%d')"},
+            time_field_data_types={"log_date": "string"},
+            time_field_formats={"log_date": "yyyymmdd"},
+            time_field_support_min_granularities={"log_date": "day"},
+        ).resolve()
+        self.assertEqual(resolved.analysis_time_kind, "timestamp")
+        self.assertEqual(resolved.analysis_time_data_type, "string")
+
+    def test_string_yyyymmddhh_hour_grain(self) -> None:
+        """String field with yyyymmddhh format at hour grain — single column with hour precision."""
+        resolved = TimeAxisResolver(
+            request=self._compare_request(
+                grain="hour",
+                time_axis={"analysis_time": {"column": "log_hour"}},
+            ),
+            engine_type="trino",
+            available_columns=["log_hour"],
+            time_field_data_types={"log_hour": "string"},
+            time_field_formats={"log_hour": "yyyymmddhh"},
+            time_field_support_min_granularities={"log_hour": "hour"},
+        ).resolve()
+        self.assertEqual(resolved.analysis_time_kind, "timestamp")
+        self.assertEqual(resolved.analysis_time_data_type, "string")
+        self.assertEqual(resolved.analysis_time_format, "yyyymmddhh")
+        self.assertIn("DATE_PARSE", resolved.analysis_time_expr)
+        self.assertIsNotNone(resolved.partition_pruning_predicate)
+        self.assertIn("log_hour >= '2026032506'", resolved.partition_pruning_predicate)
+        self.assertIn("log_hour < '2026032514'", resolved.partition_pruning_predicate)
+
+    def test_string_yyyymmddhh_hour_grain_duckdb(self) -> None:
+        """String field with yyyymmddhh format at hour grain — DuckDB uses STRPTIME."""
+        resolved = TimeAxisResolver(
+            request=self._compare_request(
+                grain="hour",
+                time_axis={"analysis_time": {"column": "log_hour"}},
+            ),
+            engine_type="duckdb",
+            available_columns=["log_hour"],
+            time_field_data_types={"log_hour": "string"},
+            time_field_formats={"log_hour": "yyyymmddhh"},
+            time_field_support_min_granularities={"log_hour": "hour"},
+        ).resolve()
+        self.assertEqual(resolved.analysis_time_kind, "timestamp")
+        self.assertEqual(resolved.analysis_time_data_type, "string")
+        self.assertIn("STRPTIME", resolved.analysis_time_expr)
+        self.assertIsNotNone(resolved.partition_pruning_predicate)
+        self.assertIn("log_hour >= '2026032506'", resolved.partition_pruning_predicate)
+        self.assertIn("log_hour < '2026032514'", resolved.partition_pruning_predicate)
+
+    def test_string_yyyy_mm_dd_hh_hour_grain(self) -> None:
+        """String field with yyyy-mm-dd-hh format at hour grain."""
+        resolved = TimeAxisResolver(
+            request=self._compare_request(
+                grain="hour",
+                time_axis={"analysis_time": {"column": "log_hour"}},
+            ),
+            engine_type="trino",
+            available_columns=["log_hour"],
+            time_field_data_types={"log_hour": "string"},
+            time_field_formats={"log_hour": "yyyy-mm-dd-hh"},
+            time_field_support_min_granularities={"log_hour": "hour"},
+        ).resolve()
+        self.assertEqual(resolved.analysis_time_kind, "timestamp")
+        self.assertEqual(resolved.analysis_time_data_type, "string")
+        self.assertEqual(resolved.analysis_time_format, "yyyy-mm-dd-hh")
+        self.assertIn("DATE_PARSE", resolved.analysis_time_expr)
+        self.assertIsNotNone(resolved.partition_pruning_predicate)
+        self.assertIn("log_hour >= '2026-03-25-06'", resolved.partition_pruning_predicate)
+        self.assertIn("log_hour < '2026-03-25-14'", resolved.partition_pruning_predicate)
+
+    def test_string_yyyymmdd_hh_hour_grain(self) -> None:
+        """String field with yyyymmdd-hh format at hour grain."""
+        resolved = TimeAxisResolver(
+            request=self._compare_request(
+                grain="hour",
+                time_axis={"analysis_time": {"column": "log_hour"}},
+            ),
+            engine_type="trino",
+            available_columns=["log_hour"],
+            time_field_data_types={"log_hour": "string"},
+            time_field_formats={"log_hour": "yyyymmdd-hh"},
+            time_field_support_min_granularities={"log_hour": "hour"},
+        ).resolve()
+        self.assertEqual(resolved.analysis_time_kind, "timestamp")
+        self.assertEqual(resolved.analysis_time_data_type, "string")
+        self.assertEqual(resolved.analysis_time_format, "yyyymmdd-hh")
+        self.assertIn("DATE_PARSE", resolved.analysis_time_expr)
+        self.assertIsNotNone(resolved.partition_pruning_predicate)
+        self.assertIn("log_hour >= '20260325-06'", resolved.partition_pruning_predicate)
+        self.assertIn("log_hour < '20260325-14'", resolved.partition_pruning_predicate)
+
+    def test_string_yyyymmdd_with_hh_hour_column(self) -> None:
+        """String yyyymmdd date + hh hour via required_prefix at hour grain."""
+        resolved = TimeAxisResolver(
+            request=self._compare_request(
+                grain="hour",
+                time_axis={"analysis_time": {"column": "log_hour"}},
+            ),
+            engine_type="trino",
+            available_columns=["log_date", "log_hour"],
+            time_field_data_types={"log_date": "string", "log_hour": "string"},
+            time_field_formats={"log_date": "yyyymmdd", "log_hour": "hh"},
+            time_field_required_prefixes={"log_hour": "log_date"},
+            time_field_support_min_granularities={"log_date": "day", "log_hour": "hour"},
+        ).resolve()
+        self.assertEqual(resolved.analysis_time_kind, "partition_fields")
+        self.assertEqual(resolved.analysis_time_data_type, "string")
+        self.assertIn("CAST(CONCAT(", resolved.analysis_time_expr)
+        self.assertIn("SUBSTR(CAST(log_date AS VARCHAR), 1, 4)", resolved.analysis_time_expr)
+
+
+class RequiredPrefixCompositeAxisTests(unittest.TestCase):
+    """Tests for composite date+hour time axis via required_prefix."""
+
+    def _compare_request(
+        self,
+        grain: str = "day",
+        time_axis: dict | None = None,
+    ) -> Any:
+        from marivo.time_scope import normalize_metric_query_request
+
+        payload: dict[str, Any] = {
+            "table": "iceberg.analytics.query_events",
+            "metric": "queued_time",
+            "time_scope": {
+                "mode": "compare",
+                "grain": grain,
+                "current": {
+                    "start": "2026-03-25" if grain != "hour" else "2026-03-25T10:00:00",
+                    "end": "2026-03-26" if grain != "hour" else "2026-03-25T14:00:00",
+                },
+                "baseline": {
+                    "start": "2026-03-24" if grain != "hour" else "2026-03-25T06:00:00",
+                    "end": "2026-03-25" if grain != "hour" else "2026-03-25T10:00:00",
+                },
+            },
+        }
+        if time_axis is not None:
+            payload["time_axis"] = time_axis
+        return normalize_metric_query_request(payload)
+
+    def test_composite_hour_axis_via_required_prefix(self) -> None:
+        """log_hour(hour, required_prefix=log_date) at hour grain resolves to composite."""
+        resolved = TimeAxisResolver(
+            request=self._compare_request(
+                grain="hour",
+                time_axis={"analysis_time": {"column": "log_hour"}},
+            ),
+            engine_type="trino",
+            available_columns=["log_date", "log_hour"],
+            time_field_data_types={"log_date": "string", "log_hour": "string"},
+            time_field_formats={"log_date": "yyyymmdd", "log_hour": "hh"},
+            time_field_required_prefixes={"log_hour": "log_date"},
+            time_field_support_min_granularities={"log_date": "day", "log_hour": "hour"},
+        ).resolve()
+        self.assertEqual(resolved.analysis_time_kind, "partition_fields")
+        self.assertEqual(resolved.analysis_time_data_type, "string")
+        self.assertIn("CAST(CONCAT(", resolved.analysis_time_expr)
+        self.assertIn("SUBSTR(CAST(log_date AS VARCHAR)", resolved.analysis_time_expr)
+        self.assertIn("LPAD(CAST(log_hour AS VARCHAR), 2, '0')", resolved.analysis_time_expr)
+        self.assertIn("log_date = '20260325'", resolved.partition_pruning_predicate)
+        self.assertEqual(resolved.partition_hour_data_type, "string")
+
+    def test_composite_hour_axis_day_grain_uses_only_date_field(self) -> None:
+        """log_date(day) + log_hour(hour, required_prefix) at day grain — only log_date."""
+        resolved = TimeAxisResolver(
+            request=self._compare_request(
+                grain="day",
+                time_axis={"analysis_time": {"column": "log_date"}},
+            ),
+            engine_type="duckdb",
+            available_columns=["log_date", "log_hour"],
+            time_field_data_types={"log_date": "string"},
+            time_field_formats={"log_date": "yyyymmdd"},
+            time_field_required_prefixes={"log_hour": "log_date"},
+            time_field_support_min_granularities={"log_date": "day", "log_hour": "hour"},
+        ).resolve()
+        self.assertEqual(resolved.analysis_time_kind, "date_field")
+        self.assertEqual(resolved.analysis_time_data_type, "string")
+        self.assertIn("CAST", resolved.analysis_time_expr)
+        self.assertIn("log_date >= '20260324'", resolved.partition_pruning_predicate)
+        self.assertIn("log_date < '20260326'", resolved.partition_pruning_predicate)
+
+    def test_composite_hour_axis_week_grain(self) -> None:
+        """log_date(day) + log_hour(hour, required_prefix) at week grain."""
+        resolved = TimeAxisResolver(
+            request=normalize_metric_query_request(
+                {
+                    "table": "iceberg.analytics.query_events",
+                    "metric": "queued_time",
+                    "time_scope": {
+                        "mode": "single_window",
+                        "grain": "week",
+                        "current": {"start": "2026-03-23", "end": "2026-03-30"},
+                    },
+                    "time_axis": {"analysis_time": {"column": "log_date"}},
+                }
+            ),
+            engine_type="duckdb",
+            available_columns=["log_date", "log_hour"],
+            time_field_data_types={"log_date": "string"},
+            time_field_formats={"log_date": "yyyymmdd"},
+            time_field_required_prefixes={"log_hour": "log_date"},
+            time_field_support_min_granularities={"log_date": "day", "log_hour": "hour"},
+        ).resolve()
+        self.assertEqual(resolved.analysis_time_kind, "date_field")
+        self.assertEqual(resolved.analysis_time_data_type, "string")
+
+    def test_hour_only_field_as_standalone_axis_rejected(self) -> None:
+        """log_hour(hh) alone cannot be analysis axis without required_prefix."""
+        with self.assertRaisesRegex(ValueError, "cannot be used as a standalone analysis axis"):
+            TimeAxisResolver(
+                request=self._compare_request(
+                    grain="hour",
+                    time_axis={"analysis_time": {"column": "log_hour"}},
+                ),
+                engine_type="trino",
+                available_columns=["log_date", "log_hour"],
+                time_field_data_types={"log_hour": "string"},
+                time_field_formats={"log_hour": "hh"},
+                time_field_support_min_granularities={"log_hour": "hour"},
+            ).resolve()
+
+    def test_hour_only_field_via_required_prefix_redirects(self) -> None:
+        """analysis_time.column = 'log_hour' at hour grain — redirects to log_date + log_hour."""
+        resolved = TimeAxisResolver(
+            request=self._compare_request(
+                grain="hour",
+                time_axis={"analysis_time": {"column": "log_hour"}},
+            ),
+            engine_type="trino",
+            available_columns=["log_date", "log_hour"],
+            time_field_data_types={"log_date": "string", "log_hour": "string"},
+            time_field_formats={"log_date": "yyyymmdd", "log_hour": "hh"},
+            time_field_required_prefixes={"log_hour": "log_date"},
+            time_field_support_min_granularities={"log_date": "day", "log_hour": "hour"},
+        ).resolve()
+        self.assertEqual(resolved.analysis_time_kind, "partition_fields")
+        self.assertEqual(resolved.analysis_time_data_type, "string")
+        self.assertIn("CAST(CONCAT(", resolved.analysis_time_expr)
+
+    def test_date_field_alone_at_hour_grain_rejected(self) -> None:
+        """log_date(day) alone at hour grain without required_prefix hour field — rejected."""
+        with self.assertRaisesRegex(ValueError, "cannot satisfy requested granularity 'hour'"):
+            TimeAxisResolver(
+                request=self._compare_request(
+                    grain="hour",
+                    time_axis={"analysis_time": {"column": "log_date"}},
+                ),
+                engine_type="duckdb",
+                available_columns=["log_date"],
+                time_field_data_types={"log_date": "string"},
+                time_field_formats={"log_date": "yyyymmdd"},
+                time_field_support_min_granularities={"log_date": "day"},
+            ).resolve()
+
+    def test_date_field_at_hour_grain_rejected_even_with_required_prefix(self) -> None:
+        """time_scope.field=log_date at hour grain rejected even when log_hour has required_prefix."""
+        with self.assertRaisesRegex(ValueError, "cannot satisfy requested granularity 'hour'"):
+            TimeAxisResolver(
+                request=self._compare_request(
+                    grain="hour",
+                    time_axis={"analysis_time": {"column": "log_date"}},
+                ),
+                engine_type="duckdb",
+                available_columns=["log_date", "log_hour"],
+                time_field_data_types={"log_date": "string"},
+                time_field_formats={"log_date": "yyyymmdd"},
+                time_field_required_prefixes={"log_hour": "log_date"},
+                time_field_support_min_granularities={"log_date": "day", "log_hour": "hour"},
+            ).resolve()
+
+
+class PartitionPredicateDataTypeTests(unittest.TestCase):
+    """Tests for per-column data_type quoting in partition pruning predicates."""
+
+    def _compare_request(
+        self,
+        grain: str = "hour",
+        time_axis: dict | None = None,
+    ) -> Any:
+        from marivo.time_scope import normalize_metric_query_request
+
+        payload: dict[str, Any] = {
+            "table": "iceberg.analytics.query_events",
+            "metric": "queued_time",
+            "time_scope": {
+                "mode": "compare",
+                "grain": grain,
+                "current": {
+                    "start": "2026-03-25" if grain != "hour" else "2026-03-25T10:00:00",
+                    "end": "2026-03-26" if grain != "hour" else "2026-03-25T14:00:00",
+                },
+                "baseline": {
+                    "start": "2026-03-24" if grain != "hour" else "2026-03-25T06:00:00",
+                    "end": "2026-03-25" if grain != "hour" else "2026-03-25T10:00:00",
+                },
+            },
+        }
+        if time_axis is not None:
+            payload["time_axis"] = time_axis
+        return normalize_metric_query_request(payload)
+
+    def test_integer_date_integer_hour_unquoted_predicate(self) -> None:
+        """Integer date + integer hour columns produce unquoted literals in partition predicates."""
+        resolved = TimeAxisResolver(
+            request=self._compare_request(
+                grain="hour",
+                time_axis={"analysis_time": {"column": "log_hour"}},
+            ),
+            engine_type="duckdb",
+            available_columns=["log_date", "log_hour"],
+            time_field_data_types={"log_date": "integer", "log_hour": "integer"},
+            time_field_formats={"log_date": "yyyymmdd", "log_hour": "h"},
+            time_field_required_prefixes={"log_hour": "log_date"},
+            time_field_support_min_granularities={"log_date": "day", "log_hour": "hour"},
+        ).resolve()
+        self.assertEqual(resolved.partition_date_data_type, "integer")
+        self.assertEqual(resolved.partition_hour_data_type, "integer")
+        self.assertIsNotNone(resolved.partition_pruning_predicate)
+        # Date literal unquoted for integer column
+        self.assertIn("log_date = 20260325", resolved.partition_pruning_predicate)
+        # Hour literal unquoted for integer column
+        self.assertIn("log_hour >= 6", resolved.partition_pruning_predicate)
+        self.assertIn("log_hour < 14", resolved.partition_pruning_predicate)
+        # No single quotes on integer literals
+        self.assertNotIn("'2026032", resolved.partition_pruning_predicate)
+        self.assertNotIn("'6'", resolved.partition_pruning_predicate)
+        self.assertNotIn("'14'", resolved.partition_pruning_predicate)
+
+    def test_integer_date_hour_grain_day_range_partition_unquoted(self) -> None:
+        """Integer date column with composite analysis axis but only date in partition."""
+        # Analysis uses timestamp expression (hour-capable), but partition pruning
+        # only has the integer date column — uses day-range predicate with unquoted literals.
+        resolved = TimeAxisResolver(
+            request=self._compare_request(
+                grain="hour",
+                time_axis={
+                    "analysis_time": {"column": "query_time"},
+                    "partition_pruning": {"date_column": "log_date"},
+                },
+            ),
+            engine_type="duckdb",
+            available_columns=["query_time", "log_date"],
+            time_field_data_types={
+                "query_time": "timestamp",
+                "log_date": "integer",
+            },
+            time_field_expressions={
+                "query_time": "CAST(CONCAT(log_date, ' ', log_hour, ':00:00') AS TIMESTAMP)",
+            },
+            time_field_formats={"log_date": "yyyymmdd"},
+            time_field_support_min_granularities={"query_time": "hour"},
+        ).resolve()
+        self.assertEqual(resolved.partition_date_data_type, "integer")
+        self.assertIsNotNone(resolved.partition_pruning_predicate)
+        # Day-range predicate with unquoted integer literals
+        self.assertIn("log_date >= 20260325", resolved.partition_pruning_predicate)
+        self.assertNotIn("'2026032", resolved.partition_pruning_predicate)
+
+    def test_mixed_layout_timestamp_analysis_integer_partition(self) -> None:
+        """Timestamp analysis axis with integer partition columns — partition data_type is per-column."""
+        resolved = TimeAxisResolver(
+            request=self._compare_request(
+                grain="hour",
+                time_axis={
+                    "analysis_time": {"column": "query_time"},
+                    "partition_pruning": {"date_column": "log_date", "hour_column": "log_hour"},
+                },
+            ),
+            engine_type="duckdb",
+            available_columns=["query_time", "log_date", "log_hour"],
+            time_field_data_types={
+                "query_time": "timestamp",
+                "log_date": "integer",
+                "log_hour": "integer",
+            },
+            time_field_expressions={
+                "query_time": "CAST(CONCAT(log_date, ' ', log_hour, ':00:00') AS TIMESTAMP)",
+            },
+            time_field_formats={"log_date": "yyyymmdd", "log_hour": "h"},
+            time_field_required_prefixes={"log_hour": "log_date"},
+            time_field_support_min_granularities={
+                "query_time": "hour",
+                "log_date": "day",
+                "log_hour": "hour",
+            },
+        ).resolve()
+        # Analysis axis is timestamp, but partition columns have their own data types
+        self.assertEqual(resolved.analysis_time_kind, "timestamp")
+        self.assertEqual(resolved.analysis_time_data_type, "timestamp")
+        self.assertEqual(resolved.partition_date_data_type, "integer")
+        self.assertEqual(resolved.partition_hour_data_type, "integer")
+        self.assertIsNotNone(resolved.partition_pruning_predicate)
+        # Integer partition columns produce unquoted literals
+        self.assertIn("log_date = 20260325", resolved.partition_pruning_predicate)
+        self.assertIn("log_hour >= 6", resolved.partition_pruning_predicate)
+
+    def test_string_date_string_hour_quoted_predicate(self) -> None:
+        """String date + string hour columns produce quoted literals (unchanged behavior)."""
+        resolved = TimeAxisResolver(
+            request=self._compare_request(
+                grain="hour",
+                time_axis={"analysis_time": {"column": "log_hour"}},
+            ),
+            engine_type="duckdb",
+            available_columns=["log_date", "log_hour"],
+            time_field_data_types={"log_date": "string", "log_hour": "string"},
+            time_field_formats={"log_date": "yyyymmdd", "log_hour": "hh"},
+            time_field_required_prefixes={"log_hour": "log_date"},
+            time_field_support_min_granularities={"log_date": "day", "log_hour": "hour"},
+        ).resolve()
+        self.assertEqual(resolved.partition_date_data_type, "string")
+        self.assertEqual(resolved.partition_hour_data_type, "string")
+        self.assertIn("log_date = '20260325'", resolved.partition_pruning_predicate)
+        self.assertIn("log_hour >= '06'", resolved.partition_pruning_predicate)
+        self.assertIn("log_hour < '14'", resolved.partition_pruning_predicate)
+
+    def test_integer_date_day_grain_unquoted(self) -> None:
+        """Integer date column at day grain uses unquoted predicate."""
+        resolved = TimeAxisResolver(
+            request=self._compare_request(
+                grain="day",
+                time_axis={"analysis_time": {"column": "log_date"}},
+            ),
+            engine_type="duckdb",
+            available_columns=["log_date"],
+            time_field_data_types={"log_date": "integer"},
+            time_field_formats={"log_date": "yyyymmdd"},
+            time_field_support_min_granularities={"log_date": "day"},
+        ).resolve()
+        self.assertEqual(resolved.partition_date_data_type, "integer")
+        self.assertIn("log_date >= 20260324", resolved.partition_pruning_predicate)
+        self.assertIn("log_date < 20260326", resolved.partition_pruning_predicate)
+        self.assertNotIn("'2026032", resolved.partition_pruning_predicate)
+
+    def test_int_format_normalizes_to_h(self) -> None:
+        """format='int' normalizes to 'h' and flows through hour-only field resolution."""
+        resolved = TimeAxisResolver(
+            request=self._compare_request(
+                grain="hour",
+                time_axis={"analysis_time": {"column": "log_hour"}},
+            ),
+            engine_type="duckdb",
+            available_columns=["log_date", "log_hour"],
+            time_field_data_types={"log_date": "integer", "log_hour": "integer"},
+            time_field_formats={"log_date": "yyyymmdd", "log_hour": "int"},
+            time_field_required_prefixes={"log_hour": "log_date"},
+            time_field_support_min_granularities={"log_date": "day", "log_hour": "hour"},
+        ).resolve()
+        self.assertEqual(resolved.analysis_time_kind, "partition_fields")
+        self.assertEqual(resolved.partition_hour_data_type, "integer")
+        self.assertIn("log_hour >= 6", resolved.partition_pruning_predicate)
+        self.assertIn("log_hour < 14", resolved.partition_pruning_predicate)

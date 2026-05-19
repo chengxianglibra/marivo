@@ -1,0 +1,38 @@
+{
+  "version": "0.1.1",
+  "dialects": ["ANSI_SQL"],
+  "semantic_model": [
+    {
+      "name": "query_logs",
+      "datasets": [
+        {
+          "name": "query_logs",
+          "source": "iceberg.analytics.query_logs",
+          "fields": [
+            {
+              "name": "log_date",
+              "expression": { "dialects": [{ "dialect": "ANSI_SQL", "expression": "log_date" }] },
+              "dimension": { "is_time": true },
+              "custom_extensions": [
+                {
+                  "vendor_name": "MARIVO",
+                  "data": {
+                    "support_min_granularity": "day",
+                    "data_type": "string",
+                    "format": "yyyymmdd"
+                  }
+                }
+              ]
+            }
+          ],
+          "custom_extensions": [
+            {
+              "vendor_name": "MARIVO",
+              "data": { "datasource_id": "ds_trino_prod" }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

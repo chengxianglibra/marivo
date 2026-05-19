@@ -9,7 +9,6 @@ from typing import Any
 from marivo.time_axis_metadata import (
     TimeAxisMetadataContext,
     TimeAxisMetadataProvider,
-    normalize_time_capabilities,
 )
 from marivo.time_scope import normalize_aggregate_query_request
 
@@ -115,82 +114,14 @@ class _RecordingTimeProvider:
         del table_name, metric_name
         self.engine_type = engine_type
         return TimeAxisMetadataContext(
-            entity_time_capabilities={"analysis_time": {"timestamp_column": "event_time"}},
             available_columns=["event_time"],
+            time_field_data_types={"event_time": "timestamp"},
             time_field_support_min_granularities={"event_time": "hour"},
         )
 
     def load_available_columns(self, table_name: str) -> list[str]:
         del table_name
         return ["event_time"]
-
-
-class TimeCapabilitiesSchemaTests(unittest.TestCase):
-    def test_normalize_time_capabilities_accepts_minimal_schema(self) -> None:
-        normalized = normalize_time_capabilities(
-            {
-                "analysis_time": {
-                    "timestamp_column": "event_time",
-                    "timestamp_format": "native",
-                    "fallback_date_column": "log_date",
-                    "fallback_hour_column": "log_hour",
-                },
-                "partition_time": {
-                    "date_column": "log_date",
-                    "date_format": "yyyymmdd",
-                    "hour_column": "log_hour",
-                    "hour_format": "hh",
-                },
-                "default_compare_grain": "day",
-            }
-        )
-        self.assertEqual(
-            normalized,
-            {
-                "analysis_time": {
-                    "timestamp_column": "event_time",
-                    "timestamp_format": "native",
-                    "fallback_date_column": "log_date",
-                    "fallback_hour_column": "log_hour",
-                },
-                "partition_time": {
-                    "date_column": "log_date",
-                    "date_format": "yyyymmdd",
-                    "hour_column": "log_hour",
-                    "hour_format": "hh",
-                },
-                "default_compare_grain": "day",
-            },
-        )
-
-    def test_normalize_time_capabilities_rejects_partition_hour_without_date(self) -> None:
-        with self.assertRaisesRegex(ValueError, "hour_column requires date_column"):
-            normalize_time_capabilities({"partition_time": {"hour_column": "log_hour"}})
-
-    def test_normalize_time_capabilities_rejects_analysis_hour_without_date(self) -> None:
-        with self.assertRaisesRegex(
-            ValueError, "fallback_hour_column requires fallback_date_column"
-        ):
-            normalize_time_capabilities({"analysis_time": {"fallback_hour_column": "log_hour"}})
-
-    def test_normalize_time_capabilities_accepts_custom_timestamp_format(self) -> None:
-        normalized = normalize_time_capabilities(
-            {
-                "analysis_time": {
-                    "timestamp_column": "create_time",
-                    "timestamp_format": "%Y%m%d %H:%M:%S",
-                }
-            }
-        )
-        self.assertEqual(
-            normalized,
-            {
-                "analysis_time": {
-                    "timestamp_column": "create_time",
-                    "timestamp_format": "%Y%m%d %H:%M:%S",
-                }
-            },
-        )
 
 
 class TimeAxisMetadataProviderTests(unittest.TestCase):
@@ -212,10 +143,9 @@ class TimeAxisMetadataProviderTests(unittest.TestCase):
         self.assertEqual(context.time_field_data_types["query_time"], "timestamp")
         self.assertEqual(context.time_field_support_min_granularities["query_time"], "hour")
         self.assertEqual(context.time_field_support_min_granularities["create_date"], "day")
-        self.assertIsNone(context.entity_time_capabilities)
         self.assertTrue(context.has_time_binding)
 
-    def test_load_for_windowed_query_does_not_infer_time_capabilities(self) -> None:
+    def test_load_for_windowed_query_populates_per_field_metadata(self) -> None:
         class TimeMetadataStub:
             def query_rows(self, sql: str, params: list[Any] | None = None) -> list[dict[str, Any]]:
                 if "JOIN semantic_metrics m" in sql:
@@ -252,7 +182,18 @@ class TimeAxisMetadataProviderTests(unittest.TestCase):
             engine_type="trino",
         )
 
-        self.assertIsNone(context.entity_time_capabilities)
+        self.assertEqual(context.available_columns, ["log_date_ts", "log_hour"])
+        self.assertEqual(
+            context.time_field_expressions,
+            {"log_date_ts": "CAST(parse_datetime(log_date, 'yyyyMMdd') AS date)"},
+        )
+        self.assertEqual(
+            context.time_field_data_types, {"log_date_ts": "timestamp", "log_hour": "integer"}
+        )
+        self.assertEqual(
+            context.time_field_support_min_granularities, {"log_date_ts": "day", "log_hour": "hour"}
+        )
+        self.assertTrue(context.has_time_binding)
 
     def test_load_for_windowed_query_falls_back_to_source_fields_without_metric(self) -> None:
         context = TimeAxisMetadataProvider(_MetadataStub()).load_for_windowed_query(
@@ -347,6 +288,45 @@ class TimeAxisMetadataProviderTests(unittest.TestCase):
             "TO_DATE(log_date, 'YYYYMMDD')",
         )
 
+    def test_load_populates_time_field_required_prefixes(self) -> None:
+        """Metadata provider populates time_field_required_prefixes from query rows."""
+
+        class _RequiredPrefixStub:
+            def query_rows(self, sql: str, params: list[Any] | None = None) -> list[dict[str, Any]]:
+                if "JOIN semantic_metrics m" in sql and params == [
+                    "analytics.events",
+                    "event_count",
+                ]:
+                    return [
+                        {
+                            "name": "log_date",
+                            "expression": None,
+                            "data_type": "string",
+                            "format": "yyyymmdd",
+                            "is_time": 1,
+                            "support_min_granularity": "day",
+                            "required_prefix": None,
+                        },
+                        {
+                            "name": "log_hour",
+                            "expression": None,
+                            "data_type": "string",
+                            "format": "hh",
+                            "is_time": 1,
+                            "support_min_granularity": "hour",
+                            "required_prefix": "log_date",
+                        },
+                    ]
+                return []
+
+        context = TimeAxisMetadataProvider(_RequiredPrefixStub()).load_for_windowed_query(
+            table_name="analytics.events",
+            metric_name="metric.event_count",
+        )
+
+        self.assertEqual(context.time_field_required_prefixes, {"log_hour": "log_date"})
+        self.assertEqual(context.time_field_formats, {"log_date": "yyyymmdd", "log_hour": "hh"})
+
     def test_resolve_windowed_query_time_axis_forwards_engine_type_to_provider(self) -> None:
         feedback_module = types.ModuleType("marivo.runtime.semantic.feedback")
         feedback_module.compile_failure_from_error = lambda *args, **kwargs: None
@@ -367,6 +347,7 @@ class TimeAxisMetadataProviderTests(unittest.TestCase):
                         "grain": "day",
                         "current": {"start": "2026-03-10", "end": "2026-03-17"},
                     },
+                    "time_axis": {"analysis_time": {"column": "event_time"}},
                 }
             )
 

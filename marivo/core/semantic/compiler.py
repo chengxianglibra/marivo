@@ -122,18 +122,24 @@ def _build_scoped_query_parts(
 
     # For date_field with CAST expression, skip the CAST-based predicate
     # and rely on partition_pruning_predicate for time filtering.
+    # For string/integer partition fields, use partition-column predicates
+    # for _period assignment in compare mode (pushdown-friendly).
+    partition_date_column = str(scoped_query.get("partition_date_column") or "").strip()
+    partition_date_format = str(scoped_query.get("partition_date_format") or "").strip()
+    partition_date_data_type = str(scoped_query.get("partition_date_data_type") or "").strip()
+
     if analysis_time_kind == "date_field" and "CAST(" in analysis_time_expr:
         filters: list[str] = []
         params: list[Any] = []
-        current_start = ""
-        current_end = ""
+        current_start_raw = ""
+        current_end_raw = ""
     else:
-        current_start = _format_scoped_bound(scoped_query, current_start)
-        current_end = _format_scoped_bound(scoped_query, current_end)
+        current_start_raw = _format_scoped_bound(scoped_query, current_start)
+        current_end_raw = _format_scoped_bound(scoped_query, current_end)
         current_predicate, current_params = _build_scoped_time_predicate(
             analysis_time_expr,
-            current_start,
-            current_end,
+            current_start_raw,
+            current_end_raw,
             analysis_time_kind=analysis_time_kind,
             engine_type=engine_type,
         )
@@ -153,36 +159,66 @@ def _build_scoped_query_parts(
             raise ValueError("scoped_query compare mode requires baseline.start and baseline.end")
 
         if analysis_time_kind == "date_field" and "CAST(" in analysis_time_expr:
-            raise ValueError(
-                "compare mode is not supported for date_field with CAST expression; "
-                "the time axis must be resolved to a native date column or timestamp"
+            # Use partition-column predicates for _period assignment.
+            # This is pushdown-friendly: string comparison on the raw column,
+            # no CAST in CASE WHEN or WHERE.
+            current_period_pred, current_period_params = _build_partition_period_predicate(
+                partition_date_column,
+                current_start,
+                current_end,
+                date_format=partition_date_format,
+                data_type=partition_date_data_type,
+                engine_type=engine_type,
             )
-
-        baseline_start = _format_scoped_bound(scoped_query, baseline_start)
-        baseline_end = _format_scoped_bound(scoped_query, baseline_end)
-        baseline_predicate, baseline_params = _build_scoped_time_predicate(
-            analysis_time_expr,
-            baseline_start,
-            baseline_end,
-            analysis_time_kind=analysis_time_kind,
-            engine_type=engine_type,
-        )
-        if include_period:
-            select_prefix = [
-                "CASE",
-                f"                    WHEN {current_predicate} THEN 'current'",
-                f"                    WHEN {baseline_predicate} THEN 'baseline'",
-                "                END AS _period",
-            ]
-            params = [
-                *current_params,
-                *baseline_params,
-                *current_params,
-                *baseline_params,
-            ]
-        filters = [f"(({current_predicate}) OR ({baseline_predicate}))"]
-        if not include_period:
-            params = [*current_params, *baseline_params]
+            baseline_period_pred, baseline_period_params = _build_partition_period_predicate(
+                partition_date_column,
+                baseline_start,
+                baseline_end,
+                date_format=partition_date_format,
+                data_type=partition_date_data_type,
+                engine_type=engine_type,
+            )
+            if include_period:
+                select_prefix = [
+                    "CASE",
+                    f"                    WHEN {current_period_pred} THEN 'current'",
+                    f"                    WHEN {baseline_period_pred} THEN 'baseline'",
+                    "                END AS _period",
+                ]
+                params = [
+                    *current_period_params,
+                    *baseline_period_params,
+                    *current_period_params,
+                    *baseline_period_params,
+                ]
+            # WHERE uses partition_pruning_predicate (envelope covering both windows)
+            filters = []
+        else:
+            baseline_start_fmt = _format_scoped_bound(scoped_query, baseline_start)
+            baseline_end_fmt = _format_scoped_bound(scoped_query, baseline_end)
+            baseline_predicate, baseline_params = _build_scoped_time_predicate(
+                analysis_time_expr,
+                baseline_start_fmt,
+                baseline_end_fmt,
+                analysis_time_kind=analysis_time_kind,
+                engine_type=engine_type,
+            )
+            if include_period:
+                select_prefix = [
+                    "CASE",
+                    f"                    WHEN {current_predicate} THEN 'current'",
+                    f"                    WHEN {baseline_predicate} THEN 'baseline'",
+                    "                END AS _period",
+                ]
+                params = [
+                    *current_params,
+                    *baseline_params,
+                    *current_params,
+                    *baseline_params,
+                ]
+            filters = [f"(({current_predicate}) OR ({baseline_predicate}))"]
+            if not include_period:
+                params = [*current_params, *baseline_params]
 
     filter_fields = (
         "partition_pruning_predicate",
@@ -232,6 +268,64 @@ def _build_scoped_time_predicate(
             [],
         )
     return f"{analysis_time_expr} >= ? AND {analysis_time_expr} < ?", [start, end]
+
+
+def _build_partition_period_predicate(
+    date_column: str,
+    start: str,
+    end: str,
+    *,
+    date_format: str,
+    data_type: str,
+    engine_type: str,
+) -> tuple[str, list[Any]]:
+    """Build a partition-column period predicate for compare-mode _period assignment.
+
+    Uses string/integer comparison on the raw partition column, which is
+    pushdown-friendly (no CAST in CASE WHEN or WHERE).
+    """
+    del engine_type
+    if not date_column:
+        raise ValueError("partition_date_column is required for compare mode with CAST expression")
+
+    start_date = _parse_iso_date(start)
+    end_date = _parse_iso_date(end)
+    start_literal = _format_partition_date_literal(start_date, date_format, data_type)
+    end_literal = _format_partition_date_literal(end_date, date_format, data_type)
+
+    if data_type == "integer":
+        return (
+            f"{date_column} >= {start_literal} AND {date_column} < {end_literal}",
+            [],
+        )
+    return (
+        f"{date_column} >= '{start_literal}' AND {date_column} < '{end_literal}'",
+        [],
+    )
+
+
+def _parse_iso_date(value: str) -> date:
+    from datetime import date as _date
+
+    # Handle both date-only and datetime strings
+    if "T" in value or " " in value:
+        return datetime.fromisoformat(value.replace(" ", "T")).date()
+    return _date.fromisoformat(value)
+
+
+def _format_partition_date_literal(value: date, date_format: str, data_type: str) -> str:
+    if date_format == "yyyymmdd":
+        formatted = value.strftime("%Y%m%d")
+    elif date_format == "yyyy-mm-dd" or date_format in {"iso", ""}:
+        formatted = value.isoformat()
+    elif date_format in {"epochdays"}:
+        epoch = date(1970, 1, 1)
+        formatted = str((value - epoch).days)
+    else:
+        formatted = value.isoformat()
+    if data_type == "integer":
+        return formatted  # no quotes for integer literals
+    return formatted
 
 
 def _trino_timestamp_literal(value: str) -> str:

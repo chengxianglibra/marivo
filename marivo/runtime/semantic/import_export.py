@@ -188,6 +188,13 @@ class OsiSemanticDocumentValidator:
                             model_pointer,
                         )
                     )
+                    errors.extend(
+                        _required_prefix_reference_issues(
+                            dataset,
+                            dataset_index,
+                            model_pointer,
+                        )
+                    )
                     source = str(dataset.get("source") or "").strip()
                     if source and DatasourceBinder._parse_source(source) is None:
                         errors.append(
@@ -833,8 +840,8 @@ class SemanticImportExecutor:
             """
             INSERT INTO semantic_fields
                 (dataset_id, name, expression, is_time, is_dimension, label, description,
-                 ai_context, data_type, support_min_granularity, position)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 ai_context, data_type, format, required_prefix, support_min_granularity, position)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 f_storage["dataset_id"],
@@ -846,6 +853,8 @@ class SemanticImportExecutor:
                 f_storage["description"],
                 f_storage["ai_context"],
                 f_storage["data_type"],
+                f_storage["format"],
+                f_storage["required_prefix"],
                 f_storage["support_min_granularity"],
                 f_storage["position"],
             ],
@@ -1278,7 +1287,8 @@ def _field_extension_issues(
                     json_pointer=pointer,
                     hint=(
                         "Add custom_extensions=[{vendor_name: 'MARIVO', "
-                        "data: {support_min_granularity: 'day'}}] with the correct granularity."
+                        "data: {support_min_granularity: 'day', data_type: 'date'}}] "
+                        "with the correct granularity and data_type."
                     ),
                     context={"dataset": dataset_name, "field": field_name},
                 )
@@ -1310,6 +1320,162 @@ def _field_extension_issues(
                     },
                 )
             )
+        data_type = data.get("data_type") if isinstance(data, dict) else None
+        valid_data_types = {"date", "timestamp", "string", "integer"}
+        if data_type not in valid_data_types:
+            issues.append(
+                SemanticValidationIssue(
+                    code="INVALID_TIME_FIELD_DATA_TYPE",
+                    message=(
+                        f"Time field {field_name!r} on dataset {dataset_name!r} has invalid "
+                        f"data_type {data_type!r}."
+                    ),
+                    json_pointer=f"{pointer}/0/data/data_type",
+                    hint=("Use one of: date, timestamp, string, integer."),
+                    context={
+                        "dataset": dataset_name,
+                        "field": field_name,
+                        "data_type": data_type,
+                    },
+                )
+            )
+        elif data_type in {"string", "integer"}:
+            format_value = data.get("format") if isinstance(data, dict) else None
+            if not format_value:
+                issues.append(
+                    SemanticValidationIssue(
+                        code="MISSING_TIME_FIELD_FORMAT",
+                        message=(
+                            f"Time field {field_name!r} on dataset {dataset_name!r} with "
+                            f"data_type '{data_type}' requires format."
+                        ),
+                        json_pointer=f"{pointer}/0/data/format",
+                        hint=(
+                            "Add format, e.g., 'yyyymmdd' for YYYYMMDD string partitions "
+                            "or 'epoch_seconds' for Unix epoch integers."
+                        ),
+                        context={
+                            "dataset": dataset_name,
+                            "field": field_name,
+                            "data_type": data_type,
+                        },
+                    )
+                )
+            else:
+                normalized_format = format_value.lower().replace("_", "").replace("-", "")
+                required_prefix = data.get("required_prefix") if isinstance(data, dict) else None
+                # Hour-only format (hh/h) requires required_prefix
+                if normalized_format in {"hh"}:
+                    if not required_prefix:
+                        issues.append(
+                            SemanticValidationIssue(
+                                code="MISSING_REQUIRED_PREFIX",
+                                message=(
+                                    f"Time field {field_name!r} on dataset {dataset_name!r} with "
+                                    f"format '{format_value}' requires required_prefix to declare "
+                                    "the paired date-format time field."
+                                ),
+                                json_pointer=f"{pointer}/0/data/required_prefix",
+                                hint=(
+                                    "Add required_prefix referencing a date-format time field, "
+                                    "e.g., {required_prefix: 'log_date'}."
+                                ),
+                                context={
+                                    "dataset": dataset_name,
+                                    "field": field_name,
+                                    "format": format_value,
+                                },
+                            )
+                        )
+                # Complete date/timestamp formats must not have required_prefix
+                elif required_prefix:
+                    issues.append(
+                        SemanticValidationIssue(
+                            code="INVALID_REQUIRED_PREFIX_FORMAT",
+                            message=(
+                                f"Time field {field_name!r} on dataset {dataset_name!r} with "
+                                f"format '{format_value}' must not have required_prefix; "
+                                "required_prefix is only for hour-only formats (hh, h)."
+                            ),
+                            json_pointer=f"{pointer}/0/data/required_prefix",
+                            hint=(
+                                "Remove required_prefix — complete date/timestamp formats "
+                                "do not need a paired date field."
+                            ),
+                            context={
+                                "dataset": dataset_name,
+                                "field": field_name,
+                                "format": format_value,
+                                "required_prefix": required_prefix,
+                            },
+                        )
+                    )
+    return issues
+
+
+def _required_prefix_reference_issues(
+    dataset: dict[str, Any],
+    dataset_index: int,
+    model_pointer: str,
+) -> list[SemanticValidationIssue]:
+    """Validate that required_prefix references a time field on the same dataset."""
+    issues: list[SemanticValidationIssue] = []
+    dataset_name = str(dataset.get("name") or "")
+    fields_raw = dataset.get("fields")
+    fields: list[Any] = fields_raw if isinstance(fields_raw, list) else []
+    # Collect all time field names on this dataset
+    time_field_names: set[str] = set()
+    for field_obj in fields:
+        if not isinstance(field_obj, dict):
+            continue
+        dimension = field_obj.get("dimension")
+        if isinstance(dimension, dict) and dimension.get("is_time") is True:
+            time_field_names.add(str(field_obj.get("name") or ""))
+    # Check each field with required_prefix
+    for field_index, field_obj in enumerate(fields):
+        if not isinstance(field_obj, dict):
+            continue
+        field_name = str(field_obj.get("name") or "")
+        marivo_extensions = [
+            ext
+            for ext in (field_obj.get("custom_extensions") or [])
+            if isinstance(ext, dict) and ext.get("vendor_name") == "MARIVO"
+        ]
+        if not marivo_extensions:
+            continue
+        data = marivo_extensions[0].get("data")
+        if isinstance(data, str):
+            try:
+                data = json.loads(data)
+            except json.JSONDecodeError:
+                data = None
+        if not isinstance(data, dict):
+            continue
+        required_prefix = data.get("required_prefix")
+        if required_prefix is None:
+            continue
+        pointer = f"{model_pointer}/datasets/{dataset_index}/fields/{field_index}/custom_extensions"
+        if required_prefix not in time_field_names:
+            issues.append(
+                SemanticValidationIssue(
+                    code="REQUIRED_PREFIX_FIELD_NOT_FOUND",
+                    message=(
+                        f"Time field {field_name!r} on dataset {dataset_name!r} declares "
+                        f"required_prefix '{required_prefix}', but no time field with that name "
+                        "exists on this dataset."
+                    ),
+                    json_pointer=f"{pointer}/0/data/required_prefix",
+                    hint=(
+                        "required_prefix must reference a time field (dimension.is_time=true) "
+                        "on the same dataset."
+                    ),
+                    context={
+                        "dataset": dataset_name,
+                        "field": field_name,
+                        "required_prefix": required_prefix,
+                    },
+                )
+            )
     return issues
 
 
@@ -1328,6 +1494,9 @@ def _document_field_extension_issues(document: dict[str, Any]) -> list[SemanticV
         for dataset_index, dataset in enumerate(datasets):
             if isinstance(dataset, dict):
                 issues.extend(_field_extension_issues(dataset, dataset_index, model_pointer))
+                issues.extend(
+                    _required_prefix_reference_issues(dataset, dataset_index, model_pointer)
+                )
     return issues
 
 

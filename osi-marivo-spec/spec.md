@@ -66,8 +66,11 @@ The `data` field is a JSON object. Its structure MUST conform to the MARIVO exte
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `support_min_granularity` | `time_granularities` enum | Required | Finest time granularity supported by this time field. Requests must use this granularity or a coarser one. |
+| `data_type` | `date`, `timestamp`, `string`, `integer` | Required | Physical SQL data type of this time field column. Determines how Marivo generates time predicates and analysis expressions. |
+| `format` | string | Required when `data_type` is `string` or `integer` | Temporal format pattern for string/integer time fields. Supported values: `yyyymmdd`, `yyyy-mm-dd`, `yyyymmddhh`, `yyyymmdd-hh`, `yyyy-mm-dd-hh`, `yyyymmddthh`, `hh`, `epoch_seconds`, `epoch_days`. |
+| `required_prefix` | string | Required when `format` is `hh` or `h` | Field name of the date-format time field that provides date context for this hour-only field. Must reference a time field on the same dataset. Not allowed on fields with complete date or timestamp formats. |
 
-**Semantics:** Every field with `dimension.is_time: true` MUST include exactly one MARIVO field extension. Fields that are not time dimensions MUST NOT include a MARIVO field extension. The `time_granularities` enum is ordered from finest to coarsest as `hour`, `day`, `week`, `month`, `quarter`, `year`; a field supports its declared minimum granularity and every coarser granularity.
+**Semantics:** Every field with `dimension.is_time: true` MUST include exactly one MARIVO field extension. Fields that are not time dimensions MUST NOT include a MARIVO field extension. The `time_granularities` enum is ordered from finest to coarsest as `hour`, `day`, `week`, `month`, `quarter`, `year`; a field supports its declared minimum granularity and every coarser granularity. `data_type` is required for all time fields — Marivo does not infer physical column types. When `data_type` is `string` or `integer`, `format` is required to declare how the value encodes temporal information. Hour-only fields (`format: "hh"` or `"h"`) MUST declare `required_prefix` referencing a date-format time field on the same dataset; this enables Marivo to auto-discover composite time axes (date + hour) for hour-level analysis. Fields with complete formats (`yyyymmdd`, `yyyymmddhh`, etc.) MUST NOT declare `required_prefix`.
 
 **Example:**
 
@@ -83,13 +86,38 @@ The `data` field is a JSON object. Its structure MUST conform to the MARIVO exte
   "custom_extensions": [
     {
       "vendor_name": "MARIVO",
-      "data": { "support_min_granularity": "day" }
+      "data": { "support_min_granularity": "day", "data_type": "string", "format": "yyyymmdd" }
     }
   ]
 }
 ```
 
-### 3.3 Metric Extensions
+### 3.3 Composite Time Layouts
+
+When a dataset uses separate date and hour partition columns (e.g., `log_date: YYYYMMDD` + `log_hour: HH`), both fields MUST be declared as time dimensions with `dimension.is_time: true`. The hour-only field declares its dependency on the date field via `required_prefix`:
+
+```json
+{
+  "name": "log_date",
+  "dimension": { "is_time": true },
+  "custom_extensions": [
+    { "vendor_name": "MARIVO", "data": { "support_min_granularity": "day", "data_type": "string", "format": "yyyymmdd" } }
+  ]
+},
+{
+  "name": "log_hour",
+  "dimension": { "is_time": true },
+  "custom_extensions": [
+    { "vendor_name": "MARIVO", "data": { "support_min_granularity": "hour", "data_type": "string", "format": "hh", "required_prefix": "log_date" } }
+  ]
+}
+```
+
+At day/week/month grain, Marivo uses only `log_date`. At hour grain, Marivo auto-discovers the composite pair via `required_prefix` and creates a combined timestamp expression from both columns. An hour-only field cannot be used as a standalone analysis axis without its `required_prefix` date field.
+
+**Example:** See `examples/minimal/composite-date-hour-time-fields.json`
+
+### 3.4 Metric Extensions
 
 **Payload schema:** `MarivoMetricExtension`
 
