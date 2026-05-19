@@ -55,11 +55,17 @@ information. Produce a concise failure report that names the missing or blocked 
 - Never invent Trino connection parameters that are absent from the prompt.
 - Prefer Trino SQL dialect expressions over ANSI SQL because this onepass flow is grounded in a
   Trino datasource.
-- When a time partition field such as `log_date` exists, use it as the time field unless the
+- When a time partition field such as `log_date`, `log_hour` exists, use it as the time field unless the
   knowledge base explicitly requires another time semantics.
-- Every time field must include MARIVO `support_min_granularity`; infer it from datasource metadata
-  and sampled values. Date partition fields are usually `day`; timestamp fields or proven date+hour
-  expressions may be `hour`.
+- Every time field must include MARIVO `support_min_granularity`, `data_type`, and (when required)
+  `format` and `required_prefix`. Every time field must declare `data_type`. When data_type is
+  "string" or "integer", `format` is also required. When format is "hh" or "h", `required_prefix`
+  is required. See `references/time-field-patterns.md` for the complete decision guide.
+- Infer `data_type` from the SQL column type returned by browse_columns: DATE columns are "date",
+  TIMESTAMP columns are "timestamp", VARCHAR/TEXT columns are "string", INTEGER/BIGINT columns are
+  "integer".
+- When data_type is "string" or "integer", infer `format` from preview sample values.
+  See `references/time-field-patterns.md` for the format catalog and composite pattern guide.
 - Prefer explicit time fields and carry time parsing uncertainty into the document description or
   failure report.
 - If validation cannot be repaired from the knowledge base and live metadata, fail closed instead of
