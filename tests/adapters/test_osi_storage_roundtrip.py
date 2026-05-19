@@ -1,14 +1,19 @@
-"""Phase B gate: OSI storage roundtrip preserves metric extension data."""
+"""Phase B gate: OSI storage roundtrip preserves metric and field extension data."""
 
 from __future__ import annotations
 
 import json
 
-from marivo.contracts.generated import DialectExpression, Expression, Metric
-from marivo.contracts.semantic_extensions import MarivoMetricExtension
+from marivo.contracts.generated import DialectExpression, Expression, Field, Metric
+from marivo.contracts.semantic_extensions import (
+    MarivoFieldExtension,
+    MarivoMetricExtension,
+)
 from marivo.runtime.semantic.osi_storage import (
+    _storage_to_field,
     _storage_to_metric,
     build_custom_extensions,
+    field_to_storage,
     metric_to_storage,
 )
 
@@ -101,3 +106,56 @@ def test_metric_roundtrip_without_extensions() -> None:
 
     reconstructed = _storage_to_metric(storage)
     assert reconstructed["name"] == "count_all"
+
+
+def test_field_roundtrip_preserves_required_prefix() -> None:
+    """field_to_storage -> _storage_to_field preserves required_prefix."""
+    ext = MarivoFieldExtension(
+        support_min_granularity="hour",
+        data_type="string",
+        format="hh",
+        required_prefix="log_date",
+    )
+    field = Field(
+        name="log_hour",
+        expression=Expression(
+            dialects=[DialectExpression(dialect="ANSI_SQL", expression="log_hour")]
+        ),
+        dimension={"is_time": True},
+        custom_extensions=build_custom_extensions(ext),
+    )
+
+    storage = field_to_storage(field, dataset_id=1, position=1)
+    assert storage["required_prefix"] == "log_date"
+    assert storage["format"] == "hh"
+
+    reconstructed = _storage_to_field(storage)
+    assert reconstructed["name"] == "log_hour"
+    assert reconstructed["dimension"] == {"is_time": True}
+    marivo_ext = reconstructed["custom_extensions"][0]["data"]
+    assert marivo_ext["required_prefix"] == "log_date"
+    assert marivo_ext["format"] == "hh"
+
+
+def test_field_roundtrip_without_required_prefix() -> None:
+    """Time field without required_prefix roundtrips with None."""
+    ext = MarivoFieldExtension(
+        support_min_granularity="day",
+        data_type="string",
+        format="yyyymmdd",
+    )
+    field = Field(
+        name="log_date",
+        expression=Expression(
+            dialects=[DialectExpression(dialect="ANSI_SQL", expression="log_date")]
+        ),
+        dimension={"is_time": True},
+        custom_extensions=build_custom_extensions(ext),
+    )
+
+    storage = field_to_storage(field, dataset_id=1, position=0)
+    assert storage["required_prefix"] is None
+
+    reconstructed = _storage_to_field(storage)
+    marivo_ext = reconstructed["custom_extensions"][0]["data"]
+    assert "required_prefix" not in marivo_ext

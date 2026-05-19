@@ -217,7 +217,7 @@ class DetectRunnerServiceTests(unittest.TestCase):
     def test_detect_hour_granularity_rejects_day_time_field(self) -> None:
         session_id = self._make_session()
 
-        with self.assertRaisesRegex(ValueError, "cannot satisfy requested granularity 'hour'"):
+        with self.assertRaisesRegex(ValueError, "hour-compatible"):
             self._detect(
                 session_id,
                 self.spike_metric,

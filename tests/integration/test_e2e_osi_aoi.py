@@ -49,7 +49,7 @@ def _make_model_payload() -> dict:
                         "custom_extensions": [
                             {
                                 "vendor_name": "MARIVO",
-                                "data": {"support_min_granularity": "day"},
+                                "data": {"support_min_granularity": "day", "data_type": "date"},
                             }
                         ],
                     },

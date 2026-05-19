@@ -7,7 +7,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Literal
 
-METADATA_SCHEMA_VERSION = "metadata.time_field_granularity.v1"
+METADATA_SCHEMA_VERSION = "metadata.time_field_required_prefix.v3"
 METADATA_SCHEMA_MARKER_TABLE = "metadata_schema_marker"
 
 METADATA_DDL: list[str] = [
@@ -140,7 +140,9 @@ METADATA_DDL: list[str] = [
         label        TEXT,
         description  TEXT,
         ai_context   TEXT,
-        data_type    TEXT,
+        data_type    TEXT CHECK (data_type IS NULL OR data_type IN ('date', 'timestamp', 'string', 'integer')),
+        format       TEXT,
+        required_prefix TEXT,
         support_min_granularity TEXT CHECK (
             support_min_granularity IS NULL OR support_min_granularity IN (
                 'hour', 'day', 'week', 'month', 'quarter', 'year'

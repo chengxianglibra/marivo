@@ -48,7 +48,10 @@ def _make_model_dict(name: str = "commerce") -> dict[str, Any]:
                         "custom_extensions": [
                             {
                                 "vendor_name": "MARIVO",
-                                "data": {"support_min_granularity": "hour"},
+                                "data": {
+                                    "support_min_granularity": "hour",
+                                    "data_type": "timestamp",
+                                },
                             }
                         ],
                     },

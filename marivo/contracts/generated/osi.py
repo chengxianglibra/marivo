@@ -130,6 +130,18 @@ class MarivoFieldExtension(BaseModel):
         ...,
         description="Finest time granularity supported by this time field. Requests must use this granularity or a coarser one.",
     )
+    data_type: Literal["date", "timestamp", "string", "integer"] = Field(
+        ...,
+        description="Physical SQL data type of this time field column. Required for all time fields. Marivo uses this to determine how to generate time predicates and analysis expressions.",
+    )
+    format: str | None = Field(
+        None,
+        description="Temporal format pattern for string-type and integer-type time fields. Required when data_type is 'string' or 'integer'. Examples: 'yyyymmdd', 'yyyy-mm-dd', 'yyyymmddhh', 'hh', 'epoch_seconds'. Optional for date/timestamp types.",
+    )
+    required_prefix: str | None = Field(
+        None,
+        description="Field name of the date-format time field that provides date context for this hour-only field. Required when format is 'hh' or 'h'. Must reference a time field on the same dataset. Not allowed on fields with complete date or timestamp formats.",
+    )
 
 
 class AdditiveDimension(RootModel[str]):

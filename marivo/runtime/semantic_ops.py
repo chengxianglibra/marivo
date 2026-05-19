@@ -893,10 +893,10 @@ def resolve_windowed_query_time_axis(
         request=request,
         engine_type=engine_type,
         available_columns=available_columns,
-        entity_time_capabilities=metadata_context.entity_time_capabilities,
-        source_time_capabilities=metadata_context.source_time_capabilities,
         time_field_expressions=metadata_context.time_field_expressions,
         time_field_data_types=metadata_context.time_field_data_types,
+        time_field_formats=metadata_context.time_field_formats,
+        time_field_required_prefixes=metadata_context.time_field_required_prefixes,
         time_field_support_min_granularities=(
             metadata_context.time_field_support_min_granularities
         ),
@@ -1011,7 +1011,13 @@ def build_scoped_query(
         "analysis_time_kind": request.resolved_time_axis.analysis_time_kind,
         "analysis_time_expr": analysis_time_expr,
         "analysis_time_format": request.resolved_time_axis.analysis_time_format,
+        "analysis_time_data_type": request.resolved_time_axis.analysis_time_data_type,
         "partition_pruning_predicate": request.resolved_time_axis.partition_pruning_predicate,
+        "partition_date_column": request.resolved_time_axis.partition_date_column,
+        "partition_date_format": request.resolved_time_axis.partition_date_format,
+        "partition_date_data_type": request.resolved_time_axis.partition_date_data_type,
+        "partition_hour_column": request.resolved_time_axis.partition_hour_column,
+        "partition_hour_format": request.resolved_time_axis.partition_hour_format,
         "current": {
             "start": request.time_scope.current.start,
             "end": request.time_scope.current.end,

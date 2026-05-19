@@ -37,7 +37,10 @@ def _valid_doc() -> dict:
                                 "custom_extensions": [
                                     {
                                         "vendor_name": "MARIVO",
-                                        "data": {"support_min_granularity": "hour"},
+                                        "data": {
+                                            "support_min_granularity": "hour",
+                                            "data_type": "timestamp",
+                                        },
                                     }
                                 ],
                             },
@@ -479,3 +482,153 @@ def test_validate_cross_datasource_metric_skips_joined_dry_run() -> None:
 
     assert result.valid is True
     assert not any("JOIN" in query for query in ds1_engine.queries + ds2_engine.queries)
+
+
+def _composite_time_doc(
+    *,
+    log_date_format: str = "yyyymmdd",
+    log_hour_format: str | None = None,
+    log_date_granularity: str = "day",
+    log_hour_granularity: str | None = None,
+    log_date_data_type: str = "string",
+    log_hour_data_type: str | None = None,
+    required_prefix: str | None = None,
+    extra_required_prefix: str | None = None,
+) -> dict:
+    """Build a document with composite log_date + log_hour time fields."""
+    doc: dict = {
+        "version": "0.1.1",
+        "semantic_model": [
+            {
+                "name": "commerce",
+                "datasets": [
+                    {
+                        "name": "orders",
+                        "source": "analytics.orders",
+                        "primary_key": ["order_id"],
+                        "custom_extensions": [
+                            {"vendor_name": "MARIVO", "data": {"datasource_id": "ds_001"}}
+                        ],
+                        "fields": [
+                            {
+                                "name": "order_id",
+                                "expression": {
+                                    "dialects": [{"dialect": "ANSI_SQL", "expression": "order_id"}]
+                                },
+                            },
+                            {
+                                "name": "log_date",
+                                "expression": {
+                                    "dialects": [{"dialect": "ANSI_SQL", "expression": "log_date"}]
+                                },
+                                "dimension": {"is_time": True},
+                                "custom_extensions": [
+                                    {
+                                        "vendor_name": "MARIVO",
+                                        "data": {
+                                            "support_min_granularity": log_date_granularity,
+                                            "data_type": log_date_data_type,
+                                            "format": log_date_format,
+                                            **(
+                                                {"required_prefix": extra_required_prefix}
+                                                if extra_required_prefix is not None
+                                                else {}
+                                            ),
+                                        },
+                                    }
+                                ],
+                            },
+                        ],
+                    }
+                ],
+                "metrics": [
+                    {
+                        "name": "revenue",
+                        "expression": {
+                            "dialects": [{"dialect": "ANSI_SQL", "expression": "SUM(amount)"}]
+                        },
+                        "custom_extensions": [
+                            {"vendor_name": "MARIVO", "data": {"additive_dimensions": ["__all"]}}
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+    if log_hour_format is not None:
+        doc["semantic_model"][0]["datasets"][0]["fields"].append(
+            {
+                "name": "log_hour",
+                "expression": {"dialects": [{"dialect": "ANSI_SQL", "expression": "log_hour"}]},
+                "dimension": {"is_time": True},
+                "custom_extensions": [
+                    {
+                        "vendor_name": "MARIVO",
+                        "data": {
+                            "support_min_granularity": log_hour_granularity or "hour",
+                            "data_type": log_hour_data_type or "string",
+                            "format": log_hour_format,
+                            **(
+                                {"required_prefix": required_prefix}
+                                if required_prefix is not None
+                                else {}
+                            ),
+                        },
+                    }
+                ],
+            }
+        )
+    return doc
+
+
+def test_validate_hour_only_format_with_required_prefix_is_valid() -> None:
+    """format 'hh' with required_prefix referencing a time field is valid."""
+    doc = _composite_time_doc(
+        log_hour_format="hh", log_hour_data_type="string", required_prefix="log_date"
+    )
+
+    result = OsiSemanticDocumentValidator().validate(doc)
+
+    assert result.valid is True
+    assert result.errors == []
+
+
+def test_validate_hour_only_format_without_required_prefix_is_invalid() -> None:
+    """format 'hh' without required_prefix is invalid (MISSING_REQUIRED_PREFIX)."""
+    doc = _composite_time_doc(log_hour_format="hh", log_hour_data_type="string")
+
+    result = OsiSemanticDocumentValidator().validate(doc)
+
+    assert result.valid is False
+    assert result.errors[0].code == "MISSING_REQUIRED_PREFIX"
+    assert "log_hour" in result.errors[0].message
+    assert result.errors[0].hint
+
+
+def test_validate_complete_format_with_required_prefix_is_invalid() -> None:
+    """Complete format like 'yyyymmdd' must not have required_prefix."""
+    doc = _composite_time_doc(
+        extra_required_prefix="log_hour",
+    )
+
+    result = OsiSemanticDocumentValidator().validate(doc)
+
+    assert result.valid is False
+    assert result.errors[0].code == "INVALID_REQUIRED_PREFIX_FORMAT"
+    assert "log_date" in result.errors[0].message
+
+
+def test_validate_required_prefix_references_nonexistent_field_is_invalid() -> None:
+    """required_prefix must reference a time field on the same dataset."""
+    doc = _composite_time_doc(
+        log_hour_format="hh", log_hour_data_type="string", required_prefix="missing_date"
+    )
+
+    result = OsiSemanticDocumentValidator().validate(doc)
+
+    assert result.valid is False
+    assert any(issue.code == "REQUIRED_PREFIX_FIELD_NOT_FOUND" for issue in result.errors)
+    issue = next(
+        issue for issue in result.errors if issue.code == "REQUIRED_PREFIX_FIELD_NOT_FOUND"
+    )
+    assert "missing_date" in issue.message

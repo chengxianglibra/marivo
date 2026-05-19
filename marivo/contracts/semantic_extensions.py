@@ -32,10 +32,14 @@ class MarivoDatasetExtension(BaseModel):
 
 
 TimeGranularity = Literal["hour", "day", "week", "month", "quarter", "year"]
+TimeFieldDataType = Literal["date", "timestamp", "string", "integer"]
 
 
 class MarivoFieldExtension(BaseModel):
     support_min_granularity: TimeGranularity
+    data_type: TimeFieldDataType
+    format: str | None = None
+    required_prefix: str | None = None
 
     model_config = {"extra": "forbid"}
 
