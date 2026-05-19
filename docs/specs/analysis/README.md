@@ -82,6 +82,7 @@ Evidence Engine 的目标态规范链路为：
 
 这些文档描述 typed intent 与执行面，不属于 Evidence Engine 主题本体：
 
+- [AOI v0.3 设计草案](aoi-v0.3-design.md) — artifact 抽象与标准数据操作的演进目标
 - [原子分析意图设计](intents/primitive-intent-design.md)
 - [派生分析意图设计](intents/derived-intent-design.md)
 - [`observe` Schema](intents/atomic/observe.md)
