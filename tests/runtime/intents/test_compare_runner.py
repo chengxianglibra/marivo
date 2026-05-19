@@ -206,6 +206,113 @@ def test_compare_time_series_commits_time_series_delta() -> None:
     assert result["analytical_metadata"]["pairing_rule"] == "relative_bucket_position"
 
 
+def test_compare_time_series_derives_coverage_from_source_series() -> None:
+    current = _time_series_observation(
+        "m1",
+        series=[
+            {"window": {"start": "2026-05-12", "end": "2026-05-13"}, "value": 10.0},
+            {"window": {"start": "2026-05-13", "end": "2026-05-14"}, "value": 0.0},
+            {"window": {"start": "2026-05-14", "end": "2026-05-15"}, "value": None},
+        ],
+    )
+    baseline = _time_series_observation(
+        "m1",
+        series=[
+            {"window": {"start": "2026-05-05", "end": "2026-05-06"}, "value": 8.0},
+            {"window": {"start": "2026-05-06", "end": "2026-05-07"}, "value": 1.0},
+            {"window": {"start": "2026-05-07", "end": "2026-05-08"}, "value": 2.0},
+        ],
+    )
+    runtime = _make_runtime(current, baseline)
+
+    result = _run_compare(runtime)
+
+    assert result["coverage"] == {
+        "current": {
+            "grain": "day",
+            "requested_units": 3,
+            "covered_units": 2,
+            "missing_units": ["2026-05-14"],
+        },
+        "baseline": {
+            "grain": "day",
+            "requested_units": 3,
+            "covered_units": 3,
+            "missing_units": [],
+        },
+    }
+    assert result["comparability"]["status"] == "needs_attention"
+    assert {issue["code"]: issue for issue in result["comparability"]["issues"]}[
+        "coverage_mismatch"
+    ] == {
+        "code": "coverage_mismatch",
+        "severity": "warning",
+        "message": "current and baseline time-series coverage differ",
+        "details": result["coverage"],
+    }
+
+
+def test_compare_time_series_matching_coverage_has_no_coverage_warning() -> None:
+    runtime = _make_runtime(
+        _time_series_observation("m1"),
+        _time_series_observation("m1"),
+    )
+
+    result = _run_compare(runtime)
+
+    assert result["coverage"] == {
+        "current": {
+            "grain": "day",
+            "requested_units": 2,
+            "covered_units": 2,
+            "missing_units": [],
+        },
+        "baseline": {
+            "grain": "day",
+            "requested_units": 2,
+            "covered_units": 2,
+            "missing_units": [],
+        },
+    }
+    assert result["comparability"] == {"status": "comparable", "issues": []}
+
+
+def test_compare_time_series_matching_relative_coverage_ignores_absolute_missing_dates() -> None:
+    current = _time_series_observation(
+        "m1",
+        series=[
+            {"window": {"start": "2026-05-12", "end": "2026-05-13"}, "value": 10.0},
+            {"window": {"start": "2026-05-13", "end": "2026-05-14"}, "value": None},
+        ],
+    )
+    baseline = _time_series_observation(
+        "m1",
+        series=[
+            {"window": {"start": "2026-05-05", "end": "2026-05-06"}, "value": 8.0},
+            {"window": {"start": "2026-05-06", "end": "2026-05-07"}, "value": None},
+        ],
+    )
+    runtime = _make_runtime(current, baseline)
+
+    result = _run_compare(runtime)
+
+    assert result["coverage"] == {
+        "current": {
+            "grain": "day",
+            "requested_units": 2,
+            "covered_units": 1,
+            "missing_units": ["2026-05-13"],
+        },
+        "baseline": {
+            "grain": "day",
+            "requested_units": 2,
+            "covered_units": 1,
+            "missing_units": ["2026-05-06"],
+        },
+    }
+    assert result["comparability"] == {"status": "comparable", "issues": []}
+
+
 def test_compare_segmented_commits_segmented_delta() -> None:
     right = _segmented_observation("m1")
     right["segments"] = [
@@ -218,6 +325,7 @@ def test_compare_segmented_commits_segmented_delta() -> None:
     result = _run_compare(runtime)
 
     assert result["comparison_type"] == "segmented_delta"
+    assert "coverage" not in result
     assert result["scope_absolute_delta"] == 40.0
     assert result["lineage"]["compare_type"] == "normal"
     assert {row["presence"] for row in result["rows"]} == {"both", "current_only", "baseline_only"}

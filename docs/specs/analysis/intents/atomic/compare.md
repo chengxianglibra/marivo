@@ -35,4 +35,32 @@ compare artifact metadata 记录：
 - bucket pairing
 - holiday 模式下解析到的 calendar source/version
 
-右侧 observation 未覆盖的 baseline bucket 以 `baseline_value = null` 和 coverage issue 表达。
+`time_series_delta` artifact 额外暴露左右两侧 source series 派生出的最小 coverage
+事实：
+
+```json
+{
+  "coverage": {
+    "current": {
+      "grain": "day",
+      "requested_units": 7,
+      "covered_units": 6,
+      "missing_units": ["2026-05-18"]
+    },
+    "baseline": {
+      "grain": "day",
+      "requested_units": 7,
+      "covered_units": 7,
+      "missing_units": []
+    }
+  }
+}
+```
+
+其中 `requested_units = len(series)`，`covered_units` 只统计 `value is not null`
+的 bucket，`missing_units` 来自缺失 bucket 的 `window.start`。`value = 0` 是有效
+观测值，不视为缺失。若 current/baseline 的相对 coverage 形态不一致（grain、
+requested / covered unit 数或缺失 bucket 的相对位置不同），`comparability.status`
+变为 `needs_attention` 并追加 `coverage_mismatch` warning；绝对缺失日期不同但相对
+缺失位置一致时不单独降级。compare 仍产出结果，不自动改写时间窗口或判断完整周 /
+当天是否应排除。
