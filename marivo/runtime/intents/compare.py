@@ -64,6 +64,36 @@ def _coverage_ratio_value(summary: Any) -> float | None:
     return float(value)
 
 
+def _coverage_unit_from_row(row: dict[str, Any], *, grain: str) -> str:
+    start = _window_start(row, label="series.window")
+    if grain == "day":
+        return start[:10]
+    return start
+
+
+def _time_series_coverage_facts(artifact: dict[str, Any]) -> dict[str, Any]:
+    grain = str(artifact.get("granularity") or "")
+    series: list[dict[str, Any]] = artifact.get("series") or []
+    missing_units = [
+        _coverage_unit_from_row(row, grain=grain) for row in series if row.get("value") is None
+    ]
+    return {
+        "grain": grain,
+        "requested_units": len(series),
+        "covered_units": len(series) - len(missing_units),
+        "missing_units": missing_units,
+    }
+
+
+def _time_series_coverage_signature(
+    artifact: dict[str, Any],
+) -> tuple[str, int, int, tuple[int, ...]]:
+    grain = str(artifact.get("granularity") or "")
+    series: list[dict[str, Any]] = artifact.get("series") or []
+    missing_indexes = tuple(index for index, row in enumerate(series) if row.get("value") is None)
+    return (grain, len(series), len(series) - len(missing_indexes), missing_indexes)
+
+
 def _require_mapping(value: Any, *, label: str) -> Mapping[str, Any]:
     if not isinstance(value, Mapping):
         raise ValueError(f"compare: INVALID_ARGUMENT - {label} must be an object")
@@ -701,10 +731,31 @@ def run_compare_intent(
                     }
                 )
 
+        coverage = {
+            "current": _time_series_coverage_facts(left_artifact),
+            "baseline": _time_series_coverage_facts(right_artifact),
+        }
+        if _time_series_coverage_signature(left_artifact) != _time_series_coverage_signature(
+            right_artifact
+        ):
+            comparability["status"] = "needs_attention"
+            if not any(
+                issue.get("code") == "coverage_mismatch" for issue in comparability["issues"]
+            ):
+                comparability["issues"].append(
+                    {
+                        "code": "coverage_mismatch",
+                        "severity": "warning",
+                        "message": "current and baseline time-series coverage differ",
+                        "details": coverage,
+                    }
+                )
+
         artifact = {
             **base,
             "comparison_type": "time_series_delta",
             "granularity": granularity,
+            "coverage": coverage,
             "rows": time_series_rows,
             "summary_current_value": summary_current_value,
             "summary_baseline_value": summary_baseline_value,
