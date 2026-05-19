@@ -138,6 +138,18 @@ class FakeRuntime:
     def get_session(self, **kw):
         return {}
 
+    def get_session_trace(self, **kw):
+        return {
+            "session_id": kw["session_id"],
+            "goal": None,
+            "lifecycle_status": "active",
+            "created_at": "2026-05-18T00:00:00+00:00",
+            "updated_at": "2026-05-18T00:00:00+00:00",
+            "steps": [],
+            "artifact_ids": [],
+            "schema_version": "session_trace.v1",
+        }
+
     def terminate_session(self, **kw):
         return {}
 
@@ -354,6 +366,24 @@ def test_terminate_session_tool_resolves_actor_from_current_user() -> None:
         "terminal_reason": "analysis_complete",
     }
     assert "actor" not in tool.parameters["properties"]
+
+
+def test_session_trace_tool_is_registered_in_both_modes() -> None:
+    stdio_server = FastMCP("test-stdio")
+    http_server = FastMCP("test-http", stateless_http=True, json_response=True)
+    register_tools(stdio_server, FakeRuntime(), transport="stdio")
+    register_tools(http_server, FakeRuntime(), transport="http")
+
+    stdio_tools = {tool.name: tool for tool in stdio_server._tool_manager.list_tools()}
+    http_tools = {tool.name: tool for tool in http_server._tool_manager.list_tools()}
+
+    assert "get_session_trace" in stdio_tools
+    assert "get_session_trace" in http_tools
+
+    for tools in (stdio_tools, http_tools):
+        trace_tool = tools["get_session_trace"]
+        assert set(trace_tool.parameters["properties"]) == {"session_id"}
+        assert trace_tool.parameters["required"] == ["session_id"]
 
 
 def test_delete_semantic_model_tool_schema_is_model_only() -> None:

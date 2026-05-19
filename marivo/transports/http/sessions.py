@@ -35,6 +35,7 @@ from marivo.transports.http.models import (
     SessionStateView,
     SessionTerminateRequest,
     SessionTerminateResponse,
+    SessionTraceView,
     TestResponse,
     ValidateResponse,
 )
@@ -147,6 +148,34 @@ def get_session(session_id: str, request: Request) -> SessionDetailResponse:
         return SessionDetailResponse.model_validate(_session_state_to_api_dict(result))
     except (KeyError, NotFoundError) as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
+
+
+@router.get(
+    "/sessions/{session_id}/trace",
+    response_model=SessionTraceView,
+)
+def get_session_trace(session_id: str, request: Request) -> SessionTraceView:
+    try:
+        from marivo.identity import require_user
+
+        actor = UserId(require_user())
+        result = get_services(request).runtime.get_session_trace(
+            SessionId(session_id),
+            actor=actor,
+        )
+        return SessionTraceView.model_validate(result)
+    except (KeyError, NotFoundError) as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except ForbiddenError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+    except RuntimeError as error:
+        if "User identity not set" in str(error):
+            raise HTTPException(status_code=401, detail=str(error)) from error
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except ValueError as error:
+        if "user_required" in str(error):
+            raise HTTPException(status_code=401, detail=str(error)) from error
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 @router.get(

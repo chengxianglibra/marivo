@@ -11,10 +11,11 @@ from marivo.contracts.ids import (
     ModelId,
     ResourceId,
     SessionId,
+    StepId,
     UserId,
 )
 from marivo.contracts.semantic import ModelSummary, SemanticModel
-from marivo.contracts.session import SessionEvent, SessionState
+from marivo.contracts.session import SessionEvent, SessionState, Step
 from marivo.contracts.values import (
     AuditEntry,
     AuthZDecision,
@@ -190,12 +191,59 @@ class StubStepStore:
         return []
 
 
-def _make_runtime(session_store: RecordingSessionStore | None = None) -> MarivoRuntime:
+class RecordingStepStore(StubStepStore):
+    def __init__(self, steps: list[Step]):
+        self.steps = steps
+
+    def list_steps(self, session_id):
+        return [step for step in self.steps if step.session_id == session_id]
+
+
+class RecordingArtifactStore(StubArtifactStore):
+    def __init__(
+        self,
+        artifact_ids_by_step: dict[tuple[str, str], str | None] | None = None,
+        artifacts_by_session: dict[str, list[dict[str, object]]] | None = None,
+        failing_steps: set[tuple[str, str]] | None = None,
+    ):
+        self.artifact_ids_by_step = artifact_ids_by_step or {}
+        self.artifacts_by_session = artifacts_by_session or {}
+        self.failing_steps = failing_steps or set()
+
+    def resolve_artifact_id_for_step(self, session_id, step_id):
+        key = (str(session_id), str(step_id))
+        if key in self.failing_steps:
+            raise RuntimeError("artifact index unavailable")
+        return self.artifact_ids_by_step.get(key)
+
+    def list_artifacts(self, session_id):
+        return self.artifacts_by_session.get(str(session_id), [])
+
+
+class RuntimeFixture:
+    def __init__(self, runtime: MarivoRuntime, store: RecordingSessionStore):
+        self.runtime = runtime
+        self.store = store
+
+    def __iter__(self):
+        yield self.runtime
+        yield self.store
+
+    def __getattr__(self, name: str):
+        return getattr(self.runtime, name)
+
+
+def _make_runtime(
+    session_store=None,
+    step_store=None,
+    artifact_store=None,
+):
     from marivo.runtime.ports import RuntimePorts
 
+    store = session_store or RecordingSessionStore()
     ports = RuntimePorts(
         model_store=StubModelStore(),
-        session_store=session_store or RecordingSessionStore(),
+        session_store=store,
         evidence_store=StubEvidenceStore(),
         data_source=StubDataSource(),
         cache_store=StubCacheStore(),
@@ -203,14 +251,45 @@ def _make_runtime(session_store: RecordingSessionStore | None = None) -> MarivoR
         audit_log=StubAuditLog(),
         telemetry=StubTelemetry(),
         runtime_config=StubRuntimeConfig(),
-        artifact_store=StubArtifactStore(),
-        step_store=StubStepStore(),
+        artifact_store=artifact_store or StubArtifactStore(),
+        step_store=step_store or StubStepStore(),
     )
     core = CoreEngine()
     rt = MarivoRuntime(ports=ports, core=core)
     # Session lifecycle tests don't need svc; intent dispatch tests
     # wire it separately.
-    return rt
+    return RuntimeFixture(rt, store)
+
+
+def _session_created_event(session_id: str = "sess_trace") -> SessionEvent:
+    return SessionEvent(
+        session_id=SessionId(session_id),
+        event_type="session_created",
+        timestamp="2026-05-18T00:00:00+00:00",
+        payload={"goal": "Explain revenue change"},
+        actor=UserId("alice"),
+    )
+
+
+def _step(
+    step_id: str,
+    *,
+    created_at: str,
+    result: dict[str, object] | None = None,
+    provenance: dict[str, object] | None = None,
+    semantic_metadata: dict[str, object] | None = None,
+    session_id: str = "sess_trace",
+) -> Step:
+    return Step(
+        step_id=StepId(step_id),
+        session_id=SessionId(session_id),
+        step_type="observe",
+        summary=f"ran {step_id}",
+        result=result or {},
+        provenance=provenance,
+        semantic_metadata=semantic_metadata,
+        created_at=created_at,
+    )
 
 
 # --- Session lifecycle tests (ports-based) ---
@@ -287,11 +366,190 @@ def test_terminate_session_resolves_current_user_when_actor_omitted() -> None:
 
 
 def test_get_session_returns_rebuilt_state() -> None:
-    rt = _make_runtime()
+    rt, _ = _make_runtime()
     state = rt.create_session("Test goal", actor=UserId("test-user"))
     rt.terminate_session(state.session_id, actor=UserId("test-user"))
     fetched = rt.get_session(state.session_id)
     assert fetched.status == "terminated"
+
+
+def test_get_session_trace_returns_empty_trace_for_session_without_steps() -> None:
+    session_store = RecordingSessionStore()
+    session_store.append_event(SessionId("sess_trace"), _session_created_event())
+    runtime, _ = _make_runtime(session_store=session_store)
+
+    trace = runtime.get_session_trace(SessionId("sess_trace"))
+
+    assert trace == {
+        "session_id": "sess_trace",
+        "goal": "Explain revenue change",
+        "lifecycle_status": "active",
+        "created_at": "2026-05-18T00:00:00+00:00",
+        "updated_at": "2026-05-18T00:00:00+00:00",
+        "steps": [],
+        "artifact_ids": [],
+        "schema_version": "session_trace.v1",
+    }
+
+
+def test_get_session_trace_sorts_steps_and_dedupes_artifact_ids() -> None:
+    session_store = RecordingSessionStore()
+    session_store.append_event(SessionId("sess_trace"), _session_created_event())
+    step_store = RecordingStepStore(
+        [
+            _step("step_b", created_at="2026-05-18T00:03:00+00:00"),
+            _step("step_a2", created_at="2026-05-18T00:01:00+00:00"),
+            _step("step_a1", created_at="2026-05-18T00:01:00+00:00"),
+        ]
+    )
+    artifact_store = RecordingArtifactStore(
+        artifact_ids_by_step={
+            ("sess_trace", "step_a1"): "art_1",
+            ("sess_trace", "step_a2"): "art_1",
+            ("sess_trace", "step_b"): "art_2",
+        }
+    )
+    runtime, _ = _make_runtime(
+        session_store=session_store,
+        step_store=step_store,
+        artifact_store=artifact_store,
+    )
+
+    trace = runtime.get_session_trace(SessionId("sess_trace"))
+
+    assert [step["step_id"] for step in trace["steps"]] == ["step_a1", "step_a2", "step_b"]
+    assert trace["artifact_ids"] == ["art_1", "art_2"]
+
+
+def test_get_session_trace_prefers_result_artifact_id_over_fallback() -> None:
+    session_store = RecordingSessionStore()
+    session_store.append_event(SessionId("sess_trace"), _session_created_event())
+    step_store = RecordingStepStore(
+        [
+            _step(
+                "step_1",
+                created_at="2026-05-18T00:01:00+00:00",
+                result={"artifact_id": "art_from_result", "row_count": 10},
+            )
+        ]
+    )
+    artifact_store = RecordingArtifactStore(
+        artifact_ids_by_step={("sess_trace", "step_1"): "art_from_fallback"}
+    )
+    runtime, _ = _make_runtime(
+        session_store=session_store,
+        step_store=step_store,
+        artifact_store=artifact_store,
+    )
+
+    trace = runtime.get_session_trace(SessionId("sess_trace"))
+
+    assert trace["steps"][0]["artifact_id"] == "art_from_result"
+    assert trace["artifact_ids"] == ["art_from_result"]
+
+
+def test_get_session_trace_falls_back_to_artifact_store_and_warns_per_step_on_failure() -> None:
+    session_store = RecordingSessionStore()
+    session_store.append_event(SessionId("sess_trace"), _session_created_event())
+    step_store = RecordingStepStore(
+        [
+            _step("step_ok", created_at="2026-05-18T00:01:00+00:00"),
+            _step("step_bad", created_at="2026-05-18T00:02:00+00:00"),
+        ]
+    )
+    artifact_store = RecordingArtifactStore(
+        artifact_ids_by_step={("sess_trace", "step_ok"): "art_ok"},
+        failing_steps={("sess_trace", "step_bad")},
+    )
+    runtime, _ = _make_runtime(
+        session_store=session_store,
+        step_store=step_store,
+        artifact_store=artifact_store,
+    )
+
+    trace = runtime.get_session_trace(SessionId("sess_trace"))
+
+    assert trace["steps"][0]["artifact_id"] == "art_ok"
+    assert {
+        "code": "provenance_missing",
+        "message": "Step provenance is unavailable.",
+        "field": "provenance",
+    } in trace["steps"][0]["warnings"]
+    assert trace["steps"][1]["artifact_id"] is None
+    assert {
+        "code": "artifact_id_unresolved",
+        "message": "Artifact id could not be resolved for this step.",
+        "field": "artifact_id",
+    } in trace["steps"][1]["warnings"]
+    assert trace["artifact_ids"] == ["art_ok"]
+
+
+def test_get_session_trace_output_summary_uses_deterministic_whitelist() -> None:
+    session_store = RecordingSessionStore()
+    session_store.append_event(SessionId("sess_trace"), _session_created_event())
+    step_store = RecordingStepStore(
+        [
+            _step(
+                "step_1",
+                created_at="2026-05-18T00:01:00+00:00",
+                result={
+                    "intent_type": "observe",
+                    "status": "success",
+                    "artifact_type": "observation",
+                    "row_count": 3,
+                    "candidate_count": 2,
+                    "rows": [{"region": "US", "revenue": 100}],
+                    "large_payload": {"nested": "value"},
+                },
+                provenance={"runner": "observe"},
+                semantic_metadata={"metric": "revenue"},
+            )
+        ]
+    )
+    runtime, _ = _make_runtime(
+        session_store=session_store,
+        step_store=step_store,
+        artifact_store=RecordingArtifactStore(
+            artifact_ids_by_step={("sess_trace", "step_1"): "art_1"}
+        ),
+    )
+
+    trace = runtime.get_session_trace(SessionId("sess_trace"))
+
+    assert trace["steps"][0]["output_summary"] == {
+        "intent_type": "observe",
+        "status": "success",
+        "artifact_type": "observation",
+        "row_count": 3,
+        "candidate_count": 2,
+    }
+    assert trace["steps"][0]["warnings"] == []
+    assert trace["steps"][0]["provenance"] == {"runner": "observe"}
+    assert trace["steps"][0]["semantic_metadata"] == {"metric": "revenue"}
+
+
+def test_get_session_trace_warns_when_output_summary_is_unavailable() -> None:
+    session_store = RecordingSessionStore()
+    session_store.append_event(SessionId("sess_trace"), _session_created_event())
+    step_store = RecordingStepStore(
+        [
+            _step(
+                "step_1",
+                created_at="2026-05-18T00:01:00+00:00",
+                result={"rows": [{"region": "US"}]},
+            )
+        ]
+    )
+    runtime, _ = _make_runtime(session_store=session_store, step_store=step_store)
+
+    trace = runtime.get_session_trace(SessionId("sess_trace"))
+
+    assert trace["steps"][0]["output_summary"] is None
+    assert {
+        "code": "output_summary_unavailable",
+        "message": "No whitelisted scalar output summary fields are available.",
+        "field": "output_summary",
+    } in trace["steps"][0]["warnings"]
 
 
 # --- Semantic model ops tests ---

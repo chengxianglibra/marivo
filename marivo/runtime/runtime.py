@@ -374,6 +374,14 @@ class MarivoRuntime:
         """Return the canonical SessionStateView for a session."""
         return session_ops.get_session_state_view(self, session_id, query)
 
+    def get_session_trace(
+        self,
+        session_id: SessionId,
+        actor: UserId | None = None,
+    ) -> dict[str, Any]:
+        """Return the agent-facing session trace view."""
+        return session_ops.get_session_trace(self, session_id, actor=actor)
+
     def get_session_runtime_status(self, session_id: SessionId) -> dict[str, Any]:
         """Return session-level operator runtime status."""
         return session_ops.get_session_runtime_status(self, session_id)
