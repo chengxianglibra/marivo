@@ -132,7 +132,10 @@ def _p_value_from_t(t: float, df: float, alternative: str) -> float:
 
 
 def run_test_intent(
-    runtime: MarivoRuntime, session_id: str, params: dict[str, Any] | None
+    runtime: MarivoRuntime,
+    session_id: str,
+    params: dict[str, Any] | None,
+    reasoning: str | None = None,
 ) -> dict[str, Any]:
     """Source-type test intent per AOI.
 
@@ -424,6 +427,26 @@ def run_test_intent(
         "grain": grain,
         "param_count": 0,
     }
+    sql_texts: list[dict[str, str | float]] = []
+    if baseline_ss.sql and baseline_ss.engine_type:
+        _entry: dict[str, str | float] = {
+            "sql": baseline_ss.sql,
+            "engine_type": baseline_ss.engine_type,
+            "label": "baseline_query",
+        }
+        if baseline_ss.elapsed_ms is not None:
+            _entry["elapsed_ms"] = baseline_ss.elapsed_ms
+        sql_texts.append(_entry)
+    if current_ss.sql and current_ss.engine_type:
+        _entry2: dict[str, str | float] = {
+            "sql": current_ss.sql,
+            "engine_type": current_ss.engine_type,
+            "label": "current_query",
+        }
+        if current_ss.elapsed_ms is not None:
+            _entry2["elapsed_ms"] = current_ss.elapsed_ms
+        sql_texts.append(_entry2)
+
     result = commit_step_result(
         runtime,
         session_id,
@@ -434,6 +457,8 @@ def run_test_intent(
         artifact,
         summary,
         provenance=provenance,
+        reasoning=reasoning,
+        sql_texts=sql_texts or None,
     )
     return result
 

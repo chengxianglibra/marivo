@@ -129,7 +129,15 @@ def extract_predicate_filter_lineage(compiled_query: Any) -> dict[str, Any] | No
 class SampleSummary:
     """Result of computing numeric sample summary statistics for one slice."""
 
-    __slots__ = ("mean", "n", "predicate_filter_lineage", "standard_deviation")
+    __slots__ = (
+        "elapsed_ms",
+        "engine_type",
+        "mean",
+        "n",
+        "predicate_filter_lineage",
+        "sql",
+        "standard_deviation",
+    )
 
     def __init__(
         self,
@@ -137,11 +145,17 @@ class SampleSummary:
         mean: float | None,
         standard_deviation: float | None,
         predicate_filter_lineage: dict[str, Any] | None,
+        sql: str | None = None,
+        engine_type: str | None = None,
+        elapsed_ms: float | None = None,
     ) -> None:
         self.n = n
         self.mean = mean
         self.standard_deviation = standard_deviation
         self.predicate_filter_lineage = predicate_filter_lineage
+        self.sql = sql
+        self.engine_type = engine_type
+        self.elapsed_ms = elapsed_ms
 
 
 def _coerce_optional_float(value: Any) -> float | None:
@@ -290,7 +304,8 @@ def compute_numeric_sample_summary(
         },
         ir_bundle=compiled_bucket_query.ir_bundle,
     )
-    rows = list(execute_compiled(engine, summary_query, session_id=session_id).rows)
+    _exec_result = execute_compiled(engine, summary_query, session_id=session_id)
+    rows = list(_exec_result.rows)
     row = rows[0] if rows else {}
 
     n_val = _coerce_optional_int(row.get("n"))
@@ -302,6 +317,9 @@ def compute_numeric_sample_summary(
         mean=mean_val,
         standard_deviation=stddev_val,
         predicate_filter_lineage=predicate_filter_lineage,
+        sql=summary_query.sql,
+        engine_type=engine_type,
+        elapsed_ms=getattr(_exec_result, "metadata", {}).get("elapsed_ms"),
     )
 
 
@@ -316,6 +334,8 @@ def commit_step_result(
     summary: str,
     provenance: dict[str, Any] | None = None,
     semantic_metadata: dict[str, Any] | None = None,
+    reasoning: str | None = None,
+    sql_texts: list[dict[str, str | float]] | None = None,
 ) -> dict[str, Any]:
     """Commit an artifact and insert a step record.
 
@@ -356,6 +376,8 @@ def commit_step_result(
         result,
         provenance=provenance,
         semantic_metadata=semantic_metadata,
+        reasoning=reasoning,
+        sql_texts=sql_texts,
     )
 
     return result
@@ -403,6 +425,8 @@ def commit_aoi_artifact_result(
     provenance: dict[str, Any] | None = None,
     product_metadata: dict[str, Any] | None = None,
     semantic_metadata: dict[str, Any] | None = None,
+    reasoning: str | None = None,
+    sql_texts: list[dict[str, str | float]] | None = None,
 ) -> ExecutionEnvelope:
     """Commit a canonical AOI artifact and return an execution envelope."""
     canonical_artifact = artifact_to_envelope_result(validate_aoi_artifact(artifact_payload))
@@ -446,6 +470,8 @@ def commit_aoi_artifact_result(
         envelope.model_dump(),
         provenance=provenance,
         semantic_metadata=semantic_metadata,
+        reasoning=reasoning,
+        sql_texts=sql_texts,
     )
 
     return envelope

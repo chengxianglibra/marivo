@@ -61,7 +61,10 @@ def _spearman_correlation(x: list[float], y: list[float]) -> float:
 
 
 def run_correlate_intent(
-    runtime: MarivoRuntime, session_id: str, params: dict[str, Any] | None
+    runtime: MarivoRuntime,
+    session_id: str,
+    params: dict[str, Any] | None,
+    reasoning: str | None = None,
 ) -> dict[str, Any]:
     """Execute a `correlate` intent: estimate pairwise statistical association.
 
@@ -366,6 +369,7 @@ def run_correlate_intent(
         artifact,
         summary,
         provenance=provenance,
+        reasoning=reasoning,
     )
     return result
 

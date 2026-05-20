@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Marivo Analysis Report — {{ report.session_id }}</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; color: #1a1a1a; line-height: 1.6; }
+  h1 { border-bottom: 2px solid #2563eb; padding-bottom: 8px; }
+  h2 { border-bottom: 1px solid #e5e7eb; padding-bottom: 6px; margin-top: 40px; color: #374151; }
+  h3 { margin-top: 24px; color: #4b5563; }
+  h4 { margin-top: 16px; color: #6b7280; font-size: 14px; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 14px; }
+  th, td { border: 1px solid #d1d5db; padding: 8px 12px; text-align: left; }
+  th { background: #f3f4f6; font-weight: 600; }
+  tr:nth-child(even) { background: #f9fafb; }
+  .tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 500; }
+  .tag-observe { background: #dbeafe; color: #1e40af; }
+  .tag-compare { background: #fef3c7; color: #92400e; }
+  .tag-detect { background: #fce7f3; color: #9d174d; }
+  .tag-decompose { background: #d1fae5; color: #065f46; }
+  .tag-correlate { background: #e0e7ff; color: #3730a3; }
+  .tag-forecast { background: #fae8ff; color: #7e22ce; }
+  .tag-test { background: #f0fdf4; color: #166534; }
+  .tag-validate { background: #f0f9ff; color: #075985; }
+  .tag-attribute { background: #fff7ed; color: #9a3412; }
+  .tag-diagnose { background: #fef2f2; color: #991b1b; }
+  .tag-default { background: #f3f4f6; color: #374151; }
+  .status-supported { color: #16a34a; font-weight: 600; }
+  .status-contradicted { color: #dc2626; font-weight: 600; }
+  .status-mixed { color: #d97706; font-weight: 600; }
+  .status-insufficient { color: #9ca3af; }
+  .confidence-very_high { background: #dcfce7; }
+  .confidence-high { background: #d1fae5; }
+  .confidence-medium { background: #fef3c7; }
+  .confidence-low { background: #fee2e2; }
+  .confidence-very_low { background: #fecaca; }
+
+  /* Mermaid DAG */
+  .dag-section { margin: 16px 0; }
+  .dag-section .mermaid { max-width: 100%; }
+
+  /* SQL */
+  .sql-section { margin: 8px 0; }
+  .sql-label { font-size: 12px; color: #64748b; margin-bottom: 4px; font-weight: 600; }
+  .sql-block { background: #1e293b; color: #e2e8f0; padding: 16px; border-radius: 6px; overflow-x: auto; font-family: "SF Mono", "Fira Code", monospace; font-size: 13px; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word; }
+
+  /* Reasoning */
+  .reasoning { background: #eff6ff; border-left: 4px solid #2563eb; padding: 10px 16px; margin: 8px 0; border-radius: 0 4px 4px 0; }
+
+  /* Warning */
+  .warning { background: #fef3c7; border-left: 4px solid #f59e0b; padding: 8px 12px; margin: 4px 0; border-radius: 0 4px 4px 0; font-size: 13px; }
+
+  /* Generic */
+  details { margin: 8px 0; }
+  summary { cursor: pointer; padding: 6px 0; color: #2563eb; font-weight: 500; }
+  summary:hover { text-decoration: underline; }
+  .meta { color: #6b7280; font-size: 13px; }
+  .payload-json { background: #f8fafc; border: 1px solid #e2e8f0; padding: 12px; border-radius: 4px; font-family: "SF Mono", monospace; font-size: 12px; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word; max-height: 400px; overflow-y: auto; }
+
+  /* Executive summary */
+  .exec-summary { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin: 16px 0; }
+  .summary-goal { font-size: 16px; }
+  .summary-conclusion { font-size: 15px; color: #1e40af; font-weight: 500; margin: 8px 0; }
+  .key-finding-card { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 6px; padding: 12px; margin: 8px 0; }
+
+  /* Phase groups */
+  .phase-group { margin: 24px 0; }
+  .phase-header { background: #f1f5f9; border-left: 4px solid #2563eb; padding: 8px 16px; margin: 0; border-radius: 4px; }
+  .phase-description { color: #64748b; font-size: 13px; margin: 4px 0 16px 0; }
+
+  /* Step cards */
+  .step-card { border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px; margin: 16px 0; }
+  .step-header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+  .step-number { background: #2563eb; color: white; border-radius: 50%; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 600; flex-shrink: 0; }
+  .step-card.step-compare { border-left: 4px solid #f59e0b; background: #fffbeb; }
+  .step-card.step-decompose { border-left: 4px solid #10b981; background: #ecfdf5; }
+  .step-card.step-detect { border-left: 4px solid #ec4899; background: #fdf2f8; }
+  .step-card.step-diagnose { border-left: 4px solid #ef4444; background: #fef2f2; }
+  .step-card.step-attribute { border-left: 4px solid #f97316; background: #fff7ed; }
+  .step-card.step-test { border-left: 4px solid #22c55e; background: #f0fdf4; }
+  .step-card.step-validate { border-left: 4px solid #0ea5e9; background: #f0f9ff; }
+  .step-card.step-forecast { border-left: 4px solid #a855f7; background: #fae8ff; }
+  .step-card.step-correlate { border-left: 4px solid #6366f1; background: #e0e7ff; }
+
+  /* Output summary inline */
+  .output-summary { display: flex; align-items: center; gap: 8px; margin: 4px 0 8px 0; font-size: 13px; }
+
+  /* Result tables */
+  .result-table { margin: 8px 0; }
+  .result-table td { font-size: 14px; }
+  .result-table th { width: 40%; }
+
+  /* Proposition cards */
+  .proposition-card { border: 1px solid #d1d5db; border-radius: 8px; padding: 16px; margin: 12px 0; }
+  .prop-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .prop-header strong { font-size: 15px; }
+
+  /* Findings */
+  .findings-section { margin: 8px 0; padding: 8px; border-radius: 4px; }
+  .findings-supporting { background: #f0fdf4; }
+  .findings-opposing { background: #fef2f2; }
+  .finding-item { padding: 4px 0; font-size: 14px; }
+
+  /* Rationale */
+  .rationale { background: #f8fafc; border-left: 3px solid #94a3b8; padding: 8px 12px; margin: 8px 0; font-size: 14px; }
+
+  /* Gaps */
+  .gaps-section { margin: 8px 0; }
+  .gap-item { padding: 4px 8px; margin: 2px 0; border-radius: 4px; font-size: 13px; }
+  .gap-blocking { background: #fee2e2; color: #991b1b; }
+  .gap-non_blocking { background: #fef3c7; color: #92400e; }
+  .gap-resolved { background: #dcfce7; color: #166534; }
+
+  footer { margin-top: 60px; padding-top: 16px; border-top: 1px solid #e5e7eb; color: #9ca3af; font-size: 13px; }
+</style>
+</head>
+<body>
+
+<h1>Marivo Analysis Report</h1>
+
+<section>
+  <table>
+    <tr><th>Session ID</th><td>{{ report.session_id }}</td></tr>
+    <tr><th>Goal</th><td>{{ report.goal or "—" }}</td></tr>
+    <tr><th>Status</th><td>{{ report.lifecycle_status }}</td></tr>
+    <tr><th>Created</th><td>{{ report.created_at }}</td></tr>
+    <tr><th>Updated</th><td>{{ report.updated_at }}</td></tr>
+    <tr><th>Steps</th><td>{{ report.steps | length }}</td></tr>
+    <tr><th>Propositions</th><td>{{ report.propositions | length }}</td></tr>
+  </table>
+</section>
+
+{% if report.semantic_models %}
+<section>
+  <h2>Semantic Models</h2>
+  <table>
+    <tr><th>Model</th><th>Description</th><th>Metrics</th></tr>
+    {% for model in report.semantic_models %}
+    <tr>
+      <td>{{ model.name }}</td>
+      <td>{{ model.get("description", "—") }}</td>
+      <td>{{ model.get("metric_count", 0) }}{% if model.get("metric_names") %} ({{ model.metric_names | join(", ") }}{% if model.metric_count > 10 %}...{% endif %}){% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</section>
+{% endif %}
+
+{% if report.executive_summary %}
+<section>
+  <h2>Executive Summary</h2>
+  <div class="exec-summary">
+    <p class="summary-goal"><strong>Analysis Goal:</strong> {{ report.executive_summary.goal or report.goal or "—" }}</p>
+    <p class="summary-conclusion"><strong>Overall Conclusion:</strong> {{ report.executive_summary.overall_conclusion }}</p>
+
+    {% if report.executive_summary.metrics_examined %}
+    <p><strong>Metrics Examined:</strong> {{ report.executive_summary.metrics_examined | join(", ") }}</p>
+    {% endif %}
+
+    <table>
+      <tr><th>Analysis Phase</th><th>Steps</th></tr>
+      {% for phase_key, count in report.executive_summary.phase_counts.items() %}
+      <tr>
+        <td>{{ phases.get(phase_key, {}).get("label", phase_key) }}</td>
+        <td>{{ count }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+
+    {% if report.executive_summary.key_findings %}
+    <h3>Key Findings</h3>
+    {% for finding in report.executive_summary.key_findings %}
+    <div class="key-finding-card">
+      <span class="tag tag-{{ finding.type }}">{{ finding.type }}</span>
+      <strong>{{ finding.subject }}</strong>
+      <span class="tag confidence-{{ finding.confidence }}">{{ finding.confidence }} confidence</span>
+      {% if finding.rationale %}<p class="meta">{{ finding.rationale }}</p>{% endif %}
+    </div>
+    {% endfor %}
+    {% endif %}
+  </div>
+</section>
+{% endif %}
+
+
+{# ----------------------------------------------------------------------- #}
+{# Artifact rendering macros                                                #}
+{# ----------------------------------------------------------------------- #}
+
+{% macro render_artifact_table(artifact_type, payload) %}
+{% set content = payload.get("result") or payload.get("content") or payload %}
+{% if artifact_type == "observation" or content.get("artifact_type") == "observation" or content.get("observation_type") %}
+  {% if content.get("observation_type") == "scalar" %}
+  <table class="result-table">
+    <tr><th>Value</th><td>{{ content.get("value", "—") }}</td></tr>
+    {% if content.get("unit") %}<tr><th>Unit</th><td>{{ content.unit }}</td></tr>{% endif %}
+  </table>
+  {% elif content.get("observation_type") == "segmented" %}
+  <table class="result-table">
+    <tr><th>Segment</th><th>Value</th></tr>
+    {% for seg in (content.get("segments") or [])[:20] %}
+    <tr>
+      <td>{{ seg.get("key", seg.get("dimension_value", "—")) }}</td>
+      <td>{{ seg.get("value", "—") }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% elif content.get("observation_type") == "time_series" %}
+  <table class="result-table">
+    <tr><th>Period</th><th>Value</th></tr>
+    {% for bucket in (content.get("buckets") or [])[:20] %}
+    <tr>
+      <td>{{ bucket.get("bucket_start", bucket.get("time_bucket", "—")) }}</td>
+      <td>{{ bucket.get("value", "—") }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  {{ render_generic_artifact(content) }}
+  {% endif %}
+
+{% elif artifact_type == "comparison" or content.get("artifact_type") == "comparison" or content.get("comparison_type") %}
+  <table class="result-table">
+    {% if content.get("scope_current_value") or content.get("current_value") %}
+    <tr><th>Current Value</th><td>{{ content.get("scope_current_value", content.get("current_value", "—")) }}</td></tr>
+    {% endif %}
+    {% if content.get("scope_baseline_value") or content.get("baseline_value") %}
+    <tr><th>Baseline Value</th><td>{{ content.get("scope_baseline_value", content.get("baseline_value", "—")) }}</td></tr>
+    {% endif %}
+    {% if content.get("scope_absolute_delta") or content.get("absolute_delta") %}
+    <tr><th>Absolute Delta</th><td>{{ content.get("scope_absolute_delta", content.get("absolute_delta", "—")) }}</td></tr>
+    {% endif %}
+    {% if content.get("scope_relative_delta") or content.get("relative_delta") %}
+    <tr><th>Relative Delta</th><td>{{ content.get("scope_relative_delta", content.get("relative_delta", "—")) }}</td></tr>
+    {% endif %}
+    {% if content.get("scope_direction") or content.get("direction") %}
+    <tr><th>Direction</th><td>{{ content.get("scope_direction", content.get("direction", "—")) }}</td></tr>
+    {% endif %}
+    {% if content.get("comparison_type") %}
+    <tr><th>Comparison Type</th><td>{{ content.get("comparison_type") }}</td></tr>
+    {% endif %}
+  </table>
+
+{% elif artifact_type == "decomposition" or content.get("artifact_type") == "decomposition" %}
+  {% set drivers = content.get("drivers") or content.get("rows") or [] %}
+  {% if drivers %}
+  <table class="result-table">
+    <tr><th>Dimension Value</th><th>Contribution</th><th>Share</th></tr>
+    {% for driver in drivers[:10] %}
+    <tr>
+      <td>{{ driver.get("dimension_value", driver.get("key", "—")) }}</td>
+      <td>{{ driver.get("contribution", driver.get("absolute_delta", "—")) }}</td>
+      <td>{{ driver.get("share", driver.get("relative_delta", "—")) }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  {{ render_generic_artifact(content) }}
+  {% endif %}
+
+{% elif artifact_type == "anomaly_candidates" or content.get("artifact_type") == "anomaly_candidates" %}
+  {% set candidates = content.get("candidates") or [] %}
+  {% if candidates %}
+  <table class="result-table">
+    <tr><th>Period</th><th>Slice</th><th>Type</th><th>Score</th><th>Deviation</th><th>Direction</th><th>Flag</th></tr>
+    {% for candidate in candidates[:10] %}
+    <tr>
+      {% set win = candidate.get("window") or {} %}
+      <td>{{ win.get("start", candidate.get("bucket_start", candidate.get("period", "—"))) }}</td>
+      {% set sl = candidate.get("slice") or {} %}
+      <td>{{ sl | dictsort | map("join", "=") | join(", ") if sl else "overall" }}</td>
+      <td>{{ candidate.get("candidate_type", "—") }}</td>
+      <td>{{ candidate.get("candidate_score", candidate.get("score", candidate.get("anomaly_score", "—"))) }}</td>
+      <td>{{ "%.1f"|format((candidate.get("deviation_pct", 0) or 0) * 100) }}%</td>
+      <td>{{ candidate.get("direction", "—") }}</td>
+      <td>{{ candidate.get("flag_level", "—") }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  {{ render_generic_artifact(content) }}
+  {% endif %}
+
+{% elif artifact_type == "test_result" or content.get("artifact_type") == "test_result" %}
+  <table class="result-table">
+    {% if content.get("test_method") or content.get("method") %}
+    <tr><th>Test Method</th><td>{{ content.get("test_method", content.get("method", "—")) }}</td></tr>
+    {% endif %}
+    {% if content.get("p_value") %}
+    <tr><th>P-Value</th><td>{{ content.get("p_value", "—") }}</td></tr>
+    {% endif %}
+    {% if content.get("test_statistic") %}
+    <tr><th>Test Statistic</th><td>{{ content.get("test_statistic", "—") }}</td></tr>
+    {% endif %}
+    {% if content.get("alternative") %}
+    <tr><th>Alternative</th><td>{{ content.get("alternative", "—") }}</td></tr>
+    {% endif %}
+    {% if content.get("conclusion") or content.get("result") %}
+    <tr><th>Conclusion</th><td>{{ content.get("conclusion", content.get("result", "—")) }}</td></tr>
+    {% endif %}
+  </table>
+
+{% elif artifact_type == "validation" or content.get("artifact_type") == "validation" %}
+  <table class="result-table">
+    {% if content.get("kind") %}
+    <tr><th>Kind</th><td>{{ content.get("kind", "—") }}</td></tr>
+    {% endif %}
+    {% if content.get("status") or content.get("conclusion") %}
+    <tr><th>Result</th><td>{{ content.get("status", content.get("conclusion", "—")) }}</td></tr>
+    {% endif %}
+    {% if content.get("rationale") %}
+    <tr><th>Rationale</th><td>{{ content.get("rationale", "—") }}</td></tr>
+    {% endif %}
+  </table>
+
+{% elif artifact_type == "attribute_bundle" or content.get("artifact_type") == "attribute_bundle" %}
+  {% set attr_content = content.get("result") or content %}
+  <table class="result-table">
+    {% if attr_content.get("scope_absolute_delta") %}
+    <tr><th>Scope Delta</th><td>{{ attr_content.get("scope_absolute_delta", "—") }}</td></tr>
+    {% endif %}
+    {% if attr_content.get("scope_direction") %}
+    <tr><th>Direction</th><td>{{ attr_content.get("scope_direction", "—") }}</td></tr>
+    {% endif %}
+    {% if attr_content.get("dimensions") %}
+    <tr><th>Dimensions</th><td>{{ attr_content.get("dimensions") | join(", ") }}</td></tr>
+    {% endif %}
+    {% if attr_content.get("attribution_status") %}
+    <tr><th>Attribution Status</th><td>{{ attr_content.get("attribution_status", "—") }}</td></tr>
+    {% endif %}
+  </table>
+
+{% elif content.get("bundle_type") == "diagnosis_bundle" or content.get("intent_type") == "diagnose" %}
+  {% set diag_result = content.get("result") or content %}
+  {% set diag_detect = diag_result.get("detect_summary") or {} %}
+  <table class="result-table">
+    <tr><th>Strategy</th><td>{{ diag_result.get("strategy", "—") }}</td></tr>
+    <tr><th>Granularity</th><td>{{ diag_result.get("granularity", "—") }}</td></tr>
+    <tr><th>Scan Dimension</th><td>{{ diag_result.get("scan_dimension") or "overall" }}</td></tr>
+    {% if diag_detect.get("returned_candidate_count") is not none %}
+    <tr><th>Candidates Found</th><td>{{ diag_detect.get("returned_candidate_count", 0) }}</td></tr>
+    {% endif %}
+  </table>
+  {% for diag in (diag_result.get("diagnoses") or [])[:5] %}
+  {% set cand = diag.get("candidate") or {} %}
+  <h4>Candidate: {{ cand.get("slice", {}) | dictsort | map("join", "=") | join(", ") or "overall" }}</h4>
+  <table class="result-table">
+    <tr><th>Direction</th><td>{{ cand.get("direction", "—") }}</td></tr>
+    <tr><th>Current Value</th><td>{{ cand.get("current_value", "—") }}</td></tr>
+    <tr><th>Baseline Value</th><td>{{ cand.get("baseline_value", "—") }}</td></tr>
+    <tr><th>Deviation</th><td>{{ "%.1f"|format((cand.get("deviation_pct", 0) or 0) * 100) }}%</td></tr>
+    <tr><th>Flag Level</th><td>{{ cand.get("flag_level", "—") }}</td></tr>
+  </table>
+  {% for driver in (diag.get("drivers") or []) %}
+  {% if driver.get("top_segment") %}
+  <details>
+    <summary>Driver: {{ driver.get("dimension", "—") }}</summary>
+    <table class="result-table">
+      <tr><th>Key</th><th>Current</th><th>Baseline</th><th>Contribution</th><th>Share</th></tr>
+      <tr>
+        <td>{{ driver.top_segment.get("key", "—") }}</td>
+        <td>{{ driver.top_segment.get("current_value", "—") }}</td>
+        <td>{{ driver.top_segment.get("baseline_value", "—") }}</td>
+        <td>{{ driver.top_segment.get("absolute_contribution", "—") }}</td>
+        <td>{{ "%.1f"|format((driver.top_segment.get("contribution_share", 0) or 0) * 100) }}%</td>
+      </tr>
+    </table>
+  </details>
+  {% endif %}
+  {% endfor %}
+  {% endfor %}
+
+{% elif content.get("association_type") == "pairwise_time_series_association" or content.get("intent_type") == "correlate" %}
+  {% set corr_stat = content.get("statistic") or {} %}
+  <table class="result-table">
+    {% if corr_stat.get("method") %}
+    <tr><th>Method</th><td>{{ corr_stat.get("method", "—") }}</td></tr>
+    {% endif %}
+    {% if corr_stat.get("coefficient") is not none %}
+    <tr><th>Coefficient</th><td>{{ "%.4f"|format(corr_stat.get("coefficient", 0)) }}</td></tr>
+    {% endif %}
+    {% if corr_stat.get("p_value") is not none %}
+    <tr><th>P-Value</th><td>{{ corr_stat.get("p_value", "—") }}</td></tr>
+    {% endif %}
+    {% if corr_stat.get("n_pairs") is not none %}
+    <tr><th>N Pairs</th><td>{{ corr_stat.get("n_pairs", "—") }}</td></tr>
+    {% endif %}
+    {% if content.get("sign") %}
+    <tr><th>Sign</th><td>{{ content.get("sign", "—") }}</td></tr>
+    {% endif %}
+    {% if content.get("significance") %}
+    <tr><th>Significance</th><td>{{ content.get("significance", "—") }}</td></tr>
+    {% endif %}
+  </table>
+
+{% else %}
+  {{ render_generic_artifact(content) }}
+{% endif %}
+{% endmacro %}
+
+{% macro render_generic_artifact(payload) %}
+<details>
+  <summary>Raw Artifact Data</summary>
+  <div class="payload-json">{{ payload | tojson(indent=2) }}</div>
+</details>
+{% endmacro %}
+
+
+{# ----------------------------------------------------------------------- #}
+{# Grouped step timeline                                                    #}
+{# ----------------------------------------------------------------------- #}
+
+<section>
+  <h2>Analysis Timeline</h2>
+
+  {# Build step-id → global index lookup for cross-referencing #}
+  {% set step_index_lookup = {} %}
+  {% for step in report.steps %}
+    {% if step.step_id %}{% if step_index_lookup.update({step.step_id: loop.index}) %}{% endif %}{% endif %}
+  {% endfor %}
+
+  {# DAG graph visualization #}
+  {% if report.dag_edges %}
+  <div class="dag-section">
+    <h3>Step Dependency DAG</h3>
+    <pre class="mermaid">
+graph TD
+{% for node in report.dag_nodes %}
+  {{ node.step_id }}["{{ node.step_type }}{% if node.label != node.step_type %}: {{ node.label | replace(node.step_type + ': ', '') | truncate(25) }}{% endif %}"]
+{% endfor %}
+{% for edge in report.dag_edges %}
+  {{ edge.source_step_id }} -->|"{{ edge.role }}"| {{ edge.target_step_id }}
+{% endfor %}
+    </pre>
+  </div>
+  {% endif %}
+
+  {% set ns = namespace(phase_order=[], step_idx=0) %}
+  {% for step in report.steps %}
+    {% if step.analysis_phase not in ns.phase_order %}
+      {% if ns.phase_order.append(step.analysis_phase) %}{% endif %}
+    {% endif %}
+  {% endfor %}
+
+  {% for phase_key in ns.phase_order %}
+  {% set phase_meta = phases.get(phase_key, {"label": phase_key, "description": ""}) %}
+  <div class="phase-group">
+    <h3 class="phase-header">{{ phase_meta.get("label", phase_key) }}</h3>
+    {% if phase_meta.get("description") %}
+    <p class="phase-description">{{ phase_meta.description }}</p>
+    {% endif %}
+
+    {% for step in report.steps %}
+    {% if step.analysis_phase == phase_key %}
+    {% set ns.step_idx = ns.step_idx + 1 %}
+    <div class="step-card step-{{ step.step_type }}">
+      <div class="step-header">
+        <span class="step-number">{{ ns.step_idx }}</span>
+        <span class="tag tag-{{ step.step_type }} tag-default">{{ step.step_type }}</span>
+        <span>{{ step.summary }}</span>
+        <span class="meta">{{ step.created_at }}</span>
+      </div>
+
+      {% if step.reasoning %}
+      <div class="reasoning">
+        <strong>Why:</strong> {{ step.reasoning }}
+      </div>
+      {% endif %}
+
+      {% if step.output_summary %}
+      <div class="output-summary">
+        {% if step.output_summary.get("artifact_type") %}
+        <span class="tag">{{ step.output_summary.artifact_type }}</span>
+        {% endif %}
+        {% if step.output_summary.get("row_count") %}
+        <span class="meta">{{ step.output_summary.row_count }} rows</span>
+        {% endif %}
+        {% if step.output_summary.get("candidate_count") %}
+        <span class="meta">{{ step.output_summary.candidate_count }} candidates</span>
+        {% endif %}
+        {% if step.output_summary.get("bucket_count") %}
+        <span class="meta">{{ step.output_summary.bucket_count }} buckets</span>
+        {% endif %}
+      </div>
+      {% endif %}
+
+      {% if step.sql_texts %}
+      {% for sql_entry in step.sql_texts %}
+      <div class="sql-section">
+        <div class="sql-label">SQL {{ sql_entry.get("label", "query") }} — {{ sql_entry.get("engine_type", "") }}{% if sql_entry.get("elapsed_ms") is not none %} — {{ "%.1f"|format(sql_entry.get("elapsed_ms") / 1000) }}s{% endif %}</div>
+        <div class="sql-block">{{ sql_entry.sql }}</div>
+      </div>
+      {% endfor %}
+      {% endif %}
+
+      {% if step.artifact_summary %}
+      <details>
+        <summary>Key Metrics</summary>
+        <table>
+          {% for key, value in step.artifact_summary.items() %}
+          <tr><th>{{ key }}</th><td>{{ value }}</td></tr>
+          {% endfor %}
+        </table>
+      </details>
+      {% endif %}
+
+      {% if step.artifact_payload %}
+      {{ render_artifact_table(step.artifact_type, step.artifact_payload) }}
+      {% endif %}
+
+      {% if step.provenance %}
+      <details>
+        <summary>Provenance</summary>
+        <table>
+          {% for key, value in step.provenance.items() %}
+          <tr><th>{{ key }}</th><td>{{ value }}</td></tr>
+          {% endfor %}
+        </table>
+      </details>
+      {% endif %}
+
+      {% if step.warnings %}
+      {% for warning in step.warnings %}
+      <div class="warning">{{ warning.get("code", "") }}: {{ warning.get("message", "") }}</div>
+      {% endfor %}
+      {% endif %}
+    </div>
+    {% endif %}
+    {% endfor %}
+  </div>
+  {% endfor %}
+</section>
+
+
+{# ----------------------------------------------------------------------- #}
+{# Propositions & findings                                                  #}
+{# ----------------------------------------------------------------------- #}
+
+{% if report.propositions %}
+<section>
+  <h2>Propositions & Findings</h2>
+
+  {% set change_props = [] %}
+  {% set decomp_props = [] %}
+  {% set validation_props = [] %}
+  {% set other_props = [] %}
+  {% for prop in report.propositions %}
+    {% if prop.proposition_type == "change" %}
+      {% if change_props.append(prop) %}{% endif %}
+    {% elif prop.proposition_type == "decomposition" %}
+      {% if decomp_props.append(prop) %}{% endif %}
+    {% elif prop.proposition_type == "validation" %}
+      {% if validation_props.append(prop) %}{% endif %}
+    {% else %}
+      {% if other_props.append(prop) %}{% endif %}
+    {% endif %}
+  {% endfor %}
+
+  {% for group_name, group_props in [("Change", change_props), ("Decomposition", decomp_props), ("Validation", validation_props), ("Other", other_props)] %}
+  {% if group_props %}
+  <h3>{{ group_name }} Propositions</h3>
+  {% for prop in group_props %}
+  <div class="proposition-card">
+    <div class="prop-header">
+      <span class="tag tag-{{ prop.proposition_type }}">{{ prop.proposition_type }}</span>
+      <strong>{{ prop.subject_display }}</strong>
+      {% if prop.latest_assessment %}
+      <span class="status-{{ prop.latest_assessment.get('status', '') }}">{{ prop.latest_assessment.get("status", "—") }}</span>
+      {% if prop.latest_assessment.get("confidence_grade") %}
+      <span class="tag confidence-{{ prop.latest_assessment.confidence_grade }}">{{ prop.latest_assessment.confidence_grade }}</span>
+      {% endif %}
+      {% else %}
+      <span class="meta">not assessed</span>
+      {% endif %}
+    </div>
+
+    {% if prop.latest_assessment and prop.latest_assessment.get("confidence_rationale") %}
+    <div class="rationale">
+      <strong>Rationale:</strong> {{ prop.latest_assessment.confidence_rationale }}
+    </div>
+    {% endif %}
+
+    {% if prop.supporting_findings %}
+    <div class="findings-section findings-supporting">
+      <h4>Supporting Findings</h4>
+      {% for finding in prop.supporting_findings %}
+      <div class="finding-item">
+        {% if finding.get("finding_type") %}
+        <span class="tag">{{ finding.finding_type }}</span>
+        {% endif %}
+        {% if finding.get("subject") %}
+        <span>{{ finding.subject.get("metric", "—") }}</span>
+        {% endif %}
+        {% if finding.get("payload") %}
+        <details>
+          <summary>Details</summary>
+          <div class="payload-json">{{ finding.payload | tojson(indent=2) }}</div>
+        </details>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if prop.opposing_findings %}
+    <div class="findings-section findings-opposing">
+      <h4>Opposing Findings</h4>
+      {% for finding in prop.opposing_findings %}
+      <div class="finding-item">
+        {% if finding.get("finding_type") %}
+        <span class="tag">{{ finding.finding_type }}</span>
+        {% endif %}
+        {% if finding.get("subject") %}
+        <span>{{ finding.subject.get("metric", "—") }}</span>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if prop.gaps %}
+    <div class="gaps-section">
+      <h4>Evidence Gaps</h4>
+      {% for gap in prop.gaps %}
+      <div class="gap-item {% if gap.get('blocking', gap.get('status') == 'blocking') %}gap-blocking{% elif gap.get('status') == 'non_blocking' %}gap-non_blocking{% else %}gap-non_blocking{% endif %}">
+        {% if gap.get("missing_requirement") %}
+          {% if gap.missing_requirement is mapping %}
+            {{ gap.missing_requirement.get("requirement_kind", "") }}: {{ gap.missing_requirement.get("description", "") }}
+          {% else %}
+            {{ gap.missing_requirement }}
+          {% endif %}
+        {% elif gap.get("gap_id") %}
+          {{ gap.gap_id }}
+        {% else %}
+          {{ gap.get("finding_id", "—") }}
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+  {% endfor %}
+  {% endif %}
+  {% endfor %}
+</section>
+{% endif %}
+
+<footer>
+  Generated at {{ report.generated_at }} | Marivo Analysis Report | Schema: session_trace.v1
+</footer>
+
+<script>
+  mermaid.initialize({ startOnLoad: true, theme: 'default' });
+</script>
+
+</body>
+</html>

@@ -25,7 +25,10 @@ _AOI_PARAM_KEYS: frozenset[str] = frozenset({"compare_artifact_id", "dimension",
 
 
 def run_decompose_intent(
-    runtime: MarivoRuntime, session_id: str, params: dict[str, Any] | None
+    runtime: MarivoRuntime,
+    session_id: str,
+    params: dict[str, Any] | None,
+    reasoning: str | None = None,
 ) -> dict[str, Any]:
     """Execute a `decompose` intent: attribute a compare delta across a dimension.
 
@@ -241,7 +244,7 @@ def run_decompose_intent(
     )
 
     # ── Execute segmented queries for left and right scopes ───────────────────
-    left_rows, left_query_hash = _run_segmented_query(
+    left_rows, left_sql, left_query_hash, left_elapsed_ms = _run_segmented_query(
         runtime,
         session_id,
         metric_name,
@@ -255,7 +258,7 @@ def run_decompose_intent(
         engine_type,
         table_name=table,
     )
-    right_rows, _ = _run_segmented_query(
+    right_rows, right_sql, _, right_elapsed_ms = _run_segmented_query(
         runtime,
         session_id,
         metric_name,
@@ -276,6 +279,26 @@ def run_decompose_intent(
         "engine": engine_type,
         "executed_at": now,
     }
+
+    _sql_texts: list[dict[str, str | float]] = []
+    if left_elapsed_ms is not None:
+        _sql_texts.append(
+            {
+                "sql": left_sql or "(current segmented query)",
+                "engine_type": engine_type,
+                "label": "current_query",
+                "elapsed_ms": left_elapsed_ms,
+            }
+        )
+    if right_elapsed_ms is not None:
+        _sql_texts.append(
+            {
+                "sql": right_sql or "(baseline segmented query)",
+                "engine_type": engine_type,
+                "label": "baseline_query",
+                "elapsed_ms": right_elapsed_ms,
+            }
+        )
 
     # ── Build DeltaDecompositionRow list ──────────────────────────────────────
     left_map: dict[Any, float | None] = {
@@ -503,6 +526,8 @@ def run_decompose_intent(
         artifact,
         summary,
         provenance=provenance,
+        reasoning=reasoning,
+        sql_texts=_sql_texts or None,
     )
     return result
 
@@ -594,10 +619,12 @@ def _run_segmented_query(
     engine: Any,
     engine_type: str,
     table_name: str | None = None,
-) -> tuple[list[dict[str, Any]], str | None]:
+) -> tuple[list[dict[str, Any]], str | None, str | None, float | None]:
     """Run a single segmented metric query for one time scope.
 
-    Returns (rows, query_hash) where query_hash is an MD5 of the translated SQL.
+    Returns (rows, sql_text, query_hash, elapsed_ms) where sql_text is the
+    translated SQL, query_hash is an MD5 of the translated SQL, and elapsed_ms
+    is the query execution duration in milliseconds.
     """
     start_str, end_str = _extract_date_range(time_scope)
 
@@ -643,7 +670,8 @@ def _run_segmented_query(
     result = execute_compiled(engine, compiled_query, session_id=session_id)
     sql = result.metadata.get("translated_sql") or ""
     query_hash: str | None = hashlib.md5(sql.encode()).hexdigest() if sql else None
-    return list(result.rows), query_hash
+    elapsed_ms = result.metadata.get("elapsed_ms")
+    return list(result.rows), sql, query_hash, elapsed_ms
 
 
 def _extract_date_range(time_scope: dict[str, Any]) -> tuple[str, str]:

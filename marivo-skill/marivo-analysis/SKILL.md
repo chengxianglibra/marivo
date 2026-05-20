@@ -40,11 +40,11 @@ close-out. It does not own datasource discovery or reusable semantic authoring.
 3. Choose the first analysis intent.
 4. Plan and execute a bounded multi-step investigation using returned artifact IDs and session state.
 5. Read state after each meaningful branch point.
-6. Before an evidence-based final answer, read trace, then state, then proposition context for cited
-   propositions.
-7. If the investigation exposes a semantic gap or contract conflict, bounce back to
+6. Before an evidence-based final answer, complete the Evidence-Linked Report Checklist.
+7. Generate the HTML audit report with `marivo-export_report(session_id=..., output_path=".marivo/reports/<session_id>.html")`.
+8. If the investigation exposes a semantic gap or contract conflict, bounce back to
    `marivo-semantic-layer`.
-8. Terminate the session explicitly when no more writes are needed.
+9. Terminate the session explicitly when no more writes are needed.
 
 ## High-Value Guardrails
 
@@ -66,6 +66,21 @@ close-out. It does not own datasource discovery or reusable semantic authoring.
 - Do not rewrite approved metric meaning, join logic, or exclusions inside the investigation loop.
 - Terminate the session explicitly with `marivo-terminate_session` after the final write step.
 
+## Evidence-Linked Report Checklist
+
+You MUST complete these items before delivering an evidence-based final answer:
+
+1. **Read trace** — call `marivo-get_session_trace` and note every artifact ID and any trace warnings.
+2. **Read state** — call `marivo-get_session_state` and identify which propositions support the answer.
+3. **Read proposition context** — call `marivo-get_proposition_context` for each proposition cited
+   in the answer.
+4. **Link every conclusion** — every factual claim in the final answer MUST reference at least one of:
+   - an artifact ID (e.g., `art_808c90d05292`)
+   - a proposition ID (e.g., `prop_456`)
+   - a trace warning that affected the conclusion
+5. **Flag unsupported claims** — if a conclusion has no artifact or proposition reference, explicitly
+   label it as an unsupported hypothesis, not an evidence-backed finding.
+
 ## Common Mistakes
 
 - starting a fresh session for every tiny follow-up instead of continuing the active one
@@ -78,6 +93,8 @@ close-out. It does not own datasource discovery or reusable semantic authoring.
   step/artifact timeline
 - treating session lists or runtime-ish status as a substitute for state or proposition context
 - finishing the reasoning mentally but forgetting to terminate the active session
+- delivering a final answer with zero artifact IDs or proposition references — every evidence-backed
+  claim must link to at least one artifact ID, proposition ID, or trace warning
 
 ## Read Next
 

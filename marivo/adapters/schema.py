@@ -51,6 +51,8 @@ METADATA_DDL: list[str] = [
         summary         TEXT NOT NULL,
         result_json     TEXT NOT NULL,
         provenance_json TEXT NOT NULL DEFAULT '{}',
+        reasoning       TEXT,
+        sql_texts       TEXT,
         created_at      TEXT NOT NULL DEFAULT (datetime('now'))
     )
     """,

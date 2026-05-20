@@ -297,35 +297,55 @@ class MarivoRuntime:
 
     # --- Intent use-cases (delegated to intent_execution) ---
 
-    def observe(self, session_id: str, request: AoiAtomicRequest) -> dict[str, Any]:
-        return intent_execution.observe(self, SessionId(session_id), request)
+    def observe(
+        self, session_id: str, request: AoiAtomicRequest, *, reasoning: str | None = None
+    ) -> dict[str, Any]:
+        return intent_execution.observe(self, SessionId(session_id), request, reasoning=reasoning)
 
-    def compare(self, session_id: str, request: AoiAtomicRequest) -> dict[str, Any]:
-        return intent_execution.compare(self, SessionId(session_id), request)
+    def compare(
+        self, session_id: str, request: AoiAtomicRequest, *, reasoning: str | None = None
+    ) -> dict[str, Any]:
+        return intent_execution.compare(self, SessionId(session_id), request, reasoning=reasoning)
 
-    def decompose(self, session_id: str, request: AoiAtomicRequest) -> dict[str, Any]:
-        return intent_execution.decompose(self, SessionId(session_id), request)
+    def decompose(
+        self, session_id: str, request: AoiAtomicRequest, *, reasoning: str | None = None
+    ) -> dict[str, Any]:
+        return intent_execution.decompose(self, SessionId(session_id), request, reasoning=reasoning)
 
-    def correlate(self, session_id: str, request: AoiAtomicRequest) -> dict[str, Any]:
-        return intent_execution.correlate(self, SessionId(session_id), request)
+    def correlate(
+        self, session_id: str, request: AoiAtomicRequest, *, reasoning: str | None = None
+    ) -> dict[str, Any]:
+        return intent_execution.correlate(self, SessionId(session_id), request, reasoning=reasoning)
 
-    def detect(self, session_id: str, request: AoiAtomicRequest) -> dict[str, Any]:
-        return intent_execution.detect(self, SessionId(session_id), request)
+    def detect(
+        self, session_id: str, request: AoiAtomicRequest, *, reasoning: str | None = None
+    ) -> dict[str, Any]:
+        return intent_execution.detect(self, SessionId(session_id), request, reasoning=reasoning)
 
-    def forecast(self, session_id: str, request: AoiAtomicRequest) -> dict[str, Any]:
-        return intent_execution.forecast(self, SessionId(session_id), request)
+    def forecast(
+        self, session_id: str, request: AoiAtomicRequest, *, reasoning: str | None = None
+    ) -> dict[str, Any]:
+        return intent_execution.forecast(self, SessionId(session_id), request, reasoning=reasoning)
 
-    def attribute(self, session_id: str, request: AoiDerivedRequest) -> dict[str, Any]:
-        return intent_execution.attribute(self, SessionId(session_id), request)
+    def attribute(
+        self, session_id: str, request: AoiDerivedRequest, *, reasoning: str | None = None
+    ) -> dict[str, Any]:
+        return intent_execution.attribute(self, SessionId(session_id), request, reasoning=reasoning)
 
-    def diagnose(self, session_id: str, request: AoiDerivedRequest) -> dict[str, Any]:
-        return intent_execution.diagnose(self, SessionId(session_id), request)
+    def diagnose(
+        self, session_id: str, request: AoiDerivedRequest, *, reasoning: str | None = None
+    ) -> dict[str, Any]:
+        return intent_execution.diagnose(self, SessionId(session_id), request, reasoning=reasoning)
 
-    def test(self, session_id: str, request: AoiAtomicRequest) -> dict[str, Any]:
-        return intent_execution.test(self, SessionId(session_id), request)
+    def test(
+        self, session_id: str, request: AoiAtomicRequest, *, reasoning: str | None = None
+    ) -> dict[str, Any]:
+        return intent_execution.test(self, SessionId(session_id), request, reasoning=reasoning)
 
-    def validate(self, session_id: str, request: AoiDerivedRequest) -> dict[str, Any]:
-        return intent_execution.validate(self, SessionId(session_id), request)
+    def validate(
+        self, session_id: str, request: AoiDerivedRequest, *, reasoning: str | None = None
+    ) -> dict[str, Any]:
+        return intent_execution.validate(self, SessionId(session_id), request, reasoning=reasoning)
 
     # --- Session lifecycle (delegates to runtime/session) ---
 
@@ -385,6 +405,12 @@ class MarivoRuntime:
     def get_session_runtime_status(self, session_id: SessionId) -> dict[str, Any]:
         """Return session-level operator runtime status."""
         return session_ops.get_session_runtime_status(self, session_id)
+
+    def export_report(self, session_id: str, output_path: str) -> dict[str, Any]:
+        """Generate a static HTML report for an analysis session."""
+        from marivo.runtime.report import generate_session_report
+
+        return generate_session_report(self, session_id, output_path)
 
     def get_artifact_runtime_status(
         self, session_id: SessionId, artifact_id: str

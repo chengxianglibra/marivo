@@ -44,4 +44,6 @@ class Step(BaseModel):
     result: dict[str, Any]
     provenance: dict[str, Any] | None = None
     semantic_metadata: dict[str, Any] | None = None
+    reasoning: str | None = None
+    sql_texts: list[dict[str, str | float]] | None = None
     created_at: str

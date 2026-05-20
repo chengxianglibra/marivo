@@ -19,6 +19,8 @@ class StepStore(Protocol):
         *,
         provenance: dict[str, Any] | None = None,
         semantic_metadata: dict[str, Any] | None = None,
+        reasoning: str | None = None,
+        sql_texts: list[dict[str, str | float]] | None = None,
     ) -> None: ...
 
     def list_steps(self, session_id: SessionId) -> list[Step]: ...

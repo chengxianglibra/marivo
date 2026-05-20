@@ -24,6 +24,12 @@
       "prompt": "Compare Spring Festival against the matching baseline and account for holiday alignment. What should the agent check first?",
       "expected_output": "Uses marivo-list_calendar_data to inspect known holiday or adjusted-workday rows for the relevant date range, uses marivo-update_calendar_data only for trusted missing rows, confirms with marivo-list_calendar_data, then proceeds to observe and compare with a holiday-aligned compare_type.",
       "files": []
+    },
+    {
+      "id": 5,
+      "prompt": "I ran a full Marivo investigation and got artifact IDs from observe, compare, and decompose steps. Now give me the final summary of what went wrong.",
+      "expected_output": "Reads trace, then state, then proposition context before the final answer. The final answer includes at least one artifact ID (art_*) or proposition ID (prop_*) per evidence-backed claim, and labels any claim without an artifact or proposition reference as UNCONFIRMED. Does not narrate conclusions from memory alone.",
+      "files": []
     }
   ]
 }

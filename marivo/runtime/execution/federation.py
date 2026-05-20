@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
@@ -287,10 +288,13 @@ class FederationRuntime:
                 "execution_purpose": stage.purpose,
             },
         )
+        t0 = time.perf_counter()
         rows = engine.query_rows(executed_sql, executed_params)
+        elapsed_ms = (time.perf_counter() - t0) * 1000
         result_metadata: dict[str, Any] = {
             "mode": effective_plan.mode,
             "executed_stage": stage.stage_id,
+            "elapsed_ms": round(elapsed_ms, 1),
         }
         if session_id is not None:
             result_metadata["annotated_sql"] = executed_sql

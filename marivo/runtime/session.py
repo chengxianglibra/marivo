@@ -310,6 +310,8 @@ def get_session_trace(
                 "step_type": step.step_type,
                 "created_at": step.created_at,
                 "summary": step.summary,
+                "reasoning": step.reasoning,
+                "sql_texts": step.sql_texts,
                 "artifact_id": artifact_id,
                 "output_summary": output_summary,
                 "provenance": step.provenance,

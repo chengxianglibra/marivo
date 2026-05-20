@@ -115,7 +115,11 @@ def _normalize_strategy(raw_strategy: Any) -> str:
 
 
 def run_diagnose_intent(
-    runtime: MarivoRuntime, session_id: str, params: dict[str, Any] | None
+    runtime: MarivoRuntime,
+    session_id: str,
+    params: dict[str, Any] | None,
+    *,
+    reasoning: str | None = None,
 ) -> dict[str, Any]:
     """Execute a `diagnose` derived intent.
 
@@ -407,6 +411,7 @@ def run_diagnose_intent(
         provenance=provenance,
         result_payload=result_payload,
         product_metadata_payload=product_metadata_payload,
+        reasoning=reasoning,
     )
 
 

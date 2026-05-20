@@ -18,6 +18,17 @@ from marivo.transports.mcp.tools.schemas import (
     McpValidateHypothesis,
 )
 
+_ReasoningField = Annotated[
+    str | None,
+    Field(
+        description=(
+            "Optional free-text explanation of why this intent was called, "
+            "what hypothesis it tests, or what decision led to this step. "
+            "Included in the analysis report for auditability."
+        )
+    ),
+]
+
 TimeSeriesObserveArtifactId = Annotated[
     str,
     Field(
@@ -349,6 +360,7 @@ def register_observe(server: Any, runtime: Any) -> None:
                 )
             ),
         ] = None,
+        reasoning: _ReasoningField = None,
     ) -> dict[str, Any]:
         request = to_aoi_observe_request(
             metric=metric,
@@ -357,7 +369,9 @@ def register_observe(server: Any, runtime: Any) -> None:
             dimensions=dimensions,
             filter_expression=filter_expression,
         )
-        return await call_runtime(runtime.observe, session_id=session_id, request=request)
+        return await call_runtime(
+            runtime.observe, session_id=session_id, request=request, reasoning=reasoning
+        )
 
 
 def register_compare(server: Any, runtime: Any) -> None:
@@ -390,13 +404,16 @@ def register_compare(server: Any, runtime: Any) -> None:
                 )
             ),
         ] = "normal",
+        reasoning: _ReasoningField = None,
     ) -> dict[str, Any]:
         request = to_aoi_compare_request(
             current_artifact_id=current_artifact_id,
             baseline_artifact_id=baseline_artifact_id,
             compare_type=compare_type,
         )
-        return await call_runtime(runtime.compare, session_id=session_id, request=request)
+        return await call_runtime(
+            runtime.compare, session_id=session_id, request=request, reasoning=reasoning
+        )
 
 
 def register_decompose(server: Any, runtime: Any) -> None:
@@ -435,13 +452,16 @@ def register_decompose(server: Any, runtime: Any) -> None:
                 description="Maximum top dimension values to return; omit to use service default.",
             ),
         ] = None,
+        reasoning: _ReasoningField = None,
     ) -> dict[str, Any]:
         request = to_aoi_decompose_request(
             compare_artifact_id=compare_artifact_id,
             dimension=dimension,
             limit=limit,
         )
-        return await call_runtime(runtime.decompose, session_id=session_id, request=request)
+        return await call_runtime(
+            runtime.decompose, session_id=session_id, request=request, reasoning=reasoning
+        )
 
 
 def register_detect(server: Any, runtime: Any) -> None:
@@ -504,6 +524,7 @@ def register_detect(server: Any, runtime: Any) -> None:
                 description="Maximum anomaly candidates to return; omit to use service default.",
             ),
         ] = None,
+        reasoning: _ReasoningField = None,
     ) -> dict[str, Any]:
         request = to_aoi_detect_request(
             metric=metric,
@@ -515,7 +536,9 @@ def register_detect(server: Any, runtime: Any) -> None:
             sensitivity=sensitivity,
             limit=limit,
         )
-        return await call_runtime(runtime.detect, session_id=session_id, request=request)
+        return await call_runtime(
+            runtime.detect, session_id=session_id, request=request, reasoning=reasoning
+        )
 
 
 def register_correlate(server: Any, runtime: Any) -> None:
@@ -547,6 +570,7 @@ def register_correlate(server: Any, runtime: Any) -> None:
                 ),
             ),
         ] = None,
+        reasoning: _ReasoningField = None,
     ) -> dict[str, Any]:
         request = to_aoi_correlate_request(
             left_artifact_id=left_artifact_id,
@@ -554,7 +578,9 @@ def register_correlate(server: Any, runtime: Any) -> None:
             method=method,
             min_pairs=min_pairs,
         )
-        return await call_runtime(runtime.correlate, session_id=session_id, request=request)
+        return await call_runtime(
+            runtime.correlate, session_id=session_id, request=request, reasoning=reasoning
+        )
 
 
 def register_forecast(server: Any, runtime: Any) -> None:
@@ -581,12 +607,15 @@ def register_forecast(server: Any, runtime: Any) -> None:
                 ),
             ),
         ],
+        reasoning: _ReasoningField = None,
     ) -> dict[str, Any]:
         request = to_aoi_forecast_request(
             source_artifact_id=source_artifact_id,
             horizon=horizon,
         )
-        return await call_runtime(runtime.forecast, session_id=session_id, request=request)
+        return await call_runtime(
+            runtime.forecast, session_id=session_id, request=request, reasoning=reasoning
+        )
 
 
 def register_attribute(server: Any, runtime: Any) -> None:
@@ -634,6 +663,7 @@ def register_attribute(server: Any, runtime: Any) -> None:
                 description="Maximum driver rows returned per attribution dimension. Defaults to 5.",
             ),
         ] = 5,
+        reasoning: _ReasoningField = None,
     ) -> dict[str, Any]:
         request = to_aoi_attribute_request(
             metric=metric,
@@ -643,7 +673,9 @@ def register_attribute(server: Any, runtime: Any) -> None:
             decomposition_method=decomposition_method,
             decomposition_limit=decomposition_limit,
         )
-        return await call_runtime(runtime.attribute, session_id=session_id, request=request)
+        return await call_runtime(
+            runtime.attribute, session_id=session_id, request=request, reasoning=reasoning
+        )
 
 
 def register_diagnose(server: Any, runtime: Any) -> None:
@@ -753,6 +785,7 @@ def register_diagnose(server: Any, runtime: Any) -> None:
                 )
             ),
         ] = False,
+        reasoning: _ReasoningField = None,
     ) -> dict[str, Any]:
         request = to_aoi_diagnose_request(
             metric=metric,
@@ -766,7 +799,9 @@ def register_diagnose(server: Any, runtime: Any) -> None:
             candidate_limit=candidate_limit if candidate_limit is not None else 3,
             decomposition_limit=decomposition_limit if decomposition_limit is not None else 5,
         )
-        response = await call_runtime(runtime.diagnose, session_id=session_id, request=request)
+        response = await call_runtime(
+            runtime.diagnose, session_id=session_id, request=request, reasoning=reasoning
+        )
         if not include_details and isinstance(response.get("data"), dict):
             response = {**response, "data": compact_diagnose_envelope(response["data"])}
         return response
@@ -811,6 +846,7 @@ def register_test_intent(server: Any, runtime: Any) -> None:
                 ),
             ),
         ],
+        reasoning: _ReasoningField = None,
     ) -> dict[str, Any]:
         request = to_aoi_test_request(
             metric=metric,
@@ -819,7 +855,9 @@ def register_test_intent(server: Any, runtime: Any) -> None:
             grain=grain,
             hypothesis=hypothesis,
         )
-        return await call_runtime(runtime.test, session_id=session_id, request=request)
+        return await call_runtime(
+            runtime.test, session_id=session_id, request=request, reasoning=reasoning
+        )
 
 
 def register_validate(server: Any, runtime: Any) -> None:
@@ -862,6 +900,7 @@ def register_validate(server: Any, runtime: Any) -> None:
                 ),
             ),
         ] = None,
+        reasoning: _ReasoningField = None,
     ) -> dict[str, Any]:
         request = to_aoi_validate_request(
             metric=metric,
@@ -870,4 +909,6 @@ def register_validate(server: Any, runtime: Any) -> None:
             grain=grain,
             hypothesis=hypothesis,
         )
-        return await call_runtime(runtime.validate, session_id=session_id, request=request)
+        return await call_runtime(
+            runtime.validate, session_id=session_id, request=request, reasoning=reasoning
+        )

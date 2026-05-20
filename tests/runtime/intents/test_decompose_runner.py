@@ -183,7 +183,7 @@ class DecomposeHourWindowTests(unittest.TestCase):
                 return_value=SimpleNamespace(rows=[], metadata={"translated_sql": "SELECT 1"}),
             ),
         ):
-            rows, query_hash = _run_segmented_query(
+            rows, sql_text, query_hash, elapsed_ms = _run_segmented_query(
                 _FakeRuntime(),
                 "sess_decompose_hour",
                 "metric.attr_hourly",
@@ -264,7 +264,7 @@ class DecomposeHourWindowTests(unittest.TestCase):
                 return_value=SimpleNamespace(rows=[], metadata={"translated_sql": "SELECT 1"}),
             ),
         ):
-            rows, query_hash = _run_segmented_query(
+            rows, sql_text, query_hash, elapsed_ms = _run_segmented_query(
                 _FakeRuntime(),
                 "sess_decompose_midnight",
                 "metric.attr_daily",

@@ -24,6 +24,7 @@ Skip this file if the real task is still datasource setup or semantic modeling.
 | Read execution trace and artifact handles | `marivo-get_session_trace` |
 | Read session-level evidence state | `marivo-get_session_state` |
 | Read one proposition closure | `marivo-get_proposition_context` |
+| Generate HTML audit report | `marivo-export_report` |
 | Close the write flow | `marivo-terminate_session` |
 
 ## Minimal Session Start
@@ -114,11 +115,34 @@ marivo-detect(
     "end": "2026-05-15"
   },
   granularity="day",
+  strategy="point_anomaly",
   sensitivity="balanced"
 )
 ```
 
 Use `detect` when the abnormal window is still unknown.
+
+## Minimal `diagnose` Example
+
+Use `diagnose` when you want auto-detect plus follow-up decomposition in one call:
+
+```text
+marivo-diagnose(
+  session_id="sess_123",
+  metric="watch_time_seconds",
+  dimensions=["country", "platform"],
+  strategy="point_anomaly",
+  time_scope={
+    "field": "event_time",
+    "start": "2026-04-15",
+    "end": "2026-05-15"
+  },
+  granularity="day"
+)
+```
+
+`diagnose` combines detect, compare, and decompose. Use it when the abnormal window is still unknown
+and you want the service to drive the follow-up attribution automatically.
 
 ## Minimal `attribute` Example
 
@@ -129,14 +153,14 @@ marivo-attribute(
   session_id="sess_123",
   metric="watch_time_seconds",
   dimensions=["country", "platform"],
-  left={
+  current={
     "time_scope": {
       "field": "event_time",
       "start": "2026-05-05",
       "end": "2026-05-12"
     }
   },
-  right={
+  baseline={
     "time_scope": {
       "field": "event_time",
       "start": "2026-04-28",
@@ -153,8 +177,8 @@ Compare two earlier observe artifacts:
 ```text
 marivo-compare(
   session_id="sess_123",
-  left_artifact_id="art_obs_current",
-  right_artifact_id="art_obs_baseline",
+  current_artifact_id="art_obs_current",
+  baseline_artifact_id="art_obs_baseline",
   compare_type="normal"
 )
 ```
@@ -237,11 +261,53 @@ marivo-get_proposition_context(
 Close the active write flow explicitly:
 
 ```text
+marivo-export_report(
+  session_id="sess_123",
+  output_path=".marivo/reports/sess_123.html"
+)
+
 marivo-terminate_session(
   session_id="sess_123",
   terminal_reason="answered"
 )
 ```
+
+After reading trace, state, and proposition context, complete the Evidence-Linked Report Checklist
+(see SKILL.md) before delivering the final answer.
+
+## Evidence-Linked Final Report Template
+
+After completing the Evidence-Linked Report Checklist, structure the final answer so every
+evidence-backed claim carries at least one artifact ID, proposition ID, or trace warning reference.
+
+### Required structure
+
+```text
+## Findings
+
+1. [Finding text] (art_obs_1, prop_3)
+2. [Finding text] (art_compare_2)
+3. [Hypothesis — no artifact reference] UNCONFIRMED
+
+## Evidence Chain
+
+- art_obs_1: daily watch_time_seconds for 2026-05-05..2026-05-12
+- art_compare_2: current vs baseline comparison
+- prop_3: "watch_time dropped 18% for US mobile" — confirmed by art_compare_2, art_decompose_4
+- [Trace warning: step 3 had partial data; prop_3 may underestimate the drop]
+
+## Session Close
+
+Session sess_123 terminated with terminal_reason="answered".
+```
+
+### Rules
+
+- Every numbered finding under "Findings" MUST include at least one parenthesized reference.
+- If a finding has no artifact or proposition reference, label it "UNCONFIRMED" and keep it separate
+  from evidence-backed findings.
+- "Evidence Chain" maps each referenced artifact/proposition to what it produced.
+- Trace warnings that affect conclusions MUST appear under "Evidence Chain".
 
 ## Common Mistakes
 
@@ -254,3 +320,5 @@ marivo-terminate_session(
 - passing scalar or grouped observe artifacts into `marivo-correlate` or `marivo-forecast`
 - skipping `marivo-get_session_state` and jumping straight to proposition context without knowing
   which proposition matters
+- delivering a final answer with zero artifact IDs or proposition references — every evidence-backed
+  claim must link to at least one artifact ID, proposition ID, or trace warning

@@ -64,5 +64,6 @@ def execute_compiled(
             "translated_sql": translation_result.sql,
             "translation": translation_result.to_dict(),
             "federation_plan": execution_result.plan.to_dict(),
+            "elapsed_ms": execution_result.metadata.get("elapsed_ms"),
         },
     )

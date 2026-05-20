@@ -438,6 +438,15 @@ class FileArtifactStore:
         artifact_id: ArtifactId,
     ) -> dict[str, Any] | None:
         """Return committed artifact content by session-scoped ArtifactId."""
+        result = self.resolve_artifact_with_type_by_id(session_id, artifact_id)
+        return result[1] if result is not None else None
+
+    def resolve_artifact_with_type_by_id(
+        self,
+        session_id: SessionId,
+        artifact_id: ArtifactId,
+    ) -> tuple[str, dict[str, Any]] | None:
+        """Return (artifact_type, content) for a committed session-scoped ArtifactId."""
         for entry in reversed(self._read_index(session_id)):
             if entry.get("artifact_id") != str(artifact_id):
                 continue
@@ -456,7 +465,7 @@ class FileArtifactStore:
                 return None
             if record.get("lifecycle") != "committed":
                 return None
-            return record.get("content")
+            return record.get("artifact_type", ""), record.get("content", {})
 
         return None
 

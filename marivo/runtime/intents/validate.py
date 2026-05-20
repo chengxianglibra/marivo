@@ -35,7 +35,11 @@ _VALID_GRAINS: frozenset[str] = frozenset({"hour", "day", "week", "month", "quar
 
 
 def run_validate_intent(
-    runtime: MarivoRuntime, session_id: str, params: dict[str, Any] | None
+    runtime: MarivoRuntime,
+    session_id: str,
+    params: dict[str, Any] | None,
+    *,
+    reasoning: str | None = None,
 ) -> dict[str, Any]:
     p = _validate_request(params)
 
@@ -218,6 +222,7 @@ def run_validate_intent(
                 "test_ref": test_ref_out,
             },
         },
+        reasoning=reasoning,
     )
 
 
