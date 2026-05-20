@@ -110,6 +110,24 @@ python3 -m venv .venv
 Marivo only supports fresh-init for local metadata SQLite. If the metadata schema changes, delete
 the old metadata file and let the service rebuild it from the current schema.
 
+### Binary Release Builds
+
+PyPI wheels are platform-independent for Marivo's Python package, but PyInstaller binaries are
+native artifacts. Their outputs live in separate dist trees:
+
+```bash
+make pypi-build
+make binary
+```
+
+PyPI artifacts land in `dist/pypi/`, while PyInstaller artifacts land in `dist/pyinstaller/`.
+The GitHub Actions binary workflow builds Linux x86_64, macOS x86_64, macOS arm64, and Windows
+x86_64 artifacts from native runners. Local `make binary` only builds the current machine's
+platform.
+
+For upload commands, point Twine at `dist/pypi/*`; for binary release archives, use
+`dist/pyinstaller/*`.
+
 ## Frontend Console
 
 The independent UI lives in `frontend/`. It is an HTTP-only human console, not a restored FastAPI

@@ -58,6 +58,12 @@ marivo = "marivo.transports.cli:main"
 requires = ["setuptools>=68.0"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.package-data]
+marivo = ["runtime/report_templates/*.html"]
+
 [tool.pytest.ini_options]
 markers = [
     "mysql: tests requiring a MySQL container",

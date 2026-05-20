@@ -1,11 +1,27 @@
-.PHONY: test typecheck lint format check test-mysql binary binary-sign binary-unquarantine binary-clean
+.PHONY: test typecheck lint format check test-mysql pypi-build pypi-check pypi-clean binary binary-sign binary-unquarantine package binary-clean
 
-VENV_PYTHON := .venv/bin/python
-VENV_PIP := .venv/bin/pip
-VENV_PYTEST := .venv/bin/pytest
-VENV_MYPY := .venv/bin/mypy
-VENV_RUFF := .venv/bin/ruff
-VENV_LINT_IMPORTS := .venv/bin/lint-imports
+ifeq ($(OS),Windows_NT)
+VENV_BIN := .venv/Scripts
+EXE_SUFFIX := .exe
+else
+VENV_BIN := .venv/bin
+EXE_SUFFIX :=
+endif
+
+VENV_PYTHON := $(VENV_BIN)/python$(EXE_SUFFIX)
+VENV_PIP := $(VENV_BIN)/pip$(EXE_SUFFIX)
+VENV_PYTEST := $(VENV_BIN)/pytest$(EXE_SUFFIX)
+VENV_MYPY := $(VENV_BIN)/mypy$(EXE_SUFFIX)
+VENV_RUFF := $(VENV_BIN)/ruff$(EXE_SUFFIX)
+VENV_LINT_IMPORTS := $(VENV_BIN)/lint-imports$(EXE_SUFFIX)
+VENV_PYINSTALLER := $(VENV_BIN)/pyinstaller$(EXE_SUFFIX)
+VENV_BUILD := $(VENV_BIN)/build$(EXE_SUFFIX)
+VENV_TWINE := $(VENV_BIN)/twine$(EXE_SUFFIX)
+
+PYPI_DIST_DIR := dist/pypi
+PYINSTALLER_DIST_DIR := dist/pyinstaller
+PYINSTALLER_BUILD_DIR := build/pyinstaller
+MARIVO_BINARY := $(PYINSTALLER_DIST_DIR)/marivo/marivo$(EXE_SUFFIX)
 
 test:
 	@./scripts/require-venv.sh pytest
@@ -31,72 +47,89 @@ test-mysql:
 
 check: lint typecheck test
 
+pypi-build: ## Build PyPI sdist and wheel into dist/pypi/
+	@./scripts/require-venv.sh pip
+	@$(VENV_PIP) install build twine
+	@$(MAKE) pypi-clean
+	@mkdir -p $(PYPI_DIST_DIR)
+	@$(VENV_PYTHON) -m build --outdir $(PYPI_DIST_DIR)
+	@echo "PyPI artifacts built in $(PYPI_DIST_DIR)"
+
+pypi-check: ## Validate PyPI sdist and wheel in dist/pypi/
+	@./scripts/require-venv.sh twine
+	@$(VENV_TWINE) check $(PYPI_DIST_DIR)/*
+
+pypi-clean: ## Remove PyPI build artifacts
+	rm -rf $(PYPI_DIST_DIR) dist/marivo-*.tar.gz dist/marivo-*.whl
+
 binary: ## Build onedir Marivo binary (excludes duckdb)
-	@./scripts/require-venv.sh pyinstaller
-	@$(VENV_PIP) install pyinstaller
-	@$(VENV_PIP) install --no-deps .
-	@.venv/bin/pyinstaller marivo.spec --noconfirm
-	@echo "Binary built: dist/marivo/marivo"
+	@./scripts/require-venv.sh pip
+	@$(VENV_PIP) install ".[mysql,trino]" pyinstaller
+	@$(MAKE) binary-clean
+	@mkdir -p $(PYINSTALLER_DIST_DIR) $(PYINSTALLER_BUILD_DIR)
+	@$(VENV_PYINSTALLER) marivo.spec --noconfirm --distpath $(PYINSTALLER_DIST_DIR) --workpath $(PYINSTALLER_BUILD_DIR)
+	@echo "Binary built: $(MARIVO_BINARY)"
 	@$(MAKE) binary-sign
-	@./dist/marivo/marivo --help || echo "Warning: binary smoke test failed"
+	@./$(MARIVO_BINARY) --help
+	@./$(MARIVO_BINARY) serve --help
 	@$(MAKE) package
 
 binary-sign: ## Ad-hoc sign macOS binary for internal distribution
 	@if [ "$$(uname -s)" = "Darwin" ]; then \
-		echo "Removing macOS quarantine attributes from dist/marivo"; \
+		echo "Removing macOS quarantine attributes from $(PYINSTALLER_DIST_DIR)/marivo"; \
 		$(MAKE) binary-unquarantine; \
-		if [ ! -f dist/marivo/marivo-bin ]; then \
-			mv dist/marivo/marivo dist/marivo/marivo-bin; \
+		if [ ! -f $(PYINSTALLER_DIST_DIR)/marivo/marivo-bin ]; then \
+			mv $(PYINSTALLER_DIST_DIR)/marivo/marivo $(PYINSTALLER_DIST_DIR)/marivo/marivo-bin; \
 		fi; \
 		printf '%s\n' \
 			'#!/bin/sh' \
 			'set -eu' \
 			'TARGET_DIR=$${1:-$$(CDPATH= cd -- "$$(dirname -- "$$0")" && pwd)}' \
 			'/usr/bin/xattr -dr com.apple.quarantine "$$TARGET_DIR" 2>/dev/null || true' \
-			> dist/marivo/macos-unquarantine; \
-		chmod +x dist/marivo/macos-unquarantine; \
+			> $(PYINSTALLER_DIST_DIR)/marivo/macos-unquarantine; \
+		chmod +x $(PYINSTALLER_DIST_DIR)/marivo/macos-unquarantine; \
 		printf '%s\n' \
 			'#!/bin/sh' \
 			'set -eu' \
 			'SELF_DIR=$$(CDPATH= cd -- "$$(dirname -- "$$0")" && pwd)' \
 			'"$$SELF_DIR/macos-unquarantine" "$$SELF_DIR" 2>/dev/null || true' \
 			'exec "$$SELF_DIR/marivo-bin" "$$@"' \
-			> dist/marivo/marivo; \
-		chmod +x dist/marivo/marivo; \
-		echo "Ad-hoc signing macOS Mach-O files in dist/marivo"; \
-		find dist/marivo -type f -exec sh -c 'for file do if file "$$file" | grep -q "Mach-O"; then codesign --force --sign - "$$file"; fi; done' sh {} +; \
-		codesign --force --deep --sign - dist/marivo/marivo-bin; \
-		codesign --verify --deep --strict dist/marivo/marivo-bin; \
+			> $(PYINSTALLER_DIST_DIR)/marivo/marivo; \
+		chmod +x $(PYINSTALLER_DIST_DIR)/marivo/marivo; \
+		echo "Ad-hoc signing macOS Mach-O files in $(PYINSTALLER_DIST_DIR)/marivo"; \
+		find $(PYINSTALLER_DIST_DIR)/marivo -type f -exec sh -c 'for file do if file "$$file" | grep -q "Mach-O"; then codesign --force --sign - "$$file"; fi; done' sh {} +; \
+		codesign --force --deep --sign - $(PYINSTALLER_DIST_DIR)/marivo/marivo-bin; \
+		codesign --verify --deep --strict $(PYINSTALLER_DIST_DIR)/marivo/marivo-bin; \
 	else \
 		echo "Skipping ad-hoc signing: not running on macOS"; \
 	fi
 
 binary-unquarantine: ## Remove macOS Gatekeeper quarantine from dist/marivo
 	@if [ "$$(uname -s)" = "Darwin" ]; then \
-		xattr -dr com.apple.quarantine dist/marivo 2>/dev/null || true; \
+		xattr -dr com.apple.quarantine $(PYINSTALLER_DIST_DIR) 2>/dev/null || true; \
 	else \
 		echo "Skipping quarantine cleanup: not running on macOS"; \
 	fi
 
-package: ## Package dist/marivo/ into marivo_{version}_{target}.{tar.gz|zip}
-	@VERSION=$$(.venv/bin/python -c "import importlib.metadata; print(importlib.metadata.version('marivo'))") \
-	&& TARGET=$$(.venv/bin/python -c "\
+package: ## Package $(PYINSTALLER_DIST_DIR)/marivo into marivo_{version}_{target}.{tar.gz|zip}
+	@VERSION=$$($(VENV_PYTHON) -c "import importlib.metadata; print(importlib.metadata.version('marivo'))") \
+	&& TARGET=$$($(VENV_PYTHON) -c "\
 import platform; \
 m = platform.machine().lower(); \
 m = 'x86_64' if m == 'amd64' else m; \
 s = platform.system().lower(); \
 s = 'macos' if s == 'darwin' else s; \
 print(f'{s}-{m}')") \
-	&& cd dist \
+	&& cd $(PYINSTALLER_DIST_DIR) \
 	&& if [ "$$OSTYPE" = "msys" ] || [ "$$OSTYPE" = "win32" ]; then \
-		python -c "import zipfile, pathlib; \
+		../../$(VENV_PYTHON) -c "import zipfile, pathlib; \
 z = zipfile.ZipFile('marivo_$${VERSION}_$${TARGET}.zip', 'w', zipfile.ZIP_DEFLATED); \
-[z.write(str(p), str(p.relative_to('dist'))) for p in pathlib.Path('marivo').rglob('*') if p.is_file()]; \
+[z.write(str(p), str(p)) for p in pathlib.Path('marivo').rglob('*') if p.is_file()]; \
 z.close()"; \
 	else \
 		COPYFILE_DISABLE=1 tar czf marivo_$${VERSION}_$${TARGET}.tar.gz marivo/; \
 	fi \
-	&& echo "Packaged: dist/marivo_$${VERSION}_$${TARGET}.*"
+	&& echo "Packaged: $(PYINSTALLER_DIST_DIR)/marivo_$${VERSION}_$${TARGET}.*"
 
 binary-clean: ## Remove PyInstaller build artifacts
-	rm -rf build/ dist/
+	rm -rf $(PYINSTALLER_BUILD_DIR) $(PYINSTALLER_DIST_DIR) dist/marivo dist/marivo_*.tar.gz dist/marivo_*.zip
