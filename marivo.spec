@@ -1,16 +1,15 @@
 # -*- mode: python ; coding: utf-8 -*-
 """PyInstaller spec for Marivo server binary (no duckdb, no frontend).
 
-Build:  make binary  (or: pyinstaller marivo.spec)
-Output: dist/marivo/marivo  (onedir — fast startup)
+Build:  make binary
+Output: dist/pyinstaller/marivo/marivo[.exe]  (onedir — fast startup)
 """
 
-import sys
 from pathlib import Path
 
 block_cipher = None
 
-BINARY_NAME = "marivo-server" if sys.platform == "win32" else "marivo"
+BINARY_NAME = "marivo"
 
 # Collect all marivo package data (source files, subpackages, etc.)
 # This is needed because editable installs use a custom MetaPathFinder
