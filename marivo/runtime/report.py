@@ -38,7 +38,12 @@ ANALYSIS_PHASES: dict[str, dict[str, Any]] = {
     "anomaly_detection": {
         "label": "Anomaly Detection",
         "description": "Scanning for statistical anomalies and outlier candidates.",
-        "step_types": ("detect", "diagnose"),
+        "step_types": ("detect",),
+    },
+    "diagnosis": {
+        "label": "Diagnosis",
+        "description": "Automated anomaly detection with follow-up attribution analysis.",
+        "step_types": ("diagnose",),
     },
     "statistical_testing": {
         "label": "Statistical Testing",
@@ -175,14 +180,14 @@ def _truncate_artifact_payload(payload: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(payload, dict):
         return payload
     result = dict(payload)
-    for key in ("buckets", "rows", "segments", "candidates"):
+    for key in ("buckets", "rows", "segments", "candidates", "series", "points"):
         val = result.get(key)
         if isinstance(val, list) and len(val) > _MAX_PAYLOAD_ROWS:
             result[key] = val[:_MAX_PAYLOAD_ROWS]
             result[f"_{key}_truncated"] = f"Showing {_MAX_PAYLOAD_ROWS} of {len(val)}"
     content = result.get("content") or result.get("result")
     if isinstance(content, dict):
-        for key in ("buckets", "rows", "segments", "candidates"):
+        for key in ("buckets", "rows", "segments", "candidates", "series", "points"):
             val = content.get(key)
             if isinstance(val, list) and len(val) > _MAX_PAYLOAD_ROWS:
                 content[key] = val[:_MAX_PAYLOAD_ROWS]
@@ -307,6 +312,7 @@ def _extract_artifact_summary(payload: dict[str, Any]) -> dict[str, Any]:
         "comparison_type",
         "comparability",
         "unit",
+        "metric",
         "dimension",
         "method",
         "strategy",
@@ -323,11 +329,62 @@ def _extract_artifact_summary(payload: dict[str, Any]) -> dict[str, Any]:
                 break
 
     # Count keys for array fields
-    for key in ("buckets", "rows", "segments", "candidates"):
+    for key in ("buckets", "rows", "segments", "candidates", "series", "points"):
         for src in (payload, content_dict):
             if src and isinstance(src.get(key), list):
                 summary[f"{key}_count"] = len(src[key])
                 break
+
+    # Observation: extract dimensions list as display string
+    for src in (payload, content_dict):
+        if src and isinstance(src.get("dimensions"), list) and "dimensions" not in summary:
+            summary["dimensions"] = ", ".join(str(d) for d in src["dimensions"])
+            break
+
+    # Observation: extract primary result value for display
+    is_observation = False
+    for src in (payload, content_dict):
+        if src and src.get("observation_type"):
+            is_observation = True
+            break
+    if is_observation:
+        for src in (payload, content_dict):
+            if src:
+                obs_type = src.get("observation_type", "")
+                # Scalar: the value itself
+                if obs_type == "scalar" and src.get("value") is not None:
+                    summary["primary_result"] = str(src["value"])
+                    break
+                # Time series: latest bucket value and range
+                if obs_type == "time_series":
+                    items = src.get("series") or src.get("buckets") or src.get("points") or []
+                    if items and isinstance(items, list) and len(items) > 0:
+                        first_win = items[0].get("window") or {}
+                        last_win = items[-1].get("window") or {}
+                        if first_win.get("start"):
+                            summary["series_start"] = first_win["start"]
+                        if last_win.get("start"):
+                            summary["series_end"] = last_win["start"]
+                        last = items[-1]
+                        val = last.get("value")
+                        if val is not None:
+                            summary["primary_result"] = str(val)
+                        else:
+                            for item in reversed(items):
+                                v = item.get("value")
+                                if v is not None:
+                                    summary["primary_result"] = str(v)
+                                    break
+                    break
+                # Segmented: top segment value
+                if obs_type == "segmented":
+                    segs = src.get("segments") or []
+                    if segs and isinstance(segs, list) and len(segs) > 0:
+                        top = segs[0]
+                        val = top.get("value")
+                        if val is not None:
+                            summary["primary_result"] = str(val)
+                    break
 
     # Remove any value keys that slipped through
     for key in _skip_value_keys:
@@ -446,6 +503,54 @@ def _extract_dependency_refs(
     return refs
 
 
+def _build_dag_label(step: StepReportData) -> str:
+    """Build a meaningful DAG label from step type and artifact summary."""
+    st = step.step_type
+    summary = step.artifact_summary or {}
+    metric = summary.get("metric", "")
+
+    if st == "observe":
+        granularity = summary.get("granularity", "")
+        label = metric or "observe"
+        if granularity:
+            label += f"/{granularity}"
+        return label
+    elif st == "compare":
+        return f"compare {metric}" if metric else "compare"
+    elif st == "decompose":
+        dim = summary.get("dimension", "")
+        return f"decompose by {dim}" if dim else "decompose"
+    elif st == "detect":
+        flag = summary.get("top_candidate_flag_level", "")
+        parts = ["detect"]
+        if metric:
+            parts.append(metric)
+        if flag:
+            parts.append(f"({flag})")
+        return " ".join(parts)
+    elif st == "diagnose":
+        return f"diagnose {metric}" if metric else "diagnose"
+    elif st == "correlate":
+        left = summary.get("left_metric", "")
+        right = summary.get("right_metric", "")
+        if left and right:
+            return f"corr {left}/{right}"
+        return "correlate"
+    elif st in ("test", "validate"):
+        return f"{st} {metric}" if metric else st
+    elif st == "forecast":
+        return f"forecast {metric}" if metric else "forecast"
+    elif st == "attribute":
+        return f"attribute {metric}" if metric else "attribute"
+    else:
+        if step.summary:
+            truncated = step.summary[:25]
+            if len(step.summary) > 25:
+                truncated += "..."
+            return truncated
+        return st
+
+
 def _build_dag(steps: list[StepReportData]) -> tuple[list[DagNode], list[DagEdge]]:
     """Build DAG nodes and edges from step dependency refs.
 
@@ -468,13 +573,7 @@ def _build_dag(steps: list[StepReportData]) -> tuple[list[DagNode], list[DagEdge
 
     nodes: list[DagNode] = []
     for i, s in enumerate(steps):
-        # Short label: type + first ~20 chars of summary
-        short_label = s.step_type
-        if s.summary:
-            summary_prefix = s.summary[:30]
-            if len(s.summary) > 30:
-                summary_prefix += "..."
-            short_label = f"{s.step_type}: {summary_prefix}"
+        short_label = _build_dag_label(s)
         nodes.append(
             DagNode(
                 step_id=s.step_id,
@@ -486,6 +585,7 @@ def _build_dag(steps: list[StepReportData]) -> tuple[list[DagNode], list[DagEdge
         )
 
     edges: list[DagEdge] = []
+    seen_edges: set[tuple[str, str, str]] = set()
     for s in steps:
         if not s.dependency_refs:
             continue
@@ -497,13 +597,16 @@ def _build_dag(steps: list[StepReportData]) -> tuple[list[DagNode], list[DagEdge
                 if aid and aid in artifact_to_step:
                     source_sid = artifact_to_step[aid]
             if source_sid and source_sid in step_id_to_index and s.step_id:
-                edges.append(
-                    DagEdge(
-                        source_step_id=source_sid,
-                        target_step_id=s.step_id,
-                        role=ref.get("role", ""),
+                edge_key = (source_sid, s.step_id, ref.get("role", ""))
+                if edge_key not in seen_edges:
+                    seen_edges.add(edge_key)
+                    edges.append(
+                        DagEdge(
+                            source_step_id=source_sid,
+                            target_step_id=s.step_id,
+                            role=ref.get("role", ""),
+                        )
                     )
-                )
 
     return nodes, edges
 
@@ -613,6 +716,49 @@ def _collect_proposition_data(
 
 
 # ---------------------------------------------------------------------------
+# Proposition deduplication
+# ---------------------------------------------------------------------------
+
+
+def _deduplicate_propositions(
+    propositions: list[PropositionReportData],
+) -> list[PropositionReportData]:
+    """Remove duplicate propositions that share the same identity.
+
+    Groups by ``identity_key`` if available, else by a composite of
+    ``(proposition_type, subject_display, frozenset of finding_ids)``.
+    When duplicates exist, keep the one with the most recent assessment.
+    """
+    groups: dict[str, list[PropositionReportData]] = {}
+    for prop in propositions:
+        # Try identity_key from the raw subject dict
+        identity_key = prop.subject.get("identity_key") if isinstance(prop.subject, dict) else None
+        if not identity_key:
+            # Fallback: composite key
+            finding_ids = frozenset(
+                f.get("finding_id", "")
+                for f in prop.supporting_findings + prop.opposing_findings
+                if f.get("finding_id")
+            )
+            identity_key = f"{prop.proposition_type}|{prop.subject_display}|{finding_ids}"
+        groups.setdefault(identity_key, []).append(prop)
+
+    result: list[PropositionReportData] = []
+    for group in groups.values():
+        if len(group) == 1:
+            result.append(group[0])
+        else:
+            # Keep the one with the most recent assessment
+            def _sort_key(p: PropositionReportData) -> str:
+                if p.latest_assessment:
+                    return str(p.latest_assessment.get("created_at", ""))
+                return ""
+
+            result.append(max(group, key=_sort_key))
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Semantic model collection
 # ---------------------------------------------------------------------------
 
@@ -702,6 +848,55 @@ def _build_executive_summary(report: ReportData) -> ExecutiveSummaryData:
 
 
 # ---------------------------------------------------------------------------
+# Jinja2 formatting filters
+# ---------------------------------------------------------------------------
+
+
+def _fmt_pct(value: Any) -> str:
+    """Format a raw ratio as percentage: 5.3729 → \"537.3%\"."""
+    if value is None:
+        return "—"
+    try:
+        v = float(value) * 100
+        return f"{v:.1f}%"
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def _fmt_pvalue(value: Any) -> str:
+    """Format p-value: 0.01458 → \"0.015\", 0.001 → \"<0.01\"."""
+    if value is None:
+        return "—"
+    try:
+        v = float(value)
+        if v < 0.01:
+            return "<0.01"
+        return f"{v:.3f}"
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def _fmt_coeff(value: Any) -> str:
+    """Format correlation coefficient: 0.6155 → \"0.62\"."""
+    if value is None:
+        return "—"
+    try:
+        return f"{float(value):.2f}"
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def _fmt_delta(value: Any) -> str:
+    """Format delta with sign prefix: 0.22 → \"+0.22\", -0.04 → \"-0.04\"."""
+    if value is None:
+        return "—"
+    try:
+        return f"{float(value):+.2f}"
+    except (TypeError, ValueError):
+        return str(value)
+
+
+# ---------------------------------------------------------------------------
 # Main report generation
 # ---------------------------------------------------------------------------
 
@@ -772,7 +967,10 @@ def generate_session_report(runtime: Any, session_id: str, output_path: str) -> 
         gap_lookup=gap_lookup,
     )
 
-    # 6. Semantic models
+    # 6. Deduplicate propositions
+    propositions = _deduplicate_propositions(propositions)
+
+    # 7. Semantic models
     semantic_models = _collect_semantic_models(runtime)
 
     # 7. Build DAG from step dependencies
@@ -802,6 +1000,10 @@ def generate_session_report(runtime: Any, session_id: str, output_path: str) -> 
         loader=FileSystemLoader(str(template_dir)),
         autoescape=select_autoescape(["html"]),
     )
+    env.filters["fmt_pct"] = _fmt_pct
+    env.filters["fmt_pvalue"] = _fmt_pvalue
+    env.filters["fmt_coeff"] = _fmt_coeff
+    env.filters["fmt_delta"] = _fmt_delta
     template = env.get_template("session_report.html")
     html = template.render(report=report, phases=ANALYSIS_PHASES)
 

@@ -39,12 +39,31 @@
 
   /* Mermaid DAG */
   .dag-section { margin: 16px 0; }
-  .dag-section .mermaid { max-width: 100%; }
+  .dag-viewport { position: relative; overflow: hidden; border: 1px solid #d1d5db; border-radius: 6px; background: #fff; cursor: grab; }
+  .dag-viewport:active { cursor: grabbing; }
+  .dag-viewport .mermaid { transform-origin: 0 0; transition: none; }
+  .dag-controls { position: absolute; top: 8px; right: 8px; z-index: 10; display: flex; flex-direction: column; gap: 4px; }
+  .dag-controls button { width: 32px; height: 32px; border: 1px solid #d1d5db; border-radius: 4px; background: #fff; cursor: pointer; font-size: 16px; line-height: 1; display: flex; align-items: center; justify-content: center; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+  .dag-controls button:hover { background: #f3f4f6; }
+  .dag-zoom-label { text-align: center; font-size: 11px; color: #6b7280; }
 
   /* SQL */
-  .sql-section { margin: 8px 0; }
-  .sql-label { font-size: 12px; color: #64748b; margin-bottom: 4px; font-weight: 600; }
+  .sql-details { margin: 8px 0; }
+  .sql-details summary { font-size: 12px; color: #64748b; font-weight: 600; margin-bottom: 4px; }
+  .sql-details summary:hover { text-decoration: none; }
   .sql-block { background: #1e293b; color: #e2e8f0; padding: 16px; border-radius: 6px; overflow-x: auto; font-family: "SF Mono", "Fira Code", monospace; font-size: 13px; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word; }
+
+  /* Severity indicators */
+  .direction-up { color: #dc2626; font-weight: 600; }
+  .direction-down { color: #2563eb; font-weight: 600; }
+  .flag-high { background: #fee2e2; color: #991b1b; padding: 2px 6px; border-radius: 3px; font-size: 12px; }
+  .flag-medium { background: #fef3c7; color: #92400e; padding: 2px 6px; border-radius: 3px; font-size: 12px; }
+  .flag-low { background: #f3f4f6; color: #6b7280; padding: 2px 6px; border-radius: 3px; font-size: 12px; }
+  .significance-significant { color: #16a34a; font-weight: 600; }
+  .significance-not_significant { color: #9ca3af; }
+
+  /* Rationale list */
+  .rationale-list { margin: 4px 0; padding-left: 20px; font-size: 13px; }
 
   /* Reasoning */
   .reasoning { background: #eff6ff; border-left: 4px solid #2563eb; padding: 10px 16px; margin: 8px 0; border-radius: 0 4px 4px 0; }
@@ -199,20 +218,23 @@
   </table>
   {% elif content.get("observation_type") == "segmented" %}
   <table class="result-table">
-    <tr><th>Segment</th><th>Value</th></tr>
+    <tr><th>Segment</th><th>Value</th>{% if content.segments and content.segments[0].get("share") is not none %}<th>Share</th>{% endif %}</tr>
     {% for seg in (content.get("segments") or [])[:20] %}
     <tr>
-      <td>{{ seg.get("key", seg.get("dimension_value", "—")) }}</td>
+      {% set keys_dict = seg.get("keys") %}
+      <td>{% if keys_dict is mapping %}{{ keys_dict | dictsort | map("join", "=") | join(", ") }}{% else %}{{ seg.get("key", seg.get("dimension_value", "—")) }}{% endif %}</td>
       <td>{{ seg.get("value", "—") }}</td>
+      {% if content.segments and content.segments[0].get("share") is not none %}<td>{{ seg.get("share", "—") }}</td>{% endif %}
     </tr>
     {% endfor %}
   </table>
   {% elif content.get("observation_type") == "time_series" %}
+  {% set ts_items = content.get("buckets") or content.get("series") or content.get("points") or [] %}
   <table class="result-table">
     <tr><th>Period</th><th>Value</th></tr>
-    {% for bucket in (content.get("buckets") or [])[:20] %}
+    {% for bucket in ts_items[:30] %}
     <tr>
-      <td>{{ bucket.get("bucket_start", bucket.get("time_bucket", "—")) }}</td>
+      <td>{{ bucket.get("bucket_start") or (bucket.get("window") or {}).get("start") or bucket.get("time_bucket", "—") }}</td>
       <td>{{ bucket.get("value", "—") }}</td>
     </tr>
     {% endfor %}
@@ -230,13 +252,14 @@
     <tr><th>Baseline Value</th><td>{{ content.get("scope_baseline_value", content.get("baseline_value", "—")) }}</td></tr>
     {% endif %}
     {% if content.get("scope_absolute_delta") or content.get("absolute_delta") %}
-    <tr><th>Absolute Delta</th><td>{{ content.get("scope_absolute_delta", content.get("absolute_delta", "—")) }}</td></tr>
+    <tr><th>Absolute Delta</th><td>{{ content.get("scope_absolute_delta", content.get("absolute_delta")) | fmt_delta }}</td></tr>
     {% endif %}
     {% if content.get("scope_relative_delta") or content.get("relative_delta") %}
-    <tr><th>Relative Delta</th><td>{{ content.get("scope_relative_delta", content.get("relative_delta", "—")) }}</td></tr>
+    <tr><th>Relative Delta</th><td>{{ content.get("scope_relative_delta", content.get("relative_delta")) | fmt_pct }}</td></tr>
     {% endif %}
     {% if content.get("scope_direction") or content.get("direction") %}
-    <tr><th>Direction</th><td>{{ content.get("scope_direction", content.get("direction", "—")) }}</td></tr>
+    {% set dir = content.get("scope_direction", content.get("direction", "")) %}
+    <tr><th>Direction</th><td class="direction-{{ dir }}">{% if dir == "up" or dir == "increase" %}↑ {% elif dir == "down" or dir == "decrease" %}↓ {% endif %}{{ dir }}</td></tr>
     {% endif %}
     {% if content.get("comparison_type") %}
     <tr><th>Comparison Type</th><td>{{ content.get("comparison_type") }}</td></tr>
@@ -273,9 +296,9 @@
       <td>{{ sl | dictsort | map("join", "=") | join(", ") if sl else "overall" }}</td>
       <td>{{ candidate.get("candidate_type", "—") }}</td>
       <td>{{ candidate.get("candidate_score", candidate.get("score", candidate.get("anomaly_score", "—"))) }}</td>
-      <td>{{ "%.1f"|format((candidate.get("deviation_pct", 0) or 0) * 100) }}%</td>
-      <td>{{ candidate.get("direction", "—") }}</td>
-      <td>{{ candidate.get("flag_level", "—") }}</td>
+      <td>{{ (candidate.get("deviation_pct", 0) or 0) | fmt_pct }}</td>
+      <td class="direction-{{ candidate.get('direction', '') }}">{% if candidate.get("direction") == "up" %}↑ {% elif candidate.get("direction") == "down" %}↓ {% endif %}{{ candidate.get("direction", "—") }}</td>
+      <td><span class="flag-{{ candidate.get('flag_level', '') }}">{{ candidate.get("flag_level", "—") }}</span></td>
     </tr>
     {% endfor %}
   </table>
@@ -289,7 +312,7 @@
     <tr><th>Test Method</th><td>{{ content.get("test_method", content.get("method", "—")) }}</td></tr>
     {% endif %}
     {% if content.get("p_value") %}
-    <tr><th>P-Value</th><td>{{ content.get("p_value", "—") }}</td></tr>
+    <tr><th>P-Value</th><td>{{ content.get("p_value") | fmt_pvalue }}</td></tr>
     {% endif %}
     {% if content.get("test_statistic") %}
     <tr><th>Test Statistic</th><td>{{ content.get("test_statistic", "—") }}</td></tr>
@@ -345,13 +368,13 @@
   </table>
   {% for diag in (diag_result.get("diagnoses") or [])[:5] %}
   {% set cand = diag.get("candidate") or {} %}
-  <h4>Candidate: {{ cand.get("slice", {}) | dictsort | map("join", "=") | join(", ") or "overall" }}</h4>
+  <h4>Candidate: {{ (cand.get("slice") or {}) | dictsort | map("join", "=") | join(", ") or "overall" }}</h4>
   <table class="result-table">
-    <tr><th>Direction</th><td>{{ cand.get("direction", "—") }}</td></tr>
+    <tr><th>Direction</th><td class="direction-{{ cand.get('direction', '') }}">{% if cand.get("direction") == "up" %}↑ {% elif cand.get("direction") == "down" %}↓ {% endif %}{{ cand.get("direction", "—") }}</td></tr>
     <tr><th>Current Value</th><td>{{ cand.get("current_value", "—") }}</td></tr>
     <tr><th>Baseline Value</th><td>{{ cand.get("baseline_value", "—") }}</td></tr>
-    <tr><th>Deviation</th><td>{{ "%.1f"|format((cand.get("deviation_pct", 0) or 0) * 100) }}%</td></tr>
-    <tr><th>Flag Level</th><td>{{ cand.get("flag_level", "—") }}</td></tr>
+    <tr><th>Deviation</th><td>{{ (cand.get("deviation_pct", 0) or 0) | fmt_pct }}</td></tr>
+    <tr><th>Flag Level</th><td><span class="flag-{{ cand.get('flag_level', '') }}">{{ cand.get("flag_level", "—") }}</span></td></tr>
   </table>
   {% for driver in (diag.get("drivers") or []) %}
   {% if driver.get("top_segment") %}
@@ -364,7 +387,7 @@
         <td>{{ driver.top_segment.get("current_value", "—") }}</td>
         <td>{{ driver.top_segment.get("baseline_value", "—") }}</td>
         <td>{{ driver.top_segment.get("absolute_contribution", "—") }}</td>
-        <td>{{ "%.1f"|format((driver.top_segment.get("contribution_share", 0) or 0) * 100) }}%</td>
+        <td>{{ (driver.top_segment.get("contribution_share", 0) or 0) | fmt_pct }}</td>
       </tr>
     </table>
   </details>
@@ -379,10 +402,10 @@
     <tr><th>Method</th><td>{{ corr_stat.get("method", "—") }}</td></tr>
     {% endif %}
     {% if corr_stat.get("coefficient") is not none %}
-    <tr><th>Coefficient</th><td>{{ "%.4f"|format(corr_stat.get("coefficient", 0)) }}</td></tr>
+    <tr><th>Coefficient</th><td>{{ corr_stat.get("coefficient") | fmt_coeff }}</td></tr>
     {% endif %}
     {% if corr_stat.get("p_value") is not none %}
-    <tr><th>P-Value</th><td>{{ corr_stat.get("p_value", "—") }}</td></tr>
+    <tr><th>P-Value</th><td>{{ corr_stat.get("p_value") | fmt_pvalue }}</td></tr>
     {% endif %}
     {% if corr_stat.get("n_pairs") is not none %}
     <tr><th>N Pairs</th><td>{{ corr_stat.get("n_pairs", "—") }}</td></tr>
@@ -391,7 +414,7 @@
     <tr><th>Sign</th><td>{{ content.get("sign", "—") }}</td></tr>
     {% endif %}
     {% if content.get("significance") %}
-    <tr><th>Significance</th><td>{{ content.get("significance", "—") }}</td></tr>
+    <tr><th>Significance</th><td><span class="significance-{{ content.get('significance', '') }}">{{ content.get("significance", "—") }}</span></td></tr>
     {% endif %}
   </table>
 
@@ -425,15 +448,23 @@
   {% if report.dag_edges %}
   <div class="dag-section">
     <h3>Step Dependency DAG</h3>
-    <pre class="mermaid">
+    <div class="dag-viewport" id="dag-viewport">
+      <div class="dag-controls">
+        <button title="Zoom in" onclick="dagZoom(1.2)">&#43;</button>
+        <button title="Zoom out" onclick="dagZoom(1/1.2)">&#8722;</button>
+        <button title="Reset" onclick="dagReset()">&#8634;</button>
+        <span class="dag-zoom-label" id="dag-zoom-label">100%</span>
+      </div>
+      <pre class="mermaid" id="dag-mermaid">
 graph TD
 {% for node in report.dag_nodes %}
-  {{ node.step_id }}["{{ node.step_type }}{% if node.label != node.step_type %}: {{ node.label | replace(node.step_type + ': ', '') | truncate(25) }}{% endif %}"]
+  {{ node.step_id }}["{{ node.label }}"]
 {% endfor %}
 {% for edge in report.dag_edges %}
   {{ edge.source_step_id }} -->|"{{ edge.role }}"| {{ edge.target_step_id }}
 {% endfor %}
-    </pre>
+      </pre>
+    </div>
   </div>
   {% endif %}
 
@@ -488,19 +519,23 @@ graph TD
 
       {% if step.sql_texts %}
       {% for sql_entry in step.sql_texts %}
-      <div class="sql-section">
-        <div class="sql-label">SQL {{ sql_entry.get("label", "query") }} — {{ sql_entry.get("engine_type", "") }}{% if sql_entry.get("elapsed_ms") is not none %} — {{ "%.1f"|format(sql_entry.get("elapsed_ms") / 1000) }}s{% endif %}</div>
+      <details class="sql-details">
+        <summary>SQL {{ sql_entry.get("label", "query") }} — {{ sql_entry.get("engine_type", "") }}{% if sql_entry.get("elapsed_ms") is not none %} — {{ "%.1f"|format(sql_entry.get("elapsed_ms") / 1000) }}s{% endif %}</summary>
         <div class="sql-block">{{ sql_entry.sql }}</div>
-      </div>
+      </details>
       {% endfor %}
       {% endif %}
 
       {% if step.artifact_summary %}
+      {% set primary = step.artifact_summary.get("primary_result") %}
+      {% set summary_title = "Result: " + primary if primary else "Artifact Metadata" %}
       <details>
-        <summary>Key Metrics</summary>
+        <summary>{{ summary_title }}</summary>
         <table>
           {% for key, value in step.artifact_summary.items() %}
+          {% if key != "primary_result" %}
           <tr><th>{{ key }}</th><td>{{ value }}</td></tr>
+          {% endif %}
           {% endfor %}
         </table>
       </details>
@@ -578,7 +613,19 @@ graph TD
 
     {% if prop.latest_assessment and prop.latest_assessment.get("confidence_rationale") %}
     <div class="rationale">
-      <strong>Rationale:</strong> {{ prop.latest_assessment.confidence_rationale }}
+      <strong>Rationale:</strong>
+      {% set rat = prop.latest_assessment.confidence_rationale %}
+      {% if rat is mapping %}
+      <ul class="rationale-list">
+        {% if rat.get("evidence_sufficiency") %}<li><strong>Evidence sufficiency:</strong> {{ rat.evidence_sufficiency }}</li>{% endif %}
+        {% if rat.get("evidence_consistency") %}<li><strong>Evidence consistency:</strong> {{ rat.evidence_consistency }}</li>{% endif %}
+        {% if rat.get("rule_coverage") %}<li><strong>Rule coverage:</strong> {{ rat.rule_coverage }}</li>{% endif %}
+        {% if rat.get("data_quality_impact") %}<li><strong>Data quality impact:</strong> {{ rat.data_quality_impact }}</li>{% endif %}
+        {% if rat.get("rationale_notes") and rat.rationale_notes is iterable and rat.rationale_notes | length > 0 %}<li><strong>Notes:</strong> {{ rat.rationale_notes | join("; ") }}</li>{% endif %}
+      </ul>
+      {% else %}
+      {{ rat }}
+      {% endif %}
     </div>
     {% endif %}
 
@@ -593,10 +640,18 @@ graph TD
         {% if finding.get("subject") %}
         <span>{{ finding.subject.get("metric", "—") }}</span>
         {% endif %}
-        {% if finding.get("payload") %}
+        {% set payload = finding.get("payload", {}) %}
+        {% set ftype = finding.get("finding_type", "") %}
+        {% if ftype == "anomaly_candidate" and payload %}
+          <span class="meta">Baseline: {{ payload.get("baseline_value", "—") }} → Current: {{ payload.get("current_value", "—") }} ({{ payload.get("deviation_pct") | fmt_pct }} deviation, <span class="flag-{{ payload.get('flag_level', '') }}">{{ payload.get("flag_level", "—") }}</span>)</span>
+        {% elif ftype == "delta" and payload %}
+          <span class="meta">Delta: {{ payload.get("absolute_delta") | fmt_delta }} ({{ payload.get("relative_delta") | fmt_pct }})</span>
+        {% elif (ftype == "correlation_result" or ftype == "correlation") and payload %}
+          <span class="meta">ρ = {{ payload.get("coefficient") | fmt_coeff }}, p = {{ payload.get("p_value") | fmt_pvalue }}</span>
+        {% elif payload %}
         <details>
           <summary>Details</summary>
-          <div class="payload-json">{{ finding.payload | tojson(indent=2) }}</div>
+          <div class="payload-json">{{ payload | tojson(indent=2) }}</div>
         </details>
         {% endif %}
       </div>
@@ -625,12 +680,16 @@ graph TD
       <h4>Evidence Gaps</h4>
       {% for gap in prop.gaps %}
       <div class="gap-item {% if gap.get('blocking', gap.get('status') == 'blocking') %}gap-blocking{% elif gap.get('status') == 'non_blocking' %}gap-non_blocking{% else %}gap-non_blocking{% endif %}">
-        {% if gap.get("missing_requirement") %}
+        {% if gap.get("title") %}
+          <strong>{{ gap.title }}</strong>{% if gap.get("description") %}<br><span class="meta">{{ gap.description }}</span>{% endif %}
+        {% elif gap.get("missing_requirement") %}
           {% if gap.missing_requirement is mapping %}
             {{ gap.missing_requirement.get("requirement_kind", "") }}: {{ gap.missing_requirement.get("description", "") }}
           {% else %}
             {{ gap.missing_requirement }}
           {% endif %}
+        {% elif gap.get("gap_kind") %}
+          {{ gap.gap_kind }}{% if gap.get("gap_id") %} <span class="meta">({{ gap.gap_id }})</span>{% endif %}
         {% elif gap.get("gap_id") %}
           {{ gap.gap_id }}
         {% else %}
@@ -653,6 +712,47 @@ graph TD
 
 <script>
   mermaid.initialize({ startOnLoad: true, theme: 'default' });
+
+  // DAG zoom / pan
+  (function() {
+    var vp = document.getElementById('dag-viewport');
+    if (!vp) return;
+    var scale = 1, panX = 0, panY = 0;
+    var dragging = false, startX = 0, startY = 0;
+
+    function apply() {
+      var el = document.getElementById('dag-mermaid');
+      if (el) el.style.transform = 'translate(' + panX + 'px,' + panY + 'px) scale(' + scale + ')';
+      var label = document.getElementById('dag-zoom-label');
+      if (label) label.textContent = Math.round(scale * 100) + '%';
+    }
+
+    window.dagZoom = function(factor) {
+      scale = Math.min(5, Math.max(0.2, scale * factor));
+      apply();
+    };
+
+    window.dagReset = function() {
+      scale = 1; panX = 0; panY = 0; apply();
+    };
+
+    vp.addEventListener('wheel', function(e) {
+      e.preventDefault();
+      var factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
+      scale = Math.min(5, Math.max(0.2, scale * factor));
+      apply();
+    }, { passive: false });
+
+    vp.addEventListener('mousedown', function(e) {
+      if (e.target.closest('.dag-controls')) return;
+      dragging = true; startX = e.clientX - panX; startY = e.clientY - panY;
+    });
+    window.addEventListener('mousemove', function(e) {
+      if (!dragging) return;
+      panX = e.clientX - startX; panY = e.clientY - startY; apply();
+    });
+    window.addEventListener('mouseup', function() { dragging = false; });
+  })();
 </script>
 
 </body>
