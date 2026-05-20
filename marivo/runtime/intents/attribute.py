@@ -54,7 +54,11 @@ _RECONCILIATION_ISSUE_CODES = frozenset(
 
 
 def run_attribute_intent(
-    runtime: MarivoRuntime, session_id: str, params: dict[str, Any] | None
+    runtime: MarivoRuntime,
+    session_id: str,
+    params: dict[str, Any] | None,
+    *,
+    reasoning: str | None = None,
 ) -> dict[str, Any]:
     """Execute an `attribute` derived intent.
 
@@ -575,6 +579,7 @@ def run_attribute_intent(
         provenance=provenance,
         result_payload=result_payload,
         product_metadata_payload=product_metadata_payload,
+        reasoning=reasoning,
     )
 
 

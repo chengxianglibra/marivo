@@ -6,8 +6,7 @@ MarivoRuntime methods delegate here.
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 from marivo.contracts.aoi_runtime import (
     AoiAtomicRequest,
@@ -30,68 +29,118 @@ from marivo.runtime.intents.validate import run_validate_intent
 if TYPE_CHECKING:
     from marivo.runtime.runtime import MarivoRuntime
 
+
 # Type alias: intent runner signature.
-_IntentRunner = Callable[[Any, str, dict[str, Any] | None], dict[str, Any]]
+# Uses Protocol to correctly model the keyword-only `reasoning` parameter.
+class _IntentRunner(Protocol):
+    def __call__(
+        self,
+        runtime: Any,
+        session_id: str,
+        params: dict[str, Any] | None,
+        *,
+        reasoning: str | None = None,
+    ) -> dict[str, Any]: ...
 
 
 def observe(
-    runtime: MarivoRuntime, session_id: SessionId, request: AoiAtomicRequest
+    runtime: MarivoRuntime,
+    session_id: SessionId,
+    request: AoiAtomicRequest,
+    *,
+    reasoning: str | None = None,
 ) -> dict[str, Any]:
-    return _run_aoi(runtime, "observe", session_id, request)
+    return _run_aoi(runtime, "observe", session_id, request, reasoning=reasoning)
 
 
 def compare(
-    runtime: MarivoRuntime, session_id: SessionId, request: AoiAtomicRequest
+    runtime: MarivoRuntime,
+    session_id: SessionId,
+    request: AoiAtomicRequest,
+    *,
+    reasoning: str | None = None,
 ) -> dict[str, Any]:
-    return _run_aoi(runtime, "compare", session_id, request)
+    return _run_aoi(runtime, "compare", session_id, request, reasoning=reasoning)
 
 
 def decompose(
-    runtime: MarivoRuntime, session_id: SessionId, request: AoiAtomicRequest
+    runtime: MarivoRuntime,
+    session_id: SessionId,
+    request: AoiAtomicRequest,
+    *,
+    reasoning: str | None = None,
 ) -> dict[str, Any]:
-    return _run_aoi(runtime, "decompose", session_id, request)
+    return _run_aoi(runtime, "decompose", session_id, request, reasoning=reasoning)
 
 
 def correlate(
-    runtime: MarivoRuntime, session_id: SessionId, request: AoiAtomicRequest
+    runtime: MarivoRuntime,
+    session_id: SessionId,
+    request: AoiAtomicRequest,
+    *,
+    reasoning: str | None = None,
 ) -> dict[str, Any]:
-    return _run_aoi(runtime, "correlate", session_id, request)
+    return _run_aoi(runtime, "correlate", session_id, request, reasoning=reasoning)
 
 
 def detect(
-    runtime: MarivoRuntime, session_id: SessionId, request: AoiAtomicRequest
+    runtime: MarivoRuntime,
+    session_id: SessionId,
+    request: AoiAtomicRequest,
+    *,
+    reasoning: str | None = None,
 ) -> dict[str, Any]:
-    return _run_aoi(runtime, "detect", session_id, request)
+    return _run_aoi(runtime, "detect", session_id, request, reasoning=reasoning)
 
 
 def forecast(
-    runtime: MarivoRuntime, session_id: SessionId, request: AoiAtomicRequest
+    runtime: MarivoRuntime,
+    session_id: SessionId,
+    request: AoiAtomicRequest,
+    *,
+    reasoning: str | None = None,
 ) -> dict[str, Any]:
-    return _run_aoi(runtime, "forecast", session_id, request)
+    return _run_aoi(runtime, "forecast", session_id, request, reasoning=reasoning)
 
 
 def attribute(
-    runtime: MarivoRuntime, session_id: SessionId, request: AoiDerivedRequest
+    runtime: MarivoRuntime,
+    session_id: SessionId,
+    request: AoiDerivedRequest,
+    *,
+    reasoning: str | None = None,
 ) -> dict[str, Any]:
-    return _run_aoi_derived(runtime, "attribute", session_id, request)
+    return _run_aoi_derived(runtime, "attribute", session_id, request, reasoning=reasoning)
 
 
 def diagnose(
-    runtime: MarivoRuntime, session_id: SessionId, request: AoiDerivedRequest
+    runtime: MarivoRuntime,
+    session_id: SessionId,
+    request: AoiDerivedRequest,
+    *,
+    reasoning: str | None = None,
 ) -> dict[str, Any]:
-    return _run_aoi_derived(runtime, "diagnose", session_id, request)
+    return _run_aoi_derived(runtime, "diagnose", session_id, request, reasoning=reasoning)
 
 
 def test(
-    runtime: MarivoRuntime, session_id: SessionId, request: AoiAtomicRequest
+    runtime: MarivoRuntime,
+    session_id: SessionId,
+    request: AoiAtomicRequest,
+    *,
+    reasoning: str | None = None,
 ) -> dict[str, Any]:
-    return _run_aoi(runtime, "test", session_id, request)
+    return _run_aoi(runtime, "test", session_id, request, reasoning=reasoning)
 
 
 def validate(
-    runtime: MarivoRuntime, session_id: SessionId, request: AoiDerivedRequest
+    runtime: MarivoRuntime,
+    session_id: SessionId,
+    request: AoiDerivedRequest,
+    *,
+    reasoning: str | None = None,
 ) -> dict[str, Any]:
-    return _run_aoi_derived(runtime, "validate", session_id, request)
+    return _run_aoi_derived(runtime, "validate", session_id, request, reasoning=reasoning)
 
 
 AOI_RUNNERS: dict[str, _IntentRunner] = {
@@ -134,6 +183,7 @@ def _run(
     intent_runner: _IntentRunner,
     session_id: SessionId,
     params: dict[str, Any],
+    reasoning: str | None = None,
 ) -> dict[str, Any]:
     """Common pre/post-execution logic for all intents.
 
@@ -146,7 +196,7 @@ def _run(
     yet available, falls back to session_ops.assert_session_is_open.
     """
     _assert_session_is_open(runtime, session_id)
-    return intent_runner(runtime, session_id, params)
+    return intent_runner(runtime, session_id, params, reasoning=reasoning)
 
 
 def _run_aoi(
@@ -154,11 +204,13 @@ def _run_aoi(
     intent_type: str,
     session_id: SessionId,
     request: AoiAtomicRequest,
+    *,
+    reasoning: str | None = None,
 ) -> dict[str, Any]:
     _assert_session_is_open(runtime, session_id)
     assert_request_matches_intent(intent_type, request)
     params = lower_aoi_request(intent_type, request)
-    return AOI_RUNNERS[intent_type](runtime, str(session_id), params)
+    return AOI_RUNNERS[intent_type](runtime, str(session_id), params, reasoning=reasoning)
 
 
 def _run_derived(
@@ -166,9 +218,11 @@ def _run_derived(
     intent_type: str,
     session_id: SessionId,
     params: dict[str, Any],
+    *,
+    reasoning: str | None = None,
 ) -> dict[str, Any]:
     _assert_session_is_open(runtime, session_id)
-    return DERIVED_RUNNERS[intent_type](runtime, str(session_id), params)
+    return DERIVED_RUNNERS[intent_type](runtime, str(session_id), params, reasoning=reasoning)
 
 
 def _run_aoi_derived(
@@ -176,10 +230,12 @@ def _run_aoi_derived(
     intent_type: str,
     session_id: SessionId,
     request: AoiDerivedRequest,
+    *,
+    reasoning: str | None = None,
 ) -> dict[str, Any]:
     _assert_session_is_open(runtime, session_id)
     params = lower_aoi_derived_request(intent_type, request)
-    return DERIVED_RUNNERS[intent_type](runtime, str(session_id), params)
+    return DERIVED_RUNNERS[intent_type](runtime, str(session_id), params, reasoning=reasoning)
 
 
 def _assert_session_is_open(runtime: MarivoRuntime, session_id: SessionId) -> None:

@@ -24,6 +24,7 @@ from marivo.transports.mcp.tools.intents import (
     register_test_intent,
     register_validate,
 )
+from marivo.transports.mcp.tools.report import register_report_tools
 from marivo.transports.mcp.tools.semantic import register_semantic_tools
 from marivo.transports.mcp.tools.session import register_session_tools
 
@@ -59,6 +60,9 @@ def register_tools(
 
     # Calendar data tools — available in all modes
     register_calendar_tools(server, runtime)
+
+    # Report tools — available in all modes
+    register_report_tools(server, runtime)
 
     # Catalog / OpenAPI introspection — HTTP only (requires wired app + analytics)
     if transport == "http":

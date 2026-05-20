@@ -109,7 +109,10 @@ def _generate_future_windows(
 
 
 def run_forecast_intent(
-    runtime: MarivoRuntime, session_id: str, params: dict[str, Any] | None
+    runtime: MarivoRuntime,
+    session_id: str,
+    params: dict[str, Any] | None,
+    reasoning: str | None = None,
 ) -> dict[str, Any]:
     """Execute a `forecast` intent: project a time-series into future buckets.
 
@@ -384,6 +387,7 @@ def run_forecast_intent(
         artifact,
         summary,
         provenance=provenance,
+        reasoning=reasoning,
     )
     return result
 

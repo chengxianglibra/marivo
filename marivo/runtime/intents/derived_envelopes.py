@@ -49,6 +49,8 @@ def build_derived_bundle_envelope(
     provenance: dict[str, Any] | None = None,
     result_payload: dict[str, Any] | None = None,
     product_metadata_payload: dict[str, Any] | None = None,
+    reasoning: str | None = None,
+    sql_texts: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     """Persist and return a derived non-AOI bundle envelope.
 
@@ -95,7 +97,16 @@ def build_derived_bundle_envelope(
         artifact_id=artifact_id,
     )
     envelope["artifact_id"] = str(committed_artifact_id)
-    runtime.insert_step(step_id, session_id, step_type, summary, envelope, provenance=provenance)
+    runtime.insert_step(
+        step_id,
+        session_id,
+        step_type,
+        summary,
+        envelope,
+        provenance=provenance,
+        reasoning=reasoning,
+        sql_texts=sql_texts,
+    )
     return envelope
 
 

@@ -164,6 +164,9 @@ class StubArtifactStore:
     def resolve_artifact_by_id(self, session_id, artifact_id):
         return None
 
+    def resolve_artifact_with_type_by_id(self, session_id, artifact_id):
+        return None
+
     def resolve_artifact_with_step_by_id(self, session_id, artifact_id):
         return None
 

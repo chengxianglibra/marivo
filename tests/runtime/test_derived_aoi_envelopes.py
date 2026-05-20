@@ -66,6 +66,8 @@ class _Runtime:
         result: dict[str, Any],
         *,
         provenance: dict[str, Any] | None = None,
+        reasoning: str | None = None,
+        sql_texts: list[dict[str, str]] | None = None,
     ) -> None:
         self.steps.append(
             {

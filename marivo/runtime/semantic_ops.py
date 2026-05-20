@@ -1223,6 +1223,8 @@ def _insert_step(
     result: dict[str, Any],
     provenance: dict[str, Any] | None = None,
     semantic_metadata: dict[str, Any] | None = None,
+    reasoning: str | None = None,
+    sql_texts: list[dict[str, str | float]] | None = None,
 ) -> None:
     """Insert a step record via runtime ports."""
     from marivo.contracts.ids import SessionId, StepId
@@ -1235,6 +1237,8 @@ def _insert_step(
         result,
         provenance=provenance,
         semantic_metadata=semantic_metadata,
+        reasoning=reasoning,
+        sql_texts=sql_texts,
     )
 
 

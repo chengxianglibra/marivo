@@ -307,7 +307,10 @@ def _resolve_time_series_pairing_basis(
 
 
 def run_compare_intent(
-    runtime: MarivoRuntime, session_id: str, params: dict[str, Any] | None
+    runtime: MarivoRuntime,
+    session_id: str,
+    params: dict[str, Any] | None,
+    reasoning: str | None = None,
 ) -> dict[str, Any]:
     """Execute a `compare` intent: compute typed delta between two observe artifacts.
 
@@ -864,6 +867,7 @@ def run_compare_intent(
         artifact,
         summary,
         provenance=provenance,
+        reasoning=reasoning,
     )
     return result
 

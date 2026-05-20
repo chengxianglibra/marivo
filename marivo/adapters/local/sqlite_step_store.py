@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import sqlite3
 from datetime import UTC, datetime
@@ -28,13 +29,15 @@ class SqliteStepStore:
         *,
         provenance: dict[str, Any] | None = None,
         semantic_metadata: dict[str, Any] | None = None,
+        reasoning: str | None = None,
+        sql_texts: list[dict[str, str | float]] | None = None,
     ) -> None:
         conn = self._connect()
         try:
             conn.execute(
                 "INSERT INTO steps (step_id, session_id, step_type, summary, "
-                "result, provenance, semantic_metadata, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "result, provenance, semantic_metadata, reasoning, sql_texts, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     str(step_id),
                     str(session_id),
@@ -43,6 +46,8 @@ class SqliteStepStore:
                     json.dumps(result, sort_keys=True),
                     json.dumps(provenance, sort_keys=True) if provenance else None,
                     json.dumps(semantic_metadata, sort_keys=True) if semantic_metadata else None,
+                    reasoning,
+                    json.dumps(sql_texts, sort_keys=True) if sql_texts else None,
                     datetime.now(UTC).isoformat(),
                 ),
             )
@@ -55,7 +60,7 @@ class SqliteStepStore:
         try:
             rows = conn.execute(
                 "SELECT step_id, session_id, step_type, summary, result, "
-                "provenance, semantic_metadata, created_at "
+                "provenance, semantic_metadata, reasoning, sql_texts, created_at "
                 "FROM steps WHERE session_id = ? ORDER BY created_at ASC, step_id ASC",
                 (str(session_id),),
             ).fetchall()
@@ -68,7 +73,9 @@ class SqliteStepStore:
                     result=json.loads(row[4]),
                     provenance=json.loads(row[5]) if row[5] else None,
                     semantic_metadata=json.loads(row[6]) if row[6] else None,
-                    created_at=row[7],
+                    reasoning=row[7],
+                    sql_texts=json.loads(row[8]) if row[8] else None,
+                    created_at=row[9],
                 )
                 for row in rows
             ]
@@ -94,12 +101,18 @@ class SqliteStepStore:
                     result TEXT NOT NULL,
                     provenance TEXT,
                     semantic_metadata TEXT,
+                    reasoning TEXT,
+                    sql_texts TEXT,
                     created_at TEXT NOT NULL
                 )"""
             )
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_steps_session ON steps (session_id, created_at)"
             )
+            # Migration: add columns to existing databases
+            for col in ("reasoning", "sql_texts"):
+                with contextlib.suppress(sqlite3.OperationalError):
+                    conn.execute(f"ALTER TABLE steps ADD COLUMN {col} TEXT")
             conn.commit()
         finally:
             conn.close()

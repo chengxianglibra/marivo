@@ -246,7 +246,10 @@ def _time_series_quality_status(*, row_count: int, data_complete: bool | None) -
 
 
 def run_observe_intent(
-    runtime: MarivoRuntime, session_id: str, params: dict[str, Any] | None
+    runtime: MarivoRuntime,
+    session_id: str,
+    params: dict[str, Any] | None,
+    reasoning: str | None = None,
 ) -> dict[str, Any]:
     """Execute an `observe` intent, producing a typed observation artifact.
 
@@ -398,7 +401,9 @@ def run_observe_intent(
             engine_type=engine_type,
             semantic_context={"metric_execution_context": execution_context},
         )
-        rows = list(execute_compiled(engine, compiled_query, session_id=session_id).rows)
+        _exec_result = execute_compiled(engine, compiled_query, session_id=session_id)
+        rows = list(_exec_result.rows)
+        _elapsed_ms = _exec_result.metadata.get("elapsed_ms")
         provenance = make_provenance(
             compiled_query.sql, compiled_query.params, engine_type=engine_type
         )
@@ -476,7 +481,9 @@ def run_observe_intent(
                 "metric_execution_context": execution_context,
             },
         )
-        rows = list(execute_compiled(engine, compiled_query, session_id=session_id).rows)
+        _exec_result = execute_compiled(engine, compiled_query, session_id=session_id)
+        rows = list(_exec_result.rows)
+        _elapsed_ms = _exec_result.metadata.get("elapsed_ms")
         provenance = make_provenance(
             compiled_query.sql, compiled_query.params, engine_type=engine_type
         )
@@ -551,7 +558,9 @@ def run_observe_intent(
                 "metric_execution_context": execution_context,
             },
         )
-        rows = list(execute_compiled(engine, compiled_query, session_id=session_id).rows)
+        _exec_result = execute_compiled(engine, compiled_query, session_id=session_id)
+        rows = list(_exec_result.rows)
+        _elapsed_ms = _exec_result.metadata.get("elapsed_ms")
         provenance = make_provenance(
             compiled_query.sql, compiled_query.params, engine_type=engine_type
         )
@@ -604,6 +613,14 @@ def run_observe_intent(
             f"{value if value is not None else 'no data'}"
         )
 
+    _sql_entry: dict[str, str | float] = {
+        "sql": compiled_query.sql,
+        "engine_type": engine_type,
+        "label": "main_query",
+    }
+    if _elapsed_ms is not None:
+        _sql_entry["elapsed_ms"] = _elapsed_ms
+    sql_texts = [_sql_entry]
     result = commit_step_result(
         runtime,
         session_id,
@@ -614,6 +631,8 @@ def run_observe_intent(
         observation,
         summary,
         provenance=provenance,
+        reasoning=reasoning,
         semantic_metadata=build_step_semantic_metadata(compiled_query),
+        sql_texts=sql_texts,
     )
     return result

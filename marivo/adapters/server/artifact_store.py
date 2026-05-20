@@ -343,6 +343,21 @@ class MetadataArtifactStoreAdapter:
         )
         return json.loads(row["content_json"]) if row else None
 
+    def resolve_artifact_with_type_by_id(
+        self,
+        session_id: SessionId,
+        artifact_id: ArtifactId,
+    ) -> tuple[str, dict[str, Any]] | None:
+        row = self._metadata.query_one(
+            "SELECT artifact_type, content_json FROM artifacts "
+            "WHERE artifact_id = ? AND session_id = ? AND lifecycle = 'committed' "
+            "ORDER BY created_at DESC LIMIT 1",
+            [artifact_id, session_id],
+        )
+        if row is None:
+            return None
+        return str(row["artifact_type"]), json.loads(row["content_json"])
+
     def resolve_artifact_with_step_by_id(
         self,
         session_id: SessionId,
@@ -398,11 +413,13 @@ class MetadataStepStoreAdapter:
         *,
         provenance: dict[str, Any] | None = None,
         semantic_metadata: dict[str, Any] | None = None,
+        reasoning: str | None = None,
+        sql_texts: list[dict[str, str | float]] | None = None,
     ) -> None:
         self._metadata.execute(
             """
-            INSERT INTO steps (step_id, session_id, step_type, status, summary, result_json, provenance_json)
-            VALUES (?, ?, ?, 'succeeded', ?, ?, ?)
+            INSERT INTO steps (step_id, session_id, step_type, status, summary, result_json, provenance_json, reasoning, sql_texts)
+            VALUES (?, ?, ?, 'succeeded', ?, ?, ?, ?, ?)
             """,
             [
                 step_id,
@@ -411,6 +428,8 @@ class MetadataStepStoreAdapter:
                 summary,
                 self._dump(result),
                 self._dump(provenance or {}),
+                reasoning,
+                self._dump(sql_texts) if sql_texts else None,
             ],
         )
         if semantic_metadata is not None and self._step_metadata_repo is not None:
@@ -426,13 +445,14 @@ class MetadataStepStoreAdapter:
         # need it should query the metadata repo directly.
         rows = self._metadata.query_rows(
             "SELECT step_id, session_id, step_type, summary, result_json, "
-            "provenance_json, created_at FROM steps "
+            "provenance_json, reasoning, sql_texts, created_at FROM steps "
             "WHERE session_id = ? ORDER BY created_at ASC",
             [session_id],
         )
         result: list[Step] = []
         for row in rows:
             prov_raw = row["provenance_json"]
+            sql_texts_raw = row.get("sql_texts")
             result.append(
                 Step(
                     step_id=StepId(str(row["step_id"])),
@@ -441,6 +461,8 @@ class MetadataStepStoreAdapter:
                     summary=str(row["summary"]),
                     result=json.loads(str(row["result_json"])),
                     provenance=json.loads(str(prov_raw)) if prov_raw else None,
+                    reasoning=row.get("reasoning"),
+                    sql_texts=json.loads(str(sql_texts_raw)) if sql_texts_raw else None,
                     created_at=str(row["created_at"]),
                 )
             )

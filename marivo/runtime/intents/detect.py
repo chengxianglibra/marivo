@@ -304,7 +304,10 @@ def _detect_period_shift_candidates(
 
 
 def run_detect_intent(
-    runtime: MarivoRuntime, session_id: str, params: dict[str, Any] | None
+    runtime: MarivoRuntime,
+    session_id: str,
+    params: dict[str, Any] | None,
+    reasoning: str | None = None,
 ) -> dict[str, Any]:
     """Execute a `detect` intent: scan a metric time range for anomaly candidates.
 
@@ -512,7 +515,9 @@ def run_detect_intent(
     )
 
     now = datetime.now(UTC).isoformat()
-    rows = list(execute_compiled(engine, compiled_query, session_id=session_id).rows)
+    _exec_result = execute_compiled(engine, compiled_query, session_id=session_id)
+    rows = list(_exec_result.rows)
+    _elapsed_ms = _exec_result.metadata.get("elapsed_ms")
     provenance = make_provenance(compiled_query.sql, compiled_query.params, engine_type=engine_type)
 
     # ── Build one or more series from query rows ──────────────────────────────
@@ -812,6 +817,14 @@ def run_detect_intent(
         "product_metadata": None,
     }
 
+    _sql_entry: dict[str, str | float] = {
+        "sql": compiled_query.sql,
+        "engine_type": engine_type,
+        "label": "main_query",
+    }
+    if _elapsed_ms is not None:
+        _sql_entry["elapsed_ms"] = _elapsed_ms
+    sql_texts = [_sql_entry]
     runtime.insert_step(
         step_id,
         session_id,
@@ -819,6 +832,8 @@ def run_detect_intent(
         summary,
         result,
         provenance=provenance,
+        reasoning=reasoning,
         semantic_metadata=_build_step_metadata(compiled_query),
+        sql_texts=sql_texts,
     )
     return result

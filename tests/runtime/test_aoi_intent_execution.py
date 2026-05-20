@@ -99,7 +99,7 @@ def test_observe_accepts_aoi_request_and_dispatches_lowered_params(monkeypatch) 
 
     monkeypatch.setattr(intent_execution, "_assert_session_is_open", lambda *_: None)
 
-    def runner(runtime_arg, session_id, params):
+    def runner(runtime_arg, session_id, params, *, reasoning=None):
         calls.append((runtime_arg, session_id, params))
         return expected
 
@@ -153,7 +153,7 @@ def test_detect_accepts_aoi_request_and_dispatches_lowered_params(monkeypatch) -
 
     monkeypatch.setattr(intent_execution, "_assert_session_is_open", lambda *_: None)
 
-    def runner(runtime_arg, session_id, params):
+    def runner(runtime_arg, session_id, params, *, reasoning=None):
         calls.append((runtime_arg, session_id, params))
         return expected
 
@@ -191,7 +191,7 @@ def test_decompose_accepts_aoi_request_and_dispatches_lowered_params(monkeypatch
 
     monkeypatch.setattr(intent_execution, "_assert_session_is_open", lambda *_: None)
 
-    def runner(runtime_arg, session_id, params):
+    def runner(runtime_arg, session_id, params, *, reasoning=None):
         calls.append((runtime_arg, session_id, params))
         return expected
 
@@ -220,7 +220,7 @@ def test_forecast_accepts_aoi_request_and_dispatches_lowered_params(monkeypatch)
 
     monkeypatch.setattr(intent_execution, "_assert_session_is_open", lambda *_: None)
 
-    def runner(runtime_arg, session_id, params):
+    def runner(runtime_arg, session_id, params, *, reasoning=None):
         calls.append((runtime_arg, session_id, params))
         return expected
 
@@ -248,7 +248,7 @@ def test_validate_accepts_aoi_request_and_dispatches_lowered_params(monkeypatch)
 
     monkeypatch.setattr(intent_execution, "_assert_session_is_open", lambda *_: None)
 
-    def runner(runtime_arg, session_id, params):
+    def runner(runtime_arg, session_id, params, *, reasoning=None):
         calls.append((runtime_arg, session_id, params))
         return expected
 
@@ -295,7 +295,7 @@ def test_diagnose_accepts_aoi_request_and_dispatches_lowered_params(monkeypatch)
 
     monkeypatch.setattr(intent_execution, "_assert_session_is_open", lambda *_: None)
 
-    def runner(runtime_arg, session_id, params):
+    def runner(runtime_arg, session_id, params, *, reasoning=None):
         calls.append((runtime_arg, session_id, params))
         return expected
 

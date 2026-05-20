@@ -170,6 +170,8 @@ class StubStepStore:
         *,
         provenance=None,
         semantic_metadata=None,
+        reasoning=None,
+        sql_texts=None,
     ):
         pass
 
@@ -317,7 +319,7 @@ def test_intent_dispatches_to_intent_execution() -> None:
             request = make_request()
             method = getattr(rt, intent_name)
             result = method("sess_123", request)
-            mock_fn.assert_called_once_with(rt, SessionId("sess_123"), request)
+            mock_fn.assert_called_once_with(rt, SessionId("sess_123"), request, reasoning=None)
             assert result == {"status": "ok"}
 
     attribute_request = _attribute_request()
@@ -325,7 +327,9 @@ def test_intent_dispatches_to_intent_execution() -> None:
         "marivo.runtime.intent_execution.attribute", return_value={"status": "ok"}
     ) as mock_fn:
         result = rt.attribute("sess_123", attribute_request)
-        mock_fn.assert_called_once_with(rt, SessionId("sess_123"), attribute_request)
+        mock_fn.assert_called_once_with(
+            rt, SessionId("sess_123"), attribute_request, reasoning=None
+        )
         assert result == {"status": "ok"}
 
     diagnose_request = _diagnose_request()
@@ -333,7 +337,7 @@ def test_intent_dispatches_to_intent_execution() -> None:
         "marivo.runtime.intent_execution.diagnose", return_value={"status": "ok"}
     ) as mock_fn:
         result = rt.diagnose("sess_123", diagnose_request)
-        mock_fn.assert_called_once_with(rt, SessionId("sess_123"), diagnose_request)
+        mock_fn.assert_called_once_with(rt, SessionId("sess_123"), diagnose_request, reasoning=None)
         assert result == {"status": "ok"}
 
 
@@ -342,7 +346,7 @@ def test_observe_dispatches() -> None:
     with patch("marivo.runtime.intent_execution.observe", return_value={"status": "ok"}) as mock_fn:
         request = _observe_request()
         rt.observe("s1", request)
-        mock_fn.assert_called_once_with(rt, SessionId("s1"), request)
+        mock_fn.assert_called_once_with(rt, SessionId("s1"), request, reasoning=None)
 
 
 def test_compare_dispatches() -> None:
@@ -350,7 +354,7 @@ def test_compare_dispatches() -> None:
     with patch("marivo.runtime.intent_execution.compare", return_value={"status": "ok"}) as mock_fn:
         request = _compare_request()
         rt.compare("s1", request)
-        mock_fn.assert_called_once_with(rt, SessionId("s1"), request)
+        mock_fn.assert_called_once_with(rt, SessionId("s1"), request, reasoning=None)
 
 
 def test_decompose_dispatches() -> None:
@@ -360,7 +364,7 @@ def test_decompose_dispatches() -> None:
     ) as mock_fn:
         request = _decompose_request()
         rt.decompose("s1", request)
-        mock_fn.assert_called_once_with(rt, SessionId("s1"), request)
+        mock_fn.assert_called_once_with(rt, SessionId("s1"), request, reasoning=None)
 
 
 def test_correlate_dispatches() -> None:
@@ -370,7 +374,7 @@ def test_correlate_dispatches() -> None:
     ) as mock_fn:
         request = _correlate_request()
         rt.correlate("s1", request)
-        mock_fn.assert_called_once_with(rt, SessionId("s1"), request)
+        mock_fn.assert_called_once_with(rt, SessionId("s1"), request, reasoning=None)
 
 
 def test_forecast_dispatches() -> None:
@@ -380,7 +384,7 @@ def test_forecast_dispatches() -> None:
     ) as mock_fn:
         request = _forecast_request()
         rt.forecast("s1", request)
-        mock_fn.assert_called_once_with(rt, SessionId("s1"), request)
+        mock_fn.assert_called_once_with(rt, SessionId("s1"), request, reasoning=None)
 
 
 def test_attribute_dispatches() -> None:
@@ -390,7 +394,7 @@ def test_attribute_dispatches() -> None:
     ) as mock_fn:
         request = _attribute_request()
         rt.attribute("s1", request)
-        mock_fn.assert_called_once_with(rt, SessionId("s1"), request)
+        mock_fn.assert_called_once_with(rt, SessionId("s1"), request, reasoning=None)
 
 
 def test_diagnose_dispatches() -> None:
@@ -400,7 +404,7 @@ def test_diagnose_dispatches() -> None:
     ) as mock_fn:
         request = _diagnose_request()
         rt.diagnose("s1", request)
-        mock_fn.assert_called_once_with(rt, SessionId("s1"), request)
+        mock_fn.assert_called_once_with(rt, SessionId("s1"), request, reasoning=None)
 
 
 def test_intent_returns_service_result() -> None:
