@@ -1,19 +1,19 @@
 # Additivity 建模指导
 
-本文指导如何在 Marivo 中为 metric 正确声明 `additive_dimensions` 与 `aggregation_semantics`。
+本文指导如何在 Marivo 中为 metric 正确声明 `additive_dimensions` 与 `decomposition_semantics`。
 
 ## 核心概念
 
 Marivo 使用扁平化的加法性模型替代了旧的 `additivity_constraints` 三态结构（`dimension_policy` + `time_axis_policy`）。当前模型由两个字段组成：
 
 - **`additive_dimensions`**：`list[str]`，列出 metric 可加的维度字段名。空列表表示 metric 不在任何维度上可加；普通非空列表表示 metric 仅在列出的维度上可加；单元素列表 `["__all"]` 表示 metric 对 semantic model 中所有声明了 `dimension` 的字段可加，包括时间维度。`"__all"` 不得与显式维度名混用。
-- **`aggregation_semantics`**：`"sum" | "ratio" | "weighted_average"`，声明 metric 的聚合语义。默认值为 `"sum"`。
+- **`decomposition_semantics`**：`"sum" | "ratio" | "weighted_average"`，声明 metric 的聚合语义。默认值为 `"sum"`。
 
-**关键变化**：旧的 `dimension_policy`（`"all"` / `"subset"` / `"none"`）和 `time_axis_policy`（`"additive"` / `"non_additive"`）已被删除。能力推导直接基于 `additive_dimensions` 是否为空以及 `aggregation_semantics` 的值。
+**关键变化**：旧的 `dimension_policy`（`"all"` / `"subset"` / `"none"`）和 `time_axis_policy`（`"additive"` / `"non_additive"`）已被删除。能力推导直接基于 `additive_dimensions` 是否为空以及 `decomposition_semantics` 的值。
 
 ## 能力推导规则
 
-`additive_dimensions` 和 `aggregation_semantics` 直接决定以下分析能力：
+`additive_dimensions` 和 `decomposition_semantics` 直接决定以下分析能力：
 
 | 推导能力 | 推导规则 |
 |---------|---------|
@@ -50,7 +50,7 @@ Marivo 使用扁平化的加法性模型替代了旧的 `additivity_constraints`
 ```json
 {
   "additive_dimensions": [],
-  "aggregation_semantics": "ratio"
+  "decomposition_semantics": "ratio"
 }
 ```
 
@@ -73,7 +73,7 @@ Marivo 使用扁平化的加法性模型替代了旧的 `additivity_constraints`
 ```json
 {
   "additive_dimensions": ["__all"],
-  "aggregation_semantics": "sum"
+  "decomposition_semantics": "sum"
 }
 ```
 
@@ -82,7 +82,7 @@ Marivo 使用扁平化的加法性模型替代了旧的 `additivity_constraints`
 ```json
 {
   "additive_dimensions": ["warehouse"],
-  "aggregation_semantics": "sum"
+  "decomposition_semantics": "sum"
 }
 ```
 
@@ -108,7 +108,7 @@ Marivo 使用扁平化的加法性模型替代了旧的 `additivity_constraints`
 ```json
 {
   "additive_dimensions": [],
-  "aggregation_semantics": "sum"
+  "decomposition_semantics": "sum"
 }
 ```
 
@@ -121,7 +121,7 @@ Marivo 使用扁平化的加法性模型替代了旧的 `additivity_constraints`
 ```json
 {
   "additive_dimensions": ["platform", "region"],
-  "aggregation_semantics": "sum"
+  "decomposition_semantics": "sum"
 }
 ```
 
@@ -136,20 +136,20 @@ Marivo 使用扁平化的加法性模型替代了旧的 `additivity_constraints`
 1. 对于 `count_distinct` 类聚合的 metric，`additive_dimensions` 应为空或仅包含已确认可分解的维度
 2. 不得在未确认维度可分解性的情况下将维度列入 `additive_dimensions`
 
-## `aggregation_semantics` 选择指南
+## `decomposition_semantics` 选择指南
 
 - `"sum"`：可加连续值指标（如 revenue、latency、duration）— 使用 Welch's t-test
 - `"ratio"`：比例/比率指标（如 conversion rate、click-through rate）— 使用 two-proportion z-test
 - `"weighted_average"`：比率之和指标（如 AOV = SUM(revenue)/COUNT(orders)）— 使用 delta method 或 weighted-average decomposition
 
-`aggregation_semantics` 决定 inferential summary mode 和支持的分析 intent。
+`decomposition_semantics` 决定 inferential summary mode 和支持的分析 intent。
 
 ## 建模决策流程
 
 1. metric 的聚合语义是什么？
-   - 可加连续值 → `aggregation_semantics = "sum"`
-   - 比例/比率 → `aggregation_semantics = "ratio"`
-   - 比率之和 → `aggregation_semantics = "weighted_average"`
+   - 可加连续值 → `decomposition_semantics = "sum"`
+   - 比例/比率 → `decomposition_semantics = "ratio"`
+   - 比率之和 → `decomposition_semantics = "weighted_average"`
 
 2. metric 是否存在一组已知稳定互斥且可分组的维度？
    - 是 → 将这些维度列入 `additive_dimensions`

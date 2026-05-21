@@ -306,7 +306,7 @@ def run_observe_intent(
     _resolved_header = (
         (resolved_metric.semantic_object.get("header") or {}) if resolved_metric else {}
     )
-    aggregation_semantics = _resolved_header.get("aggregation_semantics") or "sum"
+    decomposition_semantics = _resolved_header.get("decomposition_semantics") or "sum"
     table = execution_context.table_name
 
     scope_raw = p.get("scope")
@@ -428,7 +428,7 @@ def run_observe_intent(
             "axes": axes,
             "series": series,
             "analytical_metadata": {
-                "aggregation_semantics": aggregation_semantics,
+                "decomposition_semantics": decomposition_semantics,
                 "timezone": None,
                 "data_complete": None,
                 "quality_status": quality_status,
@@ -511,7 +511,7 @@ def run_observe_intent(
             "axes": axes,
             "series": series,
             "analytical_metadata": {
-                "aggregation_semantics": aggregation_semantics,
+                "decomposition_semantics": decomposition_semantics,
                 "timezone": None,
                 "data_complete": data_complete,
                 "quality_status": quality_status,
@@ -575,7 +575,7 @@ def run_observe_intent(
             "axes": axes,
             "series": series,
             "analytical_metadata": {
-                "aggregation_semantics": aggregation_semantics,
+                "decomposition_semantics": decomposition_semantics,
                 "timezone": None,
                 "data_complete": None,
                 "quality_status": quality_status,
@@ -651,7 +651,7 @@ def run_observe_intent(
             "axes": axes,
             "series": series,
             "analytical_metadata": {
-                "aggregation_semantics": aggregation_semantics,
+                "decomposition_semantics": decomposition_semantics,
                 "timezone": None,
                 "data_complete": None,
                 "quality_status": quality_status,

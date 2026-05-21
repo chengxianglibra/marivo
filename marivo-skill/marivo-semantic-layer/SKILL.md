@@ -190,6 +190,11 @@ inside this skill.
   they are not decomposable.
 - Do not write a metric into the document until the user explicitly approves its name, expression,
   meaning, primary time field, and additivity warning.
+- Metric expressions must be complete aggregate expressions that include aggregate functions (e.g.,
+  `SUM(col)`, `CAST(SUM(...) AS DOUBLE) / CAST(SUM(...) AS DOUBLE)`). Row-level expressions without
+  aggregates (e.g., `CASE WHEN state = 'FAILED' THEN 1 ELSE 0 END`) will produce incorrect SQL.
+  The `decomposition_semantics.type` field determines decomposition strategy only; it does not
+  auto-wrap the expression in aggregate functions.
 
 **8. Approve relationship paths:**
 

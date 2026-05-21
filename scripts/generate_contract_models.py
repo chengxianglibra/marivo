@@ -220,17 +220,18 @@ def _patch_osi_generated_model_validators(output: Path) -> None:
     )
     # Rename auto-generated oneOf variant classes to meaningful names
     text = text.replace(
-        "class AggregationSemantics1(BaseModel):", "class SumAggregation(BaseModel):"
+        "class DecompositionSemantics1(BaseModel):", "class SumDecomposition(BaseModel):"
     )
     text = text.replace(
-        "class AggregationSemantics2(BaseModel):", "class RatioAggregation(BaseModel):"
+        "class DecompositionSemantics2(BaseModel):", "class RatioDecomposition(BaseModel):"
     )
     text = text.replace(
-        "class AggregationSemantics3(BaseModel):", "class WeightedAverageAggregation(BaseModel):"
+        "class DecompositionSemantics3(BaseModel):",
+        "class WeightedAverageDecomposition(BaseModel):",
     )
     text = text.replace(
-        "AggregationSemantics1 | AggregationSemantics2 | AggregationSemantics3",
-        "SumAggregation | RatioAggregation | WeightedAverageAggregation",
+        "DecompositionSemantics1 | DecompositionSemantics2 | DecompositionSemantics3",
+        "SumDecomposition | RatioDecomposition | WeightedAverageDecomposition",
     )
     # Allow extra fields on MarivoMetricExtension for filters runtime support
     text = re.sub(

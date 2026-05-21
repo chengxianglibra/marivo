@@ -32,7 +32,7 @@ calendar schemas -----/--/
 可以把它理解成三层：
 
 1. **OSI External Contract 层**：`SemanticModel`、`Dataset`、`Field`、`Relationship`、`Metric` — 对齐 OSI 规范的稳定线格式对象
-2. **MARIVO Extension 层**：`datasource_id`、`data_type`、`additive_dimensions`、`aggregation_semantics`、`filters` 等 — 无法从 SQL 表达式安全推导的安全关键元数据
+2. **MARIVO Extension 层**：`datasource_id`、`data_type`、`additive_dimensions`、`decomposition_semantics`、`filters` 等 — 无法从 SQL 表达式安全推导的安全关键元数据
 3. **Compilation / Execution 层**：compiler 如何做 reference resolution、validation、lowering，IR 如何表达 engine-agnostic 的语义计划
 
 ## 核心收敛原则
@@ -65,7 +65,7 @@ calendar schemas -----/--/
 
 | 文档 | 主要主题 | 解决的核心问题 |
 | --- | --- | --- |
-| [`metric-v2-schema.zh.md`](./metric-v2-schema.zh.md) | OSI Metric + MARIVO 扩展 | Metric 作为扁平表达式模型，MARIVO 扩展承载 additive_dimensions、aggregation_semantics、filters |
+| [`metric-v2-schema.zh.md`](./metric-v2-schema.zh.md) | OSI Metric + MARIVO 扩展 | Metric 作为扁平表达式模型，MARIVO 扩展承载 additive_dimensions、decomposition_semantics、filters |
 | [`metric-process-contract.zh.md`](./metric-process-contract.zh.md) | Metric 与过程语义的分工 | Metric 直接承担度量语义，过程语义另行设计 |
 | [`entity-schema-contract.zh.md`](./entity-schema-contract.zh.md) | OSI Dataset + Field 模型 | Dataset 直接包含 source 和 fields，物理接地内联，无需独立 binding |
 | [`dimension-schema-contract.zh.md`](./dimension-schema-contract.zh.md) | Dimension 作为 Field 属性 | 维度如何作为 Field.dimension 属性表达，而非独立对象 |

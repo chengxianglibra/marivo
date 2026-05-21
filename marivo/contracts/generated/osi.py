@@ -8,9 +8,9 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
-class SumAggregation(BaseModel):
+class SumDecomposition(BaseModel):
     """
-    Additive quantity — values sum across groups. No component refs needed.
+    Additive quantity — uses delta_share decomposition. Values sum across groups. No component refs needed.
     """
 
     model_config = ConfigDict(
@@ -209,9 +209,9 @@ class MarivoFieldCustomExtension(BaseModel):
     data: MarivoFieldExtension
 
 
-class RatioAggregation(BaseModel):
+class RatioDecomposition(BaseModel):
     """
-    Proportion/rate metric. Requires numerator and denominator component specs.
+    Proportion/rate — uses ratio decomposition. Requires numerator and denominator component specs.
     """
 
     model_config = ConfigDict(
@@ -228,9 +228,9 @@ class RatioAggregation(BaseModel):
     )
 
 
-class WeightedAverageAggregation(BaseModel):
+class WeightedAverageDecomposition(BaseModel):
     """
-    Ratio-of-sums metric. Requires numerator and weight component specs.
+    Ratio-of-sums — uses within/mix decomposition. Requires numerator and weight component specs.
     """
 
     model_config = ConfigDict(
@@ -312,9 +312,11 @@ class MarivoMetricExtension(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
-    aggregation_semantics: SumAggregation | RatioAggregation | WeightedAverageAggregation = Field(
+    decomposition_semantics: (
+        SumDecomposition | RatioDecomposition | WeightedAverageDecomposition
+    ) = Field(
         {"type": "sum"},
-        description="Discriminated union of aggregation semantics. Determines inferential summary mode, statistical test method, and decomposition strategy. sum: additive quantity, delta_share decomposition. ratio: proportion/rate, requires numerator+denominator. weighted_average: ratio-of-sums, requires numerator+weight.",
+        description="Discriminated union of decomposition semantics. Determines decomposition strategy, not SQL aggregation. sum: additive quantity, delta_share decomposition. ratio: proportion/rate, ratio decomposition. weighted_average: ratio-of-sums, within/mix decomposition.",
         validate_default=True,
     )
 
@@ -340,7 +342,10 @@ class Metric(BaseModel):
         extra="forbid",
     )
     name: str = Field(..., description="Unique identifier for the metric")
-    expression: Expression
+    expression: Expression = Field(
+        ...,
+        description="Aggregate expression that produces the metric value when grouped by decomposition dimensions. Must include aggregate functions (e.g., SUM(col), CAST(SUM(...) AS DOUBLE) / CAST(SUM(...) AS DOUBLE)). Row-level expressions without aggregates will produce incorrect SQL.",
+    )
     description: str | None = Field(
         None, description="Human-readable description of what the metric measures"
     )

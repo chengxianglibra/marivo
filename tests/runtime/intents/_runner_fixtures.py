@@ -41,7 +41,7 @@ def _scalar_observation(metric: str = "m1") -> dict[str, Any]:
         "unit": None,
         "value": 42.0,
         "analytical_metadata": {
-            "aggregation_semantics": "sum",
+            "decomposition_semantics": "sum",
             "row_count": 10,
         },
         "time_scope": {"field": "time", "start": "2024-01-01", "end": "2024-01-08"},
@@ -75,7 +75,7 @@ def _time_series_observation(
         "granularity": granularity,
         "series": series,
         "analytical_metadata": {
-            "aggregation_semantics": "sum",
+            "decomposition_semantics": "sum",
             "row_count": len(series),
         },
         "time_scope": {"field": "time", "start": "2024-01-01", "end": "2024-01-03"},
@@ -98,7 +98,7 @@ def _scalar_observation_v2(metric: str = "m1", *, value: float | None = 42.0) ->
         "axes": [],
         "series": [{"keys": {}, "points": [{"value": value}]}],
         "analytical_metadata": {
-            "aggregation_semantics": "sum",
+            "decomposition_semantics": "sum",
             "row_count": 10,
         },
         "time_scope": {"field": "time", "start": "2024-01-01", "end": "2024-01-08"},
@@ -125,7 +125,7 @@ def _time_series_observation_v2(
         "axes": [{"kind": "time", "grain": granularity}],
         "series": [{"keys": {}, "points": points}],
         "analytical_metadata": {
-            "aggregation_semantics": "sum",
+            "decomposition_semantics": "sum",
             "row_count": len(points),
         },
         "time_scope": {"field": "time", "start": "2024-01-01", "end": "2024-01-03"},
@@ -155,7 +155,7 @@ def _segmented_observation_v2(
         "axes": axes,
         "series": series,
         "analytical_metadata": {
-            "aggregation_semantics": "sum",
+            "decomposition_semantics": "sum",
             "row_count": len(series),
         },
         "time_scope": {"field": "time", "start": "2024-01-01", "end": "2024-01-08"},
@@ -200,7 +200,7 @@ def _panel_observation_v2(
         "axes": axes,
         "series": series,
         "analytical_metadata": {
-            "aggregation_semantics": "sum",
+            "decomposition_semantics": "sum",
             "row_count": 4,
         },
         "time_scope": {"field": "time", "start": "2024-01-01", "end": "2024-01-03"},

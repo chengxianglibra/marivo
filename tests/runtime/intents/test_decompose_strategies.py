@@ -15,7 +15,7 @@ from marivo.runtime.intents.decompose_strategies import (
 class TestDispatchDecompositionStrategy:
     def test_dispatch_sum_returns_delta_share(self):
         result = dispatch_decomposition_strategy(
-            aggregation_semantics="sum",
+            decomposition_semantics="sum",
             left_map={"A": 100, "B": 50},
             right_map={"A": 80, "B": 60},
             scope_absolute_delta=10.0,
@@ -26,7 +26,7 @@ class TestDispatchDecompositionStrategy:
 
     def test_dispatch_ratio_returns_ratio_decomposition(self):
         result = dispatch_decomposition_strategy(
-            aggregation_semantics="ratio",
+            decomposition_semantics="ratio",
             left_map={"A": 30, "B": 10},
             right_map={"A": 20, "B": 15},
             scope_absolute_delta=5.0,
@@ -43,7 +43,7 @@ class TestDispatchDecompositionStrategy:
 
     def test_dispatch_weighted_returns_weighted_decomposition(self):
         result = dispatch_decomposition_strategy(
-            aggregation_semantics="weighted_average",
+            decomposition_semantics="weighted_average",
             left_map={"A": 300, "B": 50},
             right_map={"A": 200, "B": 90},
             scope_absolute_delta=60.0,
@@ -58,9 +58,9 @@ class TestDispatchDecompositionStrategy:
         assert result.quality.confidence_grade == "medium"
 
     def test_dispatch_unknown_semantics_raises_value_error(self):
-        with pytest.raises(ValueError, match="unknown aggregation_semantics"):
+        with pytest.raises(ValueError, match="unknown decomposition_semantics"):
             dispatch_decomposition_strategy(
-                aggregation_semantics="unknown",
+                decomposition_semantics="unknown",
                 left_map={},
                 right_map={},
                 scope_absolute_delta=0.0,

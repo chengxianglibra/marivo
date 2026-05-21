@@ -92,7 +92,11 @@ Use the knowledge base to choose:
 
 - dataset names, descriptions, source relations, and grains
 - fields, including primary keys, unique keys, dimensions, and time fields
-- metrics, including Trino SQL dialect aggregation expressions and additivity notes
+- metrics, including Trino SQL dialect aggregation expressions and additivity notes. Metric
+  expressions must be complete aggregate expressions with aggregate functions (e.g., `SUM(col)`,
+  `CAST(SUM(...) AS DOUBLE) / CAST(SUM(...) AS DOUBLE)`). The `decomposition_semantics.type` field
+  determines decomposition strategy, not SQL aggregation — do not write row-level expressions
+  without aggregate wrappers.
 - relationships, including join columns and cardinality
 
 When live metadata contains a time partition field such as `log_date`, choose that partition field

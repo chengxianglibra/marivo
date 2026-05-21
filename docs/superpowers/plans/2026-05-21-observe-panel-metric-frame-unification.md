@@ -446,7 +446,7 @@ observation = {
     "axes": axes,
     "series": series,
     "analytical_metadata": {
-        "aggregation_semantics": aggregation_semantics,
+        "decomposition_semantics": decomposition_semantics,
         "timezone": None,
         "data_complete": None,
         "quality_status": quality_status,
@@ -492,7 +492,7 @@ observation = {
     "axes": axes,
     "series": series,
     "analytical_metadata": {
-        "aggregation_semantics": aggregation_semantics,
+        "decomposition_semantics": decomposition_semantics,
         "timezone": None,
         "data_complete": data_complete,
         "quality_status": quality_status,
@@ -531,7 +531,7 @@ observation = {
     "axes": axes,
     "series": series,
     "analytical_metadata": {
-        "aggregation_semantics": aggregation_semantics,
+        "decomposition_semantics": decomposition_semantics,
         "timezone": None,
         "data_complete": None,
         "quality_status": quality_status,
@@ -619,7 +619,7 @@ elif granularity is not None and dimensions is not None:
         "axes": axes,
         "series": series,
         "analytical_metadata": {
-            "aggregation_semantics": aggregation_semantics,
+            "decomposition_semantics": decomposition_semantics,
             "timezone": None,
             "data_complete": data_complete,
             "quality_status": quality_status,
@@ -680,7 +680,7 @@ def _scalar_observation(metric: str = "m1", value: float = 42.0) -> dict[str, An
         "axes": [],
         "series": [{"keys": {}, "points": [{"value": value}]}],
         "analytical_metadata": {
-            "aggregation_semantics": "sum",
+            "decomposition_semantics": "sum",
             "timezone": None,
             "data_complete": None,
             "quality_status": "ready",
@@ -712,7 +712,7 @@ def _time_series_observation(
         "axes": [{"kind": "time", "grain": granularity}],
         "series": [{"keys": {}, "points": series}],
         "analytical_metadata": {
-            "aggregation_semantics": "sum",
+            "decomposition_semantics": "sum",
             "timezone": None,
             "data_complete": True,
             "quality_status": "ready",

@@ -87,13 +87,13 @@ class ExpressionComponent(BaseModel):
 ComponentSpec = MetricComponentRef | ExpressionComponent
 
 
-class SumAggregation(BaseModel):
+class SumDecomposition(BaseModel):
     type: Literal["sum"] = "sum"
 
     model_config = {"extra": "forbid"}
 
 
-class RatioAggregation(BaseModel):
+class RatioDecomposition(BaseModel):
     type: Literal["ratio"] = "ratio"
     numerator: ComponentSpec
     denominator: ComponentSpec
@@ -101,7 +101,7 @@ class RatioAggregation(BaseModel):
     model_config = {"extra": "forbid"}
 
 
-class WeightedAverageAggregation(BaseModel):
+class WeightedAverageDecomposition(BaseModel):
     type: Literal["weighted_average"] = "weighted_average"
     numerator: ComponentSpec
     weight: ComponentSpec
@@ -109,14 +109,14 @@ class WeightedAverageAggregation(BaseModel):
     model_config = {"extra": "forbid"}
 
 
-AggregationSemantics = Annotated[
-    SumAggregation | RatioAggregation | WeightedAverageAggregation,
+DecompositionSemantics = Annotated[
+    SumDecomposition | RatioDecomposition | WeightedAverageDecomposition,
     Field(discriminator="type"),
 ]
 
 
 class MarivoMetricExtension(BaseModel):
-    aggregation_semantics: AggregationSemantics = SumAggregation()
+    decomposition_semantics: DecompositionSemantics = SumDecomposition()
 
     @property
     def filters(self) -> list[MarivoMetricFilter] | None:
@@ -125,6 +125,6 @@ class MarivoMetricExtension(BaseModel):
     model_config = {"extra": "allow"}
 
 
-def aggregation_type(agg: AggregationSemantics) -> str:
-    """Extract the type discriminator string from an AggregationSemantics variant."""
+def decomposition_type(agg: DecompositionSemantics) -> str:
+    """Extract the type discriminator string from a DecompositionSemantics variant."""
     return agg.type

@@ -656,7 +656,7 @@ def register_attribute(server: Any, runtime: Any) -> None:
             Field(
                 description=(
                     "AOI decomposition method. The method is auto-derived from the metric's "
-                    "aggregation_semantics.type at runtime; the parameter value is fixed to "
+                    "decomposition_semantics.type at runtime; the parameter value is fixed to "
                     "delta_share for wire compatibility."
                 )
             ),

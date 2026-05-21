@@ -63,7 +63,7 @@ def _valid_doc() -> dict:
                             {
                                 "vendor_name": "MARIVO",
                                 "data": {
-                                    "aggregation_semantics": {"type": "sum"},
+                                    "decomposition_semantics": {"type": "sum"},
                                 },
                             }
                         ],
@@ -514,7 +514,7 @@ def _composite_time_doc(
                         "custom_extensions": [
                             {
                                 "vendor_name": "MARIVO",
-                                "data": {"aggregation_semantics": {"type": "sum"}},
+                                "data": {"decomposition_semantics": {"type": "sum"}},
                             }
                         ],
                     }

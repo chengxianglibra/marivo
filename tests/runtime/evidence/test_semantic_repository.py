@@ -21,7 +21,7 @@ class _FakeMetadata:
                     "expression": json.dumps(
                         {"dialects": [{"dialect": "ANSI_SQL", "expression": "SUM(amount)"}]}
                     ),
-                    "aggregation_semantics": "sum",
+                    "decomposition_semantics": "sum",
                     "created_at": "",
                     "updated_at": "",
                     "visibility": "public",

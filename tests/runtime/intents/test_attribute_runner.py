@@ -16,7 +16,7 @@ def _make_runtime() -> MagicMock:
     resolved_metric = MagicMock()
     resolved_metric.semantic_object = {
         "header": {
-            "aggregation_semantics": "sum",
+            "decomposition_semantics": "sum",
         }
     }
     runtime.resolve_metric.return_value = resolved_metric
@@ -63,7 +63,7 @@ def _observe_result(side: str) -> dict[str, Any]:
         "schema_version": "2.0",
         "axes": [],
         "series": [{"keys": {}, "points": [{"value": 42.0}]}],
-        "analytical_metadata": {"aggregation_semantics": "sum", "row_count": 10},
+        "analytical_metadata": {"decomposition_semantics": "sum", "row_count": 10},
         "scope": {},
     }
 

@@ -113,7 +113,7 @@ def run_decompose_intent(
         raise ValueError(f"decompose: metric '{metric_name}' not found or not published")
 
     _resolved_header = resolved_metric.semantic_object.get("header") or {}
-    metric_aggregation_semantics = _resolved_header.get("aggregation_semantics") or "sum"
+    metric_decomposition_semantics = _resolved_header.get("decomposition_semantics") or "sum"
 
     runtime_dimensions = runtime.resolve_metric_dimensions(metric_name) or []
     valid_dimensions = (
@@ -215,7 +215,7 @@ def run_decompose_intent(
     }
 
     decomp = dispatch_decomposition_strategy(
-        aggregation_semantics=metric_aggregation_semantics,
+        decomposition_semantics=metric_decomposition_semantics,
         left_map=left_map,
         right_map=right_map,
         scope_absolute_delta=scope_absolute_delta,
@@ -298,7 +298,7 @@ def run_decompose_intent(
         "unexplained_reason": unexplained_reason,
         "analytical_metadata": {
             "method": decomp.method,
-            "aggregation_semantics": metric_aggregation_semantics,
+            "decomposition_semantics": metric_decomposition_semantics,
             "reconciliation_status": decomp.quality.reconciliation_status,
             "reconciliation_gap": decomp.quality.reconciliation_gap,
             "confidence_grade": decomp.quality.confidence_grade,

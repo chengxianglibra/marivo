@@ -155,7 +155,7 @@ class MeasurementNode(TypedDict):
     observed_entity_ref: str
     observation_grain_ref: str
     value_semantics: str
-    aggregation_semantics: NotRequired[str | None]
+    decomposition_semantics: NotRequired[str | None]
     depends_on: NotRequired[list[str] | None]
     input_bindings: NotRequired[list[InputBinding] | None]
     output_bindings: NotRequired[list[OutputBinding] | None]

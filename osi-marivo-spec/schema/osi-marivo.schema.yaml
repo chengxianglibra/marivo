@@ -31,8 +31,8 @@ time_granularities:
   - "quarter"
   - "year"
 
-# Supported metric aggregation semantics.
-aggregation_semantics:
+# Supported metric decomposition semantics. Determines decomposition strategy, not SQL aggregation.
+decomposition_semantics:
   - "sum"
   - "ratio"
   - "weighted_average"
@@ -91,7 +91,7 @@ metric_component_ref:
 
 # MARIVO extension for Metric.
 metric_extension:
-  aggregation_semantics: AggregationSemantics  # default: "sum". Determines decomposition strategy.
+  decomposition_semantics: DecompositionSemantics  # default: "sum". Determines decomposition strategy, not SQL aggregation.
     # Decision rule:
     #   - "sum" for additive quantities — delta_share decomposition, reconcileable delta.
     #   - "ratio" for proportions/rates — requires numerator+denominator, ratio decomposition.
@@ -222,7 +222,7 @@ metrics:
     expression:
       dialects:
         - dialect: Dialect     # Required. Default: "ANSI_SQL"
-          expression: string   # Required. Full SQL expression with aggregate functions.
+          expression: string   # Required. Aggregate expression with aggregate functions. Row-level expressions without aggregates will produce incorrect SQL.
 
     # Optional: Human-readable description of what the metric measures
     description: string

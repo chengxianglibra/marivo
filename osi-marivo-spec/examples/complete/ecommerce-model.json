@@ -274,7 +274,7 @@
             {
               "vendor_name": "MARIVO",
               "data": {
-                "aggregation_semantics": { "type": "sum" }
+                "decomposition_semantics": { "type": "sum" }
               }
             }
           ]
@@ -294,7 +294,7 @@
             {
               "vendor_name": "MARIVO",
               "data": {
-                "aggregation_semantics": { "type": "sum" }
+                "decomposition_semantics": { "type": "sum" }
               }
             }
           ]
@@ -314,7 +314,7 @@
             {
               "vendor_name": "MARIVO",
               "data": {
-                "aggregation_semantics": {
+                "decomposition_semantics": {
                   "type": "weighted_average",
                   "numerator": { "metric": "metric.gmv" },
                   "weight": { "metric": "metric.order_count" }

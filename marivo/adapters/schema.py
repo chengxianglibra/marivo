@@ -7,7 +7,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Literal
 
-METADATA_SCHEMA_VERSION = "metadata.time_field_required_prefix.v3"
+METADATA_SCHEMA_VERSION = "metadata.decomposition_semantics.v4"
 METADATA_SCHEMA_MARKER_TABLE = "metadata_schema_marker"
 
 METADATA_DDL: list[str] = [
@@ -183,7 +183,7 @@ METADATA_DDL: list[str] = [
         numerator           TEXT,
         denominator         TEXT,
         weight              TEXT,
-        aggregation_semantics TEXT NOT NULL DEFAULT 'sum',
+        decomposition_semantics TEXT NOT NULL DEFAULT 'sum',
         created_at          TEXT NOT NULL DEFAULT (datetime('now')),
         updated_at          TEXT NOT NULL DEFAULT (datetime('now')),
         UNIQUE(model_id, name)
@@ -669,7 +669,7 @@ def _mysql_text_type(column_name: str, suffix: str, indexed_columns: set[str]) -
         "proposition_type",
         "assessment_type",
         "action_kind",
-        "aggregation_semantics",
+        "decomposition_semantics",
         "fqn",
         "lifecycle",
         "native_name",

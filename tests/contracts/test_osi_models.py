@@ -337,28 +337,28 @@ def test_marivo_relationship_extension():
 def test_marivo_metric_extension_minimal():
     from marivo.transports.http.models.marivo_extensions import (
         MarivoMetricExtension,
-        SumAggregation,
+        SumDecomposition,
     )
 
     ext = MarivoMetricExtension()
-    assert isinstance(ext.aggregation_semantics, SumAggregation)
-    assert ext.aggregation_semantics.type == "sum"
+    assert isinstance(ext.decomposition_semantics, SumDecomposition)
+    assert ext.decomposition_semantics.type == "sum"
 
 
 def test_marivo_metric_extension_ratio():
     from marivo.transports.http.models.marivo_extensions import (
         MarivoMetricExtension,
         MetricComponentRef,
-        RatioAggregation,
+        RatioDecomposition,
     )
 
     ext = MarivoMetricExtension(
-        aggregation_semantics=RatioAggregation(
+        decomposition_semantics=RatioDecomposition(
             numerator=MetricComponentRef(metric="metric.converted"),
             denominator=MetricComponentRef(metric="metric.total"),
         ),
     )
-    assert ext.aggregation_semantics.type == "ratio"
+    assert ext.decomposition_semantics.type == "ratio"
 
 
 def test_marivo_metric_filter():

@@ -69,11 +69,11 @@
       ],
       "description": "Supported time granularities, ordered from finest to coarsest."
     },
-    "AggregationSemantics": {
+    "DecompositionSemantics": {
       "oneOf": [
         {
           "type": "object",
-          "description": "Additive quantity — values sum across groups. No component refs needed.",
+          "description": "Additive quantity — uses delta_share decomposition. Values sum across groups. No component refs needed.",
           "properties": {
             "type": { "type": "string", "const": "sum" }
           },
@@ -82,7 +82,7 @@
         },
         {
           "type": "object",
-          "description": "Proportion/rate metric. Requires numerator and denominator component specs.",
+          "description": "Proportion/rate — uses ratio decomposition. Requires numerator and denominator component specs.",
           "properties": {
             "type": { "type": "string", "const": "ratio" },
             "numerator": { "$ref": "#/$defs/ComponentSpec" },
@@ -93,7 +93,7 @@
         },
         {
           "type": "object",
-          "description": "Ratio-of-sums metric. Requires numerator and weight component specs.",
+          "description": "Ratio-of-sums — uses within/mix decomposition. Requires numerator and weight component specs.",
           "properties": {
             "type": { "type": "string", "const": "weighted_average" },
             "numerator": { "$ref": "#/$defs/ComponentSpec" },
@@ -103,7 +103,7 @@
           "additionalProperties": false
         }
       ],
-      "description": "Discriminated union of aggregation semantics variants. Each variant is an object with a 'type' field as discriminator."
+      "description": "Discriminated union of decomposition semantics variants. Determines decomposition strategy, not SQL aggregation. Each variant is an object with a 'type' field as discriminator."
     },
     "AIContext": {
       "description": "Additional context for AI tools",
@@ -394,7 +394,8 @@
           "description": "Unique identifier for the metric"
         },
         "expression": {
-          "$ref": "#/$defs/Expression"
+          "$ref": "#/$defs/Expression",
+          "description": "Aggregate expression that produces the metric value when grouped by decomposition dimensions. Must include aggregate functions (e.g., SUM(col), CAST(SUM(...) AS DOUBLE) / CAST(SUM(...) AS DOUBLE)). Row-level expressions without aggregates will produce incorrect SQL."
         },
         "description": {
           "type": "string",
@@ -549,10 +550,10 @@
       "type": "object",
       "description": "MARIVO extension payload for Metric.",
       "properties": {
-        "aggregation_semantics": {
-          "$ref": "#/$defs/AggregationSemantics",
+        "decomposition_semantics": {
+          "$ref": "#/$defs/DecompositionSemantics",
           "default": { "type": "sum" },
-          "description": "Discriminated union of aggregation semantics. Determines inferential summary mode, statistical test method, and decomposition strategy. sum: additive quantity, delta_share decomposition. ratio: proportion/rate, requires numerator+denominator. weighted_average: ratio-of-sums, requires numerator+weight."
+          "description": "Discriminated union of decomposition semantics. Determines decomposition strategy, not SQL aggregation. sum: additive quantity, delta_share decomposition. ratio: proportion/rate, ratio decomposition. weighted_average: ratio-of-sums, within/mix decomposition."
         }
       },
       "additionalProperties": true

@@ -33,7 +33,7 @@ class TestObserveRunner(unittest.TestCase):
             table_name="src.metrics",
         )
         runtime.resolve_metric.return_value = SimpleNamespace(
-            semantic_object={"header": {"aggregation_semantics": "sum"}}
+            semantic_object={"header": {"decomposition_semantics": "sum"}}
         )
         runtime.resolve_metric_sql_for_execution.return_value = "SUM(val)"
         runtime.resolve_metric_dimensions.return_value = dimensions or []
