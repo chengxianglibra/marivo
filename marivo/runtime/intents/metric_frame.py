@@ -49,6 +49,68 @@ def is_metric_frame_artifact(artifact: dict[str, Any]) -> bool:
     return artifact.get("artifact_family") == "metric_frame"
 
 
+def is_delta_frame_artifact(artifact: dict[str, Any]) -> bool:
+    return artifact.get("artifact_family") == "delta_frame"
+
+
+def read_delta_frame_shape(artifact: dict[str, Any]) -> str:
+    shape = artifact.get("shape")
+    if not isinstance(shape, str) or not shape:
+        raise ValueError("delta_frame artifact missing shape")
+    return shape
+
+
+def read_delta_frame_series(artifact: dict[str, Any]) -> list[dict[str, Any]]:
+    payload = artifact.get("payload")
+    if not isinstance(payload, dict):
+        raise ValueError("delta_frame artifact missing payload")
+    series = payload.get("series")
+    if not isinstance(series, list):
+        raise ValueError("delta_frame artifact payload missing series")
+    return series
+
+
+def build_delta_frame_artifact(
+    *,
+    artifact_id: str,
+    shape: str,
+    metric_ref: str,
+    current_scope: dict[str, Any],
+    baseline_scope: dict[str, Any],
+    axes: list[dict[str, str]],
+    series: list[dict[str, Any]],
+    unit: str | None,
+) -> dict[str, Any]:
+    return {
+        "artifact_id": artifact_id,
+        "artifact_family": "delta_frame",
+        "shape": shape,
+        "subject": {
+            "kind": "comparison",
+            "metric_ref": metric_ref,
+            "current": current_scope,
+            "baseline": baseline_scope,
+        },
+        "axes": axes,
+        "measures": [
+            {"id": "delta_abs", "value_type": "number", "nullable": True, "unit": unit},
+            {"id": "delta_pct", "value_type": "number", "nullable": True, "unit": None},
+        ],
+        "payload": {"series": series},
+    }
+
+
+def read_delta_scalar_point(artifact: dict[str, Any]) -> dict[str, Any]:
+    series_list = artifact.get("series") or []
+    if not series_list:
+        series_list = read_delta_frame_series(artifact)
+    if series_list:
+        points = series_list[0].get("points") or []
+        if points:
+            return dict(points[0])
+    raise ValueError("delta_frame artifact has no scalar delta point")
+
+
 def read_metric_frame_shape(artifact: dict[str, Any]) -> str:
     shape = artifact.get("shape")
     if not isinstance(shape, str) or not shape:
@@ -268,21 +330,22 @@ def read_axes_from_artifact(artifact: dict[str, Any]) -> list[dict[str, str]]:
 
 
 def read_compare_scalar_point(artifact: dict[str, Any]) -> dict[str, Any]:
-    """Read the scalar delta point from a v2.0 compare artifact.
-
-    Returns the first point from the first series entry. Falls back to
-    top-level backward-compatible aliases if series is absent or empty.
+    """Read the scalar delta point from a v2.0 delta_frame artifact.
+    Returns the first point from the first series entry.
+    Tries top-level ``series`` first, then ``payload.series`` (delta_frame format).
     """
     series_list = artifact.get("series") or []
+    if not series_list:
+        # Try delta_frame payload.series
+        series_list = read_delta_frame_series(artifact) or []
     if series_list:
         points = series_list[0].get("points") or []
         if points:
             return dict(points[0])
-    # v1.0 fallback: assemble from top-level aliases
     return {
         "current_value": artifact.get("current_value"),
         "baseline_value": artifact.get("baseline_value"),
-        "delta": artifact.get("absolute_delta"),
+        "delta_abs": artifact.get("absolute_delta"),
         "delta_pct": artifact.get("relative_delta"),
         "direction": artifact.get("direction") or "undefined",
     }

@@ -14,7 +14,7 @@ AoiAtomicRequest: TypeAlias = (  # noqa: UP040 - mypy hook does not support PEP 
     aoi.Compare | aoi.Decompose | aoi.Correlate | aoi.Detect | aoi.Test | aoi.Forecast | aoi.Observe
 )
 AoiDerivedRequest: TypeAlias = aoi.Validate | aoi.Attribute | aoi.Diagnose  # noqa: UP040
-AoiArtifact: TypeAlias = aoi.MetricFrameArtifact | aoi.Artifact1 | aoi.Artifact2  # noqa: UP040
+AoiArtifact = aoi.MetricFrameArtifact | aoi.DeltaFrameArtifact | aoi.Artifact1 | aoi.Artifact2
 
 
 class _CanonicalSuccessArtifactShape(BaseModel):
@@ -96,7 +96,9 @@ def assert_derived_request_matches_intent(
 
 
 def validate_aoi_artifact(value: Any) -> AoiArtifact:
-    if isinstance(value, (aoi.MetricFrameArtifact, aoi.Artifact1, aoi.Artifact2)):
+    if isinstance(
+        value, (aoi.MetricFrameArtifact, aoi.DeltaFrameArtifact, aoi.Artifact1, aoi.Artifact2)
+    ):
         value = value.model_dump(mode="json")
         if isinstance(value, dict):
             if value.get("result") is None:
@@ -107,6 +109,8 @@ def validate_aoi_artifact(value: Any) -> AoiArtifact:
         return aoi.Artifact2.model_validate(value)
     if value.get("artifact_family") == "metric_frame":
         return aoi.MetricFrameArtifact.model_validate(value)
+    if value.get("artifact_family") == "delta_frame":
+        return aoi.DeltaFrameArtifact.model_validate(value)
     if "result" in value and "failure" not in value:
         _CanonicalSuccessArtifactShape.model_validate(value)
         return aoi.Artifact1.model_validate(value)
@@ -128,7 +132,7 @@ def validate_aoi_artifact(value: Any) -> AoiArtifact:
 
 def artifact_to_envelope_result(artifact: AoiArtifact) -> dict[str, Any]:
     data = artifact.model_dump(mode="json")
-    if data.get("artifact_family") == "metric_frame":
+    if data.get("artifact_family") in ("metric_frame", "delta_frame"):
         payload = data.get("payload")
         if isinstance(payload, dict):
             for series in payload.get("series") or []:

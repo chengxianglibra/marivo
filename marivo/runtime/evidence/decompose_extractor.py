@@ -149,15 +149,15 @@ class DecomposeArtifactExtractor(FindingExtractor):
                 "scope_delta_ref.finding_id but is absent or empty in the artifact payload."
             )
 
-        compare_type: str = compare_ref.get("comparison_type") or ""
+        compare_type: str = compare_ref.get("shape") or compare_ref.get("comparison_type") or ""
         delta_collection: str
         if compare_type == "time_series_delta":
             delta_collection = "summary"
-        elif compare_type in ("", "scalar_delta"):
+        elif compare_type in ("", "scalar_delta", "panel_delta"):
             delta_collection = "result"
         else:
             raise ValueError(
-                "DecomposeArtifactExtractor: compare_ref.comparison_type="
+                "DecomposeArtifactExtractor: compare_ref.shape="
                 f"{compare_type!r} is not supported for scope_delta_ref derivation."
             )
 

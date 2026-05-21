@@ -80,6 +80,20 @@ def _compare_result(
     *,
     comparability: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    series_data = [
+        {
+            "keys": {},
+            "points": [
+                {
+                    "current_value": 120.0,
+                    "baseline_value": 100.0,
+                    "delta_abs": 20.0,
+                    "delta_pct": 0.2,
+                    "direction": "increase",
+                }
+            ],
+        }
+    ]
     return {
         "artifact_id": "art_compare",
         "step_ref": {
@@ -89,22 +103,21 @@ def _compare_result(
         },
         "comparability": comparability or {"status": "comparable", "issues": []},
         "schema_version": "2.0",
-        "comparison_type": "scalar_delta",
-        "axes": [],
-        "series": [
-            {
-                "keys": {},
-                "points": [
-                    {
-                        "current_value": 120.0,
-                        "baseline_value": 100.0,
-                        "delta": 20.0,
-                        "delta_pct": 0.2,
-                        "direction": "increase",
-                    }
-                ],
-            }
+        "artifact_family": "delta_frame",
+        "shape": "scalar_delta",
+        "comparison_type": "scalar_delta",  # transition alias
+        "axes": [{"kind": "comparison_side"}],
+        "subject": {
+            "kind": "comparison",
+            "metric_ref": "metric.revenue",
+        },
+        "measures": [
+            {"id": "delta_abs", "value_type": "number", "nullable": True, "unit": None},
+            {"id": "delta_pct", "value_type": "number", "nullable": True, "unit": None},
         ],
+        "payload": {"series": series_data},
+        # Backward-compatible top-level series for read_compare_scalar_point
+        "series": series_data,
         # Backward-compatible aliases
         "current_value": 120.0,
         "baseline_value": 100.0,

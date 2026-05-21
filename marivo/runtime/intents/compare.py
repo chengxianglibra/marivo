@@ -143,8 +143,6 @@ def _require_metric_frame_artifact(
     read_metric_frame_time_scope(artifact)
     read_metric_frame_series(artifact)
     axes = read_axes_from_artifact(artifact)
-    if shape == "panel":
-        return shape, axes
     _validate_axes_for_shape(shape, axes, label=label)
     return shape, axes
 
@@ -173,6 +171,14 @@ def _validate_axes_for_shape(shape: str, axes: list[dict[str, str]], *, label: s
             "compare: INVALID_ARGUMENT - segmented metric_frame requires dimension axes "
             "and no time axis"
         )
+    if shape == "panel":
+        grain = time_grain_from_axes(axes)
+        if not has_time or not has_dim or grain is None:
+            raise ValueError(
+                "compare: INVALID_ARGUMENT - panel metric_frame requires one time axis "
+                "with grain and at least one dimension axis"
+            )
+        return
 
 
 def _normalize_window(window: dict[str, Any]) -> tuple[str, str]:
@@ -465,7 +471,7 @@ def run_compare_intent(
     """Execute a `compare` intent: compute typed delta between two observe artifacts.
 
     Input: current_artifact_id + baseline_artifact_id (both committed observe artifacts).
-    Output: committed compare_artifact (scalar_delta or segmented_delta).
+    Output: committed delta_frame artifact (scalar_delta, time_series_delta, or segmented_delta).
 
     Empty semantics: hard-fails only on NOT_COMPARABLE (incompatible inputs); null values
     and empty segment sets produce data_incomplete issues with needs_attention status.
@@ -531,11 +537,6 @@ def run_compare_intent(
 
     left_metric = _read_metric_ref(left_artifact)
     right_metric = _read_metric_ref(right_artifact)
-
-    if left_effective_type == "panel" or right_effective_type == "panel":
-        raise ValueError(
-            "compare: UNSUPPORTED_OPERATION - panel metric_frame comparison is not supported yet"
-        )
 
     # Collect comparability issues
     issues: list[dict[str, Any]] = []
@@ -695,9 +696,22 @@ def run_compare_intent(
         "executed_at": now,
     }
     base: dict[str, Any] = {
-        "artifact_type": "compare_artifact",
+        "artifact_family": "delta_frame",
+        "shape": "",  # filled per branch
         "schema_version": "2.0",
         "metric": metric_name,
+        "subject": {
+            "kind": "comparison",
+            "metric_ref": left_metric,
+            "current": {
+                "time_scope": _read_time_scope(left_artifact),
+                "scope": _read_scope(left_artifact),
+            },
+            "baseline": {
+                "time_scope": _read_time_scope(right_artifact),
+                "scope": _read_scope(right_artifact),
+            },
+        },
         "current_ref": current_ref_out,
         "baseline_ref": baseline_ref_out,
         "lineage": lineage,
@@ -718,33 +732,30 @@ def run_compare_intent(
         abs_delta = _compute_absolute_delta(current_value, baseline_value)
         rel_delta = _compute_relative_delta(abs_delta, baseline_value)
         direction = _compute_direction(abs_delta, rel_delta, flat_tolerance_relative)
-        scalar_axes: list[dict[str, str]] = []
-        scalar_series: list[dict[str, Any]] = [
-            {
-                "keys": {},
-                "points": [
-                    {
-                        "current_value": current_value,
-                        "baseline_value": baseline_value,
-                        "delta": abs_delta,
-                        "delta_pct": rel_delta,
-                        "direction": direction,
-                    }
-                ],
-            }
-        ]
         artifact = {
             **base,
-            "comparison_type": "scalar_delta",
-            "axes": scalar_axes,
-            "series": scalar_series,
-            # Top-level scalar aliases for downstream intent compatibility
-            "current_value": current_value,
-            "baseline_value": baseline_value,
-            "absolute_delta": abs_delta,
-            "relative_delta": rel_delta,
-            "direction": direction,
-            # Summary fields (v2.0 canonical)
+            "shape": "scalar_delta",
+            "axes": [{"kind": "comparison_side"}],
+            "measures": [
+                {"id": "delta_abs", "value_type": "number", "nullable": True, "unit": left_unit},
+                {"id": "delta_pct", "value_type": "number", "nullable": True, "unit": None},
+            ],
+            "payload": {
+                "series": [
+                    {
+                        "keys": {},
+                        "points": [
+                            {
+                                "current_value": current_value,
+                                "baseline_value": baseline_value,
+                                "delta_abs": abs_delta,
+                                "delta_pct": rel_delta,
+                                "direction": direction,
+                            }
+                        ],
+                    }
+                ],
+            },
             "summary_current_value": current_value,
             "summary_baseline_value": baseline_value,
             "summary_absolute_delta": abs_delta,
@@ -754,7 +765,7 @@ def run_compare_intent(
         artifact_name = f"{metric_name}_compare_scalar"
         summary = (
             f"compare {metric_name} scalar: {direction} "
-            f"(Δ {abs_delta if abs_delta is not None else 'n/a'})"
+            f"(delta_abs {abs_delta if abs_delta is not None else 'n/a'})"
         )
 
     elif left_effective_type == "time_series":
@@ -822,7 +833,7 @@ def run_compare_intent(
                     "window": window,
                     "current_value": current_value,
                     "baseline_value": baseline_value,
-                    "delta": row_abs,
+                    "delta_abs": row_abs,
                     "delta_pct": row_rel,
                     "direction": row_dir,
                     "presence": presence,
@@ -947,9 +958,13 @@ def run_compare_intent(
 
         artifact = {
             **base,
-            "comparison_type": "time_series_delta",
-            "axes": [{"kind": "time", "grain": granularity}],
-            "series": [{"keys": {}, "points": time_series_rows}],
+            "shape": "time_series_delta",
+            "axes": [{"kind": "time", "grain": granularity}, {"kind": "comparison_side"}],
+            "measures": [
+                {"id": "delta_abs", "value_type": "number", "nullable": True, "unit": left_unit},
+                {"id": "delta_pct", "value_type": "number", "nullable": True, "unit": None},
+            ],
+            "payload": {"series": [{"keys": {}, "points": time_series_rows}]},
             "coverage": coverage,
             "summary_current_value": summary_current_value,
             "summary_baseline_value": summary_baseline_value,
@@ -959,6 +974,208 @@ def run_compare_intent(
         }
         artifact_name = f"{metric_name}_compare_time_series"
         summary = f"compare {metric_name} time_series: {len(time_series_rows)} bucket deltas"
+
+    elif left_effective_type == "panel":
+        p_dims = dimension_names_from_axes(left_axes)
+        p_granularity = time_grain_from_axes(left_axes)
+        left_series_entries = _read_metric_frame_series_entries(left_artifact)
+        right_series_entries = _read_metric_frame_series_entries(right_artifact)
+
+        def _panel_key(entry: dict[str, Any]) -> tuple[str, ...]:
+            return tuple(str(entry.get("keys", {}).get(d)) for d in p_dims)
+
+        left_panel_map = {_panel_key(s): s for s in left_series_entries}
+        right_panel_map = {_panel_key(s): s for s in right_series_entries}
+        all_panel_keys = set(left_panel_map) | set(right_panel_map)
+
+        # Resolve time pairing basis using the same logic as time_series_delta.
+        # The bucket pairing is shared across all series (same time scope).
+        pairing_basis = _resolve_time_series_pairing_basis(
+            runtime=runtime,
+            compare_type=compare_type,
+            left_artifact=left_artifact,
+            right_artifact=right_artifact,
+        )
+        # Extract the paired bucket keys (shared across all series)
+        paired_bucket_keys = pairing_basis["series_keys"]
+        left_ts_map = pairing_basis["left_series_map"]
+        right_ts_map = pairing_basis["right_series_map"]
+
+        panel_series: list[dict[str, Any]] = []
+
+        for panel_key in sorted(all_panel_keys):
+            l_entry = left_panel_map.get(panel_key)
+            r_entry = right_panel_map.get(panel_key)
+
+            if l_entry and r_entry:
+                # Both sides present: align time buckets within this series pair
+                l_points = l_entry.get("points") or []
+                r_points = r_entry.get("points") or []
+                p_keys_dict = l_entry.get("keys") or {}
+
+                # Build per-series point maps by window start
+                l_by_start: dict[str, dict[str, Any]] = {}
+                for p in l_points:
+                    w = p.get("window") or {}
+                    start = str(w.get("start") or "")
+                    if start:
+                        l_by_start[start] = p
+                r_by_start: dict[str, dict[str, Any]] = {}
+                for p in r_points:
+                    w = p.get("window") or {}
+                    start = str(w.get("start") or "")
+                    if start:
+                        r_by_start[start] = p
+
+                series_delta_points: list[dict[str, Any]] = []
+                for bucket_key in paired_bucket_keys:
+                    # The paired_bucket_keys are "{start}|{end}" strings from the
+                    # global time-series pairing. Extract the start to find matching
+                    # points in each panel series.
+                    bucket_start = bucket_key.split("|")[0]
+                    l_point = l_by_start.get(bucket_start)
+                    r_point = r_by_start.get(bucket_start)
+
+                    anchor = left_ts_map.get(bucket_key) or right_ts_map.get(bucket_key) or {}
+                    window = dict(anchor.get("window") or {})
+                    current_value = _coerce_numeric_or_none(l_point.get("value")) if l_point else None
+                    baseline_value = _coerce_numeric_or_none(r_point.get("value")) if r_point else None
+
+                    if l_point and r_point and current_value is not None and baseline_value is not None:
+                        presence = "both"
+                        row_abs = _compute_absolute_delta(current_value, baseline_value)
+                        row_rel = _compute_relative_delta(row_abs, baseline_value)
+                        row_dir = _compute_direction(row_abs, row_rel, flat_tolerance_relative)
+                    elif current_value is not None:
+                        presence = "current_only"
+                        row_abs = current_value
+                        row_rel = None
+                        row_dir = "undefined"
+                    elif baseline_value is not None:
+                        presence = "baseline_only"
+                        row_abs = -baseline_value if baseline_value is not None else None
+                        row_rel = None
+                        row_dir = "undefined"
+                    else:
+                        presence = "current_only" if l_point else "baseline_only"
+                        row_abs = None
+                        row_rel = None
+                        row_dir = "undefined"
+
+                    series_delta_points.append({
+                        "window": window,
+                        "current_value": current_value,
+                        "baseline_value": baseline_value,
+                        "delta_abs": row_abs,
+                        "delta_pct": row_rel,
+                        "direction": row_dir,
+                        "presence": presence,
+                    })
+
+                panel_series.append({"keys": p_keys_dict, "points": series_delta_points})
+            elif l_entry:
+                # Current-only series
+                p_keys_dict = l_entry.get("keys") or {}
+                series_delta_points = [
+                    {
+                        "window": point.get("window"),
+                        "current_value": _coerce_numeric_or_none(point.get("value")),
+                        "baseline_value": None,
+                        "delta_abs": _coerce_numeric_or_none(point.get("value")),
+                        "delta_pct": None,
+                        "direction": "undefined",
+                        "presence": "current_only",
+                    }
+                    for point in (l_entry.get("points") or [])
+                ]
+                panel_series.append({"keys": p_keys_dict, "points": series_delta_points})
+            else:
+                # Baseline-only series
+                p_keys_dict = (r_entry or {}).get("keys") or {}
+                series_delta_points = [
+                    {
+                        "window": point.get("window"),
+                        "current_value": None,
+                        "baseline_value": _coerce_numeric_or_none(point.get("value")),
+                        "delta_abs": _negate_or_none(_coerce_numeric_or_none(point.get("value"))),
+                        "delta_pct": None,
+                        "direction": "undefined",
+                        "presence": "baseline_only",
+                    }
+                    for point in ((r_entry or {}).get("points") or [])
+                ]
+                panel_series.append({"keys": p_keys_dict, "points": series_delta_points})
+
+        # Sort by descending non-null point count, then by dimension keys
+        panel_series.sort(
+            key=lambda item: (
+                -(sum(1 for p in item["points"] if p.get("delta_abs") is not None)),
+                *[str(item["keys"].get(dim, "")) for dim in p_dims],
+            )
+        )
+
+        # Compute scope-level summary from matched pairs
+        p_matched_current_values: list[float] = []
+        p_matched_baseline_values: list[float] = []
+        for entry in panel_series:
+            for point in entry.get("points") or []:
+                if (
+                    point.get("presence") == "both"
+                    and point.get("current_value") is not None
+                    and point.get("baseline_value") is not None
+                ):
+                    p_matched_current_values.append(point["current_value"])
+                    p_matched_baseline_values.append(point["baseline_value"])
+
+        summary_current_value = sum(p_matched_current_values) if p_matched_current_values else None
+        summary_baseline_value = sum(p_matched_baseline_values) if p_matched_baseline_values else None
+        summary_abs = _compute_absolute_delta(summary_current_value, summary_baseline_value)
+        summary_rel = _compute_relative_delta(summary_abs, summary_baseline_value)
+        summary_dir = _compute_direction(summary_abs, summary_rel, flat_tolerance_relative)
+
+        analytical_metadata.update(
+            {
+                "pairing_basis": pairing_basis["pairing_basis"],
+                "pairing_rule": pairing_basis["pairing_rule"],
+            }
+        )
+        if "compare_type" in pairing_basis:
+            analytical_metadata["compare_type"] = pairing_basis["compare_type"]
+        calendar_alignment = pairing_basis.get("calendar_alignment")
+        if isinstance(calendar_alignment, dict):
+            resolved_input_summary["calendar_alignment"] = calendar_alignment
+            analytical_metadata["calendar_alignment"] = {
+                key: calendar_alignment.get(key)
+                for key in (
+                    "compare_type",
+                    "comparison_basis",
+                    "resolved_alignment_mode",
+                    "rollup_safe",
+                )
+            }
+
+        panel_axes = (
+            [{"kind": "time", "grain": p_granularity}]
+            + [{"kind": "dimension", "name": d} for d in p_dims]
+            + [{"kind": "comparison_side"}]
+        )
+        artifact = {
+            **base,
+            "shape": "panel_delta",
+            "axes": panel_axes,
+            "measures": [
+                {"id": "delta_abs", "value_type": "number", "nullable": True, "unit": left_unit},
+                {"id": "delta_pct", "value_type": "number", "nullable": True, "unit": None},
+            ],
+            "payload": {"series": panel_series},
+            "summary_current_value": summary_current_value,
+            "summary_baseline_value": summary_baseline_value,
+            "summary_absolute_delta": summary_abs,
+            "summary_relative_delta": summary_rel,
+            "summary_direction": summary_dir,
+        }
+        artifact_name = f"{metric_name}_compare_panel"
+        summary = f"compare {metric_name} panel: {len(panel_series)} series deltas"
 
     else:
         # Segmented mode
@@ -1023,7 +1240,7 @@ def run_compare_intent(
                         {
                             "current_value": lv,
                             "baseline_value": rv,
-                            "delta": row_abs,
+                            "delta_abs": row_abs,
                             "delta_pct": row_rel,
                             "direction": row_dir,
                             "presence": presence,
@@ -1047,12 +1264,18 @@ def run_compare_intent(
         scope_rel = _compute_relative_delta(scope_abs, scope_rv)
         scope_dir = _compute_direction(scope_abs, scope_rel, flat_tolerance_relative)
 
-        seg_axes: list[dict[str, str]] = [{"kind": "dimension", "name": d} for d in dims]
+        seg_axes: list[dict[str, str]] = [{"kind": "dimension", "name": d} for d in dims] + [
+            {"kind": "comparison_side"}
+        ]
         artifact = {
             **base,
-            "comparison_type": "segmented_delta",
+            "shape": "segmented_delta",
             "axes": seg_axes,
-            "series": segmented_series,
+            "measures": [
+                {"id": "delta_abs", "value_type": "number", "nullable": True, "unit": left_unit},
+                {"id": "delta_pct", "value_type": "number", "nullable": True, "unit": None},
+            ],
+            "payload": {"series": segmented_series},
             "scope_current_value": scope_lv,
             "scope_baseline_value": scope_rv,
             "scope_absolute_delta": scope_abs,
@@ -1073,7 +1296,7 @@ def run_compare_intent(
         session_id,
         step_id,
         "compare",
-        "compare_artifact",
+        "delta_frame",
         artifact_name,
         artifact,
         summary,
@@ -1088,6 +1311,13 @@ def _compute_absolute_delta(left: float | None, right: float | None) -> float | 
     if left is None or right is None:
         return None
     return left - right
+
+
+def _negate_or_none(value: float | None) -> float | None:
+    """Negate a numeric value, returning None if the input is None."""
+    if value is None:
+        return None
+    return -value
 
 
 def _compute_relative_delta(absolute_delta: float | None, right: float | None) -> float | None:

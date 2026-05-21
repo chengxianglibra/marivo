@@ -70,7 +70,7 @@ class StepRef(TypedDict):
 # ---------------------------------------------------------------------------
 
 FindingAnalysisAxis = Literal[
-    "scalar", "time", "segment", "decomposition", "correlation", "forecast"
+    "scalar", "time", "segment", "panel", "decomposition", "correlation", "forecast"
 ]
 
 
@@ -237,7 +237,7 @@ ObservationPayload = (
 # Delta payload
 # ---------------------------------------------------------------------------
 
-DeltaKind = Literal["scalar_delta", "segmented_delta", "time_series_delta"]
+DeltaKind = Literal["scalar_delta", "segmented_delta", "time_series_delta", "panel_delta"]
 DeltaDirection = Literal["increase", "decrease", "flat", "undefined"]
 DeltaPresence = Literal["both", "current_only", "baseline_only"]
 

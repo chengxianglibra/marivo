@@ -632,7 +632,8 @@ def _follow_up_candidate(
             compare_point: dict[str, Any] = read_compare_scalar_point(compare_result)
             attribution_comparison = {
                 "basis": "previous_adjacent_equal_length",
-                "comparison_type": "scalar_delta",
+                "shape": "scalar_delta",
+                "comparison_type": "scalar_delta",  # transition alias
                 "current_window": {"start": current_start_str, "end": current_end_str},
                 "baseline_window": {
                     "start": baseline_start_str,
@@ -640,7 +641,7 @@ def _follow_up_candidate(
                 },
                 "current_value": compare_point.get("current_value"),
                 "baseline_value": compare_point.get("baseline_value"),
-                "absolute_delta": compare_point.get("delta"),
+                "absolute_delta": compare_point.get("delta_abs"),
                 "relative_delta": compare_point.get("delta_pct"),
                 "direction": compare_point.get("direction") or "undefined",
                 "comparability_status": comparability_status,

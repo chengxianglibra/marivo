@@ -34,24 +34,27 @@ class DecomposeHourWindowTests(unittest.TestCase):
     def test_scalar_delta_read_from_series_format(self) -> None:
         normalized = _normalize_decompose_compare_input(
             {
-                "comparison_type": "scalar_delta",
+                "artifact_family": "delta_frame",
+                "shape": "scalar_delta",
                 "schema_version": "2.0",
                 "metric": "m1",
                 "axes": [],
-                "series": [
-                    {
-                        "keys": {},
-                        "points": [
-                            {
-                                "current_value": 100.0,
-                                "baseline_value": 90.0,
-                                "delta": 10.0,
-                                "delta_pct": 10.0 / 90.0,
-                                "direction": "increase",
-                            }
-                        ],
-                    }
-                ],
+                "payload": {
+                    "series": [
+                        {
+                            "keys": {},
+                            "points": [
+                                {
+                                    "current_value": 100.0,
+                                    "baseline_value": 90.0,
+                                    "delta_abs": 10.0,
+                                    "delta_pct": 10.0 / 90.0,
+                                    "direction": "increase",
+                                }
+                            ],
+                        }
+                    ],
+                },
                 "resolved_input_summary": {
                     "current_time_scope": {
                         "field": "time",
@@ -76,6 +79,7 @@ class DecomposeHourWindowTests(unittest.TestCase):
     def test_scalar_delta_fallback_to_top_level_fields(self) -> None:
         normalized = _normalize_decompose_compare_input(
             {
+                # Legacy format: no shape, uses comparison_type fallback
                 "comparison_type": "scalar_delta",
                 "metric": "m1",
                 "current_value": 50.0,
@@ -98,6 +102,7 @@ class DecomposeHourWindowTests(unittest.TestCase):
             }
         )
 
+        self.assertEqual(normalized["comparison_type"], "scalar_delta")
         self.assertEqual(normalized["scope_current_value"], 50.0)
         self.assertEqual(normalized["scope_baseline_value"], 40.0)
         self.assertEqual(normalized["scope_absolute_delta"], 10.0)
@@ -105,24 +110,27 @@ class DecomposeHourWindowTests(unittest.TestCase):
     def test_axes_determine_scalar_observation_type(self) -> None:
         normalized = _normalize_decompose_compare_input(
             {
-                "comparison_type": "scalar_delta",
+                "artifact_family": "delta_frame",
+                "shape": "scalar_delta",
                 "schema_version": "2.0",
                 "metric": "m1",
                 "axes": [],
-                "series": [
-                    {
-                        "keys": {},
-                        "points": [
-                            {
-                                "current_value": 100.0,
-                                "baseline_value": 90.0,
-                                "delta": 10.0,
-                                "delta_pct": 10.0 / 90.0,
-                                "direction": "increase",
-                            }
-                        ],
-                    }
-                ],
+                "payload": {
+                    "series": [
+                        {
+                            "keys": {},
+                            "points": [
+                                {
+                                    "current_value": 100.0,
+                                    "baseline_value": 90.0,
+                                    "delta_abs": 10.0,
+                                    "delta_pct": 10.0 / 90.0,
+                                    "direction": "increase",
+                                }
+                            ],
+                        }
+                    ],
+                },
                 "resolved_input_summary": {
                     "current_time_scope": {
                         "field": "time",
@@ -143,26 +151,29 @@ class DecomposeHourWindowTests(unittest.TestCase):
     def test_axes_determine_time_series_observation_type(self) -> None:
         normalized = _normalize_decompose_compare_input(
             {
-                "comparison_type": "time_series_delta",
+                "artifact_family": "delta_frame",
+                "shape": "time_series_delta",
                 "schema_version": "2.0",
                 "metric": "m1",
-                "axes": [{"kind": "time", "grain": "day"}],
-                "series": [
-                    {
-                        "keys": {},
-                        "points": [
-                            {
-                                "window": {"start": "2024-01-01", "end": "2024-01-02"},
-                                "current_value": 30.0,
-                                "baseline_value": 23.0,
-                                "delta": 7.0,
-                                "delta_pct": 7.0 / 23.0,
-                                "direction": "increase",
-                                "presence": "both",
-                            }
-                        ],
-                    }
-                ],
+                "axes": [{"kind": "time", "grain": "day", "comparison_side": "both"}],
+                "payload": {
+                    "series": [
+                        {
+                            "keys": {},
+                            "points": [
+                                {
+                                    "window": {"start": "2024-01-01", "end": "2024-01-02"},
+                                    "current_value": 30.0,
+                                    "baseline_value": 23.0,
+                                    "delta_abs": 7.0,
+                                    "delta_pct": 7.0 / 23.0,
+                                    "direction": "increase",
+                                    "presence": "both",
+                                }
+                            ],
+                        }
+                    ],
+                },
                 "summary_current_value": 30.0,
                 "summary_baseline_value": 23.0,
                 "summary_absolute_delta": 7.0,
@@ -196,35 +207,38 @@ class DecomposeHourWindowTests(unittest.TestCase):
     def test_time_series_compare_input_aggregates_from_series_points(self) -> None:
         normalized = _normalize_decompose_compare_input(
             {
-                "comparison_type": "time_series_delta",
+                "artifact_family": "delta_frame",
+                "shape": "time_series_delta",
                 "schema_version": "2.0",
                 "metric": "m1",
-                "axes": [{"kind": "time", "grain": "day"}],
-                "series": [
-                    {
-                        "keys": {},
-                        "points": [
-                            {
-                                "window": {"start": "2024-01-01", "end": "2024-01-02"},
-                                "current_value": 20.0,
-                                "baseline_value": 15.0,
-                                "delta": 5.0,
-                                "delta_pct": 5.0 / 15.0,
-                                "direction": "increase",
-                                "presence": "both",
-                            },
-                            {
-                                "window": {"start": "2024-01-02", "end": "2024-01-03"},
-                                "current_value": 10.0,
-                                "baseline_value": 8.0,
-                                "delta": 2.0,
-                                "delta_pct": 2.0 / 8.0,
-                                "direction": "increase",
-                                "presence": "both",
-                            },
-                        ],
-                    }
-                ],
+                "axes": [{"kind": "time", "grain": "day", "comparison_side": "both"}],
+                "payload": {
+                    "series": [
+                        {
+                            "keys": {},
+                            "points": [
+                                {
+                                    "window": {"start": "2024-01-01", "end": "2024-01-02"},
+                                    "current_value": 20.0,
+                                    "baseline_value": 15.0,
+                                    "delta_abs": 5.0,
+                                    "delta_pct": 5.0 / 15.0,
+                                    "direction": "increase",
+                                    "presence": "both",
+                                },
+                                {
+                                    "window": {"start": "2024-01-02", "end": "2024-01-03"},
+                                    "current_value": 10.0,
+                                    "baseline_value": 8.0,
+                                    "delta_abs": 2.0,
+                                    "delta_pct": 2.0 / 8.0,
+                                    "direction": "increase",
+                                    "presence": "both",
+                                },
+                            ],
+                        }
+                    ],
+                },
                 "resolved_input_summary": {
                     "current_time_scope": {
                         "field": "time",
@@ -263,26 +277,29 @@ class DecomposeHourWindowTests(unittest.TestCase):
     def test_time_series_compare_input_uses_matched_time_scope(self) -> None:
         normalized = _normalize_decompose_compare_input(
             {
-                "comparison_type": "time_series_delta",
+                "artifact_family": "delta_frame",
+                "shape": "time_series_delta",
                 "schema_version": "2.0",
                 "metric": "m1",
-                "axes": [{"kind": "time", "grain": "day"}],
-                "series": [
-                    {
-                        "keys": {},
-                        "points": [
-                            {
-                                "window": {"start": "2024-01-02", "end": "2024-01-04"},
-                                "current_value": 30.0,
-                                "baseline_value": 23.0,
-                                "delta": 7.0,
-                                "delta_pct": 7.0 / 23.0,
-                                "direction": "increase",
-                                "presence": "both",
-                            }
-                        ],
-                    }
-                ],
+                "axes": [{"kind": "time", "grain": "day", "comparison_side": "both"}],
+                "payload": {
+                    "series": [
+                        {
+                            "keys": {},
+                            "points": [
+                                {
+                                    "window": {"start": "2024-01-02", "end": "2024-01-04"},
+                                    "current_value": 30.0,
+                                    "baseline_value": 23.0,
+                                    "delta_abs": 7.0,
+                                    "delta_pct": 7.0 / 23.0,
+                                    "direction": "increase",
+                                    "presence": "both",
+                                }
+                            ],
+                        }
+                    ],
+                },
                 "summary_current_value": 30.0,
                 "summary_baseline_value": 23.0,
                 "summary_absolute_delta": 7.0,
@@ -330,26 +347,29 @@ class DecomposeHourWindowTests(unittest.TestCase):
     def test_time_series_compare_input_prefers_side_specific_matched_time_scopes(self) -> None:
         normalized = _normalize_decompose_compare_input(
             {
-                "comparison_type": "time_series_delta",
+                "artifact_family": "delta_frame",
+                "shape": "time_series_delta",
                 "schema_version": "2.0",
                 "metric": "m1",
-                "axes": [{"kind": "time", "grain": "day"}],
-                "series": [
-                    {
-                        "keys": {},
-                        "points": [
-                            {
-                                "window": {"start": "2024-01-02", "end": "2024-01-04"},
-                                "current_value": 30.0,
-                                "baseline_value": 23.0,
-                                "delta": 7.0,
-                                "delta_pct": 7.0 / 23.0,
-                                "direction": "increase",
-                                "presence": "both",
-                            }
-                        ],
-                    }
-                ],
+                "axes": [{"kind": "time", "grain": "day", "comparison_side": "both"}],
+                "payload": {
+                    "series": [
+                        {
+                            "keys": {},
+                            "points": [
+                                {
+                                    "window": {"start": "2024-01-02", "end": "2024-01-04"},
+                                    "current_value": 30.0,
+                                    "baseline_value": 23.0,
+                                    "delta_abs": 7.0,
+                                    "delta_pct": 7.0 / 23.0,
+                                    "direction": "increase",
+                                    "presence": "both",
+                                }
+                            ],
+                        }
+                    ],
+                },
                 "summary_current_value": 30.0,
                 "summary_baseline_value": 23.0,
                 "summary_absolute_delta": 7.0,
@@ -571,27 +591,30 @@ class TestDecomposeRunnerCommitPath(unittest.TestCase):
     ) -> dict[str, Any]:
 
         if compare_artifact is None:
-            # v2.0 scalar_delta format
+            # v2.0 delta_frame scalar_delta format
             compare_artifact = {
-                "comparison_type": "scalar_delta",
+                "artifact_family": "delta_frame",
+                "shape": "scalar_delta",
                 "schema_version": "2.0",
                 "metric": "m1",
                 "unit": None,
                 "axes": [],
-                "series": [
-                    {
-                        "keys": {},
-                        "points": [
-                            {
-                                "current_value": 100.0,
-                                "baseline_value": 90.0,
-                                "delta": 10.0,
-                                "delta_pct": 10.0 / 90.0,
-                                "direction": "increase",
-                            }
-                        ],
-                    }
-                ],
+                "payload": {
+                    "series": [
+                        {
+                            "keys": {},
+                            "points": [
+                                {
+                                    "current_value": 100.0,
+                                    "baseline_value": 90.0,
+                                    "delta_abs": 10.0,
+                                    "delta_pct": 10.0 / 90.0,
+                                    "direction": "increase",
+                                }
+                            ],
+                        }
+                    ],
+                },
                 # Top-level aliases for backward compat
                 "current_value": 100.0,
                 "baseline_value": 90.0,
@@ -722,36 +745,39 @@ class TestDecomposeRunnerCommitPath(unittest.TestCase):
         result = self._run_decompose(
             runtime,
             {
-                "comparison_type": "time_series_delta",
+                "artifact_family": "delta_frame",
+                "shape": "time_series_delta",
                 "schema_version": "2.0",
                 "metric": "m1",
                 "unit": None,
-                "axes": [{"kind": "time", "grain": "day"}],
-                "series": [
-                    {
-                        "keys": {},
-                        "points": [
-                            {
-                                "window": {"start": "2024-01-01", "end": "2024-01-02"},
-                                "current_value": 60.0,
-                                "baseline_value": 45.0,
-                                "delta": 15.0,
-                                "delta_pct": 15.0 / 45.0,
-                                "direction": "increase",
-                                "presence": "both",
-                            },
-                            {
-                                "window": {"start": "2024-01-02", "end": "2024-01-03"},
-                                "current_value": 60.0,
-                                "baseline_value": 45.0,
-                                "delta": 15.0,
-                                "delta_pct": 15.0 / 45.0,
-                                "direction": "increase",
-                                "presence": "both",
-                            },
-                        ],
-                    }
-                ],
+                "axes": [{"kind": "time", "grain": "day", "comparison_side": "both"}],
+                "payload": {
+                    "series": [
+                        {
+                            "keys": {},
+                            "points": [
+                                {
+                                    "window": {"start": "2024-01-01", "end": "2024-01-02"},
+                                    "current_value": 60.0,
+                                    "baseline_value": 45.0,
+                                    "delta_abs": 15.0,
+                                    "delta_pct": 15.0 / 45.0,
+                                    "direction": "increase",
+                                    "presence": "both",
+                                },
+                                {
+                                    "window": {"start": "2024-01-02", "end": "2024-01-03"},
+                                    "current_value": 60.0,
+                                    "baseline_value": 45.0,
+                                    "delta_abs": 15.0,
+                                    "delta_pct": 15.0 / 45.0,
+                                    "direction": "increase",
+                                    "presence": "both",
+                                },
+                            ],
+                        }
+                    ],
+                },
                 "summary_current_value": 120.0,
                 "summary_baseline_value": 90.0,
                 "summary_absolute_delta": 30.0,
@@ -801,6 +827,7 @@ class TestDecomposeRunnerCommitPath(unittest.TestCase):
         )
 
         self.assertEqual(result["compare_ref"]["comparison_type"], "time_series_delta")
+        self.assertEqual(result["compare_ref"]["shape"], "time_series_delta")
         self.assertEqual(result["current_ref"]["observation_type"], "time_series")
         self.assertEqual(result["baseline_ref"]["observation_type"], "time_series")
         self.assertEqual(result["scope_absolute_delta"], 30.0)

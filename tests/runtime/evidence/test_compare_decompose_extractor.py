@@ -73,9 +73,10 @@ def _scalar_delta_payload(
     current_time_scope: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
+        "artifact_family": "delta_frame",
+        "shape": "scalar_delta",
         "artifact_type": "compare_artifact",
         "schema_version": "2.0",
-        "comparison_type": "scalar_delta",
         "metric": metric,
         "current_ref": {
             "session_id": _SESSION,
@@ -92,24 +93,27 @@ def _scalar_delta_payload(
         "unit": unit,
         "current_value": current_value,
         "baseline_value": baseline_value,
-        "delta": delta,
+        "delta_abs": delta,
         "delta_pct": delta_pct,
         "direction": direction,
-        "axes": [],
-        "series": [
-            {
-                "keys": {},
-                "points": [
-                    {
-                        "current_value": current_value,
-                        "baseline_value": baseline_value,
-                        "delta": delta,
-                        "delta_pct": delta_pct,
-                        "direction": direction,
-                    },
-                ],
-            },
-        ],
+        "axes": [{"kind": "comparison_side"}],
+        "subject": {"comparison_kind": "scalar"},
+        "payload": {
+            "series": [
+                {
+                    "keys": {},
+                    "points": [
+                        {
+                            "current_value": current_value,
+                            "baseline_value": baseline_value,
+                            "delta_abs": delta,
+                            "delta_pct": delta_pct,
+                            "direction": direction,
+                        },
+                    ],
+                },
+            ],
+        },
         "resolved_input_summary": {
             "current_scope": current_scope or {},
             "baseline_scope": {},
@@ -153,7 +157,7 @@ def _segmented_delta_payload(
     unit: str | None = "usd",
     dimensions: list[str] | None = None,
 ) -> dict[str, Any]:
-    # v2.0 format: rows are flat dicts with v2.0 field names (delta, delta_pct);
+    # v2.0 delta_frame format: rows are flat dicts with delta_abs/delta_pct;
     # internally converted to series entries with {keys, points}.
     if rows is None:
         rows = [
@@ -161,7 +165,7 @@ def _segmented_delta_payload(
                 "keys": {"country": "US"},
                 "current_value": 500.0,
                 "baseline_value": 400.0,
-                "delta": 100.0,
+                "delta_abs": 100.0,
                 "delta_pct": 0.25,
                 "direction": "increase",
                 "presence": "both",
@@ -170,7 +174,7 @@ def _segmented_delta_payload(
                 "keys": {"country": "UK"},
                 "current_value": 200.0,
                 "baseline_value": 250.0,
-                "delta": -50.0,
+                "delta_abs": -50.0,
                 "delta_pct": -0.20,
                 "direction": "decrease",
                 "presence": "both",
@@ -184,7 +188,7 @@ def _segmented_delta_payload(
                 {
                     "current_value": row.get("current_value"),
                     "baseline_value": row.get("baseline_value"),
-                    "delta": row.get("delta"),
+                    "delta_abs": row.get("delta_abs") or row.get("delta"),
                     "delta_pct": row.get("delta_pct"),
                     "direction": row.get("direction"),
                     "presence": row.get("presence"),
@@ -193,11 +197,14 @@ def _segmented_delta_payload(
         }
         for row in rows
     ]
-    axes = [{"kind": "dimension", "name": d} for d in dim_names]
+    axes = [{"kind": "dimension", "name": d} for d in dim_names] + [
+        {"kind": "comparison_side"},
+    ]
     return {
+        "artifact_family": "delta_frame",
+        "shape": "segmented_delta",
         "artifact_type": "compare_artifact",
         "schema_version": "2.0",
-        "comparison_type": "segmented_delta",
         "metric": metric,
         "current_ref": {
             "session_id": _SESSION,
@@ -212,7 +219,10 @@ def _segmented_delta_payload(
             "artifact_id": _RIGHT_OBS_ART_ID,
         },
         "axes": axes,
-        "series": series,
+        "subject": {"comparison_kind": "segmented"},
+        "payload": {
+            "series": series,
+        },
         "unit": unit,
         "resolved_input_summary": {
             "current_scope": {},
@@ -232,14 +242,14 @@ def _time_series_delta_payload(
     granularity: str = "day",
     analytical_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    # v2.0 format: rows use delta/delta_pct field names; wrapped in series[0]["points"].
+    # v2.0 delta_frame format: rows use delta_abs/delta_pct field names; wrapped in series[0]["points"].
     if rows is None:
         rows = [
             {
                 "window": {"start": "2024-01-01", "end": "2024-01-02"},
                 "current_value": 100.0,
                 "baseline_value": 90.0,
-                "delta": 10.0,
+                "delta_abs": 10.0,
                 "delta_pct": 10.0 / 90.0,
                 "direction": "increase",
                 "presence": "both",
@@ -248,18 +258,19 @@ def _time_series_delta_payload(
                 "window": {"start": "2024-01-02", "end": "2024-01-03"},
                 "current_value": None,
                 "baseline_value": 30.0,
-                "delta": -30.0,
+                "delta_abs": -30.0,
                 "delta_pct": None,
                 "direction": "undefined",
                 "presence": "baseline_only",
             },
         ]
-    axes = [{"kind": "time", "grain": granularity}]
+    axes = [{"kind": "time", "grain": granularity}, {"kind": "comparison_side"}]
     series = [{"keys": {}, "points": rows}]
     return {
+        "artifact_family": "delta_frame",
+        "shape": "time_series_delta",
         "artifact_type": "compare_artifact",
         "schema_version": "2.0",
-        "comparison_type": "time_series_delta",
         "metric": metric,
         "current_ref": {
             "session_id": _SESSION,
@@ -274,7 +285,10 @@ def _time_series_delta_payload(
             "artifact_id": _RIGHT_OBS_ART_ID,
         },
         "axes": axes,
-        "series": series,
+        "subject": {"comparison_kind": "time_series"},
+        "payload": {
+            "series": series,
+        },
         "unit": unit,
         "summary_current_value": 100.0,
         "summary_baseline_value": 90.0,
@@ -339,7 +353,7 @@ def _decompose_payload(
             "session_id": _SESSION,
             "step_id": "step_cmp_upstream",
             "artifact_id": compare_artifact_id,
-            "comparison_type": "scalar_delta",
+            "shape": "scalar_delta",
         },
         "current_ref": {
             "step_type": "observe",
@@ -575,7 +589,7 @@ class TestCompareSegmentedDelta(unittest.TestCase):
                 "keys": {"country": "DE"},
                 "current_value": 100.0,
                 "baseline_value": 80.0,
-                "delta": 20.0,
+                "delta_abs": 20.0,
                 "delta_pct": 0.25,
                 "direction": "increase",
                 "presence": "both",
@@ -590,7 +604,7 @@ class TestCompareSegmentedDelta(unittest.TestCase):
                 "keys": {"cat": "A"},
                 "current_value": 100.0,
                 "baseline_value": None,
-                "delta": 100.0,
+                "delta_abs": 100.0,
                 "delta_pct": None,
                 "direction": "undefined",
                 "presence": "current_only",
@@ -605,7 +619,7 @@ class TestCompareSegmentedDelta(unittest.TestCase):
                 "keys": {"cat": "B"},
                 "current_value": None,
                 "baseline_value": 50.0,
-                "delta": -50.0,
+                "delta_abs": -50.0,
                 "delta_pct": None,
                 "direction": "undefined",
                 "presence": "baseline_only",
@@ -620,7 +634,7 @@ class TestCompareSegmentedDelta(unittest.TestCase):
                 "keys": {"cat": "C"},
                 "current_value": 1.0,
                 "baseline_value": 1.0,
-                "delta": 0.0,
+                "delta_abs": 0.0,
                 "delta_pct": 0.0,
                 "direction": "flat",
                 "presence": "unknown_val",
@@ -648,7 +662,7 @@ class TestCompareSegmentedDelta(unittest.TestCase):
                 "keys": {"a": "1", "b": "2"},
                 "current_value": 1.0,
                 "baseline_value": 1.0,
-                "delta": 0.0,
+                "delta_abs": 0.0,
                 "delta_pct": 0.0,
                 "direction": "flat",
                 "presence": "both",
@@ -659,7 +673,7 @@ class TestCompareSegmentedDelta(unittest.TestCase):
                 "keys": {"b": "2", "a": "1"},
                 "current_value": 1.0,
                 "baseline_value": 1.0,
-                "delta": 0.0,
+                "delta_abs": 0.0,
                 "delta_pct": 0.0,
                 "direction": "flat",
                 "presence": "both",
@@ -807,7 +821,7 @@ class TestCompareTimeSeriesDelta(unittest.TestCase):
                 "window": {"end": "2024-01-02"},
                 "current_value": 100.0,
                 "baseline_value": 90.0,
-                "delta": 10.0,
+                "delta_abs": 10.0,
                 "delta_pct": 10.0 / 90.0,
                 "direction": "increase",
                 "presence": "both",
@@ -822,7 +836,7 @@ class TestCompareTimeSeriesDelta(unittest.TestCase):
                 "window": {"start": "2024-01-01", "end": "2024-01-02"},
                 "current_value": 12.0,
                 "baseline_value": None,
-                "delta": 12.0,
+                "delta_abs": 12.0,
                 "delta_pct": None,
                 "direction": "undefined",
                 "presence": "current_only",
@@ -855,15 +869,15 @@ class TestCompareTimeSeriesDelta(unittest.TestCase):
 
 
 class TestCompareEdgeCases(unittest.TestCase):
-    def test_unknown_comparison_type_raises(self) -> None:
+    def test_unknown_shape_raises(self) -> None:
         payload = _scalar_delta_payload()
-        payload["comparison_type"] = "unknown_type"
-        with self.assertRaises(ValueError, msg="unknown comparison_type"):
+        payload["shape"] = "unknown_type"
+        with self.assertRaises(ValueError, msg="unknown shape"):
             _COMPARE_EXTRACTOR.extract(_ART_ID, payload, _STEP_REF, _SESSION)
 
-    def test_missing_comparison_type_raises(self) -> None:
+    def test_missing_shape_raises(self) -> None:
         payload = _scalar_delta_payload()
-        del payload["comparison_type"]
+        del payload["shape"]
         with self.assertRaises(ValueError):
             _COMPARE_EXTRACTOR.extract(_ART_ID, payload, _STEP_REF, _SESSION)
 
@@ -874,7 +888,7 @@ class TestCompareEdgeCases(unittest.TestCase):
                     "keys": {"k": str(i)},
                     "current_value": float(i),
                     "baseline_value": 1.0,
-                    "delta": float(i) - 1.0,
+                    "delta_abs": float(i) - 1.0,
                     "delta_pct": None,
                     "direction": "increase",
                     "presence": "both",
@@ -1180,7 +1194,7 @@ class TestDecomposeScopeDeltaRef(unittest.TestCase):
     def test_time_series_scope_delta_ref_targets_summary_delta(self) -> None:
         compare_art_id = "art_cmp_timeseries_001"
         payload = _decompose_payload(compare_artifact_id=compare_art_id)
-        payload["compare_ref"]["comparison_type"] = "time_series_delta"
+        payload["compare_ref"]["shape"] = "time_series_delta"
         result = _DECOMPOSE_EXTRACTOR.extract(
             _DECOMP_ART_ID,
             payload,
@@ -1249,10 +1263,17 @@ class TestDecomposeErrorCases(unittest.TestCase):
         with self.assertRaises(ValueError, msg="dimension is required"):
             _DECOMPOSE_EXTRACTOR.extract(_DECOMP_ART_ID, payload, _DECOMP_STEP_REF, _SESSION)
 
-    def test_segmented_delta_compare_ref_raises(self) -> None:
+    def test_unknown_compare_ref_shape_raises(self) -> None:
         payload = _decompose_payload()
-        payload["compare_ref"]["comparison_type"] = "segmented_delta"
-        with self.assertRaises(ValueError, msg="comparison_type segmented_delta"):
+        payload["compare_ref"]["shape"] = "panel_delta"  # panel_delta is now valid
+        # This should NOT raise — panel_delta maps to delta_collection="result"
+        result = _DECOMPOSE_EXTRACTOR.extract(_DECOMP_ART_ID, payload, _DECOMP_STEP_REF, _SESSION)
+        self.assertEqual(result["finding_count"], 2)
+
+    def test_unsupported_compare_ref_shape_raises(self) -> None:
+        payload = _decompose_payload()
+        payload["compare_ref"]["shape"] = "unknown_shape"
+        with self.assertRaises(ValueError, msg="unsupported compare_ref shape"):
             _DECOMPOSE_EXTRACTOR.extract(_DECOMP_ART_ID, payload, _DECOMP_STEP_REF, _SESSION)
 
     def test_finding_count_matches_len_findings(self) -> None:
@@ -1299,6 +1320,136 @@ class TestDecomposeRegistration(unittest.TestCase):
         self.assertEqual(entry["family"], "decompose")
         self.assertEqual(entry["extractor_name"], "decompose_artifact_v1")
         self.assertEqual(entry["finding_schema_version"], "v1")
+
+
+# ===========================================================================
+# CompareArtifactExtractor — panel_delta
+# ===========================================================================
+
+
+class TestComparePanelDelta(unittest.TestCase):
+    def _panel_delta_payload(self) -> dict[str, Any]:
+        return {
+            "artifact_family": "delta_frame",
+            "shape": "panel_delta",
+            "artifact_type": "compare_artifact",
+            "schema_version": "2.0",
+            "metric": "revenue",
+            "current_ref": {
+                "session_id": _SESSION,
+                "step_id": "step_obs_left",
+                "step_type": "observe",
+                "artifact_id": _LEFT_OBS_ART_ID,
+            },
+            "baseline_ref": {
+                "session_id": _SESSION,
+                "step_id": "step_obs_right",
+                "step_type": "observe",
+                "artifact_id": _RIGHT_OBS_ART_ID,
+            },
+            "axes": [
+                {"kind": "time", "grain": "day"},
+                {"kind": "dimension", "name": "country"},
+                {"kind": "comparison_side"},
+            ],
+            "subject": {"comparison_kind": "panel"},
+            "payload": {
+                "series": [
+                    {
+                        "keys": {"country": "US"},
+                        "points": [
+                            {
+                                "window": {"start": "2026-05-15", "end": "2026-05-16"},
+                                "current_value": 150,
+                                "baseline_value": 100,
+                                "delta_abs": 50,
+                                "delta_pct": 0.5,
+                                "direction": "increase",
+                                "presence": "both",
+                            },
+                        ],
+                    },
+                    {
+                        "keys": {"country": "UK"},
+                        "points": [
+                            {
+                                "window": {"start": "2026-05-15", "end": "2026-05-16"},
+                                "current_value": 80,
+                                "baseline_value": 70,
+                                "delta_abs": 10,
+                                "delta_pct": 0.14,
+                                "direction": "increase",
+                                "presence": "both",
+                            },
+                        ],
+                    },
+                ],
+            },
+            "unit": "usd",
+            "summary_current_value": 230,
+            "summary_baseline_value": 170,
+            "summary_absolute_delta": 60,
+            "resolved_input_summary": {
+                "current_scope": {},
+                "baseline_scope": {},
+                "current_time_scope": {"field": "time", "start": "2026-05-15", "end": "2026-05-16"},
+                "baseline_time_scope": {"field": "time", "start": "2026-05-08", "end": "2026-05-09"},
+            },
+            "comparability": {"status": "comparable", "issues": []},
+            "analytical_metadata": {},
+        }
+
+    def test_two_series_produce_findings(self) -> None:
+        findings = _COMPARE_EXTRACTOR.extract(
+            _ART_ID, self._panel_delta_payload(), _STEP_REF, _SESSION
+        )
+        assert len(findings["findings"]) >= 2
+
+    def test_delta_abs_propagated(self) -> None:
+        findings_list = _COMPARE_EXTRACTOR.extract(
+            _ART_ID, self._panel_delta_payload(), _STEP_REF, _SESSION
+        )["findings"]
+        us_finding = next(f for f in findings_list if f["payload"].get("delta_kind") == "panel_delta" and f["subject"]["slice"].get("country") == "US")
+        self.assertEqual(us_finding["payload"]["absolute_delta"], 50)
+
+    def test_delta_kind_is_panel_delta(self) -> None:
+        findings_list = _COMPARE_EXTRACTOR.extract(
+            _ART_ID, self._panel_delta_payload(), _STEP_REF, _SESSION
+        )["findings"]
+        panel_findings = [f for f in findings_list if f["payload"]["delta_kind"] == "panel_delta" and f["provenance"]["canonical_item_key"] != "summary"]
+        for f in panel_findings:
+            self.assertEqual(f["payload"]["delta_kind"], "panel_delta")
+
+    def test_analysis_axis_is_panel(self) -> None:
+        findings_list = _COMPARE_EXTRACTOR.extract(
+            _ART_ID, self._panel_delta_payload(), _STEP_REF, _SESSION
+        )["findings"]
+        panel_findings = [f for f in findings_list if f["payload"]["delta_kind"] == "panel_delta" and f["provenance"]["canonical_item_key"] != "summary"]
+        for f in panel_findings:
+            self.assertEqual(f["subject"]["analysis_axis"], "panel")
+
+    def test_grain_propagated(self) -> None:
+        findings_list = _COMPARE_EXTRACTOR.extract(
+            _ART_ID, self._panel_delta_payload(), _STEP_REF, _SESSION
+        )["findings"]
+        panel_findings = [f for f in findings_list if f["payload"]["delta_kind"] == "panel_delta"]
+        for f in panel_findings:
+            self.assertEqual(f["subject"]["grain"], "day")
+
+    def test_subject_slice_from_keys(self) -> None:
+        findings_list = _COMPARE_EXTRACTOR.extract(
+            _ART_ID, self._panel_delta_payload(), _STEP_REF, _SESSION
+        )["findings"]
+        us_finding = next(f for f in findings_list if f["subject"]["slice"].get("country") == "US")
+        self.assertEqual(us_finding["subject"]["slice"], {"country": "US"})
+
+    def test_summary_finding_present(self) -> None:
+        findings_list = _COMPARE_EXTRACTOR.extract(
+            _ART_ID, self._panel_delta_payload(), _STEP_REF, _SESSION
+        )["findings"]
+        summary_findings = [f for f in findings_list if f["provenance"]["canonical_item_key"] == "summary"]
+        self.assertEqual(len(summary_findings), 1)
+        self.assertEqual(summary_findings[0]["payload"]["absolute_delta"], 60)
 
 
 if __name__ == "__main__":
