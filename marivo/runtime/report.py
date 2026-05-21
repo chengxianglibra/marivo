@@ -247,11 +247,18 @@ def _extract_artifact_summary(payload: dict[str, Any]) -> dict[str, Any]:
     # custom comparison table, so we skip them to avoid duplication)
     is_comparison = False
     for src in (payload, content_dict):
-        if src and src.get("comparison_type"):
+        if src and (src.get("shape") or src.get("comparison_type")):
             is_comparison = True
             break
     if is_comparison:
-        for key in ("comparison_type", "unit", "metric"):
+        # comparison_type: read shape first, then comparison_type as fallback
+        for src in (payload, content_dict):
+            if src and "comparison_type" not in summary:
+                val = src.get("shape") or src.get("comparison_type")
+                if val:
+                    summary["comparison_type"] = val
+                    break
+        for key in ("unit", "metric"):
             for src in (payload, content_dict):
                 if src and key in src and key not in summary:
                     summary[key] = src[key]
@@ -308,8 +315,16 @@ def _extract_artifact_summary(payload: dict[str, Any]) -> dict[str, Any]:
         }
     )
 
+    # comparison_type: read shape first, then comparison_type as fallback
+    if "comparison_type" not in summary:
+        for src in (payload, content_dict):
+            if src:
+                val = src.get("shape") or src.get("comparison_type")
+                if val:
+                    summary["comparison_type"] = val
+                    break
+
     for key in (
-        "comparison_type",
         "comparability",
         "unit",
         "metric",

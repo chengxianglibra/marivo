@@ -457,6 +457,69 @@ def test_artifact_to_envelope_result_preserves_time_series_null_value_and_window
     }
 
 
+def _delta_frame_payload() -> dict[str, object]:
+    return {
+        "artifact_id": "art_delta_test",
+        "artifact_family": "delta_frame",
+        "shape": "scalar_delta",
+        "subject": {
+            "kind": "comparison",
+            "metric_ref": "metric.test",
+            "current": {
+                "time_scope": {
+                    "field": "log_date",
+                    "start": "2026-05-15T00:00:00+00:00",
+                    "end": "2026-05-16T00:00:00+00:00",
+                },
+                "scope": {},
+            },
+            "baseline": {
+                "time_scope": {
+                    "field": "log_date",
+                    "start": "2026-05-08T00:00:00+00:00",
+                    "end": "2026-05-09T00:00:00+00:00",
+                },
+                "scope": {},
+            },
+        },
+        "axes": [{"kind": "comparison_side"}],
+        "measures": [{"id": "delta_abs", "value_type": "number", "nullable": True}],
+        "payload": {
+            "series": [
+                {
+                    "keys": {},
+                    "points": [
+                        {
+                            "current_value": 10.0,
+                            "baseline_value": 5.0,
+                            "delta_abs": 5.0,
+                            "delta_pct": 1.0,
+                            "direction": "increase",
+                        }
+                    ],
+                }
+            ],
+        },
+    }
+
+
+def test_validate_aoi_artifact_accepts_delta_frame_artifact() -> None:
+    artifact = validate_aoi_artifact(_delta_frame_payload())
+
+    assert isinstance(artifact, aoi.DeltaFrameArtifact)
+    assert artifact.artifact_family == "delta_frame"
+    assert artifact.shape == "scalar_delta"
+
+
+def test_artifact_to_envelope_result_keeps_delta_frame_top_level() -> None:
+    artifact = validate_aoi_artifact(_delta_frame_payload())
+    result = artifact_to_envelope_result(artifact)
+
+    assert result["artifact_family"] == "delta_frame"
+    assert result["shape"] == "scalar_delta"
+    assert result["payload"]["series"][0]["points"][0]["delta_abs"] == 5.0
+
+
 def test_validate_aoi_artifact_rejects_nested_metric_frame_result() -> None:
     payload = {
         "artifact_id": "art_nested_observe_1",
@@ -571,6 +634,102 @@ def test_execution_envelope_keeps_aoi_artifact_under_result() -> None:
         },
     }
     assert "value" not in envelope.model_dump()
+
+
+def test_project_aoi_artifact_produces_delta_frame_envelope() -> None:
+    from marivo.contracts.aoi_projection import project_aoi_artifact
+
+    delta_frame = {
+        "artifact_id": "art_delta_test",
+        "artifact_family": "delta_frame",
+        "shape": "scalar_delta",
+        "subject": {
+            "kind": "comparison",
+            "metric_ref": "metric.test",
+            "current": {
+                "time_scope": {
+                    "field": "log_date",
+                    "start": "2026-05-15T00:00:00+00:00",
+                    "end": "2026-05-16T00:00:00+00:00",
+                },
+                "scope": {},
+            },
+            "baseline": {
+                "time_scope": {
+                    "field": "log_date",
+                    "start": "2026-05-08T00:00:00+00:00",
+                    "end": "2026-05-09T00:00:00+00:00",
+                },
+                "scope": {},
+            },
+        },
+        "axes": [{"kind": "comparison_side"}],
+        "measures": [
+            {"id": "delta_abs", "value_type": "number", "nullable": True, "unit": None}
+        ],
+        "payload": {
+            "series": [
+                {
+                    "keys": {},
+                    "points": [
+                        {
+                            "current_value": 10.0,
+                            "baseline_value": 5.0,
+                            "delta_abs": 5.0,
+                            "delta_pct": 1.0,
+                            "direction": "increase",
+                        }
+                    ],
+                }
+            ],
+        },
+    }
+    result = project_aoi_artifact("compare", "art_delta_test", {"result": delta_frame})
+    assert result["artifact_family"] == "delta_frame"
+    assert result["shape"] == "scalar_delta"
+
+
+def test_project_aoi_artifact_result_scalar_delta_from_legacy_comparison_type() -> None:
+    from marivo.contracts.aoi_projection import project_aoi_artifact_result
+
+    legacy_payload = {
+        "current_value": 10.0,
+        "baseline_value": 5.0,
+        "delta": 5.0,
+        "comparison_type": "scalar_delta",
+        "analytical_metadata": {
+            "matched_time_scope": {
+                "field": "log_date",
+                "start": "2026-05-15T00:00:00+00:00",
+                "end": "2026-05-16T00:00:00+00:00",
+            },
+        },
+    }
+    result = project_aoi_artifact_result("compare", legacy_payload)
+    assert result.get("current_value") == 10.0
+    assert result.get("baseline_value") == 5.0
+
+
+def test_project_aoi_artifact_result_scalar_delta_from_shape_field() -> None:
+    from marivo.contracts.aoi_projection import project_aoi_artifact_result
+
+    shaped_payload = {
+        "shape": "scalar_delta",
+        "summary_current_value": 10.0,
+        "summary_baseline_value": 5.0,
+        "summary_absolute_delta": 5.0,
+        "analytical_metadata": {
+            "matched_time_scope": {
+                "field": "log_date",
+                "start": "2026-05-15T00:00:00+00:00",
+                "end": "2026-05-16T00:00:00+00:00",
+            },
+        },
+    }
+    result = project_aoi_artifact_result("compare", shaped_payload)
+    assert result.get("current_value") == 10.0
+    assert result.get("baseline_value") == 5.0
+    assert result.get("delta") == 5.0
 
 
 def _merge_patch(target: dict[str, Any], patch_value: dict[str, Any]) -> None:

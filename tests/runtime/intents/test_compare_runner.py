@@ -76,13 +76,13 @@ def test_compare_passes_step_type_compare() -> None:
     assert kwargs.get("step_type") == "compare"
 
 
-def test_compare_artifact_type_is_compare_artifact() -> None:
+def test_compare_artifact_type_is_delta_frame() -> None:
     runtime = _make_runtime()
 
     _run_compare(runtime)
 
     args, _ = runtime.commit_artifact_with_extraction.call_args
-    assert args[2] == "compare_artifact"
+    assert args[2] == "delta_frame"
 
 
 def test_compare_resolves_inputs_by_artifact_id_and_records_lineage() -> None:
@@ -181,9 +181,9 @@ def test_compare_time_series_commits_time_series_delta() -> None:
 
     result = _run_compare(runtime)
 
-    assert result["comparison_type"] == "time_series_delta"
-    assert result["axes"] == [{"kind": "time", "grain": "day"}]
-    points = result["series"][0]["points"]
+    assert result["shape"] == "time_series_delta"
+    assert result["axes"] == [{"kind": "time", "grain": "day"}, {"kind": "comparison_side"}]
+    points = result["payload"]["series"][0]["points"]
     assert len(points) == 2
     assert result["summary_current_value"] == 30.0
     assert result["summary_baseline_value"] == 23.0
@@ -319,11 +319,11 @@ def test_compare_segmented_commits_segmented_delta() -> None:
 
     result = _run_compare(runtime)
 
-    assert result["comparison_type"] == "segmented_delta"
+    assert result["shape"] == "segmented_delta"
     assert "coverage" not in result
     assert result["scope_absolute_delta"] == 40.0
     assert result["lineage"]["compare_type"] == "normal"
-    series_entries = result["series"]
+    series_entries = result["payload"]["series"]
     assert {entry["points"][0]["presence"] for entry in series_entries} == {
         "both",
         "current_only",
@@ -352,10 +352,13 @@ def test_compare_segmented_log_hour_commits_segmented_delta() -> None:
 
     result = _run_compare(runtime)
 
-    assert result["comparison_type"] == "segmented_delta"
-    assert result["axes"] == [{"kind": "dimension", "name": "log_hour"}]
+    assert result["shape"] == "segmented_delta"
+    assert result["axes"] == [
+        {"kind": "dimension", "name": "log_hour"},
+        {"kind": "comparison_side"},
+    ]
     assert result["scope_absolute_delta"] == 70.0
-    series_entries = result["series"]
+    series_entries = result["payload"]["series"]
     assert {next(iter(entry["keys"].items())) for entry in series_entries} == {
         ("log_hour", "09"),
         ("log_hour", "10"),
@@ -368,18 +371,120 @@ def test_compare_segmented_log_hour_commits_segmented_delta() -> None:
     }
 
 
-def test_compare_panel_metric_frame_is_explicitly_unsupported() -> None:
-    runtime = _make_runtime(_panel_observation_v2("m1"), _panel_observation_v2("m1"))
+def test_compare_panel_commits_panel_delta() -> None:
+    current = _panel_observation_v2(
+        "m1",
+        dimensions=["country"],
+        series=[
+            {
+                "keys": {"country": "US"},
+                "points": [
+                    {"window": {"start": "2024-01-01", "end": "2024-01-02"}, "value": 100.0},
+                    {"window": {"start": "2024-01-02", "end": "2024-01-03"}, "value": 110.0},
+                ],
+            },
+            {
+                "keys": {"country": "UK"},
+                "points": [
+                    {"window": {"start": "2024-01-01", "end": "2024-01-02"}, "value": 50.0},
+                ],
+            },
+        ],
+    )
+    baseline = _panel_observation_v2(
+        "m1",
+        dimensions=["country"],
+        series=[
+            {
+                "keys": {"country": "US"},
+                "points": [
+                    {"window": {"start": "2024-01-01", "end": "2024-01-02"}, "value": 80.0},
+                    {"window": {"start": "2024-01-02", "end": "2024-01-03"}, "value": 90.0},
+                ],
+            },
+            {
+                "keys": {"country": "UK"},
+                "points": [
+                    {"window": {"start": "2024-01-01", "end": "2024-01-02"}, "value": 40.0},
+                ],
+            },
+        ],
+    )
+    runtime = _make_runtime(current, baseline)
 
-    with pytest.raises(
-        ValueError,
-        match=(
-            "compare: UNSUPPORTED_OPERATION - panel metric_frame comparison is not supported yet"
-        ),
-    ):
-        _run_compare(runtime)
+    result = _run_compare(runtime)
 
-    runtime.commit_artifact_with_extraction.assert_not_called()
+    assert result["shape"] == "panel_delta"
+    assert result["artifact_family"] == "delta_frame"
+    assert result["axes"] == [
+        {"kind": "time", "grain": "day"},
+        {"kind": "dimension", "name": "country"},
+        {"kind": "comparison_side"},
+    ]
+    series = result["payload"]["series"]
+    assert len(series) >= 2
+    # Find US series
+    us_series = next(s for s in series if s["keys"].get("country") == "US")
+    assert us_series["points"][0]["current_value"] == 100.0
+    assert us_series["points"][0]["baseline_value"] == 80.0
+    assert us_series["points"][0]["delta_abs"] == 20.0
+    assert us_series["points"][0]["delta_pct"] == 0.25
+    assert us_series["points"][0]["direction"] == "increase"
+    assert us_series["points"][0]["presence"] == "both"
+    # Scope summary sums all matched values
+    assert result["summary_current_value"] == 260.0  # 100 + 110 + 50
+    assert result["summary_baseline_value"] == 210.0  # 80 + 90 + 40
+
+
+def test_compare_panel_partial_series_has_current_only_and_baseline_only() -> None:
+    current = _panel_observation_v2(
+        "m1",
+        dimensions=["country"],
+        series=[
+            {
+                "keys": {"country": "US"},
+                "points": [
+                    {"window": {"start": "2024-01-01", "end": "2024-01-02"}, "value": 100.0},
+                    {"window": {"start": "2024-01-02", "end": "2024-01-03"}, "value": 110.0},
+                ],
+            },
+            {
+                "keys": {"country": "FR"},
+                "points": [
+                    {"window": {"start": "2024-01-01", "end": "2024-01-02"}, "value": 30.0},
+                ],
+            },
+        ],
+    )
+    baseline = _panel_observation_v2(
+        "m1",
+        dimensions=["country"],
+        series=[
+            {
+                "keys": {"country": "US"},
+                "points": [
+                    {"window": {"start": "2024-01-01", "end": "2024-01-02"}, "value": 80.0},
+                    {"window": {"start": "2024-01-02", "end": "2024-01-03"}, "value": 90.0},
+                ],
+            },
+            {
+                "keys": {"country": "DE"},
+                "points": [
+                    {"window": {"start": "2024-01-01", "end": "2024-01-02"}, "value": 60.0},
+                ],
+            },
+        ],
+    )
+    runtime = _make_runtime(current, baseline)
+
+    result = _run_compare(runtime)
+
+    assert result["shape"] == "panel_delta"
+    series = result["payload"]["series"]
+    presences = {entry["points"][0]["presence"] for entry in series}
+    assert "both" in presences
+    assert "current_only" in presences
+    assert "baseline_only" in presences
 
 
 def test_compare_rejects_legacy_observation_artifacts_without_commit() -> None:
@@ -400,18 +505,16 @@ def test_compare_rejects_legacy_observation_artifacts_without_commit() -> None:
     runtime.commit_artifact_with_extraction.assert_not_called()
 
 
-def test_compare_panel_shape_rejects_as_unsupported_even_with_malformed_axes() -> None:
+def test_compare_panel_shape_rejects_malformed_axes_without_commit() -> None:
     left = _panel_observation_v2("m1")
     right = _panel_observation_v2("m1")
-    left["axes"] = [{"kind": "dimension"}]
+    left["axes"] = [{"kind": "dimension"}]  # missing time axis
     right["axes"] = []
     runtime = _make_runtime(left, right)
 
     with pytest.raises(
         ValueError,
-        match=(
-            "compare: UNSUPPORTED_OPERATION - panel metric_frame comparison is not supported yet"
-        ),
+        match="panel metric_frame requires one time axis with grain",
     ):
         _run_compare(runtime)
 
@@ -493,7 +596,7 @@ def test_compare_type_normal_aligns_non_overlapping_windows_by_relative_position
         "start": "2025-02-14",
         "end": "2025-02-16",
     }
-    points = result["series"][0]["points"]
+    points = result["payload"]["series"][0]["points"]
     assert points[0]["current_value"] == 10.0
     assert points[0]["baseline_value"] == 9.0
 
@@ -518,7 +621,7 @@ def test_compare_type_weekday_aligned_uses_nearest_weekday() -> None:
     result = _run_compare(runtime, _compare_params("weekday_aligned"))
 
     assert result["analytical_metadata"]["pairing_rule"] == "same_weekday"
-    points = result["series"][0]["points"]
+    points = result["payload"]["series"][0]["points"]
     assert points[0]["baseline_value"] == 100.0
     assert (
         result["resolved_input_summary"]["calendar_alignment"]["bucket_pairing"][0][
@@ -547,7 +650,7 @@ def test_compare_type_weekday_aligned_falls_back_to_relative_position() -> None:
 
     result = _run_compare(runtime, _compare_params("weekday_aligned"))
 
-    points = result["series"][0]["points"]
+    points = result["payload"]["series"][0]["points"]
     assert points[0]["baseline_value"] == 100.0
     assert (
         result["resolved_input_summary"]["calendar_alignment"]["bucket_pairing"][0][
@@ -577,7 +680,7 @@ def test_compare_type_holiday_aligned_reads_calendar_data() -> None:
 
     result = _run_compare(runtime, _compare_params("holiday_aligned"))
 
-    points = result["series"][0]["points"]
+    points = result["payload"]["series"][0]["points"]
     assert points[0]["baseline_value"] == 100.0
     assert (
         result["resolved_input_summary"]["calendar_alignment"]["bucket_pairing"][0][
@@ -607,7 +710,7 @@ def test_compare_type_holiday_and_weekday_aligned_falls_back_to_weekday() -> Non
 
     result = _run_compare(runtime, _compare_params("holiday_and_weekday_aligned"))
 
-    points = result["series"][0]["points"]
+    points = result["payload"]["series"][0]["points"]
     assert points[0]["baseline_value"] == 100.0
     assert (
         result["resolved_input_summary"]["calendar_alignment"]["bucket_pairing"][0][

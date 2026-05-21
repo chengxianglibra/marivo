@@ -49,6 +49,16 @@ class PValue(RootModel[float]):
     root: float = Field(..., ge=0.0, le=1.0)
 
 
+class DeltaFrameMeasure(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: Literal["delta_abs", "delta_pct"]
+    value_type: Literal["number"]
+    nullable: Literal[True]
+    unit: str | None = None
+
+
 class Decision(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -66,12 +76,27 @@ class HypothesisTestResult(BaseModel):
     assumption_notes: list[str]
 
 
+class MetricFrameAxis5(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["dimension"]
+    name: str = Field(..., min_length=1)
+
+
 class MetricFrameAxis2(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     kind: Literal["dimension"]
     name: str = Field(..., min_length=1)
+
+
+class MetricFrameAxis3(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["comparison_side"]
 
 
 class MetricFrameMeasure(BaseModel):
@@ -173,6 +198,14 @@ class ForecastSeriesResult(BaseModel):
     points: list[Point]
 
 
+class MetricFrameAxis4(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["time"]
+    grain: Literal["hour", "day", "week", "month", "quarter", "year"]
+
+
 class MetricFrameAxis1(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -229,6 +262,39 @@ class SegmentedDeltaRow(BaseModel):
     current_value: float | None
     baseline_value: float | None
     delta: float | None
+
+
+class SubjectScopeRef(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    time_scope: TimeScope
+    scope: dict[str, Any] = Field(
+        ...,
+        json_schema_extra={
+            "additionalProperties": {
+                "anyOf": [
+                    {"type": "string"},
+                    {"type": "number"},
+                    {"type": "boolean"},
+                    {"type": "null"},
+                ]
+            }
+        },
+    )
+
+
+class DeltaFramePoint(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    window: MetricFrameWindow = None  # type: ignore[assignment]
+    current_value: float | None
+    baseline_value: float | None
+    delta_abs: float | None
+    delta_pct: float | None
+    direction: Literal["increase", "decrease", "flat", "undefined"]
+    presence: Literal["both", "current_only", "baseline_only"] | None = None
 
 
 class MetricFramePoint(BaseModel):
@@ -330,6 +396,16 @@ class AssociationResult(BaseModel):
     matched_time_scope: TimeScope | None
 
 
+class ComparisonSubject(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["comparison"]
+    metric_ref: str = Field(..., min_length=1)
+    current: SubjectScopeRef
+    baseline: SubjectScopeRef
+
+
 class MetricFrameSubject(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -384,6 +460,14 @@ class Slice(BaseModel):
     )
     time_scope: TimeScope
     filter: Expression = None  # type: ignore[assignment]
+
+
+class DeltaFrameSeries(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    keys: dict[str, str | float | bool | None]
+    points: list[DeltaFramePoint]
 
 
 class MetricFrameSeries(BaseModel):
@@ -466,11 +550,31 @@ class Test(BaseModel):
     hypothesis: Hypothesis
 
 
+class DeltaFramePayload(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    series: list[DeltaFrameSeries]
+
+
 class MetricFramePayload(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     series: list[MetricFrameSeries]
+
+
+class DeltaFrameArtifact(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    artifact_id: str = Field(..., min_length=1)
+    artifact_family: Literal["delta_frame"]
+    shape: Literal["scalar_delta", "time_series_delta", "segmented_delta", "panel_delta"]
+    subject: ComparisonSubject
+    axes: list[MetricFrameAxis1 | MetricFrameAxis2 | MetricFrameAxis3]
+    measures: list[DeltaFrameMeasure] = Field(..., max_length=2, min_length=1)
+    payload: DeltaFramePayload
 
 
 class MetricFrameArtifact(BaseModel):
@@ -481,7 +585,7 @@ class MetricFrameArtifact(BaseModel):
     artifact_family: Literal["metric_frame"]
     shape: Literal["scalar", "time_series", "segmented", "panel"]
     subject: MetricFrameSubject
-    axes: list[MetricFrameAxis1 | MetricFrameAxis2]
+    axes: list[MetricFrameAxis4 | MetricFrameAxis5]
     measures: list[MetricFrameMeasure] = Field(..., max_length=1, min_length=1)
     payload: MetricFramePayload
 
@@ -499,6 +603,7 @@ class AoiV02(
         | Attribute
         | Diagnose
         | MetricFrameArtifact
+        | DeltaFrameArtifact
         | Artifact1
         | Artifact2
     ]
@@ -515,6 +620,7 @@ class AoiV02(
         | Attribute
         | Diagnose
         | MetricFrameArtifact
+        | DeltaFrameArtifact
         | Artifact1
         | Artifact2
     ) = Field(

@@ -494,16 +494,16 @@ def _materialize_change_from_delta(
     else:  # undefined + current_only or baseline_only
         direction_of_interest = "any_non_flat"
 
-    # change_kind mapping
-    if delta_kind == "scalar_delta":
-        change_kind = "scalar_change"
-    elif delta_kind == "segmented_delta":
-        change_kind = "segment_change"
-    elif delta_kind == "time_series_delta":
-        # v1 change propositions are scoped to scalar/segment deltas; bucket-level
-        # time-series deltas remain compare-only and do not seed propositions here.
-        return None
-    else:
+    # change_kind mapping — delta_kind is now derived from shape instead of
+    # comparison_type; panel_delta maps to panel_change.
+    change_kind_map = {
+        "scalar_delta": "scalar_change",
+        "segmented_delta": "segment_change",
+        "time_series_delta": None,  # no proposition for time-series bucket deltas
+        "panel_delta": "panel_change",
+    }
+    change_kind = change_kind_map.get(delta_kind)
+    if change_kind is None:
         return None
 
     # comparison_window: resolve from compare artifact
@@ -520,9 +520,9 @@ def _materialize_change_from_delta(
     # comparison_basis: from artifact if available, else default
     comparison_basis = artifact_payload.get("comparison_basis") or "left_vs_right"
 
-    # dimension_keys: scalar_delta → None; segmented_delta → parse from canonical_item_key
+    # dimension_keys: scalar_delta → None; segmented_delta/panel_delta → parse from canonical_item_key
     dimension_keys: dict[str, Any] | None = None
-    if delta_kind == "segmented_delta":
+    if delta_kind in ("segmented_delta", "panel_delta"):
         provenance = finding.get("provenance_json") or {}
         canonical_item_key: str = provenance.get("canonical_item_key") or ""
         dimension_keys = _parse_segment_key(canonical_item_key)

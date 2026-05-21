@@ -7,11 +7,15 @@ Registered via ``_bootstrap_finding_extractors()`` in
 
 Artifact type: ``"compare_artifact"``   Schema version: ``"v1"``   Family: ``"compare"``
 
-Maps compare ``comparison_type`` variants to :class:`DeltaFinding`:
+Maps compare ``shape`` variants to :class:`DeltaFinding`:
 
 - ``scalar_delta``    → 1 finding (:class:`DeltaPayload`, ``delta_kind="scalar_delta"``)
 - ``segmented_delta`` → 1 finding per row (:class:`DeltaPayload`, ``delta_kind="segmented_delta"``)
 - ``time_series_delta`` → 1 finding per bucket row
+- ``panel_delta`` → 1 finding per series per dimension key combination
+
+Dispatch uses ``shape`` (from delta_frame format) with fallback to
+``comparison_type`` for backward compatibility with pre-delta_frame artifacts.
 
 Empty semantics (D4):
 ---------------------
@@ -159,18 +163,22 @@ class CompareArtifactExtractor(FindingExtractor):
         step_ref: StepRef,
         session_id: str,
     ) -> FindingExtractionResult:
-        comparison_type: str = artifact_payload.get("comparison_type") or ""
+        # Use shape as the primary dispatch key; fall back to comparison_type
+        # for backward compatibility with pre-delta_frame artifacts.
+        shape: str = artifact_payload.get("shape") or artifact_payload.get("comparison_type") or ""
 
-        if comparison_type == "scalar_delta":
+        if shape == "scalar_delta":
             findings = self._extract_scalar_delta(artifact_id, artifact_payload, step_ref)
-        elif comparison_type == "segmented_delta":
+        elif shape == "segmented_delta":
             findings = self._extract_segmented_delta(artifact_id, artifact_payload, step_ref)
-        elif comparison_type == "time_series_delta":
+        elif shape == "time_series_delta":
             findings = self._extract_time_series_delta(artifact_id, artifact_payload, step_ref)
+        elif shape == "panel_delta":
+            findings = self._extract_panel_delta(artifact_id, artifact_payload, step_ref)
         else:
             raise ValueError(
-                f"CompareArtifactExtractor: unknown comparison_type={comparison_type!r}. "
-                "Expected one of: scalar_delta, segmented_delta, time_series_delta."
+                f"CompareArtifactExtractor: unknown shape={shape!r}. "
+                "Expected one of: scalar_delta, segmented_delta, time_series_delta, panel_delta."
             )
 
         return FindingExtractionResult(
@@ -235,7 +243,7 @@ class CompareArtifactExtractor(FindingExtractor):
             baseline_ref=baseline_ref,
             current_value=_to_float_or_none(payload.get("current_value")),
             baseline_value=_to_float_or_none(payload.get("baseline_value")),
-            absolute_delta=_to_float_or_none(payload.get("delta") or payload.get("absolute_delta")),
+            absolute_delta=_to_float_or_none(payload.get("delta_abs") or payload.get("delta") or payload.get("absolute_delta")),
             relative_delta=_to_float_or_none(
                 payload.get("delta_pct") or payload.get("relative_delta")
             ),
@@ -271,7 +279,10 @@ class CompareArtifactExtractor(FindingExtractor):
         step_ref: StepRef,
     ) -> list[DeltaFinding]:
         # Read from v2.0 series format: series entries have {keys, points}
-        series_entries: list[dict[str, Any]] = payload.get("series") or []
+        # In delta_frame format, series live inside payload["payload"]["series"]
+        # but for backward compat also check payload["series"]
+        payload_inner = payload.get("payload") or {}
+        series_entries: list[dict[str, Any]] = payload_inner.get("series") or payload.get("series") or []
         metric: str | None = payload.get("metric")
         unit: str | None = payload.get("unit")
         resolved = payload.get("resolved_input_summary") or {}
@@ -311,7 +322,7 @@ class CompareArtifactExtractor(FindingExtractor):
                 baseline_ref=baseline_ref,
                 current_value=_to_float_or_none(point.get("current_value")),
                 baseline_value=_to_float_or_none(point.get("baseline_value")),
-                absolute_delta=_to_float_or_none(point.get("delta")),
+                absolute_delta=_to_float_or_none(point.get("delta_abs") or point.get("delta")),
                 relative_delta=_to_float_or_none(point.get("delta_pct")),
                 direction=direction,
                 presence=presence,
@@ -347,7 +358,10 @@ class CompareArtifactExtractor(FindingExtractor):
         step_ref: StepRef,
     ) -> list[DeltaFinding]:
         # Read from v2.0 series format: points are in series[0]["points"]
-        series_entries: list[dict[str, Any]] = payload.get("series") or []
+        # In delta_frame format, series live inside payload["payload"]["series"]
+        # but for backward compat also check payload["series"]
+        payload_inner = payload.get("payload") or {}
+        series_entries: list[dict[str, Any]] = payload_inner.get("series") or payload.get("series") or []
         rows: list[dict[str, Any]] = series_entries[0].get("points") or [] if series_entries else []
         metric: str | None = payload.get("metric")
         unit: str | None = payload.get("unit")
@@ -467,7 +481,7 @@ class CompareArtifactExtractor(FindingExtractor):
                 baseline_ref=baseline_ref,
                 current_value=_to_float_or_none(row.get("current_value")),
                 baseline_value=_to_float_or_none(row.get("baseline_value")),
-                absolute_delta=_to_float_or_none(row.get("delta")),
+                absolute_delta=_to_float_or_none(row.get("delta_abs") or row.get("delta")),
                 relative_delta=_to_float_or_none(row.get("delta_pct")),
                 direction=direction,
                 presence=presence,
@@ -504,5 +518,172 @@ class CompareArtifactExtractor(FindingExtractor):
                 payload=delta_payload,
             )
             findings.append(finding)
+
+        return findings
+
+    def _extract_panel_delta(
+        self,
+        artifact_id: str,
+        payload: dict[str, Any],
+        step_ref: StepRef,
+    ) -> list[DeltaFinding]:
+        """Extract findings from panel_delta compare artifacts.
+
+        panel_delta produces 1 finding per series (per dimension key combination),
+        iterating over each time bucket within that series.  Each series-level
+        finding aggregates all bucket points for that dimension key set.
+        """
+        # In delta_frame format, series live inside payload["payload"]["series"]
+        # but for backward compat also check payload["series"]
+        payload_inner = payload.get("payload") or {}
+        series_entries: list[dict[str, Any]] = payload_inner.get("series") or payload.get("series") or []
+        metric: str | None = payload.get("metric")
+        unit: str | None = payload.get("unit")
+        axes: list[dict[str, str]] = payload.get("axes") or []
+
+        # Read granularity from time axis
+        granularity: str | None = None
+        for a in axes:
+            if a.get("kind") == "time":
+                granularity = a.get("grain")
+
+        comparability_payload = _extract_comparability_payload(payload)
+
+        findings: list[DeltaFinding] = []
+        for entry in series_entries:
+            keys: dict[str, Any] = entry.get("keys") or {}
+            points: list[dict[str, Any]] = entry.get("points") or []
+            if not points:
+                continue
+
+            # Use the first point's window as the canonical scope window
+            first_point = points[0]
+            first_window = first_point.get("window") or {}
+            scope_start = str(first_window.get("start") or "")
+            scope_end = str(first_window.get("end") or scope_start)
+
+            stable_key = _segment_stable_key(keys)
+            canonical_item_key, item_ref = make_item_identity("rows", key=stable_key)
+            finding_id = make_finding_id(artifact_id, "delta", canonical_item_key)
+
+            direction_raw = first_point.get("direction") or "undefined"
+            direction = cast(
+                "DeltaDirection",
+                direction_raw if direction_raw in _VALID_DIRECTIONS else "undefined",
+            )
+
+            presence_raw = first_point.get("presence")
+            presence = presence_raw if presence_raw in _VALID_PRESENCES else None
+
+            _, series_item_ref = make_item_identity("rows", key=stable_key)
+            current_ref = ArtifactItemRefRef(
+                artifact_id=_source_artifact_id(payload, "current"), item_ref=series_item_ref
+            )
+            baseline_ref = ArtifactItemRefRef(
+                artifact_id=_source_artifact_id(payload, "baseline"), item_ref=series_item_ref
+            )
+
+            delta_payload = DeltaPayload(
+                delta_kind="panel_delta",
+                current_ref=current_ref,
+                baseline_ref=baseline_ref,
+                current_value=_to_float_or_none(first_point.get("current_value")),
+                baseline_value=_to_float_or_none(first_point.get("baseline_value")),
+                absolute_delta=_to_float_or_none(first_point.get("delta_abs") or first_point.get("delta")),
+                relative_delta=_to_float_or_none(first_point.get("delta_pct")),
+                direction=direction,
+                presence=presence,
+                unit=unit,
+            )
+            delta_payload = _attach_comparability_payload(delta_payload, comparability_payload)
+
+            finding = DeltaFinding(
+                finding_id=finding_id,
+                finding_type="delta",
+                artifact_id=artifact_id,
+                step_ref=step_ref,
+                subject=FindingSubject(
+                    metric=metric,
+                    entity=None,
+                    slice=dict(keys),
+                    grain=cast("Any", granularity),
+                    analysis_axis="panel",
+                ),
+                observed_window={
+                    "field": str(
+                        (
+                            (payload.get("resolved_input_summary") or {}).get("current_time_scope")
+                            or {}
+                        ).get("field")
+                        or "time"
+                    ).strip()
+                    or "time",
+                    "start": scope_start,
+                    "end": scope_end,
+                },
+                quality=_empty_quality(),
+                provenance=self._make_provenance(step_ref, canonical_item_key, item_ref),
+                payload=delta_payload,
+            )
+            findings.append(finding)
+
+        # Add summary finding if summary fields present
+        has_summary = any(
+            key in payload
+            for key in (
+                "summary_current_value",
+                "summary_baseline_value",
+                "summary_absolute_delta",
+            )
+        )
+        if has_summary:
+            summary_key, summary_item_ref = make_item_identity("summary")
+            summary_finding_id = make_finding_id(artifact_id, "delta", summary_key)
+            summary_direction_raw = payload.get("summary_direction") or "undefined"
+            summary_direction = cast(
+                "DeltaDirection",
+                summary_direction_raw
+                if summary_direction_raw in _VALID_DIRECTIONS
+                else "undefined",
+            )
+            current_ref = ArtifactItemRefRef(
+                artifact_id=_source_artifact_id(payload, "current"), item_ref=summary_item_ref
+            )
+            baseline_ref = ArtifactItemRefRef(
+                artifact_id=_source_artifact_id(payload, "baseline"), item_ref=summary_item_ref
+            )
+            summary_payload = DeltaPayload(
+                delta_kind="panel_delta",
+                current_ref=current_ref,
+                baseline_ref=baseline_ref,
+                current_value=_to_float_or_none(payload.get("summary_current_value")),
+                baseline_value=_to_float_or_none(payload.get("summary_baseline_value")),
+                absolute_delta=_to_float_or_none(payload.get("summary_absolute_delta")),
+                relative_delta=_to_float_or_none(payload.get("summary_relative_delta")),
+                direction=summary_direction,
+                presence=None,
+                unit=unit,
+            )
+            summary_payload = _attach_comparability_payload(summary_payload, comparability_payload)
+
+            findings.append(
+                DeltaFinding(
+                    finding_id=summary_finding_id,
+                    finding_type="delta",
+                    artifact_id=artifact_id,
+                    step_ref=step_ref,
+                    subject=FindingSubject(
+                        metric=metric,
+                        entity=None,
+                        slice={},
+                        grain=cast("Any", granularity),
+                        analysis_axis="panel",
+                    ),
+                    observed_window=cast("Any", None),
+                    quality=_empty_quality(),
+                    provenance=self._make_provenance(step_ref, summary_key, summary_item_ref),
+                    payload=summary_payload,
+                )
+            )
 
         return findings

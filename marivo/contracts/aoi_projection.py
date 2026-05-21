@@ -160,15 +160,21 @@ def project_aoi_artifact_result(intent_type: str, payload: dict[str, Any]) -> di
         return _project_observe_metric_frame(artifact_id, payload)
 
     if intent_type == "compare":
-        comparison_type = payload.get("comparison_type")
-        if comparison_type is None and {"current_value", "baseline_value", "delta"} & set(payload):
-            comparison_type = "scalar_delta"
+        shape = payload.get("shape")
+        # Legacy fallback: infer from old comparison_type field
+        if shape is None:
+            comparison_type = payload.get("comparison_type")
+            if comparison_type is not None:
+                shape = comparison_type  # map old field to new field
+            elif {"current_value", "baseline_value", "delta_abs"} & set(payload):
+                shape = "scalar_delta"
         matched_time_scope = _as_aoi_time_scope(
             (payload.get("analytical_metadata") or {}).get("matched_time_scope")
         )
-        # Read delta data from v2.0 axes+series format
-        series_list = payload.get("series") or []
-        if comparison_type == "time_series_delta":
+        # Read series from either payload.series (delta_frame) or top-level series (legacy)
+        series_list = (payload.get("payload") or {}).get("series") or payload.get("series") or []
+
+        if shape == "time_series_delta":
             ts_points = series_list[0].get("points") or [] if series_list else []
             compare_result: _CompareResult = aoi.TimeSeriesDeltaResult(
                 points=[
@@ -176,13 +182,13 @@ def project_aoi_artifact_result(intent_type: str, payload: dict[str, Any]) -> di
                         bucket_start=_as_aoi_datetime(_point_start(row)),
                         current_value=row.get("current_value"),
                         baseline_value=row.get("baseline_value"),
-                        delta=row.get("delta"),
+                        delta=row.get("delta_abs") or row.get("delta"),
                     )
                     for row in ts_points
                 ],
                 matched_time_scope=matched_time_scope,
             )
-        elif comparison_type == "segmented_delta":
+        elif shape == "segmented_delta":
             compare_result = aoi.SegmentedDeltaResult(
                 rows=[
                     aoi.SegmentedDeltaRow(
@@ -190,17 +196,49 @@ def project_aoi_artifact_result(intent_type: str, payload: dict[str, Any]) -> di
                         keys=_string_keys(entry.get("keys")),
                         current_value=_first_point_value(entry, "current_value"),
                         baseline_value=_first_point_value(entry, "baseline_value"),
-                        delta=_first_point_value(entry, "delta"),
+                        delta=_first_point_value(entry, "delta_abs") or _first_point_value(entry, "delta"),
                     )
                     for idx, entry in enumerate(series_list)
                 ],
                 matched_time_scope=matched_time_scope,
             )
-        else:
+        elif shape == "panel_delta":
+            # Panel delta goes through fast path only — no v0.2 result class exists.
+            # If we reach here, the payload wasn't already a delta_frame artifact.
+            # Fall through to scalar_delta handling as a safety fallback.
             compare_result = aoi.ScalarDeltaResult(
-                current_value=payload.get("current_value"),
-                baseline_value=payload.get("baseline_value"),
-                delta=payload.get("delta") or payload.get("absolute_delta"),
+                current_value=payload.get("summary_current_value"),
+                baseline_value=payload.get("summary_baseline_value"),
+                delta=payload.get("summary_absolute_delta"),
+                matched_time_scope=matched_time_scope,
+            )
+        else:
+            # scalar_delta (or unknown shape)
+            # Read from summary fields or series first point
+            current_val = payload.get("summary_current_value")
+            baseline_val = payload.get("summary_baseline_value")
+            delta_val = payload.get("summary_absolute_delta")
+
+            # Fallback: read from series if summary fields missing
+            if current_val is None and series_list:
+                points = series_list[0].get("points") or []
+                if points:
+                    current_val = points[0].get("current_value")
+                    baseline_val = points[0].get("baseline_value")
+                    delta_val = points[0].get("delta_abs") or points[0].get("delta")
+
+            # Legacy fallback: top-level aliases
+            if current_val is None:
+                current_val = payload.get("current_value")
+            if baseline_val is None:
+                baseline_val = payload.get("baseline_value")
+            if delta_val is None:
+                delta_val = payload.get("delta") or payload.get("absolute_delta")
+
+            compare_result = aoi.ScalarDeltaResult(
+                current_value=current_val,
+                baseline_value=baseline_val,
+                delta=delta_val,
                 matched_time_scope=matched_time_scope,
             )
         return compare_result.model_dump(mode="json")
@@ -294,6 +332,12 @@ def project_aoi_artifact(
         and raw.get("artifact_family") == "metric_frame"
     ):
         return artifact_to_envelope_result(validate_aoi_artifact(raw))
+    if (
+        intent_type == "compare"
+        and isinstance(raw, dict)
+        and raw.get("artifact_family") == "delta_frame"
+    ):
+        return artifact_to_envelope_result(validate_aoi_artifact(raw))
     if isinstance(raw, dict) and raw.get("artifact_id") and ("result" in raw or "failure" in raw):
         try:
             return artifact_to_envelope_result(validate_aoi_artifact(raw))
@@ -330,7 +374,11 @@ def _infer_intent_type(payload: dict[str, Any]) -> str:
 
     if artifact_type == "anomaly_candidates" or "candidates" in payload:
         return "detect"
+    if artifact_type == "delta_frame" or payload.get("artifact_family") == "delta_frame":
+        return "compare"
     if artifact_type == "compare_artifact" or comparison_type is not None:
+        return "compare"
+    if payload.get("shape") in ("scalar_delta", "time_series_delta", "segmented_delta", "panel_delta"):
         return "compare"
     if artifact_type == "delta_decomposition" or "contribution_summary" in payload:
         return "decompose"

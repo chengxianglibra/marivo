@@ -192,6 +192,8 @@ def test_auto_detect_follows_detect_artifact_candidates_and_builds_full_chain(
     assert diagnosis["anomaly_evidence"]["current_value"] == 500.0
     assert diagnosis["anomaly_evidence"]["expected_value"] == pytest.approx(128.5714285714)
     assert diagnosis["attribution_comparison"]["basis"] == "previous_adjacent_equal_length"
+    assert diagnosis["attribution_comparison"]["shape"] == "scalar_delta"
+    assert diagnosis["attribution_comparison"]["comparison_type"] == "scalar_delta"  # transition alias
     assert diagnosis["attribution_comparison"]["current_window"] == {
         "start": _SPIKE_START,
         "end": _SPIKE_END,
@@ -655,6 +657,20 @@ def test_hour_candidate_followup_preserves_hour_windows_for_compare() -> None:
             ),
         },
     ]
+    compare_series = [
+        {
+            "keys": {},
+            "points": [
+                {
+                    "current_value": 29.0,
+                    "baseline_value": 3.0,
+                    "delta_abs": 26.0,
+                    "delta_pct": 8.6,
+                    "direction": "up",
+                }
+            ],
+        }
+    ]
     compare_result = {
         "step_ref": {
             "session_id": "sess_diag_hour",
@@ -663,22 +679,21 @@ def test_hour_candidate_followup_preserves_hour_windows_for_compare() -> None:
         },
         "artifact_id": "art_compare",
         "schema_version": "2.0",
-        "comparison_type": "scalar_delta",
-        "axes": [],
-        "series": [
-            {
-                "keys": {},
-                "points": [
-                    {
-                        "current_value": 29.0,
-                        "baseline_value": 3.0,
-                        "delta": 26.0,
-                        "delta_pct": 8.6,
-                        "direction": "up",
-                    }
-                ],
-            }
+        "artifact_family": "delta_frame",
+        "shape": "scalar_delta",
+        "comparison_type": "scalar_delta",  # transition alias
+        "axes": [{"kind": "comparison_side"}],
+        "subject": {
+            "kind": "comparison",
+            "metric_ref": "metric.trino_elapsed_seconds_p95",
+        },
+        "measures": [
+            {"id": "delta_abs", "value_type": "number", "nullable": True, "unit": None},
+            {"id": "delta_pct", "value_type": "number", "nullable": True, "unit": None},
         ],
+        "payload": {"series": compare_series},
+        # Backward-compatible top-level series for read_compare_scalar_point
+        "series": compare_series,
         # Backward-compatible aliases
         "current_value": 29.0,
         "baseline_value": 3.0,

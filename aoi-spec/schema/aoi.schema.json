@@ -40,6 +40,9 @@
     },
     {
       "$ref": "#/$defs/artifacts/MetricFrameArtifact"
+    },
+    {
+      "$ref": "#/$defs/artifacts/DeltaFrameArtifact"
     }
   ],
   "$defs": {
@@ -1218,6 +1221,289 @@
           },
           "share": {
             "type": "number"
+          }
+        }
+      },
+      "DeltaFrameArtifact": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "artifact_id",
+          "artifact_family",
+          "shape",
+          "subject",
+          "axes",
+          "measures",
+          "payload"
+        ],
+        "properties": {
+          "artifact_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "artifact_family": {
+            "const": "delta_frame"
+          },
+          "shape": {
+            "type": "string",
+            "enum": [
+              "scalar_delta",
+              "time_series_delta",
+              "segmented_delta",
+              "panel_delta"
+            ]
+          },
+          "subject": {
+            "$ref": "#/$defs/artifacts/ComparisonSubject"
+          },
+          "axes": {
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/artifacts/MetricFrameAxis1"
+                },
+                {
+                  "$ref": "#/$defs/artifacts/MetricFrameAxis2"
+                },
+                {
+                  "$ref": "#/$defs/artifacts/MetricFrameAxis3"
+                }
+              ]
+            }
+          },
+          "measures": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 2,
+            "items": {
+              "$ref": "#/$defs/artifacts/DeltaFrameMeasure"
+            }
+          },
+          "payload": {
+            "$ref": "#/$defs/artifacts/DeltaFramePayload"
+          }
+        }
+      },
+      "ComparisonSubject": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "metric_ref",
+          "current",
+          "baseline"
+        ],
+        "properties": {
+          "kind": {
+            "const": "comparison"
+          },
+          "metric_ref": {
+            "type": "string",
+            "minLength": 1
+          },
+          "current": {
+            "$ref": "#/$defs/artifacts/SubjectScopeRef"
+          },
+          "baseline": {
+            "$ref": "#/$defs/artifacts/SubjectScopeRef"
+          }
+        }
+      },
+      "SubjectScopeRef": {
+        "type": "object",
+        "additionalProperties": {
+          "type": [
+            "string",
+            "number",
+            "boolean",
+            "null"
+          ]
+        },
+        "required": [
+          "time_scope",
+          "scope"
+        ],
+        "properties": {
+          "time_scope": {
+            "$ref": "#/$defs/primitives/TimeScope"
+          },
+          "scope": {
+            "type": "object"
+          }
+        }
+      },
+      "MetricFrameAxis1": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "grain"
+        ],
+        "properties": {
+          "kind": {
+            "const": "time"
+          },
+          "grain": {
+            "$ref": "#/$defs/primitives/TimeGranularity"
+          }
+        }
+      },
+      "MetricFrameAxis2": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "name"
+        ],
+        "properties": {
+          "kind": {
+            "const": "dimension"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "MetricFrameAxis3": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind"
+        ],
+        "properties": {
+          "kind": {
+            "const": "comparison_side"
+          }
+        }
+      },
+      "DeltaFramePoint": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "current_value",
+          "baseline_value",
+          "delta_abs",
+          "delta_pct",
+          "direction"
+        ],
+        "properties": {
+          "window": {
+            "$ref": "#/$defs/artifacts/MetricFrameWindow"
+          },
+          "current_value": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "baseline_value": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "delta_abs": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "delta_pct": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "increase",
+              "decrease",
+              "flat",
+              "undefined"
+            ]
+          },
+          "presence": {
+            "type": "string",
+            "enum": [
+              "both",
+              "current_only",
+              "baseline_only"
+            ]
+          }
+        }
+      },
+      "DeltaFrameSeries": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "keys",
+          "points"
+        ],
+        "properties": {
+          "keys": {
+            "type": "object",
+            "additionalProperties": {
+              "type": [
+                "string",
+                "number",
+                "boolean",
+                "null"
+              ]
+            }
+          },
+          "points": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/artifacts/DeltaFramePoint"
+            }
+          }
+        }
+      },
+      "DeltaFramePayload": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "series"
+        ],
+        "properties": {
+          "series": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/artifacts/DeltaFrameSeries"
+            }
+          }
+        }
+      },
+      "DeltaFrameMeasure": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "value_type",
+          "nullable"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "enum": [
+              "delta_abs",
+              "delta_pct"
+            ]
+          },
+          "value_type": {
+            "const": "number"
+          },
+          "nullable": {
+            "const": true
+          },
+          "unit": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },

@@ -78,6 +78,7 @@ def run_decompose_intent(
 
     normalized_compare = _normalize_decompose_compare_input(compare_artifact)
     comparison_type: str = normalized_compare["comparison_type"]
+    shape: str = compare_artifact.get("shape") or comparison_type
 
     # ── Extract metadata from compare artifact ────────────────────────────────
     metric_name: str = normalized_compare["metric_name"]
@@ -264,7 +265,8 @@ def run_decompose_intent(
         "session_id": session_id,
         "step_id": compare_step_id,
         "artifact_id": compare_artifact_id,
-        "comparison_type": comparison_type,
+        "comparison_type": shape,  # transition: keep comparison_type as alias for now
+        "shape": shape,
     }
 
     artifact: dict[str, Any] = {
@@ -356,10 +358,12 @@ def run_decompose_intent(
 def _normalize_decompose_compare_input(compare_artifact: dict[str, Any]) -> dict[str, Any]:
     """Normalize a compare artifact for decompose input.
 
-    Reads from v2.0 (axes+series) format with fallback to legacy top-level fields.
+    Reads from v2.0 delta_frame (axes+payload.series) format with fallback
+    to legacy comparison_type / top-level fields.
     """
     axes = read_axes_from_artifact(compare_artifact)
-    comparison_type = compare_artifact.get("comparison_type", "")
+    # Read shape from delta_frame format; fall back to legacy comparison_type
+    shape = compare_artifact.get("shape") or compare_artifact.get("comparison_type", "")
 
     # Determine observation type from axes (v2.0 canonical)
     if has_time_axis(axes) and has_dimension_axis(axes):
@@ -371,27 +375,43 @@ def _normalize_decompose_compare_input(compare_artifact: dict[str, Any]) -> dict
     else:
         source_observation_type = "scalar"
 
-    # Infer comparison_type from axes if not explicitly set (v2.0 artifacts always
-    # include comparison_type, but this makes the normalizer robust for edge cases)
-    if not comparison_type:
-        if source_observation_type == "scalar":
-            comparison_type = "scalar_delta"
-        elif source_observation_type == "time_series":
-            comparison_type = "time_series_delta"
-        elif source_observation_type == "segmented":
-            comparison_type = "segmented_delta"
+    # Infer shape from axes if not explicitly set (delta_frame artifacts always
+    # include shape, but this makes the normalizer robust for edge cases)
+    if not shape:
+        has_time = has_time_axis(axes)
+        has_dim = has_dimension_axis(axes)
+        if has_time and has_dim:
+            shape = "panel_delta"
+        elif has_time:
+            shape = "time_series_delta"
+        elif has_dim:
+            shape = "segmented_delta"
+        else:
+            shape = "scalar_delta"
 
     resolved_input: dict[str, Any] = compare_artifact.get("resolved_input_summary") or {}
 
-    if comparison_type == "scalar_delta":
-        # Read from v2.0 series format; fall back to top-level aliases for v1.0 compat
+    # Helper: read series list from either delta_frame payload or legacy top-level
+    def _read_series() -> list[dict[str, Any]]:
+        # delta_frame: series lives in payload.series
+        payload = compare_artifact.get("payload")
+        if isinstance(payload, dict) and isinstance(payload.get("series"), list):
+            return list(payload["series"])
+        # Legacy: series at top level
         series_list = compare_artifact.get("series") or []
+        if isinstance(series_list, list):
+            return series_list
+        return []
+
+    if shape == "scalar_delta":
+        # Read from v2.0 series format; fall back to top-level aliases for v1.0 compat
+        series_list = _read_series()
         points = (series_list[0].get("points") or []) if series_list else []
         if points:
             point = points[0]
             scope_current_value = _safe_float(point.get("current_value"))
             scope_baseline_value = _safe_float(point.get("baseline_value"))
-            scope_absolute_delta = _safe_float(point.get("delta"))
+            scope_absolute_delta = _safe_float(point.get("delta_abs") or point.get("delta"))
             scope_relative_delta = _safe_float(point.get("delta_pct"))
             scope_direction = point.get("direction") or "undefined"
         else:
@@ -403,7 +423,7 @@ def _normalize_decompose_compare_input(compare_artifact: dict[str, Any]) -> dict
             scope_direction = compare_artifact.get("direction") or "undefined"
 
         return {
-            "comparison_type": "scalar_delta",
+            "comparison_type": shape,
             "metric_name": compare_artifact.get("metric") or "",
             "unit": compare_artifact.get("unit"),
             "scope_current_value": scope_current_value,
@@ -417,7 +437,7 @@ def _normalize_decompose_compare_input(compare_artifact: dict[str, Any]) -> dict
             "analytical_metadata": {"decomposition_source": "scalar_delta"},
         }
 
-    if comparison_type == "time_series_delta":
+    if shape in ("time_series_delta", "panel_delta"):
         analytical = compare_artifact.get("analytical_metadata") or {}
         current_time_scope = dict(resolved_input.get("current_time_scope") or {})
         baseline_time_scope = dict(resolved_input.get("baseline_time_scope") or {})
@@ -436,7 +456,7 @@ def _normalize_decompose_compare_input(compare_artifact: dict[str, Any]) -> dict
         # Read summary values from series points aggregation (v2.0 canonical).
         # Aggregate matched-pair current/baseline values, then compute delta.
         # Fall back to top-level summary_* fields if series is absent or empty.
-        series_list = compare_artifact.get("series") or []
+        series_list = _read_series()
         series_points = (series_list[0].get("points") or []) if series_list else []
         matched_current_values: list[float] = []
         matched_baseline_values: list[float] = []
@@ -492,7 +512,7 @@ def _normalize_decompose_compare_input(compare_artifact: dict[str, Any]) -> dict
                 granularity = ax.get("grain")
 
         return {
-            "comparison_type": "time_series_delta",
+            "comparison_type": shape,
             "metric_name": compare_artifact.get("metric") or "",
             "unit": compare_artifact.get("unit"),
             "scope_current_value": scope_current_value,
@@ -514,9 +534,15 @@ def _normalize_decompose_compare_input(compare_artifact: dict[str, Any]) -> dict
             },
         }
 
+    if shape == "segmented_delta":
+        raise ValueError(
+            "decompose: INVALID_ARGUMENT - decompose does not yet support segmented_delta "
+            "compare artifacts; use a scalar_delta or time_series_delta artifact instead"
+        )
+
     raise ValueError(
-        "decompose: INVALID_ARGUMENT - compare_artifact_id must point to a scalar_delta or "
-        f"time_series_delta artifact, got '{comparison_type}'"
+        "decompose: INVALID_ARGUMENT - compare_artifact_id must point to a scalar_delta, "
+        f"time_series_delta, or panel_delta artifact, got '{shape}'"
     )
 
 
