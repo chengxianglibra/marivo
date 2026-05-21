@@ -14,6 +14,7 @@ from typing import Any
 from fastapi.testclient import TestClient
 
 from marivo.main import create_app
+from marivo.runtime.intents.metric_frame import build_metric_frame_artifact
 from marivo.runtime.intents.predicate_lineage_reuse import assert_predicate_lineage_refs_only
 from tests.shared_fixtures import get_seeded_duckdb_path
 
@@ -93,16 +94,17 @@ def _insert_observe_artifact(
             for d in (dimensions or ["platform"])
         ]
 
-    payload: dict[str, Any] = {
-        "schema_version": "2.0",
-        "intent_type": "observe",
-        "observation_type": observation_type,
-        "metric": metric,
-        "time_scope": time_scope,
-        "scope": {},
-        "unit": unit,
-        "axes": axes,
-        "series": series,
+    payload = build_metric_frame_artifact(
+        artifact_id=f"art_{metric}_{observation_type}",
+        shape=observation_type,
+        metric_ref=metric,
+        time_scope=time_scope,
+        scope={},
+        axes=axes,
+        series=series,
+        unit=unit,
+    )
+    observe_metadata: dict[str, Any] = {
         "analytical_metadata": {
             "quality_status": "ready",
             "decomposition_semantics": "sum",
@@ -115,11 +117,11 @@ def _insert_observe_artifact(
         },
     }
     if predicate_filter_lineage is not None:
-        payload["predicate_filter_lineage"] = predicate_filter_lineage
+        observe_metadata["predicate_filter_lineage"] = predicate_filter_lineage
     artifact_id = service.insert_artifact(
         session_id,
         step_id,
-        "observation",
+        "metric_frame",
         f"{metric}_{observation_type}",
         payload,
     )
@@ -132,7 +134,8 @@ def _insert_observe_artifact(
             "step_type": "observe",
         },
         "artifact_id": artifact_id,
-        **payload,
+        "result": payload,
+        "product_metadata": {"observe_metadata": observe_metadata},
     }
     service.insert_step(
         step_id,
@@ -251,6 +254,13 @@ class TestCompareReusesObservationLineage(_CompareReuseTestBase):
         summary = result.get("resolved_input_summary", {})
         self.assertIn("predicate_lineage", summary)
         self.assertIsNotNone(summary["predicate_lineage"])
+
+    def test_compare_analytical_metadata_comes_from_step_product_metadata(self) -> None:
+        result = self._compare(self.left_artifact_id, self.right_artifact_id)
+        metadata = result.get("analytical_metadata", {})
+        self.assertEqual(metadata["decomposition_semantics"], "sum")
+        self.assertEqual(metadata["current_row_count"], 1)
+        self.assertEqual(metadata["baseline_row_count"], 1)
 
     def test_compare_reuse_source_is_observation_lineage(self) -> None:
         result = self._compare(self.left_artifact_id, self.right_artifact_id)

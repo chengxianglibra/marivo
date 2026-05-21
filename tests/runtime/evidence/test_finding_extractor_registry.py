@@ -3,7 +3,7 @@
 Covers acceptance criteria:
 - Extractor routing uses (artifact_type, artifact_schema_version) as dispatch key
 - NOT step_type — two artifacts of the same step may differ in schema version
-- NULL artifact_schema_version normalised to "v1" by find(), NOT by get()
+- NULL artifact_schema_version falls back to "v1" by find(), NOT by get()
 - register() raises ValueError on duplicate unless override=True
 - snapshot() returns stable, sorted, auditable output
 - default_finding_registry is an importable module-level singleton, starts empty
@@ -91,6 +91,30 @@ class _CompareV1Extractor(FindingExtractor):
     extractor_name = "compare_v1"
     extractor_version = "1.0.0"
     # finding_schema_version intentionally not set — inherits None from ABC
+
+    def extract(
+        self,
+        artifact_id: str,
+        artifact_payload: dict[str, Any],
+        step_ref: StepRef,
+        session_id: str,
+    ) -> FindingExtractionResult:
+        findings: list[AnyFinding] = []
+        return {
+            "findings": findings,
+            "extractor_name": self.extractor_name,
+            "extractor_version": self.extractor_version,
+            "artifact_schema_version": self.artifact_schema_version,
+            "finding_count": 0,
+        }
+
+
+class _ObsNoneExtractor(FindingExtractor):
+    artifact_type = "observation_artifact"
+    artifact_schema_version = None
+    family = "observe"
+    extractor_name = "obs_none"
+    extractor_version = "1.0.0"
 
     def extract(
         self,
@@ -271,6 +295,18 @@ class TestFindingExtractorRegistryBasic(unittest.TestCase):
         except KeyError as exc:
             self.assertIn("compare_artifact", str(exc))
 
+    def test_key_error_message_lists_mixed_none_and_string_versions(self) -> None:
+        self.registry.register(_ObsNoneExtractor())
+        self.registry.register(_CompareV1Extractor())
+        try:
+            self.registry.get("not_registered", "v1")
+        except KeyError as exc:
+            message = str(exc)
+            self.assertIn("('observation_artifact', None)", message)
+            self.assertIn("('compare_artifact', 'v1')", message)
+        else:
+            self.fail("Expected KeyError was not raised")
+
     def test_registered_keys_is_empty_on_new_registry(self) -> None:
         self.assertEqual(self.registry.registered_keys(), [])
 
@@ -309,7 +345,7 @@ class TestFindingExtractorRegistryNullVersion(unittest.TestCase):
         self.assertEqual(extractor.extractor_name, "obs_v1")
 
     def test_find_with_empty_string_is_not_treated_as_none(self) -> None:
-        # Empty string "" is looked up literally — NOT normalised to "v1"
+        # Empty string "" is looked up literally — NOT treated as the "v1" fallback
         result = self.registry.find("observation_artifact", "")
         self.assertIsNone(result)
 
@@ -339,7 +375,7 @@ class TestFindingExtractorRegistryNullVersion(unittest.TestCase):
         fresh = FindingExtractorRegistry()
         fresh.register(_EmptyVersionExtractor())
         result = fresh.find("observation_artifact", None)
-        # None normalises to "v1", not ""; should not find the "" extractor
+        # None falls back to "v1", not ""; should not find the "" extractor
         self.assertIsNone(result)
 
 
@@ -519,8 +555,7 @@ class TestDefaultFindingRegistry(unittest.TestCase):
         self.assertIsInstance(default_finding_registry, FindingExtractorRegistry)
 
     def test_default_finding_registry_contains_observe_extractor(self) -> None:
-        # Phase 4d-1: observe extractor registered under ("observation", "v1").
-        self.assertIn(("observation", "v1"), default_finding_registry.registered_keys())
+        self.assertIn(("metric_frame", None), default_finding_registry.registered_keys())
 
     def test_default_finding_registry_contains_detect_extractor(self) -> None:
         # Phase 4d-2: detect extractor registered under ("anomaly_candidates", "v1").

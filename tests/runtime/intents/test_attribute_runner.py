@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from marivo.runtime.intents.attribute import run_attribute_intent
+from marivo.runtime.intents.metric_frame import build_metric_frame_artifact
 
 
 def _make_runtime() -> MagicMock:
@@ -50,21 +51,28 @@ def _filter(expression: str) -> dict[str, Any]:
     return {"dialects": [{"dialect": "ANSI_SQL", "expression": expression}]}
 
 
-def _observe_result(side: str) -> dict[str, Any]:
+def _observe_result(
+    side: str, *, time_scope: dict[str, Any] | None = None, scope: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    artifact = build_metric_frame_artifact(
+        artifact_id=f"art_{side}",
+        shape="scalar",
+        metric_ref="metric.revenue",
+        time_scope=time_scope or {"field": "time", "start": "2026-01-01", "end": "2026-01-08"},
+        scope=scope or {},
+        axes=[],
+        series=[{"keys": {}, "points": [{"value": 42.0}]}],
+        unit=None,
+    )
     return {
-        "observation_type": "scalar",
         "artifact_id": f"art_{side}",
         "step_ref": {
             "session_id": "sess_attr",
             "step_id": f"step_{side}",
             "step_type": "observe",
         },
-        "time_scope": {"field": "time", "start": "2026-01-01", "end": "2026-01-08"},
-        "schema_version": "2.0",
-        "axes": [],
-        "series": [{"keys": {}, "points": [{"value": 42.0}]}],
-        "analytical_metadata": {"decomposition_semantics": "sum", "row_count": 10},
-        "scope": {},
+        "result": artifact,
+        "product_metadata": {"observe_metadata": {"row_count": 10}},
     }
 
 
@@ -159,11 +167,21 @@ def _run_with_patched_children(
         _decompose_result("channel"),
         _decompose_result("region"),
     ]
+    observe_sides = iter(["current", "baseline"])
+
+    def _observe_side_effect(
+        _runtime: MagicMock, _session_id: str, observe_params: dict[str, Any]
+    ) -> dict[str, Any]:
+        return _observe_result(
+            next(observe_sides),
+            time_scope=observe_params.get("time_scope"),
+            scope=observe_params.get("scope") or {},
+        )
 
     with (
         patch(
             "marivo.runtime.intents.attribute.run_observe_intent",
-            side_effect=[_observe_result("current"), _observe_result("baseline")],
+            side_effect=_observe_side_effect,
         ) as mock_observe,
         patch(
             "marivo.runtime.intents.attribute.run_compare_intent",

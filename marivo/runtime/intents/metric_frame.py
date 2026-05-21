@@ -8,6 +8,122 @@ from typing import Any
 
 from marivo.time_contracts import TimeGrain, bucket_window
 
+MetricFrameShape = str
+
+
+def build_metric_frame_artifact(
+    *,
+    artifact_id: str,
+    shape: MetricFrameShape,
+    metric_ref: str,
+    time_scope: dict[str, Any],
+    scope: dict[str, Any],
+    axes: list[dict[str, str]],
+    series: list[dict[str, Any]],
+    unit: str | None,
+) -> dict[str, Any]:
+    return {
+        "artifact_id": artifact_id,
+        "artifact_family": "metric_frame",
+        "shape": shape,
+        "subject": {
+            "kind": "metric",
+            "metric_ref": metric_ref,
+            "time_scope": time_scope,
+            "scope": scope,
+        },
+        "axes": axes,
+        "measures": [
+            {
+                "id": "value",
+                "value_type": "number",
+                "nullable": True,
+                "unit": unit,
+            }
+        ],
+        "payload": {"series": series},
+    }
+
+
+def is_metric_frame_artifact(artifact: dict[str, Any]) -> bool:
+    return artifact.get("artifact_family") == "metric_frame"
+
+
+def read_metric_frame_shape(artifact: dict[str, Any]) -> str:
+    shape = artifact.get("shape")
+    if not isinstance(shape, str) or not shape:
+        raise ValueError("metric_frame artifact missing shape")
+    return shape
+
+
+def metric_display_name(metric_ref: str) -> str:
+    return metric_ref.removeprefix("metric.")
+
+
+def read_metric_frame_subject(artifact: dict[str, Any]) -> dict[str, Any]:
+    subject = artifact.get("subject")
+    if not isinstance(subject, dict):
+        raise ValueError("metric_frame artifact missing subject")
+    return subject
+
+
+def read_metric_frame_time_scope(artifact: dict[str, Any]) -> dict[str, Any]:
+    subject = read_metric_frame_subject(artifact)
+    time_scope = subject.get("time_scope")
+    if not isinstance(time_scope, dict):
+        raise ValueError("metric_frame artifact subject missing time_scope")
+    return time_scope
+
+
+def read_metric_frame_scope(artifact: dict[str, Any]) -> dict[str, Any]:
+    subject = read_metric_frame_subject(artifact)
+    scope = subject.get("scope")
+    if not isinstance(scope, dict):
+        raise ValueError("metric_frame artifact subject missing scope")
+    return scope
+
+
+def read_metric_frame_metric_ref(artifact: dict[str, Any]) -> str:
+    subject = read_metric_frame_subject(artifact)
+    metric_ref = subject.get("metric_ref")
+    if not isinstance(metric_ref, str) or not metric_ref:
+        raise ValueError("metric_frame artifact subject missing metric_ref")
+    return metric_ref
+
+
+def read_metric_frame_series(artifact: dict[str, Any]) -> list[dict[str, Any]]:
+    payload = artifact.get("payload")
+    if not isinstance(payload, dict):
+        raise ValueError("metric_frame artifact missing payload")
+    series = payload.get("series")
+    if not isinstance(series, list):
+        raise ValueError("metric_frame artifact payload missing series")
+    return series
+
+
+def read_metric_frame_unit(artifact: dict[str, Any]) -> str | None:
+    measures = artifact.get("measures")
+    if not isinstance(measures, list) or not measures:
+        return None
+    first_measure = measures[0]
+    if not isinstance(first_measure, dict):
+        return None
+    unit = first_measure.get("unit")
+    return str(unit) if unit is not None else None
+
+
+def read_metric_frame_points(artifact: dict[str, Any]) -> list[dict[str, Any]]:
+    series = read_metric_frame_series(artifact)
+    if not series:
+        return []
+    first_series = series[0]
+    if not isinstance(first_series, dict):
+        raise ValueError("metric_frame artifact series entry must be an object")
+    points = first_series.get("points")
+    if not isinstance(points, list):
+        raise ValueError("metric_frame artifact series entry missing points")
+    return points
+
 
 def build_axes(
     granularity: TimeGrain | None,

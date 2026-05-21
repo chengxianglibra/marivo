@@ -68,14 +68,14 @@ type ObservationArtifactRef = {
   session_id: string;
   step_id: string;
   artifact_id: string;
-  observation_type: "time_series";
+  shape: "time_series";
 };
 ```
 
 引用约束：
 
-- `left_artifact_id` 与 `right_artifact_id` 都必须指向已完成步骤产出的 canonical `observe` artifact
-- `observation_type` 在 v1 中必须是 `time_series`
+- `left_artifact_id` 与 `right_artifact_id` 都必须指向已完成步骤产出的 canonical `observe` `metric_frame` artifact
+- `metric_frame.shape` 在 v1 中必须是 `time_series`
 - 不允许 projection ref 充当 canonical source ref
 - v1 不允许跨 session ref
 - v1 允许引用同 session 内的历史已完成 artifact
@@ -109,7 +109,7 @@ type CorrelateRequest = {
 
 v1 支持的输入形态如下：
 
-- `left_artifact_id` 必须解析到已完成的 `observe`，且 `observation_type = "time_series"`
+- `left_artifact_id` 必须解析到已完成的 `observe`，且 `metric_frame.shape = "time_series"`
 - `right_artifact_id` 也必须如此
 - 两边都必须是完整 artifact，而不是 projection-only 结果
 - 两边观测值都必须是数值
@@ -380,7 +380,7 @@ nullable 字段的唯一语义如下：
 ## 校验规则
 
 - `left_artifact_id` 与 `right_artifact_id` 都必须解析到已完成的 `observe`
-- 两边都必须是 `observation_type = "time_series"`
+- 两边都必须是 `metric_frame.shape = "time_series"`
 - 两边都必须是完整 artifact，而不是 projection-only 结果
 - 两边必须使用相同的 `granularity`
 - 两边都必须包含数值型时间序列值

@@ -37,6 +37,9 @@
     },
     {
       "$ref": "#/$defs/artifacts/Artifact"
+    },
+    {
+      "$ref": "#/$defs/artifacts/MetricFrameArtifact"
     }
   ],
   "$defs": {
@@ -597,15 +600,6 @@
           "result": {
             "anyOf": [
               {
-                "$ref": "#/$defs/artifacts/ScalarObservationResult"
-              },
-              {
-                "$ref": "#/$defs/artifacts/TimeSeriesObservationResult"
-              },
-              {
-                "$ref": "#/$defs/artifacts/SegmentedObservationResult"
-              },
-              {
                 "$ref": "#/$defs/artifacts/ScalarDeltaResult"
               },
               {
@@ -674,45 +668,228 @@
         },
         "additionalProperties": false
       },
-      "ScalarObservationResult": {
+      "MetricFrameArtifact": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "artifact_id",
+          "artifact_family",
+          "shape",
+          "subject",
+          "axes",
+          "measures",
+          "payload"
+        ],
+        "properties": {
+          "artifact_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "artifact_family": {
+            "const": "metric_frame"
+          },
+          "shape": {
+            "type": "string",
+            "enum": [
+              "scalar",
+              "time_series",
+              "segmented",
+              "panel"
+            ]
+          },
+          "subject": {
+            "$ref": "#/$defs/artifacts/MetricFrameSubject"
+          },
+          "axes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/artifacts/MetricFrameAxis"
+            }
+          },
+          "measures": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 1,
+            "items": {
+              "$ref": "#/$defs/artifacts/MetricFrameMeasure"
+            }
+          },
+          "payload": {
+            "$ref": "#/$defs/artifacts/MetricFramePayload"
+          }
+        }
+      },
+      "MetricFrameSubject": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "metric_ref",
+          "time_scope",
+          "scope"
+        ],
+        "properties": {
+          "kind": {
+            "const": "metric"
+          },
+          "metric_ref": {
+            "type": "string",
+            "minLength": 1
+          },
+          "time_scope": {
+            "$ref": "#/$defs/primitives/TimeScope"
+          },
+          "scope": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "MetricFrameAxis": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "grain"
+            ],
+            "properties": {
+              "kind": {
+                "const": "time"
+              },
+              "grain": {
+                "$ref": "#/$defs/primitives/TimeGranularity"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "name"
+            ],
+            "properties": {
+              "kind": {
+                "const": "dimension"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        ]
+      },
+      "MetricFrameMeasure": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "value_type",
+          "nullable"
+        ],
+        "properties": {
+          "id": {
+            "const": "value"
+          },
+          "value_type": {
+            "const": "number"
+          },
+          "nullable": {
+            "const": true
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "MetricFramePayload": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "series"
+        ],
+        "properties": {
+          "series": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/artifacts/MetricFrameSeries"
+            }
+          }
+        }
+      },
+      "MetricFrameSeries": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "keys",
+          "points"
+        ],
+        "properties": {
+          "keys": {
+            "type": "object",
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "points": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/artifacts/MetricFramePoint"
+            }
+          }
+        }
+      },
+      "MetricFramePoint": {
         "type": "object",
         "additionalProperties": false,
         "required": [
           "value"
         ],
         "properties": {
+          "window": {
+            "$ref": "#/$defs/artifacts/MetricFrameWindow"
+          },
           "value": {
             "$ref": "#/$defs/primitives/NumberOrNull"
           }
         }
       },
-      "TimeSeriesObservationResult": {
+      "MetricFrameWindow": {
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "points"
+          "start",
+          "end"
         ],
         "properties": {
-          "points": {
-            "type": "array",
-            "items": {
-              "$ref": "#/$defs/artifacts/TimeSeriesPoint"
-            }
-          }
-        }
-      },
-      "SegmentedObservationResult": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "rows"
-        ],
-        "properties": {
-          "rows": {
-            "type": "array",
-            "items": {
-              "$ref": "#/$defs/artifacts/SegmentedObservationRow"
-            }
+          "start": {
+            "$ref": "#/$defs/primitives/ISO8601"
+          },
+          "end": {
+            "$ref": "#/$defs/primitives/ISO8601"
           }
         }
       },
@@ -950,43 +1127,6 @@
                 }
               }
             }
-          }
-        }
-      },
-      "TimeSeriesPoint": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "bucket_start",
-          "value"
-        ],
-        "properties": {
-          "bucket_start": {
-            "$ref": "#/$defs/primitives/ISO8601"
-          },
-          "value": {
-            "$ref": "#/$defs/primitives/NumberOrNull"
-          }
-        }
-      },
-      "SegmentedObservationRow": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "item_id",
-          "keys",
-          "value"
-        ],
-        "properties": {
-          "item_id": {
-            "type": "string",
-            "minLength": 1
-          },
-          "keys": {
-            "$ref": "#/$defs/primitives/DimensionKeyMap"
-          },
-          "value": {
-            "$ref": "#/$defs/primitives/NumberOrNull"
           }
         }
       },

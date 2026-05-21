@@ -122,7 +122,8 @@ slice:
 
 # Requests
 
-# Observe a metric as scalar, time series, or segmented values.
+# Observe a metric as a metric_frame artifact. Shape is derived from optional
+# granularity and dimensions.
 observe:
   # Required: metric identifier to observe.
   metric: string
@@ -133,10 +134,10 @@ observe:
   # Optional: filter expression. Omit when there is no filter.
   filter: expression
 
-  # Optional: mode selector. A value from time_granularities requests a time_series_observation_result.
+  # Optional: time axis grain. When present, observe returns a time_series or panel metric_frame.
   granularity: time_granularities
 
-  # Optional: mode selector. Non-empty string list requests a segmented_observation_result.
+  # Optional: dimension axes. When present, observe returns a segmented or panel metric_frame.
   dimensions: string[]
 
 # Compare two upstream artifacts and produce a delta result.
@@ -316,9 +317,6 @@ artifact:
   result:
     # Result body must match one of the AOI result schemas below.
     one_of:
-      - scalar_observation_result      # Scalar metric value.
-      - time_series_observation_result # Time-bucketed metric values.
-      - segmented_observation_result   # Dimension-segmented metric values.
       - scalar_delta_result            # Scalar comparison delta.
       - time_series_delta_result       # Time-bucketed comparison deltas.
       - segmented_delta_result         # Dimension-segmented comparison deltas.
@@ -331,30 +329,35 @@ artifact:
   # Present on blocking failure. Exactly one of result or failure must be present.
   failure: analysis_failure
 
-# Observation results
+# Observe metric frame artifact
 
-# Result for scalar observe requests.
-scalar_observation_result:
-  # Required, nullable: observed metric value. Null means no observation exists for the slice.
-  # Numeric range follows the metric domain. Higher/lower has the metric's normal business meaning.
-  value: number
-
-# Result for time-series observe requests.
-time_series_observation_result:
-  # Required: ordered observed values by time bucket.
-  points:
-    # One bucketed observation point.
-    - bucket_start: iso8601_datetime  # Required: bucket start timestamp.
-      value: number                  # Required, nullable: observed metric value. Null means absent. Range follows the metric domain; higher/lower has the metric's normal business meaning.
-
-# Result for segmented observe requests.
-segmented_observation_result:
-  # Required: observed values by segment.
-  rows:
-    # One segmented observation row.
-    - item_id: string                 # Required: stable row identifier.
-      keys: dimension_key_map         # Required: segment dimension values.
-      value: number                  # Required, nullable: observed metric value. Null means absent. Range follows the metric domain; higher/lower has the metric's normal business meaning.
+# Successful artifact returned by observe.
+metric_frame_artifact:
+  artifact_id: string
+  artifact_family: metric_frame
+  shape: scalar | time_series | segmented | panel
+  subject:
+    kind: metric
+    metric_ref: string
+    time_scope: time_scope
+    scope: object
+  axes:
+    - kind: time | dimension
+      grain: time_granularities
+      name: string
+  measures:
+    - id: value
+      value_type: number
+      nullable: true
+      unit: string
+  payload:
+    series:
+      - keys: object
+        points:
+          - window:
+              start: iso8601_datetime
+              end: iso8601_datetime
+            value: number
 
 # Compare results
 

@@ -1,7 +1,7 @@
 {
-  "artifact_id": "art_observe_time_series",
+  "artifact_id": "art_observe_panel",
   "artifact_family": "metric_frame",
-  "shape": "time_series",
+  "shape": "panel",
   "subject": {
     "kind": "metric",
     "metric_ref": "metric.view_time",
@@ -16,6 +16,10 @@
     {
       "kind": "time",
       "grain": "day"
+    },
+    {
+      "kind": "dimension",
+      "name": "platform"
     }
   ],
   "measures": [
@@ -29,7 +33,9 @@
   "payload": {
     "series": [
       {
-        "keys": {},
+        "keys": {
+          "platform": "ios"
+        },
         "points": [
           {
             "window": {
@@ -37,6 +43,20 @@
               "end": "2026-01-02T00:00:00Z"
             },
             "value": 42.0
+          }
+        ]
+      },
+      {
+        "keys": {
+          "platform": "web"
+        },
+        "points": [
+          {
+            "window": {
+              "start": "2026-01-01T00:00:00Z",
+              "end": "2026-01-02T00:00:00Z"
+            },
+            "value": 21.0
           }
         ]
       }

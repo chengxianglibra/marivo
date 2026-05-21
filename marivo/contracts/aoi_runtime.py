@@ -14,7 +14,7 @@ AoiAtomicRequest: TypeAlias = (  # noqa: UP040 - mypy hook does not support PEP 
     aoi.Compare | aoi.Decompose | aoi.Correlate | aoi.Detect | aoi.Test | aoi.Forecast | aoi.Observe
 )
 AoiDerivedRequest: TypeAlias = aoi.Validate | aoi.Attribute | aoi.Diagnose  # noqa: UP040
-AoiArtifact: TypeAlias = aoi.Artifact1 | aoi.Artifact2  # noqa: UP040
+AoiArtifact: TypeAlias = aoi.MetricFrameArtifact | aoi.Artifact1 | aoi.Artifact2  # noqa: UP040
 
 
 class _CanonicalSuccessArtifactShape(BaseModel):
@@ -96,10 +96,17 @@ def assert_derived_request_matches_intent(
 
 
 def validate_aoi_artifact(value: Any) -> AoiArtifact:
-    if isinstance(value, (aoi.Artifact1, aoi.Artifact2)):
-        value = value.model_dump(exclude_none=True)
+    if isinstance(value, (aoi.MetricFrameArtifact, aoi.Artifact1, aoi.Artifact2)):
+        value = value.model_dump(mode="json")
+        if isinstance(value, dict):
+            if value.get("result") is None:
+                value.pop("result", None)
+            if value.get("failure") is None:
+                value.pop("failure", None)
     if not isinstance(value, Mapping):
         return aoi.Artifact2.model_validate(value)
+    if value.get("artifact_family") == "metric_frame":
+        return aoi.MetricFrameArtifact.model_validate(value)
     if "result" in value and "failure" not in value:
         _CanonicalSuccessArtifactShape.model_validate(value)
         return aoi.Artifact1.model_validate(value)
@@ -121,6 +128,16 @@ def validate_aoi_artifact(value: Any) -> AoiArtifact:
 
 def artifact_to_envelope_result(artifact: AoiArtifact) -> dict[str, Any]:
     data = artifact.model_dump(mode="json")
+    if data.get("artifact_family") == "metric_frame":
+        payload = data.get("payload")
+        if isinstance(payload, dict):
+            for series in payload.get("series") or []:
+                if not isinstance(series, dict):
+                    continue
+                for point in series.get("points") or []:
+                    if isinstance(point, dict) and point.get("window") is None:
+                        point.pop("window", None)
+        return data
     if data.get("result") is None:
         data.pop("result", None)
     if data.get("failure") is None:

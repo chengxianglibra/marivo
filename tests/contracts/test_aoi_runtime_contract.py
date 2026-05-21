@@ -43,6 +43,49 @@ def _observe_request() -> aoi.Observe:
     )
 
 
+def _metric_frame_payload(shape: str = "scalar") -> dict[str, object]:
+    time_scope = _time_scope_payload()
+    axes: list[dict[str, str]] = []
+    series: list[dict[str, object]] = [{"keys": {}, "points": [{"value": 42.0}]}]
+    if shape == "time_series":
+        axes = [{"kind": "time", "grain": "day"}]
+        series = [
+            {
+                "keys": {},
+                "points": [
+                    {
+                        "window": {
+                            "start": "2026-01-01T00:00:00Z",
+                            "end": "2026-01-02T00:00:00Z",
+                        },
+                        "value": 42.0,
+                    }
+                ],
+            }
+        ]
+    return {
+        "artifact_id": "art_observe_1",
+        "artifact_family": "metric_frame",
+        "shape": shape,
+        "subject": {
+            "kind": "metric",
+            "metric_ref": "metric.view_time",
+            "time_scope": time_scope,
+            "scope": {},
+        },
+        "axes": axes,
+        "measures": [
+            {
+                "id": "value",
+                "value_type": "number",
+                "nullable": True,
+                "unit": None,
+            }
+        ],
+        "payload": {"series": series},
+    }
+
+
 def test_runtime_intent_envelope_accepts_generated_observe_request() -> None:
     request = _observe_request()
 
@@ -296,7 +339,12 @@ def test_validate_aoi_artifact_returns_success_artifact() -> None:
     artifact = validate_aoi_artifact(
         {
             "artifact_id": "artifact_1",
-            "result": {"value": 42.0},
+            "result": {
+                "current_value": 42.0,
+                "baseline_value": 40.0,
+                "delta": 2.0,
+                "matched_time_scope": None,
+            },
         }
     )
 
@@ -322,7 +370,12 @@ def test_validate_aoi_artifact_returns_failure_artifact() -> None:
 def test_validate_aoi_artifact_accepts_generated_success_artifact() -> None:
     source = aoi.Artifact1(
         artifact_id="artifact_1",
-        result=aoi.ScalarObservationResult(value=42.0),
+        result=aoi.ScalarDeltaResult(
+            current_value=42.0,
+            baseline_value=40.0,
+            delta=2.0,
+            matched_time_scope=None,
+        ),
     )
 
     artifact = validate_aoi_artifact(source)
@@ -331,10 +384,118 @@ def test_validate_aoi_artifact_accepts_generated_success_artifact() -> None:
     assert artifact.model_dump(exclude_none=True) == source.model_dump(exclude_none=True)
 
 
+def test_validate_aoi_artifact_accepts_metric_frame_artifact() -> None:
+    artifact = validate_aoi_artifact(_metric_frame_payload())
+
+    assert isinstance(artifact, aoi.MetricFrameArtifact)
+    assert artifact.artifact_family == "metric_frame"
+    assert artifact.shape == "scalar"
+    assert artifact.subject.scope == {}
+
+
+def test_artifact_to_envelope_result_keeps_metric_frame_top_level() -> None:
+    artifact = validate_aoi_artifact(_metric_frame_payload("time_series"))
+    result = artifact_to_envelope_result(artifact)
+
+    assert result["artifact_id"] == "art_observe_1"
+    assert result["artifact_family"] == "metric_frame"
+    assert result["shape"] == "time_series"
+    assert "result" not in result
+    assert result["payload"]["series"][0]["points"][0]["window"]["start"] == (
+        "2026-01-01T00:00:00Z"
+    )
+
+
+def test_artifact_to_envelope_result_preserves_metric_frame_null_contract() -> None:
+    payload = _metric_frame_payload()
+    payload["payload"] = {
+        "series": [
+            {"keys": {}, "points": [{"value": None}]},
+            {"keys": {"platform": "web"}, "points": [{"value": None}]},
+        ]
+    }
+    artifact = validate_aoi_artifact(payload)
+    result = artifact_to_envelope_result(artifact)
+
+    assert result["measures"] == [
+        {"id": "value", "value_type": "number", "nullable": True, "unit": None}
+    ]
+    for series in result["payload"]["series"]:
+        point = series["points"][0]
+        assert point["value"] is None
+        assert "window" not in point
+
+
+def test_artifact_to_envelope_result_preserves_time_series_null_value_and_window() -> None:
+    payload = _metric_frame_payload("time_series")
+    payload["payload"] = {
+        "series": [
+            {
+                "keys": {},
+                "points": [
+                    {
+                        "window": {
+                            "start": "2026-01-01T00:00:00Z",
+                            "end": "2026-01-02T00:00:00Z",
+                        },
+                        "value": None,
+                    }
+                ],
+            }
+        ]
+    }
+    artifact = validate_aoi_artifact(payload)
+    result = artifact_to_envelope_result(artifact)
+
+    point = result["payload"]["series"][0]["points"][0]
+    assert point == {
+        "window": {
+            "start": "2026-01-01T00:00:00Z",
+            "end": "2026-01-02T00:00:00Z",
+        },
+        "value": None,
+    }
+
+
+def test_validate_aoi_artifact_rejects_nested_metric_frame_result() -> None:
+    payload = {
+        "artifact_id": "art_nested_observe_1",
+        "result": _metric_frame_payload(),
+    }
+
+    with pytest.raises(ValidationError):
+        validate_aoi_artifact(payload)
+    with pytest.raises(ValidationError):
+        aoi.Artifact1.model_validate(payload)
+
+
+@pytest.mark.parametrize(
+    "patch",
+    [
+        {"artifact_family": "observation"},
+        {"shape": "unknown"},
+        {"subject": {"__remove__": "scope"}},
+        {"payload": {"series": [{"keys": {}, "points": [{"window": None, "value": 42.0}]}]}},
+        {"measures": [{"id": "count", "value_type": "number", "nullable": True}]},
+    ],
+)
+def test_metric_frame_artifact_rejects_invalid_contract(patch: dict[str, object]) -> None:
+    payload = _metric_frame_payload()
+    _merge_patch(payload, patch)
+
+    with pytest.raises(ValidationError):
+        aoi.MetricFrameArtifact.model_validate(payload)
+
+
 def test_validate_aoi_artifact_rejects_mixed_generated_success_artifact() -> None:
     source = aoi.Artifact1(
         artifact_id="artifact_1",
-        result=aoi.ScalarObservationResult(value=42.0),
+        result=aoi.ScalarDeltaResult(
+            current_value=42.0,
+            baseline_value=40.0,
+            delta=2.0,
+            matched_time_scope=None,
+        ),
         failure=aoi.AnalysisFailure(
             code="NOT_COMPARABLE",
             message="No comparable baseline.",
@@ -379,7 +540,12 @@ def test_execution_envelope_keeps_aoi_artifact_under_result() -> None:
     artifact = validate_aoi_artifact(
         {
             "artifact_id": "artifact_1",
-            "result": {"value": 42.0},
+            "result": {
+                "current_value": 42.0,
+                "baseline_value": 40.0,
+                "delta": 2.0,
+                "matched_time_scope": None,
+            },
         }
     )
 
@@ -397,7 +563,12 @@ def test_execution_envelope_keeps_aoi_artifact_under_result() -> None:
 
     assert envelope.result == {
         "artifact_id": "artifact_1",
-        "result": {"value": 42.0},
+        "result": {
+            "current_value": 42.0,
+            "baseline_value": 40.0,
+            "delta": 2.0,
+            "matched_time_scope": None,
+        },
     }
     assert "value" not in envelope.model_dump()
 

@@ -107,9 +107,9 @@ def _write_init(output_dir: Path) -> None:
         "OSIDocument = osi.OsiCoreMetadataSpecificationWithMarivoVendorExtensions\n"
         "Relationship = osi.Relationship\n"
         "SemanticModel = osi.SemanticModel\n"
-        "SumAggregation = osi.SumAggregation\n"
-        "RatioAggregation = osi.RatioAggregation\n"
-        "WeightedAverageAggregation = osi.WeightedAverageAggregation\n"
+        "SumDecomposition = osi.SumDecomposition\n"
+        "RatioDecomposition = osi.RatioDecomposition\n"
+        "WeightedAverageDecomposition = osi.WeightedAverageDecomposition\n"
         "MarivoMetricExtension = osi.MarivoMetricExtension\n\n"
         f'OSI_MARIVO_SPEC_VERSION = "{_schema_version(OSI_SCHEMA)}"\n'
         f'AOI_SPEC_VERSION = "{_schema_version(AOI_SCHEMA)}"\n'
@@ -154,6 +154,9 @@ def _patch_aoi_optional_non_null_fields(output: Path) -> None:
         "    filter: Expression | None = None": (
             "    filter: Expression = None  # type: ignore[assignment]"
         ),
+        "    window: MetricFrameWindow | None = None": (
+            "    window: MetricFrameWindow = None  # type: ignore[assignment]"
+        ),
         "    dimension: str | None = Field(None, min_length=1)": (
             "    dimension: str = Field(None, min_length=1)  # type: ignore[assignment]"
         ),
@@ -177,6 +180,21 @@ def _patch_aoi_optional_non_null_fields(output: Path) -> None:
         ),
         "    candidate_limit: int | None = Field(None, ge=1)": (
             "    candidate_limit: int = Field(None, ge=1)  # type: ignore[assignment]"
+        ),
+        "    scope: dict[str, Any]": (
+            "    scope: dict[str, Any] = Field(\n"
+            "        ...,\n"
+            "        json_schema_extra={\n"
+            '            "additionalProperties": {\n'
+            '                "anyOf": [\n'
+            '                    {"type": "string"},\n'
+            '                    {"type": "number"},\n'
+            '                    {"type": "boolean"},\n'
+            '                    {"type": "null"},\n'
+            "                ]\n"
+            "            }\n"
+            "        },\n"
+            "    )"
         ),
     }
     for old, new in replacements.items():

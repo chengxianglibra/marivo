@@ -46,7 +46,7 @@ npx --yes ajv-cli@5.0.0 validate --spec=draft2020 -s aoi-spec/schema/aoi.schema.
 
 The command validates every JSON example against the AOI v0.2 schema.
 
-Each intent directory contains request examples, successful artifact examples, and blocking failure artifact examples. Intents with multiple parameter or result shapes include separate examples for those shapes, such as scalar/time-series/segmented observe and compare requests.
+Each intent directory contains request examples, successful artifact examples, and blocking failure artifact examples. Intents with multiple parameter or result shapes include separate examples for those shapes, such as scalar/time-series/segmented/panel observe metric frames and compare requests.
 
 ## Scope
 
@@ -55,7 +55,7 @@ Included:
 - Foundation primitives: `Expression`, `TimeScope`, `TimeGranularity`, `CompareType`, `AnalysisFailure`, `Hypothesis`
 - Atomic requests: `observe`, `compare`, `decompose`, `correlate`, `detect`, `test`, `forecast`
 - Derived requests: `validate`, `attribute`, `diagnose`
-- Artifact types: `scalar_observation`, `time_series_observation`, `segmented_observation`, `scalar_delta`, `time_series_delta`, `segmented_delta`, `delta_decomposition`, `anomaly_candidates`, `association_result`, `hypothesis_test_result`, `forecast_series`
+- Artifact types: `metric_frame`, `scalar_delta`, `time_series_delta`, `segmented_delta`, `delta_decomposition`, `anomaly_candidates`, `association_result`, `hypothesis_test_result`, `forecast_series`
 
 Excluded from v0.2:
 

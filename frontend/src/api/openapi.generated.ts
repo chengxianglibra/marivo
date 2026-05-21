@@ -3,6 +3,8 @@
  * Do not make direct changes to the file.
  */
 
+type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
+
 export interface paths {
     "/health": {
         parameters: {
@@ -116,6 +118,23 @@ export interface paths {
         };
         /** Get Session */
         get: operations["get_session_sessions__session_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{session_id}/trace": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Session Trace */
+        get: operations["get_session_trace_sessions__session_id__trace_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -248,6 +267,26 @@ export interface paths {
          *     runtime truth only; do not use it as a canonical evidence read surface.
          */
         get: operations["get_proposition_runtime_status_sessions__session_id__propositions__proposition_id__runtime_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{session_id}/artifacts/{artifact_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Artifact Payload
+         * @description Return the committed payload for a session-scoped artifact.
+         */
+        get: operations["get_artifact_payload_sessions__session_id__artifacts__artifact_id__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -699,14 +738,6 @@ export interface components {
              */
             examples?: string[] | null;
         };
-        /** MetricComponentRef */
-        MetricComponentRef: {
-            /**
-             * Metric
-             * @description Reference to a published semantic metric, e.g. 'metric.converted_users'
-             */
-            metric: string;
-        };
         /** AnalysisFailure */
         AnalysisFailure: {
             /** Code */
@@ -759,7 +790,7 @@ export interface components {
             /** Artifact Id */
             artifact_id: string;
             /** Result */
-            result: components["schemas"]["ScalarObservationResult"] | components["schemas"]["TimeSeriesObservationResult"] | components["schemas"]["SegmentedObservationResult"] | components["schemas"]["ScalarDeltaResult"] | components["schemas"]["TimeSeriesDeltaResult"] | components["schemas"]["SegmentedDeltaResult"] | components["schemas"]["DeltaDecompositionResult"] | components["schemas"]["AnomalyCandidatesResult"] | components["schemas"]["AssociationResult"] | components["schemas"]["HypothesisTestResult"] | components["schemas"]["ForecastSeriesResult"];
+            result: components["schemas"]["ScalarDeltaResult"] | components["schemas"]["TimeSeriesDeltaResult"] | components["schemas"]["SegmentedDeltaResult"] | components["schemas"]["DeltaDecompositionResult"] | components["schemas"]["AnomalyCandidatesResult"] | components["schemas"]["AssociationResult"] | components["schemas"]["HypothesisTestResult"] | components["schemas"]["ForecastSeriesResult"];
             failure?: components["schemas"]["AnalysisFailure"] | null;
         };
         /** Artifact2 */
@@ -767,7 +798,7 @@ export interface components {
             /** Artifact Id */
             artifact_id: string;
             /** Result */
-            result?: components["schemas"]["ScalarObservationResult"] | components["schemas"]["TimeSeriesObservationResult"] | components["schemas"]["SegmentedObservationResult"] | components["schemas"]["ScalarDeltaResult"] | components["schemas"]["TimeSeriesDeltaResult"] | components["schemas"]["SegmentedDeltaResult"] | components["schemas"]["DeltaDecompositionResult"] | components["schemas"]["AnomalyCandidatesResult"] | components["schemas"]["AssociationResult"] | components["schemas"]["HypothesisTestResult"] | components["schemas"]["ForecastSeriesResult"] | null;
+            result?: components["schemas"]["ScalarDeltaResult"] | components["schemas"]["TimeSeriesDeltaResult"] | components["schemas"]["SegmentedDeltaResult"] | components["schemas"]["DeltaDecompositionResult"] | components["schemas"]["AnomalyCandidatesResult"] | components["schemas"]["AssociationResult"] | components["schemas"]["HypothesisTestResult"] | components["schemas"]["ForecastSeriesResult"] | null;
             failure: components["schemas"]["AnalysisFailure"];
         };
         /** ArtifactExtractorKey */
@@ -778,6 +809,17 @@ export interface components {
             artifact_schema_version?: string | null;
             /** Extractor Version */
             extractor_version?: string | null;
+        };
+        /** ArtifactPayloadResponse */
+        ArtifactPayloadResponse: {
+            /** Session Id */
+            session_id: string;
+            /** Artifact Id */
+            artifact_id: string;
+            /** Result */
+            result: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
         };
         /** ArtifactRuntimeStatusResponse */
         ArtifactRuntimeStatusResponse: {
@@ -1116,9 +1158,9 @@ export interface components {
              * Format: date-time
              */
             bucket_start: string;
-            /** Left Value */
+            /** Current Value */
             current_value: number | null;
-            /** Right Value */
+            /** Baseline Value */
             baseline_value: number | null;
             /** Delta */
             delta: number | null;
@@ -1128,7 +1170,7 @@ export interface components {
             /** Bundle Type */
             bundle_type: string;
             /** Aoi Artifacts */
-            aoi_artifacts: (components["schemas"]["Artifact1"] | components["schemas"]["Artifact2"])[];
+            aoi_artifacts: (components["schemas"]["MetricFrameArtifact"] | components["schemas"]["Artifact1"] | components["schemas"]["Artifact2"])[];
         } & {
             [key: string]: unknown;
         };
@@ -1345,6 +1387,17 @@ export interface components {
             dialects: components["schemas"]["DialectExpression"][];
         };
         /**
+         * ExpressionComponent
+         * @description SQL expression for computing a decomposition component value directly, without referencing another metric.
+         */
+        ExpressionComponent: {
+            /**
+             * Expression
+             * @description SQL expression for computing the component value
+             */
+            expression: string;
+        };
+        /**
          * FieldModel
          * @description Row-level attribute for grouping, filtering, and metric expressions
          */
@@ -1373,9 +1426,9 @@ export interface components {
             ai_context?: string | components["schemas"]["AIContext1"] | null;
             /**
              * Custom Extensions
-             * @description No MARIVO custom extensions are defined for fields.
+             * @description MARIVO field custom extension payload. Required for time fields; not allowed for non-time fields.
              */
-            custom_extensions?: unknown[] | null;
+            custom_extensions?: components["schemas"]["MarivoFieldCustomExtension"][] | null;
         };
         /** Forecast */
         Forecast: {
@@ -1443,8 +1496,8 @@ export interface components {
             assumption_notes: string[];
         };
         /** JsonValue */
-        JsonValue: string | number | boolean | null | unknown[] | {
-            [key: string]: unknown;
+        JsonValue: string | number | boolean | null | JsonValue[] | {
+            [key: string]: JsonValue;
         };
         /**
          * MarivoDatasetCustomExtension
@@ -1470,6 +1523,46 @@ export interface components {
             datasource_id: string;
         };
         /**
+         * MarivoFieldCustomExtension
+         * @description MARIVO custom extension for Field.
+         */
+        MarivoFieldCustomExtension: {
+            /**
+             * Vendor Name
+             * @constant
+             */
+            vendor_name: "MARIVO";
+            data: components["schemas"]["MarivoFieldExtension"];
+        };
+        /**
+         * MarivoFieldExtension
+         * @description MARIVO extension payload for Field.
+         */
+        MarivoFieldExtension: {
+            /**
+             * Support Min Granularity
+             * @description Finest time granularity supported by this time field. Requests must use this granularity or a coarser one.
+             * @enum {string}
+             */
+            support_min_granularity: "hour" | "day" | "week" | "month" | "quarter" | "year";
+            /**
+             * Data Type
+             * @description Physical SQL data type of this time field column. Required for all time fields. Marivo uses this to determine how to generate time predicates and analysis expressions.
+             * @enum {string}
+             */
+            data_type: "date" | "timestamp" | "string" | "integer";
+            /**
+             * Format
+             * @description Temporal format pattern for string-type and integer-type time fields. Required when data_type is 'string' or 'integer'. Examples: 'yyyymmdd', 'yyyy-mm-dd', 'yyyymmddhh', 'hh', 'epoch_seconds'. Optional for date/timestamp types.
+             */
+            format?: string | null;
+            /**
+             * Required Prefix
+             * @description Field name of the date-format time field that provides date context for this hour-only field. Required when format is 'hh' or 'h'. Must reference a time field on the same dataset. Not allowed on fields with complete date or timestamp formats.
+             */
+            required_prefix?: string | null;
+        };
+        /**
          * MarivoMetricCustomExtension
          * @description MARIVO custom extension for Metric.
          */
@@ -1487,27 +1580,15 @@ export interface components {
          */
         MarivoMetricExtension: {
             /**
-             * Aggregation Semantics
-             * @description Aggregation semantics of the metric. Determines inferential summary mode, statistical test method, and which analysis intents are supported. Decision rule: (1) 'sum' if the metric measures an additive quantity — values sum across groups (e.g. revenue, latency, duration, inventory balance) — uses Welch's t-test and expects reconcileable delta decomposition. (2) 'ratio' if the metric is a proportion or binary-outcome rate (e.g. conversion rate, click-through rate, signup rate) — uses two-proportion z-test. (3) 'weighted_average' if the metric is a ratio of two additive sums, i.e. numerator SUM / denominator COUNT (e.g. AOV = SUM(revenue)/COUNT(orders), avg_latency) — uses delta method / weighted-average decomposition, delta is NOT expected to reconcile.
-             * @default sum
-             * @enum {string}
+             * Decomposition Semantics
+             * @description Discriminated union of decomposition semantics. Determines decomposition strategy, not SQL aggregation. sum: additive quantity, delta_share decomposition. ratio: proportion/rate, ratio decomposition. weighted_average: ratio-of-sums, within/mix decomposition.
+             * @default {
+             *       "type": "sum"
+             *     }
              */
-            decomposition_semantics: "sum" | "ratio" | "weighted_average";
-            /**
-             * Numerator
-             * @description Required for ratio and weighted_average metrics. For ratio: the top of the fraction. For weighted_average: the value being weighted.
-             */
-            numerator?: components["schemas"]["MetricComponentRef"] | null;
-            /**
-             * Denominator
-             * @description Required for ratio metrics. The bottom of the fraction. Must not be defined for weighted_average.
-             */
-            denominator?: components["schemas"]["MetricComponentRef"] | null;
-            /**
-             * Weight
-             * @description Required for weighted_average metrics. The weight applied to each segment. Must not be defined for ratio.
-             */
-            weight?: components["schemas"]["MetricComponentRef"] | null;
+            decomposition_semantics: components["schemas"]["SumDecomposition"] | components["schemas"]["RatioDecomposition"] | components["schemas"]["WeightedAverageDecomposition"];
+        } & {
+            [key: string]: unknown;
         };
         /**
          * Metric
@@ -1519,6 +1600,7 @@ export interface components {
              * @description Unique identifier for the metric
              */
             name: string;
+            /** @description Aggregate expression that produces the metric value when grouped by decomposition dimensions. Must include aggregate functions (e.g., SUM(col), CAST(SUM(...) AS DOUBLE) / CAST(SUM(...) AS DOUBLE)). Row-level expressions without aggregates will produce incorrect SQL. */
             expression: components["schemas"]["Expression-Output"];
             /**
              * Description
@@ -1533,8 +1615,131 @@ export interface components {
             /** Custom Extensions */
             custom_extensions?: components["schemas"]["MarivoMetricCustomExtension"][] | null;
         };
-        /** Observe1 */
-        Observe1: {
+        /**
+         * MetricComponentRef
+         * @description Structured reference to a semantic metric for decomposition component definitions.
+         */
+        MetricComponentRef: {
+            /**
+             * Metric
+             * @description Reference to a published semantic metric, e.g. 'metric.converted_users'
+             */
+            metric: string;
+        };
+        /** MetricFrameArtifact */
+        MetricFrameArtifact: {
+            /** Artifact Id */
+            artifact_id: string;
+            /**
+             * Artifact Family
+             * @constant
+             */
+            artifact_family: "metric_frame";
+            /**
+             * Shape
+             * @enum {string}
+             */
+            shape: "scalar" | "time_series" | "segmented" | "panel";
+            subject: components["schemas"]["MetricFrameSubject"];
+            /** Axes */
+            axes: (components["schemas"]["MetricFrameAxis1"] | components["schemas"]["MetricFrameAxis2"])[];
+            /** Measures */
+            measures: components["schemas"]["MetricFrameMeasure"][];
+            payload: components["schemas"]["MetricFramePayload"];
+        };
+        /** MetricFrameAxis1 */
+        MetricFrameAxis1: {
+            /**
+             * Kind
+             * @constant
+             */
+            kind: "time";
+            /**
+             * Grain
+             * @enum {string}
+             */
+            grain: "hour" | "day" | "week" | "month" | "quarter" | "year";
+        };
+        /** MetricFrameAxis2 */
+        MetricFrameAxis2: {
+            /**
+             * Kind
+             * @constant
+             */
+            kind: "dimension";
+            /** Name */
+            name: string;
+        };
+        /** MetricFrameMeasure */
+        MetricFrameMeasure: {
+            /**
+             * Id
+             * @constant
+             */
+            id: "value";
+            /**
+             * Value Type
+             * @constant
+             */
+            value_type: "number";
+            /**
+             * Nullable
+             * @constant
+             */
+            nullable: true;
+            /** Unit */
+            unit?: string | null;
+        };
+        /** MetricFramePayload */
+        MetricFramePayload: {
+            /** Series */
+            series: components["schemas"]["MetricFrameSeries"][];
+        };
+        /** MetricFramePoint */
+        MetricFramePoint: {
+            window?: components["schemas"]["MetricFrameWindow"];
+            /** Value */
+            value: number | null;
+        };
+        /** MetricFrameSeries */
+        MetricFrameSeries: {
+            /** Keys */
+            keys: {
+                [key: string]: string | number | boolean | null;
+            };
+            /** Points */
+            points: components["schemas"]["MetricFramePoint"][];
+        };
+        /** MetricFrameSubject */
+        MetricFrameSubject: {
+            /**
+             * Kind
+             * @constant
+             */
+            kind: "metric";
+            /** Metric Ref */
+            metric_ref: string;
+            time_scope: components["schemas"]["TimeScope"];
+            /** Scope */
+            scope: {
+                [key: string]: string | number | boolean | null;
+            };
+        };
+        /** MetricFrameWindow */
+        MetricFrameWindow: {
+            /**
+             * Start
+             * Format: date-time
+             */
+            start: string;
+            /**
+             * End
+             * Format: date-time
+             */
+            end: string;
+        };
+        /** Observe */
+        Observe: {
             /** Metric */
             metric: string;
             time_scope: components["schemas"]["TimeScope"];
@@ -1546,34 +1751,6 @@ export interface components {
             granularity?: "hour" | "day" | "week" | "month" | "quarter" | "year";
             /** Dimensions */
             dimensions?: components["schemas"]["Dimension-Input"][];
-        };
-        /** Observe2 */
-        Observe2: {
-            /** Metric */
-            metric: string;
-            time_scope: components["schemas"]["TimeScope"];
-            filter?: components["schemas"]["Expression-Input"];
-            /**
-             * Granularity
-             * @enum {string}
-             */
-            granularity: "hour" | "day" | "week" | "month" | "quarter" | "year";
-            /** Dimensions */
-            dimensions?: components["schemas"]["Dimension-Input"][];
-        };
-        /** Observe3 */
-        Observe3: {
-            /** Metric */
-            metric: string;
-            time_scope: components["schemas"]["TimeScope"];
-            filter?: components["schemas"]["Expression-Input"];
-            /**
-             * Granularity
-             * @enum {string}
-             */
-            granularity?: "hour" | "day" | "week" | "month" | "quarter" | "year";
-            /** Dimensions */
-            dimensions: components["schemas"]["Dimension-Input"][];
         };
         /** ObserveResponse */
         ObserveResponse: {
@@ -1593,7 +1770,7 @@ export interface components {
                 [key: string]: unknown;
             } | null;
             /** Result */
-            result: components["schemas"]["_ObserveArtifact"] | components["schemas"]["_ObserveFailureArtifact"];
+            result: components["schemas"]["MetricFrameArtifact"] | components["schemas"]["_ObserveFailureArtifact"];
         };
         /**
          * OsiCoreMetadataSpecificationWithMarivoVendorExtensions
@@ -1701,6 +1878,27 @@ export interface components {
             last_failure_at?: string | null;
             /** Schema Version */
             schema_version: string;
+        };
+        /**
+         * RatioDecomposition
+         * @description Proportion/rate — uses ratio decomposition. Requires numerator and denominator component specs.
+         */
+        RatioDecomposition: {
+            /**
+             * Type
+             * @constant
+             */
+            type: "ratio";
+            /**
+             * Numerator
+             * @description Component specification: either a reference to an existing semantic metric or an inline SQL expression.
+             */
+            numerator: components["schemas"]["MetricComponentRef"] | components["schemas"]["ExpressionComponent"];
+            /**
+             * Denominator
+             * @description Component specification: either a reference to an existing semantic metric or an inline SQL expression.
+             */
+            denominator: components["schemas"]["MetricComponentRef"] | components["schemas"]["ExpressionComponent"];
         };
         /**
          * Relationship
@@ -1917,18 +2115,13 @@ export interface components {
         };
         /** ScalarDeltaResult */
         ScalarDeltaResult: {
-            /** Left Value */
+            /** Current Value */
             current_value: number | null;
-            /** Right Value */
+            /** Baseline Value */
             baseline_value: number | null;
             /** Delta */
             delta: number | null;
             matched_time_scope: components["schemas"]["TimeScope"] | null;
-        };
-        /** ScalarObservationResult */
-        ScalarObservationResult: {
-            /** Value */
-            value: number | null;
         };
         /** SegmentedDeltaResult */
         SegmentedDeltaResult: {
@@ -1944,28 +2137,12 @@ export interface components {
             keys: {
                 [key: string]: string;
             };
-            /** Left Value */
+            /** Current Value */
             current_value: number | null;
-            /** Right Value */
+            /** Baseline Value */
             baseline_value: number | null;
             /** Delta */
             delta: number | null;
-        };
-        /** SegmentedObservationResult */
-        SegmentedObservationResult: {
-            /** Rows */
-            rows: components["schemas"]["SegmentedObservationRow"][];
-        };
-        /** SegmentedObservationRow */
-        SegmentedObservationRow: {
-            /** Item Id */
-            item_id: string;
-            /** Keys */
-            keys: {
-                [key: string]: string;
-            };
-            /** Value */
-            value: number | null;
         };
         /**
          * SemanticModel
@@ -2190,6 +2367,61 @@ export interface components {
              */
             terminal_reason: string;
         };
+        /** SessionTraceStep */
+        SessionTraceStep: {
+            /** Step Id */
+            step_id: string;
+            /** Step Type */
+            step_type: string;
+            /** Created At */
+            created_at: string;
+            /** Summary */
+            summary?: string | null;
+            /** Artifact Id */
+            artifact_id?: string | null;
+            /** Output Summary */
+            output_summary?: {
+                [key: string]: components["schemas"]["JsonValue"];
+            } | null;
+            /** Provenance */
+            provenance?: {
+                [key: string]: components["schemas"]["JsonValue"];
+            } | null;
+            /** Semantic Metadata */
+            semantic_metadata?: {
+                [key: string]: components["schemas"]["JsonValue"];
+            } | null;
+            /** Warnings */
+            warnings: components["schemas"]["SessionTraceWarning"][];
+        };
+        /** SessionTraceView */
+        SessionTraceView: {
+            /** Session Id */
+            session_id: string;
+            /** Goal */
+            goal?: string | null;
+            /** Lifecycle Status */
+            lifecycle_status: string;
+            /** Created At */
+            created_at: string;
+            /** Updated At */
+            updated_at: string;
+            /** Steps */
+            steps: components["schemas"]["SessionTraceStep"][];
+            /** Artifact Ids */
+            artifact_ids: string[];
+            /** Schema Version */
+            schema_version: string;
+        };
+        /** SessionTraceWarning */
+        SessionTraceWarning: {
+            /** Code */
+            code: string;
+            /** Message */
+            message: string;
+            /** Field */
+            field?: string | null;
+        };
         /** Slice */
         Slice: {
             time_scope: components["schemas"]["TimeScope"];
@@ -2206,6 +2438,17 @@ export interface components {
             step_id: string;
             /** Step Type */
             step_type: string;
+        };
+        /**
+         * SumDecomposition
+         * @description Additive quantity — uses delta_share decomposition. Values sum across groups. No component refs needed.
+         */
+        SumDecomposition: {
+            /**
+             * Type
+             * @constant
+             */
+            type: "sum";
         };
         /** TablePreviewColumn */
         TablePreviewColumn: {
@@ -2247,6 +2490,11 @@ export interface components {
             metric: string;
             current: components["schemas"]["Slice"];
             baseline: components["schemas"]["Slice"];
+            /**
+             * Grain
+             * @enum {string}
+             */
+            grain: "hour" | "day" | "week" | "month" | "quarter" | "year";
             /**
              * Kind
              * @constant
@@ -2295,21 +2543,6 @@ export interface components {
             points: components["schemas"]["DeltaPoint"][];
             matched_time_scope: components["schemas"]["TimeScope"] | null;
         };
-        /** TimeSeriesObservationResult */
-        TimeSeriesObservationResult: {
-            /** Points */
-            points: components["schemas"]["TimeSeriesPoint"][];
-        };
-        /** TimeSeriesPoint */
-        TimeSeriesPoint: {
-            /**
-             * Bucket Start
-             * Format: date-time
-             */
-            bucket_start: string;
-            /** Value */
-            value: number | null;
-        };
         /** TrinoDatasourceConnection */
         TrinoDatasourceConnection: {
             /**
@@ -2349,6 +2582,11 @@ export interface components {
             metric: string;
             current: components["schemas"]["Slice"];
             baseline: components["schemas"]["Slice"];
+            /**
+             * Grain
+             * @enum {string}
+             */
+            grain: "hour" | "day" | "week" | "month" | "quarter" | "year";
             hypothesis: components["schemas"]["Hypothesis"];
         };
         /** ValidateResponse */
@@ -2383,6 +2621,27 @@ export interface components {
             ctx?: {
                 [key: string]: components["schemas"]["JsonValidationValue"];
             };
+        };
+        /**
+         * WeightedAverageDecomposition
+         * @description Ratio-of-sums — uses within/mix decomposition. Requires numerator and weight component specs.
+         */
+        WeightedAverageDecomposition: {
+            /**
+             * Type
+             * @constant
+             */
+            type: "weighted_average";
+            /**
+             * Numerator
+             * @description Component specification: either a reference to an existing semantic metric or an inline SQL expression.
+             */
+            numerator: components["schemas"]["MetricComponentRef"] | components["schemas"]["ExpressionComponent"];
+            /**
+             * Weight
+             * @description Component specification: either a reference to an existing semantic metric or an inline SQL expression.
+             */
+            weight: components["schemas"]["MetricComponentRef"] | components["schemas"]["ExpressionComponent"];
         };
         /** _CompareArtifact */
         _CompareArtifact: {
@@ -2456,20 +2715,12 @@ export interface components {
             result?: components["schemas"]["ForecastSeriesResult"] | null;
             failure: components["schemas"]["AnalysisFailure"];
         };
-        /** _ObserveArtifact */
-        _ObserveArtifact: {
-            /** Artifact Id */
-            artifact_id: string;
-            /** Result */
-            result: components["schemas"]["ScalarObservationResult"] | components["schemas"]["TimeSeriesObservationResult"] | components["schemas"]["SegmentedObservationResult"];
-            failure?: components["schemas"]["AnalysisFailure"] | null;
-        };
         /** _ObserveFailureArtifact */
         _ObserveFailureArtifact: {
             /** Artifact Id */
             artifact_id: string;
             /** Result */
-            result?: components["schemas"]["ScalarObservationResult"] | components["schemas"]["TimeSeriesObservationResult"] | components["schemas"]["SegmentedObservationResult"] | null;
+            result?: null;
             failure: components["schemas"]["AnalysisFailure"];
         };
         /** _TestArtifact */
@@ -2748,6 +2999,37 @@ export interface operations {
             };
         };
     };
+    get_session_trace_sessions__session_id__trace_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionTraceView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_session_runtime_status_sessions__session_id__runtime_status_get: {
         parameters: {
             query?: never;
@@ -2952,6 +3234,38 @@ export interface operations {
             };
         };
     };
+    get_artifact_payload_sessions__session_id__artifacts__artifact_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+                artifact_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtifactPayloadResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     intent_observe_sessions__session_id__intents_observe_post: {
         parameters: {
             query?: never;
@@ -2963,7 +3277,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["Observe1"] | components["schemas"]["Observe2"] | components["schemas"]["Observe3"];
+                "application/json": components["schemas"]["Observe"];
             };
         };
         responses: {
@@ -3269,7 +3583,9 @@ export interface operations {
     };
     intent_diagnose_sessions__session_id__intents_diagnose_post: {
         parameters: {
-            query?: never;
+            query?: {
+                include_details?: boolean;
+            };
             header?: never;
             path: {
                 session_id: string;

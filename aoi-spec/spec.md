@@ -215,7 +215,7 @@ The request contract is per-intent. Every atomic request is either **source-type
 
 | Intent      | Input mode      | Required inputs                                                                                                                            |
 | ----------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `observe`   | source          | `metric`, `time_scope`, `filter?`, `granularity?`, `dimensions?` (mutually exclusive mode selectors, see 4.1.2)                            |
+| `observe`   | source          | `metric`, `time_scope`, `filter?`, `granularity?`, `dimensions?` (optional selectors; both present produces a panel, see 4.1.2)              |
 | `detect`    | source          | `metric`, `time_scope`, `granularity: TimeGranularity`, `filter?`, `dimension?`, `strategy: "point_anomaly" \| "period_shift"`, `sensitivity?`, `limit?` |
 | `test`      | source (paired) | `metric`, `current: { time_scope, filter? }`, `baseline: { time_scope, filter? }`, `grain: TimeGranularity`, `kind: "numeric"`, `hypothesis: Hypothesis` |
 | `forecast`  | ref             | `source_artifact_id: string`, `horizon`                                                                             |
@@ -227,7 +227,7 @@ The request contract is per-intent. Every atomic request is either **source-type
 
 #### 4.1.2 `observe` output mode inference
 
-`observe` is the one intent whose output sub-type the caller picks explicitly. It does this with top-level mode selector fields instead of a nested `shape` wrapper:
+`observe` returns a successful top-level `metric_frame` artifact. The request uses optional top-level selector fields; the artifact `shape` is derived from which selectors are present:
 
 ```jsonc
 {
@@ -235,24 +235,26 @@ The request contract is per-intent. Every atomic request is either **source-type
   "time_scope": TimeScope,
   "filter": Expression, // optional; omit when there is no filter
 
-  // exactly one mode branch:
+  // shape selectors:
   // - scalar: omit both granularity and dimensions
   // - time_series: set granularity to a TimeGranularity
   // - segmented: set dimensions to a non-empty array
+  // - panel: set both granularity and dimensions
   "granularity": TimeGranularity,
   "dimensions": [string]  // when present, minItems: 1
 }
 ```
 
-Mapping to result shape:
+Mapping to metric frame shape:
 
-| Request selectors | Derived mode | Result schema |
+| Request selectors | Metric frame shape | Artifact contract |
 |-------------------|--------------|---------------|
-| no `granularity`, no `dimensions` | `scalar` | `scalar_observation_result` |
-| `granularity` present, no `dimensions` | `time_series` | `time_series_observation_result` |
-| no `granularity`, non-empty `dimensions` | `segmented` | `segmented_observation_result` |
+| no `granularity`, no `dimensions` | `scalar` | `metric_frame_artifact` |
+| `granularity` present, no `dimensions` | `time_series` | `metric_frame_artifact` |
+| no `granularity`, non-empty `dimensions` | `segmented` | `metric_frame_artifact` |
+| `granularity` present, non-empty `dimensions` | `panel` | `metric_frame_artifact` |
 
-Schema enforces the three branches with `oneOf`. `granularity` and `dimensions` are mutually exclusive; `dimensions: []` is invalid rather than a scalar alias. Optional request fields are omitted when unused; explicit `null` is not a valid AOI request value.
+`dimensions: []` is invalid rather than a scalar alias. Optional request fields are omitted when unused; explicit `null` is not a valid AOI request value.
 
 #### 4.1.3 Derived request namespace
 
@@ -272,7 +274,7 @@ Derived requests live under `$defs.derived_requests` so they do not blur the ato
 
 ### 4.2 Response (Artifact) Contract
 
-The response contract is also per-intent. Every artifact follows one uniform envelope:
+The response contract is also per-intent. Most artifacts follow one uniform envelope:
 
 ```jsonc
 {
@@ -284,20 +286,18 @@ The response contract is also per-intent. Every artifact follows one uniform env
 }
 ```
 
-**Result-vs-failure invariant**: every artifact has exactly one of `result` or `failure` populated. JSON Schema enforces this with `oneOf`. Successful artifacts carry only `result`; blocked artifacts carry only `failure`. There is no "succeeded with warnings" middle state.
+**Result-vs-failure invariant**: every envelope artifact has exactly one of `result` or `failure` populated. JSON Schema enforces this with `oneOf`. Successful envelope artifacts carry only `result`; blocked artifacts carry only `failure`. There is no "succeeded with warnings" middle state.
 
-The canonical schema defines one `Artifact` envelope. The `result` field is a union over artifact-specific result schemas, such as `ScalarObservationResult` or `TimeSeriesDeltaResult`; there are no separate concrete artifact wrapper schemas.
+Observe is the exception to the nested-result success shape: successful observe responses are top-level `MetricFrameArtifact` objects with `artifact_family: "metric_frame"`. Blocking failures still use the artifact failure envelope. For non-observe successes, the canonical schema defines one `Artifact` envelope whose `result` field is a union over artifact-specific result schemas, such as `TimeSeriesDeltaResult`.
 
 `artifact_id` is preserved on both success and failure artifacts. Producing-step identifiers such as Marivo's `step_id` may be stored in implementation-owned records outside the AOI artifact spec. Failed artifacts are still legitimate analysis events.
 
 #### 4.2.1 Result schema catalog
 
-Eleven result schemas, no extensibility in v0.2 (observe and compare each produce three result shapes):
+Nine result schemas plus the observe metric frame artifact, no extensibility in v0.2:
 
 ```
-scalar_observation_result
-time_series_observation_result
-segmented_observation_result
+metric_frame_artifact
 scalar_delta_result
 time_series_delta_result
 segmented_delta_result
@@ -310,24 +310,31 @@ forecast_series_result
 
 #### 4.2.2 Step identity
 
-Artifacts do not carry `step_id` or an embedded `subject` in AOI v0.2. The producing step remains the implementation-owned place for request metadata such as metric, filter expression, comparison mode, source artifact IDs, or hypothesis settings. This keeps artifact payloads focused on analytical output and avoids duplicating step information.
+Artifacts do not carry `step_id` in AOI v0.2. Observe metric frames carry a `subject` describing the observed metric and time scope; other artifact result bodies keep request metadata in the producing step. This keeps non-observe artifact payloads focused on analytical output and avoids duplicating step information.
 
 #### 4.2.3 Result-body specifications
 
-Result bodies are minimal: only analytical output, with no request or step metadata repeated. `DimensionKeyMap` is `Record<string, string>` and is used for segmented row keys and split-series keys.
+Non-observe result bodies are minimal: only analytical output, with no request or step metadata repeated. `DimensionKeyMap` is `Record<string, string>` and is used for segmented row keys and split-series keys. Observe metric frames use `axes`, `measures`, and `payload.series` to represent scalar, time-series, segmented, and panel outputs under one artifact contract.
 
 ```jsonc
-// scalar_observation_result
-result: { "value": number | null }
-
-// time_series_observation_result
-result: { "points": [ { "bucket_start": "ISO8601",
-                        "value": number | null } ] }
-
-// segmented_observation_result
-result: { "rows": [ { "item_id": string,
-                      "keys": DimensionKeyMap,
-                      "value": number | null } ] }
+// metric_frame_artifact
+artifact: { "artifact_id": string,
+            "artifact_family": "metric_frame",
+            "shape": "scalar" | "time_series" | "segmented" | "panel",
+            "subject": { "kind": "metric",
+                         "metric_ref": string,
+                         "time_scope": TimeScope,
+                         "scope": object },
+            "axes": [ { "kind": "time", "grain": TimeGranularity } |
+                      { "kind": "dimension", "name": string } ],
+            "measures": [ { "id": "value",
+                            "value_type": "number",
+                            "nullable": true,
+                            "unit": string | null } ],
+            "payload": { "series": [ { "keys": object,
+                                        "points": [ { "window": { "start": "ISO8601",
+                                                                   "end": "ISO8601" },
+                                                      "value": number | null } ] } ] } }
 
 // scalar_delta_result
 result: { "current_value": number | null,
@@ -680,10 +687,10 @@ Section 5 explains why implementation-private metadata stays outside AOI v0.2. T
 
 | Current | AOI v0.2 |
 |---------|----------|
-| `observe.result_mode: standard \| numeric_sample_summary \| rate_sample_summary` overloads observe with five output sub-types | `observe` now derives only three sub-types (`scalar` / `time_series` / `segmented`) from `granularity` / `dimensions` / neither. Sample-summary statistics are not produced by observe; they are computed inside `test`. |
+| `observe.result_mode: standard \| numeric_sample_summary \| rate_sample_summary` overloads observe with five output variants | `observe` now returns one top-level `metric_frame` artifact whose `shape` is `scalar`, `time_series`, `segmented`, or `panel`, derived from whether `granularity` and `dimensions` are present. Sample-summary statistics are not produced by observe; they are computed inside `test`. |
 | `numeric_sample_summary` and `rate_sample_summary` result schemas | **Removed from result schema catalog.** These are no longer wire artifacts — they were only ever consumed by `test`, so the sample-summary computation is folded into `test`'s implementation. |
 | `test` was a ref-type intent consuming sample-summary observations | **`test` is now source-type with paired slice spec.** It takes `metric`, `left: { time_scope, filter }`, `right: { time_scope, filter }`, `kind`, `hypothesis` directly and computes summaries internally. |
-| `Observation` discriminator with five sub-types | Three sub-types only (`scalar` / `time_series` / `segmented`). `Observation` is no longer a foundations primitive — per-result bodies are defined directly in Section 4.2.3. |
+| `Observation` discriminator with five sub-types | Replaced by the `metric_frame` artifact with four shapes (`scalar` / `time_series` / `segmented` / `panel`). `Observation` is no longer a foundations primitive — observe returns the top-level artifact defined in Section 4.2.3. |
 | `observe.observation_type: forecast_series` (forecast piggybacks on observe namespace) | **Removed**: forecast output uses the `forecast_series_result` result schema, not in `Observation`. |
 
 ### 8.9 Single-value literal removals
@@ -709,7 +716,7 @@ Section 5 explains why implementation-private metadata stays outside AOI v0.2. T
 | Distinct artifact reference shapes | 5+ | 1 (`artifact_id`) | -80% |
 | Top-level intent surface | 7 atomic + 3 derived | 7 atomic + validate + attribute + diagnose derived requests | 0% |
 | Result schema catalog | 13 (incl. numeric/rate sample summaries) | 11 (sample summaries folded into `test`) | -15% |
-| Observation sub-types | 5 | 3 (scalar / time_series / segmented; sample summaries removed) | -40% |
+| Observe result shape variants | 5 | 4 `metric_frame` shapes (scalar / time_series / segmented / panel; sample summaries removed) | -20% |
 | Result-body fields duplicating request | metric / time_scope / filter / unit / direction / presence echoed in every observation and delta artifact | 0 (request and response contracts separated; implementation resolves producing-step context outside the artifact body) | full lift |
 | Calendar / additivity fields in atomic core | dozens, inline | `compare_type` promoted to core; detailed calendar/additivity metadata removed from v0.2 artifacts | focused lift |
 | Validation envelopes (`Gate`, `Status`, `Truncation`, `Provenance`) | 4 multi-field structures, every artifact | 1 (`AnalysisFailure`, optional, mutually exclusive with `result`) | -75% structural, plus most artifacts no longer carry it |
@@ -754,6 +761,6 @@ foundation primitives package
 + 3 derived requests (validate, attribute, diagnose)
 ```
 
-That is the entire standard. No derived requests beyond `validate`, `attribute`, and `diagnose`, no composition recipes, no transport binding, no governance ceremony, no private metadata envelope, no per-artifact provenance, no truncation envelope, no artifact status vocabulary, no Direction or Presence enum, no unit echo. Consolidation against current Marivo schemas eliminates all 11 version fields from AOI artifacts, all artifact status keywords (replaced by a result-vs-failure invariant), all derived enums whose values can be computed from data (`Direction`, `Presence`), and the four heavy validation envelopes (`Gate`, `Status`, `Truncation`, `Provenance` collapse into a single optional `AnalysisFailure`). `observe` derives its output type from mutually exclusive top-level selectors: `granularity`, `dimensions`, or neither. Comparison mode is core via `compare_type`; detailed calendar/additivity audit metadata stays out of AOI artifacts, and blocked-execution diagnostics use `failure.message`. Filter expressions reuse OSI's multi-dialect `Expression` shape directly.
+That is the entire standard. No derived requests beyond `validate`, `attribute`, and `diagnose`, no composition recipes, no transport binding, no governance ceremony, no private metadata envelope, no per-artifact provenance, no truncation envelope, no artifact status vocabulary, no Direction or Presence enum, no unit echo. Consolidation against current Marivo schemas eliminates all 11 version fields from AOI artifacts, all artifact status keywords (replaced by a result-vs-failure invariant), all derived enums whose values can be computed from data (`Direction`, `Presence`), and the four heavy validation envelopes (`Gate`, `Status`, `Truncation`, `Provenance` collapse into a single optional `AnalysisFailure`). `observe` returns a top-level `metric_frame` artifact whose shape is derived from optional top-level selectors: neither selector produces `scalar`, `granularity` alone produces `time_series`, `dimensions` alone produces `segmented`, and both together produce `panel`. Comparison mode is core via `compare_type`; detailed calendar/additivity audit metadata stays out of AOI artifacts, and blocked-execution diagnostics use `failure.message`. Filter expressions reuse OSI's multi-dialect `Expression` shape directly.
 
 The result is a small, consolidated, defensible v0.2 that can be published independently of any implementation refactor.

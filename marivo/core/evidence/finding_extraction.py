@@ -270,7 +270,7 @@ def _make_provenance(
     step_ref: dict[str, Any],
     extractor_name: str,
     extractor_version: str,
-    artifact_schema_version: str,
+    artifact_schema_version: str | None,
     canonical_item_key: str,
     item_ref: dict[str, Any],
 ) -> dict[str, Any]:
@@ -326,34 +326,104 @@ def extract_observe_findings(
     payload: dict[str, Any],
     step_ref: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    """Extract observation findings from an observation artifact payload.
+    """Extract observation findings from a metric_frame artifact payload.
 
-    Pure computation: maps the ``observation_type`` variants to finding
-    dicts.  Returns an empty list for empty time_series / segmented artifacts.
+    Pure computation: maps the public ``metric_frame.shape`` variants to
+    finding dicts.  Returns an empty list for sparse/empty series where no
+    stable item identity can be derived.
     """
-    obs_type: str = payload.get("observation_type") or ""
+    if payload.get("artifact_family") != "metric_frame":
+        raise ValueError(
+            "Observe extraction requires artifact_family='metric_frame'. "
+            f"Got {payload.get('artifact_family')!r}."
+        )
 
-    if obs_type == "scalar":
-        return _extract_observe_scalar(artifact_id, payload, step_ref)
-    elif obs_type == "time_series":
-        return _extract_observe_time_series(artifact_id, payload, step_ref)
-    elif obs_type == "segmented":
-        return _extract_observe_segmented(artifact_id, payload, step_ref)
+    shape: str = payload.get("shape") or ""
+    if shape == "scalar":
+        return _extract_metric_frame_scalar(artifact_id, payload, step_ref)
+    elif shape == "time_series":
+        return _extract_metric_frame_time_series(artifact_id, payload, step_ref)
+    elif shape == "segmented":
+        return _extract_metric_frame_segmented(artifact_id, payload, step_ref)
+    elif shape == "panel":
+        return _extract_metric_frame_panel(artifact_id, payload, step_ref)
     else:
         raise ValueError(
-            f"Unknown observation_type={obs_type!r}. "
-            "Expected one of: scalar, time_series, segmented."
+            f"Unknown metric_frame shape={shape!r}. "
+            "Expected one of: scalar, time_series, segmented, panel."
         )
 
 
-def _extract_observe_scalar(
+def _metric_frame_subject(payload: dict[str, Any]) -> dict[str, Any]:
+    subject = payload.get("subject")
+    return subject if isinstance(subject, dict) else {}
+
+
+def _metric_frame_series(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    frame_payload = payload.get("payload")
+    if not isinstance(frame_payload, dict):
+        return []
+    series = frame_payload.get("series")
+    return series if isinstance(series, list) else []
+
+
+def _metric_frame_unit(payload: dict[str, Any]) -> str | None:
+    measures = payload.get("measures")
+    if not isinstance(measures, list) or not measures:
+        return None
+    first_measure = measures[0]
+    if not isinstance(first_measure, dict):
+        return None
+    unit = first_measure.get("unit")
+    return str(unit) if unit is not None else None
+
+
+def _metric_frame_time_grain(payload: dict[str, Any]) -> str | None:
+    axes = payload.get("axes")
+    if not isinstance(axes, list):
+        return None
+    for axis in axes:
+        if isinstance(axis, dict) and axis.get("kind") == "time":
+            grain = axis.get("grain")
+            return grain if grain in {"hour", "day", "week", "month"} else None
+    return None
+
+
+def _stable_bucket_key(window: dict[str, Any]) -> str:
+    return f"{window.get('start', '')}/{window.get('end', '')}"
+
+
+def _stable_keys(keys: dict[str, Any]) -> str:
+    return segment_stable_key(keys)
+
+
+def _metric_frame_provenance(
+    *,
+    step_ref: dict[str, Any],
+    canonical_item_key: str,
+    item_ref: dict[str, Any],
+) -> dict[str, Any]:
+    return _make_provenance(
+        step_ref=step_ref,
+        extractor_name="observe_metric_frame_v1",
+        extractor_version="1.0.0",
+        artifact_schema_version=None,
+        canonical_item_key=canonical_item_key,
+        item_ref=item_ref,
+    )
+
+
+def _extract_metric_frame_scalar(
     artifact_id: str,
     payload: dict[str, Any],
     step_ref: dict[str, Any],
 ) -> list[dict[str, Any]]:
     canonical_item_key, item_ref = make_item_identity("value")
     finding_id = make_finding_id(artifact_id, "observation", canonical_item_key)
-    am = payload.get("analytical_metadata") or {}
+    subject = _metric_frame_subject(payload)
+    series = _metric_frame_series(payload)
+    points = series[0].get("points") if series else []
+    point = points[0] if isinstance(points, list) and points else {}
 
     return [
         _build_finding(
@@ -362,111 +432,116 @@ def _extract_observe_scalar(
             artifact_id=artifact_id,
             step_ref=step_ref,
             subject={
-                "metric": payload.get("metric"),
+                "metric": subject.get("metric_ref"),
                 "entity": None,
-                "slice": payload.get("scope") or {},
+                "slice": subject.get("scope") or {},
                 "grain": None,
                 "analysis_axis": "scalar",
             },
-            observed_window=payload.get("time_scope"),
-            quality=_quality_from_am(am),
-            provenance=_make_provenance(
+            observed_window=subject.get("time_scope"),
+            quality=_empty_quality(),
+            provenance=_metric_frame_provenance(
                 step_ref=step_ref,
-                extractor_name="observe_artifact_v1",
-                extractor_version="1.0.0",
-                artifact_schema_version="v1",
                 canonical_item_key=canonical_item_key,
                 item_ref=item_ref,
             ),
             payload={
                 "observation_kind": "scalar",
-                "value": to_float_or_none(payload.get("value")),
-                "unit": payload.get("unit"),
+                "value": to_float_or_none(point.get("value")) if isinstance(point, dict) else None,
+                "unit": _metric_frame_unit(payload),
             },
         )
     ]
 
 
-def _extract_observe_time_series(
+def _extract_metric_frame_time_series(
     artifact_id: str,
     payload: dict[str, Any],
     step_ref: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    series: list[dict[str, Any]] = payload.get("series") or []
+    series = _metric_frame_series(payload)
     if not series:
         return []
 
-    grain_raw = payload.get("granularity")
-    grain = grain_raw if grain_raw in {"hour", "day", "week", "month"} else None
-    unit = payload.get("unit")
-    metric = payload.get("metric")
-    scope = payload.get("scope") or {}
-    am = payload.get("analytical_metadata") or {}
-    quality = _quality_from_am(am)
-    time_field = _time_scope_field(payload.get("time_scope"))
+    subject = _metric_frame_subject(payload)
+    grain = _metric_frame_time_grain(payload)
+    unit = _metric_frame_unit(payload)
+    time_field = _time_scope_field(subject.get("time_scope"))
 
     findings: list[dict[str, Any]] = []
-    for bucket in series:
-        window = bucket.get("window") or {}
-        bucket_start: str = str(window.get("start", ""))
-        bucket_end: str = str(window.get("end", ""))
-        stable_key = f"{bucket_start}/{bucket_end}"
+    for frame_series in series:
+        points = frame_series.get("points") if isinstance(frame_series, dict) else []
+        if not isinstance(points, list):
+            continue
+        for point in points:
+            if not isinstance(point, dict):
+                continue
+            window = point.get("window")
+            if not isinstance(window, dict):
+                continue
+            bucket_start = str(window.get("start", ""))
+            bucket_end = str(window.get("end", ""))
+            stable_key = _stable_bucket_key(window)
 
-        canonical_item_key, item_ref = make_item_identity("buckets", key=stable_key)
-        finding_id = make_finding_id(artifact_id, "observation", canonical_item_key)
+            canonical_item_key, item_ref = make_item_identity("buckets", key=stable_key)
+            finding_id = make_finding_id(artifact_id, "observation", canonical_item_key)
 
-        findings.append(
-            _build_finding(
-                finding_id=finding_id,
-                finding_type="observation",
-                artifact_id=artifact_id,
-                step_ref=step_ref,
-                subject={
-                    "metric": metric,
-                    "entity": None,
-                    "slice": scope,
-                    "grain": grain,
-                    "analysis_axis": "time",
-                },
-                observed_window=_time_window(bucket_start, bucket_end, field=time_field),
-                quality=quality,
-                provenance=_make_provenance(
+            findings.append(
+                _build_finding(
+                    finding_id=finding_id,
+                    finding_type="observation",
+                    artifact_id=artifact_id,
                     step_ref=step_ref,
-                    extractor_name="observe_artifact_v1",
-                    extractor_version="1.0.0",
-                    artifact_schema_version="v1",
-                    canonical_item_key=canonical_item_key,
-                    item_ref=item_ref,
-                ),
-                payload={
-                    "observation_kind": "time_bucket",
-                    "bucket_start": bucket_start,
-                    "bucket_end": bucket_end,
-                    "value": to_float_or_none(bucket.get("value")),
-                    "unit": unit,
-                },
+                    subject={
+                        "metric": subject.get("metric_ref"),
+                        "entity": None,
+                        "slice": subject.get("scope") or {},
+                        "grain": grain,
+                        "analysis_axis": "time",
+                    },
+                    observed_window=_time_window(bucket_start, bucket_end, field=time_field),
+                    quality=_empty_quality(),
+                    provenance=_metric_frame_provenance(
+                        step_ref=step_ref,
+                        canonical_item_key=canonical_item_key,
+                        item_ref=item_ref,
+                    ),
+                    payload={
+                        "observation_kind": "time_bucket",
+                        "bucket_start": bucket_start,
+                        "bucket_end": bucket_end,
+                        "value": to_float_or_none(point.get("value")),
+                        "unit": unit,
+                    },
+                )
             )
-        )
     return findings
 
 
-def _extract_observe_segmented(
+def _extract_metric_frame_segmented(
     artifact_id: str,
     payload: dict[str, Any],
     step_ref: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    segments: list[dict[str, Any]] = payload.get("segments") or []
-    if not segments:
+    series = _metric_frame_series(payload)
+    if not series:
         return []
 
-    unit = payload.get("unit")
-    metric = payload.get("metric")
-    time_scope = payload.get("time_scope")
+    unit = _metric_frame_unit(payload)
+    subject = _metric_frame_subject(payload)
+    base_slice = subject.get("scope") or {}
 
     findings: list[dict[str, Any]] = []
-    for seg in segments:
-        keys: dict[str, Any] = seg.get("keys") or {}
-        stable_key = segment_stable_key(keys)
+    for frame_series in series:
+        if not isinstance(frame_series, dict):
+            continue
+        keys = frame_series.get("keys") or {}
+        keys = keys if isinstance(keys, dict) else {}
+        points = frame_series.get("points")
+        point = points[0] if isinstance(points, list) and points else None
+        if not isinstance(point, dict):
+            continue
+        stable_key = _stable_keys(keys)
 
         canonical_item_key, item_ref = make_item_identity("rows", key=stable_key)
         finding_id = make_finding_id(artifact_id, "observation", canonical_item_key)
@@ -478,31 +553,99 @@ def _extract_observe_segmented(
                 artifact_id=artifact_id,
                 step_ref=step_ref,
                 subject={
-                    "metric": metric,
+                    "metric": subject.get("metric_ref"),
                     "entity": None,
-                    "slice": dict(keys),
+                    "slice": {**dict(base_slice), **dict(keys)},
                     "grain": None,
                     "analysis_axis": "segment",
                 },
-                observed_window=time_scope,
+                observed_window=subject.get("time_scope"),
                 quality=_empty_quality(),
-                provenance=_make_provenance(
+                provenance=_metric_frame_provenance(
                     step_ref=step_ref,
-                    extractor_name="observe_artifact_v1",
-                    extractor_version="1.0.0",
-                    artifact_schema_version="v1",
                     canonical_item_key=canonical_item_key,
                     item_ref=item_ref,
                 ),
                 payload={
                     "observation_kind": "segment",
                     "keys": dict(keys),
-                    "value": to_float_or_none(seg.get("value")),
+                    "value": to_float_or_none(point.get("value")),
                     "unit": unit,
                     "rank": None,
                 },
             )
         )
+    return findings
+
+
+def _extract_metric_frame_panel(
+    artifact_id: str,
+    payload: dict[str, Any],
+    step_ref: dict[str, Any],
+) -> list[dict[str, Any]]:
+    series = _metric_frame_series(payload)
+    if not series:
+        return []
+
+    unit = _metric_frame_unit(payload)
+    subject = _metric_frame_subject(payload)
+    base_slice = subject.get("scope") or {}
+    grain = _metric_frame_time_grain(payload)
+    time_field = _time_scope_field(subject.get("time_scope"))
+
+    findings: list[dict[str, Any]] = []
+    for frame_series in series:
+        if not isinstance(frame_series, dict):
+            continue
+        keys = frame_series.get("keys") or {}
+        keys = keys if isinstance(keys, dict) else {}
+        points = frame_series.get("points")
+        if not isinstance(points, list):
+            continue
+        segment_key = _stable_keys(keys)
+        for point in points:
+            if not isinstance(point, dict):
+                continue
+            window = point.get("window")
+            if not isinstance(window, dict):
+                continue
+            bucket_start = str(window.get("start", ""))
+            bucket_end = str(window.get("end", ""))
+            bucket_key = _stable_bucket_key(window)
+            stable_key = f"{segment_key}|{bucket_key}" if segment_key else bucket_key
+
+            canonical_item_key, item_ref = make_item_identity("buckets", key=stable_key)
+            finding_id = make_finding_id(artifact_id, "observation", canonical_item_key)
+
+            findings.append(
+                _build_finding(
+                    finding_id=finding_id,
+                    finding_type="observation",
+                    artifact_id=artifact_id,
+                    step_ref=step_ref,
+                    subject={
+                        "metric": subject.get("metric_ref"),
+                        "entity": None,
+                        "slice": {**dict(base_slice), **dict(keys)},
+                        "grain": grain,
+                        "analysis_axis": "time",
+                    },
+                    observed_window=_time_window(bucket_start, bucket_end, field=time_field),
+                    quality=_empty_quality(),
+                    provenance=_metric_frame_provenance(
+                        step_ref=step_ref,
+                        canonical_item_key=canonical_item_key,
+                        item_ref=item_ref,
+                    ),
+                    payload={
+                        "observation_kind": "time_bucket",
+                        "bucket_start": bucket_start,
+                        "bucket_end": bucket_end,
+                        "value": to_float_or_none(point.get("value")),
+                        "unit": unit,
+                    },
+                )
+            )
     return findings
 
 

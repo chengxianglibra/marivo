@@ -82,14 +82,14 @@ type ObservationArtifactRef = {
   session_id: string;
   step_id: string;
   artifact_id: string;
-  observation_type: "time_series";
+  shape: "time_series";
 };
 ```
 
 引用约束：
 
-- `source_artifact_id` 必须指向已完成步骤产出的 canonical `observe` artifact
-- `observation_type` 在 v1 中必须是 `time_series`
+- `source_artifact_id` 必须指向已完成步骤产出的 canonical `observe` `metric_frame` artifact
+- `metric_frame.shape` 在 v1 中必须是 `time_series`
 - 不允许 projection ref 充当 canonical source ref
 - v1 不允许跨 session ref
 - v1 允许引用同 session 内的历史已完成 artifact
@@ -119,7 +119,7 @@ type ObservationArtifactRef = {
   session_id: string;
   step_id: string;
   artifact_id: string;
-  observation_type: "time_series";
+  shape: "time_series";
 };
 
 ```
@@ -128,7 +128,7 @@ type ObservationArtifactRef = {
 
 v1 支持的输入形态如下：
 
-- `source_artifact_id` 必须解析到同 session 内已完成的 `observe`，且 `observation_type = "time_series"`
+- `source_artifact_id` 必须解析到同 session 内已完成的 `observe`，且 `metric_frame.shape = "time_series"`
 - source observation 不得是 segmented
 - source series 必须使用规则、受支持的 `granularity`
 - v1 支持 `{"hour", "day", "week", "month"}`

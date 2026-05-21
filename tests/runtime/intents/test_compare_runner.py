@@ -9,6 +9,7 @@ from tests.runtime.intents._runner_fixtures import (
     _FAKE_ARTIFACT_ID,
     _SESSION,
     _FakeCalendarDataReader,
+    _panel_observation_v2,
     _scalar_observation_v2,
     _segmented_observation_v2,
     _time_series_observation_v2,
@@ -52,6 +53,10 @@ def _run_compare(
     from marivo.runtime.intents.compare import run_compare_intent
 
     return run_compare_intent(runtime, _SESSION, params or _compare_params())
+
+
+def _set_metric_frame_time_scope(artifact: dict[str, Any], time_scope: dict[str, Any]) -> None:
+    artifact["subject"]["time_scope"] = time_scope
 
 
 def test_compare_calls_commit_artifact_with_extraction() -> None:
@@ -363,6 +368,70 @@ def test_compare_segmented_log_hour_commits_segmented_delta() -> None:
     }
 
 
+def test_compare_panel_metric_frame_is_explicitly_unsupported() -> None:
+    runtime = _make_runtime(_panel_observation_v2("m1"), _panel_observation_v2("m1"))
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            "compare: UNSUPPORTED_OPERATION - panel metric_frame comparison is not supported yet"
+        ),
+    ):
+        _run_compare(runtime)
+
+    runtime.commit_artifact_with_extraction.assert_not_called()
+
+
+def test_compare_rejects_legacy_observation_artifacts_without_commit() -> None:
+    legacy_artifact = {
+        "artifact_id": "art_legacy_obs",
+        "observation_type": "time_series",
+        "metric": "m1",
+        "series": [{"window": {"start": "2024-01-01", "end": "2024-01-02"}, "value": 10.0}],
+    }
+    runtime = _make_runtime(legacy_artifact, _time_series_observation_v2("m1"))
+
+    with pytest.raises(
+        ValueError,
+        match="current artifact must be metric_frame with top-level artifact_family='metric_frame'",
+    ):
+        _run_compare(runtime)
+
+    runtime.commit_artifact_with_extraction.assert_not_called()
+
+
+def test_compare_panel_shape_rejects_as_unsupported_even_with_malformed_axes() -> None:
+    left = _panel_observation_v2("m1")
+    right = _panel_observation_v2("m1")
+    left["axes"] = [{"kind": "dimension"}]
+    right["axes"] = []
+    runtime = _make_runtime(left, right)
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            "compare: UNSUPPORTED_OPERATION - panel metric_frame comparison is not supported yet"
+        ),
+    ):
+        _run_compare(runtime)
+
+    runtime.commit_artifact_with_extraction.assert_not_called()
+
+
+def test_compare_rejects_shape_axes_invariant_violation_without_commit() -> None:
+    current = _time_series_observation_v2("m1")
+    current["axes"] = []
+    runtime = _make_runtime(current, _time_series_observation_v2("m1"))
+
+    with pytest.raises(
+        ValueError,
+        match="time_series metric_frame requires one time axis with grain",
+    ):
+        _run_compare(runtime)
+
+    runtime.commit_artifact_with_extraction.assert_not_called()
+
+
 def test_compare_segmented_dimension_mismatch_is_not_comparable() -> None:
     left = _segmented_observation_v2("m1")
     right = _segmented_observation_v2(
@@ -391,7 +460,9 @@ def test_compare_type_normal_aligns_non_overlapping_windows_by_relative_position
             {"window": {"start": "2026-02-15", "end": "2026-02-16"}, "value": 12.0},
         ],
     )
-    left["time_scope"] = {"field": "time", "start": "2026-02-14", "end": "2026-02-16"}
+    _set_metric_frame_time_scope(
+        left, {"field": "time", "start": "2026-02-14", "end": "2026-02-16"}
+    )
     right = _time_series_observation_v2(
         "m1",
         points=[
@@ -399,7 +470,9 @@ def test_compare_type_normal_aligns_non_overlapping_windows_by_relative_position
             {"window": {"start": "2025-02-15", "end": "2025-02-16"}, "value": 11.0},
         ],
     )
-    right["time_scope"] = {"field": "time", "start": "2025-02-14", "end": "2025-02-16"}
+    _set_metric_frame_time_scope(
+        right, {"field": "time", "start": "2025-02-14", "end": "2025-02-16"}
+    )
     runtime = _make_runtime(left, right)
 
     result = _run_compare(runtime)
@@ -430,12 +503,16 @@ def test_compare_type_weekday_aligned_uses_nearest_weekday() -> None:
         "m1",
         points=[{"window": {"start": "2026-04-02", "end": "2026-04-03"}, "value": 120.0}],
     )
-    left["time_scope"] = {"field": "time", "start": "2026-04-02", "end": "2026-04-04"}
+    _set_metric_frame_time_scope(
+        left, {"field": "time", "start": "2026-04-02", "end": "2026-04-04"}
+    )
     right = _time_series_observation_v2(
         "m1",
         points=[{"window": {"start": "2025-04-03", "end": "2025-04-04"}, "value": 100.0}],
     )
-    right["time_scope"] = {"field": "time", "start": "2025-04-01", "end": "2025-04-05"}
+    _set_metric_frame_time_scope(
+        right, {"field": "time", "start": "2025-04-01", "end": "2025-04-05"}
+    )
     runtime = _make_runtime(left, right)
 
     result = _run_compare(runtime, _compare_params("weekday_aligned"))
@@ -456,12 +533,16 @@ def test_compare_type_weekday_aligned_falls_back_to_relative_position() -> None:
         "m1",
         points=[{"window": {"start": "2026-04-08", "end": "2026-04-09"}, "value": 120.0}],
     )
-    left["time_scope"] = {"field": "time", "start": "2026-04-08", "end": "2026-04-09"}
+    _set_metric_frame_time_scope(
+        left, {"field": "time", "start": "2026-04-08", "end": "2026-04-09"}
+    )
     right = _time_series_observation_v2(
         "m1",
         points=[{"window": {"start": "2026-04-07", "end": "2026-04-08"}, "value": 100.0}],
     )
-    right["time_scope"] = {"field": "time", "start": "2026-04-07", "end": "2026-04-08"}
+    _set_metric_frame_time_scope(
+        right, {"field": "time", "start": "2026-04-07", "end": "2026-04-08"}
+    )
     runtime = _make_runtime(left, right)
 
     result = _run_compare(runtime, _compare_params("weekday_aligned"))
@@ -481,12 +562,16 @@ def test_compare_type_holiday_aligned_reads_calendar_data() -> None:
         "m1",
         points=[{"window": {"start": "2026-02-20", "end": "2026-02-21"}, "value": 120.0}],
     )
-    left["time_scope"] = {"field": "time", "start": "2026-02-20", "end": "2026-02-21"}
+    _set_metric_frame_time_scope(
+        left, {"field": "time", "start": "2026-02-20", "end": "2026-02-21"}
+    )
     right = _time_series_observation_v2(
         "m1",
         points=[{"window": {"start": "2025-02-20", "end": "2025-02-21"}, "value": 100.0}],
     )
-    right["time_scope"] = {"field": "time", "start": "2025-02-20", "end": "2025-02-21"}
+    _set_metric_frame_time_scope(
+        right, {"field": "time", "start": "2025-02-20", "end": "2025-02-21"}
+    )
     runtime = _make_runtime(left, right)
     runtime.calendar_data_reader = _FakeCalendarDataReader()
 
@@ -507,12 +592,16 @@ def test_compare_type_holiday_and_weekday_aligned_falls_back_to_weekday() -> Non
         "m1",
         points=[{"window": {"start": "2026-04-02", "end": "2026-04-03"}, "value": 120.0}],
     )
-    left["time_scope"] = {"field": "time", "start": "2026-04-02", "end": "2026-04-03"}
+    _set_metric_frame_time_scope(
+        left, {"field": "time", "start": "2026-04-02", "end": "2026-04-03"}
+    )
     right = _time_series_observation_v2(
         "m1",
         points=[{"window": {"start": "2025-04-03", "end": "2025-04-04"}, "value": 100.0}],
     )
-    right["time_scope"] = {"field": "time", "start": "2025-04-01", "end": "2025-04-05"}
+    _set_metric_frame_time_scope(
+        right, {"field": "time", "start": "2025-04-01", "end": "2025-04-05"}
+    )
     runtime = _make_runtime(left, right)
     runtime.calendar_data_reader = _FakeCalendarDataReader()
 
@@ -543,8 +632,12 @@ def test_compare_time_series_missing_granularity_fails() -> None:
     left["axes"] = [{"kind": "time", "grain": None}]
     runtime = _make_runtime(left, right)
 
-    with pytest.raises(ValueError, match="compare: NOT_COMPARABLE - time_series observations"):
+    with pytest.raises(
+        ValueError,
+        match="time_series metric_frame requires one time axis with grain",
+    ):
         _run_compare(runtime)
+    runtime.commit_artifact_with_extraction.assert_not_called()
 
 
 def test_compare_time_series_empty_series_fails_before_commit() -> None:

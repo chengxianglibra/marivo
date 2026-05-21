@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from marivo.runtime.intents.forecast import run_forecast_intent
+from marivo.runtime.intents.metric_frame import build_metric_frame_artifact
 from tests.runtime.intents._runner_fixtures import _FAKE_ARTIFACT_ID, _SESSION
 
 _SOURCE_ARTIFACT_ID = "art_source_ts"
@@ -28,24 +29,23 @@ def _time_series_artifact(
     values: list[Any] | None = None,
     points: list[dict[str, Any]] | None = None,
     granularity: str = "day",
-    observation_type: str = "time_series",
+    shape: str = "time_series",
 ) -> dict[str, Any]:
     pts = points if points is not None else _daily_points(values or [100.0, 110.0, 120.0])
-    return {
-        "schema_version": "2.0",
-        "observation_type": observation_type,
-        "metric": "metric.forecast_dau",
-        "granularity": granularity,
-        "axes": [{"kind": "time", "grain": granularity}],
-        "time_scope": {
+    return build_metric_frame_artifact(
+        artifact_id="art_metric_forecast_dau_time_series",
+        shape=shape,
+        metric_ref="metric.forecast_dau",
+        time_scope={
             "field": "event_time",
             "start": pts[0]["window"]["start"] if pts else "2026-01-01",
             "end": pts[-1]["window"]["end"] if pts else "2026-01-01",
         },
-        "series": [{"keys": {}, "points": pts}],
-        "analytical_metadata": {"timezone": "UTC", "data_complete": True},
-        "metric_contract_version": "metric-v1",
-    }
+        scope={},
+        axes=[{"kind": "time", "grain": granularity}] if shape == "time_series" else [],
+        series=[{"keys": {}, "points": pts}],
+        unit=None,
+    )
 
 
 def _make_runtime(
@@ -99,7 +99,7 @@ def test_forecast_resolves_source_by_artifact_id_and_records_source_lineage() ->
         "observation_type": "time_series",
     }
     assert result["source_lineage"]["source_artifact_ref"] == result["source_ref"]
-    assert result["source_lineage"]["source_metric_contract_version"] == "metric-v1"
+    assert result["source_lineage"]["source_metric_contract_version"] is None
 
 
 def test_forecast_commits_forecast_series_artifact_and_step() -> None:
@@ -116,6 +116,14 @@ def test_forecast_commits_forecast_series_artifact_and_step() -> None:
     assert result["intent_type"] == "forecast"
     assert result["step_type"] == "forecast"
     assert result["observation_type"] == "forecast_series"
+
+
+def test_forecast_outputs_display_metric_name() -> None:
+    runtime = _make_runtime()
+
+    result = _run_forecast(runtime, horizon=1)
+
+    assert result["metric"] == "forecast_dau"
 
 
 def test_forecast_auto_selects_trend_with_sufficient_history() -> None:
@@ -282,8 +290,18 @@ def test_forecast_reports_missing_source_artifact() -> None:
     )
 
 
+def test_forecast_rejects_non_metric_frame_artifact_before_shape_read() -> None:
+    runtime = _make_runtime({"shape": "time_series", "series": []})
+
+    _assert_forecast_fails_without_commit(
+        runtime,
+        {"source_artifact_id": _SOURCE_ARTIFACT_ID, "horizon": 1},
+        "artifact_family='metric_frame'",
+    )
+
+
 def test_forecast_rejects_non_time_series_source() -> None:
-    runtime = _make_runtime(_time_series_artifact(observation_type="scalar"))
+    runtime = _make_runtime(_time_series_artifact(shape="scalar"))
 
     _assert_forecast_fails_without_commit(
         runtime,

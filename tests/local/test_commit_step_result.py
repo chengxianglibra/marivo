@@ -137,7 +137,21 @@ def test_commit_aoi_artifact_result_returns_envelope_and_inserts_nested_result()
     ]
     payload = {
         "artifact_id": "placeholder-artifact",
-        "result": {"value": 42.0},
+        "artifact_family": "metric_frame",
+        "shape": "scalar",
+        "subject": {
+            "kind": "metric",
+            "metric_ref": "metric.view_time",
+            "time_scope": {
+                "field": "event_time",
+                "start": "2026-01-01T00:00:00Z",
+                "end": "2026-01-02T00:00:00Z",
+            },
+            "scope": {},
+        },
+        "axes": [],
+        "measures": [{"id": "value", "value_type": "number", "nullable": True, "unit": None}],
+        "payload": {"series": [{"keys": {}, "points": [{"value": 42.0}]}]},
     }
 
     envelope = commit_aoi_artifact_result(
@@ -159,7 +173,21 @@ def test_commit_aoi_artifact_result_returns_envelope_and_inserts_nested_result()
     assert envelope.artifact_id != "placeholder-artifact"
     assert envelope.result == {
         "artifact_id": envelope.artifact_id,
-        "result": {"value": 42.0},
+        "artifact_family": "metric_frame",
+        "shape": "scalar",
+        "subject": {
+            "kind": "metric",
+            "metric_ref": "metric.view_time",
+            "time_scope": {
+                "field": "event_time",
+                "start": "2026-01-01T00:00:00Z",
+                "end": "2026-01-02T00:00:00Z",
+            },
+            "scope": {},
+        },
+        "axes": [],
+        "measures": [{"id": "value", "value_type": "number", "nullable": True, "unit": None}],
+        "payload": {"series": [{"keys": {}, "points": [{"value": 42.0}]}]},
     }
     assert "value" not in envelope.model_dump()
 
@@ -171,7 +199,21 @@ def test_commit_aoi_artifact_result_returns_envelope_and_inserts_nested_result()
         "view_time_observe",
         {
             "artifact_id": envelope.artifact_id,
-            "result": {"value": 42.0},
+            "artifact_family": "metric_frame",
+            "shape": "scalar",
+            "subject": {
+                "kind": "metric",
+                "metric_ref": "metric.view_time",
+                "time_scope": {
+                    "field": "event_time",
+                    "start": "2026-01-01T00:00:00Z",
+                    "end": "2026-01-02T00:00:00Z",
+                },
+                "scope": {},
+            },
+            "axes": [],
+            "measures": [{"id": "value", "value_type": "number", "nullable": True, "unit": None}],
+            "payload": {"series": [{"keys": {}, "points": [{"value": 42.0}]}]},
         },
     )
     assert commit_args[1]["step_type"] == "observe"
@@ -189,6 +231,7 @@ def test_commit_aoi_artifact_result_returns_envelope_and_inserts_nested_result()
     assert insert_args[1]["semantic_metadata"] == {"metric": "view_time"}
     assert insert_args[0][4]["artifact_id"] == envelope.artifact_id
     assert insert_args[0][4]["result"]["artifact_id"] == envelope.artifact_id
+    assert insert_args[0][4]["result"]["artifact_family"] == "metric_frame"
 
 
 def test_commit_aoi_artifact_result_rejects_non_aoi_payload_before_insert():
