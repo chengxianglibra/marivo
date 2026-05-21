@@ -120,7 +120,7 @@ Evidence Engine 的目标态规范链路为：
 为避免上下游文档各自发明平行命名，`specs/analysis/` 统一采用以下基线：
 
 - request type 直接使用各文档中声明的规范名称：`ObserveRequest`、`CompareRequest`、`DecomposeRequest`、`CorrelateRequest`、`DetectRequest`、`TestRequest`、`ForecastRequest`、`AttributeRequest`、`DiagnoseRequest`、`ValidateRequest`
-- 原子工件（artifact）的 subtype 由 artifact 本体上的 discriminator 决定，例如 `observation_type`、`comparison_type`、`decomposition_type`、`artifact_type = “anomaly_candidates”`、`result_type = “hypothesis_test”`、`observation_type = “forecast_series”`
+- 原子工件（artifact）的 subtype 由 artifact 本体上的 discriminator 决定，例如 `metric_frame.shape`、`comparison_type`、`decomposition_type`、`artifact_type = “anomaly_candidates”`、`result_type = “hypothesis_test”`、`observation_type = “forecast_series”`
 - typed ref 必须引用真实存在的规范对象（canonical object）；下游 guard 应写成”`step_type + artifact_id + subtype discriminator`”，不得要求上游产出未定义的 `artifact_type` 字面值
 - `scope` 一律复用规范结构化 scope：`constraints + predicate AST`；不得引入字符串 predicate 变体
 - truncation、top-k、紧凑视图与派生 bundle 的展示限制只属于投影（projection）/ projection metadata，不属于规范 source identity

@@ -8,10 +8,12 @@ Implements Decision D1 from
 
     NOT the runtime ``step_type`` used by earlier observation extractors.
 
-NULL ``artifact_schema_version`` values (artifacts created before versioning was
-added) are normalised to ``"v1"`` by the lenient ``find()`` lookup.  The strict
-``get()`` lookup does NOT apply this normalisation and will raise ``KeyError``
-if called with an unregistered key.
+The lenient ``find()`` lookup first checks the exact
+``(artifact_type, artifact_schema_version)`` key.  If no exact key is
+registered and ``artifact_schema_version`` is ``None``, it falls back to the
+canonical ``"v1"`` key for artifacts created before schema versioning was
+added.  The strict ``get()`` lookup does NOT apply this fallback and will raise
+``KeyError`` if called with an unregistered key.
 
 Module-level singleton
 ----------------------
@@ -46,8 +48,8 @@ class FindingExtractor(ABC):
         Example: ``"observation_artifact"``, ``"compare_artifact"``.
     artifact_schema_version:
         The schema version string this extractor handles.
-        Example: ``"v1"``.  NULL database values are normalised to ``"v1"``
-        by the registry's ``find()`` method before dispatch.
+        Example: ``"v1"``.  The registry's ``find()`` method honors exact
+        ``None`` registrations before falling back to ``"v1"``.
     extractor_name:
         Stable, human-readable name used in ``FindingExtractionResult`` and
         registry snapshots.  Must be globally unique across all registered
@@ -61,7 +63,7 @@ class FindingExtractor(ABC):
     """
 
     artifact_type: ClassVar[str]
-    artifact_schema_version: ClassVar[str]
+    artifact_schema_version: ClassVar[str | None]
     extractor_name: ClassVar[str]
     extractor_version: ClassVar[str]
     family: ClassVar[str]
@@ -126,12 +128,13 @@ class FindingExtractorRegistry:
     schema versions and route to different extractors without changing the
     producing step type.
 
-    NULL version normalisation
-    --------------------------
+    NULL version fallback
+    ---------------------
     ``artifact_schema_version`` may be NULL in the database for artifacts
     created before schema versioning was added.  The lenient ``find()``
-    method normalises ``None`` → ``"v1"`` before lookup.  The strict
-    ``get()`` method does not apply this normalisation.
+    method checks the exact ``None`` key first, then falls back to ``"v1"``
+    only if no exact extractor is registered.  The strict ``get()`` method
+    does not apply this fallback.
 
     Duplicate protection
     --------------------
@@ -141,7 +144,7 @@ class FindingExtractorRegistry:
     """
 
     def __init__(self) -> None:
-        self._registry: dict[tuple[str, str], FindingExtractor] = {}
+        self._registry: dict[tuple[str, str | None], FindingExtractor] = {}
 
     def register(self, extractor: FindingExtractor, *, override: bool = False) -> None:
         """Register *extractor* under its ``(artifact_type, artifact_schema_version)`` key.
@@ -169,11 +172,15 @@ class FindingExtractorRegistry:
             )
         self._registry[key] = extractor
 
-    def get(self, artifact_type: str, artifact_schema_version: str) -> FindingExtractor:
+    def get(
+        self,
+        artifact_type: str,
+        artifact_schema_version: str | None,
+    ) -> FindingExtractor:
         """Strict lookup — raises ``KeyError`` if the key is not registered.
 
-        Does NOT normalise ``None`` → ``"v1"``.  For NULL-safe lookup use
-        ``find()`` instead.
+        Does NOT fall back from ``None`` to ``"v1"``.  For NULL-safe lookup
+        use ``find()`` instead.
 
         Raises
         ------
@@ -183,7 +190,7 @@ class FindingExtractorRegistry:
         """
         key = (artifact_type, artifact_schema_version)
         if key not in self._registry:
-            registered = sorted(self._registry)
+            registered = self.registered_keys()
             raise KeyError(
                 f"No finding extractor registered for "
                 f"artifact_type={artifact_type!r}, "
@@ -197,25 +204,29 @@ class FindingExtractorRegistry:
         artifact_type: str,
         artifact_schema_version: str | None,
     ) -> FindingExtractor | None:
-        """Lenient lookup with NULL → ``"v1"`` normalisation.
+        """Lenient lookup with exact-key dispatch plus NULL → ``"v1"`` fallback.
 
         Returns ``None`` if no extractor is registered for the resolved key.
-        Only ``None`` is normalised; an explicit empty string ``""`` is NOT
-        treated as ``None`` and will be looked up as-is.
+        Exact registrations always win, including ``artifact_schema_version``
+        set to ``None``.  An explicit empty string ``""`` is NOT treated as
+        ``None`` and will be looked up as-is.
 
         This is the preferred method for the commit path, which must handle
         artifacts without a registered extractor.
         """
-        version = (
-            artifact_schema_version
-            if artifact_schema_version is not None
-            else _NULL_VERSION_FALLBACK
-        )
-        return self._registry.get((artifact_type, version))
+        exact = self._registry.get((artifact_type, artifact_schema_version))
+        if exact is not None:
+            return exact
+        if artifact_schema_version is None:
+            return self._registry.get((artifact_type, _NULL_VERSION_FALLBACK))
+        return None
 
-    def registered_keys(self) -> list[tuple[str, str]]:
+    def registered_keys(self) -> list[tuple[str, str | None]]:
         """Return all registered ``(artifact_type, artifact_schema_version)`` pairs, sorted."""
-        return sorted(self._registry)
+        return sorted(
+            self._registry,
+            key=lambda key: (key[0], "" if key[1] is None else key[1]),
+        )
 
     def snapshot(self) -> list[dict[str, Any]]:
         """Return an auditable, sorted snapshot of all registered extractors.
@@ -241,7 +252,13 @@ class FindingExtractorRegistry:
                 "extractor_version": e.extractor_version,
                 "finding_schema_version": e.finding_schema_version,
             }
-            for _, e in sorted(self._registry.items())
+            for _, e in sorted(
+                self._registry.items(),
+                key=lambda item: (
+                    item[0][0],
+                    "" if item[0][1] is None else item[0][1],
+                ),
+            )
         ]
 
 

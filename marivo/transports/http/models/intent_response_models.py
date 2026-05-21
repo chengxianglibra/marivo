@@ -21,25 +21,12 @@ class _EnvelopeBase(BaseModel):
     product_metadata: dict[str, Any] | None = None
 
 
-class _ObserveArtifact(aoi.Artifact1):
-    result: (
-        aoi.ScalarObservationResult
-        | aoi.TimeSeriesObservationResult
-        | aoi.SegmentedObservationResult
-    )
-
-
 class _ObserveFailureArtifact(aoi.Artifact2):
-    result: (
-        aoi.ScalarObservationResult
-        | aoi.TimeSeriesObservationResult
-        | aoi.SegmentedObservationResult
-        | None
-    ) = None
+    result: None = None
 
 
 class ObserveResponse(_EnvelopeBase):
-    result: _ObserveArtifact | _ObserveFailureArtifact
+    result: aoi.MetricFrameArtifact | _ObserveFailureArtifact
 
 
 class _CompareArtifact(aoi.Artifact1):
@@ -120,7 +107,7 @@ class DerivedBundleResult(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     bundle_type: str
-    aoi_artifacts: list[aoi.Artifact1 | aoi.Artifact2]
+    aoi_artifacts: list[aoi.MetricFrameArtifact | aoi.Artifact1 | aoi.Artifact2]
 
 
 class AttributeResponse(_EnvelopeBase):

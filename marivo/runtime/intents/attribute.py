@@ -23,6 +23,9 @@ from marivo.runtime.intents.derived_envelopes import (
 from marivo.runtime.intents.metric_frame import (
     read_compare_scalar_point,
     read_decompose_rows_from_series,
+    read_metric_frame_scope,
+    read_metric_frame_shape,
+    read_metric_frame_time_scope,
 )
 from marivo.runtime.intents.normalization import (
     normalize_dimensions,
@@ -168,7 +171,8 @@ def run_attribute_intent(
     except Exception as exc:
         raise ValueError(f"attribute: OBSERVE_FAILED - current observation failed: {exc}") from exc
 
-    left_obs_type: str | None = current_obs.get("observation_type")
+    current_artifact = _inline_observe_metric_frame(current_obs, label="current")
+    left_obs_type = read_metric_frame_shape(current_artifact)
     if left_obs_type != "scalar":
         raise ValueError(
             f"attribute: INVALID_ARGUMENT - current observe produced observation_type="
@@ -189,7 +193,8 @@ def run_attribute_intent(
     except Exception as exc:
         raise ValueError(f"attribute: OBSERVE_FAILED - baseline observation failed: {exc}") from exc
 
-    right_obs_type: str | None = baseline_obs.get("observation_type")
+    baseline_artifact = _inline_observe_metric_frame(baseline_obs, label="baseline")
+    right_obs_type = read_metric_frame_shape(baseline_artifact)
     if right_obs_type != "scalar":
         raise ValueError(
             f"attribute: INVALID_ARGUMENT - baseline observe produced observation_type="
@@ -403,12 +408,12 @@ def run_attribute_intent(
     # ── Step 8: assemble payload ────────────────────────────────────────────────
     now = datetime.now(UTC).isoformat()
     left_resolved: dict[str, Any] = {
-        "time_scope": current_obs.get("time_scope") or current_time_scope,
-        "scope": current_scope,
+        "time_scope": read_metric_frame_time_scope(current_artifact),
+        "scope": read_metric_frame_scope(current_artifact),
     }
     right_resolved: dict[str, Any] = {
-        "time_scope": baseline_obs.get("time_scope") or baseline_time_scope,
-        "scope": baseline_scope,
+        "time_scope": read_metric_frame_time_scope(baseline_artifact),
+        "scope": read_metric_frame_scope(baseline_artifact),
     }
 
     result_payload: dict[str, Any] = {
@@ -483,6 +488,15 @@ def run_attribute_intent(
         product_metadata_payload=product_metadata_payload,
         reasoning=reasoning,
     )
+
+
+def _inline_observe_metric_frame(result: dict[str, Any], *, label: str) -> dict[str, Any]:
+    artifact = result.get("result")
+    if not isinstance(artifact, dict):
+        raise ValueError(
+            f"attribute: INVALID_ARGUMENT - {label} observe returned no metric_frame result"
+        )
+    return artifact
 
 
 # ── Request shape validation ──────────────────────────────────────────────────

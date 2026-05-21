@@ -7,6 +7,16 @@ from typing import TYPE_CHECKING, Any
 
 from marivo.core.intent.primitives import new_step_id
 from marivo.runtime.intents._helpers import commit_step_result
+from marivo.runtime.intents.metric_frame import (
+    is_metric_frame_artifact,
+    metric_display_name,
+    read_axes_from_artifact,
+    read_metric_frame_metric_ref,
+    read_metric_frame_points,
+    read_metric_frame_shape,
+    read_metric_frame_time_scope,
+    time_grain_from_axes,
+)
 
 if TYPE_CHECKING:
     from marivo.runtime.runtime import MarivoRuntime
@@ -132,8 +142,19 @@ def run_correlate_intent(
         )
     right_step_id, right_artifact = right_resolved
 
-    left_obs_type: str | None = left_artifact.get("observation_type")
-    right_obs_type: str | None = right_artifact.get("observation_type")
+    if not is_metric_frame_artifact(left_artifact):
+        raise ValueError(
+            "correlate: INVALID_ARGUMENT - left_artifact_id must point to a metric_frame "
+            "artifact with artifact_family='metric_frame'"
+        )
+    if not is_metric_frame_artifact(right_artifact):
+        raise ValueError(
+            "correlate: INVALID_ARGUMENT - right_artifact_id must point to a metric_frame "
+            "artifact with artifact_family='metric_frame'"
+        )
+
+    left_obs_type = read_metric_frame_shape(left_artifact)
+    right_obs_type = read_metric_frame_shape(right_artifact)
     if left_obs_type != "time_series":
         raise ValueError(
             f"correlate: INVALID_ARGUMENT - left_artifact_id must be a time_series artifact, "
@@ -145,8 +166,8 @@ def run_correlate_intent(
             f"got observation_type='{right_obs_type}'"
         )
 
-    left_granularity: str | None = left_artifact.get("granularity")
-    right_granularity: str | None = right_artifact.get("granularity")
+    left_granularity = time_grain_from_axes(read_axes_from_artifact(left_artifact))
+    right_granularity = time_grain_from_axes(read_axes_from_artifact(right_artifact))
 
     # ── Alignment ─────────────────────────────────────────────────────────────
     if left_granularity != right_granularity:
@@ -155,28 +176,9 @@ def run_correlate_intent(
             f"left='{left_granularity}' right='{right_granularity}'"
         )
 
-    # ── Read series from v2.0 format (axes+series) ─────────────────────────────
-    # v2.0: series is a list of {keys, points} objects; points is the actual data.
-    # Fall back to legacy flat "series" list for v1 compat.
-    _left_series_list: list[dict[str, Any]] = left_artifact.get("series") or []
-    if (
-        _left_series_list
-        and isinstance(_left_series_list[0], dict)
-        and "points" in _left_series_list[0]
-    ):
-        left_series: list[dict[str, Any]] = _left_series_list[0].get("points") or []
-    else:
-        left_series = _left_series_list
-
-    _right_series_list: list[dict[str, Any]] = right_artifact.get("series") or []
-    if (
-        _right_series_list
-        and isinstance(_right_series_list[0], dict)
-        and "points" in _right_series_list[0]
-    ):
-        right_series: list[dict[str, Any]] = _right_series_list[0].get("points") or []
-    else:
-        right_series = _right_series_list
+    # ── Read metric_frame time-series points ──────────────────────────────────
+    left_series = read_metric_frame_points(left_artifact)
+    right_series = read_metric_frame_points(right_artifact)
 
     left_map: dict[str, Any] = {}
     for item in left_series:
@@ -282,7 +284,7 @@ def run_correlate_intent(
             k = w.get("start") or ""
             if k:
                 left_end_map[k] = w.get("end") or k
-        left_time_scope = left_artifact.get("time_scope") or {}
+        left_time_scope = read_metric_frame_time_scope(left_artifact)
         matched_time_scope = {
             "field": str(left_time_scope.get("field") or "time").strip() or "time",
             "start": matched_keys[0],
@@ -312,8 +314,8 @@ def run_correlate_intent(
         "observation_type": "time_series",
     }
 
-    left_metric: str = left_artifact.get("metric") or ""
-    right_metric: str = right_artifact.get("metric") or ""
+    left_metric = metric_display_name(read_metric_frame_metric_ref(left_artifact))
+    right_metric = metric_display_name(read_metric_frame_metric_ref(right_artifact))
 
     artifact: dict[str, Any] = {
         "association_type": "pairwise_time_series_association",
@@ -321,8 +323,8 @@ def run_correlate_intent(
         "right_ref": right_ref_out,
         "left_metric": left_metric,
         "right_metric": right_metric,
-        "left_time_scope": left_artifact.get("time_scope"),
-        "right_time_scope": right_artifact.get("time_scope"),
+        "left_time_scope": read_metric_frame_time_scope(left_artifact),
+        "right_time_scope": read_metric_frame_time_scope(right_artifact),
         "left_filters": None,
         "right_filters": None,
         "unit_pair": {"left": None, "right": None},

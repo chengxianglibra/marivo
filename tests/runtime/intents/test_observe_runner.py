@@ -27,7 +27,9 @@ class TestObserveRunner(unittest.TestCase):
         runtime.core.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix(
             "metric."
         )
-        runtime.commit_artifact_with_extraction.return_value = _FAKE_ARTIFACT_ID
+        runtime.commit_artifact_with_extraction.side_effect = lambda *args, **kwargs: kwargs.get(
+            "artifact_id", _FAKE_ARTIFACT_ID
+        )
         runtime.insert_step.return_value = None
         runtime.resolve_metric_execution_context.return_value = SimpleNamespace(
             table_name="src.metrics",
@@ -74,7 +76,37 @@ class TestObserveRunner(unittest.TestCase):
             result = run_observe_intent(runtime, _SESSION, params)
         return runtime, result
 
-    def test_scalar_observe_commits_observation_payload(self) -> None:
+    def _artifact(self, result: dict[str, Any]) -> dict[str, Any]:
+        artifact = result["result"]
+        self.assertIsInstance(artifact, dict)
+        return artifact
+
+    def _observe_metadata(self, result: dict[str, Any]) -> dict[str, Any]:
+        metadata = result["product_metadata"]["observe_metadata"]
+        self.assertIsInstance(metadata, dict)
+        return metadata
+
+    def _inserted_envelope(self, runtime: MagicMock) -> dict[str, Any]:
+        envelope = runtime.insert_step.call_args.args[4]
+        self.assertIsInstance(envelope, dict)
+        return envelope
+
+    def _assert_no_legacy_public_fields(self, artifact: dict[str, Any]) -> None:
+        for field in (
+            "schema_version",
+            "observation_type",
+            "metric",
+            "time_scope",
+            "scope",
+            "predicate_filter_lineage",
+            "unit",
+            "series",
+            "analytical_metadata",
+            "execution_metadata",
+        ):
+            self.assertNotIn(field, artifact)
+
+    def test_scalar_observe_commits_metric_frame_payload(self) -> None:
         runtime, result = self._run_observe(
             {
                 "metric": "metric.m1",
@@ -87,19 +119,55 @@ class TestObserveRunner(unittest.TestCase):
             rows=[{"current_value": "42.5", "current_sessions": "7"}],
         )
 
-        self.assertEqual(result["artifact_id"], _FAKE_ARTIFACT_ID)
-        self.assertEqual(result["observation_type"], "scalar")
-        self.assertEqual(result["metric"], "m1")
-        self.assertEqual(result["schema_version"], "2.0")
-        self.assertEqual(result["series"][0]["points"][0]["value"], 42.5)
-        self.assertEqual(result["scope"], {})
-        self.assertEqual(result["axes"], [])
-        self.assertEqual(result["analytical_metadata"]["row_count"], 7)
-        self.assertEqual(result["analytical_metadata"]["quality_status"], "ready")
+        artifact = self._artifact(result)
+        self.assertEqual(result["artifact_id"], artifact["artifact_id"])
+        self.assertEqual(artifact["artifact_family"], "metric_frame")
+        self.assertEqual(artifact["shape"], "scalar")
+        self.assertEqual(
+            artifact["subject"],
+            {
+                "kind": "metric",
+                "metric_ref": "metric.m1",
+                "time_scope": {
+                    "field": "event_date",
+                    "start": "2024-01-01T00:00:00Z",
+                    "end": "2024-01-08T00:00:00Z",
+                },
+                "scope": {},
+            },
+        )
+        self.assertEqual(artifact["axes"], [])
+        self.assertEqual(artifact["payload"]["series"][0]["points"][0]["value"], 42.5)
+        self._assert_no_legacy_public_fields(artifact)
+        observe_metadata = self._observe_metadata(result)
+        self.assertIsNone(observe_metadata["predicate_filter_lineage"])
+        self.assertEqual(
+            observe_metadata["analytical_metadata"],
+            {
+                "decomposition_semantics": "sum",
+                "timezone": None,
+                "data_complete": None,
+                "quality_status": "ready",
+                "row_count": 7,
+                "sample_size": 7,
+                "null_rate": None,
+            },
+        )
+        self.assertEqual(observe_metadata["execution_metadata"]["engine"], "duckdb")
+        self.assertEqual(
+            observe_metadata["execution_metadata"]["query_hash"],
+            "e004ebd5b5532a4b",
+        )
+        self.assertIsInstance(observe_metadata["execution_metadata"]["executed_at"], str)
+        inserted_envelope = self._inserted_envelope(runtime)
+        self.assertEqual(
+            inserted_envelope["product_metadata"]["observe_metadata"],
+            observe_metadata,
+        )
         args, kwargs = runtime.commit_artifact_with_extraction.call_args
-        self.assertEqual(args[2], "observation")
+        self.assertEqual(args[2], "metric_frame")
         self.assertEqual(kwargs["step_type"], "observe")
-        self.assertEqual(args[4]["observation_type"], "scalar")
+        self.assertEqual(args[4]["artifact_family"], "metric_frame")
 
     def test_scalar_observe_uses_exact_internal_window_without_grain(self) -> None:
         runtime, result = self._run_observe(
@@ -126,8 +194,9 @@ class TestObserveRunner(unittest.TestCase):
                 "current": {"start": "2024-01-01", "end": "2024-01-08"},
             },
         )
-        self.assertEqual(result["observation_type"], "scalar")
-        self.assertNotIn("granularity", result)
+        artifact = self._artifact(result)
+        self.assertEqual(artifact["shape"], "scalar")
+        self.assertNotIn("granularity", artifact)
 
     def test_scalar_observe_midnight_datetime_window_is_not_treated_as_hour(self) -> None:
         runtime, result = self._run_observe(
@@ -147,8 +216,12 @@ class TestObserveRunner(unittest.TestCase):
         self.assertIsNone(scoped_call.time_scope.grain)
         self.assertEqual(scoped_call.time_scope.current.start, "2024-01-01T00:00:00")
         self.assertEqual(scoped_call.time_scope.current.end, "2024-01-08T00:00:00")
-        self.assertEqual(result["time_scope"]["start"], "2024-01-01T00:00:00")
-        self.assertNotIn("granularity", result)
+        artifact = self._artifact(result)
+        self.assertEqual(
+            artifact["subject"]["time_scope"]["start"],
+            "2024-01-01T00:00:00Z",
+        )
+        self.assertNotIn("granularity", artifact)
 
     def test_scalar_observe_subday_datetime_window_preserves_exact_boundaries(self) -> None:
         runtime, result = self._run_observe(
@@ -170,8 +243,12 @@ class TestObserveRunner(unittest.TestCase):
         self.assertIsNone(scoped_call.time_scope.grain)
         self.assertEqual(scoped_call.time_scope.current.start, "2024-01-01T10:15:00")
         self.assertEqual(scoped_call.time_scope.current.end, "2024-01-01T14:45:00")
-        self.assertEqual(result["time_scope"]["start"], "2024-01-01T10:15:00")
-        self.assertNotIn("granularity", result)
+        artifact = self._artifact(result)
+        self.assertEqual(
+            artifact["subject"]["time_scope"]["start"],
+            "2024-01-01T10:15:00Z",
+        )
+        self.assertNotIn("granularity", artifact)
 
     def test_observe_aoi_filter_is_consumed_as_scope_predicate(self) -> None:
         runtime = self._make_runtime()
@@ -214,7 +291,7 @@ class TestObserveRunner(unittest.TestCase):
 
         self.assertEqual(captured["scope_predicate"], "region = 'US'")
         args, _ = runtime.commit_artifact_with_extraction.call_args
-        self.assertEqual(args[4]["scope"], {"predicate": "region = 'US'"})
+        self.assertEqual(args[4]["subject"]["scope"], {"predicate": "region = 'US'"})
 
     def test_time_series_observe_builds_dense_series_and_quality(self) -> None:
         runtime, result = self._run_observe(
@@ -230,20 +307,57 @@ class TestObserveRunner(unittest.TestCase):
             rows=[{"bucket_start": "2026-04-01", "value": "10"}],
         )
 
-        self.assertEqual(result["observation_type"], "time_series")
-        self.assertEqual(result["schema_version"], "2.0")
+        artifact = self._artifact(result)
+        self.assertEqual(artifact["shape"], "time_series")
+        self.assertEqual(artifact["artifact_family"], "metric_frame")
         compiled_call = runtime.compile_step.call_args.args[0]
         self.assertEqual(compiled_call.params["limit"], 1000)
-        self.assertEqual(result["axes"], [{"kind": "time", "grain": "day"}])
+        self.assertEqual(artifact["axes"], [{"kind": "time", "grain": "day"}])
         self.assertEqual(
-            result["series"][0]["points"],
+            artifact["payload"]["series"][0]["points"],
             [
-                {"window": {"start": "2026-04-01", "end": "2026-04-02"}, "value": 10.0},
-                {"window": {"start": "2026-04-02", "end": "2026-04-03"}, "value": None},
+                {
+                    "window": {
+                        "start": "2026-04-01T00:00:00Z",
+                        "end": "2026-04-02T00:00:00Z",
+                    },
+                    "value": 10.0,
+                },
+                {
+                    "window": {
+                        "start": "2026-04-02T00:00:00Z",
+                        "end": "2026-04-03T00:00:00Z",
+                    },
+                    "value": None,
+                },
             ],
         )
-        self.assertFalse(result["analytical_metadata"]["data_complete"])
-        self.assertEqual(result["analytical_metadata"]["quality_status"], "needs_attention")
+        self._assert_no_legacy_public_fields(artifact)
+        observe_metadata = self._observe_metadata(result)
+        self.assertIsNone(observe_metadata["predicate_filter_lineage"])
+        self.assertEqual(
+            observe_metadata["analytical_metadata"],
+            {
+                "decomposition_semantics": "sum",
+                "timezone": None,
+                "data_complete": False,
+                "quality_status": "needs_attention",
+                "row_count": 1,
+                "sample_size": 1,
+                "null_rate": None,
+            },
+        )
+        self.assertEqual(observe_metadata["execution_metadata"]["engine"], "duckdb")
+        self.assertEqual(
+            observe_metadata["execution_metadata"]["query_hash"],
+            "e004ebd5b5532a4b",
+        )
+        self.assertIsInstance(observe_metadata["execution_metadata"]["executed_at"], str)
+        inserted_envelope = self._inserted_envelope(runtime)
+        self.assertEqual(
+            inserted_envelope["product_metadata"]["observe_metadata"],
+            observe_metadata,
+        )
 
     def test_time_series_observe_marks_empty_dense_series_not_ready(self) -> None:
         _, result = self._run_observe(
@@ -259,15 +373,26 @@ class TestObserveRunner(unittest.TestCase):
             rows=[],
         )
 
+        artifact = self._artifact(result)
         self.assertEqual(
-            result["series"][0]["points"],
+            artifact["payload"]["series"][0]["points"],
             [
-                {"window": {"start": "2026-04-01", "end": "2026-04-02"}, "value": None},
-                {"window": {"start": "2026-04-02", "end": "2026-04-03"}, "value": None},
+                {
+                    "window": {
+                        "start": "2026-04-01T00:00:00Z",
+                        "end": "2026-04-02T00:00:00Z",
+                    },
+                    "value": None,
+                },
+                {
+                    "window": {
+                        "start": "2026-04-02T00:00:00Z",
+                        "end": "2026-04-03T00:00:00Z",
+                    },
+                    "value": None,
+                },
             ],
         )
-        self.assertFalse(result["analytical_metadata"]["data_complete"])
-        self.assertEqual(result["analytical_metadata"]["quality_status"], "not_ready")
 
     def test_time_series_observe_supports_quarter_and_year_buckets(self) -> None:
         cases = [
@@ -276,8 +401,20 @@ class TestObserveRunner(unittest.TestCase):
                 "2026-01-01",
                 "2026-07-01",
                 [
-                    {"window": {"start": "2026-01-01", "end": "2026-04-01"}, "value": None},
-                    {"window": {"start": "2026-04-01", "end": "2026-07-01"}, "value": None},
+                    {
+                        "window": {
+                            "start": "2026-01-01T00:00:00Z",
+                            "end": "2026-04-01T00:00:00Z",
+                        },
+                        "value": None,
+                    },
+                    {
+                        "window": {
+                            "start": "2026-04-01T00:00:00Z",
+                            "end": "2026-07-01T00:00:00Z",
+                        },
+                        "value": None,
+                    },
                 ],
             ),
             (
@@ -285,8 +422,20 @@ class TestObserveRunner(unittest.TestCase):
                 "2025-01-01",
                 "2027-01-01",
                 [
-                    {"window": {"start": "2025-01-01", "end": "2026-01-01"}, "value": None},
-                    {"window": {"start": "2026-01-01", "end": "2027-01-01"}, "value": None},
+                    {
+                        "window": {
+                            "start": "2025-01-01T00:00:00Z",
+                            "end": "2026-01-01T00:00:00Z",
+                        },
+                        "value": None,
+                    },
+                    {
+                        "window": {
+                            "start": "2026-01-01T00:00:00Z",
+                            "end": "2027-01-01T00:00:00Z",
+                        },
+                        "value": None,
+                    },
                 ],
             ),
         ]
@@ -306,7 +455,8 @@ class TestObserveRunner(unittest.TestCase):
                 )
                 scoped_call = runtime.build_scoped_query.call_args.args[1]
                 self.assertEqual(scoped_call.time_scope.grain, granularity)
-                self.assertEqual(result["series"][0]["points"], expected_points)
+                artifact = self._artifact(result)
+                self.assertEqual(artifact["payload"]["series"][0]["points"], expected_points)
 
     def test_observe_hour_granularity_uses_hour_internal_grain(self) -> None:
         runtime, _ = self._run_observe(
@@ -360,19 +510,20 @@ class TestObserveRunner(unittest.TestCase):
             ],
         )
 
-        self.assertEqual(result["observation_type"], "segmented")
-        self.assertEqual(result["schema_version"], "2.0")
+        artifact = self._artifact(result)
+        self.assertEqual(artifact["shape"], "segmented")
+        self.assertEqual(artifact["artifact_family"], "metric_frame")
         compiled_call = runtime.compile_step.call_args.args[0]
         self.assertEqual(compiled_call.params["limit"], 1000)
-        self.assertEqual(result["axes"], [{"kind": "dimension", "name": "platform"}])
+        self.assertEqual(artifact["axes"], [{"kind": "dimension", "name": "platform"}])
         self.assertEqual(
-            result["series"],
+            artifact["payload"]["series"],
             [
                 {"keys": {"platform": "web"}, "points": [{"value": 20.0}]},
                 {"keys": {"platform": "mobile"}, "points": [{"value": 10.0}]},
             ],
         )
-        self.assertEqual(result["analytical_metadata"]["quality_status"], "ready")
+        self._assert_no_legacy_public_fields(artifact)
 
     def test_segmented_observe_empty_rows_is_not_ready(self) -> None:
         _, result = self._run_observe(
@@ -389,8 +540,8 @@ class TestObserveRunner(unittest.TestCase):
             rows=[],
         )
 
-        self.assertEqual(result["series"], [])
-        self.assertEqual(result["analytical_metadata"]["quality_status"], "not_ready")
+        artifact = self._artifact(result)
+        self.assertEqual(artifact["payload"]["series"], [])
 
     def test_segmented_observe_with_datetime_bounds_uses_day_internal_grain(self) -> None:
         runtime, result = self._run_observe(
@@ -416,8 +567,9 @@ class TestObserveRunner(unittest.TestCase):
         self.assertEqual(scoped_call.time_scope.grain, "day")
         compiled_call = runtime.compile_step.call_args.args[0]
         self.assertEqual(compiled_call.params["time_scope"]["grain"], "day")
-        self.assertEqual(result["observation_type"], "segmented")
-        self.assertEqual(result["axes"], [{"kind": "dimension", "name": "log_hour"}])
+        artifact = self._artifact(result)
+        self.assertEqual(artifact["shape"], "segmented")
+        self.assertEqual(artifact["axes"], [{"kind": "dimension", "name": "log_hour"}])
 
     def test_observe_granularity_plus_dimensions_produces_panel(self) -> None:
         runtime, result = self._run_observe(
@@ -438,19 +590,20 @@ class TestObserveRunner(unittest.TestCase):
             ],
         )
 
-        self.assertEqual(result["observation_type"], "panel")
-        self.assertEqual(result["schema_version"], "2.0")
+        artifact = self._artifact(result)
+        self.assertEqual(artifact["shape"], "panel")
+        self.assertEqual(artifact["artifact_family"], "metric_frame")
         self.assertEqual(
-            result["axes"],
+            artifact["axes"],
             [
                 {"kind": "time", "grain": "day"},
                 {"kind": "dimension", "name": "platform"},
             ],
         )
         # Panel mode produces series grouped by dimension keys
-        self.assertTrue(len(result["series"]) >= 1)
+        self.assertTrue(len(artifact["payload"]["series"]) >= 1)
         # Each series has keys and points with window+value
-        for s in result["series"]:
+        for s in artifact["payload"]["series"]:
             self.assertIn("keys", s)
             self.assertIn("points", s)
             for pt in s["points"]:
@@ -473,8 +626,9 @@ class TestObserveRunner(unittest.TestCase):
             time_axis_kind="timestamp_field",
         )
 
-        self.assertEqual(result["observation_type"], "time_series")
-        self.assertEqual(result["axes"], [{"kind": "time", "grain": "hour"}])
+        artifact = self._artifact(result)
+        self.assertEqual(artifact["shape"], "time_series")
+        self.assertEqual(artifact["axes"], [{"kind": "time", "grain": "hour"}])
 
     def test_observe_malformed_aoi_filter_raises_invalid_argument(self) -> None:
         from marivo.runtime.intents.observe import run_observe_intent

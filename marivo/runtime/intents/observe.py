@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import contextlib
 from collections.abc import Mapping
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
 from marivo.core.intent.primitives import make_provenance, new_step_id
@@ -12,12 +12,13 @@ from marivo.runtime.evidence.ref_boundary import assert_no_canonical_refs_in_sem
 from marivo.runtime.intents._helpers import (
     aoi_filter_to_scope,
     build_scoped_query_for_window,
-    commit_step_result,
+    commit_aoi_artifact_result,
     extract_predicate_filter_lineage,
     resolve_time_scope,
 )
 from marivo.runtime.intents.metric_frame import (
     build_axes,
+    build_metric_frame_artifact,
     build_panel_series,
     build_scalar_series,
     build_segmented_series,
@@ -242,6 +243,84 @@ def _time_series_quality_status(*, row_count: int, data_complete: bool | None) -
     return "ready"
 
 
+def _build_observe_product_metadata(
+    *,
+    predicate_filter_lineage: dict[str, Any] | None,
+    decomposition_semantics: Any,
+    timezone: Any,
+    data_complete: bool | None,
+    quality_status: str,
+    row_count: int | None,
+    sample_size: int | None,
+    null_rate: float | None,
+    query_hash: Any,
+    engine: str,
+    executed_at: str,
+) -> dict[str, Any]:
+    return {
+        "observe_metadata": {
+            "predicate_filter_lineage": predicate_filter_lineage,
+            "analytical_metadata": {
+                "decomposition_semantics": decomposition_semantics,
+                "timezone": timezone,
+                "data_complete": data_complete,
+                "quality_status": quality_status,
+                "row_count": row_count,
+                "sample_size": sample_size,
+                "null_rate": null_rate,
+            },
+            "execution_metadata": {
+                "query_hash": query_hash,
+                "engine": engine,
+                "executed_at": executed_at,
+            },
+        }
+    }
+
+
+def _to_aoi_datetime(value: Any) -> str:
+    raw = str(value)
+    try:
+        if "T" not in raw:
+            parsed_date = date.fromisoformat(raw[:10])
+            parsed_datetime = datetime.combine(parsed_date, time.min, tzinfo=UTC)
+        else:
+            parsed_datetime = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            if parsed_datetime.tzinfo is None:
+                parsed_datetime = parsed_datetime.replace(tzinfo=UTC)
+        return parsed_datetime.isoformat().replace("+00:00", "Z")
+    except (TypeError, ValueError):
+        return raw
+
+
+def _normalize_aoi_time_scope(time_scope: dict[str, Any]) -> dict[str, Any]:
+    return {
+        **time_scope,
+        "start": _to_aoi_datetime(time_scope["start"]),
+        "end": _to_aoi_datetime(time_scope["end"]),
+    }
+
+
+def _normalize_aoi_series_windows(series: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    for item in series:
+        normalized_item = dict(item)
+        points: list[dict[str, Any]] = []
+        for point in item.get("points") or []:
+            normalized_point = dict(point)
+            window = normalized_point.get("window")
+            if isinstance(window, Mapping):
+                normalized_point["window"] = {
+                    **window,
+                    "start": _to_aoi_datetime(window["start"]),
+                    "end": _to_aoi_datetime(window["end"]),
+                }
+            points.append(normalized_point)
+        normalized_item["points"] = points
+        normalized.append(normalized_item)
+    return normalized
+
+
 def run_observe_intent(
     runtime: MarivoRuntime,
     session_id: str,
@@ -417,31 +496,19 @@ def run_observe_intent(
             dense_series_builder=_build_dense_series,
         )
         quality_status = "ready" if rows else "not_ready"
-        observation = {
-            "schema_version": "2.0",
-            "observation_type": obs_type,
-            "metric": metric_name,
-            "time_scope": resolved_time_scope,
-            "scope": scope_raw or {},
-            "predicate_filter_lineage": predicate_filter_lineage,
-            "unit": None,
-            "axes": axes,
-            "series": series,
-            "analytical_metadata": {
-                "decomposition_semantics": decomposition_semantics,
-                "timezone": None,
-                "data_complete": None,
-                "quality_status": quality_status,
-                "row_count": len(rows),
-                "sample_size": len(rows),
-                "null_rate": None,
-            },
-            "execution_metadata": {
-                "query_hash": provenance.get("query_hash", ""),
-                "engine": engine_type,
-                "executed_at": now,
-            },
-        }
+        product_metadata = _build_observe_product_metadata(
+            predicate_filter_lineage=predicate_filter_lineage,
+            decomposition_semantics=decomposition_semantics,
+            timezone=None,
+            data_complete=None,
+            quality_status=quality_status,
+            row_count=len(rows),
+            sample_size=len(rows),
+            null_rate=None,
+            query_hash=provenance.get("query_hash", ""),
+            engine=engine_type,
+            executed_at=now,
+        )
         artifact_name = f"{metric_name}_observe_panel"
         summary = (
             f"observe {metric_name} panel/{granularity}+{','.join(dimensions)} "
@@ -500,31 +567,19 @@ def run_observe_intent(
             dense_series_builder=_build_dense_series,
         )
         series = [{"keys": {}, "points": points}]
-        observation = {
-            "schema_version": "2.0",
-            "observation_type": obs_type,
-            "metric": metric_name,
-            "time_scope": resolved_time_scope,
-            "scope": scope_raw or {},
-            "predicate_filter_lineage": predicate_filter_lineage,
-            "unit": None,
-            "axes": axes,
-            "series": series,
-            "analytical_metadata": {
-                "decomposition_semantics": decomposition_semantics,
-                "timezone": None,
-                "data_complete": data_complete,
-                "quality_status": quality_status,
-                "row_count": len(rows),
-                "sample_size": len(rows),
-                "null_rate": None,
-            },
-            "execution_metadata": {
-                "query_hash": provenance.get("query_hash", ""),
-                "engine": engine_type,
-                "executed_at": now,
-            },
-        }
+        product_metadata = _build_observe_product_metadata(
+            predicate_filter_lineage=predicate_filter_lineage,
+            decomposition_semantics=decomposition_semantics,
+            timezone=None,
+            data_complete=data_complete,
+            quality_status=quality_status,
+            row_count=len(rows),
+            sample_size=len(rows),
+            null_rate=None,
+            query_hash=provenance.get("query_hash", ""),
+            engine=engine_type,
+            executed_at=now,
+        )
         artifact_name = f"{metric_name}_observe_time_series"
         summary = (
             f"observe {metric_name} time_series/{granularity} "
@@ -564,31 +619,19 @@ def run_observe_intent(
         predicate_filter_lineage = extract_predicate_filter_lineage(compiled_query)
         series = build_segmented_series(rows, dimensions=dimensions)
         quality_status = "ready" if rows else "not_ready"
-        observation = {
-            "schema_version": "2.0",
-            "observation_type": obs_type,
-            "metric": metric_name,
-            "time_scope": resolved_time_scope,
-            "scope": scope_raw or {},
-            "predicate_filter_lineage": predicate_filter_lineage,
-            "unit": None,
-            "axes": axes,
-            "series": series,
-            "analytical_metadata": {
-                "decomposition_semantics": decomposition_semantics,
-                "timezone": None,
-                "data_complete": None,
-                "quality_status": quality_status,
-                "row_count": len(rows),
-                "sample_size": len(rows),
-                "null_rate": None,
-            },
-            "execution_metadata": {
-                "query_hash": provenance.get("query_hash", ""),
-                "engine": engine_type,
-                "executed_at": now,
-            },
-        }
+        product_metadata = _build_observe_product_metadata(
+            predicate_filter_lineage=predicate_filter_lineage,
+            decomposition_semantics=decomposition_semantics,
+            timezone=None,
+            data_complete=None,
+            quality_status=quality_status,
+            row_count=len(rows),
+            sample_size=len(rows),
+            null_rate=None,
+            query_hash=provenance.get("query_hash", ""),
+            engine=engine_type,
+            executed_at=now,
+        )
         artifact_name = f"{metric_name}_observe_segmented"
         summary = (
             f"observe {metric_name} segmented [{start_str} → {end_str}]: {len(series)} segments"
@@ -640,31 +683,19 @@ def run_observe_intent(
 
         quality_status = "ready" if rows else "not_ready"
         series = build_scalar_series(value)
-        observation = {
-            "schema_version": "2.0",
-            "observation_type": obs_type,
-            "metric": metric_name,
-            "time_scope": resolved_time_scope,
-            "scope": scope_raw or {},
-            "predicate_filter_lineage": predicate_filter_lineage,
-            "unit": None,
-            "axes": axes,
-            "series": series,
-            "analytical_metadata": {
-                "decomposition_semantics": decomposition_semantics,
-                "timezone": None,
-                "data_complete": None,
-                "quality_status": quality_status,
-                "row_count": sample_size,
-                "sample_size": sample_size,
-                "null_rate": None,
-            },
-            "execution_metadata": {
-                "query_hash": provenance.get("query_hash", ""),
-                "engine": engine_type,
-                "executed_at": now,
-            },
-        }
+        product_metadata = _build_observe_product_metadata(
+            predicate_filter_lineage=predicate_filter_lineage,
+            decomposition_semantics=decomposition_semantics,
+            timezone=None,
+            data_complete=None,
+            quality_status=quality_status,
+            row_count=sample_size,
+            sample_size=sample_size,
+            null_rate=None,
+            query_hash=provenance.get("query_hash", ""),
+            engine=engine_type,
+            executed_at=now,
+        )
         artifact_name = f"{metric_name}_observe_scalar"
         summary = (
             f"observe {metric_name} [{start_str} → {end_str}]: "
@@ -679,18 +710,29 @@ def run_observe_intent(
     if _elapsed_ms is not None:
         _sql_entry["elapsed_ms"] = _elapsed_ms
     sql_texts = [_sql_entry]
-    result = commit_step_result(
+    artifact_payload = build_metric_frame_artifact(
+        artifact_id="art_placeholder",
+        shape=obs_type,
+        metric_ref=metric_ref,
+        time_scope=_normalize_aoi_time_scope(resolved_time_scope),
+        scope=scope_raw or {},
+        axes=axes,
+        series=_normalize_aoi_series_windows(series),
+        unit=None,
+    )
+    envelope = commit_aoi_artifact_result(
         runtime,
         session_id,
         step_id,
         "observe",
-        "observation",
+        "metric_frame",
         artifact_name,
-        observation,
+        artifact_payload,
         summary,
         provenance=provenance,
+        product_metadata=product_metadata,
         reasoning=reasoning,
-        semantic_metadata=build_step_semantic_metadata(compiled_query),
+        semantic_metadata=_build_step_metadata(compiled_query),
         sql_texts=sql_texts,
     )
-    return result
+    return envelope.model_dump()

@@ -18,6 +18,16 @@ from typing import TYPE_CHECKING, Any
 
 from marivo.core.intent.primitives import new_step_id
 from marivo.runtime.intents._helpers import commit_step_result
+from marivo.runtime.intents.metric_frame import (
+    is_metric_frame_artifact,
+    metric_display_name,
+    read_axes_from_artifact,
+    read_metric_frame_metric_ref,
+    read_metric_frame_points,
+    read_metric_frame_shape,
+    read_metric_frame_time_scope,
+    time_grain_from_axes,
+)
 
 if TYPE_CHECKING:
     from marivo.runtime.runtime import MarivoRuntime
@@ -164,31 +174,28 @@ def run_forecast_intent(
     src_step_id, source_artifact = resolved
     resolved_artifact_id = source_artifact_id
 
-    # ── Validate observation_type ─────────────────────────────────────────────
-    artifact_obs_type: str | None = source_artifact.get("observation_type")
+    # ── Validate metric_frame shape ───────────────────────────────────────────
+    if not is_metric_frame_artifact(source_artifact):
+        raise ValueError(
+            "forecast: INVALID_ARGUMENT - source_artifact_id must point to a metric_frame "
+            "artifact with artifact_family='metric_frame'"
+        )
+    artifact_obs_type = read_metric_frame_shape(source_artifact)
     if artifact_obs_type != "time_series":
         raise ValueError(
             f"forecast: INVALID_ARGUMENT - source_artifact_id must point to a 'time_series' observe "
             f"artifact, got observation_type='{artifact_obs_type}'"
         )
     # ── Derive granularity from source artifact ───────────────────────────────
-    granularity: str = str(source_artifact.get("granularity") or "").lower()
+    granularity = str(time_grain_from_axes(read_axes_from_artifact(source_artifact)) or "").lower()
     if granularity not in _VALID_GRANULARITIES:
         raise ValueError(
             f"forecast: UNSUPPORTED_OPERATION - source artifact granularity '{granularity}' "
             f"is not supported; must be one of {sorted(_VALID_GRANULARITIES)}"
         )
 
-    # ── Extract and validate series (v2.0 axes+series format) ────────────────────
-    # v2.0 format: series is a list of {keys, points} objects; points is the
-    # actual time-series data. Read from series[0].points with fallback to legacy
-    # top-level "series" for v1 compat.
-    series_list: list[dict[str, Any]] = source_artifact.get("series") or []
-    if series_list and isinstance(series_list[0], dict) and "points" in series_list[0]:
-        raw_series: list[dict[str, Any]] = series_list[0].get("points") or []
-    else:
-        # Legacy v1 compat: series is a flat list of {window, value} dicts
-        raw_series = series_list
+    # ── Extract and validate metric_frame points ──────────────────────────────
+    raw_series = read_metric_frame_points(source_artifact)
     observed_points = len(raw_series)
 
     usable: list[tuple[str, str, float]] = []  # (start, end, value)
@@ -321,8 +328,8 @@ def run_forecast_intent(
     _hash_input = f"{resolved_artifact_id}:{resolved_profile}:{granularity}:{horizon}"
     query_hash = hashlib.sha256(_hash_input.encode()).hexdigest()[:16]
 
-    metric_name: str = source_artifact.get("metric") or ""
-    source_time_scope: dict[str, Any] = source_artifact.get("time_scope") or {}
+    metric_name = metric_display_name(read_metric_frame_metric_ref(source_artifact))
+    source_time_scope = read_metric_frame_time_scope(source_artifact)
 
     source_ref_out: dict[str, Any] = {
         "step_type": "observe",
@@ -355,14 +362,12 @@ def run_forecast_intent(
         "forecast": forecast_buckets,
         "source_lineage": {
             "source_artifact_ref": source_ref_out,
-            "source_schema_version": str(source_artifact.get("schema_version") or "1.0"),
-            "source_metric_contract_version": source_artifact.get("metric_contract_version"),
+            "source_schema_version": "metric_frame",
+            "source_metric_contract_version": None,
         },
         "analytical_metadata": {
-            "timezone": (source_artifact.get("analytical_metadata") or {}).get("timezone"),
-            "data_complete": (source_artifact.get("analytical_metadata") or {}).get(
-                "data_complete"
-            ),
+            "timezone": None,
+            "data_complete": None,
             "trend_assumption": trend_assumption,
             "seasonality_assumption": seasonality_assumption,
         },

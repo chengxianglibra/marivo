@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from marivo.runtime.intents.metric_frame import build_metric_frame_artifact
 from tests.runtime.intents._runner_fixtures import _FAKE_ARTIFACT_ID, _SESSION
 
 _LEFT_ARTIFACT_ID = "art_left_obs"
@@ -30,25 +31,20 @@ def _time_series_observation(
     granularity: str = "day",
 ) -> dict[str, Any]:
     pts = _points(values if values is not None else [10.0, 20.0, 30.0, 40.0, 50.0])
-    return {
-        "observation_type": "time_series",
-        "metric": metric,
-        "schema_version": "2.0",
-        "unit": None,
-        "axes": [{"kind": "time", "grain": granularity}],
-        "granularity": granularity,
-        "series": [{"keys": {}, "points": pts}],
-        "analytical_metadata": {
-            "decomposition_semantics": "sum",
-            "row_count": len(pts),
-        },
-        "time_scope": {
+    return build_metric_frame_artifact(
+        artifact_id=f"art_{metric}_time_series",
+        shape="time_series",
+        metric_ref=metric,
+        time_scope={
             "field": "time",
             "start": pts[0]["window"]["start"],
             "end": pts[-1]["window"]["end"],
         },
-        "scope": {},
-    }
+        scope={},
+        axes=[{"kind": "time", "grain": granularity}],
+        series=[{"keys": {}, "points": pts}],
+        unit=None,
+    )
 
 
 def _make_runtime(
@@ -132,6 +128,18 @@ def test_correlate_records_resolved_artifact_lineage() -> None:
     assert result["right_ref"]["artifact_id"] == _RIGHT_ARTIFACT_ID
     assert result["source_lineage"]["left_artifact"]["artifact_id"] == _LEFT_ARTIFACT_ID
     assert result["source_lineage"]["right_artifact"]["artifact_id"] == _RIGHT_ARTIFACT_ID
+
+
+def test_correlate_outputs_display_metric_names() -> None:
+    runtime = _make_runtime(
+        _time_series_observation("metric.signup_rate"),
+        _time_series_observation("metric.activation_rate"),
+    )
+
+    result = _run_correlate(runtime)
+
+    assert result["left_metric"] == "signup_rate"
+    assert result["right_metric"] == "activation_rate"
 
 
 def test_correlate_omitted_method_defaults_to_spearman() -> None:
@@ -323,19 +331,59 @@ def test_correlate_reports_missing_right_artifact_id() -> None:
     )
 
 
+def test_correlate_rejects_non_metric_frame_artifacts_before_shape_read() -> None:
+    left_artifact = {"shape": "time_series", "series": []}
+    runtime = _make_runtime(left_artifact, _time_series_observation("m2"))
+
+    _assert_correlate_fails_without_commit(
+        runtime,
+        _correlate_params(),
+        "artifact_family='metric_frame'",
+    )
+
+
+def test_correlate_rejects_right_non_metric_frame_artifacts_before_shape_read() -> None:
+    right_artifact = {"shape": "time_series", "series": []}
+    runtime = _make_runtime(_time_series_observation("m1"), right_artifact)
+
+    _assert_correlate_fails_without_commit(
+        runtime,
+        _correlate_params(),
+        "artifact_family='metric_frame'",
+    )
+
+
 @pytest.mark.parametrize(
     ("side", "left_artifact", "right_artifact", "match"),
     [
         (
             "left",
-            {"observation_type": "scalar"},
+            build_metric_frame_artifact(
+                artifact_id="art_left_scalar",
+                shape="scalar",
+                metric_ref="m1",
+                time_scope={"field": "time", "start": "2024-01-01", "end": "2024-01-02"},
+                scope={},
+                axes=[],
+                series=[{"keys": {}, "points": [{"value": 1.0}]}],
+                unit=None,
+            ),
             _time_series_observation("m2"),
             "left_artifact_id",
         ),
         (
             "right",
             _time_series_observation("m1"),
-            {"observation_type": "segmented"},
+            build_metric_frame_artifact(
+                artifact_id="art_right_segmented",
+                shape="segmented",
+                metric_ref="m2",
+                time_scope={"field": "time", "start": "2024-01-01", "end": "2024-01-02"},
+                scope={},
+                axes=[{"kind": "dimension", "name": "region"}],
+                series=[{"keys": {"region": "US"}, "points": [{"value": 1.0}]}],
+                unit=None,
+            ),
             "right_artifact_id",
         ),
     ],

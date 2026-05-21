@@ -12,6 +12,7 @@ from marivo.adapters.local.duckdb_analytics import DuckDBAnalyticsEngine
 from marivo.adapters.local.sqlite_metadata import SQLiteMetadataStore
 from marivo.runtime.intents.diagnose import run_diagnose_intent
 from marivo.runtime.intents.diagnose_projection import compact_diagnose_envelope
+from marivo.runtime.intents.metric_frame import build_metric_frame_artifact
 from tests.semantic_test_helpers import (
     build_semantic_layer_service,
     ensure_published_typed_metric,
@@ -616,10 +617,20 @@ def test_hour_candidate_followup_preserves_hour_windows_for_compare() -> None:
                 "step_type": "observe",
             },
             "artifact_id": "art_obs_current",
-            "observation_type": "scalar",
-            "schema_version": "2.0",
-            "axes": [],
-            "series": [{"keys": {}, "points": [{"value": 29.0}]}],
+            "result": build_metric_frame_artifact(
+                artifact_id="art_obs_current",
+                shape="scalar",
+                metric_ref="metric.trino_elapsed_seconds_p95",
+                time_scope={
+                    "field": "event_time",
+                    "start": "2026-04-09T14:00:00",
+                    "end": "2026-04-09T15:00:00",
+                },
+                scope={},
+                axes=[],
+                series=[{"keys": {}, "points": [{"value": 29.0}]}],
+                unit=None,
+            ),
         },
         {
             "step_ref": {
@@ -628,10 +639,20 @@ def test_hour_candidate_followup_preserves_hour_windows_for_compare() -> None:
                 "step_type": "observe",
             },
             "artifact_id": "art_obs_baseline",
-            "observation_type": "scalar",
-            "schema_version": "2.0",
-            "axes": [],
-            "series": [{"keys": {}, "points": [{"value": 3.0}]}],
+            "result": build_metric_frame_artifact(
+                artifact_id="art_obs_baseline",
+                shape="scalar",
+                metric_ref="metric.trino_elapsed_seconds_p95",
+                time_scope={
+                    "field": "event_time",
+                    "start": "2026-04-09T13:00:00",
+                    "end": "2026-04-09T14:00:00",
+                },
+                scope={},
+                axes=[],
+                series=[{"keys": {}, "points": [{"value": 3.0}]}],
+                unit=None,
+            ),
         },
     ]
     compare_result = {

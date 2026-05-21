@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING, Any
 
+from marivo.contracts.ids import SessionId
 from marivo.core.intent.primitives import new_step_id
 from marivo.core.semantic.calendar import (
     build_calendar_annotation_rows,
@@ -15,7 +16,14 @@ from marivo.runtime.intents.metric_frame import (
     dimension_names_from_axes,
     has_dimension_axis,
     has_time_axis,
+    is_metric_frame_artifact,
     read_axes_from_artifact,
+    read_metric_frame_metric_ref,
+    read_metric_frame_scope,
+    read_metric_frame_series,
+    read_metric_frame_shape,
+    read_metric_frame_time_scope,
+    read_metric_frame_unit,
     time_grain_from_axes,
 )
 from marivo.runtime.intents.predicate_lineage_reuse import (
@@ -32,15 +40,74 @@ if TYPE_CHECKING:
 _AOI_PARAM_KEYS: frozenset[str] = frozenset(
     {"current_artifact_id", "baseline_artifact_id", "compare_type"}
 )
+_SUPPORTED_METRIC_FRAME_SHAPES: frozenset[str] = frozenset(
+    {"scalar", "time_series", "segmented", "panel"}
+)
 
 
 # --- v2.0 read helpers ---
 # Pure v2.0 (axes+series) accessors for reading observe artifact data.
 
 
+def _read_metric_frame_series_entries(artifact: dict[str, Any]) -> list[dict[str, Any]]:
+    return read_metric_frame_series(artifact)
+
+
+def _read_metric_ref(artifact: dict[str, Any]) -> str:
+    return read_metric_frame_metric_ref(artifact)
+
+
+def _read_scope(artifact: dict[str, Any]) -> dict[str, Any]:
+    return read_metric_frame_scope(artifact)
+
+
+def _read_time_scope(artifact: dict[str, Any]) -> dict[str, Any]:
+    return _date_boundary_time_scope(read_metric_frame_time_scope(artifact))
+
+
+def _date_boundary_time_scope(time_scope: dict[str, Any]) -> dict[str, Any]:
+    def normalize_boundary(value: Any) -> Any:
+        text = str(value)
+        if text.endswith("T00:00:00Z"):
+            return text[:10]
+        return value
+
+    return {
+        **time_scope,
+        "start": normalize_boundary(time_scope.get("start")),
+        "end": normalize_boundary(time_scope.get("end")),
+    }
+
+
+def _read_unit(artifact: dict[str, Any]) -> str | None:
+    return read_metric_frame_unit(artifact)
+
+
+def _step_result_for_id(runtime: MarivoRuntime, session_id: str, step_id: str) -> dict[str, Any]:
+    for step in runtime.ports.step_store.list_steps(SessionId(session_id)):
+        if str(step.step_id) == step_id:
+            return step.result
+    return {}
+
+
+def _observe_metadata_for_step(
+    runtime: MarivoRuntime,
+    *,
+    session_id: str,
+    step_id: str,
+) -> dict[str, Any]:
+    step_result = _step_result_for_id(runtime, session_id, step_id)
+    product_metadata = step_result.get("product_metadata")
+    if isinstance(product_metadata, dict):
+        observe_metadata = product_metadata.get("observe_metadata")
+        if isinstance(observe_metadata, dict):
+            return observe_metadata
+    return {}
+
+
 def _read_scalar_value(artifact: dict[str, Any]) -> float | None:
     """Read scalar value from a v2.0 artifact."""
-    series_list = artifact.get("series") or []
+    series_list = _read_metric_frame_series_entries(artifact)
     if not series_list:
         return None
     points = series_list[0].get("points") or []
@@ -51,10 +118,61 @@ def _read_scalar_value(artifact: dict[str, Any]) -> float | None:
 
 def _read_time_series_points(artifact: dict[str, Any]) -> list[dict[str, Any]]:
     """Read time_series points list from a v2.0 artifact."""
-    series_list = artifact.get("series") or []
+    series_list = _read_metric_frame_series_entries(artifact)
     if not series_list:
         return []
     return series_list[0].get("points") or []
+
+
+def _require_metric_frame_artifact(
+    artifact: dict[str, Any], *, label: str
+) -> tuple[str, list[dict[str, str]]]:
+    if not is_metric_frame_artifact(artifact):
+        raise ValueError(
+            "compare: INVALID_ARGUMENT - "
+            f"{label} artifact must be metric_frame with top-level "
+            "artifact_family='metric_frame'"
+        )
+    shape = read_metric_frame_shape(artifact)
+    if shape not in _SUPPORTED_METRIC_FRAME_SHAPES:
+        raise ValueError(
+            f"compare: INVALID_ARGUMENT - {label} metric_frame shape '{shape}' is not supported"
+        )
+    read_metric_frame_metric_ref(artifact)
+    read_metric_frame_scope(artifact)
+    read_metric_frame_time_scope(artifact)
+    read_metric_frame_series(artifact)
+    axes = read_axes_from_artifact(artifact)
+    if shape == "panel":
+        return shape, axes
+    _validate_axes_for_shape(shape, axes, label=label)
+    return shape, axes
+
+
+def _validate_axes_for_shape(shape: str, axes: list[dict[str, str]], *, label: str) -> None:
+    if any(not isinstance(axis, dict) for axis in axes):
+        raise ValueError(f"compare: INVALID_ARGUMENT - {label} metric_frame axes must be objects")
+    has_time = has_time_axis(axes)
+    has_dim = has_dimension_axis(axes)
+    if shape == "scalar":
+        if axes:
+            raise ValueError(
+                "compare: INVALID_ARGUMENT - scalar metric_frame must not declare axes"
+            )
+        return
+    if shape == "time_series":
+        grain = time_grain_from_axes(axes)
+        if not has_time or has_dim or grain is None:
+            raise ValueError(
+                "compare: INVALID_ARGUMENT - time_series metric_frame requires one time axis "
+                "with grain and no dimension axes"
+            )
+        return
+    if shape == "segmented" and (has_time or not has_dim):
+        raise ValueError(
+            "compare: INVALID_ARGUMENT - segmented metric_frame requires dimension axes "
+            "and no time axis"
+        )
 
 
 def _normalize_window(window: dict[str, Any]) -> tuple[str, str]:
@@ -223,7 +341,9 @@ def _parse_date_like(value: str) -> date:
 
 
 def _time_scope_window(artifact: dict[str, Any], *, label: str) -> tuple[date, date]:
-    time_scope = _require_mapping(artifact.get("time_scope"), label=f"{label}.time_scope")
+    time_scope = _read_time_scope(artifact)
+    if time_scope is None:
+        raise ValueError(f"compare: INVALID_ARGUMENT - {label}.time_scope is required")
     start = _parse_date_like(str(time_scope.get("start") or ""))
     end = _parse_date_like(str(time_scope.get("end") or ""))
     if start >= end:
@@ -392,35 +512,30 @@ def run_compare_intent(
         )
     right_step_id, right_artifact = right_resolved
 
-    # Axes-based detection (v2.0 format)
-    left_axes = read_axes_from_artifact(left_artifact)
-    right_axes = read_axes_from_artifact(right_artifact)
+    left_effective_type, left_axes = _require_metric_frame_artifact(left_artifact, label="current")
+    right_effective_type, right_axes = _require_metric_frame_artifact(
+        right_artifact, label="baseline"
+    )
+    left_observe_metadata = _observe_metadata_for_step(
+        runtime,
+        session_id=session_id,
+        step_id=left_step_id,
+    )
+    right_observe_metadata = _observe_metadata_for_step(
+        runtime,
+        session_id=session_id,
+        step_id=right_step_id,
+    )
     left_has_time = has_time_axis(left_axes)
     left_has_dim = has_dimension_axis(left_axes)
-    right_has_time = has_time_axis(right_axes)
-    right_has_dim = has_dimension_axis(right_axes)
 
-    # Determine effective comparison mode from axes structure
-    if left_has_time and left_has_dim:
-        left_effective_type = "panel"
-    elif left_has_time:
-        left_effective_type = "time_series"
-    elif left_has_dim:
-        left_effective_type = "segmented"
-    else:
-        left_effective_type = "scalar"
+    left_metric = _read_metric_ref(left_artifact)
+    right_metric = _read_metric_ref(right_artifact)
 
-    if right_has_time and right_has_dim:
-        right_effective_type = "panel"
-    elif right_has_time:
-        right_effective_type = "time_series"
-    elif right_has_dim:
-        right_effective_type = "segmented"
-    else:
-        right_effective_type = "scalar"
-
-    left_metric: str | None = left_artifact.get("metric")
-    right_metric: str | None = right_artifact.get("metric")
+    if left_effective_type == "panel" or right_effective_type == "panel":
+        raise ValueError(
+            "compare: UNSUPPORTED_OPERATION - panel metric_frame comparison is not supported yet"
+        )
 
     # Collect comparability issues
     issues: list[dict[str, Any]] = []
@@ -486,8 +601,8 @@ def run_compare_intent(
             "requires time_series observations"
         )
 
-    left_unit: str | None = left_artifact.get("unit")
-    right_unit: str | None = right_artifact.get("unit")
+    left_unit = _read_unit(left_artifact)
+    right_unit = _read_unit(right_artifact)
     if left_unit != right_unit:
         issues.append(
             {
@@ -499,13 +614,13 @@ def run_compare_intent(
         fatal = True
 
     # Resolve analytical metadata for downstream passthrough.
-    left_am = left_artifact.get("analytical_metadata") or {}
-    right_am = right_artifact.get("analytical_metadata") or {}
+    left_am = left_observe_metadata.get("analytical_metadata") or {}
+    right_am = right_observe_metadata.get("analytical_metadata") or {}
 
     predicate_lineage_summary = resolve_predicate_lineage_reuse_for_intent(
         intent_name="compare",
-        current_predicate_filter_lineage=left_artifact.get("predicate_filter_lineage"),
-        baseline_predicate_filter_lineage=right_artifact.get("predicate_filter_lineage"),
+        current_predicate_filter_lineage=left_observe_metadata.get("predicate_filter_lineage"),
+        baseline_predicate_filter_lineage=right_observe_metadata.get("predicate_filter_lineage"),
     )
     issues.extend(predicate_lineage_summary["issues"])
     if predicate_lineage_summary["fatal_message"] is not None:
@@ -534,7 +649,7 @@ def run_compare_intent(
     comparability: dict[str, Any] = {"status": comparability_status, "issues": issues}
 
     # Build shared metadata
-    metric_name: str = left_metric or ""
+    metric_name = runtime.core.metric_name_from_ref(left_metric) if left_metric else ""
     step_id = new_step_id()
     now = datetime.now(UTC).isoformat()
     flat_tolerance_relative = 0.01
@@ -559,10 +674,10 @@ def run_compare_intent(
         "compare_type": compare_type,
     }
     resolved_input_summary: dict[str, Any] = {
-        "current_time_scope": left_artifact.get("time_scope"),
-        "baseline_time_scope": right_artifact.get("time_scope"),
-        "current_scope": left_artifact.get("scope") or {},
-        "baseline_scope": right_artifact.get("scope") or {},
+        "current_time_scope": _read_time_scope(left_artifact),
+        "baseline_time_scope": _read_time_scope(right_artifact),
+        "current_scope": _read_scope(left_artifact),
+        "baseline_scope": _read_scope(right_artifact),
     }
     if predicate_lineage_summary["reuse_summary"] is not None:
         resolved_input_summary["predicate_lineage"] = predicate_lineage_summary["reuse_summary"]
@@ -720,8 +835,8 @@ def run_compare_intent(
         summary_rel = _compute_relative_delta(summary_abs, summary_baseline_value)
         summary_dir = _compute_direction(summary_abs, summary_rel, flat_tolerance_relative)
 
-        left_time_scope = left_artifact.get("time_scope") or {}
-        right_time_scope = right_artifact.get("time_scope") or {}
+        left_time_scope = _read_time_scope(left_artifact) or {}
+        right_time_scope = _read_time_scope(right_artifact) or {}
         current_time_field = str(left_time_scope.get("field") or "time").strip() or "time"
         baseline_time_field = str(right_time_scope.get("field") or "time").strip() or "time"
         matched_time_scope = _matched_scope_from_windows(
@@ -848,8 +963,8 @@ def run_compare_intent(
     else:
         # Segmented mode
         dims: list[str] = dimension_names_from_axes(left_axes)
-        left_series_entries: list[dict[str, Any]] = left_artifact.get("series") or []
-        right_series_entries: list[dict[str, Any]] = right_artifact.get("series") or []
+        left_series_entries = _read_metric_frame_series_entries(left_artifact)
+        right_series_entries = _read_metric_frame_series_entries(right_artifact)
 
         def _seg_key(entry: dict[str, Any]) -> tuple[str, ...]:
             return tuple(str(entry.get("keys", {}).get(d)) for d in dims)

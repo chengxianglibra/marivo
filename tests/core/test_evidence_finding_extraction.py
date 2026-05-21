@@ -135,16 +135,71 @@ def test_segment_stable_key_empty() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_extract_observe_scalar() -> None:
-    payload = {
-        "observation_type": "scalar",
-        "metric": "revenue",
-        "value": 100.5,
-        "unit": "USD",
-        "scope": {"region": "US"},
-        "time_scope": {"field": "time", "start": "2024-01-01", "end": "2024-02-01"},
-        "analytical_metadata": {"data_complete": True, "quality_status": "ready"},
+def _metric_frame_payload(
+    shape: str,
+    *,
+    series: list[dict[str, object]] | None = None,
+    scope: dict[str, object] | None = None,
+    unit: str | None = "USD",
+) -> dict[str, object]:
+    axes: list[dict[str, str]] = []
+    if shape == "time_series":
+        axes = [{"kind": "time", "grain": "day"}]
+        if series is None:
+            series = [
+                {
+                    "keys": {},
+                    "points": [
+                        {"window": {"start": "2024-01-01", "end": "2024-01-02"}, "value": 50},
+                        {"window": {"start": "2024-01-02", "end": "2024-01-03"}, "value": None},
+                    ],
+                }
+            ]
+    elif shape == "segmented":
+        axes = [{"kind": "dimension", "name": "region"}]
+        if series is None:
+            series = [
+                {"keys": {"region": "US"}, "points": [{"value": 50}]},
+                {"keys": {"region": "EU"}, "points": [{"value": 60}]},
+            ]
+    elif shape == "panel":
+        axes = [{"kind": "time", "grain": "day"}, {"kind": "dimension", "name": "region"}]
+        if series is None:
+            series = [
+                {
+                    "keys": {"region": "US"},
+                    "points": [
+                        {"window": {"start": "2024-01-01", "end": "2024-01-02"}, "value": 50}
+                    ],
+                },
+                {
+                    "keys": {"region": "EU"},
+                    "points": [
+                        {"window": {"start": "2024-01-01", "end": "2024-01-02"}, "value": 60}
+                    ],
+                },
+            ]
+    else:
+        if series is None:
+            series = [{"keys": {}, "points": [{"value": 100.5}]}]
+
+    return {
+        "artifact_family": "metric_frame",
+        "shape": shape,
+        "subject": {
+            "kind": "metric",
+            "metric_ref": "metric.revenue",
+            "scope": scope or {"country": "US"},
+            "time_scope": {"field": "time", "start": "2024-01-01", "end": "2024-02-01"},
+        },
+        "axes": axes,
+        "measures": [{"id": "value", "value_type": "number", "nullable": True, "unit": unit}],
+        "payload": {"series": series},
     }
+
+
+def test_extract_observe_scalar() -> None:
+    payload = _metric_frame_payload("scalar", scope={"region": "US"})
     step_ref = {"session_id": "s1", "step_id": "step1", "step_type": "observe"}
     findings = extract_observe_findings("art_1", payload, step_ref)
 
@@ -153,11 +208,18 @@ def test_extract_observe_scalar() -> None:
     assert f["finding_type"] == "observation"
     assert f["payload"]["observation_kind"] == "scalar"
     assert f["payload"]["value"] == 100.5
+    assert f["payload"]["unit"] == "USD"
+    assert f["subject"]["metric"] == "metric.revenue"
+    assert f["subject"]["slice"] == {"region": "US"}
     assert f["subject"]["analysis_axis"] == "scalar"
+    assert f["observed_window"] == payload["subject"]["time_scope"]
+    assert f["quality"]["quality_status"] is None
+    assert f["provenance"]["extractor_name"] == "observe_metric_frame_v1"
+    assert f["provenance"]["artifact_schema_version"] is None
 
 
 def test_extract_observe_time_series_empty() -> None:
-    payload = {"observation_type": "time_series", "series": [], "metric": "revenue"}
+    payload = _metric_frame_payload("time_series", series=[])
     findings = extract_observe_findings(
         "art_1", payload, {"session_id": "s1", "step_id": "step1", "step_type": "observe"}
     )
@@ -165,27 +227,55 @@ def test_extract_observe_time_series_empty() -> None:
 
 
 def test_extract_observe_time_series_with_buckets() -> None:
-    payload = {
-        "observation_type": "time_series",
-        "metric": "revenue",
-        "granularity": "day",
-        "unit": "USD",
-        "series": [
-            {"window": {"start": "2024-01-01", "end": "2024-01-02"}, "value": 50},
-            {"window": {"start": "2024-01-02", "end": "2024-01-03"}, "value": 60},
-        ],
-    }
+    payload = _metric_frame_payload("time_series")
     findings = extract_observe_findings(
         "art_1", payload, {"session_id": "s1", "step_id": "step1", "step_type": "observe"}
     )
     assert len(findings) == 2
     assert findings[0]["subject"]["analysis_axis"] == "time"
+    assert findings[0]["subject"]["grain"] == "day"
     assert findings[0]["payload"]["bucket_start"] == "2024-01-01"
+    assert findings[1]["payload"]["value"] is None
+    assert findings[0]["provenance"]["canonical_item_key"] == "buckets:2024-01-01/2024-01-02"
 
 
-def test_extract_observe_unknown_type_raises() -> None:
-    payload = {"observation_type": "unknown"}
-    with pytest.raises(ValueError, match="Unknown observation_type"):
+def test_extract_observe_segmented_from_metric_frame() -> None:
+    payload = _metric_frame_payload("segmented", scope={"region": "GLOBAL"})
+    findings = extract_observe_findings(
+        "art_1", payload, {"session_id": "s1", "step_id": "step1", "step_type": "observe"}
+    )
+    assert len(findings) == 2
+    assert findings[0]["subject"]["analysis_axis"] == "segment"
+    assert findings[0]["subject"]["slice"] == {"region": "US"}
+    assert findings[0]["payload"]["observation_kind"] == "segment"
+    assert findings[0]["payload"]["keys"] == {"region": "US"}
+
+
+def test_extract_observe_panel_from_metric_frame() -> None:
+    payload = _metric_frame_payload("panel", scope={"market": "global"})
+    findings = extract_observe_findings(
+        "art_1", payload, {"session_id": "s1", "step_id": "step1", "step_type": "observe"}
+    )
+    assert len(findings) == 2
+    assert findings[0]["subject"]["analysis_axis"] == "time"
+    assert findings[0]["subject"]["slice"] == {"market": "global", "region": "US"}
+    assert findings[0]["payload"]["observation_kind"] == "time_bucket"
+    assert findings[0]["provenance"]["canonical_item_key"] == (
+        "buckets:region=US|2024-01-01/2024-01-02"
+    )
+
+
+def test_extract_observe_non_metric_frame_raises() -> None:
+    payload = {"artifact_family": "observation", "shape": "scalar"}
+    with pytest.raises(ValueError, match="artifact_family='metric_frame'"):
+        extract_observe_findings(
+            "art_1", payload, {"session_id": "s1", "step_id": "step1", "step_type": "observe"}
+        )
+
+
+def test_extract_observe_unknown_metric_frame_shape_raises() -> None:
+    payload = {"artifact_family": "metric_frame", "shape": "unknown"}
+    with pytest.raises(ValueError, match="Unknown metric_frame shape"):
         extract_observe_findings(
             "art_1", payload, {"session_id": "s1", "step_id": "step1", "step_type": "observe"}
         )

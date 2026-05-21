@@ -200,21 +200,17 @@ def _observe_time_series_payload(series: list[dict[str, Any]] | None = None) -> 
             {"window": {"start": "2024-01-02", "end": "2024-01-03"}, "value": 200.0},
         ]
     return {
-        "schema_version": "1.0",
-        "observation_type": "time_series",
-        "metric": "daily_users",
-        "time_scope": {"field": "time", "start": "2024-01-01", "end": "2024-01-08"},
-        "scope": {},
-        "granularity": "day",
-        "unit": None,
-        "series": series,
-        "analytical_metadata": {
-            "data_complete": None,
-            "quality_status": "ready",
-            "row_count": len(series),
-            "sample_size": len(series),
-            "null_rate": None,
+        "artifact_family": "metric_frame",
+        "shape": "time_series",
+        "subject": {
+            "kind": "metric",
+            "metric_ref": "metric.daily_users",
+            "time_scope": {"field": "time", "start": "2024-01-01", "end": "2024-01-08"},
+            "scope": {},
         },
+        "axes": [{"kind": "time", "grain": "day"}],
+        "measures": [{"id": "value", "value_type": "number", "nullable": True, "unit": None}],
+        "payload": {"series": [{"keys": {}, "points": series}]},
     }
 
 
@@ -224,22 +220,22 @@ def _observe_segmented_payload(segments: list[dict[str, Any]] | None = None) -> 
             {"keys": {"country": "US"}, "value": 500.0},
             {"keys": {"country": "UK"}, "value": 300.0},
         ]
+    series = [
+        {"keys": segment.get("keys") or {}, "points": [{"value": segment.get("value")}]}
+        for segment in segments
+    ]
     return {
-        "schema_version": "1.0",
-        "observation_type": "segmented",
-        "metric": "revenue",
-        "time_scope": {"field": "time", "start": "2024-01-01", "end": "2024-01-08"},
-        "scope": {},
-        "dimensions": ["country"],
-        "unit": "usd",
-        "segments": segments,
-        "analytical_metadata": {
-            "data_complete": None,
-            "quality_status": "ready",
-            "row_count": len(segments),
-            "sample_size": len(segments),
-            "null_rate": None,
+        "artifact_family": "metric_frame",
+        "shape": "segmented",
+        "subject": {
+            "kind": "metric",
+            "metric_ref": "metric.revenue",
+            "time_scope": {"field": "time", "start": "2024-01-01", "end": "2024-01-08"},
+            "scope": {},
         },
+        "axes": [{"kind": "dimension", "name": "country"}],
+        "measures": [{"id": "value", "value_type": "number", "nullable": True, "unit": "usd"}],
+        "payload": {"series": series},
     }
 
 
@@ -443,11 +439,17 @@ class TestObserveEmptyTimeSeries(unittest.TestCase):
             self.store,
             _SESSION,
             _STEP_ID,
-            "observation",
+            "metric_frame",
             "obs_empty_ts",
             _observe_time_series_payload(series=[]),
             step_type="observe",
         )
+
+    def test_metric_frame_extractor_is_registered(self) -> None:
+        extractor = default_finding_registry.find("metric_frame", None)
+        self.assertIsNotNone(extractor)
+        assert extractor is not None
+        self.assertEqual(extractor.extractor_name, "observe_metric_frame_v1")
 
     def test_artifact_committed(self) -> None:
         artifact_id = self._commit()
@@ -472,11 +474,17 @@ class TestObserveEmptySegmented(unittest.TestCase):
             self.store,
             _SESSION,
             _STEP_ID,
-            "observation",
+            "metric_frame",
             "obs_empty_seg",
             _observe_segmented_payload(segments=[]),
             step_type="observe",
         )
+
+    def test_metric_frame_extractor_is_registered(self) -> None:
+        extractor = default_finding_registry.find("metric_frame", None)
+        self.assertIsNotNone(extractor)
+        assert extractor is not None
+        self.assertEqual(extractor.extractor_name, "observe_metric_frame_v1")
 
     def test_artifact_committed(self) -> None:
         artifact_id = self._commit()
@@ -789,20 +797,17 @@ class TestFindingIdReplayStability(unittest.TestCase):
         art_id = "art_observe_scalar_replay001"
         step_ref = StepRef(session_id=_SESSION, step_id=_STEP_ID, step_type="observe")
         payload: dict[str, Any] = {
-            "schema_version": "1.0",
-            "observation_type": "scalar",
-            "metric": "dau",
-            "time_scope": {"field": "time", "start": "2024-01-01", "end": "2024-01-08"},
-            "scope": {},
-            "unit": None,
-            "value": 1234.0,
-            "analytical_metadata": {
-                "data_complete": None,
-                "quality_status": "ready",
-                "row_count": 1,
-                "sample_size": 1,
-                "null_rate": None,
+            "artifact_family": "metric_frame",
+            "shape": "scalar",
+            "subject": {
+                "kind": "metric",
+                "metric_ref": "metric.dau",
+                "time_scope": {"field": "time", "start": "2024-01-01", "end": "2024-01-08"},
+                "scope": {},
             },
+            "axes": [],
+            "measures": [{"id": "value", "value_type": "number", "nullable": True, "unit": None}],
+            "payload": {"series": [{"keys": {}, "points": [{"value": 1234.0}]}]},
         }
 
         result1 = extractor.extract(art_id, payload, step_ref, _SESSION)

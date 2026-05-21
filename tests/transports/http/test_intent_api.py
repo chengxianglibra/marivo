@@ -23,6 +23,7 @@ from pydantic import ValidationError
 from marivo.adapters.local.sqlite_metadata import SQLiteMetadataStore
 from marivo.contracts.generated import aoi
 from marivo.main import create_app
+from marivo.runtime.intents.metric_frame import build_metric_frame_artifact
 from tests.semantic_test_helpers import seed_duckdb_source_object
 from tests.shared_fixtures import get_seeded_duckdb_path
 
@@ -121,7 +122,7 @@ def _insert_observe_artifact(
     series: list[dict[str, object]] | None = None,
     unit: str | None = None,
 ) -> str:
-    # Build v2.0 axes+series format
+    # Build public metric_frame observe artifact format.
     axes: list[dict[str, str]] = []
     artifact_series: list[dict[str, object]] = []
     if granularity is not None:
@@ -143,31 +144,20 @@ def _insert_observe_artifact(
     elif observation_type == "time_series" and series is not None:
         artifact_series = [{"keys": {}, "points": series}]
 
-    payload: dict[str, object] = {
-        "schema_version": "2.0",
-        "intent_type": "observe",
-        "observation_type": observation_type,
-        "metric": metric,
-        "time_scope": time_scope,
-        "scope": {},
-        "unit": unit,
-        "axes": axes,
-        "series": artifact_series,
-        "analytical_metadata": {
-            "quality_status": "ready",
-            "decomposition_semantics": "sum",
-            "row_count": len(artifact_series),
-        },
-        "execution_metadata": {
-            "query_hash": "test",
-            "engine": "duckdb",
-            "executed_at": "2026-01-01T00:00:00",
-        },
-    }
+    payload: dict[str, object] = build_metric_frame_artifact(
+        artifact_id=f"art_seeded_{step_id}",
+        shape=observation_type,
+        metric_ref=metric,
+        time_scope=time_scope,
+        scope={},
+        axes=axes,
+        series=artifact_series,
+        unit=unit,
+    )
     artifact_id = service.insert_artifact(
         session_id,
         step_id,
-        "observation",
+        "metric_frame",
         f"{metric}_{observation_type}",
         payload,
     )
@@ -180,7 +170,19 @@ def _insert_observe_artifact(
             "step_type": "observe",
         },
         "artifact_id": artifact_id,
-        **payload,
+        "result": {**payload, "artifact_id": artifact_id},
+        "product_metadata": {
+            "observe_metadata": {
+                "quality_status": "ready",
+                "decomposition_semantics": "sum",
+                "row_count": len(artifact_series),
+            },
+            "execution_metadata": {
+                "query_hash": "test",
+                "engine": "duckdb",
+                "executed_at": "2026-01-01T00:00:00",
+            },
+        },
     }
     service.insert_step(
         step_id,

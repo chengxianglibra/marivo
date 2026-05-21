@@ -1,14 +1,14 @@
-"""Tests for the observe artifact → observation finding extractor (Phase 4d-1).
+"""Tests for the observe metric_frame -> observation finding extractor.
 
 Covers acceptance criteria:
-- All 3 observation_type modes (scalar, time_series, segmented)
+- All metric_frame shapes (scalar, time_series, segmented, panel)
   produce correct ObservationFindings.
-- time_series / segmented success-empty (empty collection → 0 findings) is legal.
+- time_series / segmented / panel success-empty is legal.
 - finding_id is stable across replay for every mode.
 - Segment canonical_item_key is derived from sorted key-value pairs (projection order
   does not affect identity).
 - ObserveArtifactExtractor is registered in default_finding_registry under
-  ("observation", "v1"), including NULL version normalisation.
+  ("metric_frame", None).
 - validate_for_commit("observe", result) passes for all modes, including empty.
 """
 
@@ -44,78 +44,98 @@ def _scalar_payload(
     metric: str = "daily_users",
     value: float | None = 1234.0,
     scope: dict[str, Any] | None = None,
-    quality_status: str | None = "ready",
 ) -> dict[str, Any]:
     return {
-        "schema_version": "1.0",
-        "observation_type": "scalar",
-        "metric": metric,
-        "time_scope": {"field": "time", "start": "2024-01-01", "end": "2024-01-08"},
-        "scope": scope or {},
-        "unit": None,
-        "value": value,
-        "analytical_metadata": {
-            "data_complete": None,
-            "quality_status": quality_status,
-            "row_count": 1 if value is not None else 0,
-            "sample_size": 1 if value is not None else 0,
-            "null_rate": None,
+        "artifact_family": "metric_frame",
+        "shape": "scalar",
+        "subject": {
+            "kind": "metric",
+            "metric_ref": metric,
+            "time_scope": {"field": "time", "start": "2024-01-01", "end": "2024-01-08"},
+            "scope": scope or {},
         },
+        "axes": [],
+        "measures": [{"id": "value", "value_type": "number", "nullable": True, "unit": None}],
+        "payload": {"series": [{"keys": {}, "points": [{"value": value}]}]},
     }
 
 
 def _time_series_payload(
-    series: list[dict[str, Any]] | None = None,
-    granularity: str = "day",
+    points: list[dict[str, Any]] | None = None,
+    grain: str = "day",
 ) -> dict[str, Any]:
-    if series is None:
-        series = [
+    if points is None:
+        points = [
             {"window": {"start": "2024-01-01", "end": "2024-01-02"}, "value": 100.0},
             {"window": {"start": "2024-01-02", "end": "2024-01-03"}, "value": 200.0},
         ]
     return {
-        "schema_version": "1.0",
-        "observation_type": "time_series",
-        "metric": "daily_users",
-        "time_scope": {"field": "time", "start": "2024-01-01", "end": "2024-01-08"},
-        "scope": {},
-        "unit": None,
-        "granularity": granularity,
-        "series": series,
-        "analytical_metadata": {
-            "data_complete": None,
-            "quality_status": "ready" if series else "not_ready",
-            "row_count": len(series),
-            "sample_size": len(series),
-            "null_rate": None,
+        "artifact_family": "metric_frame",
+        "shape": "time_series",
+        "subject": {
+            "kind": "metric",
+            "metric_ref": "daily_users",
+            "time_scope": {"field": "time", "start": "2024-01-01", "end": "2024-01-08"},
+            "scope": {},
         },
+        "axes": [{"kind": "time", "grain": grain}],
+        "measures": [{"id": "value", "value_type": "number", "nullable": True, "unit": None}],
+        "payload": {"series": [{"keys": {}, "points": points}]},
     }
 
 
 def _segmented_payload(
-    segments: list[dict[str, Any]] | None = None,
+    series: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    if segments is None:
-        segments = [
-            {"keys": {"region": "US"}, "value": 500.0, "share": None},
-            {"keys": {"region": "EU"}, "value": 300.0, "share": None},
+    if series is None:
+        series = [
+            {"keys": {"region": "US"}, "points": [{"value": 500.0}]},
+            {"keys": {"region": "EU"}, "points": [{"value": 300.0}]},
         ]
     return {
-        "schema_version": "1.0",
-        "observation_type": "segmented",
-        "metric": "daily_users",
-        "time_scope": {"field": "time", "start": "2024-01-01", "end": "2024-01-08"},
-        "scope": {},
-        "unit": None,
-        "dimensions": ["region"],
-        "segments": segments,
-        "analytical_metadata": {
-            "data_complete": None,
-            "quality_status": "ready" if segments else "not_ready",
-            "row_count": len(segments),
-            "sample_size": len(segments),
-            "null_rate": None,
+        "artifact_family": "metric_frame",
+        "shape": "segmented",
+        "subject": {
+            "kind": "metric",
+            "metric_ref": "daily_users",
+            "time_scope": {"field": "time", "start": "2024-01-01", "end": "2024-01-08"},
+            "scope": {},
         },
+        "axes": [{"kind": "dimension", "name": "region"}],
+        "measures": [{"id": "value", "value_type": "number", "nullable": True, "unit": None}],
+        "payload": {"series": series},
+    }
+
+
+def _panel_payload(series: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    if series is None:
+        series = [
+            {
+                "keys": {"region": "US"},
+                "points": [
+                    {"window": {"start": "2024-01-01", "end": "2024-01-02"}, "value": 100.0},
+                    {"window": {"start": "2024-01-02", "end": "2024-01-03"}, "value": None},
+                ],
+            },
+            {
+                "keys": {"region": "EU"},
+                "points": [
+                    {"window": {"start": "2024-01-01", "end": "2024-01-02"}, "value": 80.0},
+                ],
+            },
+        ]
+    return {
+        "artifact_family": "metric_frame",
+        "shape": "panel",
+        "subject": {
+            "kind": "metric",
+            "metric_ref": "daily_users",
+            "time_scope": {"field": "time", "start": "2024-01-01", "end": "2024-01-08"},
+            "scope": {"market": "global"},
+        },
+        "axes": [{"kind": "time", "grain": "day"}, {"kind": "dimension", "name": "region"}],
+        "measures": [{"id": "value", "value_type": "number", "nullable": True, "unit": None}],
+        "payload": {"series": series},
     }
 
 
@@ -158,9 +178,10 @@ class TestObserveExtractorScalar(unittest.TestCase):
         self.assertEqual(len(result["findings"]), 1)
         self.assertIsNone(result["findings"][0]["payload"]["value"])
 
-    def test_quality_status_propagated_from_am(self) -> None:
+    def test_quality_is_empty_for_metric_frame(self) -> None:
         f = self.result["findings"][0]
-        self.assertEqual(f["quality"]["quality_status"], "ready")
+        self.assertIsNone(f["quality"]["quality_status"])
+        self.assertEqual(f["quality"]["quality_warnings"], [])
 
     def test_subject_metric_and_analysis_axis(self) -> None:
         f = self.result["findings"][0]
@@ -177,7 +198,7 @@ class TestObserveExtractorScalar(unittest.TestCase):
 
     def test_extractor_name_in_provenance(self) -> None:
         f = self.result["findings"][0]
-        self.assertEqual(f["provenance"]["extractor_name"], "observe_artifact_v1")
+        self.assertEqual(f["provenance"]["extractor_name"], "observe_metric_frame_v1")
 
     def test_finding_type_is_observation(self) -> None:
         f = self.result["findings"][0]
@@ -208,7 +229,7 @@ class TestObserveExtractorTimeSeries(unittest.TestCase):
             self.assertEqual(f["payload"]["observation_kind"], "time_bucket")
 
     def test_empty_series_is_success_empty(self) -> None:
-        result = _EXTRACTOR.extract(_ART_ID, _time_series_payload(series=[]), _STEP_REF, _SESSION)
+        result = _EXTRACTOR.extract(_ART_ID, _time_series_payload(points=[]), _STEP_REF, _SESSION)
         self.assertEqual(len(result["findings"]), 0)
         self.assertEqual(result["finding_count"], 0)
 
@@ -221,7 +242,7 @@ class TestObserveExtractorTimeSeries(unittest.TestCase):
 
     def test_grain_propagated_to_subject(self) -> None:
         result = _EXTRACTOR.extract(
-            _ART_ID, _time_series_payload(granularity="week"), _STEP_REF, _SESSION
+            _ART_ID, _time_series_payload(grain="week"), _STEP_REF, _SESSION
         )
         for f in result["findings"]:
             self.assertEqual(f["subject"]["grain"], "week")
@@ -248,14 +269,17 @@ class TestObserveExtractorTimeSeries(unittest.TestCase):
         ids2 = [f["finding_id"] for f in result2["findings"]]
         self.assertEqual(ids1, ids2)
 
-    def test_quality_metadata_propagates_data_completeness_and_attention_status(self) -> None:
-        payload = _time_series_payload()
-        payload["analytical_metadata"]["data_complete"] = False
-        payload["analytical_metadata"]["quality_status"] = "needs_attention"
-        result = _EXTRACTOR.extract(_ART_ID, payload, _STEP_REF, _SESSION)
-        for finding in result["findings"]:
-            self.assertFalse(finding["quality"]["data_complete"])
-            self.assertEqual(finding["quality"]["quality_status"], "needs_attention")
+    def test_null_bucket_value_still_produces_finding(self) -> None:
+        result = _EXTRACTOR.extract(
+            _ART_ID,
+            _time_series_payload(
+                points=[{"window": {"start": "2024-01-01", "end": "2024-01-02"}, "value": None}]
+            ),
+            _STEP_REF,
+            _SESSION,
+        )
+        self.assertEqual(len(result["findings"]), 1)
+        self.assertIsNone(result["findings"][0]["payload"]["value"])
 
 
 # ---------------------------------------------------------------------------
@@ -278,7 +302,7 @@ class TestObserveExtractorSegmented(unittest.TestCase):
             self.assertEqual(f["payload"]["observation_kind"], "segment")
 
     def test_empty_segments_is_success_empty(self) -> None:
-        result = _EXTRACTOR.extract(_ART_ID, _segmented_payload(segments=[]), _STEP_REF, _SESSION)
+        result = _EXTRACTOR.extract(_ART_ID, _segmented_payload(series=[]), _STEP_REF, _SESSION)
         self.assertEqual(len(result["findings"]), 0)
         self.assertEqual(result["finding_count"], 0)
 
@@ -294,21 +318,21 @@ class TestObserveExtractorSegmented(unittest.TestCase):
             self.assertEqual(f["subject"]["analysis_axis"], "segment")
 
     def test_segment_canonical_key_is_sorted_kv(self) -> None:
-        segs = [{"keys": {"device": "mobile", "region": "US"}, "value": 100.0, "share": None}]
-        result = _EXTRACTOR.extract(_ART_ID, _segmented_payload(segments=segs), _STEP_REF, _SESSION)
+        segs = [{"keys": {"device": "mobile", "region": "US"}, "points": [{"value": 100.0}]}]
+        result = _EXTRACTOR.extract(_ART_ID, _segmented_payload(series=segs), _STEP_REF, _SESSION)
         f = result["findings"][0]
         # sorted({"device": "mobile", "region": "US"}.items()) → device, region
         self.assertEqual(f["provenance"]["canonical_item_key"], "rows:device=mobile|region=US")
 
     def test_segment_key_order_does_not_affect_finding_id(self) -> None:
         """Key insertion order must not affect canonical_item_key."""
-        segs_ab = [{"keys": {"a": "1", "b": "2"}, "value": 10.0, "share": None}]
-        segs_ba = [{"keys": {"b": "2", "a": "1"}, "value": 10.0, "share": None}]
+        segs_ab = [{"keys": {"a": "1", "b": "2"}, "points": [{"value": 10.0}]}]
+        segs_ba = [{"keys": {"b": "2", "a": "1"}, "points": [{"value": 10.0}]}]
         res_ab = _EXTRACTOR.extract(
-            _ART_ID, _segmented_payload(segments=segs_ab), _STEP_REF, _SESSION
+            _ART_ID, _segmented_payload(series=segs_ab), _STEP_REF, _SESSION
         )
         res_ba = _EXTRACTOR.extract(
-            _ART_ID, _segmented_payload(segments=segs_ba), _STEP_REF, _SESSION
+            _ART_ID, _segmented_payload(series=segs_ba), _STEP_REF, _SESSION
         )
         self.assertEqual(
             res_ab["findings"][0]["finding_id"],
@@ -327,19 +351,53 @@ class TestObserveExtractorSegmented(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# TestObserveExtractorUnknownType
+# TestObserveExtractorPanel
 # ---------------------------------------------------------------------------
 
 
-class TestObserveExtractorUnknownType(unittest.TestCase):
-    def test_unknown_observation_type_raises_value_error(self) -> None:
-        payload = {**_scalar_payload(), "observation_type": "unexpected_mode"}
+class TestObserveExtractorPanel(unittest.TestCase):
+    def test_findings_per_series_point(self) -> None:
+        result = _EXTRACTOR.extract(_ART_ID, _panel_payload(), _STEP_REF, _SESSION)
+        self.assertEqual(len(result["findings"]), 3)
+
+    def test_panel_subject_slice_combines_scope_and_keys(self) -> None:
+        result = _EXTRACTOR.extract(_ART_ID, _panel_payload(), _STEP_REF, _SESSION)
+        self.assertIn(
+            {"market": "global", "region": "US"},
+            [f["subject"]["slice"] for f in result["findings"]],
+        )
+
+    def test_panel_canonical_key_includes_segment_and_window(self) -> None:
+        result = _EXTRACTOR.extract(_ART_ID, _panel_payload(), _STEP_REF, _SESSION)
+        self.assertEqual(
+            result["findings"][0]["provenance"]["canonical_item_key"],
+            "buckets:region=US|2024-01-01/2024-01-02",
+        )
+
+    def test_panel_null_point_value_still_produces_finding(self) -> None:
+        result = _EXTRACTOR.extract(_ART_ID, _panel_payload(), _STEP_REF, _SESSION)
+        self.assertIsNone(result["findings"][1]["payload"]["value"])
+
+    def test_empty_panel_series_is_success_empty(self) -> None:
+        result = _EXTRACTOR.extract(_ART_ID, _panel_payload(series=[]), _STEP_REF, _SESSION)
+        self.assertEqual(len(result["findings"]), 0)
+        self.assertEqual(result["finding_count"], 0)
+
+
+# ---------------------------------------------------------------------------
+# TestObserveExtractorInvalidMetricFrame
+# ---------------------------------------------------------------------------
+
+
+class TestObserveExtractorInvalidMetricFrame(unittest.TestCase):
+    def test_unknown_metric_frame_shape_raises_value_error(self) -> None:
+        payload = {**_scalar_payload(), "shape": "unexpected_mode"}
         with self.assertRaises(ValueError):
             _EXTRACTOR.extract(_ART_ID, payload, _STEP_REF, _SESSION)
 
-    def test_missing_observation_type_raises_value_error(self) -> None:
+    def test_non_metric_frame_raises_value_error(self) -> None:
         payload = dict(_scalar_payload())
-        del payload["observation_type"]
+        payload["artifact_family"] = "observation"
         with self.assertRaises(ValueError):
             _EXTRACTOR.extract(_ART_ID, payload, _STEP_REF, _SESSION)
 
@@ -351,29 +409,32 @@ class TestObserveExtractorUnknownType(unittest.TestCase):
 
 class TestObserveExtractorRegistration(unittest.TestCase):
     def test_default_registry_has_observe_extractor(self) -> None:
-        extractor = default_finding_registry.find("observation", "v1")
+        extractor = default_finding_registry.find("metric_frame", None)
         self.assertIsNotNone(extractor)
         self.assertIsInstance(extractor, ObserveArtifactExtractor)
 
-    def test_find_with_null_version_resolves(self) -> None:
-        # NULL artifact_schema_version in DB is normalised to "v1" by find().
-        extractor = default_finding_registry.find("observation", None)
+    def test_observation_artifact_type_is_not_registered(self) -> None:
+        extractor = default_finding_registry.find("observation", "v1")
+        self.assertIsNone(extractor)
+
+    def test_strict_get_resolves_null_schema_version(self) -> None:
+        extractor = default_finding_registry.get("metric_frame", None)
         self.assertIsNotNone(extractor)
         self.assertIsInstance(extractor, ObserveArtifactExtractor)
 
     def test_extractor_name_in_snapshot(self) -> None:
         names = [e["extractor_name"] for e in default_finding_registry.snapshot()]
-        self.assertIn("observe_artifact_v1", names)
+        self.assertIn("observe_metric_frame_v1", names)
 
     def test_snapshot_family_is_observe(self) -> None:
         entry = next(
             e
             for e in default_finding_registry.snapshot()
-            if e["extractor_name"] == "observe_artifact_v1"
+            if e["extractor_name"] == "observe_metric_frame_v1"
         )
         self.assertEqual(entry["family"], "observe")
-        self.assertEqual(entry["artifact_type"], "observation")
-        self.assertEqual(entry["artifact_schema_version"], "v1")
+        self.assertEqual(entry["artifact_type"], "metric_frame")
+        self.assertIsNone(entry["artifact_schema_version"])
 
 
 # ---------------------------------------------------------------------------
@@ -436,14 +497,20 @@ class TestObserveExtractorValidateForCommit(unittest.TestCase):
 
     def test_validate_time_series_empty_passes(self) -> None:
         # D4: observe allows success-empty → 0 findings is legal.
-        self._validate(_time_series_payload(series=[]))
+        self._validate(_time_series_payload(points=[]))
 
     def test_validate_segmented_non_empty_passes(self) -> None:
         self._validate(_segmented_payload())
 
     def test_validate_segmented_empty_passes(self) -> None:
         # D4: observe allows success-empty.
-        self._validate(_segmented_payload(segments=[]))
+        self._validate(_segmented_payload(series=[]))
+
+    def test_validate_panel_non_empty_passes(self) -> None:
+        self._validate(_panel_payload())
+
+    def test_validate_panel_empty_passes(self) -> None:
+        self._validate(_panel_payload(series=[]))
 
 
 # ---------------------------------------------------------------------------
@@ -455,8 +522,8 @@ class TestSegmentKeyEscaping(unittest.TestCase):
     """Segment canonical_item_key must not collide when values contain separators."""
 
     def _finding_id_for_seg(self, keys: dict[str, Any]) -> str:
-        segs = [{"keys": keys, "value": 1.0, "share": None}]
-        result = _EXTRACTOR.extract(_ART_ID, _segmented_payload(segments=segs), _STEP_REF, _SESSION)
+        segs = [{"keys": keys, "points": [{"value": 1.0}]}]
+        result = _EXTRACTOR.extract(_ART_ID, _segmented_payload(series=segs), _STEP_REF, _SESSION)
         return result["findings"][0]["finding_id"]
 
     def test_pipe_in_value_does_not_collide(self) -> None:
@@ -473,8 +540,8 @@ class TestSegmentKeyEscaping(unittest.TestCase):
 
     def test_clean_keys_unaffected(self) -> None:
         # Keys with no special characters must produce the same key as before.
-        segs = [{"keys": {"region": "US"}, "value": 500.0, "share": None}]
-        result = _EXTRACTOR.extract(_ART_ID, _segmented_payload(segments=segs), _STEP_REF, _SESSION)
+        segs = [{"keys": {"region": "US"}, "points": [{"value": 500.0}]}]
+        result = _EXTRACTOR.extract(_ART_ID, _segmented_payload(series=segs), _STEP_REF, _SESSION)
         cik = result["findings"][0]["provenance"]["canonical_item_key"]
         self.assertEqual(cik, "rows:region=US")
 

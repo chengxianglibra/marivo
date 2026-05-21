@@ -66,6 +66,24 @@ class HypothesisTestResult(BaseModel):
     assumption_notes: list[str]
 
 
+class MetricFrameAxis2(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["dimension"]
+    name: str = Field(..., min_length=1)
+
+
+class MetricFrameMeasure(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: Literal["value"]
+    value_type: Literal["number"]
+    nullable: Literal[True]
+    unit: str | None = None
+
+
 class AnalysisFailure(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -97,6 +115,14 @@ class DecompositionItem(BaseModel):
     key: str | float | bool | None
     contribution: float
     share: float
+
+
+class MetricFrameWindow(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    start: AwareDatetime
+    end: AwareDatetime
 
 
 class Compare(BaseModel):
@@ -147,11 +173,12 @@ class ForecastSeriesResult(BaseModel):
     points: list[Point]
 
 
-class ScalarObservationResult(BaseModel):
+class MetricFrameAxis1(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    value: float | None
+    kind: Literal["time"]
+    grain: Literal["hour", "day", "week", "month", "quarter", "year"]
 
 
 class Hypothesis(BaseModel):
@@ -204,20 +231,11 @@ class SegmentedDeltaRow(BaseModel):
     delta: float | None
 
 
-class SegmentedObservationRow(BaseModel):
+class MetricFramePoint(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    item_id: str = Field(..., min_length=1)
-    keys: dict[str, str]
-    value: float | None
-
-
-class TimeSeriesPoint(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    bucket_start: AwareDatetime
+    window: MetricFrameWindow = None  # type: ignore[assignment]
     value: float | None
 
 
@@ -312,6 +330,28 @@ class AssociationResult(BaseModel):
     matched_time_scope: TimeScope | None
 
 
+class MetricFrameSubject(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["metric"]
+    metric_ref: str = Field(..., min_length=1)
+    time_scope: TimeScope
+    scope: dict[str, Any] = Field(
+        ...,
+        json_schema_extra={
+            "additionalProperties": {
+                "anyOf": [
+                    {"type": "string"},
+                    {"type": "number"},
+                    {"type": "boolean"},
+                    {"type": "null"},
+                ]
+            }
+        },
+    )
+
+
 class ScalarDeltaResult(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -330,26 +370,12 @@ class SegmentedDeltaResult(BaseModel):
     matched_time_scope: TimeScope | None
 
 
-class SegmentedObservationResult(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    rows: list[SegmentedObservationRow]
-
-
 class TimeSeriesDeltaResult(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     points: list[DeltaPoint]
     matched_time_scope: TimeScope | None
-
-
-class TimeSeriesObservationResult(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    points: list[TimeSeriesPoint]
 
 
 class Slice(BaseModel):
@@ -360,16 +386,21 @@ class Slice(BaseModel):
     filter: Expression = None  # type: ignore[assignment]
 
 
+class MetricFrameSeries(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    keys: dict[str, str | float | bool | None]
+    points: list[MetricFramePoint]
+
+
 class Artifact1(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     artifact_id: str = Field(..., min_length=1)
     result: (
-        ScalarObservationResult
-        | TimeSeriesObservationResult
-        | SegmentedObservationResult
-        | ScalarDeltaResult
+        ScalarDeltaResult
         | TimeSeriesDeltaResult
         | SegmentedDeltaResult
         | DeltaDecompositionResult
@@ -387,10 +418,7 @@ class Artifact2(BaseModel):
     )
     artifact_id: str = Field(..., min_length=1)
     result: (
-        ScalarObservationResult
-        | TimeSeriesObservationResult
-        | SegmentedObservationResult
-        | ScalarDeltaResult
+        ScalarDeltaResult
         | TimeSeriesDeltaResult
         | SegmentedDeltaResult
         | DeltaDecompositionResult
@@ -438,6 +466,26 @@ class Test(BaseModel):
     hypothesis: Hypothesis
 
 
+class MetricFramePayload(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    series: list[MetricFrameSeries]
+
+
+class MetricFrameArtifact(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    artifact_id: str = Field(..., min_length=1)
+    artifact_family: Literal["metric_frame"]
+    shape: Literal["scalar", "time_series", "segmented", "panel"]
+    subject: MetricFrameSubject
+    axes: list[MetricFrameAxis1 | MetricFrameAxis2]
+    measures: list[MetricFrameMeasure] = Field(..., max_length=1, min_length=1)
+    payload: MetricFramePayload
+
+
 class AoiV02(
     RootModel[
         Observe
@@ -450,6 +498,7 @@ class AoiV02(
         | Validate
         | Attribute
         | Diagnose
+        | MetricFrameArtifact
         | Artifact1
         | Artifact2
     ]
@@ -465,6 +514,7 @@ class AoiV02(
         | Validate
         | Attribute
         | Diagnose
+        | MetricFrameArtifact
         | Artifact1
         | Artifact2
     ) = Field(

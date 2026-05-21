@@ -430,17 +430,22 @@ def commit_aoi_artifact_result(
 ) -> ExecutionEnvelope:
     """Commit a canonical AOI artifact and return an execution envelope."""
     canonical_artifact = artifact_to_envelope_result(validate_aoi_artifact(artifact_payload))
-    artifact_body_key = "result" if "result" in canonical_artifact else "failure"
-    artifact_body = canonical_artifact[artifact_body_key]
     artifact_id = ArtifactId(f"art_{uuid4().hex[:12]}")
-    final_artifact = artifact_to_envelope_result(
-        validate_aoi_artifact(
-            {
-                "artifact_id": artifact_id,
-                artifact_body_key: artifact_body,
-            }
+    if canonical_artifact.get("artifact_family") == "metric_frame":
+        final_artifact = artifact_to_envelope_result(
+            validate_aoi_artifact({**canonical_artifact, "artifact_id": artifact_id})
         )
-    )
+    else:
+        artifact_body_key = "result" if "result" in canonical_artifact else "failure"
+        artifact_body = canonical_artifact[artifact_body_key]
+        final_artifact = artifact_to_envelope_result(
+            validate_aoi_artifact(
+                {
+                    "artifact_id": artifact_id,
+                    artifact_body_key: artifact_body,
+                }
+            )
+        )
 
     committed_artifact_id: str = runtime.commit_artifact_with_extraction(
         session_id,

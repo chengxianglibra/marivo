@@ -1474,7 +1474,7 @@ def test_aoi_detect_keeps_generic_time_granularities(granularity: str) -> None:
 def test_aoi_result_nullable_fields_still_accept_explicit_null() -> None:
     from marivo.contracts.generated import aoi
 
-    aoi.ScalarObservationResult.model_validate({"value": None})
+    aoi.MetricFramePoint.model_validate({"value": None})
     aoi.ScalarDeltaResult.model_validate(
         {
             "current_value": None,

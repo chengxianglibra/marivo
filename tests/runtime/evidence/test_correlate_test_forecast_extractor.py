@@ -403,7 +403,7 @@ class TestRegistrySnapshotCompleteness(unittest.TestCase):
         snapshot = default_finding_registry.snapshot()
         artifact_types = {e["artifact_type"] for e in snapshot}
         expected = {
-            "observation",
+            "metric_frame",
             "anomaly_candidates",
             "compare_artifact",
             "delta_decomposition",

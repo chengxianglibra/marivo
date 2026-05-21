@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from marivo.contracts.generated import aoi
-from marivo.transports.http.models import ObserveResponse, ValidateResponse
+from marivo.transports.http.models import DiagnoseResponse, ObserveResponse, ValidateResponse
 from marivo.transports.http.sessions import router
 
 
@@ -258,7 +258,61 @@ def _step_ref(step_type: str) -> dict[str, str]:
     }
 
 
+def _metric_frame_result(artifact_id: str = "art_observe_1") -> dict[str, Any]:
+    return {
+        "artifact_id": artifact_id,
+        "artifact_family": "metric_frame",
+        "shape": "scalar",
+        "subject": {
+            "kind": "metric",
+            "metric_ref": "metric.revenue",
+            "time_scope": {
+                "field": "event_time",
+                "start": "2026-01-01T00:00:00Z",
+                "end": "2026-01-08T00:00:00Z",
+            },
+            "scope": {},
+        },
+        "axes": [],
+        "measures": [
+            {
+                "id": "value",
+                "value_type": "number",
+                "nullable": True,
+                "unit": None,
+            }
+        ],
+        "payload": {
+            "series": [
+                {
+                    "keys": {},
+                    "points": [
+                        {
+                            "value": 42.0,
+                        }
+                    ],
+                }
+            ]
+        },
+    }
+
+
 def test_atomic_response_model_accepts_aoi_artifact_wrapper() -> None:
+    response = ObserveResponse.model_validate(
+        {
+            "intent_type": "observe",
+            "step_type": "observe",
+            "step_ref": _step_ref("observe"),
+            "artifact_id": "art_observe_1",
+            "result": _metric_frame_result(),
+        }
+    )
+
+    assert isinstance(response.result, aoi.MetricFrameArtifact)
+    assert response.result.payload.series[0].points[0].value == 42.0
+
+
+def test_observe_response_model_accepts_failure_artifact_without_result() -> None:
     response = ObserveResponse.model_validate(
         {
             "intent_type": "observe",
@@ -267,12 +321,36 @@ def test_atomic_response_model_accepts_aoi_artifact_wrapper() -> None:
             "artifact_id": "art_observe_1",
             "result": {
                 "artifact_id": "art_observe_1",
-                "result": {"value": 42.0},
+                "failure": {
+                    "code": "NO_OBSERVATION",
+                    "message": "No observation exists for this slice.",
+                },
             },
         }
     )
 
-    assert response.result.result == aoi.ScalarObservationResult(value=42.0)
+    assert response.result.failure.code == "NO_OBSERVATION"
+    assert response.result.result is None
+
+
+def test_observe_response_model_rejects_failure_artifact_with_metric_frame_result() -> None:
+    with pytest.raises(ValidationError):
+        ObserveResponse.model_validate(
+            {
+                "intent_type": "observe",
+                "step_type": "observe",
+                "step_ref": _step_ref("observe"),
+                "artifact_id": "art_observe_1",
+                "result": {
+                    "artifact_id": "art_observe_1",
+                    "result": _metric_frame_result(),
+                    "failure": {
+                        "code": "NO_OBSERVATION",
+                        "message": "No observation exists for this slice.",
+                    },
+                },
+            }
+        )
 
 
 def test_atomic_response_model_rejects_flat_or_rich_runtime_fields() -> None:
@@ -336,6 +414,25 @@ def test_derived_response_model_requires_typed_aoi_artifacts() -> None:
         )
 
 
+def test_derived_response_model_accepts_top_level_metric_frame_artifact() -> None:
+    response = DiagnoseResponse.model_validate(
+        {
+            "intent_type": "diagnose",
+            "step_type": "diagnose",
+            "step_ref": _step_ref("diagnose"),
+            "artifact_id": "art_diagnose_1",
+            "result": {
+                "bundle_type": "diagnosis_bundle",
+                "aoi_artifacts": [_metric_frame_result()],
+            },
+        }
+    )
+
+    artifact = response.result.aoi_artifacts[0]
+    assert isinstance(artifact, aoi.MetricFrameArtifact)
+    assert artifact.artifact_family == "metric_frame"
+
+
 def test_observe_accepts_aoi_request_and_returns_execution_envelope() -> None:
     runtime = _FakeRuntime()
     client = _client(runtime)
@@ -357,10 +454,10 @@ def test_observe_accepts_aoi_request_and_returns_execution_envelope() -> None:
     body = response.json()
     assert body["intent_type"] == "observe"
     assert body["artifact_id"] == "art_observe_1"
-    assert body["result"] == {
-        "artifact_id": "art_observe_1",
-        "result": {"value": 42.0},
-    }
+    assert body["result"]["artifact_id"] == "art_observe_1"
+    assert body["result"]["artifact_family"] == "metric_frame"
+    assert body["result"]["shape"] == "scalar"
+    assert body["result"]["payload"]["series"][0]["points"][0]["value"] == 42.0
     assert "value" not in body
 
 
