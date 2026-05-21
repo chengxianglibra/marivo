@@ -252,7 +252,7 @@ type NormalizedRequest = {
 最少应抽取：
 
 - `metric_name`（OSI name）
-- `additivity`（additive_dimensions, aggregation_semantics）
+- `additivity`（additive_dimensions, decomposition_semantics）
 - `filters`
 
 以下能力由 compiler 从核心字段推导：
@@ -330,7 +330,7 @@ Dimension 作为 Field 属性表达，不再是独立对象。compiler 抽取：
 
 校验：
 
-- metric 是否支持该 intent（由 compiler 从 `additive_dimensions`、`aggregation_semantics` 推导）
+- metric 是否支持该 intent（由 compiler 从 `additive_dimensions`、`decomposition_semantics` 推导）
 - dataset grounding 是否足以支撑该 intent
 - ref artifact 类型是否允许被该 intent 消费
 
@@ -479,7 +479,7 @@ Dimension 作为 Field 属性表达，不再是独立对象。compiler 抽取：
 
 关键 gate：
 
-- `sample_kind` 从 metric 定义解析（`aggregation_semantics` 决定统计检验方法），不再接受请求参数
+- `sample_kind` 从 metric 定义解析（`decomposition_semantics` 决定统计检验方法），不再接受请求参数
 - 左右侧必须都可归一化为 inferential-ready scalar observe
 - method 兼容性完全继承 `test`
 
@@ -603,7 +603,7 @@ derived intent 需要两层表达：
 ### 编译要求
 
 - 解析 compare artifact 的 delta semantics
-- 校验 metric `additive_dimensions`（非空列表表示可在列出维度上分解，空列表表示不可分解）和 `aggregation_semantics`
+- 校验 metric `additive_dimensions`（非空列表表示可在列出维度上分解，空列表表示不可分解）和 `decomposition_semantics`
 - 校验 dimension 可归因性
 - 不得依赖 dimension 自声明 `supports_decomposition` 一类跨对象标签；合法性必须由 metric 与 dimension 属性联合推导
 - 生成 `IntentNode(intent_kind="decompose")`

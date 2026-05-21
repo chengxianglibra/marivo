@@ -253,7 +253,7 @@ type AttributionMetadata = {
 
 type DecomposeAnalyticalMetadata = {
   method: "delta_share";
-  aggregation_semantics: string;
+  decomposition_semantics: string;
   additive_dimensions: string[];
   capability_condition: "dimension_must_be_allowed" | null;
   reconciliation_expected: boolean;
@@ -388,7 +388,7 @@ empty semantics：
 - 成功 artifact 必须至少包含一条 contribution row；若当前请求无法形成任何 canonical contribution row，请求必须失败
 - 当 `scope_absolute_delta` 为 `0` 或 `null` 时，`contribution_share` 必须为 `null`
 - `unexplained_*` 只表示“未归因”的剩余部分，且非零时必须给出 `unexplained_reason`
-- 若 `reconciliation_expected = true`（即 `aggregation_semantics = "sum"` 且 `additive_dimensions` 非空），则返回行与 `unexplained_*` 应能与 scope delta 对账
+- 若 `reconciliation_expected = true`（即 `decomposition_semantics = "sum"` 且 `additive_dimensions` 非空），则返回行与 `unexplained_*` 应能与 scope delta 对账
 - projection 参数不得改变 canonical artifact identity
 
 ## 错误语义

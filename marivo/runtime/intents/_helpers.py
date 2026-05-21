@@ -188,7 +188,7 @@ def compute_numeric_sample_summary(
 
     Used by the test intent (source-type) to compute sample summaries internally.
     Raises ValueError if the metric does not support numeric sample-summary
-    computation (currently requires aggregation_semantics='sum').
+    computation (currently requires decomposition_semantics='sum').
     """
     metric_name = runtime.core.metric_name_from_ref(metric_ref)
 
@@ -198,7 +198,7 @@ def compute_numeric_sample_summary(
     _resolved_header = (
         (resolved_metric.semantic_object.get("header") or {}) if resolved_metric else {}
     )
-    aggregation_semantics = _resolved_header.get("aggregation_semantics") or "sum"
+    decomposition_semantics = _resolved_header.get("decomposition_semantics") or "sum"
     table = execution_context.table_name
     all_dimensions = runtime.resolve_metric_dimensions(metric_ref)
 
@@ -236,11 +236,11 @@ def compute_numeric_sample_summary(
     metric_sql = runtime.resolve_metric_sql_for_execution(
         metric_ref, execution_context, engine_type=engine_type
     )
-    if aggregation_semantics != "sum":
+    if decomposition_semantics != "sum":
         raise ValueError(
             f"test: INVALID_ARGUMENT - numeric kind requires a metric with "
-            f"aggregation_semantics='sum'; got aggregation_semantics="
-            f"'{aggregation_semantics}', definition_sql='{metric_sql}'"
+            f"decomposition_semantics='sum'; got decomposition_semantics="
+            f"'{decomposition_semantics}', definition_sql='{metric_sql}'"
         )
 
     # Build scoped query

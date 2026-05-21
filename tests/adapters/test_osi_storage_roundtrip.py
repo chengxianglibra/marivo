@@ -10,8 +10,8 @@ from marivo.contracts.semantic_extensions import (
     MarivoFieldExtension,
     MarivoMetricExtension,
     MetricComponentRef,
-    RatioAggregation,
-    WeightedAverageAggregation,
+    RatioDecomposition,
+    WeightedAverageDecomposition,
 )
 from marivo.runtime.semantic.osi_storage import (
     _storage_to_field,
@@ -25,7 +25,7 @@ from marivo.runtime.semantic.osi_storage import (
 def test_metric_roundtrip_with_component_refs() -> None:
     """metric_to_storage -> _storage_to_metric preserves numerator/denominator/weight."""
     ext = MarivoMetricExtension(
-        aggregation_semantics=RatioAggregation(
+        decomposition_semantics=RatioDecomposition(
             numerator=MetricComponentRef(metric="metric.converted"),
             denominator=MetricComponentRef(metric="metric.total"),
         ),
@@ -57,7 +57,7 @@ def test_metric_roundtrip_with_component_refs() -> None:
             break
 
     assert marivo_ext is not None
-    agg = marivo_ext["aggregation_semantics"]
+    agg = marivo_ext["decomposition_semantics"]
     assert agg["type"] == "ratio"
     assert agg["numerator"]["metric"] == "metric.converted"
     assert agg["denominator"]["metric"] == "metric.total"
@@ -66,7 +66,7 @@ def test_metric_roundtrip_with_component_refs() -> None:
 def test_metric_roundtrip_preserves_weighted_average() -> None:
     """Weighted average aggregation semantics roundtrips with type discriminator."""
     ext = MarivoMetricExtension(
-        aggregation_semantics=WeightedAverageAggregation(
+        decomposition_semantics=WeightedAverageDecomposition(
             numerator=MetricComponentRef(metric="metric.revenue"),
             weight=MetricComponentRef(metric="metric.orders"),
         ),
@@ -80,24 +80,24 @@ def test_metric_roundtrip_preserves_weighted_average() -> None:
     )
 
     extension_dump = metric.custom_extensions[0].model_dump(mode="json")
-    agg = extension_dump["data"]["aggregation_semantics"]
+    agg = extension_dump["data"]["decomposition_semantics"]
     assert agg["type"] == "weighted_average"
     assert agg["numerator"]["metric"] == "metric.revenue"
     assert agg["weight"]["metric"] == "metric.orders"
 
     storage = metric_to_storage(metric, model_id=1)
-    assert storage["aggregation_semantics"] == "weighted_average"
+    assert storage["decomposition_semantics"] == "weighted_average"
 
     reconstructed = _storage_to_metric(storage)
     marivo_ext = reconstructed["custom_extensions"][0]["data"]
-    agg = marivo_ext["aggregation_semantics"]
+    agg = marivo_ext["decomposition_semantics"]
     assert agg["type"] == "weighted_average"
 
 
 def test_metric_roundtrip_with_expression_component() -> None:
     """ExpressionComponent numerator roundtrips through storage."""
     ext = MarivoMetricExtension(
-        aggregation_semantics=RatioAggregation(
+        decomposition_semantics=RatioDecomposition(
             numerator=ExpressionComponent(expression="SUM(price * quantity)"),
             denominator=MetricComponentRef(metric="metric.total"),
         ),
@@ -116,7 +116,7 @@ def test_metric_roundtrip_with_expression_component() -> None:
 
     reconstructed = _storage_to_metric(storage)
     marivo_ext = reconstructed["custom_extensions"][0]["data"]
-    agg = marivo_ext["aggregation_semantics"]
+    agg = marivo_ext["decomposition_semantics"]
     assert agg["type"] == "ratio"
     assert agg["numerator"]["expression"] == "SUM(price * quantity)"
     assert agg["denominator"]["metric"] == "metric.total"
@@ -137,13 +137,13 @@ def test_metric_roundtrip_sum_without_component_refs() -> None:
     assert storage.get("numerator") is None
     assert storage.get("denominator") is None
     assert storage.get("weight") is None
-    assert storage["aggregation_semantics"] == "sum"
+    assert storage["decomposition_semantics"] == "sum"
 
     reconstructed = _storage_to_metric(storage)
     assert reconstructed["name"] == "revenue"
 
     marivo_ext = reconstructed["custom_extensions"][0]["data"]
-    agg = marivo_ext["aggregation_semantics"]
+    agg = marivo_ext["decomposition_semantics"]
     assert agg["type"] == "sum"
 
 

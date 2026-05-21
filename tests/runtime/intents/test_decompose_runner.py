@@ -624,13 +624,13 @@ class TestDecomposeRunnerCommitPath(unittest.TestCase):
         resolved_metric = MagicMock()
         resolved_metric.semantic_object = {
             "header": {
-                "aggregation_semantics": "ratio",
+                "decomposition_semantics": "ratio",
             },
             "payload": {
                 "dimensions": ["dim1"],
             },
         }
-        resolved_metric.aggregation_semantics = "ratio"
+        resolved_metric.decomposition_semantics = "ratio"
         resolved_metric.dimensions = ["dim1"]
         resolved_metric.grain = "day"
         runtime.resolve_metric.return_value = resolved_metric

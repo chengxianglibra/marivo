@@ -131,7 +131,7 @@ curl -s -X POST http://localhost:8000/semantic-models/validate \
                 "vendor_name": "MARIVO",
                 "data": {
                   "additive_dimensions": ["__all"],
-                  "aggregation_semantics": "sum"
+                  "decomposition_semantics": "sum"
                 }
               }
             ]

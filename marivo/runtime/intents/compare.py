@@ -567,7 +567,7 @@ def run_compare_intent(
     if predicate_lineage_summary["reuse_summary"] is not None:
         resolved_input_summary["predicate_lineage"] = predicate_lineage_summary["reuse_summary"]
     analytical_metadata: dict[str, Any] = {
-        "aggregation_semantics": left_am.get("aggregation_semantics", "sum"),
+        "decomposition_semantics": left_am.get("decomposition_semantics", "sum"),
         "relative_delta_denominator": "baseline",
         "flat_tolerance_relative": flat_tolerance_relative,
         "current_row_count": left_am.get("row_count"),

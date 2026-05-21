@@ -155,7 +155,7 @@ def _insert_observe_artifact(
         "series": artifact_series,
         "analytical_metadata": {
             "quality_status": "ready",
-            "aggregation_semantics": "sum",
+            "decomposition_semantics": "sum",
             "row_count": len(artifact_series),
         },
         "execution_metadata": {

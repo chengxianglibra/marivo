@@ -1,6 +1,6 @@
 # Semantic Layer Metric 设计契约
 
-> **过渡说明**：本文档已更新为反映 OSI Metric + MARIVO 扩展模型。原有的三层分工（metric / process object / intent）已简化为二层：metric 直接声明 measurement semantics（通过 relationship-resolved dataset graph、runtime/request grain、`additive_dimensions`、`aggregation_semantics`、`filters`），过程构造语义不再作为独立的 process object 类型存在。具体映射如下：
+> **过渡说明**：本文档已更新为反映 OSI Metric + MARIVO 扩展模型。原有的三层分工（metric / process object / intent）已简化为二层：metric 直接声明 measurement semantics（通过 relationship-resolved dataset graph、runtime/request grain、`additive_dimensions`、`decomposition_semantics`、`filters`），过程构造语义不再作为独立的 process object 类型存在。具体映射如下：
 > - `process object` → 删除为独立类型；过程语义由 compiler / IR / 独立分析构造机制处理
 > - `metric + process + intent` 三层 → `metric + intent` 二层；metric 通过 MARIVO 扩展直接声明完整度量语义
 > - `binding` / `CarrierBinding` → 删除；物理接地由 Dataset/Field 行内表达
@@ -8,7 +8,7 @@
 > - `entity_ref` / `observed_entity_ref` → relationship-resolved dataset graph（OSI Dataset 引用）
 > - `source_object_ref` → 删除；Dataset.source 替代
 > - `primary_time_ref` / metric-bound time field → 删除；时间语义由 AOI `time_scope.field` 解析
-> - `additivity_constraints` → `additive_dimensions`（扁平列表）+ `aggregation_semantics`
+> - `additivity_constraints` → `additive_dimensions`（扁平列表）+ `decomposition_semantics`
 
 本文整理 Marivo semantic layer 中 `metric` 的设计契约与度量语义边界。
 
@@ -43,7 +43,7 @@
 - relationship-resolved dataset graph：观测的 Dataset
 - runtime/request grain：输出粒度
 - `additive_dimensions`：可加维度列表
-- `aggregation_semantics`：聚合语义
+- `decomposition_semantics`：聚合语义
 - `filters`：过滤语义
 
 过程型分析（实验、留存、漏斗、session 等）的构造逻辑不再作为独立的 process object 类型，而是由 compiler / IR / 独立分析构造机制处理。metric 只负责”量什么”的 measurement semantics，不承担”总体如何构造”的过程逻辑。
@@ -104,7 +104,7 @@
 - `value_semantics`
 - `numerator / denominator contract`（适用于 rate 类指标）
 - `additive_dimensions`
-- `aggregation_semantics`
+- `decomposition_semantics`
 - `filters`（MARIVO 扩展）
 - `metric_contract_version`
 
@@ -236,7 +236,7 @@ type MetricContract = {
   numerator?: MeasurementComponent | null;
   denominator?: MeasurementComponent | null;
   additive_dimensions: string[];  // 扁平列表，替代旧 additivity_constraints
-  aggregation_semantics: “sum” | “ratio” | “weighted_average”;  // default “sum”
+  decomposition_semantics: “sum” | “ratio” | “weighted_average”;  // default “sum”
   filters?: string[] | null;  // MARIVO 扩展：过滤语义引用
   metric_contract_version: string;
 };
@@ -261,7 +261,7 @@ type MetricContract = {
 >
 > 过程型分析的构造逻辑（实验分析、留存分析、漏斗分析、session 分析、path / sequence 分析、生命周期迁移分析等）由 compiler / IR / 独立分析构造机制处理，不再作为独立的 process object 类型存在。
 >
-> 原有的 `ProcessObjectHeader`、`ProcessInterfaceContract` 等结构已不再使用。metric 通过 relationship-resolved dataset graph、runtime/request grain、`additive_dimensions`、`aggregation_semantics`、`filters` 等 MARIVO 扩展字段直接声明度量语义。
+> 原有的 `ProcessObjectHeader`、`ProcessInterfaceContract` 等结构已不再使用。metric 通过 relationship-resolved dataset graph、runtime/request grain、`additive_dimensions`、`decomposition_semantics`、`filters` 等 MARIVO 扩展字段直接声明度量语义。
 
 ## Intent 如何消费 Metric
 
@@ -540,7 +540,7 @@ IR 负责：
 
 ### 第一阶段：稳定 metric contract
 
-先把 measurement identity、comparability、additive_dimensions、aggregation_semantics、inferential capability 从 `definition_sql` 中剥离出来，形成更完整的 metric contract。同时引入 relationship-resolved dataset graph、runtime/request grain、`filters` 等 MARIVO 扩展字段。
+先把 measurement identity、comparability、additive_dimensions、decomposition_semantics、inferential capability 从 `definition_sql` 中剥离出来，形成更完整的 metric contract。同时引入 relationship-resolved dataset graph、runtime/request grain、`filters` 等 MARIVO 扩展字段。
 
 ### 第二阶段：移除 process object 依赖
 

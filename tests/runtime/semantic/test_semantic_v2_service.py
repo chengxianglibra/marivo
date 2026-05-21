@@ -68,7 +68,7 @@ def _model(name: str = "commerce", *, fields: list[str] | None = None) -> dict:
                 "name": "revenue",
                 "expression": {"dialects": [{"dialect": "ANSI_SQL", "expression": "SUM(amount)"}]},
                 "custom_extensions": [
-                    {"vendor_name": "MARIVO", "data": {"aggregation_semantics": {"type": "sum"}}}
+                    {"vendor_name": "MARIVO", "data": {"decomposition_semantics": {"type": "sum"}}}
                 ],
             }
         ],

@@ -69,7 +69,7 @@ def run_attribute_intent(
       baseline:             { time_scope, filter? } — baseline / control side
       dimensions:           non-empty list of attribution dimensions
       decomposition_method: optional override; defaults to method derived from
-                            metric aggregation_semantics (sum→delta_share,
+                            metric decomposition_semantics (sum→delta_share,
                             ratio→ratio_decomposition, weighted_average→weighted_decomposition)
       decomposition_limit:  max driver rows per dimension (default 5, max 100)
 
@@ -143,13 +143,15 @@ def run_attribute_intent(
     if resolved_metric is None:
         raise ValueError(f"attribute: metric '{metric_name}' not found or not published")
 
-    # Derive decomposition_method from metric aggregation_semantics.
+    # Derive decomposition_method from metric decomposition_semantics.
     # MCP/AOI callers always populate decomposition_method with the wire default
     # "delta_share", so treat that default as unset and derive unconditionally.
     _resolved_header = resolved_metric.semantic_object.get("header") or {}
-    aggregation_semantics: str = _resolved_header.get("aggregation_semantics") or "sum"
+    decomposition_semantics: str = _resolved_header.get("decomposition_semantics") or "sum"
     if not decomposition_method or decomposition_method == "delta_share":
-        decomposition_method = _aggregation_semantics_to_decomposition_method(aggregation_semantics)
+        decomposition_method = _decomposition_semantics_to_decomposition_method(
+            decomposition_semantics
+        )
 
     # ── Step 1: observe current ───────────────────────────────────────────────
     try:
@@ -601,13 +603,13 @@ _AGGREGATION_TO_DECOMPOSITION_METHOD: dict[str, str] = {
 }
 
 
-def _aggregation_semantics_to_decomposition_method(aggregation_semantics: str) -> str:
-    """Map a metric's aggregation_semantics to its decomposition method."""
-    method = _AGGREGATION_TO_DECOMPOSITION_METHOD.get(aggregation_semantics)
+def _decomposition_semantics_to_decomposition_method(decomposition_semantics: str) -> str:
+    """Map a metric's decomposition_semantics to its decomposition method."""
+    method = _AGGREGATION_TO_DECOMPOSITION_METHOD.get(decomposition_semantics)
     if method is None:
         raise ValueError(
-            f"attribute: INVALID_ARGUMENT - unsupported aggregation_semantics "
-            f"'{aggregation_semantics}', expected one of "
+            f"attribute: INVALID_ARGUMENT - unsupported decomposition_semantics "
+            f"'{decomposition_semantics}', expected one of "
             f"{sorted(_AGGREGATION_TO_DECOMPOSITION_METHOD)}"
         )
     return method

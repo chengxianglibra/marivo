@@ -24,7 +24,7 @@ from marivo.runtime.semantic.osi_storage import (
 )
 
 TIME_GRANULARITIES: frozenset[str] = frozenset({"hour", "day", "week", "month", "quarter", "year"})
-AGGREGATION_SEMANTICS_TYPES: frozenset[str] = frozenset({"sum", "ratio", "weighted_average"})
+DECOMPOSITION_SEMANTICS_TYPES: frozenset[str] = frozenset({"sum", "ratio", "weighted_average"})
 
 
 class ImportCounter(BaseModel):
@@ -872,7 +872,7 @@ class SemanticImportExecutor:
         txn.execute(
             """
             INSERT INTO semantic_metrics
-                (model_id, name, expression, description, ai_context, numerator, denominator, weight, aggregation_semantics)
+                (model_id, name, expression, description, ai_context, numerator, denominator, weight, decomposition_semantics)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
@@ -884,7 +884,7 @@ class SemanticImportExecutor:
                 metric_storage.get("numerator"),
                 metric_storage.get("denominator"),
                 metric_storage.get("weight"),
-                metric_storage.get("aggregation_semantics", "sum"),
+                metric_storage.get("decomposition_semantics", "sum"),
             ],
         )
         return _CountDelta(updated=1) if existing is not None else _CountDelta(created=1)
@@ -1507,64 +1507,64 @@ def _metric_extension_issues(
     extension_data = _extract_marivo_extension_data(metric)
     if extension_data is None:
         return issues
-    aggregation_semantics = extension_data.get("aggregation_semantics")
+    decomposition_semantics = extension_data.get("decomposition_semantics")
     ext_pointer = f"{model_pointer}/metrics/{metric_index}/custom_extensions"
 
-    if aggregation_semantics is None:
+    if decomposition_semantics is None:
         return issues
 
-    if isinstance(aggregation_semantics, str):
+    if isinstance(decomposition_semantics, str):
         issues.append(
             SemanticValidationIssue(
                 code="INVALID_AGGREGATION_FORMAT",
-                message="aggregation_semantics must be a discriminated union object with a 'type' field, not a flat string.",
+                message="decomposition_semantics must be a discriminated union object with a 'type' field, not a flat string.",
                 json_pointer=ext_pointer,
                 hint='Use {"type": "sum"}, {"type": "ratio", "numerator": ..., "denominator": ...}, or {"type": "weighted_average", "numerator": ..., "weight": ...}.',
-                context={"aggregation_semantics": aggregation_semantics},
+                context={"decomposition_semantics": decomposition_semantics},
             )
         )
         return issues
 
-    if not isinstance(aggregation_semantics, dict):
+    if not isinstance(decomposition_semantics, dict):
         issues.append(
             SemanticValidationIssue(
                 code="INVALID_AGGREGATION_FORMAT",
-                message=f"aggregation_semantics must be a dict, got {type(aggregation_semantics).__name__}.",
+                message=f"decomposition_semantics must be a dict, got {type(decomposition_semantics).__name__}.",
                 json_pointer=ext_pointer,
                 hint='Use {"type": "sum"}, {"type": "ratio", ...}, or {"type": "weighted_average", ...}.',
-                context={"aggregation_semantics": aggregation_semantics},
+                context={"decomposition_semantics": decomposition_semantics},
             )
         )
         return issues
 
-    agg_type = aggregation_semantics.get("type")
-    if agg_type not in AGGREGATION_SEMANTICS_TYPES:
+    agg_type = decomposition_semantics.get("type")
+    if agg_type not in DECOMPOSITION_SEMANTICS_TYPES:
         issues.append(
             SemanticValidationIssue(
                 code="INVALID_AGGREGATION_TYPE",
-                message=f"aggregation_semantics type '{agg_type}' is not valid.",
+                message=f"decomposition_semantics type '{agg_type}' is not valid.",
                 json_pointer=ext_pointer,
-                hint=f"Valid types: {', '.join(sorted(AGGREGATION_SEMANTICS_TYPES))}.",
-                context={"aggregation_semantics_type": agg_type},
+                hint=f"Valid types: {', '.join(sorted(DECOMPOSITION_SEMANTICS_TYPES))}.",
+                context={"decomposition_semantics_type": agg_type},
             )
         )
         return issues
 
     if agg_type == "sum":
         for key in ("numerator", "denominator", "weight"):
-            if key in aggregation_semantics:
+            if key in decomposition_semantics:
                 issues.append(
                     SemanticValidationIssue(
                         code="INVALID_COMPONENT_FOR_SUM",
                         message=f"sum aggregation must not include '{key}'.",
                         json_pointer=ext_pointer,
-                        hint=f"Remove '{key}' from the aggregation_semantics object.",
+                        hint=f"Remove '{key}' from the decomposition_semantics object.",
                         context={"key": key},
                     )
                 )
     elif agg_type == "ratio":
         for key in ("numerator", "denominator"):
-            if key not in aggregation_semantics:
+            if key not in decomposition_semantics:
                 issues.append(
                     SemanticValidationIssue(
                         code="MISSING_COMPONENT_REF",
@@ -1575,21 +1575,21 @@ def _metric_extension_issues(
                     )
                 )
             else:
-                comp_issues = _component_spec_issues(aggregation_semantics[key], key, ext_pointer)
+                comp_issues = _component_spec_issues(decomposition_semantics[key], key, ext_pointer)
                 issues.extend(comp_issues)
-        if "weight" in aggregation_semantics:
+        if "weight" in decomposition_semantics:
             issues.append(
                 SemanticValidationIssue(
                     code="INVALID_COMPONENT_FOR_RATIO",
                     message="ratio aggregation must not include 'weight'.",
                     json_pointer=ext_pointer,
-                    hint="Remove 'weight' from the aggregation_semantics object.",
+                    hint="Remove 'weight' from the decomposition_semantics object.",
                     context={"key": "weight"},
                 )
             )
     elif agg_type == "weighted_average":
         for key in ("numerator", "weight"):
-            if key not in aggregation_semantics:
+            if key not in decomposition_semantics:
                 issues.append(
                     SemanticValidationIssue(
                         code="MISSING_COMPONENT_REF",
@@ -1600,15 +1600,15 @@ def _metric_extension_issues(
                     )
                 )
             else:
-                comp_issues = _component_spec_issues(aggregation_semantics[key], key, ext_pointer)
+                comp_issues = _component_spec_issues(decomposition_semantics[key], key, ext_pointer)
                 issues.extend(comp_issues)
-        if "denominator" in aggregation_semantics:
+        if "denominator" in decomposition_semantics:
             issues.append(
                 SemanticValidationIssue(
                     code="INVALID_COMPONENT_FOR_WEIGHTED_AVERAGE",
                     message="weighted_average aggregation must not include 'denominator'.",
                     json_pointer=ext_pointer,
-                    hint="Remove 'denominator' from the aggregation_semantics object.",
+                    hint="Remove 'denominator' from the decomposition_semantics object.",
                     context={"key": "denominator"},
                 )
             )

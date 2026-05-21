@@ -27,7 +27,7 @@ def _entity_field_ref(entity_ref: str, field_name: str) -> str:
     return f"{entity_ref}.field.{field_name.removeprefix('field.')}"
 
 
-def _default_metric_aggregation_semantics(entity_ref: str, measure_type: str | None) -> str:
+def _default_metric_decomposition_semantics(entity_ref: str, measure_type: str | None) -> str:
     kind = str(measure_type or "count").strip().lower()
     if kind in {"ratio", "rate"}:
         return "ratio"
@@ -38,7 +38,7 @@ def _metric_payload_with_default_input_fields(
     metric_name: str, measure_type: str | None, entity_ref: str
 ) -> dict[str, Any]:
     payload = _metric_payload_for_measure_type(metric_name, measure_type)
-    _ = _default_metric_aggregation_semantics(entity_ref, measure_type)
+    _ = _default_metric_decomposition_semantics(entity_ref, measure_type)
     return payload
 
 
@@ -49,7 +49,7 @@ def _default_entity_fields_for_metric(
     source_object_fqn: str = "analytics.watch_events",
 ) -> dict[str, Any]:
     _ = source_object_fqn
-    aggregation_semantics = _default_metric_aggregation_semantics(entity_ref, measure_type)
+    decomposition_semantics = _default_metric_decomposition_semantics(entity_ref, measure_type)
     fields: dict[str, dict[str, Any]] = {
         "user_id": {
             "field_ref": "field.user_id",
@@ -64,7 +64,7 @@ def _default_entity_fields_for_metric(
             "physical_column": "event_date",
         },
     }
-    if aggregation_semantics == "ratio":
+    if decomposition_semantics == "ratio":
         for field_name in ("numerator", "denominator"):
             fields.setdefault(
                 field_name,
@@ -747,7 +747,7 @@ def ensure_published_typed_metric(
         )
 
     dimension_names = list(dimensions or [])
-    aggregation_semantics, _, _ = _metric_header_axes(measure_type)
+    decomposition_semantics, _, _ = _metric_header_axes(measure_type)
     metric_sql = definition_sql or "COUNT(*)"
 
     for dimension_name in dimension_names:
@@ -783,7 +783,7 @@ def ensure_published_typed_metric(
         metadata.execute(
             """
             INSERT INTO semantic_metrics (
-                model_id, name, expression, description, aggregation_semantics
+                model_id, name, expression, description, decomposition_semantics
             ) VALUES (?, ?, ?, ?, ?)
             """,
             [
@@ -791,21 +791,21 @@ def ensure_published_typed_metric(
                 metric_name,
                 metric_expression,
                 description,
-                aggregation_semantics,
+                decomposition_semantics,
             ],
         )
     else:
         metadata.execute(
             """
             UPDATE semantic_metrics
-            SET expression = ?, description = ?, aggregation_semantics = ?,
+            SET expression = ?, description = ?, decomposition_semantics = ?,
                 updated_at = datetime('now')
             WHERE metric_id = ?
             """,
             [
                 metric_expression,
                 description,
-                aggregation_semantics,
+                decomposition_semantics,
                 existing["metric_id"],
             ],
         )

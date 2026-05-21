@@ -30,7 +30,7 @@ class _Runtime:
             "M",
             (),
             {
-                "semantic_object": {"header": {"aggregation_semantics": "sum"}},
+                "semantic_object": {"header": {"decomposition_semantics": "sum"}},
             },
         )()
 

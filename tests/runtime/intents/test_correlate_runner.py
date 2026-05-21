@@ -39,7 +39,7 @@ def _time_series_observation(
         "granularity": granularity,
         "series": [{"keys": {}, "points": pts}],
         "analytical_metadata": {
-            "aggregation_semantics": "sum",
+            "decomposition_semantics": "sum",
             "row_count": len(pts),
         },
         "time_scope": {

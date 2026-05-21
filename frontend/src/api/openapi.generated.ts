@@ -1492,7 +1492,7 @@ export interface components {
              * @default sum
              * @enum {string}
              */
-            aggregation_semantics: "sum" | "ratio" | "weighted_average";
+            decomposition_semantics: "sum" | "ratio" | "weighted_average";
             /**
              * Numerator
              * @description Required for ratio and weighted_average metrics. For ratio: the top of the fraction. For weighted_average: the value being weighted.

@@ -188,36 +188,36 @@ def test_marivo_metric_extension_matches_spec() -> None:
     from marivo.transports.http.models.marivo_extensions import MarivoMetricExtension
 
     assert set(MarivoMetricExtension.model_fields) == {
-        "aggregation_semantics",
+        "decomposition_semantics",
     }
-    # numerator/denominator/weight are now nested inside aggregation_semantics variants,
+    # numerator/denominator/weight are now nested inside decomposition_semantics variants,
     # not top-level fields on MarivoMetricExtension.
     assert "numerator" not in MarivoMetricExtension.model_fields
     assert "denominator" not in MarivoMetricExtension.model_fields
     assert "weight" not in MarivoMetricExtension.model_fields
 
 
-def test_aggregation_semantics_does_not_generate_named_enum() -> None:
+def test_decomposition_semantics_does_not_generate_named_enum() -> None:
     from marivo.contracts.generated import osi
 
-    assert not hasattr(osi, "AggregationSemantics")
+    assert not hasattr(osi, "DecompositionSemantics")
 
 
 def test_generated_metric_extension_accepts_sum_aggregation_object() -> None:
     from marivo.contracts.generated.osi import MarivoMetricExtension
 
-    ext = MarivoMetricExtension.model_validate({"aggregation_semantics": {"type": "sum"}})
+    ext = MarivoMetricExtension.model_validate({"decomposition_semantics": {"type": "sum"}})
 
-    assert ext.aggregation_semantics.type == "sum"
+    assert ext.decomposition_semantics.type == "sum"
     dumped = ext.model_dump(mode="json")
-    assert dumped["aggregation_semantics"]["type"] == "sum"
+    assert dumped["decomposition_semantics"]["type"] == "sum"
 
 
 def test_generated_metric_extension_rejects_ratio_without_components() -> None:
     from marivo.contracts.generated.osi import MarivoMetricExtension
 
     with pytest.raises(ValidationError):
-        MarivoMetricExtension.model_validate({"aggregation_semantics": {"type": "ratio"}})
+        MarivoMetricExtension.model_validate({"decomposition_semantics": {"type": "ratio"}})
 
 
 def test_generated_metric_extension_rejects_weighted_average_without_components() -> None:
@@ -225,7 +225,7 @@ def test_generated_metric_extension_rejects_weighted_average_without_components(
 
     with pytest.raises(ValidationError):
         MarivoMetricExtension.model_validate(
-            {"aggregation_semantics": {"type": "weighted_average"}}
+            {"decomposition_semantics": {"type": "weighted_average"}}
         )
 
 
@@ -233,50 +233,50 @@ def test_generated_metric_extension_defaults_to_sum_object() -> None:
     from marivo.contracts.generated.osi import MarivoMetricExtension
 
     ext = MarivoMetricExtension()
-    assert ext.aggregation_semantics.type == "sum"
+    assert ext.decomposition_semantics.type == "sum"
     dumped = ext.model_dump(mode="json")
-    assert dumped["aggregation_semantics"] == {"type": "sum"}
+    assert dumped["decomposition_semantics"] == {"type": "sum"}
 
 
 def test_generated_metric_extension_rejects_invalid_aggregation_type() -> None:
     from marivo.contracts.generated.osi import MarivoMetricExtension
 
     with pytest.raises(ValidationError):
-        MarivoMetricExtension.model_validate({"aggregation_semantics": {"type": "average"}})
+        MarivoMetricExtension.model_validate({"decomposition_semantics": {"type": "average"}})
 
 
-def test_generated_metric_extension_rejects_flat_string_aggregation_semantics() -> None:
+def test_generated_metric_extension_rejects_flat_string_decomposition_semantics() -> None:
     from marivo.contracts.generated.osi import MarivoMetricExtension
 
     with pytest.raises(ValidationError):
-        MarivoMetricExtension.model_validate({"aggregation_semantics": "sum"})
+        MarivoMetricExtension.model_validate({"decomposition_semantics": "sum"})
 
 
 def test_handwritten_metric_extension_accepts_sum_aggregation() -> None:
-    from marivo.contracts.semantic_extensions import MarivoMetricExtension, SumAggregation
+    from marivo.contracts.semantic_extensions import MarivoMetricExtension, SumDecomposition
 
-    ext = MarivoMetricExtension(aggregation_semantics=SumAggregation())
-    assert ext.aggregation_semantics.type == "sum"
-    assert ext.model_dump(mode="json")["aggregation_semantics"] == {"type": "sum"}
+    ext = MarivoMetricExtension(decomposition_semantics=SumDecomposition())
+    assert ext.decomposition_semantics.type == "sum"
+    assert ext.model_dump(mode="json")["decomposition_semantics"] == {"type": "sum"}
 
 
 def test_handwritten_metric_extension_accepts_ratio_aggregation() -> None:
     from marivo.contracts.semantic_extensions import (
         MarivoMetricExtension,
         MetricComponentRef,
-        RatioAggregation,
+        RatioDecomposition,
     )
 
     ext = MarivoMetricExtension(
-        aggregation_semantics=RatioAggregation(
+        decomposition_semantics=RatioDecomposition(
             numerator=MetricComponentRef(metric="metric.converted"),
             denominator=MetricComponentRef(metric="metric.total"),
         )
     )
-    assert ext.aggregation_semantics.type == "ratio"
-    assert ext.aggregation_semantics.numerator.metric == "metric.converted"
-    assert ext.aggregation_semantics.denominator.metric == "metric.total"
-    dumped = ext.model_dump(mode="json")["aggregation_semantics"]
+    assert ext.decomposition_semantics.type == "ratio"
+    assert ext.decomposition_semantics.numerator.metric == "metric.converted"
+    assert ext.decomposition_semantics.denominator.metric == "metric.total"
+    dumped = ext.model_dump(mode="json")["decomposition_semantics"]
     assert dumped["type"] == "ratio"
     assert dumped["numerator"]["metric"] == "metric.converted"
     assert dumped["denominator"]["metric"] == "metric.total"
@@ -286,19 +286,19 @@ def test_handwritten_metric_extension_accepts_weighted_average_aggregation() -> 
     from marivo.contracts.semantic_extensions import (
         MarivoMetricExtension,
         MetricComponentRef,
-        WeightedAverageAggregation,
+        WeightedAverageDecomposition,
     )
 
     ext = MarivoMetricExtension(
-        aggregation_semantics=WeightedAverageAggregation(
+        decomposition_semantics=WeightedAverageDecomposition(
             numerator=MetricComponentRef(metric="metric.gmv"),
             weight=MetricComponentRef(metric="metric.orders"),
         )
     )
-    assert ext.aggregation_semantics.type == "weighted_average"
-    assert ext.aggregation_semantics.numerator.metric == "metric.gmv"
-    assert ext.aggregation_semantics.weight.metric == "metric.orders"
-    dumped = ext.model_dump(mode="json")["aggregation_semantics"]
+    assert ext.decomposition_semantics.type == "weighted_average"
+    assert ext.decomposition_semantics.numerator.metric == "metric.gmv"
+    assert ext.decomposition_semantics.weight.metric == "metric.orders"
+    dumped = ext.model_dump(mode="json")["decomposition_semantics"]
     assert dumped["type"] == "weighted_average"
     assert dumped["numerator"]["metric"] == "metric.gmv"
     assert dumped["weight"]["metric"] == "metric.orders"
@@ -308,15 +308,15 @@ def test_handwritten_metric_extension_defaults_to_sum() -> None:
     from marivo.contracts.semantic_extensions import MarivoMetricExtension
 
     ext = MarivoMetricExtension()
-    assert ext.aggregation_semantics.type == "sum"
-    assert ext.model_dump(mode="json")["aggregation_semantics"] == {"type": "sum"}
+    assert ext.decomposition_semantics.type == "sum"
+    assert ext.model_dump(mode="json")["decomposition_semantics"] == {"type": "sum"}
 
 
 def test_handwritten_metric_extension_rejects_invalid_aggregation_type() -> None:
     from marivo.contracts.semantic_extensions import MarivoMetricExtension
 
     with pytest.raises(ValidationError):
-        MarivoMetricExtension(aggregation_semantics={"type": "average"})
+        MarivoMetricExtension(decomposition_semantics={"type": "average"})
 
 
 def test_marivo_metric_extension_retired_fields_not_model_fields() -> None:
@@ -337,7 +337,7 @@ def test_marivo_metric_extension_retired_fields_not_model_fields() -> None:
             "primary_time_field": "order_date",
         }
     )
-    assert ext.aggregation_semantics.type == "sum"
+    assert ext.decomposition_semantics.type == "sum"
 
 
 def test_generated_osi_has_no_retired_metric_extension_types() -> None:
@@ -347,12 +347,12 @@ def test_generated_osi_has_no_retired_metric_extension_types() -> None:
     assert "observed_dataset" not in osi.MarivoMetricExtension.model_fields
     assert "observation_grain" not in osi.MarivoMetricExtension.model_fields
     assert "primary_time_field" not in osi.MarivoMetricExtension.model_fields
-    # numerator/denominator/weight are now nested inside aggregation_semantics, not top-level
+    # numerator/denominator/weight are now nested inside decomposition_semantics, not top-level
     assert "numerator" not in osi.MarivoMetricExtension.model_fields
     assert "denominator" not in osi.MarivoMetricExtension.model_fields
     assert "weight" not in osi.MarivoMetricExtension.model_fields
-    # aggregation_semantics IS a top-level field (polymorphic object)
-    assert "aggregation_semantics" in osi.MarivoMetricExtension.model_fields
+    # decomposition_semantics IS a top-level field (polymorphic object)
+    assert "decomposition_semantics" in osi.MarivoMetricExtension.model_fields
 
 
 def test_semantic_metrics_ddl_has_component_ref_columns() -> None:
@@ -1511,48 +1511,48 @@ def test_component_ref_validation() -> None:
 
 
 def test_metric_extension_component_consistency_sum() -> None:
-    """sum aggregation does not accept component refs; SumAggregation has extra='forbid'."""
-    from marivo.contracts.semantic_extensions import MarivoMetricExtension, SumAggregation
+    """sum aggregation does not accept component refs; SumDecomposition has extra='forbid'."""
+    from marivo.contracts.semantic_extensions import MarivoMetricExtension, SumDecomposition
 
     ext = MarivoMetricExtension()
-    assert ext.aggregation_semantics.type == "sum"
+    assert ext.decomposition_semantics.type == "sum"
 
-    # SumAggregation forbids extra fields, so passing numerator is rejected structurally
+    # SumDecomposition forbids extra fields, so passing numerator is rejected structurally
     with pytest.raises(ValidationError):
         MarivoMetricExtension(
-            aggregation_semantics=SumAggregation(numerator={"metric": "metric.gmv"})
+            decomposition_semantics=SumDecomposition(numerator={"metric": "metric.gmv"})
         )
 
 
 def test_metric_extension_component_consistency_ratio() -> None:
-    """ratio aggregation requires numerator and denominator; no weight field exists on RatioAggregation."""
+    """ratio aggregation requires numerator and denominator; no weight field exists on RatioDecomposition."""
     from marivo.contracts.semantic_extensions import (
         MarivoMetricExtension,
         MetricComponentRef,
-        RatioAggregation,
+        RatioDecomposition,
     )
 
     ext = MarivoMetricExtension(
-        aggregation_semantics=RatioAggregation(
+        decomposition_semantics=RatioDecomposition(
             numerator=MetricComponentRef(metric="metric.converted"),
             denominator=MetricComponentRef(metric="metric.total"),
         )
     )
-    assert ext.aggregation_semantics.type == "ratio"
-    assert ext.aggregation_semantics.numerator.metric == "metric.converted"
-    assert ext.aggregation_semantics.denominator.metric == "metric.total"
+    assert ext.decomposition_semantics.type == "ratio"
+    assert ext.decomposition_semantics.numerator.metric == "metric.converted"
+    assert ext.decomposition_semantics.denominator.metric == "metric.total"
 
     # Missing required numerator raises ValidationError
     with pytest.raises(ValidationError):
-        RatioAggregation(denominator=MetricComponentRef(metric="metric.total"))
+        RatioDecomposition(denominator=MetricComponentRef(metric="metric.total"))
 
     # Missing required denominator raises ValidationError
     with pytest.raises(ValidationError):
-        RatioAggregation(numerator=MetricComponentRef(metric="metric.converted"))
+        RatioDecomposition(numerator=MetricComponentRef(metric="metric.converted"))
 
-    # RatioAggregation forbids extra fields (e.g. weight)
+    # RatioDecomposition forbids extra fields (e.g. weight)
     with pytest.raises(ValidationError):
-        RatioAggregation(
+        RatioDecomposition(
             numerator=MetricComponentRef(metric="metric.converted"),
             denominator=MetricComponentRef(metric="metric.total"),
             weight=MetricComponentRef(metric="metric.orders"),
@@ -1564,30 +1564,30 @@ def test_metric_extension_component_consistency_weighted_average() -> None:
     from marivo.contracts.semantic_extensions import (
         MarivoMetricExtension,
         MetricComponentRef,
-        WeightedAverageAggregation,
+        WeightedAverageDecomposition,
     )
 
     ext = MarivoMetricExtension(
-        aggregation_semantics=WeightedAverageAggregation(
+        decomposition_semantics=WeightedAverageDecomposition(
             numerator=MetricComponentRef(metric="metric.gmv"),
             weight=MetricComponentRef(metric="metric.order_count"),
         )
     )
-    assert ext.aggregation_semantics.type == "weighted_average"
-    assert ext.aggregation_semantics.numerator.metric == "metric.gmv"
-    assert ext.aggregation_semantics.weight.metric == "metric.order_count"
+    assert ext.decomposition_semantics.type == "weighted_average"
+    assert ext.decomposition_semantics.numerator.metric == "metric.gmv"
+    assert ext.decomposition_semantics.weight.metric == "metric.order_count"
 
     # Missing required numerator raises ValidationError
     with pytest.raises(ValidationError):
-        WeightedAverageAggregation(weight=MetricComponentRef(metric="metric.order_count"))
+        WeightedAverageDecomposition(weight=MetricComponentRef(metric="metric.order_count"))
 
     # Missing required weight raises ValidationError
     with pytest.raises(ValidationError):
-        WeightedAverageAggregation(numerator=MetricComponentRef(metric="metric.gmv"))
+        WeightedAverageDecomposition(numerator=MetricComponentRef(metric="metric.gmv"))
 
-    # WeightedAverageAggregation forbids extra fields (e.g. denominator)
+    # WeightedAverageDecomposition forbids extra fields (e.g. denominator)
     with pytest.raises(ValidationError):
-        WeightedAverageAggregation(
+        WeightedAverageDecomposition(
             numerator=MetricComponentRef(metric="metric.gmv"),
             weight=MetricComponentRef(metric="metric.order_count"),
             denominator=MetricComponentRef(metric="metric.total"),
@@ -1605,7 +1605,7 @@ def test_generated_osi_additive_dimensions_not_a_model_field() -> None:
 
     # It goes into __pydantic_extra__ rather than being rejected
     ext = MarivoMetricExtension.model_validate({"additive_dimensions": ["region"]})
-    assert ext.aggregation_semantics.type == "sum"
+    assert ext.decomposition_semantics.type == "sum"
     assert "additive_dimensions" not in MarivoMetricExtension.model_fields
 
 
@@ -1658,75 +1658,75 @@ def test_component_spec_union_accepts_metric_ref_and_expression() -> None:
 
 
 def test_polymorphic_construction_from_dict_sum() -> None:
-    """MarivoMetricExtension.model_validate accepts object-format aggregation_semantics for sum."""
+    """MarivoMetricExtension.model_validate accepts object-format decomposition_semantics for sum."""
     from marivo.contracts.semantic_extensions import MarivoMetricExtension
 
-    ext = MarivoMetricExtension.model_validate({"aggregation_semantics": {"type": "sum"}})
-    assert ext.aggregation_semantics.type == "sum"
+    ext = MarivoMetricExtension.model_validate({"decomposition_semantics": {"type": "sum"}})
+    assert ext.decomposition_semantics.type == "sum"
 
 
 def test_polymorphic_construction_from_dict_ratio() -> None:
-    """MarivoMetricExtension.model_validate accepts object-format aggregation_semantics for ratio."""
+    """MarivoMetricExtension.model_validate accepts object-format decomposition_semantics for ratio."""
     from marivo.contracts.semantic_extensions import MarivoMetricExtension
 
     ext = MarivoMetricExtension.model_validate(
         {
-            "aggregation_semantics": {
+            "decomposition_semantics": {
                 "type": "ratio",
                 "numerator": {"metric": "metric.converted"},
                 "denominator": {"metric": "metric.total"},
             }
         }
     )
-    assert ext.aggregation_semantics.type == "ratio"
-    assert ext.aggregation_semantics.numerator.metric == "metric.converted"
-    assert ext.aggregation_semantics.denominator.metric == "metric.total"
+    assert ext.decomposition_semantics.type == "ratio"
+    assert ext.decomposition_semantics.numerator.metric == "metric.converted"
+    assert ext.decomposition_semantics.denominator.metric == "metric.total"
 
 
 def test_polymorphic_construction_from_dict_weighted_average() -> None:
-    """MarivoMetricExtension.model_validate accepts object-format aggregation_semantics for weighted_average."""
+    """MarivoMetricExtension.model_validate accepts object-format decomposition_semantics for weighted_average."""
     from marivo.contracts.semantic_extensions import MarivoMetricExtension
 
     ext = MarivoMetricExtension.model_validate(
         {
-            "aggregation_semantics": {
+            "decomposition_semantics": {
                 "type": "weighted_average",
                 "numerator": {"metric": "metric.gmv"},
                 "weight": {"metric": "metric.order_count"},
             }
         }
     )
-    assert ext.aggregation_semantics.type == "weighted_average"
-    assert ext.aggregation_semantics.numerator.metric == "metric.gmv"
-    assert ext.aggregation_semantics.weight.metric == "metric.order_count"
+    assert ext.decomposition_semantics.type == "weighted_average"
+    assert ext.decomposition_semantics.numerator.metric == "metric.gmv"
+    assert ext.decomposition_semantics.weight.metric == "metric.order_count"
 
 
 def test_polymorphic_construction_from_dict_ratio_with_expression_component() -> None:
-    """RatioAggregation numerator/denominator can be ExpressionComponent via dict validation."""
+    """RatioDecomposition numerator/denominator can be ExpressionComponent via dict validation."""
     from marivo.contracts.semantic_extensions import MarivoMetricExtension
 
     ext = MarivoMetricExtension.model_validate(
         {
-            "aggregation_semantics": {
+            "decomposition_semantics": {
                 "type": "ratio",
                 "numerator": {"expression": "SUM(converted_flag)"},
                 "denominator": {"metric": "metric.total"},
             }
         }
     )
-    assert ext.aggregation_semantics.type == "ratio"
+    assert ext.decomposition_semantics.type == "ratio"
     # ExpressionComponent variant
-    assert ext.aggregation_semantics.numerator.expression == "SUM(converted_flag)"
+    assert ext.decomposition_semantics.numerator.expression == "SUM(converted_flag)"
     # MetricComponentRef variant
-    assert ext.aggregation_semantics.denominator.metric == "metric.total"
+    assert ext.decomposition_semantics.denominator.metric == "metric.total"
 
 
-def test_flat_string_aggregation_semantics_rejected() -> None:
-    """Flat string format for aggregation_semantics is no longer valid; must be an object."""
+def test_flat_string_decomposition_semantics_rejected() -> None:
+    """Flat string format for decomposition_semantics is no longer valid; must be an object."""
     from marivo.contracts.semantic_extensions import MarivoMetricExtension
 
     with pytest.raises(ValidationError):
-        MarivoMetricExtension.model_validate({"aggregation_semantics": "sum"})
+        MarivoMetricExtension.model_validate({"decomposition_semantics": "sum"})
 
     with pytest.raises(ValidationError):
-        MarivoMetricExtension.model_validate({"aggregation_semantics": "ratio"})
+        MarivoMetricExtension.model_validate({"decomposition_semantics": "ratio"})

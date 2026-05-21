@@ -547,7 +547,7 @@ def _measurement_node(
         "observed_entity_ref": _optional_str(header.get("observed_entity_ref")) or "",
         "observation_grain_ref": _optional_str(header.get("observation_grain_ref")) or "",
         "value_semantics": _optional_str(header.get("value_semantics")) or "",
-        "aggregation_semantics": _optional_str(header.get("aggregation_semantics")) or "sum",
+        "decomposition_semantics": _optional_str(header.get("decomposition_semantics")) or "sum",
         "output_bindings": [output_binding],
     }
     normalized_predicate_input: NormalizedPredicateInput | None = None

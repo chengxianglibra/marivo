@@ -1,6 +1,6 @@
 """Decomposition strategy dispatcher and quality evaluator.
 
-Maps aggregation_semantics to the appropriate decomposition method:
+Maps decomposition_semantics to the appropriate decomposition method:
   sum -> delta_share
   ratio -> ratio_decomposition (stub, Task 5)
   weighted_average -> weighted_decomposition (stub, Task 6)
@@ -43,7 +43,7 @@ _STRATEGY_DISPATCH = {
 
 
 def dispatch_decomposition_strategy(
-    aggregation_semantics: str,
+    decomposition_semantics: str,
     left_map: dict[Any, float | None],
     right_map: dict[Any, float | None],
     scope_absolute_delta: float | None,
@@ -60,9 +60,9 @@ def dispatch_decomposition_strategy(
     scope_baseline_weighted_value: float | None = None,
     scope_weighted_delta: float | None = None,
 ) -> DecompositionResult:
-    strategy_name = _STRATEGY_DISPATCH.get(aggregation_semantics)
+    strategy_name = _STRATEGY_DISPATCH.get(decomposition_semantics)
     if strategy_name is None:
-        raise ValueError(f"unknown aggregation_semantics: {aggregation_semantics}")
+        raise ValueError(f"unknown decomposition_semantics: {decomposition_semantics}")
     strategy_fn: Callable[..., DecompositionResult] = globals()[strategy_name]
     return strategy_fn(
         left_map=left_map,
@@ -85,10 +85,10 @@ def dispatch_decomposition_strategy(
 def _evaluate_quality(
     *,
     reconciliation_gap: float | None,
-    aggregation_semantics: str,
+    decomposition_semantics: str,
     unexplained_share: float | None,
 ) -> QualitySignals:
-    if aggregation_semantics == "sum":
+    if decomposition_semantics == "sum":
         if reconciliation_gap is not None and abs(reconciliation_gap) <= _FLAT_TOLERANCE_RELATIVE:
             return QualitySignals(
                 reconciliation_status="reconciled",
@@ -113,7 +113,7 @@ def _evaluate_quality(
                 confidence_rationale="sum decomposition gap exceeds 5% or is null",
                 recommended_use="reject",
             )
-    elif aggregation_semantics == "ratio":
+    elif decomposition_semantics == "ratio":
         return QualitySignals(
             reconciliation_status="approximate",
             reconciliation_gap=reconciliation_gap,
@@ -121,7 +121,7 @@ def _evaluate_quality(
             confidence_rationale="ratio decomposition is approximate by nature",
             recommended_use="exploratory",
         )
-    elif aggregation_semantics == "weighted_average":
+    elif decomposition_semantics == "weighted_average":
         return QualitySignals(
             reconciliation_status="approximate",
             reconciliation_gap=reconciliation_gap,
@@ -130,7 +130,7 @@ def _evaluate_quality(
             recommended_use="exploratory",
         )
     raise ValueError(
-        f"unknown aggregation_semantics for quality evaluation: {aggregation_semantics}"
+        f"unknown decomposition_semantics for quality evaluation: {decomposition_semantics}"
     )
 
 
@@ -246,7 +246,7 @@ def delta_share_strategy(
     reconciliation_gap = unexplained_share
     quality = _evaluate_quality(
         reconciliation_gap=reconciliation_gap,
-        aggregation_semantics="sum",
+        decomposition_semantics="sum",
         unexplained_share=unexplained_share,
     )
 
@@ -315,7 +315,7 @@ def ratio_decomposition_strategy(
             method="ratio_decomposition",
             quality=_evaluate_quality(
                 reconciliation_gap=fallback.quality.reconciliation_gap,
-                aggregation_semantics="ratio",
+                decomposition_semantics="ratio",
                 unexplained_share=fallback.unexplained_share,
             ),
             unexplained_absolute_delta=fallback.unexplained_absolute_delta,
@@ -418,7 +418,7 @@ def ratio_decomposition_strategy(
 
     quality = _evaluate_quality(
         reconciliation_gap=reconciliation_gap,
-        aggregation_semantics="ratio",
+        decomposition_semantics="ratio",
         unexplained_share=None,
     )
 
@@ -470,7 +470,7 @@ def weighted_decomposition_strategy(
             method="weighted_decomposition",
             quality=_evaluate_quality(
                 reconciliation_gap=fallback.quality.reconciliation_gap,
-                aggregation_semantics="weighted_average",
+                decomposition_semantics="weighted_average",
                 unexplained_share=fallback.unexplained_share,
             ),
             unexplained_absolute_delta=fallback.unexplained_absolute_delta,
@@ -587,7 +587,7 @@ def weighted_decomposition_strategy(
 
     quality = _evaluate_quality(
         reconciliation_gap=reconciliation_gap,
-        aggregation_semantics="weighted_average",
+        decomposition_semantics="weighted_average",
         unexplained_share=None,
     )
 

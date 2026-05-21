@@ -243,7 +243,7 @@ def test_sample_summary_query_uses_required_grain(
     runtime = _runtime()
     runtime.resolve_metric_execution_context.return_value = SimpleNamespace(table_name="orders")
     runtime.resolve_metric.return_value = SimpleNamespace(
-        semantic_object={"header": {"aggregation_semantics": "sum"}}
+        semantic_object={"header": {"decomposition_semantics": "sum"}}
     )
     runtime.resolve_metric_dimensions.return_value = ["event_time"]
     runtime.resolve_engine_for_session.return_value = (
@@ -313,7 +313,7 @@ def test_sample_summary_preserves_aoi_time_scope_field_for_bucket_axis() -> None
     runtime = _runtime()
     runtime.resolve_metric_execution_context.return_value = SimpleNamespace(table_name="orders")
     runtime.resolve_metric.return_value = SimpleNamespace(
-        semantic_object={"header": {"aggregation_semantics": "sum"}}
+        semantic_object={"header": {"decomposition_semantics": "sum"}}
     )
     runtime.resolve_metric_dimensions.return_value = ["log_date_ts", "log_hour"]
     runtime.resolve_engine_for_session.return_value = (
@@ -403,7 +403,7 @@ def test_sample_summary_accepts_count_metric_for_sum_semantics() -> None:
     runtime = _runtime()
     runtime.resolve_metric_execution_context.return_value = SimpleNamespace(table_name="orders")
     runtime.resolve_metric.return_value = SimpleNamespace(
-        semantic_object={"header": {"aggregation_semantics": "sum"}}
+        semantic_object={"header": {"decomposition_semantics": "sum"}}
     )
     runtime.resolve_metric_dimensions.return_value = ["event_time"]
     runtime.resolve_engine_for_session.return_value = (
@@ -461,14 +461,14 @@ def test_sample_summary_accepts_count_metric_for_sum_semantics() -> None:
     assert "SUM(" not in executed_query.sql
 
 
-@pytest.mark.parametrize("aggregation_semantics", ["ratio", "weighted_average"])
+@pytest.mark.parametrize("decomposition_semantics", ["ratio", "weighted_average"])
 def test_sample_summary_rejects_non_sum_semantics_without_sum_shape_requirement(
-    aggregation_semantics: str,
+    decomposition_semantics: str,
 ) -> None:
     runtime = _runtime()
     runtime.resolve_metric_execution_context.return_value = SimpleNamespace(table_name="orders")
     runtime.resolve_metric.return_value = SimpleNamespace(
-        semantic_object={"header": {"aggregation_semantics": aggregation_semantics}}
+        semantic_object={"header": {"decomposition_semantics": decomposition_semantics}}
     )
     runtime.resolve_metric_dimensions.return_value = ["event_time"]
     runtime.resolve_engine_for_session.return_value = (
@@ -483,7 +483,7 @@ def test_sample_summary_rejects_non_sum_semantics_without_sum_shape_requirement(
 
     runtime.resolve_windowed_query_time_axis.side_effect = _resolve_time_axis
 
-    with pytest.raises(ValueError, match="aggregation_semantics='sum'") as exc_info:
+    with pytest.raises(ValueError, match="decomposition_semantics='sum'") as exc_info:
         compute_numeric_sample_summary(
             runtime,
             "session-1",
@@ -539,7 +539,7 @@ def test_time_derived_slice_filter_fails_fast_instead_of_running_unfiltered() ->
     runtime = _runtime()
     runtime.resolve_metric_execution_context.return_value = SimpleNamespace(table_name="orders")
     runtime.resolve_metric.return_value = SimpleNamespace(
-        semantic_object={"header": {"aggregation_semantics": "sum"}}
+        semantic_object={"header": {"decomposition_semantics": "sum"}}
     )
     runtime.resolve_metric_dimensions.return_value = ["event_time"]
     runtime.resolve_engine_for_session.return_value = (

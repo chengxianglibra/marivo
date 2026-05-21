@@ -64,13 +64,18 @@ def register_semantic_tools(server: Any, runtime: Any) -> None:
 
         dataset.source must be a relation FQN (schema.table or catalog.schema.table); SQL queries are not accepted.
 
-        Key field in the MARIVO metric extension: aggregation_semantics.
+        Key field in the MARIVO metric extension: decomposition_semantics.
         This is a discriminated union object with a 'type' field, not a flat string.
         Three variants:
         - {"type": "sum"} for additive quantities — values sum across groups (revenue, latency).
         - {"type": "ratio", "numerator": ComponentSpec, "denominator": ComponentSpec} for proportions / binary-outcome rates (conversion rate, CTR).
         - {"type": "weighted_average", "numerator": ComponentSpec, "weight": ComponentSpec} for ratio-of-sums metrics (AOV = SUM/COUNT).
         Default: {"type": "sum"}.
+
+        IMPORTANT: decomposition_semantics.type determines decomposition strategy only; it does NOT
+        auto-wrap metric expressions in aggregate functions. Metric expressions must be complete
+        aggregate expressions (e.g., SUM(col), CAST(SUM(...) AS DOUBLE) / CAST(SUM(...) AS DOUBLE)).
+        Row-level expressions without aggregates will produce incorrect SQL.
 
         ComponentSpec accepts either {metric: "metric.name"} (reference to a published semantic metric)
         or {expression: "SQL expression"} (inline SQL expression for computing the component value).
@@ -79,8 +84,8 @@ def register_semantic_tools(server: Any, runtime: Any) -> None:
         the semantic model, including time dimensions. "__all" must be the only item
         when used.
 
-        Key fields in the MARIVO metric extension (aggregation_semantics):
-        - aggregation_semantics: Discriminated union. Each variant is an object with a 'type' field as discriminator.
+        Key fields in the MARIVO metric extension (decomposition_semantics):
+        - decomposition_semantics: Discriminated union. Each variant is an object with a 'type' field as discriminator.
           sum={"type":"sum"}, ratio={"type":"ratio",numerator:ComponentSpec,denominator:ComponentSpec},
           weighted_average={"type":"weighted_average",numerator:ComponentSpec,weight:ComponentSpec}.
 
@@ -105,7 +110,7 @@ def register_semantic_tools(server: Any, runtime: Any) -> None:
 
         dataset.source must be a relation FQN (schema.table or catalog.schema.table); SQL queries are not accepted.
 
-        Key field in the MARIVO metric extension: aggregation_semantics.
+        Key field in the MARIVO metric extension: decomposition_semantics.
         This is a discriminated union object with a 'type' field, not a flat string.
         Three variants:
         - {"type": "sum"} for additive quantities — values sum across groups (revenue, latency).

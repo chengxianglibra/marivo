@@ -29,9 +29,9 @@ Metric = osi.Metric
 OSIDocument = osi.OsiCoreMetadataSpecificationWithMarivoVendorExtensions
 Relationship = osi.Relationship
 SemanticModel = osi.SemanticModel
-SumAggregation = osi.SumAggregation
-RatioAggregation = osi.RatioAggregation
-WeightedAverageAggregation = osi.WeightedAverageAggregation
+SumDecomposition = osi.SumDecomposition
+RatioDecomposition = osi.RatioDecomposition
+WeightedAverageDecomposition = osi.WeightedAverageDecomposition
 MarivoMetricExtension = osi.MarivoMetricExtension
 
 OSI_MARIVO_SPEC_VERSION = "0.1.1"

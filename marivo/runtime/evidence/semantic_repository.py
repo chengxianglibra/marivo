@@ -99,7 +99,7 @@ class SemanticRuntimeRepository:
             payload["datasource_id"] = dataset_info["datasource_id"]
         header: dict[str, Any] = {
             "metric_ref": metric_ref,
-            "aggregation_semantics": metric_row.get("aggregation_semantics") or "sum",
+            "decomposition_semantics": metric_row.get("decomposition_semantics") or "sum",
         }
         return ResolvedSemanticObject(
             object_kind="metric",

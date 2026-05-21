@@ -33,9 +33,9 @@ from marivo.contracts.semantic_extensions import (
     MarivoFieldExtension,
     MarivoMetricExtension,
     MetricComponentRef,
-    RatioAggregation,
-    SumAggregation,
-    WeightedAverageAggregation,
+    RatioDecomposition,
+    SumDecomposition,
+    WeightedAverageDecomposition,
 )
 from marivo.core.semantic.extensions import (
     OsiCustomExtensionLike,
@@ -202,13 +202,13 @@ def _component_spec_to_json(spec: MetricComponentRef | ExpressionComponent | Non
 def metric_to_storage(metric: Metric, model_id: int) -> dict[str, Any]:
     """Extract fields for a ``semantic_metrics`` row."""
     marivo_ext = extract_marivo_extension(metric.custom_extensions, MarivoMetricExtension)
-    agg = marivo_ext.aggregation_semantics if marivo_ext else SumAggregation()
-    aggregation_semantics_str = agg.type
-    if isinstance(agg, RatioAggregation):
+    agg = marivo_ext.decomposition_semantics if marivo_ext else SumDecomposition()
+    decomposition_semantics_str = agg.type
+    if isinstance(agg, RatioDecomposition):
         numerator = _component_spec_to_json(agg.numerator)
         denominator = _component_spec_to_json(agg.denominator)
         weight = None
-    elif isinstance(agg, WeightedAverageAggregation):
+    elif isinstance(agg, WeightedAverageDecomposition):
         numerator = _component_spec_to_json(agg.numerator)
         denominator = None
         weight = _component_spec_to_json(agg.weight)
@@ -227,7 +227,7 @@ def metric_to_storage(metric: Metric, model_id: int) -> dict[str, Any]:
         "numerator": numerator,
         "denominator": denominator,
         "weight": weight,
-        "aggregation_semantics": aggregation_semantics_str,
+        "decomposition_semantics": decomposition_semantics_str,
     }
 
 
@@ -326,7 +326,7 @@ def _parse_component_spec(json_text: str | None) -> MetricComponentRef | Express
 
 def _storage_to_metric(row: dict[str, Any]) -> dict[str, Any]:
     """Assemble a metric dict from a storage row."""
-    agg_type = row.get("aggregation_semantics") or "sum"
+    agg_type = row.get("decomposition_semantics") or "sum"
     num_spec = _parse_component_spec(row.get("numerator"))
     den_spec = _parse_component_spec(row.get("denominator"))
     wt_spec = _parse_component_spec(row.get("weight"))
@@ -334,17 +334,17 @@ def _storage_to_metric(row: dict[str, Any]) -> dict[str, Any]:
     if agg_type == "ratio":
         assert num_spec is not None, "ratio aggregation requires numerator"
         assert den_spec is not None, "ratio aggregation requires denominator"
-        agg: SumAggregation | RatioAggregation | WeightedAverageAggregation = RatioAggregation(
-            numerator=num_spec, denominator=den_spec
+        agg: SumDecomposition | RatioDecomposition | WeightedAverageDecomposition = (
+            RatioDecomposition(numerator=num_spec, denominator=den_spec)
         )
     elif agg_type == "weighted_average":
         assert num_spec is not None, "weighted_average aggregation requires numerator"
         assert wt_spec is not None, "weighted_average aggregation requires weight"
-        agg = WeightedAverageAggregation(numerator=num_spec, weight=wt_spec)
+        agg = WeightedAverageDecomposition(numerator=num_spec, weight=wt_spec)
     else:
-        agg = SumAggregation()
+        agg = SumDecomposition()
 
-    marivo_ext = MarivoMetricExtension(aggregation_semantics=agg)
+    marivo_ext = MarivoMetricExtension(decomposition_semantics=agg)
     result: dict[str, Any] = {
         "name": row["name"],
         "expression": json.loads(row["expression"]),

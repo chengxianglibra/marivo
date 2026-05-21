@@ -75,7 +75,7 @@ _GUIDED_EXAMPLES: dict[tuple[str, str], list[dict[str, Any]]] = {
                     "display_name": "DAU",
                     "observed_entity_ref": "entity.user",
                     "observation_grain_ref": "grain.user",
-                    "aggregation_semantics": "sum",
+                    "decomposition_semantics": "sum",
                     "value_semantics": "count",
                     "metric_contract_version": "metric.v1",
                 },

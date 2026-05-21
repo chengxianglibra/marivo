@@ -123,7 +123,7 @@ At day/week/month grain, Marivo uses only `log_date`. At hour grain, Marivo auto
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `aggregation_semantics` | AggregationSemantics enum | Optional | Metric aggregation semantics: `sum`, `ratio`, or `weighted_average`. Defaults to `sum`. Determines decomposition strategy. |
+| `decomposition_semantics` | DecompositionSemantics enum | Optional | Metric decomposition semantics: `sum`, `ratio`, or `weighted_average`. Defaults to `sum`. Determines decomposition strategy, not SQL aggregation. |
 | `numerator` | MetricComponentRef | Required for ratio, weighted_average | Structured reference to a metric for the numerator component. `{ metric: 'metric.name' }`. |
 | `denominator` | MetricComponentRef | Required for ratio | Structured reference to a metric for the denominator component. Must not be defined for weighted_average. |
 | `weight` | MetricComponentRef | Required for weighted_average | Structured reference to a metric for the weight component. Must not be defined for ratio. |
@@ -146,12 +146,12 @@ The values are ordered from finest to coarsest. Runtime time-series requests are
 
 ### 4.2 Expression (reused from OSI Core)
 
-MARIVO metrics reuse the OSI Core `Expression` type for metric logic and any embedded conditions:
+MARIVO reuses the OSI Core `Expression` type for both field and metric logic. Field expressions are scalar (e.g., `order_date`, `status = 'active'`). Metric expressions must be complete aggregate expressions that produce a value when evaluated with GROUP BY on decomposition dimensions. A metric expression like `CASE WHEN state = 'FAILED' THEN 1 ELSE 0 END` will fail because it lacks an aggregate wrapper; the correct form is `SUM(CASE WHEN state = 'FAILED' THEN 1 ELSE 0 END)`. Ratio and weighted_average metrics must express the full computation with aggregate functions on both sides, e.g., `CAST(SUM(CASE WHEN state = 'FAILED' THEN 1 ELSE 0 END) AS DOUBLE) / CAST(SUM(1) AS DOUBLE)`. The `decomposition_semantics.type` field determines decomposition strategy only; it does not auto-wrap the expression in aggregate functions.
 
 ```json
 {
   "dialects": [
-    { "dialect": "ANSI_SQL", "expression": "status = 'active'" }
+    { "dialect": "ANSI_SQL", "expression": "SUM(amount)" }
   ]
 }
 ```
