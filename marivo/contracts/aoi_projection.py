@@ -48,6 +48,14 @@ def _point_start(item: dict[str, Any]) -> Any:
     return item.get("bucket_start") or item.get("start")
 
 
+def _first_point_value(entry: dict[str, Any], field: str) -> Any:
+    """Read a field value from the first point in a series entry."""
+    points = entry.get("points") or []
+    if not points:
+        return None
+    return points[0].get(field)
+
+
 def project_aoi_artifact_result(intent_type: str, payload: dict[str, Any]) -> dict[str, Any]:
     if intent_type == "observe":
         observation_type = payload.get("observation_type")
@@ -78,23 +86,24 @@ def project_aoi_artifact_result(intent_type: str, payload: dict[str, Any]) -> di
 
     if intent_type == "compare":
         comparison_type = payload.get("comparison_type")
-        if comparison_type is None and {"current_value", "baseline_value", "absolute_delta"} & set(
-            payload
-        ):
+        if comparison_type is None and {"current_value", "baseline_value", "delta"} & set(payload):
             comparison_type = "scalar_delta"
         matched_time_scope = _as_aoi_time_scope(
             (payload.get("analytical_metadata") or {}).get("matched_time_scope")
         )
+        # Read delta data from v2.0 axes+series format
+        series_list = payload.get("series") or []
         if comparison_type == "time_series_delta":
+            ts_points = series_list[0].get("points") or [] if series_list else []
             compare_result: _CompareResult = aoi.TimeSeriesDeltaResult(
                 points=[
                     aoi.DeltaPoint(
                         bucket_start=_as_aoi_datetime(_point_start(row)),
                         current_value=row.get("current_value"),
                         baseline_value=row.get("baseline_value"),
-                        delta=row.get("absolute_delta"),
+                        delta=row.get("delta"),
                     )
-                    for row in payload.get("rows") or []
+                    for row in ts_points
                 ],
                 matched_time_scope=matched_time_scope,
             )
@@ -103,12 +112,12 @@ def project_aoi_artifact_result(intent_type: str, payload: dict[str, Any]) -> di
                 rows=[
                     aoi.SegmentedDeltaRow(
                         item_id=f"segment_delta_{idx}",
-                        keys=_string_keys(row.get("keys")),
-                        current_value=row.get("current_value"),
-                        baseline_value=row.get("baseline_value"),
-                        delta=row.get("absolute_delta"),
+                        keys=_string_keys(entry.get("keys")),
+                        current_value=_first_point_value(entry, "current_value"),
+                        baseline_value=_first_point_value(entry, "baseline_value"),
+                        delta=_first_point_value(entry, "delta"),
                     )
-                    for idx, row in enumerate(payload.get("rows") or [])
+                    for idx, entry in enumerate(series_list)
                 ],
                 matched_time_scope=matched_time_scope,
             )
@@ -116,7 +125,7 @@ def project_aoi_artifact_result(intent_type: str, payload: dict[str, Any]) -> di
             compare_result = aoi.ScalarDeltaResult(
                 current_value=payload.get("current_value"),
                 baseline_value=payload.get("baseline_value"),
-                delta=payload.get("absolute_delta"),
+                delta=payload.get("delta") or payload.get("absolute_delta"),
                 matched_time_scope=matched_time_scope,
             )
         return compare_result.model_dump(mode="json")

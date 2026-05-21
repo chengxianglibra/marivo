@@ -82,7 +82,7 @@ def to_aoi_observe_request(
     granularity: Literal["hour", "day", "week", "month", "quarter", "year"] | None = None,
     dimensions: list[str] | None = None,
     filter_expression: McpExpression | dict[str, Any] | None = None,
-) -> aoi.Observe1 | aoi.Observe2 | aoi.Observe3:
+) -> aoi.Observe:
     payload = _omit_none(
         {
             "metric": metric,
@@ -92,11 +92,7 @@ def to_aoi_observe_request(
             "dimensions": dimensions,
         }
     )
-    if dimensions is not None:
-        return aoi.Observe3.model_validate(payload)
-    if granularity is not None:
-        return aoi.Observe2.model_validate(payload)
-    return aoi.Observe1.model_validate(payload)
+    return aoi.Observe.model_validate(payload)
 
 
 def to_aoi_compare_request(
@@ -313,7 +309,8 @@ def register_observe(server: Any, runtime: Any) -> None:
         description=(
             "Observe one semantic metric over an AOI time_scope. Omit both granularity and "
             "dimensions for scalar output, provide only granularity for time_series output, "
-            "or provide only dimensions for segmented output."
+            "provide only dimensions for segmented output, or provide both granularity and "
+            "dimensions for panel output."
         )
     )
     async def observe(
@@ -336,8 +333,9 @@ def register_observe(server: Any, runtime: Any) -> None:
             Literal["hour", "day", "week", "month", "quarter", "year"] | None,
             Field(
                 description=(
-                    "Time-series observe selector. Provide this without dimensions; omit both "
-                    "granularity and dimensions for scalar observe."
+                    "Time-series observe selector. Provide this without dimensions for time_series mode; "
+                    "provide with dimensions for panel mode. Omit both granularity and "
+                    "dimensions for scalar observe."
                 )
             ),
         ] = None,
@@ -347,7 +345,8 @@ def register_observe(server: Any, runtime: Any) -> None:
                 min_length=1,
                 description=(
                     "Segmented observe selector. Provide a non-empty dimension list without "
-                    "granularity; omit both dimensions and granularity for scalar observe."
+                    "granularity for segmented mode; provide with granularity for panel mode. "
+                    "Omit both dimensions and granularity for scalar observe."
                 ),
             ),
         ] = None,
@@ -654,7 +653,13 @@ def register_attribute(server: Any, runtime: Any) -> None:
         ],
         decomposition_method: Annotated[
             Literal["delta_share"],
-            Field(description="Fixed AOI decomposition method. Only delta_share is supported."),
+            Field(
+                description=(
+                    "AOI decomposition method. The method is auto-derived from the metric's "
+                    "aggregation_semantics.type at runtime; the parameter value is fixed to "
+                    "delta_share for wire compatibility."
+                )
+            ),
         ] = "delta_share",
         decomposition_limit: Annotated[
             int,

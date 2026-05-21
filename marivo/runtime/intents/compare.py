@@ -11,6 +11,13 @@ from marivo.core.semantic.calendar import (
     resolve_calendar_bucket_pairing,
 )
 from marivo.runtime.intents._helpers import commit_step_result
+from marivo.runtime.intents.metric_frame import (
+    dimension_names_from_axes,
+    has_dimension_axis,
+    has_time_axis,
+    read_axes_from_artifact,
+    time_grain_from_axes,
+)
 from marivo.runtime.intents.predicate_lineage_reuse import (
     resolve_predicate_lineage_reuse_for_intent,
 )
@@ -25,6 +32,29 @@ if TYPE_CHECKING:
 _AOI_PARAM_KEYS: frozenset[str] = frozenset(
     {"current_artifact_id", "baseline_artifact_id", "compare_type"}
 )
+
+
+# --- v2.0 read helpers ---
+# Pure v2.0 (axes+series) accessors for reading observe artifact data.
+
+
+def _read_scalar_value(artifact: dict[str, Any]) -> float | None:
+    """Read scalar value from a v2.0 artifact."""
+    series_list = artifact.get("series") or []
+    if not series_list:
+        return None
+    points = series_list[0].get("points") or []
+    if not points:
+        return None
+    return _coerce_numeric_or_none(points[0].get("value"))
+
+
+def _read_time_series_points(artifact: dict[str, Any]) -> list[dict[str, Any]]:
+    """Read time_series points list from a v2.0 artifact."""
+    series_list = artifact.get("series") or []
+    if not series_list:
+        return []
+    return series_list[0].get("points") or []
 
 
 def _normalize_window(window: dict[str, Any]) -> tuple[str, str]:
@@ -72,8 +102,8 @@ def _coverage_unit_from_row(row: dict[str, Any], *, grain: str) -> str:
 
 
 def _time_series_coverage_facts(artifact: dict[str, Any]) -> dict[str, Any]:
-    grain = str(artifact.get("granularity") or "")
-    series: list[dict[str, Any]] = artifact.get("series") or []
+    grain = str(time_grain_from_axes(read_axes_from_artifact(artifact)) or "")
+    series = _read_time_series_points(artifact)
     missing_units = [
         _coverage_unit_from_row(row, grain=grain) for row in series if row.get("value") is None
     ]
@@ -88,8 +118,8 @@ def _time_series_coverage_facts(artifact: dict[str, Any]) -> dict[str, Any]:
 def _time_series_coverage_signature(
     artifact: dict[str, Any],
 ) -> tuple[str, int, int, tuple[int, ...]]:
-    grain = str(artifact.get("granularity") or "")
-    series: list[dict[str, Any]] = artifact.get("series") or []
+    grain = str(time_grain_from_axes(read_axes_from_artifact(artifact)) or "")
+    series = _read_time_series_points(artifact)
     missing_indexes = tuple(index for index, row in enumerate(series) if row.get("value") is None)
     return (grain, len(series), len(series) - len(missing_indexes), missing_indexes)
 
@@ -208,8 +238,8 @@ def _resolve_time_series_pairing_basis(
     left_artifact: dict[str, Any],
     right_artifact: dict[str, Any],
 ) -> dict[str, Any]:
-    left_series: list[dict[str, Any]] = left_artifact.get("series") or []
-    right_series: list[dict[str, Any]] = right_artifact.get("series") or []
+    left_series: list[dict[str, Any]] = _read_time_series_points(left_artifact)
+    right_series: list[dict[str, Any]] = _read_time_series_points(right_artifact)
 
     alignment_plan = compare_type_to_alignment_plan(compare_type)
     if alignment_plan is None:
@@ -362,8 +392,33 @@ def run_compare_intent(
         )
     right_step_id, right_artifact = right_resolved
 
-    left_obs_type: str | None = left_artifact.get("observation_type")
-    right_obs_type: str | None = right_artifact.get("observation_type")
+    # Axes-based detection (v2.0 format)
+    left_axes = read_axes_from_artifact(left_artifact)
+    right_axes = read_axes_from_artifact(right_artifact)
+    left_has_time = has_time_axis(left_axes)
+    left_has_dim = has_dimension_axis(left_axes)
+    right_has_time = has_time_axis(right_axes)
+    right_has_dim = has_dimension_axis(right_axes)
+
+    # Determine effective comparison mode from axes structure
+    if left_has_time and left_has_dim:
+        left_effective_type = "panel"
+    elif left_has_time:
+        left_effective_type = "time_series"
+    elif left_has_dim:
+        left_effective_type = "segmented"
+    else:
+        left_effective_type = "scalar"
+
+    if right_has_time and right_has_dim:
+        right_effective_type = "panel"
+    elif right_has_time:
+        right_effective_type = "time_series"
+    elif right_has_dim:
+        right_effective_type = "segmented"
+    else:
+        right_effective_type = "scalar"
+
     left_metric: str | None = left_artifact.get("metric")
     right_metric: str | None = right_artifact.get("metric")
 
@@ -381,33 +436,33 @@ def run_compare_intent(
         )
         fatal = True
 
-    if left_obs_type != right_obs_type:
+    if left_effective_type != right_effective_type:
         issues.append(
             {
                 "code": "observation_type_mismatch",
                 "severity": "error",
-                "message": f"left observation_type '{left_obs_type}' != right '{right_obs_type}'",
+                "message": f"left effective type '{left_effective_type}' != right '{right_effective_type}'",
             }
         )
         fatal = True
 
-    if not fatal and left_obs_type == "segmented":
-        left_dims = sorted(left_artifact.get("dimensions") or [])
-        right_dims = sorted(right_artifact.get("dimensions") or [])
-        if left_dims != right_dims:
+    if not fatal and left_has_dim:
+        left_dim_names = sorted(dimension_names_from_axes(left_axes))
+        right_dim_names = sorted(dimension_names_from_axes(right_axes))
+        if left_dim_names != right_dim_names:
             issues.append(
                 {
                     "code": "dimension_mismatch",
                     "severity": "error",
-                    "message": f"left dimensions {left_dims} != right dimensions {right_dims}",
+                    "message": f"left dimensions {left_dim_names} != right dimensions {right_dim_names}",
                 }
             )
             fatal = True
 
-    if not fatal and left_obs_type == "time_series":
-        left_granularity = left_artifact.get("granularity")
-        right_granularity = right_artifact.get("granularity")
-        if left_granularity is None or right_granularity is None:
+    if not fatal and left_has_time:
+        left_grain = time_grain_from_axes(left_axes)
+        right_grain = time_grain_from_axes(right_axes)
+        if left_grain is None or right_grain is None:
             issues.append(
                 {
                     "code": "granularity_mismatch",
@@ -416,14 +471,12 @@ def run_compare_intent(
                 }
             )
             fatal = True
-        elif left_granularity != right_granularity:
+        elif left_grain != right_grain:
             issues.append(
                 {
                     "code": "granularity_mismatch",
                     "severity": "error",
-                    "message": (
-                        f"left granularity '{left_granularity}' != right '{right_granularity}'"
-                    ),
+                    "message": (f"left granularity '{left_grain}' != right '{right_grain}'"),
                 }
             )
             fatal = True
@@ -465,9 +518,9 @@ def run_compare_intent(
     # Pre-flight null check for scalar: both null means all delta fields will be null.
     # This is valid per spec (delta fields become null); surface as data_incomplete.
     if (
-        left_obs_type == "scalar"
-        and left_artifact.get("value") is None
-        and right_artifact.get("value") is None
+        left_effective_type == "scalar"
+        and _read_scalar_value(left_artifact) is None
+        and _read_scalar_value(right_artifact) is None
     ):
         issues.append(
             {
@@ -515,7 +568,6 @@ def run_compare_intent(
         resolved_input_summary["predicate_lineage"] = predicate_lineage_summary["reuse_summary"]
     analytical_metadata: dict[str, Any] = {
         "aggregation_semantics": left_am.get("aggregation_semantics", "sum"),
-        "additive_dimensions": left_am.get("additive_dimensions"),
         "relative_delta_denominator": "baseline",
         "flat_tolerance_relative": flat_tolerance_relative,
         "current_row_count": left_am.get("row_count"),
@@ -529,7 +581,7 @@ def run_compare_intent(
     }
     base: dict[str, Any] = {
         "artifact_type": "compare_artifact",
-        "schema_version": "1.0",
+        "schema_version": "2.0",
         "metric": metric_name,
         "current_ref": current_ref_out,
         "baseline_ref": baseline_ref_out,
@@ -545,20 +597,44 @@ def run_compare_intent(
     artifact_name: str
     summary: str
 
-    if left_obs_type == "scalar":
-        current_value: float | None = left_artifact.get("value")
-        baseline_value: float | None = right_artifact.get("value")
+    if left_effective_type == "scalar":
+        current_value: float | None = _read_scalar_value(left_artifact)
+        baseline_value: float | None = _read_scalar_value(right_artifact)
         abs_delta = _compute_absolute_delta(current_value, baseline_value)
         rel_delta = _compute_relative_delta(abs_delta, baseline_value)
         direction = _compute_direction(abs_delta, rel_delta, flat_tolerance_relative)
+        scalar_axes: list[dict[str, str]] = []
+        scalar_series: list[dict[str, Any]] = [
+            {
+                "keys": {},
+                "points": [
+                    {
+                        "current_value": current_value,
+                        "baseline_value": baseline_value,
+                        "delta": abs_delta,
+                        "delta_pct": rel_delta,
+                        "direction": direction,
+                    }
+                ],
+            }
+        ]
         artifact = {
             **base,
             "comparison_type": "scalar_delta",
+            "axes": scalar_axes,
+            "series": scalar_series,
+            # Top-level scalar aliases for downstream intent compatibility
             "current_value": current_value,
             "baseline_value": baseline_value,
             "absolute_delta": abs_delta,
             "relative_delta": rel_delta,
             "direction": direction,
+            # Summary fields (v2.0 canonical)
+            "summary_current_value": current_value,
+            "summary_baseline_value": baseline_value,
+            "summary_absolute_delta": abs_delta,
+            "summary_relative_delta": rel_delta,
+            "summary_direction": direction,
         }
         artifact_name = f"{metric_name}_compare_scalar"
         summary = (
@@ -566,10 +642,10 @@ def run_compare_intent(
             f"(Δ {abs_delta if abs_delta is not None else 'n/a'})"
         )
 
-    elif left_obs_type == "time_series":
-        granularity = left_artifact.get("granularity")
-        left_series: list[dict[str, Any]] = left_artifact.get("series") or []
-        right_series: list[dict[str, Any]] = right_artifact.get("series") or []
+    elif left_effective_type == "time_series":
+        granularity = time_grain_from_axes(left_axes)
+        left_series: list[dict[str, Any]] = _read_time_series_points(left_artifact)
+        right_series: list[dict[str, Any]] = _read_time_series_points(right_artifact)
         pairing_basis = _resolve_time_series_pairing_basis(
             runtime=runtime,
             compare_type=compare_type,
@@ -631,8 +707,8 @@ def run_compare_intent(
                     "window": window,
                     "current_value": current_value,
                     "baseline_value": baseline_value,
-                    "absolute_delta": row_abs,
-                    "relative_delta": row_rel,
+                    "delta": row_abs,
+                    "delta_pct": row_rel,
                     "direction": row_dir,
                     "presence": presence,
                 }
@@ -757,9 +833,9 @@ def run_compare_intent(
         artifact = {
             **base,
             "comparison_type": "time_series_delta",
-            "granularity": granularity,
+            "axes": [{"kind": "time", "grain": granularity}],
+            "series": [{"keys": {}, "points": time_series_rows}],
             "coverage": coverage,
-            "rows": time_series_rows,
             "summary_current_value": summary_current_value,
             "summary_baseline_value": summary_baseline_value,
             "summary_absolute_delta": summary_abs,
@@ -771,15 +847,21 @@ def run_compare_intent(
 
     else:
         # Segmented mode
-        dims: list[str] = left_artifact.get("dimensions") or []
-        left_segs: list[dict[str, Any]] = left_artifact.get("segments") or []
-        right_segs: list[dict[str, Any]] = right_artifact.get("segments") or []
+        dims: list[str] = dimension_names_from_axes(left_axes)
+        left_series_entries: list[dict[str, Any]] = left_artifact.get("series") or []
+        right_series_entries: list[dict[str, Any]] = right_artifact.get("series") or []
 
-        def _seg_key(seg: dict[str, Any]) -> tuple[str, ...]:
-            return tuple(str(seg.get("keys", {}).get(d)) for d in dims)
+        def _seg_key(entry: dict[str, Any]) -> tuple[str, ...]:
+            return tuple(str(entry.get("keys", {}).get(d)) for d in dims)
 
-        left_segment_map = {_seg_key(s): s for s in left_segs}
-        right_segment_map = {_seg_key(s): s for s in right_segs}
+        def _seg_value(entry: dict[str, Any]) -> float | None:
+            points = entry.get("points") or []
+            if not points:
+                return None
+            return _coerce_numeric_or_none(points[0].get("value"))
+
+        left_segment_map = {_seg_key(s): s for s in left_series_entries}
+        right_segment_map = {_seg_key(s): s for s in right_series_entries}
         all_segment_keys = set(left_segment_map) | set(right_segment_map)
         if not all_segment_keys:
             comparability["issues"].append(
@@ -791,57 +873,71 @@ def run_compare_intent(
             )
             comparability["status"] = "needs_attention"
 
-        segmented_rows: list[dict[str, Any]] = []
+        segmented_series: list[dict[str, Any]] = []
         for segment_key in sorted(all_segment_keys):
-            l_seg = left_segment_map.get(segment_key)
-            r_seg = right_segment_map.get(segment_key)
-            if l_seg and r_seg:
+            l_entry = left_segment_map.get(segment_key)
+            r_entry = right_segment_map.get(segment_key)
+            if l_entry and r_entry:
                 presence = "both"
-                lv: float | None = l_seg.get("value")
-                rv: float | None = r_seg.get("value")
-                keys_dict: dict[str, Any] = l_seg.get("keys") or {}
+                lv: float | None = _seg_value(l_entry)
+                rv: float | None = _seg_value(r_entry)
+                keys_dict: dict[str, Any] = l_entry.get("keys") or {}
                 row_abs = _compute_absolute_delta(lv, rv)
                 row_rel = _compute_relative_delta(row_abs, rv)
                 row_dir = _compute_direction(row_abs, row_rel, flat_tolerance_relative)
-            elif l_seg:
+            elif l_entry:
                 presence = "current_only"
-                lv = l_seg.get("value")
+                lv = _seg_value(l_entry)
                 rv = None
-                keys_dict = l_seg.get("keys") or {}
-                row_abs = lv  # absolute_delta = current_value per spec
+                keys_dict = l_entry.get("keys") or {}
+                row_abs = lv  # delta = current_value per spec
                 row_rel = None
                 row_dir = "undefined"
             else:
                 presence = "baseline_only"
                 lv = None
-                rv = (r_seg or {}).get("value")
-                keys_dict = (r_seg or {}).get("keys") or {}
-                row_abs = (-rv) if rv is not None else None  # absolute_delta = -baseline_value
+                rv = _seg_value(r_entry or {})
+                keys_dict = (r_entry or {}).get("keys") or {}
+                row_abs = (-rv) if rv is not None else None  # delta = -baseline_value
                 row_rel = None
                 row_dir = "undefined"
-            segmented_rows.append(
+            segmented_series.append(
                 {
                     "keys": keys_dict,
-                    "current_value": lv,
-                    "baseline_value": rv,
-                    "absolute_delta": row_abs,
-                    "relative_delta": row_rel,
-                    "direction": row_dir,
-                    "presence": presence,
+                    "points": [
+                        {
+                            "current_value": lv,
+                            "baseline_value": rv,
+                            "delta": row_abs,
+                            "delta_pct": row_rel,
+                            "direction": row_dir,
+                            "presence": presence,
+                        }
+                    ],
                 }
             )
 
-        scope_lv: float | None = left_artifact.get("scope_value")
-        scope_rv: float | None = right_artifact.get("scope_value")
+        # Compute scope summary from series values
+        scope_lv: float | None = (
+            sum(v for v in (_seg_value(s) for s in left_series_entries) if v is not None)
+            if left_series_entries
+            else None
+        )
+        scope_rv: float | None = (
+            sum(v for v in (_seg_value(s) for s in right_series_entries) if v is not None)
+            if right_series_entries
+            else None
+        )
         scope_abs = _compute_absolute_delta(scope_lv, scope_rv)
         scope_rel = _compute_relative_delta(scope_abs, scope_rv)
         scope_dir = _compute_direction(scope_abs, scope_rel, flat_tolerance_relative)
 
+        seg_axes: list[dict[str, str]] = [{"kind": "dimension", "name": d} for d in dims]
         artifact = {
             **base,
             "comparison_type": "segmented_delta",
-            "dimensions": dims,
-            "rows": segmented_rows,
+            "axes": seg_axes,
+            "series": segmented_series,
             "scope_current_value": scope_lv,
             "scope_baseline_value": scope_rv,
             "scope_absolute_delta": scope_abs,
@@ -849,7 +945,7 @@ def run_compare_intent(
             "scope_direction": scope_dir,
         }
         artifact_name = f"{metric_name}_compare_segmented"
-        summary = f"compare {metric_name} segmented: {len(segmented_rows)} delta rows"
+        summary = f"compare {metric_name} segmented: {len(segmented_series)} delta rows"
 
     provenance: dict[str, Any] = {
         "current_step_id": left_step_id,

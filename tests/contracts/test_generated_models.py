@@ -68,7 +68,7 @@ def _aoi_time_scope() -> dict[str, str]:
 def test_aoi_observe_accepts_scalar_branch() -> None:
     from marivo.contracts.generated import aoi
 
-    request = aoi.Observe1.model_validate(
+    request = aoi.Observe.model_validate(
         {
             "metric": "metric.revenue",
             "time_scope": _aoi_time_scope(),
@@ -83,7 +83,7 @@ def test_aoi_observe_accepts_scalar_branch() -> None:
 def test_aoi_observe_accepts_time_series_branch(granularity: str) -> None:
     from marivo.contracts.generated import aoi
 
-    request = aoi.Observe2.model_validate(
+    request = aoi.Observe.model_validate(
         {
             "metric": "metric.revenue",
             "time_scope": _aoi_time_scope(),
@@ -97,7 +97,7 @@ def test_aoi_observe_accepts_time_series_branch(granularity: str) -> None:
 def test_aoi_observe_accepts_segmented_branch() -> None:
     from marivo.contracts.generated import aoi
 
-    request = aoi.Observe3.model_validate(
+    request = aoi.Observe.model_validate(
         {
             "metric": "metric.revenue",
             "time_scope": _aoi_time_scope(),
@@ -111,7 +111,7 @@ def test_aoi_observe_accepts_segmented_branch() -> None:
 def test_aoi_observe_preserves_filter_expression() -> None:
     from marivo.contracts.generated import aoi
 
-    request = aoi.Observe1.model_validate(
+    request = aoi.Observe.model_validate(
         {
             "metric": "metric.revenue",
             "time_scope": _aoi_time_scope(),
@@ -140,28 +140,7 @@ def test_aoi_observe_preserves_filter_expression() -> None:
         {
             "metric": "metric.revenue",
             "time_scope": _aoi_time_scope(),
-            "filter": None,
-        },
-        {
-            "metric": "metric.revenue",
-            "time_scope": _aoi_time_scope(),
-            "granularity": None,
-        },
-        {
-            "metric": "metric.revenue",
-            "time_scope": _aoi_time_scope(),
-            "dimensions": None,
-        },
-        {
-            "metric": "metric.revenue",
-            "time_scope": _aoi_time_scope(),
             "dimensions": [],
-        },
-        {
-            "metric": "metric.revenue",
-            "time_scope": _aoi_time_scope(),
-            "granularity": "day",
-            "dimensions": ["region"],
         },
         {"time_scope": _aoi_time_scope()},
         {"metric": "metric.revenue"},
@@ -170,18 +149,52 @@ def test_aoi_observe_preserves_filter_expression() -> None:
 def test_aoi_observe_rejects_invalid_contract_shapes(payload: dict[str, Any]) -> None:
     from marivo.contracts.generated import aoi
 
-    for model in (aoi.Observe1, aoi.Observe2, aoi.Observe3):
-        with pytest.raises(ValidationError):
-            model.model_validate(payload)
+    with pytest.raises(ValidationError):
+        aoi.Observe.model_validate(payload)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {
+            "metric": "metric.revenue",
+            "time_scope": _aoi_time_scope(),
+        },
+        {
+            "metric": "metric.revenue",
+            "time_scope": _aoi_time_scope(),
+            "granularity": "day",
+        },
+        {
+            "metric": "metric.revenue",
+            "time_scope": _aoi_time_scope(),
+            "dimensions": ["region"],
+        },
+        {
+            "metric": "metric.revenue",
+            "time_scope": _aoi_time_scope(),
+            "granularity": "day",
+            "dimensions": ["region"],
+        },
+    ],
+)
+def test_aoi_observe_accepts_valid_optional_combinations(payload: dict[str, Any]) -> None:
+    from marivo.contracts.generated import aoi
+
+    aoi.Observe.model_validate(payload)
 
 
 def test_marivo_metric_extension_matches_spec() -> None:
     from marivo.transports.http.models.marivo_extensions import MarivoMetricExtension
 
     assert set(MarivoMetricExtension.model_fields) == {
-        "additive_dimensions",
         "aggregation_semantics",
     }
+    # numerator/denominator/weight are now nested inside aggregation_semantics variants,
+    # not top-level fields on MarivoMetricExtension.
+    assert "numerator" not in MarivoMetricExtension.model_fields
+    assert "denominator" not in MarivoMetricExtension.model_fields
+    assert "weight" not in MarivoMetricExtension.model_fields
 
 
 def test_aggregation_semantics_does_not_generate_named_enum() -> None:
@@ -190,60 +203,141 @@ def test_aggregation_semantics_does_not_generate_named_enum() -> None:
     assert not hasattr(osi, "AggregationSemantics")
 
 
-@pytest.mark.parametrize("value", ["sum", "ratio", "weighted_average"])
-def test_generated_metric_extension_accepts_aggregation_semantics_literals(value: str) -> None:
+def test_generated_metric_extension_accepts_sum_aggregation_object() -> None:
     from marivo.contracts.generated.osi import MarivoMetricExtension
 
-    ext = MarivoMetricExtension.model_validate({"aggregation_semantics": value})
+    ext = MarivoMetricExtension.model_validate({"aggregation_semantics": {"type": "sum"}})
 
-    assert ext.aggregation_semantics == value
-    assert ext.model_dump(mode="json")["aggregation_semantics"] == value
+    assert ext.aggregation_semantics.type == "sum"
+    dumped = ext.model_dump(mode="json")
+    assert dumped["aggregation_semantics"]["type"] == "sum"
 
 
-def test_generated_metric_extension_rejects_invalid_aggregation_semantics() -> None:
+def test_generated_metric_extension_rejects_ratio_without_components() -> None:
     from marivo.contracts.generated.osi import MarivoMetricExtension
 
-    ext = MarivoMetricExtension()
-    assert ext.aggregation_semantics == "sum"
-    assert ext.model_dump(mode="json")["aggregation_semantics"] == "sum"
-
     with pytest.raises(ValidationError):
-        MarivoMetricExtension.model_validate({"aggregation_semantics": "average"})
+        MarivoMetricExtension.model_validate({"aggregation_semantics": {"type": "ratio"}})
 
 
-@pytest.mark.parametrize("value", ["sum", "ratio", "weighted_average"])
-def test_handwritten_metric_extension_accepts_aggregation_semantics_literals(value: str) -> None:
-    from marivo.contracts.semantic_extensions import MarivoMetricExtension
-
-    ext = MarivoMetricExtension(aggregation_semantics=value)
-
-    assert ext.aggregation_semantics == value
-    assert ext.model_dump(mode="json")["aggregation_semantics"] == value
-
-
-def test_handwritten_metric_extension_rejects_invalid_aggregation_semantics() -> None:
-    from marivo.contracts.semantic_extensions import MarivoMetricExtension
-
-    ext = MarivoMetricExtension()
-    assert ext.aggregation_semantics == "sum"
-    assert ext.model_dump(mode="json")["aggregation_semantics"] == "sum"
-
-    with pytest.raises(ValidationError):
-        MarivoMetricExtension(aggregation_semantics="average")
-
-
-def test_marivo_metric_extension_rejects_retired_fields() -> None:
+def test_generated_metric_extension_rejects_weighted_average_without_components() -> None:
     from marivo.contracts.generated.osi import MarivoMetricExtension
 
     with pytest.raises(ValidationError):
         MarivoMetricExtension.model_validate(
-            {
-                "additive_dimensions": ["region"],
-                "observed_dataset": "orders",
-                "observation_grain": ["day"],
-                "primary_time_field": "order_date",
-            }
+            {"aggregation_semantics": {"type": "weighted_average"}}
         )
+
+
+def test_generated_metric_extension_defaults_to_sum_object() -> None:
+    from marivo.contracts.generated.osi import MarivoMetricExtension
+
+    ext = MarivoMetricExtension()
+    assert ext.aggregation_semantics.type == "sum"
+    dumped = ext.model_dump(mode="json")
+    assert dumped["aggregation_semantics"] == {"type": "sum"}
+
+
+def test_generated_metric_extension_rejects_invalid_aggregation_type() -> None:
+    from marivo.contracts.generated.osi import MarivoMetricExtension
+
+    with pytest.raises(ValidationError):
+        MarivoMetricExtension.model_validate({"aggregation_semantics": {"type": "average"}})
+
+
+def test_generated_metric_extension_rejects_flat_string_aggregation_semantics() -> None:
+    from marivo.contracts.generated.osi import MarivoMetricExtension
+
+    with pytest.raises(ValidationError):
+        MarivoMetricExtension.model_validate({"aggregation_semantics": "sum"})
+
+
+def test_handwritten_metric_extension_accepts_sum_aggregation() -> None:
+    from marivo.contracts.semantic_extensions import MarivoMetricExtension, SumAggregation
+
+    ext = MarivoMetricExtension(aggregation_semantics=SumAggregation())
+    assert ext.aggregation_semantics.type == "sum"
+    assert ext.model_dump(mode="json")["aggregation_semantics"] == {"type": "sum"}
+
+
+def test_handwritten_metric_extension_accepts_ratio_aggregation() -> None:
+    from marivo.contracts.semantic_extensions import (
+        MarivoMetricExtension,
+        MetricComponentRef,
+        RatioAggregation,
+    )
+
+    ext = MarivoMetricExtension(
+        aggregation_semantics=RatioAggregation(
+            numerator=MetricComponentRef(metric="metric.converted"),
+            denominator=MetricComponentRef(metric="metric.total"),
+        )
+    )
+    assert ext.aggregation_semantics.type == "ratio"
+    assert ext.aggregation_semantics.numerator.metric == "metric.converted"
+    assert ext.aggregation_semantics.denominator.metric == "metric.total"
+    dumped = ext.model_dump(mode="json")["aggregation_semantics"]
+    assert dumped["type"] == "ratio"
+    assert dumped["numerator"]["metric"] == "metric.converted"
+    assert dumped["denominator"]["metric"] == "metric.total"
+
+
+def test_handwritten_metric_extension_accepts_weighted_average_aggregation() -> None:
+    from marivo.contracts.semantic_extensions import (
+        MarivoMetricExtension,
+        MetricComponentRef,
+        WeightedAverageAggregation,
+    )
+
+    ext = MarivoMetricExtension(
+        aggregation_semantics=WeightedAverageAggregation(
+            numerator=MetricComponentRef(metric="metric.gmv"),
+            weight=MetricComponentRef(metric="metric.orders"),
+        )
+    )
+    assert ext.aggregation_semantics.type == "weighted_average"
+    assert ext.aggregation_semantics.numerator.metric == "metric.gmv"
+    assert ext.aggregation_semantics.weight.metric == "metric.orders"
+    dumped = ext.model_dump(mode="json")["aggregation_semantics"]
+    assert dumped["type"] == "weighted_average"
+    assert dumped["numerator"]["metric"] == "metric.gmv"
+    assert dumped["weight"]["metric"] == "metric.orders"
+
+
+def test_handwritten_metric_extension_defaults_to_sum() -> None:
+    from marivo.contracts.semantic_extensions import MarivoMetricExtension
+
+    ext = MarivoMetricExtension()
+    assert ext.aggregation_semantics.type == "sum"
+    assert ext.model_dump(mode="json")["aggregation_semantics"] == {"type": "sum"}
+
+
+def test_handwritten_metric_extension_rejects_invalid_aggregation_type() -> None:
+    from marivo.contracts.semantic_extensions import MarivoMetricExtension
+
+    with pytest.raises(ValidationError):
+        MarivoMetricExtension(aggregation_semantics={"type": "average"})
+
+
+def test_marivo_metric_extension_retired_fields_not_model_fields() -> None:
+    """Retired fields are not model fields. Since generated OSI MarivoMetricExtension
+    uses extra='allow', retired fields go into __pydantic_extra__ rather than raising
+    ValidationError. Verify they are not recognized model fields."""
+    from marivo.contracts.generated.osi import MarivoMetricExtension
+
+    assert "observed_dataset" not in MarivoMetricExtension.model_fields
+    assert "observation_grain" not in MarivoMetricExtension.model_fields
+    assert "primary_time_field" not in MarivoMetricExtension.model_fields
+
+    # They go into extras rather than raising errors
+    ext = MarivoMetricExtension.model_validate(
+        {
+            "observed_dataset": "orders",
+            "observation_grain": ["day"],
+            "primary_time_field": "order_date",
+        }
+    )
+    assert ext.aggregation_semantics.type == "sum"
 
 
 def test_generated_osi_has_no_retired_metric_extension_types() -> None:
@@ -253,10 +347,16 @@ def test_generated_osi_has_no_retired_metric_extension_types() -> None:
     assert "observed_dataset" not in osi.MarivoMetricExtension.model_fields
     assert "observation_grain" not in osi.MarivoMetricExtension.model_fields
     assert "primary_time_field" not in osi.MarivoMetricExtension.model_fields
+    # numerator/denominator/weight are now nested inside aggregation_semantics, not top-level
+    assert "numerator" not in osi.MarivoMetricExtension.model_fields
+    assert "denominator" not in osi.MarivoMetricExtension.model_fields
+    assert "weight" not in osi.MarivoMetricExtension.model_fields
+    # aggregation_semantics IS a top-level field (polymorphic object)
+    assert "aggregation_semantics" in osi.MarivoMetricExtension.model_fields
 
 
-def test_semantic_metrics_ddl_has_additive_dimensions() -> None:
-    """DDL must have additive_dimensions and no retired metric columns."""
+def test_semantic_metrics_ddl_has_component_ref_columns() -> None:
+    """DDL must have numerator/denominator/weight columns and no additive_dimensions or retired columns."""
     from marivo.adapters.schema import METADATA_DDL
 
     metrics_ddl = [
@@ -264,12 +364,13 @@ def test_semantic_metrics_ddl_has_additive_dimensions() -> None:
     ]
     assert len(metrics_ddl) == 1
     ddl = metrics_ddl[0]
-    assert "additive_dimensions" in ddl
+    assert "additive_dimensions" not in ddl
+    assert "numerator" in ddl
+    assert "denominator" in ddl
+    assert "weight" in ddl
     assert "observed_dataset" not in ddl
     assert "observation_grain" not in ddl
     assert "primary_time_field" not in ddl
-    assert "additivity " not in ddl
-    assert "filters " not in ddl
 
 
 def test_malformed_extension_data_rejected() -> None:
@@ -316,7 +417,7 @@ def test_aoi_request_optional_fields_may_be_omitted() -> None:
         "end": "2026-01-02T00:00:00Z",
     }
 
-    aoi.Observe1.model_validate({"metric": "revenue", "time_scope": time_scope})
+    aoi.Observe.model_validate({"metric": "revenue", "time_scope": time_scope})
     aoi.Detect.model_validate(
         {
             "metric": "revenue",
@@ -802,7 +903,7 @@ def test_aoi_forecast_requires_public_required_fields(missing_field: str) -> Non
     ("model_name", "payload"),
     [
         (
-            "Observe1",
+            "Observe",
             {
                 "metric": "revenue",
                 "time_scope": {
@@ -814,7 +915,7 @@ def test_aoi_forecast_requires_public_required_fields(missing_field: str) -> Non
             },
         ),
         (
-            "Observe1",
+            "Observe",
             {
                 "metric": "revenue",
                 "time_scope": {
@@ -1395,45 +1496,237 @@ def test_aoi_result_nullable_fields_still_accept_explicit_null() -> None:
     )
 
 
-def test_additive_dimensions_validation() -> None:
-    """additive_dimensions defaults to empty list; empty list means non-additive."""
-    from marivo.transports.http.models.marivo_extensions import MarivoMetricExtension
+def test_component_ref_validation() -> None:
+    """MetricComponentRef requires a non-empty metric string."""
+    from marivo.transports.http.models.marivo_extensions import MetricComponentRef
 
-    ext = MarivoMetricExtension(additive_dimensions=["region", "channel"])
-    assert ext.additive_dimensions == ["region", "channel"]
+    ref = MetricComponentRef(metric="metric.revenue")
+    assert ref.metric == "metric.revenue"
+
+    with pytest.raises(ValidationError):
+        MetricComponentRef(metric="")
+
+    with pytest.raises(ValidationError):
+        MetricComponentRef()
+
+
+def test_metric_extension_component_consistency_sum() -> None:
+    """sum aggregation does not accept component refs; SumAggregation has extra='forbid'."""
+    from marivo.contracts.semantic_extensions import MarivoMetricExtension, SumAggregation
 
     ext = MarivoMetricExtension()
-    assert ext.additive_dimensions == []
+    assert ext.aggregation_semantics.type == "sum"
 
-    ext = MarivoMetricExtension(additive_dimensions=[])
-    assert ext.additive_dimensions == []
-
-    ext = MarivoMetricExtension(additive_dimensions=["__all"])
-    assert ext.additive_dimensions == ["__all"]
-
+    # SumAggregation forbids extra fields, so passing numerator is rejected structurally
     with pytest.raises(ValidationError):
-        MarivoMetricExtension(additive_dimensions="__all")
+        MarivoMetricExtension(
+            aggregation_semantics=SumAggregation(numerator={"metric": "metric.gmv"})
+        )
 
+
+def test_metric_extension_component_consistency_ratio() -> None:
+    """ratio aggregation requires numerator and denominator; no weight field exists on RatioAggregation."""
+    from marivo.contracts.semantic_extensions import (
+        MarivoMetricExtension,
+        MetricComponentRef,
+        RatioAggregation,
+    )
+
+    ext = MarivoMetricExtension(
+        aggregation_semantics=RatioAggregation(
+            numerator=MetricComponentRef(metric="metric.converted"),
+            denominator=MetricComponentRef(metric="metric.total"),
+        )
+    )
+    assert ext.aggregation_semantics.type == "ratio"
+    assert ext.aggregation_semantics.numerator.metric == "metric.converted"
+    assert ext.aggregation_semantics.denominator.metric == "metric.total"
+
+    # Missing required numerator raises ValidationError
     with pytest.raises(ValidationError):
-        MarivoMetricExtension(additive_dimensions=[""])
+        RatioAggregation(denominator=MetricComponentRef(metric="metric.total"))
 
+    # Missing required denominator raises ValidationError
     with pytest.raises(ValidationError):
-        MarivoMetricExtension(additive_dimensions=["__all", "region"])
+        RatioAggregation(numerator=MetricComponentRef(metric="metric.converted"))
+
+    # RatioAggregation forbids extra fields (e.g. weight)
+    with pytest.raises(ValidationError):
+        RatioAggregation(
+            numerator=MetricComponentRef(metric="metric.converted"),
+            denominator=MetricComponentRef(metric="metric.total"),
+            weight=MetricComponentRef(metric="metric.orders"),
+        )
 
 
-def test_generated_osi_additive_dimensions_all_validation() -> None:
-    """Generated OSI models accept singleton __all and reject mixed sentinel lists."""
+def test_metric_extension_component_consistency_weighted_average() -> None:
+    """weighted_average aggregation requires numerator and weight; no denominator field exists."""
+    from marivo.contracts.semantic_extensions import (
+        MarivoMetricExtension,
+        MetricComponentRef,
+        WeightedAverageAggregation,
+    )
+
+    ext = MarivoMetricExtension(
+        aggregation_semantics=WeightedAverageAggregation(
+            numerator=MetricComponentRef(metric="metric.gmv"),
+            weight=MetricComponentRef(metric="metric.order_count"),
+        )
+    )
+    assert ext.aggregation_semantics.type == "weighted_average"
+    assert ext.aggregation_semantics.numerator.metric == "metric.gmv"
+    assert ext.aggregation_semantics.weight.metric == "metric.order_count"
+
+    # Missing required numerator raises ValidationError
+    with pytest.raises(ValidationError):
+        WeightedAverageAggregation(weight=MetricComponentRef(metric="metric.order_count"))
+
+    # Missing required weight raises ValidationError
+    with pytest.raises(ValidationError):
+        WeightedAverageAggregation(numerator=MetricComponentRef(metric="metric.gmv"))
+
+    # WeightedAverageAggregation forbids extra fields (e.g. denominator)
+    with pytest.raises(ValidationError):
+        WeightedAverageAggregation(
+            numerator=MetricComponentRef(metric="metric.gmv"),
+            weight=MetricComponentRef(metric="metric.order_count"),
+            denominator=MetricComponentRef(metric="metric.total"),
+        )
+
+
+def test_generated_osi_additive_dimensions_not_a_model_field() -> None:
+    """additive_dimensions is a retired field; it is not a recognized model field.
+    Since MarivoMetricExtension uses extra='allow', additive_dimensions would be
+    accepted into __pydantic_extra__ rather than rejected outright. Verify it is
+    not a declared model field."""
     from marivo.contracts.generated.osi import MarivoMetricExtension
 
-    ext = MarivoMetricExtension.model_validate({"additive_dimensions": ["__all"]})
-    assert ext.additive_dimensions is not None
-    assert [dimension.root for dimension in ext.additive_dimensions] == ["__all"]
+    assert "additive_dimensions" not in MarivoMetricExtension.model_fields
+
+    # It goes into __pydantic_extra__ rather than being rejected
+    ext = MarivoMetricExtension.model_validate({"additive_dimensions": ["region"]})
+    assert ext.aggregation_semantics.type == "sum"
+    assert "additive_dimensions" not in MarivoMetricExtension.model_fields
+
+
+def test_generated_osi_component_ref_accepts_valid() -> None:
+    """Generated OSI MetricComponentRef accepts valid metric references."""
+    from marivo.contracts.generated.osi import MetricComponentRef
+
+    ref = MetricComponentRef.model_validate({"metric": "metric.gmv"})
+    assert ref.metric == "metric.gmv"
 
     with pytest.raises(ValidationError):
-        MarivoMetricExtension.model_validate({"additive_dimensions": "__all"})
+        MetricComponentRef.model_validate({"metric": ""})
 
     with pytest.raises(ValidationError):
-        MarivoMetricExtension.model_validate({"additive_dimensions": [""]})
+        MetricComponentRef.model_validate({})
+
+
+def test_expression_component_requires_non_empty_expression() -> None:
+    """ExpressionComponent requires a non-empty expression string and forbids extra fields."""
+    from marivo.contracts.semantic_extensions import ExpressionComponent
+
+    comp = ExpressionComponent(expression="SUM(order_amount)")
+    assert comp.expression == "SUM(order_amount)"
 
     with pytest.raises(ValidationError):
-        MarivoMetricExtension.model_validate({"additive_dimensions": ["__all", "region"]})
+        ExpressionComponent(expression="")
+
+    with pytest.raises(ValidationError):
+        ExpressionComponent()
+
+    # Extra fields are forbidden
+    with pytest.raises(ValidationError):
+        ExpressionComponent(expression="SUM(order_amount)", metric="metric.gmv")
+
+
+def test_component_spec_union_accepts_metric_ref_and_expression() -> None:
+    """ComponentSpec union type accepts both MetricComponentRef and ExpressionComponent."""
+    from marivo.contracts.semantic_extensions import (
+        ExpressionComponent,
+        MetricComponentRef,
+    )
+
+    # MetricComponentRef variant
+    ref = MetricComponentRef(metric="metric.gmv")
+    assert isinstance(ref, MetricComponentRef)
+
+    # ExpressionComponent variant
+    expr = ExpressionComponent(expression="SUM(order_amount)")
+    assert isinstance(expr, ExpressionComponent)
+
+
+def test_polymorphic_construction_from_dict_sum() -> None:
+    """MarivoMetricExtension.model_validate accepts object-format aggregation_semantics for sum."""
+    from marivo.contracts.semantic_extensions import MarivoMetricExtension
+
+    ext = MarivoMetricExtension.model_validate({"aggregation_semantics": {"type": "sum"}})
+    assert ext.aggregation_semantics.type == "sum"
+
+
+def test_polymorphic_construction_from_dict_ratio() -> None:
+    """MarivoMetricExtension.model_validate accepts object-format aggregation_semantics for ratio."""
+    from marivo.contracts.semantic_extensions import MarivoMetricExtension
+
+    ext = MarivoMetricExtension.model_validate(
+        {
+            "aggregation_semantics": {
+                "type": "ratio",
+                "numerator": {"metric": "metric.converted"},
+                "denominator": {"metric": "metric.total"},
+            }
+        }
+    )
+    assert ext.aggregation_semantics.type == "ratio"
+    assert ext.aggregation_semantics.numerator.metric == "metric.converted"
+    assert ext.aggregation_semantics.denominator.metric == "metric.total"
+
+
+def test_polymorphic_construction_from_dict_weighted_average() -> None:
+    """MarivoMetricExtension.model_validate accepts object-format aggregation_semantics for weighted_average."""
+    from marivo.contracts.semantic_extensions import MarivoMetricExtension
+
+    ext = MarivoMetricExtension.model_validate(
+        {
+            "aggregation_semantics": {
+                "type": "weighted_average",
+                "numerator": {"metric": "metric.gmv"},
+                "weight": {"metric": "metric.order_count"},
+            }
+        }
+    )
+    assert ext.aggregation_semantics.type == "weighted_average"
+    assert ext.aggregation_semantics.numerator.metric == "metric.gmv"
+    assert ext.aggregation_semantics.weight.metric == "metric.order_count"
+
+
+def test_polymorphic_construction_from_dict_ratio_with_expression_component() -> None:
+    """RatioAggregation numerator/denominator can be ExpressionComponent via dict validation."""
+    from marivo.contracts.semantic_extensions import MarivoMetricExtension
+
+    ext = MarivoMetricExtension.model_validate(
+        {
+            "aggregation_semantics": {
+                "type": "ratio",
+                "numerator": {"expression": "SUM(converted_flag)"},
+                "denominator": {"metric": "metric.total"},
+            }
+        }
+    )
+    assert ext.aggregation_semantics.type == "ratio"
+    # ExpressionComponent variant
+    assert ext.aggregation_semantics.numerator.expression == "SUM(converted_flag)"
+    # MetricComponentRef variant
+    assert ext.aggregation_semantics.denominator.metric == "metric.total"
+
+
+def test_flat_string_aggregation_semantics_rejected() -> None:
+    """Flat string format for aggregation_semantics is no longer valid; must be an object."""
+    from marivo.contracts.semantic_extensions import MarivoMetricExtension
+
+    with pytest.raises(ValidationError):
+        MarivoMetricExtension.model_validate({"aggregation_semantics": "sum"})
+
+    with pytest.raises(ValidationError):
+        MarivoMetricExtension.model_validate({"aggregation_semantics": "ratio"})

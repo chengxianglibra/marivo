@@ -155,8 +155,28 @@ def run_correlate_intent(
             f"left='{left_granularity}' right='{right_granularity}'"
         )
 
-    left_series: list[dict[str, Any]] = left_artifact.get("series") or []
-    right_series: list[dict[str, Any]] = right_artifact.get("series") or []
+    # ── Read series from v2.0 format (axes+series) ─────────────────────────────
+    # v2.0: series is a list of {keys, points} objects; points is the actual data.
+    # Fall back to legacy flat "series" list for v1 compat.
+    _left_series_list: list[dict[str, Any]] = left_artifact.get("series") or []
+    if (
+        _left_series_list
+        and isinstance(_left_series_list[0], dict)
+        and "points" in _left_series_list[0]
+    ):
+        left_series: list[dict[str, Any]] = _left_series_list[0].get("points") or []
+    else:
+        left_series = _left_series_list
+
+    _right_series_list: list[dict[str, Any]] = right_artifact.get("series") or []
+    if (
+        _right_series_list
+        and isinstance(_right_series_list[0], dict)
+        and "points" in _right_series_list[0]
+    ):
+        right_series: list[dict[str, Any]] = _right_series_list[0].get("points") or []
+    else:
+        right_series = _right_series_list
 
     left_map: dict[str, Any] = {}
     for item in left_series:

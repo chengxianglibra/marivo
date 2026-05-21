@@ -101,10 +101,16 @@ def _write_init(output_dir: Path) -> None:
         "DialectExpression = osi.DialectExpression\n"
         "Dimension = osi.Dimension\n"
         "Expression = osi.Expression\n"
+        "ExpressionComponent = osi.ExpressionComponent\n"
+        "MetricComponentRef = osi.MetricComponentRef\n"
         "Metric = osi.Metric\n"
         "OSIDocument = osi.OsiCoreMetadataSpecificationWithMarivoVendorExtensions\n"
         "Relationship = osi.Relationship\n"
-        "SemanticModel = osi.SemanticModel\n\n"
+        "SemanticModel = osi.SemanticModel\n"
+        "SumAggregation = osi.SumAggregation\n"
+        "RatioAggregation = osi.RatioAggregation\n"
+        "WeightedAverageAggregation = osi.WeightedAverageAggregation\n"
+        "MarivoMetricExtension = osi.MarivoMetricExtension\n\n"
         f'OSI_MARIVO_SPEC_VERSION = "{_schema_version(OSI_SCHEMA)}"\n'
         f'AOI_SPEC_VERSION = "{_schema_version(AOI_SCHEMA)}"\n'
     )
@@ -128,10 +134,6 @@ def _patch_aoi_optional_non_null_fields(output: Path) -> None:
     """
 
     text = output.read_text(encoding="utf-8")
-    text = text.replace(
-        "from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel\n",
-        "from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel, model_validator\n",
-    )
     text = text.replace("\n        | None\n    ) = 'normal'", "\n    ) = 'normal'")
     replacements = {
         "    limit: int | None = Field(None, ge=1)": (
@@ -200,39 +202,6 @@ def _patch_aoi_optional_non_null_fields(output: Path) -> None:
         r"    granularity: \1 = None  # type: ignore[assignment]",
         text,
     )
-    text = text.replace(
-        "    dimensions: list[Dimension] = Field(None, min_length=1)  # type: ignore[arg-type]\n\n\nclass Observe2",
-        "    dimensions: list[Dimension] = Field(None, min_length=1)  # type: ignore[arg-type]\n\n"
-        "    @model_validator(mode='after')\n"
-        "    def _validate_scalar_branch(self) -> Observe1:\n"
-        "        if self.granularity is not None or self.dimensions is not None:\n"
-        "            raise ValueError('observe scalar requests must omit granularity and dimensions')\n"
-        "        return self\n\n\n"
-        "class Observe2",
-        1,
-    )
-    text = text.replace(
-        "    dimensions: list[Dimension] = Field(None, min_length=1)  # type: ignore[arg-type]\n\n\nclass Observe3",
-        "    dimensions: list[Dimension] = Field(None, min_length=1)  # type: ignore[arg-type]\n\n"
-        "    @model_validator(mode='after')\n"
-        "    def _validate_time_series_branch(self) -> Observe2:\n"
-        "        if self.dimensions is not None:\n"
-        "            raise ValueError('observe time-series requests must omit dimensions')\n"
-        "        return self\n\n\n"
-        "class Observe3",
-        1,
-    )
-    text = text.replace(
-        "    dimensions: list[Dimension] = Field(..., min_length=1)\n\n\nclass AnomalyCandidatesResult",
-        "    dimensions: list[Dimension] = Field(..., min_length=1)\n\n"
-        "    @model_validator(mode='after')\n"
-        "    def _validate_segmented_branch(self) -> Observe3:\n"
-        "        if self.granularity is not None:\n"
-        "            raise ValueError('observe segmented requests must omit granularity')\n"
-        "        return self\n\n\n"
-        "class AnomalyCandidatesResult",
-        1,
-    )
     output.write_text(text, encoding="utf-8")
 
 
@@ -240,29 +209,36 @@ def _patch_osi_generated_model_validators(output: Path) -> None:
     """Preserve OSI invariants that datamodel-code-generator cannot express."""
 
     text = output.read_text(encoding="utf-8")
+    # Add model_validator import to whichever pydantic import line exists
+    text = text.replace(
+        "from pydantic import BaseModel, ConfigDict, Field\n",
+        "from pydantic import BaseModel, ConfigDict, Field, model_validator\n",
+    )
     text = text.replace(
         "from pydantic import BaseModel, ConfigDict, Field, RootModel\n",
         "from pydantic import BaseModel, ConfigDict, Field, RootModel, model_validator\n",
     )
+    # Rename auto-generated oneOf variant classes to meaningful names
     text = text.replace(
-        "    aggregation_semantics: Literal['sum', 'ratio', 'weighted_average'] = Field(\n"
-        "        'sum',\n"
-        "        description=\"Aggregation semantics of the metric. Determines inferential summary mode, statistical test method, and which analysis intents are supported. Decision rule: (1) 'sum' if the metric measures an additive quantity — values sum across groups (e.g. revenue, latency, duration, inventory balance) — uses Welch's t-test and expects reconcileable delta decomposition. (2) 'ratio' if the metric is a proportion or binary-outcome rate (e.g. conversion rate, click-through rate, signup rate) — uses two-proportion z-test. (3) 'weighted_average' if the metric is a ratio of two additive sums, i.e. numerator SUM / denominator COUNT (e.g. AOV = SUM(revenue)/COUNT(orders), avg_latency) — uses delta method / weighted-average decomposition, delta is NOT expected to reconcile.\",\n"
-        "    )\n\n\nclass MarivoDatasetCustomExtension",
-        "    aggregation_semantics: Literal['sum', 'ratio', 'weighted_average'] = Field(\n"
-        "        'sum',\n"
-        "        description=\"Aggregation semantics of the metric. Determines inferential summary mode, statistical test method, and which analysis intents are supported. Decision rule: (1) 'sum' if the metric measures an additive quantity — values sum across groups (e.g. revenue, latency, duration, inventory balance) — uses Welch's t-test and expects reconcileable delta decomposition. (2) 'ratio' if the metric is a proportion or binary-outcome rate (e.g. conversion rate, click-through rate, signup rate) — uses two-proportion z-test. (3) 'weighted_average' if the metric is a ratio of two additive sums, i.e. numerator SUM / denominator COUNT (e.g. AOV = SUM(revenue)/COUNT(orders), avg_latency) — uses delta method / weighted-average decomposition, delta is NOT expected to reconcile.\",\n"
-        "    )\n\n"
-        "    @model_validator(mode='after')\n"
-        "    def _validate_additive_dimensions_all(self) -> MarivoMetricExtension:\n"
-        "        if self.additive_dimensions is None:\n"
-        "            return self\n"
-        "        values = [dimension.root for dimension in self.additive_dimensions]\n"
-        "        if '__all' in values and values != ['__all']:\n"
-        "            raise ValueError(\"additive_dimensions '__all' must not be mixed with explicit fields\")\n"
-        "        return self\n\n\n"
-        "class MarivoDatasetCustomExtension",
-        1,
+        "class AggregationSemantics1(BaseModel):", "class SumAggregation(BaseModel):"
+    )
+    text = text.replace(
+        "class AggregationSemantics2(BaseModel):", "class RatioAggregation(BaseModel):"
+    )
+    text = text.replace(
+        "class AggregationSemantics3(BaseModel):", "class WeightedAverageAggregation(BaseModel):"
+    )
+    text = text.replace(
+        "AggregationSemantics1 | AggregationSemantics2 | AggregationSemantics3",
+        "SumAggregation | RatioAggregation | WeightedAverageAggregation",
+    )
+    # Allow extra fields on MarivoMetricExtension for filters runtime support
+    text = re.sub(
+        r'(class MarivoMetricExtension\(BaseModel\):.*?)extra\s*=\s*[\'"]forbid[\'"]',
+        r'\1extra="allow"',
+        text,
+        flags=re.DOTALL,
+        count=1,
     )
     text, field_validator_count = re.subn(
         r"(?P<field_model>"

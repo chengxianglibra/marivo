@@ -7,7 +7,7 @@ responsible for fetching any required data before invoking these functions.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from marivo.time_contracts import window_length_in_grain
@@ -51,7 +51,6 @@ class MetricExecutionContext:
     mapping_id: str | None = None
     execution_locator: dict[str, Any] | None = None
     routing_detail: dict[str, Any] | None = None
-    additive_dimensions: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)

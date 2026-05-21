@@ -13,7 +13,7 @@ _LEFT_STEP_ID = "step_left"
 _RIGHT_STEP_ID = "step_right"
 
 
-def _series(values: list[Any]) -> list[dict[str, Any]]:
+def _points(values: list[Any]) -> list[dict[str, Any]]:
     return [
         {
             "window": {"start": f"2024-01-{idx:02d}", "end": f"2024-01-{idx + 1:02d}"},
@@ -29,23 +29,23 @@ def _time_series_observation(
     values: list[Any] | None = None,
     granularity: str = "day",
 ) -> dict[str, Any]:
-    series = _series(values if values is not None else [10.0, 20.0, 30.0, 40.0, 50.0])
+    pts = _points(values if values is not None else [10.0, 20.0, 30.0, 40.0, 50.0])
     return {
         "observation_type": "time_series",
         "metric": metric,
-        "schema_version": "1.0",
+        "schema_version": "2.0",
         "unit": None,
+        "axes": [{"kind": "time", "grain": granularity}],
         "granularity": granularity,
-        "series": series,
+        "series": [{"keys": {}, "points": pts}],
         "analytical_metadata": {
             "aggregation_semantics": "sum",
-            "additive_dimensions": ["country", "device", "date"],
-            "row_count": len(series),
+            "row_count": len(pts),
         },
         "time_scope": {
             "field": "time",
-            "start": series[0]["window"]["start"],
-            "end": series[-1]["window"]["end"],
+            "start": pts[0]["window"]["start"],
+            "end": pts[-1]["window"]["end"],
         },
         "scope": {},
     }

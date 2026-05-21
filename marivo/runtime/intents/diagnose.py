@@ -27,6 +27,10 @@ from marivo.runtime.intents.derived_envelopes import (
     build_derived_bundle_envelope,
 )
 from marivo.runtime.intents.detect import run_detect_intent
+from marivo.runtime.intents.metric_frame import (
+    read_compare_scalar_point,
+    read_decompose_rows_from_series,
+)
 from marivo.runtime.intents.normalization import (
     normalize_dimensions,
     normalize_metric_ref,
@@ -625,6 +629,7 @@ def _follow_up_candidate(
             }
             comparability: dict[str, Any] = compare_result.get("comparability") or {}
             comparability_status = comparability.get("status") or "comparable"
+            compare_point: dict[str, Any] = read_compare_scalar_point(compare_result)
             attribution_comparison = {
                 "basis": "previous_adjacent_equal_length",
                 "comparison_type": "scalar_delta",
@@ -633,11 +638,11 @@ def _follow_up_candidate(
                     "start": baseline_start_str,
                     "end": baseline_end_str,
                 },
-                "current_value": compare_result.get("current_value"),
-                "baseline_value": compare_result.get("baseline_value"),
-                "absolute_delta": compare_result.get("absolute_delta"),
-                "relative_delta": compare_result.get("relative_delta"),
-                "direction": compare_result.get("direction") or "undefined",
+                "current_value": compare_point.get("current_value"),
+                "baseline_value": compare_point.get("baseline_value"),
+                "absolute_delta": compare_point.get("delta"),
+                "relative_delta": compare_point.get("delta_pct"),
+                "direction": compare_point.get("direction") or "undefined",
                 "comparability_status": comparability_status,
             }
             if comparability_status == "needs_attention":
@@ -813,7 +818,7 @@ def _decompose_for_dimension(
                 }
             )
 
-        all_rows: list[dict[str, Any]] = decompose_result.get("rows") or []
+        all_rows: list[dict[str, Any]] = read_decompose_rows_from_series(decompose_result)
         total_row_count = len(all_rows)
         returned_rows = all_rows[:decomposition_limit]
         returned_row_count = len(returned_rows)

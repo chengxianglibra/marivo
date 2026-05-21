@@ -253,70 +253,7 @@
               "minLength": 1
             }
           }
-        },
-        "oneOf": [
-          {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "granularity"
-                  ]
-                },
-                {
-                  "required": [
-                    "dimensions"
-                  ]
-                }
-              ]
-            }
-          },
-          {
-            "properties": {
-              "granularity": {
-                "$ref": "#/$defs/primitives/TimeGranularity"
-              }
-            },
-            "not": {
-              "properties": {
-                "dimensions": {
-                  "type": "array"
-                }
-              },
-              "required": [
-                "dimensions"
-              ]
-            },
-            "required": [
-              "granularity"
-            ]
-          },
-          {
-            "properties": {
-              "dimensions": {
-                "type": "array",
-                "minItems": 1,
-                "items": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              }
-            },
-            "not": {
-              "properties": {
-                "granularity": {
-                  "$ref": "#/$defs/primitives/TimeGranularity"
-                }
-              },
-              "required": [
-                "granularity"
-              ]
-            },
-            "required": [
-              "dimensions"
-            ]
-          }
-        ]
+        }
       },
       "compare": {
         "type": "object",

@@ -102,10 +102,7 @@
             {
               "vendor_name": "MARIVO",
               "data": {
-                "additive_dimensions": [
-                  "txn_date"
-                ],
-                "aggregation_semantics": "sum"
+                "aggregation_semantics": { "type": "sum" }
               }
             }
           ]

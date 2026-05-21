@@ -123,8 +123,10 @@ At day/week/month grain, Marivo uses only `log_date`. At hour grain, Marivo auto
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `additive_dimensions` | string[] | Optional | Field names across which the metric is additive, including ordinary dimensions and time fields. `[]` means non-additive; `["__all"]` means all declared dimension fields in the semantic model, including time dimensions. `__all` must be the only item when used. |
-| `aggregation_semantics` | AggregationSemantics enum | Optional | Metric aggregation semantics: `sum`, `ratio`, or `weighted_average`. Defaults to `sum`. |
+| `aggregation_semantics` | AggregationSemantics enum | Optional | Metric aggregation semantics: `sum`, `ratio`, or `weighted_average`. Defaults to `sum`. Determines decomposition strategy. |
+| `numerator` | MetricComponentRef | Required for ratio, weighted_average | Structured reference to a metric for the numerator component. `{ metric: 'metric.name' }`. |
+| `denominator` | MetricComponentRef | Required for ratio | Structured reference to a metric for the denominator component. Must not be defined for weighted_average. |
+| `weight` | MetricComponentRef | Required for weighted_average | Structured reference to a metric for the weight component. Must not be defined for ratio. |
 
 **Example:** See `examples/per-entity/metric-full.json`
 

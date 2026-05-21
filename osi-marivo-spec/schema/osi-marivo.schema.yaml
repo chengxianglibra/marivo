@@ -85,21 +85,21 @@ field_extension:
   required_prefix: string    # Required when format is 'hh' or 'h'. Field name of the date-format time field that provides date context for this hour-only field. Must reference a time field on the same dataset. Not allowed on fields with complete date or timestamp formats.
   # additionalProperties: false
 
+metric_component_ref:
+  metric: string  # Required. minLength: 1. Reference to a published semantic metric, e.g. 'metric.converted_users'.
+  # additionalProperties: false
+
 # MARIVO extension for Metric.
 metric_extension:
-  additive_dimensions: string[]  # Field names across which the metric is additive, including ordinary dimensions and time fields.
-    # Empty array means non-additive on any dimension.
-    # The single-item array ["__all"] means additive across all declared dimension fields, including time dimensions.
-    # "__all" must not be mixed with explicit field names (enforced by JSON Schema `not` constraint).
-    # Constraint: if contains "__all", it must be the only item.
-  aggregation_semantics: AggregationSemantics  # default: "sum". Determines inferential summary mode and statistical test method.
+  aggregation_semantics: AggregationSemantics  # default: "sum". Determines decomposition strategy.
     # Decision rule:
-    #   - "sum" for additive quantities (values sum across groups) — Welch's t-test, reconcileable delta decomposition.
-    #     e.g. revenue, latency, duration, inventory balance.
-    #   - "ratio" for proportions / binary-outcome rates — two-proportion z-test.
-    #     e.g. conversion rate, click-through rate, signup rate.
-    #   - "weighted_average" for ratio-of-sums metrics (numerator SUM / denominator COUNT) — delta method decomposition, delta NOT expected to reconcile.
-    #     e.g. AOV = SUM(revenue)/COUNT(orders), avg_latency.
+    #   - "sum" for additive quantities — delta_share decomposition, reconcileable delta.
+    #   - "ratio" for proportions/rates — requires numerator+denominator, ratio decomposition.
+    #   - "weighted_average" for ratio-of-sums — requires numerator+weight, within/mix decomposition.
+  numerator: MetricComponentRef  # Required for ratio and weighted_average. For ratio: top of fraction. For weighted_average: value being weighted.
+  denominator: MetricComponentRef  # Required for ratio. Bottom of fraction. Must not be defined for weighted_average.
+  weight: MetricComponentRef  # Required for weighted_average. Segment weight. Must not be defined for ratio.
+  # Conditional: ratio requires numerator+denominator; weighted_average requires numerator+weight; sum must not define any component refs.
   # additionalProperties: false
 
 # Top-level semantic model definition

@@ -10,11 +10,6 @@ from pydantic import BaseModel, ConfigDict, Field
 from marivo.adapters.metadata import MetadataStore, MetadataTransaction
 from marivo.contracts.errors import ErrorCode, NotFoundError, ValidationError
 from marivo.contracts.generated import Dataset, Metric, OSIDocument, Relationship, SemanticModel
-from marivo.core.semantic.additivity import (
-    ADDITIVE_DIMENSIONS_ALL,
-    additive_dimensions_mix_all,
-    is_all_additive_dimensions,
-)
 from marivo.dialect import translate as translate_sql
 from marivo.runtime.semantic.osi_storage import (
     _storage_to_dataset,
@@ -29,7 +24,7 @@ from marivo.runtime.semantic.osi_storage import (
 )
 
 TIME_GRANULARITIES: frozenset[str] = frozenset({"hour", "day", "week", "month", "quarter", "year"})
-AGGREGATION_SEMANTICS_VALUES: tuple[str, ...] = ("sum", "ratio", "weighted_average")
+AGGREGATION_SEMANTICS_TYPES: frozenset[str] = frozenset({"sum", "ratio", "weighted_average"})
 
 
 class ImportCounter(BaseModel):
@@ -877,8 +872,8 @@ class SemanticImportExecutor:
         txn.execute(
             """
             INSERT INTO semantic_metrics
-                (model_id, name, expression, description, ai_context, additive_dimensions, aggregation_semantics)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+                (model_id, name, expression, description, ai_context, numerator, denominator, weight, aggregation_semantics)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 metric_storage["model_id"],
@@ -886,7 +881,9 @@ class SemanticImportExecutor:
                 metric_storage["expression"],
                 metric_storage["description"],
                 metric_storage["ai_context"],
-                metric_storage["additive_dimensions"],
+                metric_storage.get("numerator"),
+                metric_storage.get("denominator"),
+                metric_storage.get("weight"),
                 metric_storage.get("aggregation_semantics", "sum"),
             ],
         )
@@ -1510,38 +1507,173 @@ def _metric_extension_issues(
     extension_data = _extract_marivo_extension_data(metric)
     if extension_data is None:
         return issues
-    additive_dimensions = extension_data.get("additive_dimensions") or []
-    if isinstance(additive_dimensions, list) and additive_dimensions_mix_all(additive_dimensions):
+    aggregation_semantics = extension_data.get("aggregation_semantics")
+    ext_pointer = f"{model_pointer}/metrics/{metric_index}/custom_extensions"
+
+    if aggregation_semantics is None:
+        return issues
+
+    if isinstance(aggregation_semantics, str):
         issues.append(
             SemanticValidationIssue(
-                code="INVALID_ADDITIVE_DIMENSIONS",
-                message=(
-                    f"additive_dimensions uses {ADDITIVE_DIMENSIONS_ALL!r} and must not "
-                    "mix it with explicit fields."
-                ),
-                json_pointer=f"{model_pointer}/metrics/{metric_index}/custom_extensions",
-                hint=f"Use either [{ADDITIVE_DIMENSIONS_ALL!r}] or explicit field names.",
-                context={"additive_dimensions": additive_dimensions},
+                code="INVALID_AGGREGATION_FORMAT",
+                message="aggregation_semantics must be a discriminated union object with a 'type' field, not a flat string.",
+                json_pointer=ext_pointer,
+                hint='Use {"type": "sum"}, {"type": "ratio", "numerator": ..., "denominator": ...}, or {"type": "weighted_average", "numerator": ..., "weight": ...}.',
+                context={"aggregation_semantics": aggregation_semantics},
             )
         )
         return issues
-    if isinstance(additive_dimensions, list) and is_all_additive_dimensions(additive_dimensions):
-        return issues
-    aggregation_semantics = extension_data.get("aggregation_semantics")
-    if (
-        isinstance(aggregation_semantics, str)
-        and aggregation_semantics not in AGGREGATION_SEMANTICS_VALUES
-    ):
+
+    if not isinstance(aggregation_semantics, dict):
         issues.append(
             SemanticValidationIssue(
-                code="INVALID_AGGREGATION_SEMANTICS",
-                message=f"aggregation_semantics '{aggregation_semantics}' is not a valid enum value.",
-                json_pointer=f"{model_pointer}/metrics/{metric_index}/custom_extensions",
-                hint=(
-                    "Valid values: "
-                    f"{', '.join(repr(value) for value in AGGREGATION_SEMANTICS_VALUES)}."
-                ),
+                code="INVALID_AGGREGATION_FORMAT",
+                message=f"aggregation_semantics must be a dict, got {type(aggregation_semantics).__name__}.",
+                json_pointer=ext_pointer,
+                hint='Use {"type": "sum"}, {"type": "ratio", ...}, or {"type": "weighted_average", ...}.',
                 context={"aggregation_semantics": aggregation_semantics},
+            )
+        )
+        return issues
+
+    agg_type = aggregation_semantics.get("type")
+    if agg_type not in AGGREGATION_SEMANTICS_TYPES:
+        issues.append(
+            SemanticValidationIssue(
+                code="INVALID_AGGREGATION_TYPE",
+                message=f"aggregation_semantics type '{agg_type}' is not valid.",
+                json_pointer=ext_pointer,
+                hint=f"Valid types: {', '.join(sorted(AGGREGATION_SEMANTICS_TYPES))}.",
+                context={"aggregation_semantics_type": agg_type},
+            )
+        )
+        return issues
+
+    if agg_type == "sum":
+        for key in ("numerator", "denominator", "weight"):
+            if key in aggregation_semantics:
+                issues.append(
+                    SemanticValidationIssue(
+                        code="INVALID_COMPONENT_FOR_SUM",
+                        message=f"sum aggregation must not include '{key}'.",
+                        json_pointer=ext_pointer,
+                        hint=f"Remove '{key}' from the aggregation_semantics object.",
+                        context={"key": key},
+                    )
+                )
+    elif agg_type == "ratio":
+        for key in ("numerator", "denominator"):
+            if key not in aggregation_semantics:
+                issues.append(
+                    SemanticValidationIssue(
+                        code="MISSING_COMPONENT_REF",
+                        message=f"ratio aggregation requires '{key}'.",
+                        json_pointer=ext_pointer,
+                        hint=f"Add '{key}' as a ComponentSpec ({{metric: ...}} or {{expression: ...}}).",
+                        context={"key": key},
+                    )
+                )
+            else:
+                comp_issues = _component_spec_issues(aggregation_semantics[key], key, ext_pointer)
+                issues.extend(comp_issues)
+        if "weight" in aggregation_semantics:
+            issues.append(
+                SemanticValidationIssue(
+                    code="INVALID_COMPONENT_FOR_RATIO",
+                    message="ratio aggregation must not include 'weight'.",
+                    json_pointer=ext_pointer,
+                    hint="Remove 'weight' from the aggregation_semantics object.",
+                    context={"key": "weight"},
+                )
+            )
+    elif agg_type == "weighted_average":
+        for key in ("numerator", "weight"):
+            if key not in aggregation_semantics:
+                issues.append(
+                    SemanticValidationIssue(
+                        code="MISSING_COMPONENT_REF",
+                        message=f"weighted_average aggregation requires '{key}'.",
+                        json_pointer=ext_pointer,
+                        hint=f"Add '{key}' as a ComponentSpec ({{metric: ...}} or {{expression: ...}}).",
+                        context={"key": key},
+                    )
+                )
+            else:
+                comp_issues = _component_spec_issues(aggregation_semantics[key], key, ext_pointer)
+                issues.extend(comp_issues)
+        if "denominator" in aggregation_semantics:
+            issues.append(
+                SemanticValidationIssue(
+                    code="INVALID_COMPONENT_FOR_WEIGHTED_AVERAGE",
+                    message="weighted_average aggregation must not include 'denominator'.",
+                    json_pointer=ext_pointer,
+                    hint="Remove 'denominator' from the aggregation_semantics object.",
+                    context={"key": "denominator"},
+                )
+            )
+    return issues
+
+
+def _component_spec_issues(
+    spec: Any, field_name: str, ext_pointer: str
+) -> list[SemanticValidationIssue]:
+    """Validate a ComponentSpec value: must be {metric: string} or {expression: string}."""
+    issues: list[SemanticValidationIssue] = []
+    if not isinstance(spec, dict):
+        issues.append(
+            SemanticValidationIssue(
+                code="INVALID_COMPONENT_SPEC",
+                message=f"{field_name} must be a dict, got {type(spec).__name__}.",
+                json_pointer=ext_pointer,
+                hint="Use {metric: 'metric.name'} or {expression: 'SQL expression'}.",
+                context={field_name: spec},
+            )
+        )
+        return issues
+    keys = set(spec.keys())
+    if keys == {"metric"}:
+        metric_val = spec["metric"]
+        if not isinstance(metric_val, str) or not metric_val.strip():
+            issues.append(
+                SemanticValidationIssue(
+                    code="INVALID_METRIC_REF",
+                    message=f"{field_name}.metric must be a non-empty string.",
+                    json_pointer=ext_pointer,
+                    hint="Provide a valid metric reference name.",
+                    context={f"{field_name}_metric": metric_val},
+                )
+            )
+    elif keys == {"expression"}:
+        expr_val = spec["expression"]
+        if not isinstance(expr_val, str) or not expr_val.strip():
+            issues.append(
+                SemanticValidationIssue(
+                    code="INVALID_EXPRESSION",
+                    message=f"{field_name}.expression must be a non-empty string.",
+                    json_pointer=ext_pointer,
+                    hint="Provide a valid SQL expression.",
+                    context={f"{field_name}_expression": expr_val},
+                )
+            )
+    elif keys == {"metric", "expression"}:
+        issues.append(
+            SemanticValidationIssue(
+                code="AMBIGUOUS_COMPONENT_SPEC",
+                message=f"{field_name} must be either {{metric: ...}} or {{expression: ...}}, not both.",
+                json_pointer=ext_pointer,
+                hint=f"Remove one of 'metric' or 'expression' from {field_name}.",
+                context={field_name: spec},
+            )
+        )
+    else:
+        issues.append(
+            SemanticValidationIssue(
+                code="INVALID_COMPONENT_SPEC",
+                message=f"{field_name} must be {{metric: ...}} or {{expression: ...}}, got keys: {sorted(keys)}.",
+                json_pointer=ext_pointer,
+                hint="Use {metric: 'metric.name'} or {expression: 'SQL expression'}.",
+                context={field_name: spec},
             )
         )
     return issues

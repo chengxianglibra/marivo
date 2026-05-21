@@ -6,7 +6,6 @@ import json
 from typing import Any
 
 from marivo.adapters.metadata import MetadataStore
-from marivo.core.semantic.additivity import is_all_additive_dimensions
 from marivo.core.semantic.resolution import ResolvedSemanticObject, RuntimeSemanticAvailability
 from marivo.runtime.errors import SemanticRuntimeNotFoundError
 
@@ -89,22 +88,7 @@ class SemanticRuntimeRepository:
                 f"Metric ref has no parseable ANSI SQL expression: {metric_ref}",
                 semantic_ref=metric_ref,
             )
-        additive_dims = None
-        if metric_row.get("additive_dimensions"):
-            try:
-                additive_dims = json.loads(metric_row["additive_dimensions"])
-            except (json.JSONDecodeError, TypeError):
-                additive_dims = None
-        additive_dimensions = (
-            [str(dimension) for dimension in additive_dims]
-            if isinstance(additive_dims, list)
-            else []
-        )
-        dimensions = (
-            self._query_single_dataset_dimensions(model_id) or []
-            if is_all_additive_dimensions(additive_dimensions)
-            else self._query_dimensions(model_id)
-        )
+        dimensions = self._query_dimensions(model_id)
         payload: dict[str, Any] = {
             "definition_sql": definition_sql,
             "_dataset_grounding_ready": dataset_info is not None,
@@ -115,7 +99,6 @@ class SemanticRuntimeRepository:
             payload["datasource_id"] = dataset_info["datasource_id"]
         header: dict[str, Any] = {
             "metric_ref": metric_ref,
-            "additive_dimensions": additive_dimensions,
             "aggregation_semantics": metric_row.get("aggregation_semantics") or "sum",
         }
         return ResolvedSemanticObject(

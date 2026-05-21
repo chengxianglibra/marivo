@@ -61,7 +61,7 @@
           "custom_extensions": [
             {
               "vendor_name": "MARIVO",
-              "data": { "additive_dimensions": ["region"], "aggregation_semantics": "sum" }
+              "data": { "aggregation_semantics": { "type": "sum" } }
             }
           ]
         }

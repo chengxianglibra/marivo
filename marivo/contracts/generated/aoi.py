@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel
 
 
 class Primitives(RootModel[Any]):
@@ -284,7 +284,7 @@ class Detect(BaseModel):
     limit: int = Field(None, ge=1)  # type: ignore[assignment]
 
 
-class Observe1(BaseModel):
+class Observe(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -293,46 +293,6 @@ class Observe1(BaseModel):
     filter: Expression = None  # type: ignore[assignment]
     granularity: Literal["hour", "day", "week", "month", "quarter", "year"] = None  # type: ignore[assignment]
     dimensions: list[Dimension] = Field(None, min_length=1)  # type: ignore[arg-type]
-
-    @model_validator(mode="after")
-    def _validate_scalar_branch(self) -> Observe1:
-        if self.granularity is not None or self.dimensions is not None:
-            raise ValueError("observe scalar requests must omit granularity and dimensions")
-        return self
-
-
-class Observe2(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    metric: str = Field(..., min_length=1)
-    time_scope: TimeScope
-    filter: Expression = None  # type: ignore[assignment]
-    granularity: Literal["hour", "day", "week", "month", "quarter", "year"]
-    dimensions: list[Dimension] = Field(None, min_length=1)  # type: ignore[arg-type]
-
-    @model_validator(mode="after")
-    def _validate_time_series_branch(self) -> Observe2:
-        if self.dimensions is not None:
-            raise ValueError("observe time-series requests must omit dimensions")
-        return self
-
-
-class Observe3(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    metric: str = Field(..., min_length=1)
-    time_scope: TimeScope
-    filter: Expression = None  # type: ignore[assignment]
-    granularity: Literal["hour", "day", "week", "month", "quarter", "year"] = None  # type: ignore[assignment]
-    dimensions: list[Dimension] = Field(..., min_length=1)
-
-    @model_validator(mode="after")
-    def _validate_segmented_branch(self) -> Observe3:
-        if self.granularity is not None:
-            raise ValueError("observe segmented requests must omit granularity")
-        return self
 
 
 class AnomalyCandidatesResult(BaseModel):
@@ -480,7 +440,8 @@ class Test(BaseModel):
 
 class AoiV02(
     RootModel[
-        Compare
+        Observe
+        | Compare
         | Decompose
         | Correlate
         | Detect
@@ -489,15 +450,13 @@ class AoiV02(
         | Validate
         | Attribute
         | Diagnose
-        | Observe1
-        | Observe2
-        | Observe3
         | Artifact1
         | Artifact2
     ]
 ):
     root: (
-        Compare
+        Observe
+        | Compare
         | Decompose
         | Correlate
         | Detect
@@ -506,9 +465,6 @@ class AoiV02(
         | Validate
         | Attribute
         | Diagnose
-        | Observe1
-        | Observe2
-        | Observe3
         | Artifact1
         | Artifact2
     ) = Field(

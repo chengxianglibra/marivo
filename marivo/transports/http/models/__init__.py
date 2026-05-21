@@ -166,6 +166,7 @@ from .marivo_extensions import (
     MarivoMetricFilterExpressionDialect,
     MarivoRelationshipExtension,
     MarivoSemanticModelExtension,
+    MetricComponentRef,
 )
 
 # Session models
@@ -257,6 +258,7 @@ __all__ = [  # noqa: RUF022
     "MarivoFieldExtension",
     "MarivoMetricCustomExtension",
     "MarivoMetricExtension",
+    "MetricComponentRef",
     "MarivoMetricFilter",
     "MarivoMetricFilterExpression",
     "MarivoMetricFilterExpressionDialect",

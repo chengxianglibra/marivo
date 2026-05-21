@@ -480,7 +480,7 @@ def get_artifact_payload(
 )
 def intent_observe(
     session_id: str,
-    payload: aoi.Observe1 | aoi.Observe2 | aoi.Observe3,
+    payload: aoi.Observe,
     request: Request,
 ) -> ObserveResponse:
     result = _run_intent(session_id, "observe", payload, request)

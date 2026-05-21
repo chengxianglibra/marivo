@@ -21,7 +21,6 @@ class _FakeMetadata:
                     "expression": json.dumps(
                         {"dialects": [{"dialect": "ANSI_SQL", "expression": "SUM(amount)"}]}
                     ),
-                    "additive_dimensions": json.dumps(["__all"]),
                     "aggregation_semantics": "sum",
                     "created_at": "",
                     "updated_at": "",
@@ -32,20 +31,18 @@ class _FakeMetadata:
             return [{"source": "analytics.orders", "datasource_id": "ds_001"}]
         if "SELECT dataset_id FROM semantic_datasets" in sql:
             return [{"dataset_id": dataset_id} for dataset_id in self.dataset_ids]
-        if "WHERE dataset_id = ?" in sql:
-            return [{"name": "order_date"}, {"name": "region"}]
         if "WHERE d.model_id = ?" in sql:
             return [{"name": "order_date"}, {"name": "region"}, {"name": "unrelated_dim"}]
         raise AssertionError(f"Unexpected query: {sql}")
 
 
-def test_all_additive_dimensions_expands_single_dataset_dimensions() -> None:
+def test_resolve_metric_dimensions_returns_all_declared_dimensions() -> None:
     repo = SemanticRuntimeRepository(cast("MetadataStore", _FakeMetadata(dataset_ids=[10])))
 
-    assert repo.resolve_metric_dimensions("revenue") == ["order_date", "region"]
+    assert repo.resolve_metric_dimensions("revenue") == ["order_date", "region", "unrelated_dim"]
 
 
-def test_all_additive_dimensions_does_not_expand_model_wide_for_multi_dataset() -> None:
+def test_resolve_metric_dimensions_returns_all_dimensions_for_multi_dataset() -> None:
     repo = SemanticRuntimeRepository(cast("MetadataStore", _FakeMetadata(dataset_ids=[10, 20])))
 
-    assert repo.resolve_metric_dimensions("revenue") == []
+    assert repo.resolve_metric_dimensions("revenue") == ["order_date", "region", "unrelated_dim"]

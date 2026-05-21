@@ -17,7 +17,7 @@ def _time_scope() -> aoi.TimeScope:
 
 
 def test_lowers_scalar_observe_request_to_runner_params() -> None:
-    request = aoi.Observe1(
+    request = aoi.Observe(
         metric="view_time",
         time_scope=_time_scope(),
     )
@@ -35,7 +35,7 @@ def test_lowers_scalar_observe_request_to_runner_params() -> None:
 
 @pytest.mark.parametrize("granularity", ["hour", "day", "week", "month", "quarter", "year"])
 def test_lowers_time_series_observe_request_to_runner_params(granularity: str) -> None:
-    request = aoi.Observe2(
+    request = aoi.Observe(
         metric="view_time",
         time_scope=_time_scope(),
         granularity=granularity,
@@ -54,7 +54,7 @@ def test_lowers_time_series_observe_request_to_runner_params(granularity: str) -
 
 
 def test_lowers_segmented_observe_request_with_filter_to_runner_params() -> None:
-    request = aoi.Observe3(
+    request = aoi.Observe(
         metric="view_time",
         time_scope=_time_scope(),
         filter=aoi.Expression(

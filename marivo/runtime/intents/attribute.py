@@ -13,18 +13,16 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
-from marivo.contracts.errors import ExecutionError
-from marivo.core.semantic.additivity import (
-    additive_dimension_allows,
-    additive_time_rollup_allowed,
-    derive_additivity_capabilities,
-)
 from marivo.runtime.intents._helpers import aoi_filter_to_scope
 from marivo.runtime.intents.compare import run_compare_intent
 from marivo.runtime.intents.decompose import run_decompose_intent
 from marivo.runtime.intents.derived_envelopes import (
     aoi_artifact_dump,
     build_derived_bundle_envelope,
+)
+from marivo.runtime.intents.metric_frame import (
+    read_compare_scalar_point,
+    read_decompose_rows_from_series,
 )
 from marivo.runtime.intents.normalization import (
     normalize_dimensions,
@@ -41,8 +39,9 @@ _DERIVED_LOGIC_VERSION = "1.0"
 _PROJECTION_VERSION = "attribute_bundle.v1"
 _SHARE_SUPPRESSION_POLICY = "suppress_on_reconciliation_needs_attention"
 _REQUEST_FIELDS: frozenset[str] = frozenset(
-    {"metric", "current", "baseline", "dimensions", "decomposition_method", "decomposition_limit"}
+    {"metric", "current", "baseline", "dimensions", "decomposition_limit"}
 )
+_OPTIONAL_REQUEST_FIELDS: frozenset[str] = frozenset({"decomposition_method"})
 _SLICE_FIELDS: frozenset[str] = frozenset({"time_scope", "filter"})
 _TIME_SCOPE_FIELDS: frozenset[str] = frozenset({"field", "start", "end"})
 _RECONCILIATION_ISSUE_CODES = frozenset(
@@ -69,7 +68,9 @@ def run_attribute_intent(
       current:              { time_scope, filter? } — current / treatment side
       baseline:             { time_scope, filter? } — baseline / control side
       dimensions:           non-empty list of attribution dimensions
-      decomposition_method: "delta_share" (only v1 option, default)
+      decomposition_method: optional override; defaults to method derived from
+                            metric aggregation_semantics (sum→delta_share,
+                            ratio→ratio_decomposition, weighted_average→weighted_decomposition)
       decomposition_limit:  max driver rows per dimension (default 5, max 100)
 
     Output: attribute_bundle artifact with full lineage to all atomic artifacts.
@@ -114,12 +115,7 @@ def run_attribute_intent(
     if not dimensions:
         raise ValueError("attribute: INVALID_ARGUMENT - dimensions must be a non-empty list")
 
-    decomposition_method: str = p.get("decomposition_method") or "delta_share"
-    if decomposition_method != "delta_share":
-        raise ValueError(
-            f"attribute: INVALID_ARGUMENT - only 'delta_share' is supported in v1, "
-            f"got '{decomposition_method}'"
-        )
+    decomposition_method: str = p.get("decomposition_method") or ""
 
     raw_limit: Any = p.get("decomposition_limit")
     if raw_limit is None:
@@ -147,105 +143,13 @@ def run_attribute_intent(
     if resolved_metric is None:
         raise ValueError(f"attribute: metric '{metric_name}' not found or not published")
 
+    # Derive decomposition_method from metric aggregation_semantics.
+    # MCP/AOI callers always populate decomposition_method with the wire default
+    # "delta_share", so treat that default as unset and derive unconditionally.
     _resolved_header = resolved_metric.semantic_object.get("header") or {}
-    _additive_dimensions = _resolved_header.get("additive_dimensions", [])
-    additivity_caps = derive_additivity_capabilities(
-        additive_dimensions=_additive_dimensions,
-    )
-
-    # Derive time_rollup_allowed from request-level time_scope.field
-    _time_scope_field = (
-        str(current_time_scope.get("field") or "").strip() if current_time_scope else None
-    )
-    time_rollup_allowed = additive_time_rollup_allowed(_additive_dimensions, _time_scope_field)
-
-    # Gate 2: metric must support decompose
-    if not additivity_caps.supports_decompose:
-        raise ExecutionError(
-            code="ADDITIVITY_CONSTRAINT",
-            category="compatibility",
-            message=(
-                f"attribute: ADDITIVITY_CONSTRAINT - metric '{metric_name}' does not support "
-                f"decompose (additive_dimensions={additivity_caps.additive_dimensions})"
-                + (
-                    f"; {additivity_caps.remediation_hint}"
-                    if additivity_caps.remediation_hint
-                    else ""
-                )
-            ),
-            detail={
-                "compatibility_error": {
-                    "code": "ADDITIVITY_CONSTRAINT",
-                    "gate": "supports_decompose",
-                    "metric": metric_ref,
-                    "additive_dimensions": additivity_caps.additive_dimensions,
-                    "time_rollup_allowed": time_rollup_allowed,
-                    "blocker": additivity_caps.blocker,
-                    "remediation_hint": additivity_caps.remediation_hint,
-                },
-            },
-        )
-
-    # Gate 3: every requested dimension must be allowed by constraints
-    if len(additivity_caps.additive_dimensions) == 0:
-        raise ExecutionError(
-            code="ADDITIVITY_CONSTRAINT_DIMENSION_NOT_ALLOWED",
-            category="compatibility",
-            message=(
-                f"attribute: ADDITIVITY_CONSTRAINT_DIMENSION_NOT_ALLOWED - metric "
-                f"'{metric_name}' has no additive dimensions; no dimensions can be "
-                f"used for attribution. Requested dimensions: {dimensions}"
-            ),
-            detail={
-                "compatibility_error": {
-                    "code": "ADDITIVITY_CONSTRAINT_DIMENSION_NOT_ALLOWED",
-                    "metric": metric_ref,
-                    "additive_dimensions": additivity_caps.additive_dimensions,
-                    "allowed_dimensions": [],
-                    "disallowed_dimensions": list(dimensions),
-                    "requested_dimensions": list(dimensions),
-                    "time_rollup_allowed": time_rollup_allowed,
-                    "remediation_hint": (
-                        "Metric has no additive_dimensions. "
-                        "Add dimension names to additive_dimensions "
-                        "before requesting attribution."
-                    ),
-                },
-            },
-        )
-
-    if len(additivity_caps.additive_dimensions) > 0:
-        allowed_set = set(additivity_caps.additive_dimensions)
-        disallowed_requested = [
-            d
-            for d in dimensions
-            if not additive_dimension_allows(additivity_caps.additive_dimensions, d)
-        ]
-        if disallowed_requested:
-            raise ExecutionError(
-                code="ADDITIVITY_CONSTRAINT_DIMENSION_NOT_ALLOWED",
-                category="compatibility",
-                message=(
-                    f"attribute: ADDITIVITY_CONSTRAINT_DIMENSION_NOT_ALLOWED - metric "
-                    f"'{metric_name}' does not allow "
-                    f"attribution on {disallowed_requested}. "
-                    f"Allowed: {sorted(allowed_set)}, "
-                    f"Disallowed: {disallowed_requested}"
-                ),
-                detail={
-                    "compatibility_error": {
-                        "code": "ADDITIVITY_CONSTRAINT_DIMENSION_NOT_ALLOWED",
-                        "metric": metric_ref,
-                        "additive_dimensions": sorted(allowed_set),
-                        "disallowed_dimensions": disallowed_requested,
-                        "requested_dimensions": list(dimensions),
-                        "time_rollup_allowed": time_rollup_allowed,
-                        "remediation_hint": (
-                            f"Retry with only allowed dimensions: {sorted(allowed_set)}"
-                        ),
-                    },
-                },
-            )
+    aggregation_semantics: str = _resolved_header.get("aggregation_semantics") or "sum"
+    if not decomposition_method or decomposition_method == "delta_share":
+        decomposition_method = _aggregation_semantics_to_decomposition_method(aggregation_semantics)
 
     # ── Step 1: observe current ───────────────────────────────────────────────
     try:
@@ -362,7 +266,7 @@ def run_attribute_intent(
         for issue in remapped_decompose_issues:
             validation_issues.append(issue)
 
-        all_rows: list[dict[str, Any]] = decompose_result.get("rows") or []
+        all_rows: list[dict[str, Any]] = read_decompose_rows_from_series(decompose_result)
         total_row_count: int = len(all_rows)
         # Truncate to decomposition_limit (decompose runner does not apply this limit)
         returned_rows: list[dict[str, Any]] = [dict(row) for row in all_rows[:decomposition_limit]]
@@ -483,13 +387,14 @@ def run_attribute_intent(
     }
 
     # ── Step 7: build ScalarDeltaSummary from compare_result ──────────────────
+    compare_point: dict[str, Any] = read_compare_scalar_point(compare_result)
     comparison: dict[str, Any] = {
         "comparison_type": "scalar_delta",
-        "current_value": compare_result.get("current_value"),
-        "baseline_value": compare_result.get("baseline_value"),
-        "absolute_delta": compare_result.get("absolute_delta"),
-        "relative_delta": compare_result.get("relative_delta"),
-        "direction": compare_result.get("direction") or "undefined",
+        "current_value": compare_point.get("current_value"),
+        "baseline_value": compare_point.get("baseline_value"),
+        "absolute_delta": compare_point.get("delta"),
+        "relative_delta": compare_point.get("delta_pct"),
+        "direction": compare_point.get("direction") or "undefined",
         "comparability_status": comparability_status,
     }
 
@@ -529,11 +434,6 @@ def run_attribute_intent(
             "driver_row_order": "inherits_decompose_order",
             "dimension_order": "request_order",
             "share_suppression_policy": _SHARE_SUPPRESSION_POLICY,
-            "additivity_basis": {
-                "additive_dimensions": additivity_caps.additive_dimensions,
-                "time_rollup_allowed": time_rollup_allowed,
-                "capability_condition": additivity_caps.capability_condition,
-            },
             "time_boundary_constraint": {
                 "scope": "frozen_compare_window",
                 "time_rollup_implied": False,
@@ -549,7 +449,7 @@ def run_attribute_intent(
     summary = (
         f"attribute {metric_name}: {validation_status} "
         f"({len(dimensions)} dimension(s), "
-        f"Δ {compare_result.get('absolute_delta') if compare_result.get('absolute_delta') is not None else 'n/a'})"
+        f"Δ {comparison['absolute_delta'] if comparison['absolute_delta'] is not None else 'n/a'})"
     )
     provenance: dict[str, Any] = {
         "current_step_id": left_step_id,
@@ -595,7 +495,7 @@ def _validate_request(value: Any) -> dict[str, Any]:
         raise ValueError(
             f"attribute: INVALID_ARGUMENT - missing required field(s): {sorted(missing_fields)}"
         )
-    unexpected_fields = set(value) - _REQUEST_FIELDS
+    unexpected_fields = set(value) - (_REQUEST_FIELDS | _OPTIONAL_REQUEST_FIELDS)
     if unexpected_fields:
         raise ValueError(
             f"attribute: INVALID_ARGUMENT - unsupported field(s): {sorted(unexpected_fields)}"
@@ -692,3 +592,22 @@ def _share_suppression_issue(dimension: str) -> dict[str, Any]:
         ),
         "dimension": dimension,
     }
+
+
+_AGGREGATION_TO_DECOMPOSITION_METHOD: dict[str, str] = {
+    "sum": "delta_share",
+    "ratio": "ratio_decomposition",
+    "weighted_average": "weighted_decomposition",
+}
+
+
+def _aggregation_semantics_to_decomposition_method(aggregation_semantics: str) -> str:
+    """Map a metric's aggregation_semantics to its decomposition method."""
+    method = _AGGREGATION_TO_DECOMPOSITION_METHOD.get(aggregation_semantics)
+    if method is None:
+        raise ValueError(
+            f"attribute: INVALID_ARGUMENT - unsupported aggregation_semantics "
+            f"'{aggregation_semantics}', expected one of "
+            f"{sorted(_AGGREGATION_TO_DECOMPOSITION_METHOD)}"
+        )
+    return method

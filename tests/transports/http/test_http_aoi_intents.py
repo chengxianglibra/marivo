@@ -353,7 +353,7 @@ def test_observe_accepts_aoi_request_and_returns_execution_envelope() -> None:
     )
 
     assert response.status_code == 200
-    assert isinstance(runtime.observe_payload, aoi.Observe1)
+    assert isinstance(runtime.observe_payload, aoi.Observe)
     body = response.json()
     assert body["intent_type"] == "observe"
     assert body["artifact_id"] == "art_observe_1"
@@ -380,7 +380,7 @@ def test_observe_accepts_time_series_aoi_request() -> None:
     )
 
     assert response.status_code == 200, response.text
-    assert isinstance(runtime.observe_payload, aoi.Observe2)
+    assert isinstance(runtime.observe_payload, aoi.Observe)
     assert runtime.observe_payload.granularity == "quarter"
 
 
@@ -422,7 +422,7 @@ def test_observe_accepts_segmented_aoi_request() -> None:
     )
 
     assert response.status_code == 200, response.text
-    assert isinstance(runtime.observe_payload, aoi.Observe3)
+    assert isinstance(runtime.observe_payload, aoi.Observe)
     assert runtime.observe_payload.dimensions is not None
     assert [dimension.root for dimension in runtime.observe_payload.dimensions] == ["region"]
 

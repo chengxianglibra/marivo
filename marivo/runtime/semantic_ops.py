@@ -10,13 +10,12 @@ is then handed to core.semantic.* pure functions for the actual work.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import TYPE_CHECKING, Any
 
 from marivo.contracts.errors import ErrorCode, NotFoundError
 from marivo.contracts.semantic import SemanticModel
-from marivo.core.semantic.additivity import is_all_additive_dimensions
 from marivo.core.semantic.compiler import (
     CompiledQuery,
     SemanticRequestCompatibilityError,
@@ -58,7 +57,6 @@ class MetricExecutionContext:
     mapping_id: str | None = None
     execution_locator: dict[str, Any] | None = None
     routing_detail: dict[str, Any] | None = None
-    additive_dimensions: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)
@@ -650,9 +648,6 @@ def _dataset_native_metric_resolution(
         mapping_id=None,
         execution_locator={**authority_locator, "datasource_id": datasource_id},
         routing_detail={"resolution_status": "dataset_native", "datasource_id": datasource_id},
-        additive_dimensions=resolved.semantic_object.get("header", {}).get(
-            "additive_dimensions", []
-        ),
     )
 
 
@@ -704,8 +699,6 @@ def resolve_metric_execution_context(
         metric_ref,
         session_id=session_id,
     )
-    metric_header = dict(availability.resolved.semantic_object.get("header") or {})
-    metric_additive_dimensions = metric_header.get("additive_dimensions", [])
     dataset_resolution = _dataset_native_metric_resolution(runtime, metric_ref)
     if dataset_resolution is not None:
         return dataset_resolution
@@ -721,7 +714,6 @@ def resolve_metric_execution_context(
             mapping_id=resolution.mapping_id,
             execution_locator=resolution.execution_locator,
             routing_detail=resolution.routing_detail,
-            additive_dimensions=metric_additive_dimensions,
         )
     raise SemanticRuntimeNotReadyError(
         f"Metric execution preflight failed: {metric_ref}",
@@ -776,23 +768,20 @@ def resolve_metric_dimensions(
     runtime: MarivoRuntime,
     metric_ref: str,
 ) -> list[str] | None:
-    """Look up a published metric's dimensions from semantic runtime or entity binding."""
+    """Look up a published metric's dimensions from semantic runtime."""
     metric_ref = _coerce_metric_ref(metric_ref)
     resolved = _resolve_runtime_metric_contract(runtime, metric_ref)
     if resolved is None:
         return None
     semantic_object = resolved.semantic_object
-    header = semantic_object.get("header") or {}
-    additive_dimensions = header.get("additive_dimensions")
-    if isinstance(additive_dimensions, list):
-        if is_all_additive_dimensions([str(dimension) for dimension in additive_dimensions]):
-            payload = semantic_object.get("payload") or {}
-            dimensions = payload.get("dimensions")
-            if isinstance(dimensions, list):
-                return [str(dimension) for dimension in dimensions]
-        return [str(dimension) for dimension in additive_dimensions]
+    payload = semantic_object.get("payload") or {}
+    dimensions = payload.get("dimensions")
+    if isinstance(dimensions, list):
+        return [str(dimension) for dimension in dimensions]
 
-    observed_entity_ref = _optional_str(header.get("observed_entity_ref"))
+    observed_entity_ref = _optional_str(
+        (semantic_object.get("header") or {}).get("observed_entity_ref")
+    )
     if observed_entity_ref is not None:
         return []
 

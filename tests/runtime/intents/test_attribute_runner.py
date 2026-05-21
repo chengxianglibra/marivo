@@ -6,22 +6,17 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from marivo.contracts.errors import ExecutionError
 from marivo.runtime.intents.attribute import run_attribute_intent
 
 
-def _make_runtime(*, additive_dimensions: list[str] | None = None) -> MagicMock:
+def _make_runtime() -> MagicMock:
     runtime = MagicMock()
     runtime.core.normalize_intent_metric_ref.side_effect = lambda metric: metric
     runtime.core.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
     resolved_metric = MagicMock()
     resolved_metric.semantic_object = {
         "header": {
-            "additive_dimensions": (
-                ["event_date", "channel", "region"]
-                if additive_dimensions is None
-                else additive_dimensions
-            )
+            "aggregation_semantics": "sum",
         }
     }
     runtime.resolve_metric.return_value = resolved_metric
@@ -65,6 +60,11 @@ def _observe_result(side: str) -> dict[str, Any]:
             "step_type": "observe",
         },
         "time_scope": {"field": "time", "start": "2026-01-01", "end": "2026-01-08"},
+        "schema_version": "2.0",
+        "axes": [],
+        "series": [{"keys": {}, "points": [{"value": 42.0}]}],
+        "analytical_metadata": {"aggregation_semantics": "sum", "row_count": 10},
+        "scope": {},
     }
 
 
@@ -80,12 +80,29 @@ def _compare_result(
             "step_type": "compare",
         },
         "comparability": comparability or {"status": "comparable", "issues": []},
+        "schema_version": "2.0",
+        "comparison_type": "scalar_delta",
+        "axes": [],
+        "series": [
+            {
+                "keys": {},
+                "points": [
+                    {
+                        "current_value": 120.0,
+                        "baseline_value": 100.0,
+                        "delta": 20.0,
+                        "delta_pct": 0.2,
+                        "direction": "increase",
+                    }
+                ],
+            }
+        ],
+        # Backward-compatible aliases
         "current_value": 120.0,
         "baseline_value": 100.0,
         "absolute_delta": 20.0,
         "relative_delta": 0.2,
         "direction": "increase",
-        "result": {"artifact_id": "art_compare", "result": {"comparison_type": "scalar_delta"}},
     }
 
 
@@ -101,6 +118,15 @@ def _decompose_result(
         {dimension: "A", "absolute_contribution": 12.0, "contribution_share": 0.6},
         {dimension: "B", "absolute_contribution": 8.0, "contribution_share": 0.4},
     ]
+    flat_rows = rows if rows is not None else default_rows
+    # Build v2.0 series from flat rows
+    series_entries = [
+        {
+            "keys": {dimension: row[dimension]},
+            "points": [{k: v for k, v in row.items() if k != dimension}],
+        }
+        for row in flat_rows
+    ]
     result: dict[str, Any] = {
         "artifact_id": f"art_decompose_{dimension}",
         "step_ref": {
@@ -108,13 +134,13 @@ def _decompose_result(
             "step_id": f"step_decompose_{dimension}",
             "step_type": "decompose",
         },
+        "schema_version": "2.0",
+        "axes": [{"kind": "dimension", "name": dimension}],
+        "series": series_entries,
+        # Backward-compatible rows alias
+        "rows": flat_rows,
         "attribution": attribution or {"status": "attributable", "issues": []},
-        "rows": rows if rows is not None else default_rows,
         "scope_absolute_delta": scope_absolute_delta,
-        "result": {
-            "artifact_id": f"art_decompose_{dimension}",
-            "result": {"dimension": dimension},
-        },
     }
     if unexplained_reason is not None:
         result["unexplained_reason"] = unexplained_reason
@@ -177,20 +203,6 @@ def test_attribute_expands_child_runners_and_commits_bundle_in_request_order() -
     assert result["product_metadata"]["status"] == "succeeded"
     assert result["result"]["dimensions"] == ["channel", "region"]
     assert [driver["dimension"] for driver in result["result"]["drivers"]] == ["channel", "region"]
-
-
-def test_attribute_all_additive_dimensions_sentinel_allows_requested_dimensions() -> None:
-    params = _params()
-    runtime = _make_runtime(additive_dimensions=["__all"])
-
-    result, _, _, _, mock_decompose = _run_with_patched_children(params, runtime=runtime)
-
-    assert [call.args[2]["dimension"] for call in mock_decompose.call_args_list] == [
-        "channel",
-        "region",
-    ]
-    additivity_basis = result["product_metadata"]["projection_metadata"]["additivity_basis"]
-    assert additivity_basis["additive_dimensions"] == ["__all"]
 
 
 def test_attribute_defaults_to_delta_share_and_limit_five() -> None:
@@ -317,40 +329,17 @@ def test_attribute_reports_missing_metric_before_committing() -> None:
     runtime.insert_step.assert_not_called()
 
 
-def test_attribute_rejects_metric_without_decompose_capability_before_committing() -> None:
-    runtime = _make_runtime(additive_dimensions=[])
-
-    with pytest.raises(ExecutionError, match="ADDITIVITY_CONSTRAINT"):
-        run_attribute_intent(runtime, "sess_attr", _params())
-
-    runtime.insert_artifact.assert_not_called()
-    runtime.insert_step.assert_not_called()
-
-
-def test_attribute_rejects_disallowed_dimension_before_committing() -> None:
-    runtime = _make_runtime(additive_dimensions=["event_date", "channel"])
-    params = _params()
-    params["dimensions"] = ["channel", "region"]
-
-    with pytest.raises(ExecutionError, match="DIMENSION_NOT_ALLOWED"):
-        run_attribute_intent(runtime, "sess_attr", params)
-
-    runtime.insert_artifact.assert_not_called()
-    runtime.insert_step.assert_not_called()
-
-
 @pytest.mark.parametrize(
     ("payload_patch", "message"),
     [
         (None, "params"),
         ({"unexpected": True}, "unsupported field"),
         ({"current": {"scope": {"predicate": "region = 'US'"}}}, "scope"),
-        ({"current": {"filter": None}}, "filter"),
+        ({"current": {"filter": None}, "baseline": {"filter": None}}, "filter"),
         ({"current": {"time_scope": {"kind": "point"}}}, "unsupported"),
         ({"current": {"time_scope": {"__remove__": "field"}}}, "field"),
         ({"dimensions": []}, "dimensions"),
         ({"dimensions": "region"}, "dimensions"),
-        ({"decomposition_method": "ratio_share"}, "delta_share"),
         ({"decomposition_limit": 0}, "decomposition_limit"),
         ({"decomposition_limit": 101}, "exceeds max allowed"),
         ({"decomposition_limit": "2"}, "positive integer"),

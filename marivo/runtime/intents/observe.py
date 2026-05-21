@@ -16,6 +16,14 @@ from marivo.runtime.intents._helpers import (
     extract_predicate_filter_lineage,
     resolve_time_scope,
 )
+from marivo.runtime.intents.metric_frame import (
+    build_axes,
+    build_panel_series,
+    build_scalar_series,
+    build_segmented_series,
+    build_time_series_points,
+    determine_observation_type,
+)
 from marivo.runtime.intents.normalization import (
     normalize_dimensions,
     normalize_metric_ref,
@@ -171,17 +179,6 @@ def _require_mapping(value: Any, *, label: str) -> Mapping[str, Any]:
     return value
 
 
-def _sort_segment_payloads(
-    payloads: list[dict[str, Any]], *, dimensions: list[str], value_field: str
-) -> None:
-    payloads.sort(
-        key=lambda item: (
-            -(item[value_field] if item[value_field] is not None else float("-inf")),
-            *[str((item.get("keys") or {}).get(dimension, "")) for dimension in dimensions],
-        )
-    )
-
-
 def _build_data_coverage_summary(
     *,
     series: list[dict[str, Any]],
@@ -257,6 +254,9 @@ def run_observe_intent(
       - scalar: no granularity, no dimensions
       - time_series: granularity set (hour/day/week/month/quarter/year)
       - segmented: dimensions list set
+      - panel: granularity AND dimensions both set
+
+    All modes produce unified v2.0 axes+series format.
 
     Supported time_scope kinds:
       - range: explicit [start, end) bounds
@@ -278,12 +278,6 @@ def run_observe_intent(
 
     granularity = validate_granularity(p.get("granularity") or None)
     dimensions = normalize_dimensions(p.get("dimensions"))
-
-    if granularity is not None and dimensions is not None:
-        raise ValueError(
-            "observe: granularity and dimensions cannot both be set. "
-            "Use granularity for time_series mode or dimensions for segmented mode, not both."
-        )
 
     # --- Resolve time scope → (start_str, end_str, resolved response shape) ---
     start_str, end_str, time_scope_field = resolve_time_scope(time_scope_raw)
@@ -377,9 +371,86 @@ def run_observe_intent(
     step_id = new_step_id()
     now = datetime.now(UTC).isoformat()
 
-    if granularity is not None:
+    # --- Determine observation type ---
+    granularity_for_axes: TimeGrain | None = cast("TimeGrain | None", granularity)
+    obs_type = determine_observation_type(granularity_for_axes, dimensions)
+    axes = build_axes(granularity_for_axes, dimensions)
+
+    if granularity is not None and dimensions is not None:
+        # --- Panel mode ---
         granularity_typed = cast("TimeGrain", granularity)
+        time_col = resolved.resolved_time_axis.analysis_time_expr
+        if not time_col:
+            raise ValueError("windowed execution requires resolved_time_axis.analysis_time_expr")
+        bucket_expr = f"DATE_TRUNC('{granularity}', {time_col})"
+        group_by = [f"{bucket_expr} AS bucket_start", *dimensions]
+        compiled_query = runtime.compile_step(
+            AnalysisStepIR(
+                index=0,
+                step_type="aggregate_query",
+                params={
+                    "table": qualified_table,
+                    "time_scope": mq_params["time_scope"],
+                    "measures": [{"expr": metric_sql, "as": "value"}],
+                    "group_by": group_by,
+                    "order": "bucket_start",
+                    "scoped_query": scoped_query,
+                    "limit": _OBSERVE_ROW_LIMIT,
+                },
+            ),
+            engine_type=engine_type,
+            semantic_context={"metric_execution_context": execution_context},
+        )
+        _exec_result = execute_compiled(engine, compiled_query, session_id=session_id)
+        rows = list(_exec_result.rows)
+        _elapsed_ms = _exec_result.metadata.get("elapsed_ms")
+        provenance = make_provenance(
+            compiled_query.sql, compiled_query.params, engine_type=engine_type
+        )
+        predicate_filter_lineage = extract_predicate_filter_lineage(compiled_query)
+        series = build_panel_series(
+            rows,
+            dimensions=dimensions,
+            start=start_str,
+            end=end_str,
+            granularity=granularity_typed,
+            dense_series_builder=_build_dense_series,
+        )
+        quality_status = "ready" if rows else "not_ready"
+        observation = {
+            "schema_version": "2.0",
+            "observation_type": obs_type,
+            "metric": metric_name,
+            "time_scope": resolved_time_scope,
+            "scope": scope_raw or {},
+            "predicate_filter_lineage": predicate_filter_lineage,
+            "unit": None,
+            "axes": axes,
+            "series": series,
+            "analytical_metadata": {
+                "aggregation_semantics": aggregation_semantics,
+                "timezone": None,
+                "data_complete": None,
+                "quality_status": quality_status,
+                "row_count": len(rows),
+                "sample_size": len(rows),
+                "null_rate": None,
+            },
+            "execution_metadata": {
+                "query_hash": provenance.get("query_hash", ""),
+                "engine": engine_type,
+                "executed_at": now,
+            },
+        }
+        artifact_name = f"{metric_name}_observe_panel"
+        summary = (
+            f"observe {metric_name} panel/{granularity}+{','.join(dimensions)} "
+            f"[{start_str} → {end_str}]: {len(series)} series"
+        )
+
+    elif granularity is not None:
         # --- Time-series mode ---
+        granularity_typed = cast("TimeGrain", granularity)
         time_col = resolved.resolved_time_axis.analysis_time_expr
         if not time_col:
             raise ValueError("windowed execution requires resolved_time_axis.analysis_time_expr")
@@ -408,34 +479,38 @@ def run_observe_intent(
             compiled_query.sql, compiled_query.params, engine_type=engine_type
         )
         sparse_series = _series_from_rows(rows, granularity=granularity_typed)
-        series = _build_dense_series(
+        dense_series = _build_dense_series(
             sparse_series=sparse_series,
             start=start_str,
             end=end_str,
             granularity=granularity_typed,
         )
-        predicate_filter_lineage_ts = extract_predicate_filter_lineage(compiled_query)
-        data_coverage_summary = _build_data_coverage_summary(series=series)
-
+        predicate_filter_lineage = extract_predicate_filter_lineage(compiled_query)
+        data_coverage_summary = _build_data_coverage_summary(series=dense_series)
         data_complete = _time_series_data_complete(data_coverage_summary)
         quality_status = _time_series_quality_status(
             row_count=len(rows),
             data_complete=data_complete,
         )
+        points = build_time_series_points(
+            sparse_series,
+            start=start_str,
+            end=end_str,
+            granularity=granularity_typed,
+            dense_series_builder=_build_dense_series,
+        )
+        series = [{"keys": {}, "points": points}]
         observation = {
-            "schema_version": "1.0",
-            "metric_contract_version": None,
-            "derivation_version": "1.0",
-            "observation_type": "time_series",
+            "schema_version": "2.0",
+            "observation_type": obs_type,
             "metric": metric_name,
             "time_scope": resolved_time_scope,
             "scope": scope_raw or {},
-            "predicate_filter_lineage": predicate_filter_lineage_ts,
+            "predicate_filter_lineage": predicate_filter_lineage,
             "unit": None,
-            "granularity": granularity,
+            "axes": axes,
             "series": series,
             "analytical_metadata": {
-                "additive_dimensions": execution_context.additive_dimensions,
                 "aggregation_semantics": aggregation_semantics,
                 "timezone": None,
                 "data_complete": data_complete,
@@ -453,12 +528,11 @@ def run_observe_intent(
         artifact_name = f"{metric_name}_observe_time_series"
         summary = (
             f"observe {metric_name} time_series/{granularity} "
-            f"[{start_str} → {end_str}]: {len(series)} buckets"
+            f"[{start_str} → {end_str}]: {len(points)} buckets"
         )
 
-    elif dimensions:
+    elif dimensions is not None:
         # --- Segmented mode ---
-        # metric_query single_window with dimensions generates GROUP BY on dimension cols
         step_params_seg: dict[str, Any] = {
             "table": qualified_table,
             "metric": metric_name,
@@ -487,35 +561,20 @@ def run_observe_intent(
         provenance = make_provenance(
             compiled_query.sql, compiled_query.params, engine_type=engine_type
         )
-        predicate_filter_lineage_seg = extract_predicate_filter_lineage(compiled_query)
-
-        segments: list[dict[str, Any]] = []
-        for row in rows:
-            raw_value = row.get("current_value")
-            seg_value: float | None = None
-            with contextlib.suppress(TypeError, ValueError):
-                if raw_value is not None:
-                    seg_value = float(raw_value)
-            keys = {dim: row.get(dim) for dim in dimensions if dim in row}
-            segments.append({"keys": keys, "value": seg_value, "share": None})
-
-        _sort_segment_payloads(segments, dimensions=dimensions, value_field="value")
+        predicate_filter_lineage = extract_predicate_filter_lineage(compiled_query)
+        series = build_segmented_series(rows, dimensions=dimensions)
         quality_status = "ready" if rows else "not_ready"
         observation = {
-            "schema_version": "1.0",
-            "metric_contract_version": None,
-            "derivation_version": "1.0",
-            "observation_type": "segmented",
+            "schema_version": "2.0",
+            "observation_type": obs_type,
             "metric": metric_name,
             "time_scope": resolved_time_scope,
             "scope": scope_raw or {},
-            "predicate_filter_lineage": predicate_filter_lineage_seg,
+            "predicate_filter_lineage": predicate_filter_lineage,
             "unit": None,
-            "dimensions": dimensions,
-            "segments": segments,
-            "scope_value": None,
+            "axes": axes,
+            "series": series,
             "analytical_metadata": {
-                "additive_dimensions": execution_context.additive_dimensions,
                 "aggregation_semantics": aggregation_semantics,
                 "timezone": None,
                 "data_complete": None,
@@ -532,7 +591,7 @@ def run_observe_intent(
         }
         artifact_name = f"{metric_name}_observe_segmented"
         summary = (
-            f"observe {metric_name} segmented [{start_str} → {end_str}]: {len(segments)} segments"
+            f"observe {metric_name} segmented [{start_str} → {end_str}]: {len(series)} segments"
         )
 
     else:
@@ -564,7 +623,7 @@ def run_observe_intent(
         provenance = make_provenance(
             compiled_query.sql, compiled_query.params, engine_type=engine_type
         )
-        predicate_filter_lineage_scalar = extract_predicate_filter_lineage(compiled_query)
+        predicate_filter_lineage = extract_predicate_filter_lineage(compiled_query)
 
         value: float | None = None
         sample_size: int | None = None
@@ -580,18 +639,18 @@ def run_observe_intent(
                     sample_size = int(raw_sessions)
 
         quality_status = "ready" if rows else "not_ready"
+        series = build_scalar_series(value)
         observation = {
-            "schema_version": "1.0",
-            "metric_contract_version": None,
-            "derivation_version": "1.0",
-            "observation_type": "scalar",
+            "schema_version": "2.0",
+            "observation_type": obs_type,
             "metric": metric_name,
             "time_scope": resolved_time_scope,
             "scope": scope_raw or {},
-            "predicate_filter_lineage": predicate_filter_lineage_scalar,
+            "predicate_filter_lineage": predicate_filter_lineage,
             "unit": None,
+            "axes": axes,
+            "series": series,
             "analytical_metadata": {
-                "additive_dimensions": execution_context.additive_dimensions,
                 "aggregation_semantics": aggregation_semantics,
                 "timezone": None,
                 "data_complete": None,
@@ -605,7 +664,6 @@ def run_observe_intent(
                 "engine": engine_type,
                 "executed_at": now,
             },
-            "value": value,
         }
         artifact_name = f"{metric_name}_observe_scalar"
         summary = (

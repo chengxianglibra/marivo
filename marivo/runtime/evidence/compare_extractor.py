@@ -235,8 +235,10 @@ class CompareArtifactExtractor(FindingExtractor):
             baseline_ref=baseline_ref,
             current_value=_to_float_or_none(payload.get("current_value")),
             baseline_value=_to_float_or_none(payload.get("baseline_value")),
-            absolute_delta=_to_float_or_none(payload.get("absolute_delta")),
-            relative_delta=_to_float_or_none(payload.get("relative_delta")),
+            absolute_delta=_to_float_or_none(payload.get("delta") or payload.get("absolute_delta")),
+            relative_delta=_to_float_or_none(
+                payload.get("delta_pct") or payload.get("relative_delta")
+            ),
             direction=direction,
             presence="both",  # scalar_delta always compares two defined scopes
             unit=payload.get("unit"),
@@ -268,7 +270,8 @@ class CompareArtifactExtractor(FindingExtractor):
         payload: dict[str, Any],
         step_ref: StepRef,
     ) -> list[DeltaFinding]:
-        rows: list[dict[str, Any]] = payload.get("rows") or []
+        # Read from v2.0 series format: series entries have {keys, points}
+        series_entries: list[dict[str, Any]] = payload.get("series") or []
         metric: str | None = payload.get("metric")
         unit: str | None = payload.get("unit")
         resolved = payload.get("resolved_input_summary") or {}
@@ -276,20 +279,21 @@ class CompareArtifactExtractor(FindingExtractor):
         comparability_payload = _extract_comparability_payload(payload)
 
         findings: list[DeltaFinding] = []
-        for row in rows:
-            keys: dict[str, Any] = row.get("keys") or {}
+        for entry in series_entries:
+            keys: dict[str, Any] = entry.get("keys") or {}
             stable_key = _segment_stable_key(keys)
+            point = (entry.get("points") or [{}])[0]
 
             canonical_item_key, item_ref = make_item_identity("rows", key=stable_key)
             finding_id = make_finding_id(artifact_id, "delta", canonical_item_key)
 
-            direction_raw = row.get("direction") or "undefined"
+            direction_raw = point.get("direction") or "undefined"
             direction = cast(
                 "DeltaDirection",
                 direction_raw if direction_raw in _VALID_DIRECTIONS else "undefined",
             )
 
-            presence_raw = row.get("presence")
+            presence_raw = point.get("presence")
             presence = presence_raw if presence_raw in _VALID_PRESENCES else None
 
             _, left_item_ref = make_item_identity("rows", key=stable_key)
@@ -305,10 +309,10 @@ class CompareArtifactExtractor(FindingExtractor):
                 delta_kind="segmented_delta",
                 current_ref=current_ref,
                 baseline_ref=baseline_ref,
-                current_value=_to_float_or_none(row.get("current_value")),
-                baseline_value=_to_float_or_none(row.get("baseline_value")),
-                absolute_delta=_to_float_or_none(row.get("absolute_delta")),
-                relative_delta=_to_float_or_none(row.get("relative_delta")),
+                current_value=_to_float_or_none(point.get("current_value")),
+                baseline_value=_to_float_or_none(point.get("baseline_value")),
+                absolute_delta=_to_float_or_none(point.get("delta")),
+                relative_delta=_to_float_or_none(point.get("delta_pct")),
                 direction=direction,
                 presence=presence,
                 unit=unit,
@@ -342,10 +346,17 @@ class CompareArtifactExtractor(FindingExtractor):
         payload: dict[str, Any],
         step_ref: StepRef,
     ) -> list[DeltaFinding]:
-        rows: list[dict[str, Any]] = payload.get("rows") or []
+        # Read from v2.0 series format: points are in series[0]["points"]
+        series_entries: list[dict[str, Any]] = payload.get("series") or []
+        rows: list[dict[str, Any]] = series_entries[0].get("points") or [] if series_entries else []
         metric: str | None = payload.get("metric")
         unit: str | None = payload.get("unit")
-        granularity: str | None = payload.get("granularity")
+        # Read granularity from axes in v2.0 format
+        axes: list[dict[str, str]] = payload.get("axes") or []
+        granularity: str | None = None
+        for a in axes:
+            if a.get("kind") == "time":
+                granularity = a.get("grain")
         comparability_payload = _extract_comparability_payload(payload)
 
         findings: list[DeltaFinding] = []
@@ -456,8 +467,8 @@ class CompareArtifactExtractor(FindingExtractor):
                 baseline_ref=baseline_ref,
                 current_value=_to_float_or_none(row.get("current_value")),
                 baseline_value=_to_float_or_none(row.get("baseline_value")),
-                absolute_delta=_to_float_or_none(row.get("absolute_delta")),
-                relative_delta=_to_float_or_none(row.get("relative_delta")),
+                absolute_delta=_to_float_or_none(row.get("delta")),
+                relative_delta=_to_float_or_none(row.get("delta_pct")),
                 direction=direction,
                 presence=presence,
                 unit=unit,

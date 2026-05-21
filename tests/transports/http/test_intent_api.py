@@ -121,19 +121,42 @@ def _insert_observe_artifact(
     series: list[dict[str, object]] | None = None,
     unit: str | None = None,
 ) -> str:
+    # Build v2.0 axes+series format
+    axes: list[dict[str, str]] = []
+    artifact_series: list[dict[str, object]] = []
+    if granularity is not None:
+        axes.append({"kind": "time", "grain": granularity})
+    if dimensions is not None:
+        for dim in dimensions:
+            axes.append({"kind": "dimension", "name": dim})
+
+    if observation_type == "scalar":
+        artifact_series = [{"keys": {}, "points": [{"value": value}]}]
+    elif observation_type == "segmented" and segments is not None:
+        artifact_series = [
+            {
+                "keys": seg.get("keys") or {},
+                "points": [{"value": seg.get("value")}],
+            }
+            for seg in segments
+        ]
+    elif observation_type == "time_series" and series is not None:
+        artifact_series = [{"keys": {}, "points": series}]
+
     payload: dict[str, object] = {
-        "schema_version": "1.0",
+        "schema_version": "2.0",
         "intent_type": "observe",
         "observation_type": observation_type,
         "metric": metric,
         "time_scope": time_scope,
         "scope": {},
         "unit": unit,
+        "axes": axes,
+        "series": artifact_series,
         "analytical_metadata": {
             "quality_status": "ready",
             "aggregation_semantics": "sum",
-            "additive_dimensions": ["country", "device", "date"],
-            "row_count": len(series or segments or []),
+            "row_count": len(artifact_series),
         },
         "execution_metadata": {
             "query_hash": "test",
@@ -141,17 +164,6 @@ def _insert_observe_artifact(
             "executed_at": "2026-01-01T00:00:00",
         },
     }
-    if observation_type == "scalar":
-        payload["value"] = value
-    if dimensions is not None:
-        payload["dimensions"] = dimensions
-    if segments is not None:
-        payload["segments"] = segments
-        payload["scope_value"] = value
-    if granularity is not None:
-        payload["granularity"] = granularity
-    if series is not None:
-        payload["series"] = series
     artifact_id = service.insert_artifact(
         session_id,
         step_id,
@@ -506,8 +518,10 @@ class CompareSegmentedIntentEndpointTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         payload = response.json()
         self.assertEqual(payload["step_type"], "compare")
-        self.assertEqual(payload["result"]["result"]["rows"][0]["keys"], {"log_hour": "09"})
-        self.assertEqual(len(payload["result"]["result"]["rows"]), 3)
+        result_data = payload["result"]
+        aoi_result = result_data.get("result") or {}
+        self.assertEqual(aoi_result["rows"][0]["keys"], {"log_hour": "09"})
+        self.assertEqual(len(aoi_result["rows"]), 3)
 
 
 class ClosedSessionWriteGuardTests(unittest.TestCase):

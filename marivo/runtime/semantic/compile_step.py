@@ -72,7 +72,6 @@ class DerivedMetricCapabilities:
     supports_decompose: bool = False
     supports_attribute: bool = False
     supports_detect: bool = False
-    additive_dimensions: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -260,7 +259,6 @@ _VALIDATION_GATE_ORDER: tuple[
         "predicate_conflict",
         "dimension_compatibility",
         "intent_specific",
-        "dimension_additivity",
         "lowering_precheck",
     ],
     ...,
@@ -274,7 +272,6 @@ _VALIDATION_GATE_ORDER: tuple[
     "predicate_conflict",
     "dimension_compatibility",
     "intent_specific",
-    "dimension_additivity",
     "lowering_precheck",
 )
 
@@ -543,7 +540,6 @@ def _measurement_node(
     semantic_repository: Any | None = None,
 ) -> tuple[MeasurementNode, NormalizedPredicateInput | None]:
     header = dict(resolved_metric.semantic_object.get("header") or {})
-    additive_dimensions = header.get("additive_dimensions", [])
     node: MeasurementNode = {
         "node_id": f"measurement:{step.index}",
         "node_type": "measurement",
@@ -551,7 +547,6 @@ def _measurement_node(
         "observed_entity_ref": _optional_str(header.get("observed_entity_ref")) or "",
         "observation_grain_ref": _optional_str(header.get("observation_grain_ref")) or "",
         "value_semantics": _optional_str(header.get("value_semantics")) or "",
-        "additive_dimensions": additive_dimensions,
         "aggregation_semantics": _optional_str(header.get("aggregation_semantics")) or "sum",
         "output_bindings": [output_binding],
     }

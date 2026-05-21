@@ -616,6 +616,10 @@ def test_hour_candidate_followup_preserves_hour_windows_for_compare() -> None:
                 "step_type": "observe",
             },
             "artifact_id": "art_obs_current",
+            "observation_type": "scalar",
+            "schema_version": "2.0",
+            "axes": [],
+            "series": [{"keys": {}, "points": [{"value": 29.0}]}],
         },
         {
             "step_ref": {
@@ -624,6 +628,10 @@ def test_hour_candidate_followup_preserves_hour_windows_for_compare() -> None:
                 "step_type": "observe",
             },
             "artifact_id": "art_obs_baseline",
+            "observation_type": "scalar",
+            "schema_version": "2.0",
+            "axes": [],
+            "series": [{"keys": {}, "points": [{"value": 3.0}]}],
         },
     ]
     compare_result = {
@@ -633,6 +641,24 @@ def test_hour_candidate_followup_preserves_hour_windows_for_compare() -> None:
             "step_type": "compare",
         },
         "artifact_id": "art_compare",
+        "schema_version": "2.0",
+        "comparison_type": "scalar_delta",
+        "axes": [],
+        "series": [
+            {
+                "keys": {},
+                "points": [
+                    {
+                        "current_value": 29.0,
+                        "baseline_value": 3.0,
+                        "delta": 26.0,
+                        "delta_pct": 8.6,
+                        "direction": "up",
+                    }
+                ],
+            }
+        ],
+        # Backward-compatible aliases
         "current_value": 29.0,
         "baseline_value": 3.0,
         "absolute_delta": 26.0,
@@ -647,8 +673,17 @@ def test_hour_candidate_followup_preserves_hour_windows_for_compare() -> None:
             "step_type": "decompose",
         },
         "artifact_id": "art_decompose",
-        "attribution": {"status": "attributable", "issues": []},
+        "schema_version": "2.0",
+        "axes": [{"kind": "dimension", "name": "trino_resource_group"}],
+        "series": [
+            {
+                "keys": {"trino_resource_group": "rg_a"},
+                "points": [{"absolute_contribution": 26.0}],
+            }
+        ],
+        # Backward-compatible rows alias
         "rows": [{"key": "rg_a", "absolute_contribution": 26.0}],
+        "attribution": {"status": "attributable", "issues": []},
     }
 
     with (

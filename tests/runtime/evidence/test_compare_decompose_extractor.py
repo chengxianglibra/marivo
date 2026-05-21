@@ -65,8 +65,8 @@ def _scalar_delta_payload(
     metric: str = "daily_users",
     current_value: float | None = 1000.0,
     baseline_value: float | None = 800.0,
-    absolute_delta: float | None = 200.0,
-    relative_delta: float | None = 0.25,
+    delta: float | None = 200.0,
+    delta_pct: float | None = 0.25,
     direction: str = "increase",
     unit: str | None = None,
     current_scope: dict[str, Any] | None = None,
@@ -74,7 +74,7 @@ def _scalar_delta_payload(
 ) -> dict[str, Any]:
     return {
         "artifact_type": "compare_artifact",
-        "schema_version": "1.0",
+        "schema_version": "2.0",
         "comparison_type": "scalar_delta",
         "metric": metric,
         "current_ref": {
@@ -92,9 +92,24 @@ def _scalar_delta_payload(
         "unit": unit,
         "current_value": current_value,
         "baseline_value": baseline_value,
-        "absolute_delta": absolute_delta,
-        "relative_delta": relative_delta,
+        "delta": delta,
+        "delta_pct": delta_pct,
         "direction": direction,
+        "axes": [],
+        "series": [
+            {
+                "keys": {},
+                "points": [
+                    {
+                        "current_value": current_value,
+                        "baseline_value": baseline_value,
+                        "delta": delta,
+                        "delta_pct": delta_pct,
+                        "direction": direction,
+                    },
+                ],
+            },
+        ],
         "resolved_input_summary": {
             "current_scope": current_scope or {},
             "baseline_scope": {},
@@ -136,15 +151,18 @@ def _segmented_delta_payload(
     metric: str = "revenue",
     rows: list[dict[str, Any]] | None = None,
     unit: str | None = "usd",
+    dimensions: list[str] | None = None,
 ) -> dict[str, Any]:
+    # v2.0 format: rows are flat dicts with v2.0 field names (delta, delta_pct);
+    # internally converted to series entries with {keys, points}.
     if rows is None:
         rows = [
             {
                 "keys": {"country": "US"},
                 "current_value": 500.0,
                 "baseline_value": 400.0,
-                "absolute_delta": 100.0,
-                "relative_delta": 0.25,
+                "delta": 100.0,
+                "delta_pct": 0.25,
                 "direction": "increase",
                 "presence": "both",
             },
@@ -152,15 +170,33 @@ def _segmented_delta_payload(
                 "keys": {"country": "UK"},
                 "current_value": 200.0,
                 "baseline_value": 250.0,
-                "absolute_delta": -50.0,
-                "relative_delta": -0.20,
+                "delta": -50.0,
+                "delta_pct": -0.20,
                 "direction": "decrease",
                 "presence": "both",
             },
         ]
+    dim_names = dimensions or ["country"]
+    series = [
+        {
+            "keys": row.get("keys") or {},
+            "points": [
+                {
+                    "current_value": row.get("current_value"),
+                    "baseline_value": row.get("baseline_value"),
+                    "delta": row.get("delta"),
+                    "delta_pct": row.get("delta_pct"),
+                    "direction": row.get("direction"),
+                    "presence": row.get("presence"),
+                },
+            ],
+        }
+        for row in rows
+    ]
+    axes = [{"kind": "dimension", "name": d} for d in dim_names]
     return {
         "artifact_type": "compare_artifact",
-        "schema_version": "1.0",
+        "schema_version": "2.0",
         "comparison_type": "segmented_delta",
         "metric": metric,
         "current_ref": {
@@ -175,9 +211,9 @@ def _segmented_delta_payload(
             "step_type": "observe",
             "artifact_id": _RIGHT_OBS_ART_ID,
         },
-        "dimensions": ["country"],
+        "axes": axes,
+        "series": series,
         "unit": unit,
-        "rows": rows,
         "resolved_input_summary": {
             "current_scope": {},
             "baseline_scope": {},
@@ -196,14 +232,15 @@ def _time_series_delta_payload(
     granularity: str = "day",
     analytical_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    # v2.0 format: rows use delta/delta_pct field names; wrapped in series[0]["points"].
     if rows is None:
         rows = [
             {
                 "window": {"start": "2024-01-01", "end": "2024-01-02"},
                 "current_value": 100.0,
                 "baseline_value": 90.0,
-                "absolute_delta": 10.0,
-                "relative_delta": 10.0 / 90.0,
+                "delta": 10.0,
+                "delta_pct": 10.0 / 90.0,
                 "direction": "increase",
                 "presence": "both",
             },
@@ -211,15 +248,17 @@ def _time_series_delta_payload(
                 "window": {"start": "2024-01-02", "end": "2024-01-03"},
                 "current_value": None,
                 "baseline_value": 30.0,
-                "absolute_delta": -30.0,
-                "relative_delta": None,
+                "delta": -30.0,
+                "delta_pct": None,
                 "direction": "undefined",
                 "presence": "baseline_only",
             },
         ]
+    axes = [{"kind": "time", "grain": granularity}]
+    series = [{"keys": {}, "points": rows}]
     return {
         "artifact_type": "compare_artifact",
-        "schema_version": "1.0",
+        "schema_version": "2.0",
         "comparison_type": "time_series_delta",
         "metric": metric,
         "current_ref": {
@@ -234,9 +273,9 @@ def _time_series_delta_payload(
             "step_type": "observe",
             "artifact_id": _RIGHT_OBS_ART_ID,
         },
-        "granularity": granularity,
+        "axes": axes,
+        "series": series,
         "unit": unit,
-        "rows": rows,
         "summary_current_value": 100.0,
         "summary_baseline_value": 90.0,
         "summary_absolute_delta": 10.0,
@@ -365,8 +404,8 @@ class TestCompareScalarDelta(unittest.TestCase):
         result = self._extract(
             current_value=1000.0,
             baseline_value=800.0,
-            absolute_delta=200.0,
-            relative_delta=0.25,
+            delta=200.0,
+            delta_pct=0.25,
         )
         p = result["findings"][0]["payload"]
         self.assertEqual(p["current_value"], 1000.0)
@@ -536,8 +575,8 @@ class TestCompareSegmentedDelta(unittest.TestCase):
                 "keys": {"country": "DE"},
                 "current_value": 100.0,
                 "baseline_value": 80.0,
-                "absolute_delta": 20.0,
-                "relative_delta": 0.25,
+                "delta": 20.0,
+                "delta_pct": 0.25,
                 "direction": "increase",
                 "presence": "both",
             }
@@ -551,8 +590,8 @@ class TestCompareSegmentedDelta(unittest.TestCase):
                 "keys": {"cat": "A"},
                 "current_value": 100.0,
                 "baseline_value": None,
-                "absolute_delta": 100.0,
-                "relative_delta": None,
+                "delta": 100.0,
+                "delta_pct": None,
                 "direction": "undefined",
                 "presence": "current_only",
             },
@@ -566,8 +605,8 @@ class TestCompareSegmentedDelta(unittest.TestCase):
                 "keys": {"cat": "B"},
                 "current_value": None,
                 "baseline_value": 50.0,
-                "absolute_delta": -50.0,
-                "relative_delta": None,
+                "delta": -50.0,
+                "delta_pct": None,
                 "direction": "undefined",
                 "presence": "baseline_only",
             },
@@ -581,8 +620,8 @@ class TestCompareSegmentedDelta(unittest.TestCase):
                 "keys": {"cat": "C"},
                 "current_value": 1.0,
                 "baseline_value": 1.0,
-                "absolute_delta": 0.0,
-                "relative_delta": 0.0,
+                "delta": 0.0,
+                "delta_pct": 0.0,
                 "direction": "flat",
                 "presence": "unknown_val",
             }
@@ -609,8 +648,8 @@ class TestCompareSegmentedDelta(unittest.TestCase):
                 "keys": {"a": "1", "b": "2"},
                 "current_value": 1.0,
                 "baseline_value": 1.0,
-                "absolute_delta": 0.0,
-                "relative_delta": 0.0,
+                "delta": 0.0,
+                "delta_pct": 0.0,
                 "direction": "flat",
                 "presence": "both",
             }
@@ -620,8 +659,8 @@ class TestCompareSegmentedDelta(unittest.TestCase):
                 "keys": {"b": "2", "a": "1"},
                 "current_value": 1.0,
                 "baseline_value": 1.0,
-                "absolute_delta": 0.0,
-                "relative_delta": 0.0,
+                "delta": 0.0,
+                "delta_pct": 0.0,
                 "direction": "flat",
                 "presence": "both",
             }
@@ -768,8 +807,8 @@ class TestCompareTimeSeriesDelta(unittest.TestCase):
                 "window": {"end": "2024-01-02"},
                 "current_value": 100.0,
                 "baseline_value": 90.0,
-                "absolute_delta": 10.0,
-                "relative_delta": 10.0 / 90.0,
+                "delta": 10.0,
+                "delta_pct": 10.0 / 90.0,
                 "direction": "increase",
                 "presence": "both",
             }
@@ -783,8 +822,8 @@ class TestCompareTimeSeriesDelta(unittest.TestCase):
                 "window": {"start": "2024-01-01", "end": "2024-01-02"},
                 "current_value": 12.0,
                 "baseline_value": None,
-                "absolute_delta": 12.0,
-                "relative_delta": None,
+                "delta": 12.0,
+                "delta_pct": None,
                 "direction": "undefined",
                 "presence": "current_only",
             }
@@ -835,8 +874,8 @@ class TestCompareEdgeCases(unittest.TestCase):
                     "keys": {"k": str(i)},
                     "current_value": float(i),
                     "baseline_value": 1.0,
-                    "absolute_delta": float(i) - 1.0,
-                    "relative_delta": None,
+                    "delta": float(i) - 1.0,
+                    "delta_pct": None,
                     "direction": "increase",
                     "presence": "both",
                 }

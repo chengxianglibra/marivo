@@ -22,8 +22,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from marivo.core.semantic.additivity import is_all_additive_dimensions
-
 # ── Data classes ─────────────────────────────────────────────────────────
 
 
@@ -465,65 +463,6 @@ def gate_intent_specific(
     *resolved_inputs* must have ``.resolved_metric`` (with ``.ref``).
     """
     issues: list[ValidationIssue] = []
-    return issues
-
-
-def gate_dimension_additivity_condition(
-    step_type: str,
-    resolved_inputs: Any,
-    derived_state: Any,
-) -> list[ValidationIssue]:
-    """Gate decompose/attribute dimensions against additive_dimensions.
-
-    *derived_state* must have ``.metric_capabilities`` (with ``.additive_dimensions``).
-    *resolved_inputs* must have ``.resolved_dimension_refs``, ``.normalized_request``
-    (with ``.request_dimensions``), ``.resolved_metric`` (with ``.ref``).
-    """
-    issues: list[ValidationIssue] = []
-    caps = derived_state.metric_capabilities
-    if caps is None:
-        return issues
-    if step_type not in ("decompose", "attribute"):
-        return issues
-    if len(caps.additive_dimensions) == 0 or is_all_additive_dimensions(caps.additive_dimensions):
-        return issues
-
-    resolved_refs = set(resolved_inputs.resolved_dimension_refs)
-    for dim in resolved_refs:
-        if dim not in caps.additive_dimensions:
-            issues.append(
-                ValidationIssue(
-                    code="COMPILER_DIMENSION_NOT_ADDITIVE",
-                    gate="dimension_additivity",
-                    category="compatibility",
-                    severity="error",
-                    message=(f"Dimension '{dim}' is not in additive_dimensions for this metric."),
-                    subject_ref=resolved_inputs.resolved_metric.ref
-                    if resolved_inputs.resolved_metric is not None
-                    else None,
-                )
-            )
-
-    all_requested = set(resolved_inputs.normalized_request.request_dimensions)
-    unresolved = all_requested - resolved_refs
-    for dim in unresolved:
-        issues.append(
-            ValidationIssue(
-                code="COMPILER_DIMENSION_NOT_ADDITIVE",
-                gate="dimension_additivity",
-                category="compatibility",
-                severity="error",
-                message=(
-                    f"Dimension '{dim}' could not be resolved to a canonical ref "
-                    f"and cannot be verified against additive_dimensions "
-                    f"for this metric."
-                ),
-                subject_ref=resolved_inputs.resolved_metric.ref
-                if resolved_inputs.resolved_metric is not None
-                else None,
-            )
-        )
-
     return issues
 
 

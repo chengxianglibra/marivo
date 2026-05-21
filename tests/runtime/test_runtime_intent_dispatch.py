@@ -208,8 +208,8 @@ def _time_scope() -> aoi.TimeScope:
     )
 
 
-def _observe_request() -> aoi.Observe2:
-    return aoi.Observe2(
+def _observe_request() -> aoi.Observe:
+    return aoi.Observe(
         metric="view_time",
         time_scope=_time_scope(),
         granularity="day",
