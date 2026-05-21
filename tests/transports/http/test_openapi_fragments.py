@@ -118,7 +118,7 @@ class OpenApiFragmentTests(unittest.TestCase):
 
         # Verify core generated AOI atomic schemas and session schemas are still published.
         infrastructure_schemas = [
-            "Observe1",
+            "Observe",
             "Compare",
             "Detect",
             "Attribute",
@@ -133,12 +133,8 @@ class OpenApiFragmentTests(unittest.TestCase):
             "requestBody"
         ]["content"]["application/json"]["schema"]
         self.assertEqual(
-            [variant["$ref"] for variant in observe_request["anyOf"]],
-            [
-                "#/components/schemas/Observe1",
-                "#/components/schemas/Observe2",
-                "#/components/schemas/Observe3",
-            ],
+            observe_request["$ref"],
+            "#/components/schemas/Observe",
         )
 
         expected_response_refs = {

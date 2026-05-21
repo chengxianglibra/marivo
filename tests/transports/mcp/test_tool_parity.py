@@ -601,7 +601,7 @@ def test_attribute_schema_uses_aoi_slice_refs() -> None:
     assert properties["dimensions"]["minItems"] == 1
     assert properties["decomposition_method"]["default"] == "delta_share"
     assert properties["decomposition_method"]["const"] == "delta_share"
-    assert "Only delta_share is supported" in properties["decomposition_method"]["description"]
+    assert "auto-derived" in properties["decomposition_method"]["description"]
     assert properties["decomposition_limit"]["minimum"] == 1
 
 

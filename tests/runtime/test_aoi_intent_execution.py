@@ -8,8 +8,8 @@ from marivo.contracts.generated import aoi
 from marivo.runtime import intent_execution
 
 
-def _observe_request() -> aoi.Observe2:
-    return aoi.Observe2(
+def _observe_request() -> aoi.Observe:
+    return aoi.Observe(
         metric="view_time",
         time_scope=aoi.TimeScope(
             field="event_time",

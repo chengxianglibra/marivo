@@ -6,8 +6,12 @@ import json
 
 from marivo.contracts.generated import DialectExpression, Expression, Field, Metric
 from marivo.contracts.semantic_extensions import (
+    ExpressionComponent,
     MarivoFieldExtension,
     MarivoMetricExtension,
+    MetricComponentRef,
+    RatioAggregation,
+    WeightedAverageAggregation,
 )
 from marivo.runtime.semantic.osi_storage import (
     _storage_to_field,
@@ -18,23 +22,33 @@ from marivo.runtime.semantic.osi_storage import (
 )
 
 
-def test_metric_roundtrip_with_additive_dimensions() -> None:
-    """metric_to_storage -> _storage_to_metric preserves additive_dimensions."""
-    ext = MarivoMetricExtension(additive_dimensions=["region", "channel"])
+def test_metric_roundtrip_with_component_refs() -> None:
+    """metric_to_storage -> _storage_to_metric preserves numerator/denominator/weight."""
+    ext = MarivoMetricExtension(
+        aggregation_semantics=RatioAggregation(
+            numerator=MetricComponentRef(metric="metric.converted"),
+            denominator=MetricComponentRef(metric="metric.total"),
+        ),
+    )
     metric = Metric(
-        name="revenue",
+        name="conversion_rate",
         expression=Expression(
-            dialects=[DialectExpression(dialect="ANSI_SQL", expression="SUM(amount)")]
+            dialects=[DialectExpression(dialect="ANSI_SQL", expression="converted / total")]
         ),
         custom_extensions=build_custom_extensions(ext),
     )
 
     storage = metric_to_storage(metric, model_id=1)
-    assert storage["additive_dimensions"] is not None
-    assert json.loads(storage["additive_dimensions"]) == ["region", "channel"]
+    assert storage["numerator"] is not None
+    assert storage["denominator"] is not None
+    assert storage["weight"] is None
+    numerator_data = json.loads(storage["numerator"])
+    assert numerator_data["metric"] == "metric.converted"
+    denominator_data = json.loads(storage["denominator"])
+    assert denominator_data["metric"] == "metric.total"
 
     reconstructed = _storage_to_metric(storage)
-    assert reconstructed["name"] == "revenue"
+    assert reconstructed["name"] == "conversion_rate"
 
     marivo_ext = None
     for ext_data in reconstructed.get("custom_extensions", []):
@@ -43,14 +57,19 @@ def test_metric_roundtrip_with_additive_dimensions() -> None:
             break
 
     assert marivo_ext is not None
-    assert marivo_ext["additive_dimensions"] == ["region", "channel"]
+    agg = marivo_ext["aggregation_semantics"]
+    assert agg["type"] == "ratio"
+    assert agg["numerator"]["metric"] == "metric.converted"
+    assert agg["denominator"]["metric"] == "metric.total"
 
 
-def test_metric_roundtrip_preserves_aggregation_semantics_as_string() -> None:
-    """Literal-backed aggregation semantics remains a plain string on storage/export paths."""
+def test_metric_roundtrip_preserves_weighted_average() -> None:
+    """Weighted average aggregation semantics roundtrips with type discriminator."""
     ext = MarivoMetricExtension(
-        additive_dimensions=["region"],
-        aggregation_semantics="weighted_average",
+        aggregation_semantics=WeightedAverageAggregation(
+            numerator=MetricComponentRef(metric="metric.revenue"),
+            weight=MetricComponentRef(metric="metric.orders"),
+        ),
     )
     metric = Metric(
         name="aov",
@@ -61,20 +80,51 @@ def test_metric_roundtrip_preserves_aggregation_semantics_as_string() -> None:
     )
 
     extension_dump = metric.custom_extensions[0].model_dump(mode="json")
-    assert extension_dump["data"]["aggregation_semantics"] == "weighted_average"
+    agg = extension_dump["data"]["aggregation_semantics"]
+    assert agg["type"] == "weighted_average"
+    assert agg["numerator"]["metric"] == "metric.revenue"
+    assert agg["weight"]["metric"] == "metric.orders"
 
     storage = metric_to_storage(metric, model_id=1)
     assert storage["aggregation_semantics"] == "weighted_average"
 
     reconstructed = _storage_to_metric(storage)
     marivo_ext = reconstructed["custom_extensions"][0]["data"]
-    assert marivo_ext["aggregation_semantics"] == "weighted_average"
-    assert isinstance(marivo_ext["aggregation_semantics"], str)
+    agg = marivo_ext["aggregation_semantics"]
+    assert agg["type"] == "weighted_average"
 
 
-def test_metric_roundtrip_preserves_all_additive_dimensions_sentinel() -> None:
-    """Storage preserves ["__all"] as policy instead of expanding dimensions."""
-    ext = MarivoMetricExtension(additive_dimensions=["__all"])
+def test_metric_roundtrip_with_expression_component() -> None:
+    """ExpressionComponent numerator roundtrips through storage."""
+    ext = MarivoMetricExtension(
+        aggregation_semantics=RatioAggregation(
+            numerator=ExpressionComponent(expression="SUM(price * quantity)"),
+            denominator=MetricComponentRef(metric="metric.total"),
+        ),
+    )
+    metric = Metric(
+        name="custom_ratio",
+        expression=Expression(dialects=[DialectExpression(dialect="ANSI_SQL", expression="1")]),
+        custom_extensions=build_custom_extensions(ext),
+    )
+
+    storage = metric_to_storage(metric, model_id=1)
+    numerator_data = json.loads(storage["numerator"])
+    assert numerator_data["expression"] == "SUM(price * quantity)"
+    denominator_data = json.loads(storage["denominator"])
+    assert denominator_data["metric"] == "metric.total"
+
+    reconstructed = _storage_to_metric(storage)
+    marivo_ext = reconstructed["custom_extensions"][0]["data"]
+    agg = marivo_ext["aggregation_semantics"]
+    assert agg["type"] == "ratio"
+    assert agg["numerator"]["expression"] == "SUM(price * quantity)"
+    assert agg["denominator"]["metric"] == "metric.total"
+
+
+def test_metric_roundtrip_sum_without_component_refs() -> None:
+    """sum metric without numerator/denominator/weight roundtrips cleanly."""
+    ext = MarivoMetricExtension()
     metric = Metric(
         name="revenue",
         expression=Expression(
@@ -84,12 +134,17 @@ def test_metric_roundtrip_preserves_all_additive_dimensions_sentinel() -> None:
     )
 
     storage = metric_to_storage(metric, model_id=1)
-    assert storage["additive_dimensions"] is not None
-    assert json.loads(storage["additive_dimensions"]) == ["__all"]
+    assert storage.get("numerator") is None
+    assert storage.get("denominator") is None
+    assert storage.get("weight") is None
+    assert storage["aggregation_semantics"] == "sum"
 
     reconstructed = _storage_to_metric(storage)
+    assert reconstructed["name"] == "revenue"
+
     marivo_ext = reconstructed["custom_extensions"][0]["data"]
-    assert marivo_ext["additive_dimensions"] == ["__all"]
+    agg = marivo_ext["aggregation_semantics"]
+    assert agg["type"] == "sum"
 
 
 def test_metric_roundtrip_without_extensions() -> None:
@@ -102,7 +157,9 @@ def test_metric_roundtrip_without_extensions() -> None:
     )
 
     storage = metric_to_storage(metric, model_id=1)
-    assert storage.get("additive_dimensions") is None
+    assert storage.get("numerator") is None
+    assert storage.get("denominator") is None
+    assert storage.get("weight") is None
 
     reconstructed = _storage_to_metric(storage)
     assert reconstructed["name"] == "count_all"

@@ -747,7 +747,6 @@ def ensure_published_typed_metric(
         )
 
     dimension_names = list(dimensions or [])
-    additive_dimensions = list(allowed_dimensions or dimension_names)
     aggregation_semantics, _, _ = _metric_header_axes(measure_type)
     metric_sql = definition_sql or "COUNT(*)"
 
@@ -780,20 +779,18 @@ def ensure_published_typed_metric(
             f"quality_expectations={json.dumps(quality_expectations, sort_keys=True)}"
         )
     description = " | ".join(metric_description_parts)
-    additive_dimensions_json = json.dumps(additive_dimensions)
     if existing is None:
         metadata.execute(
             """
             INSERT INTO semantic_metrics (
-                model_id, name, expression, description, additive_dimensions, aggregation_semantics
-            ) VALUES (?, ?, ?, ?, ?, ?)
+                model_id, name, expression, description, aggregation_semantics
+            ) VALUES (?, ?, ?, ?, ?)
             """,
             [
                 model_id,
                 metric_name,
                 metric_expression,
                 description,
-                additive_dimensions_json,
                 aggregation_semantics,
             ],
         )
@@ -801,14 +798,13 @@ def ensure_published_typed_metric(
         metadata.execute(
             """
             UPDATE semantic_metrics
-            SET expression = ?, description = ?, additive_dimensions = ?, aggregation_semantics = ?,
+            SET expression = ?, description = ?, aggregation_semantics = ?,
                 updated_at = datetime('now')
             WHERE metric_id = ?
             """,
             [
                 metric_expression,
                 description,
-                additive_dimensions_json,
                 aggregation_semantics,
                 existing["metric_id"],
             ],

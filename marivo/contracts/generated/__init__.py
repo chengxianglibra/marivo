@@ -23,10 +23,16 @@ Dataset = osi.Dataset
 DialectExpression = osi.DialectExpression
 Dimension = osi.Dimension
 Expression = osi.Expression
+ExpressionComponent = osi.ExpressionComponent
+MetricComponentRef = osi.MetricComponentRef
 Metric = osi.Metric
 OSIDocument = osi.OsiCoreMetadataSpecificationWithMarivoVendorExtensions
 Relationship = osi.Relationship
 SemanticModel = osi.SemanticModel
+SumAggregation = osi.SumAggregation
+RatioAggregation = osi.RatioAggregation
+WeightedAverageAggregation = osi.WeightedAverageAggregation
+MarivoMetricExtension = osi.MarivoMetricExtension
 
 OSI_MARIVO_SPEC_VERSION = "0.1.1"
 AOI_SPEC_VERSION = "0.2.0"

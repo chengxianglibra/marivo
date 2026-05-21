@@ -41,7 +41,7 @@ def test_to_aoi_observe_request_builds_scalar_model() -> None:
         ),
     )
 
-    assert isinstance(request, aoi.Observe1)
+    assert isinstance(request, aoi.Observe)
     assert request.metric == "view_time"
     assert request.time_scope.field == "log_time"
 
@@ -57,7 +57,7 @@ def test_to_aoi_observe_request_builds_time_series_model() -> None:
         granularity="year",
     )
 
-    assert isinstance(request, aoi.Observe2)
+    assert isinstance(request, aoi.Observe)
     assert request.granularity == "year"
 
 
@@ -72,7 +72,7 @@ def test_to_aoi_observe_request_accepts_naive_mcp_time_scope() -> None:
         granularity="day",
     )
 
-    assert isinstance(request, aoi.Observe2)
+    assert isinstance(request, aoi.Observe)
     assert request.time_scope.start == _local_datetime("2026-05-01T00:00:00")
     assert request.time_scope.end == _local_datetime("2026-05-08T00:00:00")
 
@@ -88,7 +88,7 @@ def test_to_aoi_observe_request_accepts_date_only_mcp_time_scope() -> None:
         granularity="day",
     )
 
-    assert isinstance(request, aoi.Observe2)
+    assert isinstance(request, aoi.Observe)
     assert request.time_scope.start == _local_datetime("2026-05-01T00:00:00")
     assert request.time_scope.end == _local_datetime("2026-05-08T00:00:00")
 
@@ -105,7 +105,7 @@ def test_to_aoi_observe_request_builds_segmented_model() -> None:
         filter_expression={"dialects": [{"dialect": "ANSI_SQL", "expression": "region = 'US'"}]},
     )
 
-    assert isinstance(request, aoi.Observe3)
+    assert isinstance(request, aoi.Observe)
     assert request.metric == "view_time"
     assert request.time_scope.field == "log_time"
     assert request.dimensions is not None
@@ -116,22 +116,21 @@ def test_to_aoi_observe_request_builds_segmented_model() -> None:
     }
 
 
-def test_to_aoi_observe_request_rejects_mixed_mode_selectors() -> None:
-    try:
-        to_aoi_observe_request(
-            metric="view_time",
-            time_scope=McpTimeScope(
-                field="log_time",
-                start="2026-05-01T00:00:00Z",
-                end="2026-05-08T00:00:00Z",
-            ),
-            granularity="day",
-            dimensions=["region"],
-        )
-    except ValueError as error:
-        assert "omit granularity" in str(error)
-    else:
-        raise AssertionError("expected mixed observe mode selectors to be rejected")
+def test_to_aoi_observe_request_accepts_granularity_and_dimensions() -> None:
+    request = to_aoi_observe_request(
+        metric="view_time",
+        time_scope=McpTimeScope(
+            field="log_time",
+            start="2026-05-01T00:00:00Z",
+            end="2026-05-08T00:00:00Z",
+        ),
+        granularity="day",
+        dimensions=["region"],
+    )
+
+    assert isinstance(request, aoi.Observe)
+    assert request.granularity == "day"
+    assert [dimension.root for dimension in request.dimensions] == ["region"]
 
 
 def test_to_aoi_compare_request_builds_compare_model() -> None:

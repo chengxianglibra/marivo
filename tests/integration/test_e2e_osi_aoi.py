@@ -79,7 +79,7 @@ def _make_model_payload() -> dict:
                 "custom_extensions": [
                     {
                         "vendor_name": "MARIVO",
-                        "data": {"additive_dimensions": ["region"], "aggregation_semantics": "sum"},
+                        "data": {"aggregation_semantics": {"type": "sum"}},
                     }
                 ],
             }
@@ -106,8 +106,8 @@ def test_import_semantic_model_with_generated_osi(service: SemanticModelV2Servic
                 marivo_ext = ext["data"]
                 break
         assert marivo_ext is not None
-        assert marivo_ext.get("additive_dimensions") == ["region"]
-        assert marivo_ext.get("aggregation_semantics") == "sum"
+        agg = marivo_ext.get("aggregation_semantics")
+        assert agg == {"type": "sum"}
     finally:
         _close_service_store(service)
 

@@ -264,7 +264,7 @@ class _FakeIssue:
 def test_build_validation_trace_all_passed() -> None:
     result = _FakeValidationResult([])
     trace = build_validation_trace(result)
-    assert len(trace) == 11  # All gates in _VALIDATION_GATE_ORDER
+    assert len(trace) == 10  # All gates in _VALIDATION_GATE_ORDER
     assert all(record["status"] == "passed" for record in trace)
 
 
@@ -280,7 +280,7 @@ def test_build_validation_summary_basic() -> None:
     result = _FakeValidationResult([], validated_dimension_refs=["dimension.platform"])
     trace = build_validation_trace(result)
     summary = build_validation_summary(result, trace)
-    assert summary["passed_gate_count"] == 11
+    assert summary["passed_gate_count"] == 10
     assert summary["warning_count"] == 0
     assert summary["validated_dimension_refs"] == ["dimension.platform"]
 

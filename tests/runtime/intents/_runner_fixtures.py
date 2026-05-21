@@ -42,7 +42,6 @@ def _scalar_observation(metric: str = "m1") -> dict[str, Any]:
         "value": 42.0,
         "analytical_metadata": {
             "aggregation_semantics": "sum",
-            "additive_dimensions": ["country", "device", "date"],
             "row_count": 10,
         },
         "time_scope": {"field": "time", "start": "2024-01-01", "end": "2024-01-08"},
@@ -77,7 +76,6 @@ def _time_series_observation(
         "series": series,
         "analytical_metadata": {
             "aggregation_semantics": "sum",
-            "additive_dimensions": ["country", "device", "date"],
             "row_count": len(series),
         },
         "time_scope": {"field": "time", "start": "2024-01-01", "end": "2024-01-03"},
@@ -86,6 +84,128 @@ def _time_series_observation(
     if aligned_baseline_series is not None:
         result["aligned_baseline_series"] = aligned_baseline_series
     return result
+
+
+# --- v2.0 format fixture helpers (axes+series) ---
+
+
+def _scalar_observation_v2(metric: str = "m1", *, value: float | None = 42.0) -> dict[str, Any]:
+    return {
+        "observation_type": "scalar",
+        "metric": metric,
+        "schema_version": "2.0",
+        "unit": None,
+        "axes": [],
+        "series": [{"keys": {}, "points": [{"value": value}]}],
+        "analytical_metadata": {
+            "aggregation_semantics": "sum",
+            "row_count": 10,
+        },
+        "time_scope": {"field": "time", "start": "2024-01-01", "end": "2024-01-08"},
+        "scope": {},
+    }
+
+
+def _time_series_observation_v2(
+    metric: str = "m1",
+    *,
+    granularity: str = "day",
+    points: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    if points is None:
+        points = [
+            {"window": {"start": "2024-01-01", "end": "2024-01-02"}, "value": 10.0},
+            {"window": {"start": "2024-01-02", "end": "2024-01-03"}, "value": 20.0},
+        ]
+    return {
+        "observation_type": "time_series",
+        "metric": metric,
+        "schema_version": "2.0",
+        "unit": None,
+        "axes": [{"kind": "time", "grain": granularity}],
+        "series": [{"keys": {}, "points": points}],
+        "analytical_metadata": {
+            "aggregation_semantics": "sum",
+            "row_count": len(points),
+        },
+        "time_scope": {"field": "time", "start": "2024-01-01", "end": "2024-01-03"},
+        "scope": {},
+    }
+
+
+def _segmented_observation_v2(
+    metric: str = "m1",
+    *,
+    dimensions: list[str] | None = None,
+    series: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    if dimensions is None:
+        dimensions = ["platform"]
+    if series is None:
+        series = [
+            {"keys": {"platform": "web"}, "points": [{"value": 20.0}]},
+            {"keys": {"platform": "mobile"}, "points": [{"value": 10.0}]},
+        ]
+    axes = [{"kind": "dimension", "name": d} for d in dimensions]
+    return {
+        "observation_type": "segmented",
+        "metric": metric,
+        "schema_version": "2.0",
+        "unit": None,
+        "axes": axes,
+        "series": series,
+        "analytical_metadata": {
+            "aggregation_semantics": "sum",
+            "row_count": len(series),
+        },
+        "time_scope": {"field": "time", "start": "2024-01-01", "end": "2024-01-08"},
+        "scope": {},
+    }
+
+
+def _panel_observation_v2(
+    metric: str = "m1",
+    *,
+    granularity: str = "day",
+    dimensions: list[str] | None = None,
+    series: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    if dimensions is None:
+        dimensions = ["platform"]
+    if series is None:
+        series = [
+            {
+                "keys": {"platform": "web"},
+                "points": [
+                    {"window": {"start": "2024-01-01", "end": "2024-01-02"}, "value": 10.0},
+                    {"window": {"start": "2024-01-02", "end": "2024-01-03"}, "value": 12.0},
+                ],
+            },
+            {
+                "keys": {"platform": "mobile"},
+                "points": [
+                    {"window": {"start": "2024-01-01", "end": "2024-01-02"}, "value": 5.0},
+                    {"window": {"start": "2024-01-02", "end": "2024-01-03"}, "value": 6.0},
+                ],
+            },
+        ]
+    axes = [{"kind": "time", "grain": granularity}] + [
+        {"kind": "dimension", "name": d} for d in dimensions
+    ]
+    return {
+        "observation_type": "panel",
+        "metric": metric,
+        "schema_version": "2.0",
+        "unit": None,
+        "axes": axes,
+        "series": series,
+        "analytical_metadata": {
+            "aggregation_semantics": "sum",
+            "row_count": 4,
+        },
+        "time_scope": {"field": "time", "start": "2024-01-01", "end": "2024-01-03"},
+        "scope": {},
+    }
 
 
 class _FakeCalendarDataReader:

@@ -699,8 +699,14 @@ export interface components {
              */
             examples?: string[] | null;
         };
-        /** AdditiveDimension */
-        AdditiveDimension: string;
+        /** MetricComponentRef */
+        MetricComponentRef: {
+            /**
+             * Metric
+             * @description Reference to a published semantic metric, e.g. 'metric.converted_users'
+             */
+            metric: string;
+        };
         /** AnalysisFailure */
         AnalysisFailure: {
             /** Code */
@@ -1481,17 +1487,27 @@ export interface components {
          */
         MarivoMetricExtension: {
             /**
-             * Additive Dimensions
-             * @description Field names across which the metric is additive, including ordinary dimensions and time fields. Empty array means the metric is not additive on any dimension.
-             */
-            additive_dimensions?: components["schemas"]["AdditiveDimension"][] | null;
-            /**
              * Aggregation Semantics
              * @description Aggregation semantics of the metric. Determines inferential summary mode, statistical test method, and which analysis intents are supported. Decision rule: (1) 'sum' if the metric measures an additive quantity — values sum across groups (e.g. revenue, latency, duration, inventory balance) — uses Welch's t-test and expects reconcileable delta decomposition. (2) 'ratio' if the metric is a proportion or binary-outcome rate (e.g. conversion rate, click-through rate, signup rate) — uses two-proportion z-test. (3) 'weighted_average' if the metric is a ratio of two additive sums, i.e. numerator SUM / denominator COUNT (e.g. AOV = SUM(revenue)/COUNT(orders), avg_latency) — uses delta method / weighted-average decomposition, delta is NOT expected to reconcile.
              * @default sum
              * @enum {string}
              */
             aggregation_semantics: "sum" | "ratio" | "weighted_average";
+            /**
+             * Numerator
+             * @description Required for ratio and weighted_average metrics. For ratio: the top of the fraction. For weighted_average: the value being weighted.
+             */
+            numerator?: components["schemas"]["MetricComponentRef"] | null;
+            /**
+             * Denominator
+             * @description Required for ratio metrics. The bottom of the fraction. Must not be defined for weighted_average.
+             */
+            denominator?: components["schemas"]["MetricComponentRef"] | null;
+            /**
+             * Weight
+             * @description Required for weighted_average metrics. The weight applied to each segment. Must not be defined for ratio.
+             */
+            weight?: components["schemas"]["MetricComponentRef"] | null;
         };
         /**
          * Metric

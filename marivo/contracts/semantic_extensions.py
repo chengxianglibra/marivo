@@ -6,7 +6,7 @@ custom_extensions[].data when vendor_name == "MARIVO".
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -70,28 +70,61 @@ class MarivoMetricFilter(BaseModel):
     model_config = {"extra": "forbid"}
 
 
-_ADDITIVE_DIMENSIONS_ALL = "__all"
+class MetricComponentRef(BaseModel):
+    metric: str = Field(..., min_length=1, description="Reference to a published semantic metric")
+
+    model_config = {"extra": "forbid"}
+
+
+class ExpressionComponent(BaseModel):
+    expression: str = Field(
+        ..., min_length=1, description="SQL expression for computing the component value"
+    )
+
+    model_config = {"extra": "forbid"}
+
+
+ComponentSpec = MetricComponentRef | ExpressionComponent
+
+
+class SumAggregation(BaseModel):
+    type: Literal["sum"] = "sum"
+
+    model_config = {"extra": "forbid"}
+
+
+class RatioAggregation(BaseModel):
+    type: Literal["ratio"] = "ratio"
+    numerator: ComponentSpec
+    denominator: ComponentSpec
+
+    model_config = {"extra": "forbid"}
+
+
+class WeightedAverageAggregation(BaseModel):
+    type: Literal["weighted_average"] = "weighted_average"
+    numerator: ComponentSpec
+    weight: ComponentSpec
+
+    model_config = {"extra": "forbid"}
+
+
+AggregationSemantics = Annotated[
+    SumAggregation | RatioAggregation | WeightedAverageAggregation,
+    Field(discriminator="type"),
+]
 
 
 class MarivoMetricExtension(BaseModel):
-    additive_dimensions: list[str] = []
-    aggregation_semantics: Literal["sum", "ratio", "weighted_average"] = "sum"
-
-    @model_validator(mode="after")
-    def _validate_additive_dimensions(self) -> MarivoMetricExtension:
-        if any(dimension == "" for dimension in self.additive_dimensions):
-            raise ValueError("additive_dimensions entries must be non-empty strings")
-        if _ADDITIVE_DIMENSIONS_ALL in self.additive_dimensions and self.additive_dimensions != [
-            _ADDITIVE_DIMENSIONS_ALL
-        ]:
-            raise ValueError(
-                f"additive_dimensions uses {_ADDITIVE_DIMENSIONS_ALL!r} and must not "
-                "mix it with explicit fields"
-            )
-        return self
+    aggregation_semantics: AggregationSemantics = SumAggregation()
 
     @property
     def filters(self) -> list[MarivoMetricFilter] | None:
         return getattr(self, "__pydantic_extra__", {}).get("filters")
 
     model_config = {"extra": "allow"}
+
+
+def aggregation_type(agg: AggregationSemantics) -> str:
+    """Extract the type discriminator string from an AggregationSemantics variant."""
+    return agg.type

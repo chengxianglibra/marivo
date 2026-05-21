@@ -5,7 +5,18 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, RootModel, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+
+class SumAggregation(BaseModel):
+    """
+    Additive quantity — values sum across groups. No component refs needed.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    type: Literal["sum"]
 
 
 class AIContext1(BaseModel):
@@ -144,35 +155,34 @@ class MarivoFieldExtension(BaseModel):
     )
 
 
-class AdditiveDimension(RootModel[str]):
-    root: str = Field(..., min_length=1)
-
-
-class MarivoMetricExtension(BaseModel):
+class MetricComponentRef(BaseModel):
     """
-    MARIVO extension payload for Metric.
+    Structured reference to a semantic metric for decomposition component definitions.
     """
 
     model_config = ConfigDict(
         extra="forbid",
     )
-    additive_dimensions: list[AdditiveDimension] | None = Field(
-        None,
-        description='Field names across which the metric is additive, including ordinary dimensions and time fields. Empty array means the metric is not additive on any dimension. The single-item array ["__all"] means the metric is additive across all declared dimension fields in the semantic model, including time dimensions. "__all" must not be mixed with explicit field names.',
-    )
-    aggregation_semantics: Literal["sum", "ratio", "weighted_average"] = Field(
-        "sum",
-        description="Aggregation semantics of the metric. Determines inferential summary mode, statistical test method, and which analysis intents are supported. Decision rule: (1) 'sum' if the metric measures an additive quantity — values sum across groups (e.g. revenue, latency, duration, inventory balance) — uses Welch's t-test and expects reconcileable delta decomposition. (2) 'ratio' if the metric is a proportion or binary-outcome rate (e.g. conversion rate, click-through rate, signup rate) — uses two-proportion z-test. (3) 'weighted_average' if the metric is a ratio of two additive sums, i.e. numerator SUM / denominator COUNT (e.g. AOV = SUM(revenue)/COUNT(orders), avg_latency) — uses delta method / weighted-average decomposition, delta is NOT expected to reconcile.",
+    metric: str = Field(
+        ...,
+        description="Reference to a published semantic metric, e.g. 'metric.converted_users'",
+        min_length=1,
     )
 
-    @model_validator(mode="after")
-    def _validate_additive_dimensions_all(self) -> MarivoMetricExtension:
-        if self.additive_dimensions is None:
-            return self
-        values = [dimension.root for dimension in self.additive_dimensions]
-        if "__all" in values and values != ["__all"]:
-            raise ValueError("additive_dimensions '__all' must not be mixed with explicit fields")
-        return self
+
+class ExpressionComponent(BaseModel):
+    """
+    SQL expression for computing a decomposition component value directly, without referencing another metric.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    expression: str = Field(
+        ...,
+        description="SQL expression for computing the component value",
+        min_length=1,
+    )
 
 
 class MarivoDatasetCustomExtension(BaseModel):
@@ -199,16 +209,42 @@ class MarivoFieldCustomExtension(BaseModel):
     data: MarivoFieldExtension
 
 
-class MarivoMetricCustomExtension(BaseModel):
+class RatioAggregation(BaseModel):
     """
-    MARIVO custom extension for Metric.
+    Proportion/rate metric. Requires numerator and denominator component specs.
     """
 
     model_config = ConfigDict(
         extra="forbid",
     )
-    vendor_name: Literal["MARIVO"]
-    data: MarivoMetricExtension
+    type: Literal["ratio"]
+    numerator: MetricComponentRef | ExpressionComponent = Field(
+        ...,
+        description="Component specification: either a reference to an existing semantic metric or an inline SQL expression.",
+    )
+    denominator: MetricComponentRef | ExpressionComponent = Field(
+        ...,
+        description="Component specification: either a reference to an existing semantic metric or an inline SQL expression.",
+    )
+
+
+class WeightedAverageAggregation(BaseModel):
+    """
+    Ratio-of-sums metric. Requires numerator and weight component specs.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    type: Literal["weighted_average"]
+    numerator: MetricComponentRef | ExpressionComponent = Field(
+        ...,
+        description="Component specification: either a reference to an existing semantic metric or an inline SQL expression.",
+    )
+    weight: MetricComponentRef | ExpressionComponent = Field(
+        ...,
+        description="Component specification: either a reference to an existing semantic metric or an inline SQL expression.",
+    )
 
 
 class FieldModel(BaseModel):
@@ -266,6 +302,33 @@ class Dataset(BaseModel):
     ai_context: str | AIContext1 | None = Field(None, description="Additional context for AI tools")
     fields: list[FieldModel] | None = None
     custom_extensions: list[MarivoDatasetCustomExtension] | None = None
+
+
+class MarivoMetricExtension(BaseModel):
+    """
+    MARIVO extension payload for Metric.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    aggregation_semantics: SumAggregation | RatioAggregation | WeightedAverageAggregation = Field(
+        {"type": "sum"},
+        description="Discriminated union of aggregation semantics. Determines inferential summary mode, statistical test method, and decomposition strategy. sum: additive quantity, delta_share decomposition. ratio: proportion/rate, requires numerator+denominator. weighted_average: ratio-of-sums, requires numerator+weight.",
+        validate_default=True,
+    )
+
+
+class MarivoMetricCustomExtension(BaseModel):
+    """
+    MARIVO custom extension for Metric.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    vendor_name: Literal["MARIVO"]
+    data: MarivoMetricExtension
 
 
 class Metric(BaseModel):

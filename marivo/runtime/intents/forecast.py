@@ -179,8 +179,16 @@ def run_forecast_intent(
             f"is not supported; must be one of {sorted(_VALID_GRANULARITIES)}"
         )
 
-    # ── Extract and validate series ───────────────────────────────────────────
-    raw_series: list[dict[str, Any]] = source_artifact.get("series") or []
+    # ── Extract and validate series (v2.0 axes+series format) ────────────────────
+    # v2.0 format: series is a list of {keys, points} objects; points is the
+    # actual time-series data. Read from series[0].points with fallback to legacy
+    # top-level "series" for v1 compat.
+    series_list: list[dict[str, Any]] = source_artifact.get("series") or []
+    if series_list and isinstance(series_list[0], dict) and "points" in series_list[0]:
+        raw_series: list[dict[str, Any]] = series_list[0].get("points") or []
+    else:
+        # Legacy v1 compat: series is a flat list of {window, value} dicts
+        raw_series = series_list
     observed_points = len(raw_series)
 
     usable: list[tuple[str, str, float]] = []  # (start, end, value)

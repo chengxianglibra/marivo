@@ -16,7 +16,7 @@ def _bucket(start: str, end: str, value: Any) -> dict[str, Any]:
     return {"window": {"start": start, "end": end}, "value": value}
 
 
-def _daily_series(values: list[Any]) -> list[dict[str, Any]]:
+def _daily_points(values: list[Any]) -> list[dict[str, Any]]:
     return [
         _bucket(f"2026-01-{idx:02d}", f"2026-01-{idx + 1:02d}", value)
         for idx, value in enumerate(values, start=1)
@@ -26,22 +26,23 @@ def _daily_series(values: list[Any]) -> list[dict[str, Any]]:
 def _time_series_artifact(
     *,
     values: list[Any] | None = None,
-    series: list[dict[str, Any]] | None = None,
+    points: list[dict[str, Any]] | None = None,
     granularity: str = "day",
     observation_type: str = "time_series",
 ) -> dict[str, Any]:
-    series = series if series is not None else _daily_series(values or [100.0, 110.0, 120.0])
+    pts = points if points is not None else _daily_points(values or [100.0, 110.0, 120.0])
     return {
-        "schema_version": "1.0",
+        "schema_version": "2.0",
         "observation_type": observation_type,
         "metric": "metric.forecast_dau",
         "granularity": granularity,
+        "axes": [{"kind": "time", "grain": granularity}],
         "time_scope": {
             "field": "event_time",
-            "start": series[0]["window"]["start"] if series else "2026-01-01",
-            "end": series[-1]["window"]["end"] if series else "2026-01-01",
+            "start": pts[0]["window"]["start"] if pts else "2026-01-01",
+            "end": pts[-1]["window"]["end"] if pts else "2026-01-01",
         },
-        "series": series,
+        "series": [{"keys": {}, "points": pts}],
         "analytical_metadata": {"timezone": "UTC", "data_complete": True},
         "metric_contract_version": "metric-v1",
     }
@@ -189,7 +190,7 @@ def test_forecast_moderate_horizon_is_forecastable() -> None:
 
 
 @pytest.mark.parametrize(
-    ("granularity", "series", "expected_windows"),
+    ("granularity", "points", "expected_windows"),
     [
         (
             "hour",
@@ -227,10 +228,10 @@ def test_forecast_moderate_horizon_is_forecastable() -> None:
 )
 def test_forecast_future_windows_follow_source_granularity(
     granularity: str,
-    series: list[dict[str, Any]],
+    points: list[dict[str, Any]],
     expected_windows: list[dict[str, str]],
 ) -> None:
-    runtime = _make_runtime(_time_series_artifact(series=series, granularity=granularity))
+    runtime = _make_runtime(_time_series_artifact(points=points, granularity=granularity))
 
     result = _run_forecast(runtime, horizon=2)
 

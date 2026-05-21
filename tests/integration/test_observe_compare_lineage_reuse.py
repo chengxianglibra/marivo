@@ -29,19 +29,83 @@ def _insert_observe_artifact(
     value: float | None = None,
     unit: str | None = None,
     predicate_filter_lineage: dict[str, Any] | None = None,
+    dimensions: list[str] | None = None,
 ) -> str:
+    """Insert a v2.0 axes+series format observation artifact.
+
+    observation_type determines the axes+series shape:
+      - scalar:  axes=[], series=[{keys:{}, points:[{value}]}]
+      - time_series: axes=[{kind:"time", grain}], series=[{keys:{}, points}]
+      - segmented: axes=[{kind:"dimension", name}], series=[{keys:{...}, points}]
+      - panel: axes=[{kind:"time", grain}, {kind:"dimension", name}], series=[{keys:{...}, points}]
+    """
+    # --- Build axes ---
+    axes: list[dict[str, Any]] = []
+    if observation_type == "time_series":
+        axes = [{"kind": "time", "grain": "day"}]
+    elif observation_type == "segmented":
+        axes = [{"kind": "dimension", "name": d} for d in (dimensions or ["platform"])]
+    elif observation_type == "panel":
+        axes = [
+            {"kind": "time", "grain": "day"},
+            *[{"kind": "dimension", "name": d} for d in (dimensions or ["platform"])],
+        ]
+    # scalar has no axes
+
+    # --- Build series ---
+    series: list[dict[str, Any]] = []
+    if observation_type == "scalar":
+        series = [{"keys": {}, "points": [{"value": value}]}]
+    elif observation_type == "time_series":
+        series = [
+            {
+                "keys": {},
+                "points": [
+                    {
+                        "window": {
+                            "start": time_scope.get("start", "2024-01-01"),
+                            "end": time_scope.get("end", "2024-01-08"),
+                        },
+                        "value": value,
+                    },
+                ],
+            },
+        ]
+    elif observation_type == "segmented":
+        series = [
+            {"keys": {d: "placeholder"}, "points": [{"value": value}]}
+            for d in (dimensions or ["platform"])
+        ]
+    elif observation_type == "panel":
+        series = [
+            {
+                "keys": {d: "placeholder"},
+                "points": [
+                    {
+                        "window": {
+                            "start": time_scope.get("start", "2024-01-01"),
+                            "end": time_scope.get("end", "2024-01-08"),
+                        },
+                        "value": value,
+                    },
+                ],
+            }
+            for d in (dimensions or ["platform"])
+        ]
+
     payload: dict[str, Any] = {
-        "schema_version": "1.0",
+        "schema_version": "2.0",
         "intent_type": "observe",
         "observation_type": observation_type,
         "metric": metric,
         "time_scope": time_scope,
         "scope": {},
         "unit": unit,
+        "axes": axes,
+        "series": series,
         "analytical_metadata": {
             "quality_status": "ready",
             "aggregation_semantics": "sum",
-            "additive_dimensions": ["country", "device", "date"],
             "row_count": 1,
         },
         "execution_metadata": {
@@ -50,8 +114,6 @@ def _insert_observe_artifact(
             "executed_at": "2026-01-01T00:00:00",
         },
     }
-    if observation_type == "scalar":
-        payload["value"] = value
     if predicate_filter_lineage is not None:
         payload["predicate_filter_lineage"] = predicate_filter_lineage
     artifact_id = service.insert_artifact(

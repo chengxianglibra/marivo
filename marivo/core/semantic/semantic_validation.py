@@ -8,11 +8,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from marivo.core.semantic.additivity import (
-    ADDITIVE_DIMENSIONS_ALL,
-    additive_dimensions_mix_all,
-)
-
 
 class SemanticValidationError(Exception):
     """Raised when semantic model validation fails.
@@ -33,7 +28,6 @@ def validate_semantic_model(model_data: dict[str, Any]) -> None:
     - visibility must be 'public' or 'private'
     - private requires owner_user
     - Relationship from/to must reference existing datasets
-    - additive_dimensions must have a valid shape when present
     """
     errors: list[dict[str, str]] = []
 
@@ -147,28 +141,4 @@ def _validate_metric_refs(
     metric: dict[str, Any],
 ) -> list[dict[str, str]]:
     """Check metric extension shape."""
-    errors: list[dict[str, str]] = []
-    metric_name = metric.get("name", "<unnamed>")
-
-    additive_dimensions = metric.get("additive_dimensions")
-    if additive_dimensions is not None and not isinstance(additive_dimensions, list):
-        errors.append(
-            {
-                "message": f"metric '{metric_name}' additive_dimensions must be a list of field names, got {type(additive_dimensions).__name__}",
-                "path": f"metrics[{metric_name}].additive_dimensions",
-            }
-        )
-        additive_dimensions = None
-    if additive_dimensions is not None and additive_dimensions_mix_all(additive_dimensions):
-        errors.append(
-            {
-                "message": (
-                    f"metric '{metric_name}' additive_dimensions uses "
-                    f"{ADDITIVE_DIMENSIONS_ALL!r} and must not mix it with explicit fields"
-                ),
-                "path": f"metrics[{metric_name}].additive_dimensions",
-            }
-        )
-        additive_dimensions = None
-
-    return errors
+    return []

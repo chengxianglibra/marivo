@@ -274,12 +274,7 @@
             {
               "vendor_name": "MARIVO",
               "data": {
-                "additive_dimensions": [
-                  "region",
-                  "channel",
-                  "order_date"
-                ],
-                "aggregation_semantics": "sum"
+                "aggregation_semantics": { "type": "sum" }
               }
             }
           ]
@@ -299,11 +294,7 @@
             {
               "vendor_name": "MARIVO",
               "data": {
-                "additive_dimensions": [
-                  "region",
-                  "channel"
-                ],
-                "aggregation_semantics": "sum"
+                "aggregation_semantics": { "type": "sum" }
               }
             }
           ]
@@ -323,11 +314,11 @@
             {
               "vendor_name": "MARIVO",
               "data": {
-                "additive_dimensions": [
-                  "region",
-                  "channel"
-                ],
-                "aggregation_semantics": "weighted_average"
+                "aggregation_semantics": {
+                  "type": "weighted_average",
+                  "numerator": { "metric": "metric.gmv" },
+                  "weight": { "metric": "metric.order_count" }
+                }
               }
             }
           ]

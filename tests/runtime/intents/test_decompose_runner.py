@@ -5,7 +5,6 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-from marivo.contracts.errors import ExecutionError
 from marivo.runtime.intents.decompose import (
     _extract_date_range,
     _normalize_decompose_compare_input,
@@ -32,17 +31,263 @@ class DecomposeHourWindowTests(unittest.TestCase):
             ("2024-01-01T01:00:00", "2024-01-01T03:00:00"),
         )
 
-    def test_time_series_compare_input_uses_matched_time_scope(self) -> None:
+    def test_scalar_delta_read_from_series_format(self) -> None:
+        normalized = _normalize_decompose_compare_input(
+            {
+                "comparison_type": "scalar_delta",
+                "schema_version": "2.0",
+                "metric": "m1",
+                "axes": [],
+                "series": [
+                    {
+                        "keys": {},
+                        "points": [
+                            {
+                                "current_value": 100.0,
+                                "baseline_value": 90.0,
+                                "delta": 10.0,
+                                "delta_pct": 10.0 / 90.0,
+                                "direction": "increase",
+                            }
+                        ],
+                    }
+                ],
+                "resolved_input_summary": {
+                    "current_time_scope": {
+                        "field": "time",
+                        "start": "2024-01-01",
+                        "end": "2024-01-08",
+                    },
+                    "baseline_time_scope": {
+                        "field": "time",
+                        "start": "2023-12-25",
+                        "end": "2024-01-01",
+                    },
+                },
+            }
+        )
+
+        self.assertEqual(normalized["comparison_type"], "scalar_delta")
+        self.assertEqual(normalized["scope_current_value"], 100.0)
+        self.assertEqual(normalized["scope_baseline_value"], 90.0)
+        self.assertEqual(normalized["scope_absolute_delta"], 10.0)
+        self.assertEqual(normalized["source_observation_type"], "scalar")
+
+    def test_scalar_delta_fallback_to_top_level_fields(self) -> None:
+        normalized = _normalize_decompose_compare_input(
+            {
+                "comparison_type": "scalar_delta",
+                "metric": "m1",
+                "current_value": 50.0,
+                "baseline_value": 40.0,
+                "absolute_delta": 10.0,
+                "relative_delta": 0.25,
+                "direction": "increase",
+                "resolved_input_summary": {
+                    "current_time_scope": {
+                        "field": "time",
+                        "start": "2024-01-01",
+                        "end": "2024-01-08",
+                    },
+                    "baseline_time_scope": {
+                        "field": "time",
+                        "start": "2023-12-25",
+                        "end": "2024-01-01",
+                    },
+                },
+            }
+        )
+
+        self.assertEqual(normalized["scope_current_value"], 50.0)
+        self.assertEqual(normalized["scope_baseline_value"], 40.0)
+        self.assertEqual(normalized["scope_absolute_delta"], 10.0)
+
+    def test_axes_determine_scalar_observation_type(self) -> None:
+        normalized = _normalize_decompose_compare_input(
+            {
+                "comparison_type": "scalar_delta",
+                "schema_version": "2.0",
+                "metric": "m1",
+                "axes": [],
+                "series": [
+                    {
+                        "keys": {},
+                        "points": [
+                            {
+                                "current_value": 100.0,
+                                "baseline_value": 90.0,
+                                "delta": 10.0,
+                                "delta_pct": 10.0 / 90.0,
+                                "direction": "increase",
+                            }
+                        ],
+                    }
+                ],
+                "resolved_input_summary": {
+                    "current_time_scope": {
+                        "field": "time",
+                        "start": "2024-01-01",
+                        "end": "2024-01-08",
+                    },
+                    "baseline_time_scope": {
+                        "field": "time",
+                        "start": "2023-12-25",
+                        "end": "2024-01-01",
+                    },
+                },
+            }
+        )
+
+        self.assertEqual(normalized["source_observation_type"], "scalar")
+
+    def test_axes_determine_time_series_observation_type(self) -> None:
         normalized = _normalize_decompose_compare_input(
             {
                 "comparison_type": "time_series_delta",
+                "schema_version": "2.0",
                 "metric": "m1",
+                "axes": [{"kind": "time", "grain": "day"}],
+                "series": [
+                    {
+                        "keys": {},
+                        "points": [
+                            {
+                                "window": {"start": "2024-01-01", "end": "2024-01-02"},
+                                "current_value": 30.0,
+                                "baseline_value": 23.0,
+                                "delta": 7.0,
+                                "delta_pct": 7.0 / 23.0,
+                                "direction": "increase",
+                                "presence": "both",
+                            }
+                        ],
+                    }
+                ],
                 "summary_current_value": 30.0,
                 "summary_baseline_value": 23.0,
                 "summary_absolute_delta": 7.0,
                 "summary_relative_delta": 7.0 / 23.0,
                 "summary_direction": "increase",
-                "granularity": "day",
+                "resolved_input_summary": {
+                    "current_time_scope": {
+                        "field": "time",
+                        "start": "2024-01-01",
+                        "end": "2024-01-08",
+                    },
+                    "baseline_time_scope": {
+                        "field": "time",
+                        "start": "2023-01-01",
+                        "end": "2023-01-08",
+                    },
+                },
+                "analytical_metadata": {
+                    "matched_bucket_count": 1,
+                    "matched_time_scope": {
+                        "field": "time",
+                        "start": "2024-01-02",
+                        "end": "2024-01-04",
+                    },
+                },
+            }
+        )
+
+        self.assertEqual(normalized["source_observation_type"], "time_series")
+
+    def test_time_series_compare_input_aggregates_from_series_points(self) -> None:
+        normalized = _normalize_decompose_compare_input(
+            {
+                "comparison_type": "time_series_delta",
+                "schema_version": "2.0",
+                "metric": "m1",
+                "axes": [{"kind": "time", "grain": "day"}],
+                "series": [
+                    {
+                        "keys": {},
+                        "points": [
+                            {
+                                "window": {"start": "2024-01-01", "end": "2024-01-02"},
+                                "current_value": 20.0,
+                                "baseline_value": 15.0,
+                                "delta": 5.0,
+                                "delta_pct": 5.0 / 15.0,
+                                "direction": "increase",
+                                "presence": "both",
+                            },
+                            {
+                                "window": {"start": "2024-01-02", "end": "2024-01-03"},
+                                "current_value": 10.0,
+                                "baseline_value": 8.0,
+                                "delta": 2.0,
+                                "delta_pct": 2.0 / 8.0,
+                                "direction": "increase",
+                                "presence": "both",
+                            },
+                        ],
+                    }
+                ],
+                "resolved_input_summary": {
+                    "current_time_scope": {
+                        "field": "time",
+                        "start": "2024-01-01",
+                        "end": "2024-01-08",
+                    },
+                    "baseline_time_scope": {
+                        "field": "time",
+                        "start": "2023-01-01",
+                        "end": "2023-01-08",
+                    },
+                },
+                "analytical_metadata": {
+                    "matched_bucket_count": 2,
+                    "matched_time_scope": {
+                        "field": "time",
+                        "start": "2024-01-02",
+                        "end": "2024-01-04",
+                    },
+                },
+            }
+        )
+
+        self.assertEqual(normalized["comparison_type"], "time_series_delta")
+        # Aggregated from series points: 20+10=30, 15+8=23, delta=7
+        self.assertEqual(normalized["scope_current_value"], 30.0)
+        self.assertEqual(normalized["scope_baseline_value"], 23.0)
+        self.assertEqual(normalized["scope_absolute_delta"], 7.0)
+        self.assertEqual(normalized["source_observation_type"], "time_series")
+        self.assertEqual(
+            normalized["analytical_metadata"]["decomposition_source"],
+            "time_series_summary_delta",
+        )
+        self.assertEqual(normalized["analytical_metadata"]["source_granularity"], "day")
+
+    def test_time_series_compare_input_uses_matched_time_scope(self) -> None:
+        normalized = _normalize_decompose_compare_input(
+            {
+                "comparison_type": "time_series_delta",
+                "schema_version": "2.0",
+                "metric": "m1",
+                "axes": [{"kind": "time", "grain": "day"}],
+                "series": [
+                    {
+                        "keys": {},
+                        "points": [
+                            {
+                                "window": {"start": "2024-01-02", "end": "2024-01-04"},
+                                "current_value": 30.0,
+                                "baseline_value": 23.0,
+                                "delta": 7.0,
+                                "delta_pct": 7.0 / 23.0,
+                                "direction": "increase",
+                                "presence": "both",
+                            }
+                        ],
+                    }
+                ],
+                "summary_current_value": 30.0,
+                "summary_baseline_value": 23.0,
+                "summary_absolute_delta": 7.0,
+                "summary_relative_delta": 7.0 / 23.0,
+                "summary_direction": "increase",
                 "resolved_input_summary": {
                     "current_time_scope": {
                         "field": "time",
@@ -86,13 +331,30 @@ class DecomposeHourWindowTests(unittest.TestCase):
         normalized = _normalize_decompose_compare_input(
             {
                 "comparison_type": "time_series_delta",
+                "schema_version": "2.0",
                 "metric": "m1",
+                "axes": [{"kind": "time", "grain": "day"}],
+                "series": [
+                    {
+                        "keys": {},
+                        "points": [
+                            {
+                                "window": {"start": "2024-01-02", "end": "2024-01-04"},
+                                "current_value": 30.0,
+                                "baseline_value": 23.0,
+                                "delta": 7.0,
+                                "delta_pct": 7.0 / 23.0,
+                                "direction": "increase",
+                                "presence": "both",
+                            }
+                        ],
+                    }
+                ],
                 "summary_current_value": 30.0,
                 "summary_baseline_value": 23.0,
                 "summary_absolute_delta": 7.0,
                 "summary_relative_delta": 7.0 / 23.0,
                 "summary_direction": "increase",
-                "granularity": "day",
                 "resolved_input_summary": {
                     "current_time_scope": {
                         "field": "time",
@@ -293,544 +555,6 @@ class DecomposeHourWindowTests(unittest.TestCase):
         self.assertEqual(params["time_scope_field"], "log_date")
 
 
-# ── P4: Decompose additivity gate tests ────────────────────────────────────────
-
-
-def _make_compare_artifact(
-    additive_dimensions: list[str] | None = None,
-    time_scope_field: str = "time.date",
-) -> dict:
-    """Build a minimal scalar_delta compare artifact for decompose gate testing."""
-    am: dict = {}
-    if additive_dimensions is not None:
-        am["additive_dimensions"] = additive_dimensions
-    return {
-        "comparison_type": "scalar_delta",
-        "metric": "m1",
-        "unit": None,
-        "current_value": 100.0,
-        "baseline_value": 90.0,
-        "absolute_delta": 10.0,
-        "relative_delta": 0.111,
-        "direction": "increase",
-        "lineage": {
-            "current_source_ref": {"step_id": "step_obs_left", "session_id": "session_1"},
-            "baseline_source_ref": {"step_id": "step_obs_right", "session_id": "session_1"},
-        },
-        "resolved_input_summary": {
-            "current_time_scope": {
-                "field": time_scope_field,
-                "start": "2024-01-01",
-                "end": "2024-01-08",
-            },
-            "baseline_time_scope": {
-                "field": time_scope_field,
-                "start": "2023-12-25",
-                "end": "2024-01-01",
-            },
-        },
-        "analytical_metadata": am,
-    }
-
-
-def _make_time_series_compare_artifact(
-    additive_dimensions: list[str] | None = None,
-) -> dict:
-    """Build a minimal time_series_delta compare artifact for decompose gate testing."""
-    am: dict = {}
-    if additive_dimensions is not None:
-        am["additive_dimensions"] = additive_dimensions
-    return {
-        "comparison_type": "time_series_delta",
-        "metric": "m1",
-        "unit": None,
-        "summary_current_value": 100.0,
-        "summary_baseline_value": 90.0,
-        "summary_absolute_delta": 10.0,
-        "summary_relative_delta": 0.111,
-        "summary_direction": "increase",
-        "granularity": "day",
-        "lineage": {
-            "current_source_ref": {"step_id": "step_obs_left", "session_id": "session_1"},
-            "baseline_source_ref": {"step_id": "step_obs_right", "session_id": "session_1"},
-        },
-        "resolved_input_summary": {
-            "current_time_scope": {"field": "time", "start": "2024-01-01", "end": "2024-01-08"},
-            "baseline_time_scope": {"field": "time", "start": "2023-12-25", "end": "2024-01-01"},
-        },
-        "analytical_metadata": am,
-    }
-
-
-def _make_mock_metric(
-    additive_dimensions: list[str] | None = None,
-    aggregation_semantics: str = "sum",
-    dimensions: list[str] | None = None,
-) -> MagicMock:
-    mock = MagicMock()
-    mock.additive_dimensions = additive_dimensions
-    mock.aggregation_semantics = aggregation_semantics
-    dims = dimensions or ["dimension.country"]
-    mock.allowed_dimensions = dims
-    mock.dimensions = dims
-    mock.grain = "day"
-    # Semantic object header carries additive_dimensions for the runtime path
-    header: dict = {
-        "aggregation_semantics": aggregation_semantics,
-    }
-    if additive_dimensions is not None:
-        header["additive_dimensions"] = additive_dimensions
-    mock.semantic_object = {"header": header}
-    return mock
-
-
-def _build_decompose_success_runtime(
-    additive_dimensions: list[str] | None,
-    aggregation_semantics: str = "sum",
-    dimensions: list[str] | None = None,
-    time_scope_field: str = "time.date",
-) -> MagicMock:
-    """Build mock runtime that allows decompose to succeed through the execution path."""
-    compare_artifact = _make_compare_artifact(
-        additive_dimensions=additive_dimensions, time_scope_field=time_scope_field
-    )
-    mock_metric = _make_mock_metric(
-        additive_dimensions=additive_dimensions,
-        aggregation_semantics=aggregation_semantics,
-        dimensions=dimensions,
-    )
-    runtime = MagicMock()
-    runtime.core = MagicMock()
-    runtime.resolve_artifact_by_id.return_value = compare_artifact
-    runtime.resolve_artifact_id_for_step.return_value = "art_fake"
-    runtime.resolve_metric.return_value = mock_metric
-    runtime.resolve_metric_dimensions.return_value = dimensions or ["dimension.country"]
-    runtime.resolve_metric_sql_for_execution.return_value = "SUM(val)"
-    runtime.resolve_metric_table.return_value = "src.metrics"
-    runtime.resolve_engine.return_value = (MagicMock(), "duckdb", {"metrics": "src.metrics"})
-    runtime.compile_step.return_value = MagicMock()
-    runtime.build_scoped_query.return_value = None
-    return runtime
-
-
-class DecomposeAdditivityGateTests(unittest.TestCase):
-    """P4: Test decompose additivity gate — error payloads and artifact metadata."""
-
-    def test_decompose_limit_must_be_positive(self) -> None:
-        with self.assertRaisesRegex(ValueError, "limit must be > 0"):
-            run_decompose_intent(
-                MagicMock(),
-                "session_1",
-                {
-                    "compare_artifact_id": "art_compare",
-                    "dimension": "dimension.country",
-                    "limit": 0,
-                },
-            )
-
-    # ── Error gate tests ────────────────────────────────────────────────────
-
-    def test_empty_additive_dimensions_metric_decompose_fails(self) -> None:
-        runtime = MagicMock()
-        runtime.core = MagicMock()
-        compare_artifact = _make_compare_artifact(additive_dimensions=[])
-        mock_metric = _make_mock_metric(additive_dimensions=[])
-        runtime.resolve_artifact_by_id.return_value = compare_artifact
-        runtime.resolve_artifact_id_for_step.return_value = "art_fake"
-        runtime.resolve_metric.return_value = mock_metric
-
-        with self.assertRaises(ExecutionError) as ctx:
-            run_decompose_intent(
-                runtime,
-                "session_1",
-                {"compare_artifact_id": "art_compare", "dimension": "dimension.country"},
-            )
-        exc = ctx.exception
-        self.assertEqual(exc.category, "compatibility")
-        self.assertEqual(exc.code, "ADDITIVITY_CONSTRAINT")
-        compat = exc.detail["compatibility_error"]
-        self.assertIn("blocker", compat)
-
-    def test_empty_additive_dimensions_fails(self) -> None:
-        """Missing or empty additive_dimensions both result in non-additive gate failure."""
-        # Case 1: no additive_dimensions key at all in artifact metadata
-        runtime = MagicMock()
-        runtime.core = MagicMock()
-        compare_artifact = _make_compare_artifact()  # no additive_dimensions in am
-        mock_metric = _make_mock_metric(additive_dimensions=None)
-        runtime.resolve_artifact_by_id.return_value = compare_artifact
-        runtime.resolve_artifact_id_for_step.return_value = "art_fake"
-        runtime.resolve_metric.return_value = mock_metric
-
-        with self.assertRaises(ExecutionError) as ctx:
-            run_decompose_intent(
-                runtime,
-                "session_1",
-                {"compare_artifact_id": "art_compare", "dimension": "dimension.country"},
-            )
-        exc = ctx.exception
-        self.assertEqual(exc.category, "compatibility")
-        self.assertEqual(exc.code, "ADDITIVITY_CONSTRAINT")
-        compat = exc.detail["compatibility_error"]
-        self.assertIn("ADDITIVITY_NONE", compat.get("blocker", ""))
-
-        # Case 2: empty list = non-additive (same result)
-        runtime2 = MagicMock()
-        runtime2.core = MagicMock()
-        compare_artifact2 = _make_compare_artifact(additive_dimensions=[])
-        mock_metric2 = _make_mock_metric(additive_dimensions=[])
-        runtime2.resolve_artifact_by_id.return_value = compare_artifact2
-        runtime2.resolve_artifact_id_for_step.return_value = "art_fake"
-        runtime2.resolve_metric.return_value = mock_metric2
-
-        with self.assertRaises(ExecutionError) as ctx2:
-            run_decompose_intent(
-                runtime2,
-                "session_1",
-                {"compare_artifact_id": "art_compare", "dimension": "dimension.country"},
-            )
-        exc2 = ctx2.exception
-        self.assertEqual(exc2.category, "compatibility")
-        self.assertEqual(exc2.code, "ADDITIVITY_CONSTRAINT")
-        compat2 = exc2.detail["compatibility_error"]
-        self.assertIn("ADDITIVITY_NONE", compat2.get("blocker", ""))
-
-    def test_subset_metric_decompose_fails_on_disallowed_dimension(self) -> None:
-        runtime = MagicMock()
-        runtime.core = MagicMock()
-        compare_artifact = _make_compare_artifact(additive_dimensions=["dimension.country"])
-        mock_metric = _make_mock_metric(
-            additive_dimensions=["dimension.country"],
-            dimensions=["dimension.country", "dimension.product"],
-        )
-        runtime.resolve_artifact_by_id.return_value = compare_artifact
-        runtime.resolve_artifact_id_for_step.return_value = "art_fake"
-        runtime.resolve_metric.return_value = mock_metric
-        runtime.resolve_metric_dimensions.return_value = ["dimension.country", "dimension.product"]
-
-        with self.assertRaises(ExecutionError) as ctx:
-            run_decompose_intent(
-                runtime,
-                "session_1",
-                {"compare_artifact_id": "art_compare", "dimension": "dimension.product"},
-            )
-        exc = ctx.exception
-        self.assertEqual(exc.category, "compatibility")
-        self.assertEqual(exc.code, "ADDITIVITY_CONSTRAINT_DIMENSION_NOT_ALLOWED")
-        compat = exc.detail["compatibility_error"]
-        self.assertIn("dimension.product", compat.get("disallowed_dimensions", []))
-
-    def test_error_payload_includes_disallowed_dimensions_as_list(self) -> None:
-        runtime = MagicMock()
-        runtime.core = MagicMock()
-        compare_artifact = _make_compare_artifact(additive_dimensions=["dimension.country"])
-        mock_metric = _make_mock_metric(
-            additive_dimensions=["dimension.country"],
-            dimensions=["dimension.country", "dimension.product"],
-        )
-        runtime.resolve_artifact_by_id.return_value = compare_artifact
-        runtime.resolve_artifact_id_for_step.return_value = "art_fake"
-        runtime.resolve_metric.return_value = mock_metric
-        runtime.resolve_metric_dimensions.return_value = ["dimension.country", "dimension.product"]
-
-        with self.assertRaises(ExecutionError) as ctx:
-            run_decompose_intent(
-                runtime,
-                "session_1",
-                {"compare_artifact_id": "art_compare", "dimension": "dimension.product"},
-            )
-        exc = ctx.exception
-        compat = exc.detail["compatibility_error"]
-        self.assertEqual(compat["disallowed_dimensions"], ["dimension.product"])
-
-    def test_error_payload_includes_additive_dimensions(self) -> None:
-        runtime = MagicMock()
-        runtime.core = MagicMock()
-        compare_artifact = _make_compare_artifact(additive_dimensions=["dimension.country"])
-        mock_metric = _make_mock_metric(
-            additive_dimensions=["dimension.country"],
-            dimensions=["dimension.country", "dimension.product"],
-        )
-        runtime.resolve_artifact_by_id.return_value = compare_artifact
-        runtime.resolve_artifact_id_for_step.return_value = "art_fake"
-        runtime.resolve_metric.return_value = mock_metric
-        runtime.resolve_metric_dimensions.return_value = ["dimension.country", "dimension.product"]
-
-        with self.assertRaises(ExecutionError) as ctx:
-            run_decompose_intent(
-                runtime,
-                "session_1",
-                {"compare_artifact_id": "art_compare", "dimension": "dimension.product"},
-            )
-        exc = ctx.exception
-        compat = exc.detail["compatibility_error"]
-        self.assertEqual(compat["additive_dimensions"], ["dimension.country"])
-
-    # ── Success path + artifact metadata tests ─────────────────────────────
-
-    def test_all_additive_dimensions_metric_decompose_succeeds(self) -> None:
-        runtime = _build_decompose_success_runtime(
-            additive_dimensions=["dimension.country", "time.date"],
-            dimensions=["dimension.country"],
-        )
-        mock_result = MagicMock()
-        mock_result.rows = [{"dimension.country": "US", "current_value": 50.0}]
-        mock_result.metadata.get.return_value = None
-
-        with patch("marivo.runtime.intents.decompose.execute_compiled", return_value=mock_result):
-            result = run_decompose_intent(
-                runtime,
-                "session_1",
-                {"compare_artifact_id": "art_compare", "dimension": "dimension.country"},
-            )
-        self.assertIn("rows", result)
-
-    def test_all_additive_dimensions_sentinel_decompose_succeeds(self) -> None:
-        runtime = _build_decompose_success_runtime(
-            additive_dimensions=["__all"],
-            dimensions=["dimension.country", "dimension.product"],
-        )
-        mock_result = MagicMock()
-        mock_result.rows = [{"dimension.product": "Books", "current_value": 50.0}]
-        mock_result.metadata.get.return_value = None
-
-        with patch("marivo.runtime.intents.decompose.execute_compiled", return_value=mock_result):
-            result = run_decompose_intent(
-                runtime,
-                "session_1",
-                {"compare_artifact_id": "art_compare", "dimension": "dimension.product"},
-            )
-        self.assertIn("rows", result)
-        self.assertEqual(result["analytical_metadata"]["additive_dimensions"], ["__all"])
-
-    def test_subset_metric_decompose_succeeds_on_allowed_dimension(self) -> None:
-        runtime = _build_decompose_success_runtime(
-            additive_dimensions=["dimension.country"],
-            dimensions=["dimension.country"],
-        )
-        mock_result = MagicMock()
-        mock_result.rows = [{"dimension.country": "US", "current_value": 50.0}]
-        mock_result.metadata.get.return_value = None
-
-        with patch("marivo.runtime.intents.decompose.execute_compiled", return_value=mock_result):
-            result = run_decompose_intent(
-                runtime,
-                "session_1",
-                {"compare_artifact_id": "art_compare", "dimension": "dimension.country"},
-            )
-        self.assertIn("rows", result)
-
-    def test_decompose_limit_returns_top_ranked_rows(self) -> None:
-        runtime = _build_decompose_success_runtime(
-            additive_dimensions=["dimension.country"],
-            dimensions=["dimension.country"],
-        )
-        left_result = MagicMock()
-        left_result.rows = [
-            {"dimension.country": "A", "current_value": 100.0},
-            {"dimension.country": "B", "current_value": 40.0},
-            {"dimension.country": "C", "current_value": 30.0},
-        ]
-        left_result.metadata.get.return_value = None
-        right_result = MagicMock()
-        right_result.rows = [
-            {"dimension.country": "A", "current_value": 20.0},
-            {"dimension.country": "B", "current_value": 35.0},
-            {"dimension.country": "C", "current_value": 30.0},
-        ]
-        right_result.metadata.get.return_value = None
-
-        with patch(
-            "marivo.runtime.intents.decompose.execute_compiled",
-            side_effect=[left_result, right_result],
-        ):
-            result = run_decompose_intent(
-                runtime,
-                "session_1",
-                {
-                    "compare_artifact_id": "art_compare",
-                    "dimension": "dimension.country",
-                    "limit": 1,
-                },
-            )
-
-        self.assertEqual([row["key"] for row in result["rows"]], ["A"])
-        self.assertEqual(result["analytical_metadata"]["returned_row_count"], 1)
-
-    def test_artifact_metadata_includes_additive_dimensions_top_level(self) -> None:
-        runtime = _build_decompose_success_runtime(
-            additive_dimensions=["dimension.country"],
-            dimensions=["dimension.country"],
-        )
-        mock_result = MagicMock()
-        mock_result.rows = [{"dimension.country": "US", "current_value": 50.0}]
-        mock_result.metadata.get.return_value = None
-
-        with patch("marivo.runtime.intents.decompose.execute_compiled", return_value=mock_result):
-            result = run_decompose_intent(
-                runtime,
-                "session_1",
-                {"compare_artifact_id": "art_compare", "dimension": "dimension.country"},
-            )
-        am = result["analytical_metadata"]
-        self.assertEqual(am["additive_dimensions"], ["dimension.country"])
-
-    def test_artifact_metadata_includes_time_boundary_constraint(self) -> None:
-        runtime = _build_decompose_success_runtime(
-            additive_dimensions=["dimension.country", "time.date"],
-            dimensions=["dimension.country"],
-        )
-        mock_result = MagicMock()
-        mock_result.rows = [{"dimension.country": "US", "current_value": 50.0}]
-        mock_result.metadata.get.return_value = None
-
-        with patch("marivo.runtime.intents.decompose.execute_compiled", return_value=mock_result):
-            result = run_decompose_intent(
-                runtime,
-                "session_1",
-                {"compare_artifact_id": "art_compare", "dimension": "dimension.country"},
-            )
-        tbc = result["analytical_metadata"]["time_boundary_constraint"]
-        self.assertEqual(tbc["scope"], "frozen_compare_window")
-        self.assertFalse(tbc["time_rollup_implied"])
-
-    # ── Frozen additive_dimensions tests ────────────────────────────────────
-
-    def test_frozen_dimensions_prefer_compare_lineage_over_current_metric(self) -> None:
-        """When compare artifact carries frozen additive_dimensions, decompose
-        should use those (not the metric's current state) for the gate."""
-        runtime = _build_decompose_success_runtime(
-            # Metric's CURRENT state has only dimension.country
-            additive_dimensions=["dimension.country"],
-            dimensions=["dimension.country"],
-        )
-        # Override the compare artifact to carry FROZEN dimensions from lineage
-        # that include dimension.country and time.date (the metric state when compare was run)
-        frozen_dimensions = ["dimension.country", "time.date"]
-        compare_artifact = _make_compare_artifact(additive_dimensions=frozen_dimensions)
-        runtime.resolve_artifact_by_id.return_value = compare_artifact
-
-        mock_result = MagicMock()
-        mock_result.rows = [{"dimension.country": "US", "current_value": 50.0}]
-        mock_result.metadata.get.return_value = None
-
-        with patch("marivo.runtime.intents.decompose.execute_compiled", return_value=mock_result):
-            result = run_decompose_intent(
-                runtime,
-                "session_1",
-                {"compare_artifact_id": "art_compare", "dimension": "dimension.country"},
-            )
-        am = result["analytical_metadata"]
-        self.assertEqual(am["additive_dimensions_source"], "compare_artifact_lineage")
-        self.assertEqual(am["additive_dimensions"], ["dimension.country", "time.date"])
-
-    def test_frozen_empty_dimensions_blocks_decompose_even_if_metric_changed(self) -> None:
-        """If compare artifact froze empty additive_dimensions but metric has since
-        changed to have additive dimensions, decompose must still reject based on
-        frozen dimensions."""
-        runtime = MagicMock()
-        runtime.core = MagicMock()
-        compare_artifact = _make_compare_artifact(additive_dimensions=[])
-        # Metric's CURRENT state has additive dimensions
-        mock_metric = _make_mock_metric(
-            additive_dimensions=["dimension.country", "time.date"],
-        )
-        runtime.resolve_artifact_by_id.return_value = compare_artifact
-        runtime.resolve_artifact_id_for_step.return_value = "art_fake"
-        runtime.resolve_metric.return_value = mock_metric
-
-        with self.assertRaises(ExecutionError) as ctx:
-            run_decompose_intent(
-                runtime,
-                "session_1",
-                {"compare_artifact_id": "art_compare", "dimension": "dimension.country"},
-            )
-        exc = ctx.exception
-        self.assertEqual(exc.category, "compatibility")
-        self.assertEqual(exc.code, "ADDITIVITY_CONSTRAINT")
-        compat = exc.detail["compatibility_error"]
-        self.assertEqual(compat["gate_source"], "compare_artifact_lineage")
-
-    def test_time_series_delta_compare_propagates_frozen_dimensions(self) -> None:
-        """time_series_delta compare artifacts should also propagate frozen
-        additive_dimensions through the decompose gate."""
-        runtime = _build_decompose_success_runtime(
-            additive_dimensions=["dimension.country"],
-            dimensions=["dimension.country"],
-        )
-        # Override compare artifact with time_series_delta + frozen dimensions
-        frozen_dimensions = ["dimension.country", "time.date"]
-        compare_artifact = _make_time_series_compare_artifact(additive_dimensions=frozen_dimensions)
-        runtime.resolve_artifact_by_id.return_value = compare_artifact
-
-        mock_result = MagicMock()
-        mock_result.rows = [{"dimension.country": "US", "current_value": 50.0}]
-        mock_result.metadata.get.return_value = None
-
-        with patch("marivo.runtime.intents.decompose.execute_compiled", return_value=mock_result):
-            result = run_decompose_intent(
-                runtime,
-                "session_1",
-                {"compare_artifact_id": "art_compare", "dimension": "dimension.country"},
-            )
-        am = result["analytical_metadata"]
-        self.assertEqual(am["additive_dimensions_source"], "compare_artifact_lineage")
-        self.assertEqual(am["additive_dimensions"], ["dimension.country", "time.date"])
-
-    # ── time_rollup_allowed metadata tests ───────────────────────────────────
-
-    def test_time_rollup_allowed_true_when_time_field_in_additive_dimensions(self) -> None:
-        runtime = _build_decompose_success_runtime(
-            additive_dimensions=["dimension.country", "time.date"],
-            dimensions=["dimension.country"],
-        )
-        mock_result = MagicMock()
-        mock_result.rows = [{"dimension.country": "US", "current_value": 50.0}]
-        mock_result.metadata.get.return_value = None
-
-        with patch("marivo.runtime.intents.decompose.execute_compiled", return_value=mock_result):
-            result = run_decompose_intent(
-                runtime,
-                "session_1",
-                {"compare_artifact_id": "art_compare", "dimension": "dimension.country"},
-            )
-        self.assertTrue(result["analytical_metadata"]["time_rollup_allowed"])
-
-    def test_time_rollup_allowed_false_when_time_ref_not_in_additive_dimensions(self) -> None:
-        runtime = _build_decompose_success_runtime(
-            additive_dimensions=["dimension.country"],
-            dimensions=["dimension.country"],
-        )
-        mock_result = MagicMock()
-        mock_result.rows = [{"dimension.country": "US", "current_value": 50.0}]
-        mock_result.metadata.get.return_value = None
-
-        with patch("marivo.runtime.intents.decompose.execute_compiled", return_value=mock_result):
-            result = run_decompose_intent(
-                runtime,
-                "session_1",
-                {"compare_artifact_id": "art_compare", "dimension": "dimension.country"},
-            )
-        self.assertFalse(result["analytical_metadata"]["time_rollup_allowed"])
-
-    def test_subset_policy_time_rollup_false_when_time_ref_not_additive(self) -> None:
-        runtime = _build_decompose_success_runtime(
-            additive_dimensions=["dimension.country"],
-            dimensions=["dimension.country"],
-        )
-        mock_result = MagicMock()
-        mock_result.rows = [{"dimension.country": "US", "current_value": 50.0}]
-        mock_result.metadata.get.return_value = None
-
-        with patch("marivo.runtime.intents.decompose.execute_compiled", return_value=mock_result):
-            result = run_decompose_intent(
-                runtime,
-                "session_1",
-                {"compare_artifact_id": "art_compare", "dimension": "dimension.country"},
-            )
-        self.assertFalse(result["analytical_metadata"]["time_rollup_allowed"])
-
-
 class TestDecomposeRunnerCommitPath(unittest.TestCase):
     """run_decompose_intent must call _commit_artifact_with_extraction(step_type='decompose')."""
 
@@ -845,17 +569,34 @@ class TestDecomposeRunnerCommitPath(unittest.TestCase):
     def _run_decompose(
         self, runtime: MagicMock, compare_artifact: dict[str, Any] | None = None
     ) -> dict[str, Any]:
-        from marivo.runtime.intents.decompose import run_decompose_intent
 
         if compare_artifact is None:
+            # v2.0 scalar_delta format
             compare_artifact = {
                 "comparison_type": "scalar_delta",
+                "schema_version": "2.0",
                 "metric": "m1",
                 "unit": None,
+                "axes": [],
+                "series": [
+                    {
+                        "keys": {},
+                        "points": [
+                            {
+                                "current_value": 100.0,
+                                "baseline_value": 90.0,
+                                "delta": 10.0,
+                                "delta_pct": 10.0 / 90.0,
+                                "direction": "increase",
+                            }
+                        ],
+                    }
+                ],
+                # Top-level aliases for backward compat
                 "current_value": 100.0,
                 "baseline_value": 90.0,
                 "absolute_delta": 10.0,
-                "relative_delta": 0.111,
+                "relative_delta": 10.0 / 90.0,
                 "direction": "increase",
                 "lineage": {
                     "current_source_ref": {"step_id": "step_obs_left", "session_id": _SESSION},
@@ -883,17 +624,13 @@ class TestDecomposeRunnerCommitPath(unittest.TestCase):
         resolved_metric = MagicMock()
         resolved_metric.semantic_object = {
             "header": {
-                "additive_dimensions": ["dim1", "time.default"],
                 "aggregation_semantics": "ratio",
             },
             "payload": {
-                "allowed_dimensions": ["dim1"],
                 "dimensions": ["dim1"],
             },
         }
-        resolved_metric.additive_dimensions = ["dim1", "time.default"]
         resolved_metric.aggregation_semantics = "ratio"
-        resolved_metric.allowed_dimensions = ["dim1"]
         resolved_metric.dimensions = ["dim1"]
         resolved_metric.grain = "day"
         runtime.resolve_metric.return_value = resolved_metric
@@ -938,15 +675,83 @@ class TestDecomposeRunnerCommitPath(unittest.TestCase):
         args, _ = runtime.commit_artifact_with_extraction.call_args
         self.assertEqual(args[2], "delta_decomposition")
 
+    def test_decompose_output_has_schema_version_2(self) -> None:
+        runtime = self._make_runtime()
+        result = self._run_decompose(runtime)
+        self.assertEqual(result["schema_version"], "2.0")
+
+    def test_decompose_output_has_axes_and_series(self) -> None:
+        runtime = self._make_runtime()
+        result = self._run_decompose(runtime)
+        self.assertIsInstance(result["axes"], list)
+        self.assertEqual(result["axes"], [{"kind": "dimension", "name": "dim1"}])
+        self.assertIsInstance(result["series"], list)
+        # The series should have entries for the decomposed dimension
+        self.assertTrue(len(result["series"]) > 0)
+        # Each series entry should have keys and points
+        for entry in result["series"]:
+            self.assertIn("keys", entry)
+            self.assertIn("points", entry)
+            self.assertIn("dim1", entry["keys"])
+
+    def test_decompose_output_has_rows_backward_compat_alias(self) -> None:
+        runtime = self._make_runtime()
+        result = self._run_decompose(runtime)
+        # v2.0 format uses series as canonical, but keeps rows as backward-compat alias
+        self.assertIn("rows", result)
+        self.assertIsInstance(result["rows"], list)
+
+    def test_decompose_output_has_dimension_backward_compat_alias(self) -> None:
+        runtime = self._make_runtime()
+        result = self._run_decompose(runtime)
+        # v2.0 format encodes dimension in axes, but keeps dimension as backward-compat alias
+        self.assertIn("dimension", result)
+        self.assertEqual(result["dimension"], "dim1")
+
+    def test_decompose_output_scope_values_at_top_level(self) -> None:
+        runtime = self._make_runtime()
+        result = self._run_decompose(runtime)
+        self.assertIn("scope_current_value", result)
+        self.assertIn("scope_baseline_value", result)
+        self.assertIn("scope_absolute_delta", result)
+        self.assertIn("scope_relative_delta", result)
+        self.assertIn("scope_direction", result)
+
     def test_decompose_time_series_delta_commits_summary_delta_decomposition(self) -> None:
         runtime = self._make_runtime()
         result = self._run_decompose(
             runtime,
             {
                 "comparison_type": "time_series_delta",
+                "schema_version": "2.0",
                 "metric": "m1",
                 "unit": None,
-                "granularity": "day",
+                "axes": [{"kind": "time", "grain": "day"}],
+                "series": [
+                    {
+                        "keys": {},
+                        "points": [
+                            {
+                                "window": {"start": "2024-01-01", "end": "2024-01-02"},
+                                "current_value": 60.0,
+                                "baseline_value": 45.0,
+                                "delta": 15.0,
+                                "delta_pct": 15.0 / 45.0,
+                                "direction": "increase",
+                                "presence": "both",
+                            },
+                            {
+                                "window": {"start": "2024-01-02", "end": "2024-01-03"},
+                                "current_value": 60.0,
+                                "baseline_value": 45.0,
+                                "delta": 15.0,
+                                "delta_pct": 15.0 / 45.0,
+                                "direction": "increase",
+                                "presence": "both",
+                            },
+                        ],
+                    }
+                ],
                 "summary_current_value": 120.0,
                 "summary_baseline_value": 90.0,
                 "summary_absolute_delta": 30.0,
@@ -999,6 +804,9 @@ class TestDecomposeRunnerCommitPath(unittest.TestCase):
         self.assertEqual(result["current_ref"]["observation_type"], "time_series")
         self.assertEqual(result["baseline_ref"]["observation_type"], "time_series")
         self.assertEqual(result["scope_absolute_delta"], 30.0)
+        self.assertEqual(result["schema_version"], "2.0")
+        self.assertIsInstance(result["axes"], list)
+        self.assertIsInstance(result["series"], list)
         self.assertEqual(
             result["analytical_metadata"]["decomposition_source"],
             "time_series_summary_delta",
@@ -1010,4 +818,4 @@ class TestDecomposeRunnerCommitPath(unittest.TestCase):
         )
 
 
-# ── detect ────────────────────────────────────────────────────────────────────
+# -- detect --------------------------------------------------------------------

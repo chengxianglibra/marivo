@@ -11,15 +11,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 from marivo.contracts.generated import aoi
 
 AoiAtomicRequest: TypeAlias = (  # noqa: UP040 - mypy hook does not support PEP 695 yet.
-    aoi.Compare
-    | aoi.Decompose
-    | aoi.Correlate
-    | aoi.Detect
-    | aoi.Test
-    | aoi.Forecast
-    | aoi.Observe1
-    | aoi.Observe2
-    | aoi.Observe3
+    aoi.Compare | aoi.Decompose | aoi.Correlate | aoi.Detect | aoi.Test | aoi.Forecast | aoi.Observe
 )
 AoiDerivedRequest: TypeAlias = aoi.Validate | aoi.Attribute | aoi.Diagnose  # noqa: UP040
 AoiArtifact: TypeAlias = aoi.Artifact1 | aoi.Artifact2  # noqa: UP040
@@ -63,7 +55,7 @@ AOI_OPERATION_REGISTRY: dict[str, AoiOperationDefinition] = {
     "forecast": AoiOperationDefinition("forecast", (aoi.Forecast,)),
     "observe": AoiOperationDefinition(
         "observe",
-        (aoi.Observe1, aoi.Observe2, aoi.Observe3),
+        (aoi.Observe,),
     ),
     "test": AoiOperationDefinition("test", (aoi.Test,)),
 }

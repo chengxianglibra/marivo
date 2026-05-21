@@ -335,17 +335,30 @@ def test_marivo_relationship_extension():
 
 
 def test_marivo_metric_extension_minimal():
-    from marivo.transports.http.models.marivo_extensions import MarivoMetricExtension
+    from marivo.transports.http.models.marivo_extensions import (
+        MarivoMetricExtension,
+        SumAggregation,
+    )
 
     ext = MarivoMetricExtension()
-    assert ext.additive_dimensions == []
+    assert isinstance(ext.aggregation_semantics, SumAggregation)
+    assert ext.aggregation_semantics.type == "sum"
 
 
-def test_marivo_metric_extension_all_dimensions():
-    from marivo.transports.http.models.marivo_extensions import MarivoMetricExtension
+def test_marivo_metric_extension_ratio():
+    from marivo.transports.http.models.marivo_extensions import (
+        MarivoMetricExtension,
+        MetricComponentRef,
+        RatioAggregation,
+    )
 
-    ext = MarivoMetricExtension(additive_dimensions=["__all"])
-    assert ext.additive_dimensions == ["__all"]
+    ext = MarivoMetricExtension(
+        aggregation_semantics=RatioAggregation(
+            numerator=MetricComponentRef(metric="metric.converted"),
+            denominator=MetricComponentRef(metric="metric.total"),
+        ),
+    )
+    assert ext.aggregation_semantics.type == "ratio"
 
 
 def test_marivo_metric_filter():

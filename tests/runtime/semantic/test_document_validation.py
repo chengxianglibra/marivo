@@ -63,7 +63,7 @@ def _valid_doc() -> dict:
                             {
                                 "vendor_name": "MARIVO",
                                 "data": {
-                                    "additive_dimensions": ["order_id"],
+                                    "aggregation_semantics": {"type": "sum"},
                                 },
                             }
                         ],
@@ -227,42 +227,6 @@ def test_validate_relationship_must_reference_known_datasets_and_fields() -> Non
 
     assert result.valid is False
     assert any(issue.code == "UNKNOWN_DATASET" for issue in result.errors)
-
-
-def test_validate_metric_extension_allows_unknown_additive_dimensions() -> None:
-    doc = _valid_doc()
-    doc["semantic_model"][0]["metrics"][0]["custom_extensions"][0]["data"][
-        "additive_dimensions"
-    ] = ["missing_dimension"]
-
-    result = OsiSemanticDocumentValidator().validate(doc)
-
-    assert result.valid is True
-    assert result.errors == []
-
-
-def test_validate_metric_extension_all_additive_dimensions_sentinel() -> None:
-    doc = _valid_doc()
-    doc["semantic_model"][0]["metrics"][0]["custom_extensions"][0]["data"][
-        "additive_dimensions"
-    ] = ["__all"]
-
-    result = OsiSemanticDocumentValidator().validate(doc)
-
-    assert result.valid is True
-    assert result.errors == []
-
-
-def test_validate_metric_extension_rejects_mixed_all_additive_dimensions_sentinel() -> None:
-    doc = _valid_doc()
-    doc["semantic_model"][0]["metrics"][0]["custom_extensions"][0]["data"][
-        "additive_dimensions"
-    ] = ["__all", "order_time"]
-
-    result = OsiSemanticDocumentValidator().validate(doc)
-
-    assert result.valid is False
-    assert any("__all" in issue.message for issue in result.errors)
 
 
 def test_validate_datasource_grounding_checks_live_columns() -> None:
@@ -548,7 +512,10 @@ def _composite_time_doc(
                             "dialects": [{"dialect": "ANSI_SQL", "expression": "SUM(amount)"}]
                         },
                         "custom_extensions": [
-                            {"vendor_name": "MARIVO", "data": {"additive_dimensions": ["__all"]}}
+                            {
+                                "vendor_name": "MARIVO",
+                                "data": {"aggregation_semantics": {"type": "sum"}},
+                            }
                         ],
                     }
                 ],

@@ -19,6 +19,7 @@
 - [中英文术语对照表](foundations/terminology.md) — 统一术语、推荐译法与写作约定
 - [Agent 交互分析接口设计准则](foundations/agent-interaction-contract-principles.md) — action surface、state surface、projection surface 的总纲
 - [Agent-First Intent Architecture](foundations/agent-first-intent-architecture.md) — Agent-only 场景下 intent system 的总体分工
+- [Marivo 分析操作总设计](foundations/analysis-operation-architecture.md) — 从接口、DSL、证据衔接到内部对象层的目标态总设计
 - [规范 Schema 设计原则](foundations/canonical-schema-principles.md) — canonical schema 的跨主题设计基线
 
 ## Evidence Engine 主线

@@ -9,7 +9,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from marivo.core.semantic.additivity import is_all_additive_dimensions
 from marivo.runtime.semantic.resolution_orchestrator import (
     ResolvedCompilerInputs,
 )
@@ -89,7 +88,6 @@ def validate_compiler_inputs(
     issues.extend(_gate_predicate_conflict(resolved_inputs, semantic_repository))
     issues.extend(_gate_dimension_compatibility(resolved_inputs))
     issues.extend(_gate_intent_specific(step_type, resolved_inputs, derived_state))
-    issues.extend(_gate_dimension_additivity_condition(step_type, resolved_inputs, derived_state))
     issues.extend(_gate_lowering_precheck(resolved_inputs, semantic_repository))
 
     errors = [issue for issue in issues if issue.severity == "error"]
@@ -547,64 +545,6 @@ def _gate_intent_specific(
     derived_state: DerivedCompilerState,
 ) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
-    return issues
-
-
-def _gate_dimension_additivity_condition(
-    step_type: str,
-    resolved_inputs: ResolvedCompilerInputs,
-    derived_state: DerivedCompilerState,
-) -> list[ValidationIssue]:
-    """Gate decompose/attribute dimensions against additive_dimensions."""
-    issues: list[ValidationIssue] = []
-    caps = derived_state.metric_capabilities
-    if caps is None:
-        return issues
-    if step_type not in ("decompose", "attribute"):
-        return issues
-    if len(caps.additive_dimensions) == 0 or is_all_additive_dimensions(caps.additive_dimensions):
-        return issues
-
-    # Check resolved canonical dimension refs against additive_dimensions.
-    resolved_refs = set(resolved_inputs.resolved_dimension_refs)
-    for dim in resolved_refs:
-        if dim not in caps.additive_dimensions:
-            issues.append(
-                ValidationIssue(
-                    code="COMPILER_DIMENSION_NOT_ADDITIVE",
-                    gate="dimension_additivity",
-                    category="compatibility",
-                    severity="error",
-                    message=(f"Dimension '{dim}' is not in additive_dimensions for this metric."),
-                    subject_ref=resolved_inputs.resolved_metric.ref
-                    if resolved_inputs.resolved_metric is not None
-                    else None,
-                )
-            )
-
-    # Fail-closed: any requested dimension that wasn't resolved to a canonical
-    # ref (e.g. plain names like "platform") cannot be verified against
-    # additive_dimensions, so must be rejected.
-    all_requested = set(resolved_inputs.normalized_request.request_dimensions)
-    unresolved = all_requested - resolved_refs
-    for dim in unresolved:
-        issues.append(
-            ValidationIssue(
-                code="COMPILER_DIMENSION_NOT_ADDITIVE",
-                gate="dimension_additivity",
-                category="compatibility",
-                severity="error",
-                message=(
-                    f"Dimension '{dim}' could not be resolved to a canonical ref "
-                    f"and cannot be verified against additive_dimensions "
-                    f"for this metric."
-                ),
-                subject_ref=resolved_inputs.resolved_metric.ref
-                if resolved_inputs.resolved_metric is not None
-                else None,
-            )
-        )
-
     return issues
 
 

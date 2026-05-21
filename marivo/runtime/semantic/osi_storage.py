@@ -7,7 +7,7 @@ expected by / returned from the SQLite metadata store.
 from __future__ import annotations
 
 import json
-from typing import Any, Literal, cast
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -28,9 +28,14 @@ from marivo.contracts.generated.osi import (
     MarivoMetricExtension as OsiMarivoMetricExtension,
 )
 from marivo.contracts.semantic_extensions import (
+    ExpressionComponent,
     MarivoDatasetExtension,
     MarivoFieldExtension,
     MarivoMetricExtension,
+    MetricComponentRef,
+    RatioAggregation,
+    SumAggregation,
+    WeightedAverageAggregation,
 )
 from marivo.core.semantic.extensions import (
     OsiCustomExtensionLike,
@@ -187,15 +192,30 @@ def relationship_to_storage(rel: Relationship, model_id: int) -> dict[str, Any]:
     }
 
 
+def _component_spec_to_json(spec: MetricComponentRef | ExpressionComponent | None) -> str | None:
+    """Serialize a ComponentSpec to JSON string for DB storage."""
+    if spec is None:
+        return None
+    return json.dumps(spec.model_dump(mode="json"))
+
+
 def metric_to_storage(metric: Metric, model_id: int) -> dict[str, Any]:
     """Extract fields for a ``semantic_metrics`` row."""
     marivo_ext = extract_marivo_extension(metric.custom_extensions, MarivoMetricExtension)
-    additive_dimensions = (
-        json.dumps(marivo_ext.additive_dimensions)
-        if marivo_ext and marivo_ext.additive_dimensions is not None
-        else None
-    )
-    aggregation_semantics = marivo_ext.aggregation_semantics if marivo_ext else "sum"
+    agg = marivo_ext.aggregation_semantics if marivo_ext else SumAggregation()
+    aggregation_semantics_str = agg.type
+    if isinstance(agg, RatioAggregation):
+        numerator = _component_spec_to_json(agg.numerator)
+        denominator = _component_spec_to_json(agg.denominator)
+        weight = None
+    elif isinstance(agg, WeightedAverageAggregation):
+        numerator = _component_spec_to_json(agg.numerator)
+        denominator = None
+        weight = _component_spec_to_json(agg.weight)
+    else:
+        numerator = None
+        denominator = None
+        weight = None
     expression = json.dumps(metric.expression.model_dump(exclude_none=True))
     ai_context = _ai_context_to_json(metric.ai_context)
     return {
@@ -204,8 +224,10 @@ def metric_to_storage(metric: Metric, model_id: int) -> dict[str, Any]:
         "expression": expression,
         "description": metric.description,
         "ai_context": ai_context,
-        "additive_dimensions": additive_dimensions,
-        "aggregation_semantics": aggregation_semantics,
+        "numerator": numerator,
+        "denominator": denominator,
+        "weight": weight,
+        "aggregation_semantics": aggregation_semantics_str,
     }
 
 
@@ -290,20 +312,39 @@ def _storage_to_relationship(row: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def _parse_component_spec(json_text: str | None) -> MetricComponentRef | ExpressionComponent | None:
+    """Deserialize a ComponentSpec from JSON string stored in DB."""
+    if json_text is None:
+        return None
+    data = json.loads(json_text)
+    if "metric" in data:
+        return MetricComponentRef(metric=data["metric"])
+    elif "expression" in data:
+        return ExpressionComponent(expression=data["expression"])
+    raise ValueError(f"unknown component spec keys: {list(data.keys())}")
+
+
 def _storage_to_metric(row: dict[str, Any]) -> dict[str, Any]:
     """Assemble a metric dict from a storage row."""
-    additive_dimensions = (
-        json.loads(row["additive_dimensions"])
-        if row.get("additive_dimensions") is not None
-        else None
-    )
-    aggregation_semantics = cast(
-        "Literal['sum', 'ratio', 'weighted_average']", row.get("aggregation_semantics") or "sum"
-    )
-    marivo_ext = MarivoMetricExtension(
-        additive_dimensions=additive_dimensions or [],
-        aggregation_semantics=aggregation_semantics,
-    )
+    agg_type = row.get("aggregation_semantics") or "sum"
+    num_spec = _parse_component_spec(row.get("numerator"))
+    den_spec = _parse_component_spec(row.get("denominator"))
+    wt_spec = _parse_component_spec(row.get("weight"))
+
+    if agg_type == "ratio":
+        assert num_spec is not None, "ratio aggregation requires numerator"
+        assert den_spec is not None, "ratio aggregation requires denominator"
+        agg: SumAggregation | RatioAggregation | WeightedAverageAggregation = RatioAggregation(
+            numerator=num_spec, denominator=den_spec
+        )
+    elif agg_type == "weighted_average":
+        assert num_spec is not None, "weighted_average aggregation requires numerator"
+        assert wt_spec is not None, "weighted_average aggregation requires weight"
+        agg = WeightedAverageAggregation(numerator=num_spec, weight=wt_spec)
+    else:
+        agg = SumAggregation()
+
+    marivo_ext = MarivoMetricExtension(aggregation_semantics=agg)
     result: dict[str, Any] = {
         "name": row["name"],
         "expression": json.loads(row["expression"]),

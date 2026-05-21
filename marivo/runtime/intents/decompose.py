@@ -5,22 +5,21 @@ import hashlib
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
-from marivo.contracts.errors import ExecutionError
 from marivo.core.intent.primitives import new_step_id
-from marivo.core.semantic.additivity import (
-    additive_dimension_allows,
-    additive_time_rollup_allowed,
-    derive_additivity_capabilities,
-)
 from marivo.core.semantic.ir import AnalysisStepIR
 from marivo.runtime.intents._helpers import commit_step_result
+from marivo.runtime.intents.decompose_strategies import dispatch_decomposition_strategy
+from marivo.runtime.intents.metric_frame import (
+    has_dimension_axis,
+    has_time_axis,
+    read_axes_from_artifact,
+)
 from marivo.runtime.semantic.executor import execute_compiled
 from marivo.time_scope import normalize_metric_query_request
 
 if TYPE_CHECKING:
     from marivo.runtime.runtime import MarivoRuntime
 
-_FLAT_TOLERANCE_RELATIVE = 0.01
 _AOI_PARAM_KEYS: frozenset[str] = frozenset({"compare_artifact_id", "dimension", "limit"})
 
 
@@ -90,10 +89,6 @@ def run_decompose_intent(
     scope_direction: str = normalized_compare["scope_direction"]
     source_observation_type: str = normalized_compare["source_observation_type"]
     source_analytical_metadata: dict[str, Any] = normalized_compare["analytical_metadata"]
-    frozen_additive_dimensions: list[str] | None = normalized_compare.get(
-        "frozen_additive_dimensions"
-    )
-
     lineage_info: dict[str, Any] = compare_artifact.get("lineage") or {}
     current_source_ref: dict[str, Any] = lineage_info.get("current_source_ref") or {}
     baseline_source_ref: dict[str, Any] = lineage_info.get("baseline_source_ref") or {}
@@ -113,101 +108,12 @@ def run_decompose_intent(
     baseline_scope: dict[str, Any] = resolved_input.get("baseline_scope") or {}
 
     # ── Validate metric and dimension ────────────────────────────────────────
-    # Use frozen additive_dimensions from compare artifact lineage for idempotent retries.
-    # Fallback to current metric state for older artifacts without frozen metadata.
-    dims_for_gate: list[str]
-    if frozen_additive_dimensions is not None:
-        dims_for_gate = frozen_additive_dimensions
-        gate_source = "compare_artifact_lineage"
-    else:
-        resolved_metric = runtime.resolve_metric(metric_name)
-        if resolved_metric is None:
-            raise ValueError(f"decompose: metric '{metric_name}' not found or not published")
-        _metric_header = resolved_metric.semantic_object.get("header") or {}
-        dims_for_gate = _metric_header.get("additive_dimensions") or []
-        gate_source = "current_metric_state"
-
-    # Resolve metric for aggregation_semantics needed by capability derivation
     resolved_metric = runtime.resolve_metric(metric_name)
     if resolved_metric is None:
         raise ValueError(f"decompose: metric '{metric_name}' not found or not published")
 
     _resolved_header = resolved_metric.semantic_object.get("header") or {}
-    additivity_caps = derive_additivity_capabilities(
-        additive_dimensions=dims_for_gate,
-    )
     metric_aggregation_semantics = _resolved_header.get("aggregation_semantics") or "sum"
-
-    # Derive time_rollup_allowed from request-level time_scope.field
-    _time_scope_field = (
-        str(current_time_scope.get("field") or "").strip() if current_time_scope else None
-    )
-    time_rollup_allowed = additive_time_rollup_allowed(dims_for_gate, _time_scope_field)
-    if not additivity_caps.supports_decompose:
-        raise ExecutionError(
-            code="ADDITIVITY_CONSTRAINT",
-            category="compatibility",
-            message=(
-                f"decompose: ADDITIVITY_CONSTRAINT - metric '{metric_name}' does not support "
-                f"decomposition (additive_dimensions={additivity_caps.additive_dimensions}, "
-                f"blocker='{additivity_caps.blocker}', "
-                f"gate_source='{gate_source}')"
-                + (
-                    f"; {additivity_caps.remediation_hint}"
-                    if additivity_caps.remediation_hint
-                    else ""
-                )
-            ),
-            detail={
-                "compatibility_error": {
-                    "code": "ADDITIVITY_CONSTRAINT",
-                    "metric": metric_name,
-                    "additive_dimensions": additivity_caps.additive_dimensions,
-                    "time_rollup_allowed": time_rollup_allowed,
-                    "blocker": additivity_caps.blocker,
-                    "gate_source": gate_source,
-                    "remediation_hint": additivity_caps.remediation_hint,
-                },
-            },
-        )
-
-    if len(additivity_caps.additive_dimensions) > 0 and not additive_dimension_allows(
-        additivity_caps.additive_dimensions, dimension
-    ):
-        disallowed = [dimension]
-        raise ExecutionError(
-            code="ADDITIVITY_CONSTRAINT_DIMENSION_NOT_ALLOWED",
-            category="compatibility",
-            message=(
-                f"decompose: ADDITIVITY_CONSTRAINT_DIMENSION_NOT_ALLOWED - metric "
-                f"'{metric_name}' does not allow "
-                f"decomposition on '{dimension}'. "
-                f"Allowed: {sorted(additivity_caps.additive_dimensions)}, "
-                f"Disallowed: {disallowed}"
-                + (
-                    f"; {additivity_caps.remediation_hint}"
-                    if additivity_caps.remediation_hint
-                    else ""
-                )
-            ),
-            detail={
-                "compatibility_error": {
-                    "code": "ADDITIVITY_CONSTRAINT_DIMENSION_NOT_ALLOWED",
-                    "metric": metric_name,
-                    "additive_dimensions": sorted(additivity_caps.additive_dimensions),
-                    "disallowed_dimensions": disallowed,
-                    "requested_dimensions": [dimension],
-                    "time_rollup_allowed": time_rollup_allowed,
-                    "remediation_hint": additivity_caps.remediation_hint,
-                },
-            },
-        )
-
-    # Resolve metric for dimension validation (dimensions are runtime state, not frozen)
-    # resolved_metric already loaded above; re-resolve for fresh dimension state
-    resolved_metric = runtime.resolve_metric(metric_name)
-    if resolved_metric is None:
-        raise ValueError(f"decompose: metric '{metric_name}' not found or not published")
 
     runtime_dimensions = runtime.resolve_metric_dimensions(metric_name) or []
     valid_dimensions = (
@@ -300,129 +206,41 @@ def run_decompose_intent(
             }
         )
 
-    # ── Build DeltaDecompositionRow list ──────────────────────────────────────
+    # ── Build decomposition via strategy dispatcher ──────────────────────────────
     left_map: dict[Any, float | None] = {
         row.get(dimension): _safe_float(row.get("current_value")) for row in left_rows
     }
     right_map: dict[Any, float | None] = {
         row.get(dimension): _safe_float(row.get("current_value")) for row in right_rows
     }
-    all_keys: set[Any] = set(left_map) | set(right_map)
 
-    rows: list[dict[str, Any]] = []
-    for key in sorted(all_keys, key=lambda k: "" if k is None else str(k)):
-        in_left = key in left_map
-        in_right = key in right_map
-        lv: float | None = left_map.get(key) if in_left else None
-        rv: float | None = right_map.get(key) if in_right else None
-
-        if in_left and in_right:
-            presence = "both"
-            abs_contribution = _delta(lv, rv)
-        elif in_left:
-            presence = "current_only"
-            rv = None
-            # absolute_contribution = current_value (right treated as 0)
-            abs_contribution = lv
-        else:
-            presence = "baseline_only"
-            lv = None
-            # absolute_contribution = -baseline_value (right side disappeared)
-            abs_contribution = (-rv) if rv is not None else None
-
-        contribution_share = _signed_share(abs_contribution, scope_absolute_delta)
-        direction = _compute_direction(abs_contribution)
-
-        rows.append(
-            {
-                "key": key,
-                "current_value": lv,
-                "baseline_value": rv,
-                "absolute_contribution": abs_contribution,
-                "contribution_share": contribution_share,
-                "direction": direction,
-                "presence": presence,
-            }
-        )
-
-    # ── Empty semantics: fail if no contribution rows ─────────────────────────
-    if not rows:
-        raise ValueError(
-            "decompose: NOT_ATTRIBUTABLE - no canonical contribution rows could be formed "
-            "for the requested dimension"
-        )
-
-    # Sort: abs(contribution_share) desc, then abs(absolute_contribution) desc, then key
-    rows.sort(
-        key=lambda r: (
-            -(abs(r["contribution_share"]) if r["contribution_share"] is not None else 0.0),
-            -(abs(r["absolute_contribution"]) if r["absolute_contribution"] is not None else 0.0),
-            "" if r["key"] is None else str(r["key"]),
-        )
+    decomp = dispatch_decomposition_strategy(
+        aggregation_semantics=metric_aggregation_semantics,
+        left_map=left_map,
+        right_map=right_map,
+        scope_absolute_delta=scope_absolute_delta,
+        dimension=dimension,
     )
+
+    rows = decomp.rows
     returned_rows = rows[:limit] if limit is not None else rows
-
-    # ── Unexplained delta ─────────────────────────────────────────────────────
-    explained = sum(
-        r["absolute_contribution"] for r in rows if r["absolute_contribution"] is not None
-    )
-    if scope_absolute_delta is not None:
-        unexplained_absolute_delta = scope_absolute_delta - explained
-        unexplained_share: float | None = (
-            unexplained_absolute_delta / scope_absolute_delta if scope_absolute_delta != 0 else None
-        )
-        # Treat rounding-level residuals as zero
-        if unexplained_absolute_delta is not None and abs(unexplained_absolute_delta) < 1e-9:
-            unexplained_absolute_delta = 0.0
-            unexplained_share = 0.0
-    else:
-        unexplained_absolute_delta = None
-        unexplained_share = None
-
-    # ── Attribution status & reconciliation ──────────────────────────────────
-    issues: list[dict[str, Any]] = []
-    if scope_absolute_delta is None:
-        issues.append(
-            {
-                "code": "data_incomplete",
-                "severity": "warning",
-                "message": "scope_absolute_delta is null; contribution_share cannot be computed",
-            }
-        )
-
-    # Reconciliation check: only for additive (sum) metrics
-    reconciliation_expected = metric_aggregation_semantics == "sum" and len(dims_for_gate) > 0
-    if (
-        reconciliation_expected
-        and unexplained_absolute_delta is not None
-        and unexplained_absolute_delta != 0.0
-        and scope_absolute_delta is not None
-        and scope_absolute_delta != 0
-    ):
-        relative_unexplained = abs(unexplained_absolute_delta / scope_absolute_delta)
-        if relative_unexplained > _FLAT_TOLERANCE_RELATIVE:
-            unexplained_reason: str | None = "scope_recomputation_failed"
-            issues.append(
-                {
-                    "code": "attribution_not_reconcilable",
-                    "severity": "error",
-                    "message": (
-                        f"Explained sum diverges from scope_absolute_delta by "
-                        f"{relative_unexplained:.1%}; recomputed scope may differ from "
-                        f"upstream compare due to grain or filter differences."
-                    ),
-                }
-            )
-        else:
-            unexplained_reason = "rounding"
-    elif not reconciliation_expected and unexplained_absolute_delta is not None:
-        unexplained_reason = "non_additive_aggregation"
-    else:
-        unexplained_reason = None
-
+    unexplained_absolute_delta = decomp.unexplained_absolute_delta
+    unexplained_share = decomp.unexplained_share
+    unexplained_reason = decomp.unexplained_reason
+    issues = decomp.issues
     attribution_status = (
         "needs_attention" if any(i["severity"] == "error" for i in issues) else "attributable"
     )
+
+    # ── Build v2.0 axes+series from decomposition rows ──────────────────────────
+    decompose_axes: list[dict[str, str]] = [{"kind": "dimension", "name": dimension}]
+    decompose_series: list[dict[str, Any]] = [
+        {
+            "keys": {dimension: row["key"]},
+            "points": [{k: v for k, v in row.items() if k != "key"}],
+        }
+        for row in returned_rows
+    ]
 
     # ── Build artifact ────────────────────────────────────────────────────────
     step_id = new_step_id()
@@ -450,13 +268,18 @@ def run_decompose_intent(
     }
 
     artifact: dict[str, Any] = {
+        "schema_version": "2.0",
         "decomposition_type": "delta_decomposition",
         "metric": metric_name,
         "compare_ref": compare_ref_out,
         "current_ref": current_ref_out,
         "baseline_ref": baseline_ref_out,
+        "axes": decompose_axes,
+        "series": decompose_series,
+        # Backward-compatible aliases for downstream intents during v2.0 transition
         "dimension": dimension,
-        "method": "delta_share",
+        "rows": returned_rows,
+        "method": decomp.method,
         "unit": unit,
         "current_time_scope": current_time_scope,
         "baseline_time_scope": baseline_time_scope,
@@ -470,18 +293,18 @@ def run_decompose_intent(
         "scope_relative_delta": scope_relative_delta,
         "scope_direction": scope_direction,
         "attribution": {"status": attribution_status, "issues": issues},
-        "rows": returned_rows,
         "unexplained_absolute_delta": unexplained_absolute_delta,
         "unexplained_share": unexplained_share,
         "unexplained_reason": unexplained_reason,
         "analytical_metadata": {
-            "method": "delta_share",
+            "method": decomp.method,
             "aggregation_semantics": metric_aggregation_semantics,
-            "additive_dimensions": dims_for_gate,
-            "additive_dimensions_source": gate_source,
-            "time_rollup_allowed": time_rollup_allowed,
-            "reconciliation_expected": reconciliation_expected,
-            "flat_tolerance_relative": _FLAT_TOLERANCE_RELATIVE,
+            "reconciliation_status": decomp.quality.reconciliation_status,
+            "reconciliation_gap": decomp.quality.reconciliation_gap,
+            "confidence_grade": decomp.quality.confidence_grade,
+            "confidence_rationale": decomp.quality.confidence_rationale,
+            "recommended_use": decomp.quality.recommended_use,
+            "flat_tolerance_relative": 0.01,
             "current_row_count": len(left_rows),
             "baseline_row_count": len(right_rows),
             "returned_row_count": len(returned_rows),
@@ -490,11 +313,6 @@ def run_decompose_intent(
                 "scope": "frozen_compare_window",
                 "time_rollup_implied": False,
             },
-        },
-        "version_metadata": {
-            "artifact_schema_version": "1.0",
-            "source_contract_version": "1.0",
-            "derivation_version": "1.0",
         },
         "source_lineage": {
             "compare_artifact": compare_ref_out,
@@ -507,7 +325,7 @@ def run_decompose_intent(
     artifact_name = f"{metric_name}_decompose_{dimension}"
     summary = (
         f"decompose {metric_name} by {dimension}: "
-        f"{len(returned_rows)} contribution rows "
+        f"{len(decompose_series)} series entries "
         f"(scope Δ {scope_absolute_delta if scope_absolute_delta is not None else 'n/a'})"
     )
 
@@ -536,31 +354,70 @@ def run_decompose_intent(
 
 
 def _normalize_decompose_compare_input(compare_artifact: dict[str, Any]) -> dict[str, Any]:
-    comparison_type = compare_artifact.get("comparison_type")
-    # Extract frozen additive_dimensions from compare artifact's analytical_metadata
-    compare_am: dict[str, Any] = compare_artifact.get("analytical_metadata") or {}
-    frozen_additive_dimensions: list[str] | None = compare_am.get("additive_dimensions")
+    """Normalize a compare artifact for decompose input.
+
+    Reads from v2.0 (axes+series) format with fallback to legacy top-level fields.
+    """
+    axes = read_axes_from_artifact(compare_artifact)
+    comparison_type = compare_artifact.get("comparison_type", "")
+
+    # Determine observation type from axes (v2.0 canonical)
+    if has_time_axis(axes) and has_dimension_axis(axes):
+        source_observation_type = "panel"
+    elif has_time_axis(axes):
+        source_observation_type = "time_series"
+    elif has_dimension_axis(axes):
+        source_observation_type = "segmented"
+    else:
+        source_observation_type = "scalar"
+
+    # Infer comparison_type from axes if not explicitly set (v2.0 artifacts always
+    # include comparison_type, but this makes the normalizer robust for edge cases)
+    if not comparison_type:
+        if source_observation_type == "scalar":
+            comparison_type = "scalar_delta"
+        elif source_observation_type == "time_series":
+            comparison_type = "time_series_delta"
+        elif source_observation_type == "segmented":
+            comparison_type = "segmented_delta"
+
+    resolved_input: dict[str, Any] = compare_artifact.get("resolved_input_summary") or {}
 
     if comparison_type == "scalar_delta":
-        resolved_input: dict[str, Any] = compare_artifact.get("resolved_input_summary") or {}
+        # Read from v2.0 series format; fall back to top-level aliases for v1.0 compat
+        series_list = compare_artifact.get("series") or []
+        points = (series_list[0].get("points") or []) if series_list else []
+        if points:
+            point = points[0]
+            scope_current_value = _safe_float(point.get("current_value"))
+            scope_baseline_value = _safe_float(point.get("baseline_value"))
+            scope_absolute_delta = _safe_float(point.get("delta"))
+            scope_relative_delta = _safe_float(point.get("delta_pct"))
+            scope_direction = point.get("direction") or "undefined"
+        else:
+            # v1.0 fallback: read from top-level fields
+            scope_current_value = _safe_float(compare_artifact.get("current_value"))
+            scope_baseline_value = _safe_float(compare_artifact.get("baseline_value"))
+            scope_absolute_delta = _safe_float(compare_artifact.get("absolute_delta"))
+            scope_relative_delta = _safe_float(compare_artifact.get("relative_delta"))
+            scope_direction = compare_artifact.get("direction") or "undefined"
+
         return {
             "comparison_type": "scalar_delta",
             "metric_name": compare_artifact.get("metric") or "",
             "unit": compare_artifact.get("unit"),
-            "scope_current_value": _safe_float(compare_artifact.get("current_value")),
-            "scope_baseline_value": _safe_float(compare_artifact.get("baseline_value")),
-            "scope_absolute_delta": _safe_float(compare_artifact.get("absolute_delta")),
-            "scope_relative_delta": _safe_float(compare_artifact.get("relative_delta")),
-            "scope_direction": compare_artifact.get("direction") or "undefined",
-            "source_observation_type": "scalar",
+            "scope_current_value": scope_current_value,
+            "scope_baseline_value": scope_baseline_value,
+            "scope_absolute_delta": scope_absolute_delta,
+            "scope_relative_delta": scope_relative_delta,
+            "scope_direction": scope_direction,
+            "source_observation_type": source_observation_type,
             "current_time_scope": dict(resolved_input.get("current_time_scope") or {}),
             "baseline_time_scope": dict(resolved_input.get("baseline_time_scope") or {}),
             "analytical_metadata": {"decomposition_source": "scalar_delta"},
-            "frozen_additive_dimensions": frozen_additive_dimensions,
         }
 
     if comparison_type == "time_series_delta":
-        resolved_input = compare_artifact.get("resolved_input_summary") or {}
         analytical = compare_artifact.get("analytical_metadata") or {}
         current_time_scope = dict(resolved_input.get("current_time_scope") or {})
         baseline_time_scope = dict(resolved_input.get("baseline_time_scope") or {})
@@ -576,28 +433,85 @@ def _normalize_decompose_compare_input(compare_artifact: dict[str, Any]) -> dict
         elif isinstance(matched_time_scope, dict) and matched_time_scope:
             baseline_time_scope = dict(matched_time_scope)
 
+        # Read summary values from series points aggregation (v2.0 canonical).
+        # Aggregate matched-pair current/baseline values, then compute delta.
+        # Fall back to top-level summary_* fields if series is absent or empty.
+        series_list = compare_artifact.get("series") or []
+        series_points = (series_list[0].get("points") or []) if series_list else []
+        matched_current_values: list[float] = []
+        matched_baseline_values: list[float] = []
+        for point in series_points:
+            presence = point.get("presence")
+            cv = _safe_float(point.get("current_value"))
+            bv = _safe_float(point.get("baseline_value"))
+            if (
+                (presence == "both" or (cv is not None and bv is not None))
+                and cv is not None
+                and bv is not None
+            ):
+                matched_current_values.append(cv)
+                matched_baseline_values.append(bv)
+
+        if matched_current_values:
+            scope_current_value = sum(matched_current_values)
+        else:
+            scope_current_value = _safe_float(compare_artifact.get("summary_current_value"))
+
+        if matched_baseline_values:
+            scope_baseline_value = sum(matched_baseline_values)
+        else:
+            scope_baseline_value = _safe_float(compare_artifact.get("summary_baseline_value"))
+
+        if scope_current_value is not None and scope_baseline_value is not None:
+            scope_absolute_delta = scope_current_value - scope_baseline_value
+            if scope_baseline_value != 0:
+                scope_relative_delta = scope_absolute_delta / scope_baseline_value
+            else:
+                scope_relative_delta = None
+        else:
+            scope_absolute_delta = _safe_float(compare_artifact.get("summary_absolute_delta"))
+            scope_relative_delta = _safe_float(compare_artifact.get("summary_relative_delta"))
+
+        flat_tolerance = 0.01
+        if scope_absolute_delta is not None:
+            if scope_absolute_delta == 0 or (
+                scope_relative_delta is not None and abs(scope_relative_delta) <= flat_tolerance
+            ):
+                scope_direction = "flat"
+            elif scope_absolute_delta > 0:
+                scope_direction = "increase"
+            else:
+                scope_direction = "decrease"
+        else:
+            scope_direction = compare_artifact.get("summary_direction") or "undefined"
+
+        # Derive granularity from axes
+        granularity = None
+        for ax in axes:
+            if ax.get("kind") == "time":
+                granularity = ax.get("grain")
+
         return {
             "comparison_type": "time_series_delta",
             "metric_name": compare_artifact.get("metric") or "",
             "unit": compare_artifact.get("unit"),
-            "scope_current_value": _safe_float(compare_artifact.get("summary_current_value")),
-            "scope_baseline_value": _safe_float(compare_artifact.get("summary_baseline_value")),
-            "scope_absolute_delta": _safe_float(compare_artifact.get("summary_absolute_delta")),
-            "scope_relative_delta": _safe_float(compare_artifact.get("summary_relative_delta")),
-            "scope_direction": compare_artifact.get("summary_direction") or "undefined",
-            "source_observation_type": "time_series",
+            "scope_current_value": scope_current_value,
+            "scope_baseline_value": scope_baseline_value,
+            "scope_absolute_delta": scope_absolute_delta,
+            "scope_relative_delta": scope_relative_delta,
+            "scope_direction": scope_direction,
+            "source_observation_type": source_observation_type,
             "current_time_scope": current_time_scope,
             "baseline_time_scope": baseline_time_scope,
             "analytical_metadata": {
                 "decomposition_source": "time_series_summary_delta",
-                "source_granularity": compare_artifact.get("granularity"),
+                "source_granularity": granularity or compare_artifact.get("granularity"),
                 "source_matched_bucket_count": analytical.get("matched_bucket_count"),
                 "source_dropped_current_buckets": analytical.get("dropped_current_buckets"),
                 "source_dropped_baseline_buckets": analytical.get("dropped_baseline_buckets"),
                 "source_pairing_basis": analytical.get("pairing_basis"),
                 "source_pairing_rule": analytical.get("pairing_rule"),
             },
-            "frozen_additive_dimensions": frozen_additive_dimensions,
         }
 
     raise ValueError(
@@ -687,26 +601,3 @@ def _safe_float(v: Any) -> float | None:
     with contextlib.suppress(TypeError, ValueError):
         return float(v)
     return None
-
-
-def _delta(left: float | None, right: float | None) -> float | None:
-    if left is None or right is None:
-        return None
-    return left - right
-
-
-def _signed_share(
-    absolute_contribution: float | None, scope_absolute_delta: float | None
-) -> float | None:
-    """Signed contribution share = absolute_contribution / scope_absolute_delta."""
-    if absolute_contribution is None or scope_absolute_delta is None or scope_absolute_delta == 0:
-        return None
-    return absolute_contribution / scope_absolute_delta
-
-
-def _compute_direction(absolute_contribution: float | None) -> str:
-    if absolute_contribution is None:
-        return "undefined"
-    if absolute_contribution == 0:
-        return "flat"
-    return "increase" if absolute_contribution > 0 else "decrease"

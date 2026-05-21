@@ -31,7 +31,6 @@ class TestObserveRunner(unittest.TestCase):
         runtime.insert_step.return_value = None
         runtime.resolve_metric_execution_context.return_value = SimpleNamespace(
             table_name="src.metrics",
-            additive_dimensions=["event_date"],
         )
         runtime.resolve_metric.return_value = SimpleNamespace(
             semantic_object={"header": {"aggregation_semantics": "sum"}}
@@ -91,8 +90,10 @@ class TestObserveRunner(unittest.TestCase):
         self.assertEqual(result["artifact_id"], _FAKE_ARTIFACT_ID)
         self.assertEqual(result["observation_type"], "scalar")
         self.assertEqual(result["metric"], "m1")
-        self.assertEqual(result["value"], 42.5)
+        self.assertEqual(result["schema_version"], "2.0")
+        self.assertEqual(result["series"][0]["points"][0]["value"], 42.5)
         self.assertEqual(result["scope"], {})
+        self.assertEqual(result["axes"], [])
         self.assertEqual(result["analytical_metadata"]["row_count"], 7)
         self.assertEqual(result["analytical_metadata"]["quality_status"], "ready")
         args, kwargs = runtime.commit_artifact_with_extraction.call_args
@@ -230,11 +231,12 @@ class TestObserveRunner(unittest.TestCase):
         )
 
         self.assertEqual(result["observation_type"], "time_series")
+        self.assertEqual(result["schema_version"], "2.0")
         compiled_call = runtime.compile_step.call_args.args[0]
         self.assertEqual(compiled_call.params["limit"], 1000)
-        self.assertEqual(result["granularity"], "day")
+        self.assertEqual(result["axes"], [{"kind": "time", "grain": "day"}])
         self.assertEqual(
-            result["series"],
+            result["series"][0]["points"],
             [
                 {"window": {"start": "2026-04-01", "end": "2026-04-02"}, "value": 10.0},
                 {"window": {"start": "2026-04-02", "end": "2026-04-03"}, "value": None},
@@ -258,7 +260,7 @@ class TestObserveRunner(unittest.TestCase):
         )
 
         self.assertEqual(
-            result["series"],
+            result["series"][0]["points"],
             [
                 {"window": {"start": "2026-04-01", "end": "2026-04-02"}, "value": None},
                 {"window": {"start": "2026-04-02", "end": "2026-04-03"}, "value": None},
@@ -288,7 +290,7 @@ class TestObserveRunner(unittest.TestCase):
                 ],
             ),
         ]
-        for granularity, start, end, expected_series in cases:
+        for granularity, start, end, expected_points in cases:
             with self.subTest(granularity=granularity):
                 runtime, result = self._run_observe(
                     {
@@ -304,7 +306,7 @@ class TestObserveRunner(unittest.TestCase):
                 )
                 scoped_call = runtime.build_scoped_query.call_args.args[1]
                 self.assertEqual(scoped_call.time_scope.grain, granularity)
-                self.assertEqual(result["series"], expected_series)
+                self.assertEqual(result["series"][0]["points"], expected_points)
 
     def test_observe_hour_granularity_uses_hour_internal_grain(self) -> None:
         runtime, _ = self._run_observe(
@@ -340,7 +342,7 @@ class TestObserveRunner(unittest.TestCase):
                 rows=[],
             )
 
-    def test_segmented_observe_builds_sorted_segments(self) -> None:
+    def test_segmented_observe_builds_sorted_series(self) -> None:
         runtime, result = self._run_observe(
             {
                 "metric": "metric.m1",
@@ -359,14 +361,15 @@ class TestObserveRunner(unittest.TestCase):
         )
 
         self.assertEqual(result["observation_type"], "segmented")
+        self.assertEqual(result["schema_version"], "2.0")
         compiled_call = runtime.compile_step.call_args.args[0]
         self.assertEqual(compiled_call.params["limit"], 1000)
-        self.assertEqual(result["dimensions"], ["platform"])
+        self.assertEqual(result["axes"], [{"kind": "dimension", "name": "platform"}])
         self.assertEqual(
-            result["segments"],
+            result["series"],
             [
-                {"keys": {"platform": "web"}, "value": 20.0, "share": None},
-                {"keys": {"platform": "mobile"}, "value": 10.0, "share": None},
+                {"keys": {"platform": "web"}, "points": [{"value": 20.0}]},
+                {"keys": {"platform": "mobile"}, "points": [{"value": 10.0}]},
             ],
         )
         self.assertEqual(result["analytical_metadata"]["quality_status"], "ready")
@@ -386,7 +389,7 @@ class TestObserveRunner(unittest.TestCase):
             rows=[],
         )
 
-        self.assertEqual(result["segments"], [])
+        self.assertEqual(result["series"], [])
         self.assertEqual(result["analytical_metadata"]["quality_status"], "not_ready")
 
     def test_segmented_observe_with_datetime_bounds_uses_day_internal_grain(self) -> None:
@@ -414,27 +417,45 @@ class TestObserveRunner(unittest.TestCase):
         compiled_call = runtime.compile_step.call_args.args[0]
         self.assertEqual(compiled_call.params["time_scope"]["grain"], "day")
         self.assertEqual(result["observation_type"], "segmented")
-        self.assertEqual(result["dimensions"], ["log_hour"])
+        self.assertEqual(result["axes"], [{"kind": "dimension", "name": "log_hour"}])
 
-    def test_observe_rejects_granularity_plus_dimensions(self) -> None:
-        from marivo.runtime.intents.observe import run_observe_intent
-
-        runtime = self._make_runtime(dimensions=["platform"])
-        with self.assertRaisesRegex(ValueError, "granularity and dimensions cannot both be set"):
-            run_observe_intent(
-                runtime,
-                _SESSION,
-                {
-                    "metric": "metric.m1",
-                    "time_scope": {
-                        "field": "event_date",
-                        "start": "2026-04-01",
-                        "end": "2026-04-08",
-                    },
-                    "granularity": "day",
-                    "dimensions": ["platform"],
+    def test_observe_granularity_plus_dimensions_produces_panel(self) -> None:
+        runtime, result = self._run_observe(
+            {
+                "metric": "metric.m1",
+                "time_scope": {
+                    "field": "event_date",
+                    "start": "2026-04-01",
+                    "end": "2026-04-03",
                 },
-            )
+                "granularity": "day",
+                "dimensions": ["platform"],
+            },
+            dimensions=["platform"],
+            rows=[
+                {"bucket_start": "2026-04-01", "platform": "web", "value": "10"},
+                {"bucket_start": "2026-04-01", "platform": "mobile", "value": "5"},
+            ],
+        )
+
+        self.assertEqual(result["observation_type"], "panel")
+        self.assertEqual(result["schema_version"], "2.0")
+        self.assertEqual(
+            result["axes"],
+            [
+                {"kind": "time", "grain": "day"},
+                {"kind": "dimension", "name": "platform"},
+            ],
+        )
+        # Panel mode produces series grouped by dimension keys
+        self.assertTrue(len(result["series"]) >= 1)
+        # Each series has keys and points with window+value
+        for s in result["series"]:
+            self.assertIn("keys", s)
+            self.assertIn("points", s)
+            for pt in s["points"]:
+                self.assertIn("window", pt)
+                self.assertIn("value", pt)
 
     def test_observe_hour_granularity_accepts_date_only_range(self) -> None:
         _, result = self._run_observe(
@@ -453,7 +474,7 @@ class TestObserveRunner(unittest.TestCase):
         )
 
         self.assertEqual(result["observation_type"], "time_series")
-        self.assertEqual(result["granularity"], "hour")
+        self.assertEqual(result["axes"], [{"kind": "time", "grain": "hour"}])
 
     def test_observe_malformed_aoi_filter_raises_invalid_argument(self) -> None:
         from marivo.runtime.intents.observe import run_observe_intent

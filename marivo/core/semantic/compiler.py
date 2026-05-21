@@ -700,7 +700,6 @@ _VALIDATION_GATE_ORDER: tuple[
         "predicate_conflict",
         "dimension_compatibility",
         "intent_specific",
-        "dimension_additivity",
         "lowering_precheck",
     ],
     ...,
@@ -714,7 +713,6 @@ _VALIDATION_GATE_ORDER: tuple[
     "predicate_conflict",
     "dimension_compatibility",
     "intent_specific",
-    "dimension_additivity",
     "lowering_precheck",
 )
 

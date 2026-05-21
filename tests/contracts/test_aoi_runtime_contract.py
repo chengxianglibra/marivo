@@ -36,8 +36,8 @@ def _time_scope_payload() -> dict[str, str]:
     }
 
 
-def _observe_request() -> aoi.Observe1:
-    return aoi.Observe1(
+def _observe_request() -> aoi.Observe:
+    return aoi.Observe(
         metric="view_time",
         time_scope=_time_scope(),
     )

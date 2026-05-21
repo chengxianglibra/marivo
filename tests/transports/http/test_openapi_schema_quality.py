@@ -41,6 +41,7 @@ ENVELOPE_OPEN_DICT_POINTERS = {
     "/components/schemas/ExecutionEnvelope/properties/provenance/anyOf/0/additionalProperties",
     "/components/schemas/ExecutionEnvelope/properties/product_metadata/anyOf/0/additionalProperties",
     "/components/schemas/DerivedBundleResult/additionalProperties",
+    "/components/schemas/MarivoMetricExtension/additionalProperties",
 }
 
 for _intent_response_name in (

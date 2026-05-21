@@ -9,36 +9,15 @@ from tests.runtime.intents._runner_fixtures import (
     _FAKE_ARTIFACT_ID,
     _SESSION,
     _FakeCalendarDataReader,
-    _scalar_observation,
-    _time_series_observation,
+    _scalar_observation_v2,
+    _segmented_observation_v2,
+    _time_series_observation_v2,
 )
 
 _LEFT_ARTIFACT_ID = "art_left_obs"
 _RIGHT_ARTIFACT_ID = "art_right_obs"
 _LEFT_STEP_ID = "step_left"
 _RIGHT_STEP_ID = "step_right"
-
-
-def _segmented_observation(metric: str = "m1") -> dict[str, Any]:
-    return {
-        "observation_type": "segmented",
-        "metric": metric,
-        "schema_version": "1.0",
-        "unit": None,
-        "dimensions": ["country"],
-        "segments": [
-            {"keys": {"country": "US"}, "value": 100.0},
-            {"keys": {"country": "CA"}, "value": 50.0},
-        ],
-        "scope_value": 150.0,
-        "analytical_metadata": {
-            "aggregation_semantics": "sum",
-            "additive_dimensions": ["country", "device", "date"],
-            "row_count": 2,
-        },
-        "time_scope": {"field": "time", "start": "2024-01-01", "end": "2024-01-08"},
-        "scope": {},
-    }
 
 
 def _make_runtime(
@@ -50,8 +29,8 @@ def _make_runtime(
     runtime.commit_artifact_with_extraction.return_value = _FAKE_ARTIFACT_ID
     runtime.insert_step.return_value = None
     runtime.resolve_artifact_with_step_by_id.side_effect = [
-        (_LEFT_STEP_ID, left_artifact or _scalar_observation("m1")),
-        (_RIGHT_STEP_ID, right_artifact or _scalar_observation("m1")),
+        (_LEFT_STEP_ID, left_artifact or _scalar_observation_v2("m1")),
+        (_RIGHT_STEP_ID, right_artifact or _scalar_observation_v2("m1")),
     ]
     return runtime
 
@@ -162,7 +141,7 @@ def test_compare_reports_missing_current_artifact_id() -> None:
 def test_compare_reports_missing_baseline_artifact_id() -> None:
     runtime = MagicMock()
     runtime.resolve_artifact_with_step_by_id.side_effect = [
-        (_LEFT_STEP_ID, _scalar_observation("m1")),
+        (_LEFT_STEP_ID, _scalar_observation_v2("m1")),
         None,
     ]
 
@@ -172,7 +151,7 @@ def test_compare_reports_missing_baseline_artifact_id() -> None:
 
 @pytest.mark.parametrize(
     "left_artifact",
-    [_scalar_observation("m1"), _segmented_observation("m1")],
+    [_scalar_observation_v2("m1"), _segmented_observation_v2("m1")],
 )
 def test_compare_type_non_normal_rejects_non_time_series_observations(
     left_artifact: dict[str, Any],
@@ -185,10 +164,10 @@ def test_compare_type_non_normal_rejects_non_time_series_observations(
 
 def test_compare_time_series_commits_time_series_delta() -> None:
     runtime = _make_runtime(
-        _time_series_observation("m1"),
-        _time_series_observation(
+        _time_series_observation_v2("m1"),
+        _time_series_observation_v2(
             "m1",
-            series=[
+            points=[
                 {"window": {"start": "2024-01-01", "end": "2024-01-02"}, "value": 8.0},
                 {"window": {"start": "2024-01-02", "end": "2024-01-03"}, "value": 15.0},
             ],
@@ -198,8 +177,9 @@ def test_compare_time_series_commits_time_series_delta() -> None:
     result = _run_compare(runtime)
 
     assert result["comparison_type"] == "time_series_delta"
-    assert result["granularity"] == "day"
-    assert len(result["rows"]) == 2
+    assert result["axes"] == [{"kind": "time", "grain": "day"}]
+    points = result["series"][0]["points"]
+    assert len(points) == 2
     assert result["summary_current_value"] == 30.0
     assert result["summary_baseline_value"] == 23.0
     assert result["analytical_metadata"]["pairing_basis"] == "input_artifact_window_position"
@@ -207,17 +187,17 @@ def test_compare_time_series_commits_time_series_delta() -> None:
 
 
 def test_compare_time_series_derives_coverage_from_source_series() -> None:
-    current = _time_series_observation(
+    current = _time_series_observation_v2(
         "m1",
-        series=[
+        points=[
             {"window": {"start": "2026-05-12", "end": "2026-05-13"}, "value": 10.0},
             {"window": {"start": "2026-05-13", "end": "2026-05-14"}, "value": 0.0},
             {"window": {"start": "2026-05-14", "end": "2026-05-15"}, "value": None},
         ],
     )
-    baseline = _time_series_observation(
+    baseline = _time_series_observation_v2(
         "m1",
-        series=[
+        points=[
             {"window": {"start": "2026-05-05", "end": "2026-05-06"}, "value": 8.0},
             {"window": {"start": "2026-05-06", "end": "2026-05-07"}, "value": 1.0},
             {"window": {"start": "2026-05-07", "end": "2026-05-08"}, "value": 2.0},
@@ -254,8 +234,8 @@ def test_compare_time_series_derives_coverage_from_source_series() -> None:
 
 def test_compare_time_series_matching_coverage_has_no_coverage_warning() -> None:
     runtime = _make_runtime(
-        _time_series_observation("m1"),
-        _time_series_observation("m1"),
+        _time_series_observation_v2("m1"),
+        _time_series_observation_v2("m1"),
     )
 
     result = _run_compare(runtime)
@@ -278,16 +258,16 @@ def test_compare_time_series_matching_coverage_has_no_coverage_warning() -> None
 
 
 def test_compare_time_series_matching_relative_coverage_ignores_absolute_missing_dates() -> None:
-    current = _time_series_observation(
+    current = _time_series_observation_v2(
         "m1",
-        series=[
+        points=[
             {"window": {"start": "2026-05-12", "end": "2026-05-13"}, "value": 10.0},
             {"window": {"start": "2026-05-13", "end": "2026-05-14"}, "value": None},
         ],
     )
-    baseline = _time_series_observation(
+    baseline = _time_series_observation_v2(
         "m1",
-        series=[
+        points=[
             {"window": {"start": "2026-05-05", "end": "2026-05-06"}, "value": 8.0},
             {"window": {"start": "2026-05-06", "end": "2026-05-07"}, "value": None},
         ],
@@ -314,13 +294,23 @@ def test_compare_time_series_matching_relative_coverage_ignores_absolute_missing
 
 
 def test_compare_segmented_commits_segmented_delta() -> None:
-    right = _segmented_observation("m1")
-    right["segments"] = [
-        {"keys": {"country": "US"}, "value": 80.0},
-        {"keys": {"country": "MX"}, "value": 30.0},
-    ]
-    right["scope_value"] = 110.0
-    runtime = _make_runtime(_segmented_observation("m1"), right)
+    left = _segmented_observation_v2(
+        "m1",
+        dimensions=["country"],
+        series=[
+            {"keys": {"country": "US"}, "points": [{"value": 100.0}]},
+            {"keys": {"country": "CA"}, "points": [{"value": 50.0}]},
+        ],
+    )
+    right = _segmented_observation_v2(
+        "m1",
+        dimensions=["country"],
+        series=[
+            {"keys": {"country": "US"}, "points": [{"value": 80.0}]},
+            {"keys": {"country": "MX"}, "points": [{"value": 30.0}]},
+        ],
+    )
+    runtime = _make_runtime(left, right)
 
     result = _run_compare(runtime)
 
@@ -328,44 +318,58 @@ def test_compare_segmented_commits_segmented_delta() -> None:
     assert "coverage" not in result
     assert result["scope_absolute_delta"] == 40.0
     assert result["lineage"]["compare_type"] == "normal"
-    assert {row["presence"] for row in result["rows"]} == {"both", "current_only", "baseline_only"}
+    series_entries = result["series"]
+    assert {entry["points"][0]["presence"] for entry in series_entries} == {
+        "both",
+        "current_only",
+        "baseline_only",
+    }
 
 
 def test_compare_segmented_log_hour_commits_segmented_delta() -> None:
-    left = _segmented_observation("m1")
-    left["dimensions"] = ["log_hour"]
-    left["segments"] = [
-        {"keys": {"log_hour": "09"}, "value": 100.0},
-        {"keys": {"log_hour": "10"}, "value": 60.0},
-    ]
-    left["scope_value"] = 160.0
-    right = _segmented_observation("m1")
-    right["dimensions"] = ["log_hour"]
-    right["segments"] = [
-        {"keys": {"log_hour": "09"}, "value": 70.0},
-        {"keys": {"log_hour": "11"}, "value": 20.0},
-    ]
-    right["scope_value"] = 90.0
+    left = _segmented_observation_v2(
+        "m1",
+        dimensions=["log_hour"],
+        series=[
+            {"keys": {"log_hour": "09"}, "points": [{"value": 100.0}]},
+            {"keys": {"log_hour": "10"}, "points": [{"value": 60.0}]},
+        ],
+    )
+    right = _segmented_observation_v2(
+        "m1",
+        dimensions=["log_hour"],
+        series=[
+            {"keys": {"log_hour": "09"}, "points": [{"value": 70.0}]},
+            {"keys": {"log_hour": "11"}, "points": [{"value": 20.0}]},
+        ],
+    )
     runtime = _make_runtime(left, right)
 
     result = _run_compare(runtime)
 
     assert result["comparison_type"] == "segmented_delta"
-    assert result["dimensions"] == ["log_hour"]
+    assert result["axes"] == [{"kind": "dimension", "name": "log_hour"}]
     assert result["scope_absolute_delta"] == 70.0
-    assert {next(iter(row["keys"].items())) for row in result["rows"]} == {
+    series_entries = result["series"]
+    assert {next(iter(entry["keys"].items())) for entry in series_entries} == {
         ("log_hour", "09"),
         ("log_hour", "10"),
         ("log_hour", "11"),
     }
-    assert {row["presence"] for row in result["rows"]} == {"both", "current_only", "baseline_only"}
+    assert {entry["points"][0]["presence"] for entry in series_entries} == {
+        "both",
+        "current_only",
+        "baseline_only",
+    }
 
 
 def test_compare_segmented_dimension_mismatch_is_not_comparable() -> None:
-    left = _segmented_observation("m1")
-    right = _segmented_observation("m1")
-    right["dimensions"] = ["device"]
-    right["segments"] = [{"keys": {"device": "ios"}, "value": 100.0}]
+    left = _segmented_observation_v2("m1")
+    right = _segmented_observation_v2(
+        "m1",
+        dimensions=["device"],
+        series=[{"keys": {"device": "ios"}, "points": [{"value": 100.0}]}],
+    )
     runtime = _make_runtime(left, right)
 
     with pytest.raises(ValueError, match="compare: NOT_COMPARABLE - left dimensions"):
@@ -373,24 +377,24 @@ def test_compare_segmented_dimension_mismatch_is_not_comparable() -> None:
 
 
 def test_compare_metric_mismatch_is_not_comparable() -> None:
-    runtime = _make_runtime(_scalar_observation("m1"), _scalar_observation("m2"))
+    runtime = _make_runtime(_scalar_observation_v2("m1"), _scalar_observation_v2("m2"))
 
     with pytest.raises(ValueError, match="compare: NOT_COMPARABLE"):
         _run_compare(runtime)
 
 
 def test_compare_type_normal_aligns_non_overlapping_windows_by_relative_position() -> None:
-    left = _time_series_observation(
+    left = _time_series_observation_v2(
         "m1",
-        series=[
+        points=[
             {"window": {"start": "2026-02-14", "end": "2026-02-15"}, "value": 10.0},
             {"window": {"start": "2026-02-15", "end": "2026-02-16"}, "value": 12.0},
         ],
     )
     left["time_scope"] = {"field": "time", "start": "2026-02-14", "end": "2026-02-16"}
-    right = _time_series_observation(
+    right = _time_series_observation_v2(
         "m1",
-        series=[
+        points=[
             {"window": {"start": "2025-02-14", "end": "2025-02-15"}, "value": 9.0},
             {"window": {"start": "2025-02-15", "end": "2025-02-16"}, "value": 11.0},
         ],
@@ -416,19 +420,20 @@ def test_compare_type_normal_aligns_non_overlapping_windows_by_relative_position
         "start": "2025-02-14",
         "end": "2025-02-16",
     }
-    assert result["rows"][0]["current_value"] == 10.0
-    assert result["rows"][0]["baseline_value"] == 9.0
+    points = result["series"][0]["points"]
+    assert points[0]["current_value"] == 10.0
+    assert points[0]["baseline_value"] == 9.0
 
 
 def test_compare_type_weekday_aligned_uses_nearest_weekday() -> None:
-    left = _time_series_observation(
+    left = _time_series_observation_v2(
         "m1",
-        series=[{"window": {"start": "2026-04-02", "end": "2026-04-03"}, "value": 120.0}],
+        points=[{"window": {"start": "2026-04-02", "end": "2026-04-03"}, "value": 120.0}],
     )
     left["time_scope"] = {"field": "time", "start": "2026-04-02", "end": "2026-04-04"}
-    right = _time_series_observation(
+    right = _time_series_observation_v2(
         "m1",
-        series=[{"window": {"start": "2025-04-03", "end": "2025-04-04"}, "value": 100.0}],
+        points=[{"window": {"start": "2025-04-03", "end": "2025-04-04"}, "value": 100.0}],
     )
     right["time_scope"] = {"field": "time", "start": "2025-04-01", "end": "2025-04-05"}
     runtime = _make_runtime(left, right)
@@ -436,7 +441,8 @@ def test_compare_type_weekday_aligned_uses_nearest_weekday() -> None:
     result = _run_compare(runtime, _compare_params("weekday_aligned"))
 
     assert result["analytical_metadata"]["pairing_rule"] == "same_weekday"
-    assert result["rows"][0]["baseline_value"] == 100.0
+    points = result["series"][0]["points"]
+    assert points[0]["baseline_value"] == 100.0
     assert (
         result["resolved_input_summary"]["calendar_alignment"]["bucket_pairing"][0][
             "pairing_reason"
@@ -446,21 +452,22 @@ def test_compare_type_weekday_aligned_uses_nearest_weekday() -> None:
 
 
 def test_compare_type_weekday_aligned_falls_back_to_relative_position() -> None:
-    left = _time_series_observation(
+    left = _time_series_observation_v2(
         "m1",
-        series=[{"window": {"start": "2026-04-08", "end": "2026-04-09"}, "value": 120.0}],
+        points=[{"window": {"start": "2026-04-08", "end": "2026-04-09"}, "value": 120.0}],
     )
     left["time_scope"] = {"field": "time", "start": "2026-04-08", "end": "2026-04-09"}
-    right = _time_series_observation(
+    right = _time_series_observation_v2(
         "m1",
-        series=[{"window": {"start": "2026-04-07", "end": "2026-04-08"}, "value": 100.0}],
+        points=[{"window": {"start": "2026-04-07", "end": "2026-04-08"}, "value": 100.0}],
     )
     right["time_scope"] = {"field": "time", "start": "2026-04-07", "end": "2026-04-08"}
     runtime = _make_runtime(left, right)
 
     result = _run_compare(runtime, _compare_params("weekday_aligned"))
 
-    assert result["rows"][0]["baseline_value"] == 100.0
+    points = result["series"][0]["points"]
+    assert points[0]["baseline_value"] == 100.0
     assert (
         result["resolved_input_summary"]["calendar_alignment"]["bucket_pairing"][0][
             "pairing_reason"
@@ -470,14 +477,14 @@ def test_compare_type_weekday_aligned_falls_back_to_relative_position() -> None:
 
 
 def test_compare_type_holiday_aligned_reads_calendar_data() -> None:
-    left = _time_series_observation(
+    left = _time_series_observation_v2(
         "m1",
-        series=[{"window": {"start": "2026-02-20", "end": "2026-02-21"}, "value": 120.0}],
+        points=[{"window": {"start": "2026-02-20", "end": "2026-02-21"}, "value": 120.0}],
     )
     left["time_scope"] = {"field": "time", "start": "2026-02-20", "end": "2026-02-21"}
-    right = _time_series_observation(
+    right = _time_series_observation_v2(
         "m1",
-        series=[{"window": {"start": "2025-02-20", "end": "2025-02-21"}, "value": 100.0}],
+        points=[{"window": {"start": "2025-02-20", "end": "2025-02-21"}, "value": 100.0}],
     )
     right["time_scope"] = {"field": "time", "start": "2025-02-20", "end": "2025-02-21"}
     runtime = _make_runtime(left, right)
@@ -485,7 +492,8 @@ def test_compare_type_holiday_aligned_reads_calendar_data() -> None:
 
     result = _run_compare(runtime, _compare_params("holiday_aligned"))
 
-    assert result["rows"][0]["baseline_value"] == 100.0
+    points = result["series"][0]["points"]
+    assert points[0]["baseline_value"] == 100.0
     assert (
         result["resolved_input_summary"]["calendar_alignment"]["bucket_pairing"][0][
             "pairing_reason"
@@ -495,14 +503,14 @@ def test_compare_type_holiday_aligned_reads_calendar_data() -> None:
 
 
 def test_compare_type_holiday_and_weekday_aligned_falls_back_to_weekday() -> None:
-    left = _time_series_observation(
+    left = _time_series_observation_v2(
         "m1",
-        series=[{"window": {"start": "2026-04-02", "end": "2026-04-03"}, "value": 120.0}],
+        points=[{"window": {"start": "2026-04-02", "end": "2026-04-03"}, "value": 120.0}],
     )
     left["time_scope"] = {"field": "time", "start": "2026-04-02", "end": "2026-04-03"}
-    right = _time_series_observation(
+    right = _time_series_observation_v2(
         "m1",
-        series=[{"window": {"start": "2025-04-03", "end": "2025-04-04"}, "value": 100.0}],
+        points=[{"window": {"start": "2025-04-03", "end": "2025-04-04"}, "value": 100.0}],
     )
     right["time_scope"] = {"field": "time", "start": "2025-04-01", "end": "2025-04-05"}
     runtime = _make_runtime(left, right)
@@ -510,7 +518,8 @@ def test_compare_type_holiday_and_weekday_aligned_falls_back_to_weekday() -> Non
 
     result = _run_compare(runtime, _compare_params("holiday_and_weekday_aligned"))
 
-    assert result["rows"][0]["baseline_value"] == 100.0
+    points = result["series"][0]["points"]
+    assert points[0]["baseline_value"] == 100.0
     assert (
         result["resolved_input_summary"]["calendar_alignment"]["bucket_pairing"][0][
             "pairing_reason"
@@ -520,7 +529,7 @@ def test_compare_type_holiday_and_weekday_aligned_falls_back_to_weekday() -> Non
 
 
 def test_compare_type_holiday_aligned_requires_calendar_reader() -> None:
-    runtime = _make_runtime(_time_series_observation("m1"), _time_series_observation("m1"))
+    runtime = _make_runtime(_time_series_observation_v2("m1"), _time_series_observation_v2("m1"))
     runtime.calendar_data_reader = None
 
     with pytest.raises(ValueError, match="requires configured calendar data"):
@@ -528,9 +537,10 @@ def test_compare_type_holiday_aligned_requires_calendar_reader() -> None:
 
 
 def test_compare_time_series_missing_granularity_fails() -> None:
-    left = _time_series_observation("m1")
-    right = _time_series_observation("m1")
-    left["granularity"] = None
+    left = _time_series_observation_v2("m1")
+    right = _time_series_observation_v2("m1")
+    # Set grain to None in the time axis to simulate missing granularity
+    left["axes"] = [{"kind": "time", "grain": None}]
     runtime = _make_runtime(left, right)
 
     with pytest.raises(ValueError, match="compare: NOT_COMPARABLE - time_series observations"):
@@ -539,8 +549,8 @@ def test_compare_time_series_missing_granularity_fails() -> None:
 
 def test_compare_time_series_empty_series_fails_before_commit() -> None:
     runtime = _make_runtime(
-        _time_series_observation("m1", series=[]),
-        _time_series_observation("m1", series=[]),
+        _time_series_observation_v2("m1", points=[]),
+        _time_series_observation_v2("m1", points=[]),
     )
 
     with pytest.raises(ValueError, match="compare: NOT_COMPARABLE - no time-series buckets"):
