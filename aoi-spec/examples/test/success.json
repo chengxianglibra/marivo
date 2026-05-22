@@ -1,5 +1,5 @@
 {
-  "artifact_id": "test_aov_treatment_vs_control",
+  "artifact_id": "art_test_sample_current_vs_baseline",
   "result": {
     "statistic": 2.41,
     "p_value": 0.016,

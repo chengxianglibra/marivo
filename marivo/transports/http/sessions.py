@@ -39,6 +39,7 @@ from marivo.transports.http.models import (
     TestResponse,
     ValidateResponse,
 )
+from marivo.transports.http.models.intent_response_models import SampleSummaryResponse
 
 router = APIRouter()
 
@@ -384,13 +385,18 @@ def get_proposition_runtime_status(
 # Literal path routes must be registered before parameterised routes.
 
 
-def _run_intent(session_id: str, intent_type: str, params: Any, request: Request) -> dict[str, Any]:
-    """Dispatch an intent through MarivoRuntime with uniform error handling."""
+def _run_runtime_operation(
+    session_id: str,
+    operation_name: str,
+    params: Any,
+    request: Request,
+) -> dict[str, Any]:
+    """Dispatch a runtime operation with uniform HTTP error mapping."""
     try:
         runtime = get_services(request).runtime
-        method: Callable[[str, Any], dict[str, Any]] | None = getattr(runtime, intent_type, None)
+        method: Callable[[str, Any], dict[str, Any]] | None = getattr(runtime, operation_name, None)
         if method is None:
-            raise ValueError(f"Unknown intent type: '{intent_type}'")
+            raise ValueError(f"Unknown intent type: '{operation_name}'")
         return method(session_id, params)
     except KeyError as error:
         raise http_error(error) from error
@@ -412,6 +418,11 @@ def _run_intent(session_id: str, intent_type: str, params: Any, request: Request
         raise HTTPException(status_code=422, detail=str(error)) from error
     except Exception as error:
         raise HTTPException(status_code=502, detail=f"Intent execution error: {error}") from error
+
+
+def _run_intent(session_id: str, intent_type: str, params: Any, request: Request) -> dict[str, Any]:
+    """Dispatch an intent through MarivoRuntime with uniform error handling."""
+    return _run_runtime_operation(session_id, intent_type, params, request)
 
 
 def _atomic_intent_response(intent_type: str, result: dict[str, Any]) -> dict[str, Any]:
@@ -555,6 +566,20 @@ def intent_forecast(
 ) -> ForecastResponse:
     result = _run_intent(session_id, "forecast", payload, request)
     return ForecastResponse.model_validate(_atomic_intent_response("forecast", result))
+
+
+@router.post(
+    "/sessions/{session_id}/transforms/sample_summary",
+    response_model=SampleSummaryResponse,
+    response_model_exclude_none=True,
+)
+def transform_sample_summary(
+    session_id: str,
+    payload: aoi.SampleSummary,
+    request: Request,
+) -> SampleSummaryResponse:
+    result = _run_runtime_operation(session_id, "sample_summary", payload, request)
+    return SampleSummaryResponse.model_validate(result)
 
 
 @router.post(

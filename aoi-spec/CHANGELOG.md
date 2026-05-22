@@ -11,13 +11,17 @@
 - Validate request example under `examples/validate/`.
 - Attribute request example under `examples/attribute/`.
 - Diagnose auto-detect request example under `examples/diagnose/`.
+- `sample_summary` as the first AOI standard transform operation.
+- `sample_frame` artifacts for reusable test-ready sample summaries.
 
 ### Changed
 
 - AOI scope now includes seven atomic requests plus the derived `validate`, `attribute`, and `diagnose` request contracts.
+- AOI scope now includes the `sample_summary` standard transform.
 - `CompareType` now exposes alignment strategies only: `normal`, `holiday_aligned`, `weekday_aligned`, and `holiday_and_weekday_aligned`.
 - `diagnose(auto_detect).granularity` now uses the standard `TimeGranularity` values instead of a narrower diagnose-only enum.
-- `test.grain` and `validate.grain` now reference `TimeGranularity` directly instead of the duplicate `SampleGrain` alias.
+- `validate.granularity` now references `TimeGranularity` directly instead of the duplicate `SampleGrain` alias.
+- `test` now consumes `current_sample_artifact_id` and `baseline_sample_artifact_id`; source-style `metric`, `current`, `baseline`, `grain`, and `kind` fields are removed.
 - `diagnose` is now auto-detect only; known current/baseline change attribution uses `attribute.left` and `attribute.right`.
 - `diagnose.scan_dimension` names the detection split axis separately from attribution `dimensions`; `candidate_limit` now bounds end-to-end diagnosed candidates.
 

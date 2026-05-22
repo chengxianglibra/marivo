@@ -404,6 +404,23 @@ def test_diagnose_dispatches() -> None:
         mock_fn.assert_called_once_with(rt, SessionId("s1"), request, reasoning=None)
 
 
+def test_sample_summary_runtime_method_dispatches() -> None:
+    rt = _make_runtime()
+    request = aoi.SampleSummary(
+        source_artifact_id="art_metric_frame_current",
+        sample_kind="numeric",
+    )
+
+    with patch(
+        "marivo.runtime.intent_execution.sample_summary",
+        return_value={"status": "ok"},
+    ) as mock_fn:
+        result = rt.sample_summary("s1", request, reasoning="why")
+
+    mock_fn.assert_called_once_with(rt, SessionId("s1"), request, reasoning="why")
+    assert result == {"status": "ok"}
+
+
 def test_intent_returns_service_result() -> None:
     rt = _make_runtime()
     expected = {"step_id": "step_1", "status": "completed"}

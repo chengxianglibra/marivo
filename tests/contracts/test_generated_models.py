@@ -762,20 +762,6 @@ def test_aoi_request_optional_fields_may_be_omitted() -> None:
 
     aoi.Observe.model_validate({"metric": "revenue", "time_scope": time_scope})
     aoi.Detect.model_validate({"source_artifact_id": "artifact_source"})
-    aoi.Test.model_validate(
-        {
-            "metric": "revenue",
-            "current": {"time_scope": time_scope},
-            "baseline": {"time_scope": time_scope},
-            "grain": "day",
-            "kind": "numeric",
-            "hypothesis": {
-                "family": "two_sample_mean",
-                "alternative": "two_sided",
-                "significance": "balanced",
-            },
-        }
-    )
     aoi.Compare.model_validate(
         {"current_artifact_id": "artifact_left", "baseline_artifact_id": "artifact_right"}
     )
@@ -789,7 +775,7 @@ def test_aoi_request_optional_fields_may_be_omitted() -> None:
             "metric": "revenue",
             "current": {"time_scope": time_scope},
             "baseline": {"time_scope": time_scope},
-            "grain": "day",
+            "granularity": "day",
             "hypothesis": {
                 "family": "two_sample_mean",
                 "alternative": "two_sided",
@@ -823,17 +809,166 @@ def test_aoi_request_optional_fields_may_be_omitted() -> None:
 
 def _aoi_test_payload() -> dict[str, Any]:
     return {
-        "metric": "revenue",
-        "current": {"time_scope": _aoi_time_scope()},
-        "baseline": {"time_scope": _aoi_time_scope()},
-        "grain": "day",
-        "kind": "numeric",
+        "current_sample_artifact_id": "art_sample_current",
+        "baseline_sample_artifact_id": "art_sample_baseline",
         "hypothesis": {
             "family": "two_sample_mean",
             "alternative": "two_sided",
             "significance": "balanced",
         },
     }
+
+
+def _aoi_sample_summary_request_payload() -> dict[str, Any]:
+    return {
+        "source_artifact_id": "art_metric_frame_current",
+        "sample_kind": "numeric",
+    }
+
+
+def _aoi_sample_frame_payload() -> dict[str, Any]:
+    return {
+        "artifact_id": "art_sample_current",
+        "artifact_family": "sample_frame",
+        "shape": "numeric_summary",
+        "subject": {
+            "kind": "sample_summary",
+            "metric_ref": "metric.revenue",
+            "source_artifact_id": "art_metric_frame_current",
+        },
+        "axes": [{"kind": "sample", "source_axis": "time", "grain": "day"}],
+        "measures": [
+            {"id": "n", "value_type": "integer", "nullable": False},
+            {"id": "mean", "value_type": "number", "nullable": True},
+            {"id": "standard_deviation", "value_type": "number", "nullable": True},
+        ],
+        "lineage": {
+            "operation": "sample_summary",
+            "source_artifact_ids": ["art_metric_frame_current"],
+        },
+        "payload": {
+            "summary": {"n": 7, "mean": 120.0, "standard_deviation": 10.0},
+            "quality": {"status": "test_ready", "issues": []},
+        },
+    }
+
+
+def test_aoi_sample_summary_transform_accepts_public_shape() -> None:
+    from marivo.contracts.generated import aoi
+
+    request = aoi.SampleSummary.model_validate(_aoi_sample_summary_request_payload())
+
+    assert request.source_artifact_id == "art_metric_frame_current"
+    assert request.sample_kind == "numeric"
+
+
+def test_aoi_sample_summary_transform_rejects_grain() -> None:
+    from marivo.contracts.generated import aoi
+
+    payload = _aoi_sample_summary_request_payload()
+    payload["grain"] = "day"
+
+    with pytest.raises(ValidationError):
+        aoi.SampleSummary.model_validate(payload)
+
+
+def test_aoi_sample_frame_artifact_accepts_public_shape() -> None:
+    from marivo.contracts.generated import aoi
+
+    artifact = aoi.SampleFrameArtifact.model_validate(_aoi_sample_frame_payload())
+
+    assert artifact.artifact_family == "sample_frame"
+    assert artifact.shape == "numeric_summary"
+    assert artifact.axes[0].grain == "day"
+    assert artifact.payload.summary.n == 7
+
+
+def test_aoi_sample_frame_rejects_non_numeric_shape() -> None:
+    from marivo.contracts.generated import aoi
+
+    payload = _aoi_sample_frame_payload()
+    payload["shape"] = "rate_summary"
+
+    with pytest.raises(ValidationError):
+        aoi.SampleFrameArtifact.model_validate(payload)
+
+
+@pytest.mark.parametrize(
+    "measures",
+    [
+        [
+            {"id": "n", "value_type": "integer", "nullable": False},
+            {"id": "n", "value_type": "integer", "nullable": False},
+            {"id": "standard_deviation", "value_type": "number", "nullable": True},
+        ],
+        [
+            {"id": "n", "value_type": "number", "nullable": False},
+            {"id": "mean", "value_type": "number", "nullable": True},
+            {"id": "standard_deviation", "value_type": "number", "nullable": True},
+        ],
+        [
+            {"id": "n", "value_type": "integer", "nullable": False},
+            {"id": "standard_deviation", "value_type": "number", "nullable": True},
+            {"id": "mean", "value_type": "number", "nullable": True},
+        ],
+    ],
+)
+def test_aoi_sample_frame_rejects_noncanonical_measures(
+    measures: list[dict[str, Any]],
+) -> None:
+    from marivo.contracts.generated import aoi
+
+    payload = _aoi_sample_frame_payload()
+    payload["measures"] = measures
+
+    with pytest.raises(ValidationError):
+        aoi.SampleFrameArtifact.model_validate(payload)
+
+
+def test_aoi_test_accepts_sample_frame_refs_only() -> None:
+    from marivo.contracts.generated import aoi
+
+    request = aoi.Test.model_validate(_aoi_test_payload())
+
+    assert request.current_sample_artifact_id == "art_sample_current"
+    assert request.baseline_sample_artifact_id == "art_sample_baseline"
+    assert request.hypothesis.family == "two_sample_mean"
+
+
+@pytest.mark.parametrize(
+    "payload_patch",
+    [
+        {"metric": "metric.revenue"},
+        {
+            "current": {
+                "time_scope": {
+                    "field": "event_time",
+                    "start": "2026-01-01T00:00:00Z",
+                    "end": "2026-01-08T00:00:00Z",
+                }
+            }
+        },
+        {
+            "baseline": {
+                "time_scope": {
+                    "field": "event_time",
+                    "start": "2026-01-08T00:00:00Z",
+                    "end": "2026-01-15T00:00:00Z",
+                }
+            }
+        },
+        {"grain": "day"},
+        {"kind": "numeric"},
+    ],
+)
+def test_aoi_test_rejects_removed_source_style_fields(payload_patch: dict[str, Any]) -> None:
+    from marivo.contracts.generated import aoi
+
+    payload = _aoi_test_payload()
+    payload.update(payload_patch)
+
+    with pytest.raises(ValidationError):
+        aoi.Test.model_validate(payload)
 
 
 def test_aoi_attribute_accepts_required_only_shape_with_defaults() -> None:
@@ -885,49 +1020,33 @@ def test_aoi_test_accepts_all_public_options(alternative: str, significance: str
     from marivo.contracts.generated import aoi
 
     payload = _aoi_test_payload()
-    payload["current"]["filter"] = {
-        "dialects": [{"dialect": "ANSI_SQL", "expression": "region = 'US'"}]
-    }
     payload["hypothesis"]["alternative"] = alternative
     payload["hypothesis"]["significance"] = significance
 
     request = aoi.Test.model_validate(payload)
 
-    assert request.kind == "numeric"
-    assert request.grain == "day"
+    assert request.current_sample_artifact_id == "art_sample_current"
+    assert request.baseline_sample_artifact_id == "art_sample_baseline"
     assert request.hypothesis.family == "two_sample_mean"
     assert request.hypothesis.alternative == alternative
     assert request.hypothesis.significance == significance
-    assert request.current.filter is not None
-    assert request.current.filter.model_dump(exclude_none=True) == {
-        "dialects": [{"dialect": "ANSI_SQL", "expression": "region = 'US'"}]
-    }
 
 
-def test_aoi_test_omits_absent_optional_filter_fields() -> None:
+def test_aoi_test_does_not_emit_removed_source_style_fields() -> None:
     from marivo.contracts.generated import aoi
 
     request = aoi.Test.model_validate(_aoi_test_payload())
 
     dumped = request.model_dump(exclude_none=True)
-    assert "filter" not in dumped["current"]
-    assert "filter" not in dumped["baseline"]
+    assert "metric" not in dumped
+    assert "current" not in dumped
+    assert "baseline" not in dumped
+    assert "grain" not in dumped
+    assert "kind" not in dumped
 
 
-@pytest.mark.parametrize("grain", ["hour", "day", "week", "month", "quarter", "year"])
-def test_aoi_test_accepts_time_granularity_grain(grain: str) -> None:
-    from marivo.contracts.generated import aoi
-
-    payload = _aoi_test_payload()
-    payload["grain"] = grain
-
-    request = aoi.Test.model_validate(payload)
-
-    assert request.grain == grain
-
-
-@pytest.mark.parametrize("grain", ["hour", "day", "week", "month", "quarter", "year"])
-def test_aoi_validate_accepts_time_granularity_grain(grain: str) -> None:
+@pytest.mark.parametrize("granularity", ["hour", "day", "week", "month", "quarter", "year"])
+def test_aoi_validate_accepts_time_granularity(granularity: str) -> None:
     from marivo.contracts.generated import aoi
 
     request = aoi.Validate.model_validate(
@@ -935,7 +1054,7 @@ def test_aoi_validate_accepts_time_granularity_grain(grain: str) -> None:
             "metric": "revenue",
             "current": {"time_scope": _aoi_time_scope()},
             "baseline": {"time_scope": _aoi_time_scope()},
-            "grain": grain,
+            "granularity": granularity,
             "hypothesis": {
                 "family": "two_sample_mean",
                 "alternative": "two_sided",
@@ -944,24 +1063,23 @@ def test_aoi_validate_accepts_time_granularity_grain(grain: str) -> None:
         }
     )
 
-    assert request.grain == grain
+    assert request.granularity == granularity
 
 
-def test_aoi_grain_uses_time_granularity_directly() -> None:
+def test_aoi_validate_granularity_uses_time_granularity_directly() -> None:
     schema = _load_json(REPO_ROOT / "aoi-spec" / "schema" / "aoi.schema.json")
     primitives = schema["$defs"]["primitives"]
 
     assert "SampleGrain" not in primitives
-    assert schema["$defs"]["requests"]["test"]["properties"]["grain"] == {
-        "$ref": "#/$defs/primitives/TimeGranularity"
-    }
-    assert schema["$defs"]["derived_requests"]["validate"]["properties"]["grain"] == {
+    assert "grain" not in schema["$defs"]["requests"]["test"]["properties"]
+    assert "grain" not in schema["$defs"]["derived_requests"]["validate"]["properties"]
+    assert schema["$defs"]["derived_requests"]["validate"]["properties"]["granularity"] == {
         "$ref": "#/$defs/primitives/TimeGranularity"
     }
 
 
 @pytest.mark.parametrize(
-    "missing_field", ["metric", "current", "baseline", "grain", "kind", "hypothesis"]
+    "missing_field", ["current_sample_artifact_id", "baseline_sample_artifact_id", "hypothesis"]
 )
 def test_aoi_test_requires_public_required_fields(missing_field: str) -> None:
     from marivo.contracts.generated import aoi
@@ -987,6 +1105,11 @@ def test_aoi_test_requires_hypothesis_fields(missing_field: str) -> None:
 @pytest.mark.parametrize(
     "payload_patch",
     [
+        {"metric": "metric.revenue"},
+        {"current": {"time_scope": _aoi_time_scope()}},
+        {"baseline": {"time_scope": _aoi_time_scope()}},
+        {"grain": "day"},
+        {"kind": "numeric"},
         {"kind": "rate"},
         {"kind": "Numeric"},
         {"grain": "minute"},
@@ -1282,7 +1405,7 @@ def test_aoi_forecast_requires_public_required_fields(missing_field: str) -> Non
                         "end": "2026-01-02T00:00:00Z",
                     }
                 },
-                "grain": "day",
+                "granularity": "day",
                 "hypothesis": {
                     "family": "two_sample_mean",
                     "alternative": "two_sided",
@@ -1435,7 +1558,7 @@ def test_aoi_request_optional_fields_reject_explicit_null(
                     "end": "2026-01-02T00:00:00Z",
                 }
             },
-            "grain": "day",
+            "granularity": "day",
             "hypothesis": {
                 "family": "two_sample_mean",
                 "alternative": "two_sided",
@@ -1458,7 +1581,7 @@ def test_aoi_request_optional_fields_reject_explicit_null(
                     "end": "2026-01-02T00:00:00Z",
                 }
             },
-            "grain": "day",
+            "granularity": "day",
             "hypothesis": {
                 "family": "two_sample_mean",
                 "alternative": "two_sided",
@@ -1482,7 +1605,7 @@ def test_aoi_request_optional_fields_reject_explicit_null(
                     "end": "2026-01-02T00:00:00Z",
                 }
             },
-            "grain": "minute",
+            "granularity": "minute",
             "hypothesis": {
                 "family": "two_sample_mean",
                 "alternative": "two_sided",

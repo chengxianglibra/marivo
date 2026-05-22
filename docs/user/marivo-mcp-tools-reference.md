@@ -1835,22 +1835,44 @@ interface AssociationResult {
 
 ---
 
-### 3.12 test_intent
+### 3.12 sample_summary
 
-定向假设验证。对两个时间切片进行特定假设的统计检验。
+将已有 AOI `metric_frame` 汇总为供检验使用的数值 `sample_frame`。该 transform 继承源 `metric_frame` 的粒度、过滤条件和时间范围；不要传 `grain`、`metric`、`time_scope` 或 `filter`。
 
 **输入参数**：
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | session_id | string | 是 | 会话ID |
-| metric | string | 是 | 语义指标名称 |
-| current | McpAoiSliceRef | 是 | 当前时间切片 |
-| baseline | McpAoiSliceRef | 是 | 基准时间切片 |
-| grain | `"hour"` \| `"day"` \| `"week"` \| `"month"` \| `"quarter"` \| `"year"` | 是 | 统计样本粒度，用于把两个时间切片拆成样本；不是输出 selector |
+| source_artifact_id | string | 是 | `time_series` `metric_frame` artifact ID |
+| sample_kind | `"numeric"` | 否 | 样本摘要类型；当前仅支持 `numeric` |
+
+**输入示例**：
+
+```json
+{
+  "session_id": "ses_abc123",
+  "source_artifact_id": "art_metric_frame_current",
+  "sample_kind": "numeric"
+}
+```
+
+---
+
+### 3.13 test_intent
+
+定向假设验证。对两个 `sample_frame` artifact 进行特定假设的统计检验。
+
+**输入参数**：
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| session_id | string | 是 | 会话ID |
+| current_sample_artifact_id | string | 是 | 当前 `sample_frame` artifact ID |
+| baseline_sample_artifact_id | string | 是 | 基准 `sample_frame` artifact ID |
 | hypothesis | object | 是 | 假设描述对象，仅包含 `alternative`、`significance` |
 
-注意：MCP 适配层内部固定使用 AOI `kind="numeric"` 和 `hypothesis.family="two_sample_mean"`；用户需提供 `metric`、当前/基准切片、`grain` 和 `hypothesis` 中的 `alternative`、`significance`。`grain` 定义检验使用的样本单位，例如两周总量比较可传 `"day"` 表示按天形成两组样本；时间窗口边界必须与所选 `grain` 对齐。`hypothesis.significance` 支持 `"conservative"`（严格，内部 alpha=0.01）、`"balanced"`（默认，内部 alpha=0.05）、`"aggressive"`（探索性，内部 alpha=0.10）。`current/baseline` 可带 `filter`，不可带 derived intent 的 `scope`。`hypothesis` 需为结构化对象，不接受 JSON 字符串，且不支持 `family`、`alpha` 或 `label` 字段。`test_intent` 无 `kind` 或 `method` 参数。
+注意：MCP 适配层内部固定使用 `hypothesis.family="two_sample_mean"`；用户需先通过 `sample_summary` 生成当前与基准 `sample_frame`，再提供两个 artifact ID 和 `hypothesis` 中的 `alternative`、`significance`。`test_intent` 不读取 semantic metric、不接收 `grain`，也不在内部生成 sample summary。`hypothesis.significance` 支持 `"conservative"`（严格，内部 alpha=0.01）、`"balanced"`（默认，内部 alpha=0.05）、`"aggressive"`（探索性，内部 alpha=0.10）。`hypothesis` 需为结构化对象，不接受 JSON 字符串，且不支持 `family`、`alpha` 或 `label` 字段。`test_intent` 无 `kind` 或 `method` 参数。
 
 **输出 — TestIntentArtifact**：
 
@@ -1867,14 +1889,8 @@ interface TestIntentArtifact {
 ```json
 {
   "session_id": "ses_abc123",
-  "metric": "total_query_count",
-  "current": {
-    "time_scope": { "field": "create_time", "start": "2025-02-25", "end": "2025-03-04" }
-  },
-  "baseline": {
-    "time_scope": { "field": "create_time", "start": "2025-03-04", "end": "2025-03-11" }
-  },
-  "grain": "day",
+  "current_sample_artifact_id": "art_sample_current",
+  "baseline_sample_artifact_id": "art_sample_baseline",
   "hypothesis": { "alternative": "greater", "significance": "balanced" }
 }
 ```
@@ -1899,7 +1915,7 @@ interface TestIntentArtifact {
 
 ---
 
-### 3.12.1 validate
+### 3.14 validate
 
 派生验证 intent。包装一次固定 family 的数值假设检验，并返回 validation bundle。
 
@@ -1911,14 +1927,14 @@ interface TestIntentArtifact {
 | metric | string | 是 | 语义指标名称 |
 | current | McpAoiSliceRef | 是 | 当前 AOI 切片：`time_scope` + 可选 `filter` |
 | baseline | McpAoiSliceRef | 是 | 基准 AOI 切片：`time_scope` + 可选 `filter` |
-| grain | `"hour"` \| `"day"` \| `"week"` \| `"month"` \| `"quarter"` \| `"year"` | 是 | 传给底层假设检验的统计样本粒度 |
+| granularity | `"hour"` \| `"day"` \| `"week"` \| `"month"` \| `"quarter"` \| `"year"` | 是 | 构造上游 `metric_frame` 的观察粒度 |
 
 可选参数：
 
 | 参数 | 类型 | 必填 | 默认 | 说明 |
 |------|------|------|------|------|
 | hypothesis | object | 否 | 省略 | 可包含 `alternative`、`significance`；不暴露 `family`，未传字段由 MCP 适配层补为默认值 |
-注意：MCP 层不暴露 `hypothesis.family`；适配层内部固定为 `"two_sample_mean"`，默认 `alternative="two_sided"`、`significance="balanced"`，并在进入 runtime 前构造 generated AOI `Validate` 模型。`grain` 必填，用于指定底层检验如何把左右窗口拆成样本；时间窗口边界必须与所选 `grain` 对齐。runtime 只接受完整 generated AOI `Validate` 降级后的参数。`hypothesis` 不支持 `family`、`alpha` 或 `label` 字段；`validate` 不支持 `method` 或 derived `scope`。
+注意：MCP 层不暴露 `hypothesis.family`；适配层内部固定为 `"two_sample_mean"`，默认 `alternative="two_sided"`、`significance="balanced"`，并在进入 runtime 前构造 generated AOI `Validate` 模型。`granularity` 必填，用于构造左右窗口的上游 `metric_frame`；`sample_summary` 继承该 frame 轴，不接收单独 `grain`。时间窗口边界必须与所选 `granularity` 对齐。runtime 只接受完整 generated AOI `Validate` 降级后的参数。`hypothesis` 不支持 `family`、`alpha` 或 `label` 字段；`validate` 不支持 `method` 或 derived `scope`。
 
 **输入示例**：
 
@@ -1932,14 +1948,14 @@ interface TestIntentArtifact {
   "baseline": {
     "time_scope": { "field": "create_time", "start": "2025-03-04", "end": "2025-03-11" }
   },
-  "grain": "day",
+  "granularity": "day",
   "hypothesis": { "alternative": "greater", "significance": "balanced" }
 }
 ```
 
 ---
 
-### 3.13 forecast
+### 3.15 forecast
 
 基于历史数据预测指标未来趋势。
 
@@ -2007,7 +2023,7 @@ interface ForecastPoint {
 
 ---
 
-### 3.14 get_session_state
+### 3.16 get_session_state
 
 读取会话级决策视图（session state）。用于判断当前分析进展和下一步方向。state 不是步骤列表或 artifact 清单；state 为空不等于分析失败。
 
@@ -2085,7 +2101,7 @@ interface SessionStateTruncation {
 
 ---
 
-### 3.15 get_session_trace
+### 3.17 get_session_trace
 
 读取会话的 agent-facing execution trace。用于了解哪些 step 已运行、有哪些稳定 artifact handles，以及每个 step 是否存在 trace warning。
 
@@ -2180,7 +2196,7 @@ interface SessionTraceWarning {
 
 ---
 
-### 3.16 get_proposition_context
+### 3.18 get_proposition_context
 
 读取单个 proposition 的局部证据闭包。仅在需要解释某个具体 proposition 时调用，不要批量读取。
 
@@ -2283,7 +2299,7 @@ interface McpSliceRef {
 
 ### 4.3 McpAoiSliceRef
 
-AOI-aligned 切片引用：时间范围 + 可选 AOI 过滤表达式。用于 `test_intent`、`validate`、`attribute` 的 `current` / `baseline` 参数。
+AOI-aligned 切片引用：时间范围 + 可选 AOI 过滤表达式。用于 `validate`、`attribute` 的 `current` / `baseline` 参数；`test_intent` 使用 `sample_frame` artifact refs，不使用切片引用。
 
 ```typescript
 interface McpAoiSliceRef {
@@ -2384,9 +2400,9 @@ interface AnalysisFailure {
 - `compare`、`decompose`、`correlate`、`forecast` 使用 artifact ID 字符串引用，非结构化引用对象
 - `holiday_aligned` / `holiday_and_weekday_aligned` compare 前先检查 calendar rows；缺失时不得编造节假日数据
 - `observe` 的 `filter_expression` 必须为 `McpExpression` 结构化对象，不接受 JSON 字符串；atomic `detect` 不接受 `filter_expression`，只扫描已提交 artifact
-- `test_intent` 在 MCP 层不暴露固定的 `kind` 或 `hypothesis.family`；适配层内部固定为 AOI `kind="numeric"` 和 `hypothesis.family="two_sample_mean"`，要求 `grain` 为 `hour`、`day`、`week`、`month`、`quarter` 或 `year`，使用 `hypothesis.significance` 选择显著性档位，无 `method`、`hypothesis.alpha` 或 `hypothesis.label` 参数
-- `test_intent.current/baseline` 使用 `McpAoiSliceRef`，支持 `filter`，不支持 `filter_expression` 或 derived intent 的 `scope`
-- `validate.current/baseline` 使用 `McpAoiSliceRef`，支持 `filter`，不支持 `filter_expression` 或 derived intent 的 `scope`；`grain` 必填并传给底层假设检验，进入 runtime 前会构造 generated AOI `Validate` 模型；`validate.hypothesis` 不暴露 `family`，不支持 `alpha`、`label` 或 `method`
+- `sample_summary` 接收已有 `metric_frame` artifact ID，生成 `sample_frame`；不接收 `grain`、`metric`、`time_scope` 或 `filter`
+- `test_intent` 在 MCP 层不暴露固定的 `kind` 或 `hypothesis.family`；适配层内部固定 `hypothesis.family="two_sample_mean"`，输入是 `current_sample_artifact_id` / `baseline_sample_artifact_id` 两个 `sample_frame` refs，使用 `hypothesis.significance` 选择显著性档位，无 `grain`、`method`、`hypothesis.alpha` 或 `hypothesis.label` 参数
+- `validate.current/baseline` 使用 `McpAoiSliceRef`，支持 `filter`，不支持 `filter_expression` 或 derived intent 的 `scope`；`granularity` 必填并用于构造上游 `metric_frame`，`sample_summary` 继承该 frame 轴，进入 runtime 前会构造 generated AOI `Validate` 模型；`validate.hypothesis` 不暴露 `family`，不支持 `alpha`、`label` 或 `method`
 - `attribute.current/baseline` 使用 `McpAoiSliceRef`，进入 runtime 前会构造 generated AOI `Attribute` 模型；不支持 `filter_expression` 或 derived intent 的 `scope`
 - `diagnose` 只支持 auto-detect 异常诊断，使用 `filter_expression`；进入 runtime 前会构造 generated AOI `Diagnose` 模型，granularity 接受 `hour`、`day`、`week`、`month`、`quarter`、`year`
 - `correlate` 仅支持 `"pearson"` 和 `"spearman"` 方法，不支持 `"kendall"`

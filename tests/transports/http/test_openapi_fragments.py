@@ -159,6 +159,10 @@ class OpenApiFragmentTests(unittest.TestCase):
             "requestBody"
         ]["content"]["application/json"]["schema"]
         self.assertEqual(attribute_request["$ref"], "#/components/schemas/Attribute")
+        sample_summary_request = schema["paths"][
+            "/sessions/{session_id}/transforms/sample_summary"
+        ]["post"]["requestBody"]["content"]["application/json"]["schema"]
+        self.assertTrue(sample_summary_request["$ref"].endswith("/SampleSummary"))
 
         correlate_schema = components["Correlate"]
         self.assertIn("min_pairs", correlate_schema["properties"])

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any
 
 import pytest
 
@@ -118,7 +119,7 @@ def _validate_request() -> aoi.Validate:
                 end=datetime(2026, 5, 1, tzinfo=UTC),
             )
         ),
-        grain="day",
+        granularity="day",
         hypothesis=aoi.Hypothesis(
             family="two_sample_mean",
             alternative="greater",
@@ -144,6 +145,25 @@ def _diagnose_request() -> aoi.Diagnose:
 
 def _forecast_request() -> aoi.Forecast:
     return aoi.Forecast(source_artifact_id="artifact-source", horizon=14)
+
+
+def _sample_summary_request() -> aoi.SampleSummary:
+    return aoi.SampleSummary(
+        source_artifact_id="art_metric_frame_current",
+        sample_kind="numeric",
+    )
+
+
+def _test_request() -> aoi.Test:
+    return aoi.Test(
+        current_sample_artifact_id="art_sample_current",
+        baseline_sample_artifact_id="art_sample_baseline",
+        hypothesis=aoi.Hypothesis(
+            family="two_sample_mean",
+            alternative="greater",
+            significance="balanced",
+        ),
+    )
 
 
 def test_observe_accepts_aoi_request_and_dispatches_lowered_params(monkeypatch) -> None:
@@ -176,6 +196,77 @@ def test_observe_accepts_aoi_request_and_dispatches_lowered_params(monkeypatch) 
                 "filter": None,
                 "granularity": "day",
             },
+        )
+    ]
+
+
+def test_sample_summary_transform_dispatches_to_runner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = object()
+    request = _sample_summary_request()
+
+    def runner(
+        runtime_arg: Any,
+        session_id: str,
+        params: dict[str, Any],
+        *,
+        reasoning: str | None = None,
+    ) -> dict[str, Any]:
+        assert runtime_arg is runtime
+        assert session_id == "s1"
+        assert params == {
+            "source_artifact_id": "art_metric_frame_current",
+            "sample_kind": "numeric",
+        }
+        assert reasoning == "why"
+        return {"status": "ok"}
+
+    monkeypatch.setattr(intent_execution, "_assert_session_is_open", lambda *_: None)
+    monkeypatch.setitem(intent_execution.TRANSFORM_RUNNERS, "sample_summary", runner)
+
+    result = intent_execution.sample_summary(runtime, "s1", request, reasoning="why")
+
+    assert result == {"status": "ok"}
+
+
+def test_test_accepts_sample_frame_refs_at_runner_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = object()
+    calls: list[tuple[object, str, dict[str, object], str | None]] = []
+    expected = {"status": "ok"}
+    monkeypatch.setattr(intent_execution, "_assert_session_is_open", lambda *_: None)
+
+    def runner(
+        runtime_arg: Any,
+        session_id: str,
+        params: dict[str, object],
+        *,
+        reasoning: str | None = None,
+    ) -> dict[str, object]:
+        calls.append((runtime_arg, session_id, params, reasoning))
+        return expected
+
+    monkeypatch.setitem(intent_execution.AOI_RUNNERS, "test", runner)
+
+    result = intent_execution.test(runtime, "s1", _test_request(), reasoning="why")
+
+    assert result is expected
+    assert calls == [
+        (
+            runtime,
+            "s1",
+            {
+                "current_sample_artifact_id": "art_sample_current",
+                "baseline_sample_artifact_id": "art_sample_baseline",
+                "hypothesis": {
+                    "family": "two_sample_mean",
+                    "alternative": "greater",
+                    "significance": "balanced",
+                },
+            },
+            "why",
         )
     ]
 
@@ -322,7 +413,7 @@ def test_validate_accepts_aoi_request_and_dispatches_lowered_params(monkeypatch)
                         "end": "2026-05-01T00:00:00Z",
                     }
                 },
-                "grain": "day",
+                "granularity": "day",
                 "hypothesis": {
                     "family": "two_sample_mean",
                     "alternative": "greater",

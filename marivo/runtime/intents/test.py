@@ -1,11 +1,9 @@
-"""Test atomic intent runner — Welch's t-test only (source-type per AOI).
+"""Test atomic intent runner.
 
-Evaluates a typed statistical hypothesis over two data slices.
-Accepts metric + current/baseline slices (not artifact refs) per the AOI spec,
-and computes sample summaries internally without creating intermediate
-observe artifacts.
+The generated AOI Test contract consumes sample-frame artifact refs produced by
+the sample_summary transform.
 
-Requests only support ``numeric`` kind with ``two_sample_mean`` hypotheses.
+Requests only support ``two_sample_mean`` hypotheses.
 The implementation computes Welch's t-test; there is no request method selector.
 
 Statistical helpers use only the standard library (math module); no
@@ -15,41 +13,35 @@ external numeric dependencies are introduced.
 from __future__ import annotations
 
 import hashlib
-import json
 import math
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
+from pydantic import ValidationError as PydanticValidationError
+
+from marivo.contracts.generated.aoi import SampleFrameArtifact
 from marivo.core.intent.primitives import new_step_id
-from marivo.runtime.intents._helpers import (
-    SampleSummary,
-    aoi_filter_to_scope,
-    commit_step_result,
-    compute_numeric_sample_summary,
-    resolve_time_scope,
-)
-from marivo.runtime.intents.normalization import normalize_metric_ref
+from marivo.runtime.intents._helpers import commit_step_result
 from marivo.runtime.intents.predicate_lineage_reuse import (
     resolve_predicate_lineage_reuse_for_intent,
 )
-from marivo.time_scope import TimeScopeGrain
 
 if TYPE_CHECKING:
     from marivo.runtime.runtime import MarivoRuntime
 
-_VALID_KINDS: frozenset[str] = frozenset({"numeric"})
 _VALID_FAMILIES: frozenset[str] = frozenset({"two_sample_mean"})
 _VALID_ALTERNATIVES: frozenset[str] = frozenset({"two_sided", "greater", "less"})
-_VALID_GRAINS: frozenset[str] = frozenset({"hour", "day", "week", "month", "quarter", "year"})
+_VALID_SAMPLE_GRAINS: frozenset[str] = frozenset(
+    {"hour", "day", "week", "month", "quarter", "year"}
+)
 _SIGNIFICANCE_ALPHA: dict[str, float] = {
     "conservative": 0.01,
     "balanced": 0.05,
     "aggressive": 0.10,
 }
 _REQUEST_FIELDS: frozenset[str] = frozenset(
-    {"metric", "current", "baseline", "grain", "kind", "hypothesis"}
+    {"current_sample_artifact_id", "baseline_sample_artifact_id", "hypothesis"}
 )
-_SLICE_FIELDS: frozenset[str] = frozenset({"time_scope", "filter"})
 _HYPOTHESIS_FIELDS: frozenset[str] = frozenset({"family", "alternative", "significance"})
 
 
@@ -137,11 +129,6 @@ def run_test_intent(
     params: dict[str, Any] | None,
     reasoning: str | None = None,
 ) -> dict[str, Any]:
-    """Source-type test intent per AOI.
-
-    Computes sample summaries internally and returns a hypothesis_test
-    artifact conforming to the AOI hypothesis_test_result contract.
-    """
     if not isinstance(params, dict):
         raise ValueError("test: INVALID_ARGUMENT - params must be a test request object")
     p = params
@@ -159,136 +146,58 @@ def run_test_intent(
             f"test: INVALID_ARGUMENT - unsupported field(s): {sorted(unexpected_fields)}"
         )
 
-    metric_ref: str = normalize_metric_ref(p["metric"])
-    metric_ref = runtime.core.normalize_intent_metric_ref(metric_ref)
-    metric_name = runtime.core.metric_name_from_ref(metric_ref)
-
-    if not metric_ref:
-        raise ValueError("test: INVALID_ARGUMENT - metric is required")
-
-    kind_raw = p["kind"]
-    if not isinstance(kind_raw, str):
-        raise ValueError("test: INVALID_ARGUMENT - kind must be a string")
-    kind = kind_raw
-    if kind not in _VALID_KINDS:
-        raise ValueError(
-            f"test: INVALID_ARGUMENT - kind must be one of {sorted(_VALID_KINDS)}, got '{kind}'"
-        )
-
-    current_raw = _validate_slice(p["current"], label="current")
-    baseline_raw = _validate_slice(p["baseline"], label="baseline")
-
-    current_time_scope: dict[str, Any] = current_raw["time_scope"]
-    baseline_time_scope: dict[str, Any] = baseline_raw["time_scope"]
-    current_filter: Any = current_raw.get("filter")
-    baseline_filter: Any = baseline_raw.get("filter")
-    grain_raw = p["grain"]
-    if not isinstance(grain_raw, str):
-        raise ValueError("test: INVALID_ARGUMENT - grain must be a string")
-    if grain_raw not in _VALID_GRAINS:
-        raise ValueError(
-            f"test: INVALID_ARGUMENT - grain must be one of {sorted(_VALID_GRAINS)}, "
-            f"got '{grain_raw}'"
-        )
-    grain = cast("TimeScopeGrain", grain_raw)
-
     # ── Hypothesis validation ────────────────────────────────────────────
-    hypothesis_raw = p["hypothesis"]
-    if not isinstance(hypothesis_raw, dict):
-        raise ValueError("test: INVALID_ARGUMENT - hypothesis must be an object")
-    missing_hypothesis_keys = _HYPOTHESIS_FIELDS - set(hypothesis_raw)
-    if missing_hypothesis_keys:
-        raise ValueError(
-            "test: INVALID_ARGUMENT - missing hypothesis field(s): "
-            f"{sorted(missing_hypothesis_keys)}"
-        )
-    unexpected_hypothesis_keys = set(hypothesis_raw) - _HYPOTHESIS_FIELDS
-    if unexpected_hypothesis_keys:
-        raise ValueError(
-            "test: INVALID_ARGUMENT - unsupported hypothesis field(s): "
-            f"{sorted(unexpected_hypothesis_keys)}"
-        )
-    family_raw = hypothesis_raw["family"]
-    if not isinstance(family_raw, str):
-        raise ValueError("test: INVALID_ARGUMENT - hypothesis.family must be a string")
-    family = family_raw
-    if family not in _VALID_FAMILIES:
-        raise ValueError(
-            f"test: INVALID_ARGUMENT - hypothesis.family must be one of "
-            f"{sorted(_VALID_FAMILIES)}, got '{family}'"
-        )
-    alternative_raw = hypothesis_raw["alternative"]
-    if not isinstance(alternative_raw, str):
-        raise ValueError("test: INVALID_ARGUMENT - hypothesis.alternative must be a string")
-    alternative = alternative_raw
-    if alternative not in _VALID_ALTERNATIVES:
-        raise ValueError(
-            f"test: INVALID_ARGUMENT - hypothesis.alternative must be one of "
-            f"{sorted(_VALID_ALTERNATIVES)}, got '{alternative}'"
-        )
+    family, alternative, significance, alpha = _validate_hypothesis(p["hypothesis"])
 
-    significance_raw = hypothesis_raw["significance"]
-    if not isinstance(significance_raw, str):
-        raise ValueError("test: INVALID_ARGUMENT - hypothesis.significance must be a string")
-    significance = significance_raw
-    try:
-        alpha = _SIGNIFICANCE_ALPHA[significance]
-    except KeyError as exc:
-        raise ValueError(
-            "test: INVALID_ARGUMENT - hypothesis.significance must be one of "
-            f"{sorted(_SIGNIFICANCE_ALPHA)}, got '{significance}'"
-        ) from exc
-
-    # ── AOI filter conversion ───────────────────────────────────────────
-    try:
-        current_scope = aoi_filter_to_scope(current_filter, label="current.filter")
-        baseline_scope = aoi_filter_to_scope(baseline_filter, label="baseline.filter")
-    except ValueError as exc:
-        raise ValueError(f"test: INVALID_ARGUMENT - {exc}") from exc
-
-    # ── Compute sample summaries (internal, no intermediate artifacts) ──
-    current_ss = _compute_sample_summary_for_slice(
+    current_sample_artifact_id = p["current_sample_artifact_id"]
+    baseline_sample_artifact_id = p["baseline_sample_artifact_id"]
+    _validate_sample_artifact_id(current_sample_artifact_id, label="current")
+    _validate_sample_artifact_id(baseline_sample_artifact_id, label="baseline")
+    current_sample = _resolve_sample_frame(
+        runtime,
+        session_id,
+        current_sample_artifact_id,
         label="current",
-        runtime=runtime,
-        session_id=session_id,
-        metric_ref=metric_ref,
-        time_scope=current_time_scope,
-        grain=grain,
-        scope=current_scope,
     )
-    baseline_ss = _compute_sample_summary_for_slice(
+    baseline_sample = _resolve_sample_frame(
+        runtime,
+        session_id,
+        baseline_sample_artifact_id,
         label="baseline",
-        runtime=runtime,
-        session_id=session_id,
-        metric_ref=metric_ref,
-        time_scope=baseline_time_scope,
-        grain=grain,
-        scope=baseline_scope,
     )
+
+    current_axis = _sample_axis(current_sample)
+    baseline_axis = _sample_axis(baseline_sample)
+    if current_axis != baseline_axis:
+        raise ValueError("test: NOT_COMPARABLE - sample axis must match")
+
+    current_metric_ref = _metric_ref(current_sample)
+    baseline_metric_ref = _metric_ref(baseline_sample)
+    if current_metric_ref != baseline_metric_ref:
+        raise ValueError("test: NOT_COMPARABLE - sample metric_ref must match")
+
+    _validate_sample_quality(current_sample, label="current")
+    _validate_sample_quality(baseline_sample, label="baseline")
+    n1, mean1, std1 = _sample_stats(current_sample)
+    n2, mean2, std2 = _sample_stats(baseline_sample)
+    metric_name = current_metric_ref
 
     # ── Predicate lineage comparison ─────────────────────────────────────
     issues: list[dict[str, Any]] = []
     predicate_lineage_summary = resolve_predicate_lineage_reuse_for_intent(
         intent_name="test",
-        current_predicate_filter_lineage=current_ss.predicate_filter_lineage,
-        baseline_predicate_filter_lineage=baseline_ss.predicate_filter_lineage,
+        current_predicate_filter_lineage=_predicate_filter_lineage(current_sample),
+        baseline_predicate_filter_lineage=_predicate_filter_lineage(baseline_sample),
     )
     issues.extend(predicate_lineage_summary["issues"])
     if predicate_lineage_summary["fatal_message"] is not None:
         raise ValueError(f"test: NOT_COMPARABLE - {predicate_lineage_summary['fatal_message']}")
 
     # ── Welch's t-test computation ──────────────────────────────────────
-    n1 = current_ss.n
-    n2 = baseline_ss.n
-    mean1 = current_ss.mean
-    mean2 = baseline_ss.mean
-    std1 = current_ss.standard_deviation
-    std2 = baseline_ss.standard_deviation
-
     if any(v is None for v in (n1, n2, mean1, mean2, std1, std2)):
         raise ValueError(
             "test: INSUFFICIENT_DATA - required summary stats (n, mean, standard_deviation) "
-            "missing from one or both slices"
+            "missing from one or both sample frames"
         )
 
     # Type narrowing: after the None-check above, all values are guaranteed non-None.
@@ -351,36 +260,19 @@ def run_test_intent(
         assumption_notes.append("one or both groups have zero variance; result may be degenerate")
 
     # ── Build provenance hash ────────────────────────────────────────────
-    current_start, current_end, _ = resolve_time_scope(current_time_scope)
-    baseline_start, baseline_end, _ = resolve_time_scope(baseline_time_scope)
     _hash_input = (
-        f"{metric_ref}:welch_t:{family}:{alternative}:{alpha}"
-        f":grain[{grain}]:current[{current_start},{current_end}]"
-        f":baseline[{baseline_start},{baseline_end}]"
-        f":current_scope[{_stable_hash_part(current_scope)}]"
-        f":baseline_scope[{_stable_hash_part(baseline_scope)}]"
+        f"{current_sample_artifact_id}:{baseline_sample_artifact_id}:"
+        f"welch_t:{family}:{alternative}:{alpha}"
     )
     query_hash = hashlib.sha256(_hash_input.encode()).hexdigest()[:16]
 
     # ── Source lineage ────────────────────────────────────────────────────
     source_lineage: dict[str, Any] = {
-        "grain": grain,
-        "current": {
-            "time_scope": {
-                "field": current_time_scope.get("field"),
-                "start": current_start,
-                "end": current_end,
-            },
-            "filter": current_filter,
-        },
-        "baseline": {
-            "time_scope": {
-                "field": baseline_time_scope.get("field"),
-                "start": baseline_start,
-                "end": baseline_end,
-            },
-            "filter": baseline_filter,
-        },
+        "current_sample_artifact_id": current_sample_artifact_id,
+        "baseline_sample_artifact_id": baseline_sample_artifact_id,
+        "current_source_artifact_id": _source_artifact_id(current_sample),
+        "baseline_source_artifact_id": _source_artifact_id(baseline_sample),
+        "sample_axis": current_axis,
     }
     if predicate_lineage_summary["reuse_summary"] is not None:
         source_lineage["predicate_lineage"] = predicate_lineage_summary["reuse_summary"]
@@ -391,7 +283,7 @@ def run_test_intent(
     artifact: dict[str, Any] = {
         # AOI hypothesis_test_result fields (§4.2.3)
         "result_type": "hypothesis_test",
-        "kind": kind,
+        "kind": "numeric",
         "hypothesis": {
             "family": family,
             "alternative": alternative,
@@ -417,35 +309,15 @@ def run_test_intent(
     decision_label = "reject" if reject_null else "fail-to-reject"
     summary = (
         f"test {metrics_label} [welch_t] alternative={alternative} alpha={alpha}: "
-        f"{decision_label} null (p={p_value:.4g}, grain={grain})"
+        f"{decision_label} null (p={p_value:.4g})"
     )
 
     provenance: dict[str, Any] = {
         "query_hash": query_hash,
         "engine": "service",
         "timestamp": now,
-        "grain": grain,
         "param_count": 0,
     }
-    sql_texts: list[dict[str, str | float]] = []
-    if baseline_ss.sql and baseline_ss.engine_type:
-        _entry: dict[str, str | float] = {
-            "sql": baseline_ss.sql,
-            "engine_type": baseline_ss.engine_type,
-            "label": "baseline_query",
-        }
-        if baseline_ss.elapsed_ms is not None:
-            _entry["elapsed_ms"] = baseline_ss.elapsed_ms
-        sql_texts.append(_entry)
-    if current_ss.sql and current_ss.engine_type:
-        _entry2: dict[str, str | float] = {
-            "sql": current_ss.sql,
-            "engine_type": current_ss.engine_type,
-            "label": "current_query",
-        }
-        if current_ss.elapsed_ms is not None:
-            _entry2["elapsed_ms"] = current_ss.elapsed_ms
-        sql_texts.append(_entry2)
 
     result = commit_step_result(
         runtime,
@@ -458,59 +330,263 @@ def run_test_intent(
         summary,
         provenance=provenance,
         reasoning=reasoning,
-        sql_texts=sql_texts or None,
+        sql_texts=None,
     )
     return result
 
 
-def _stable_hash_part(value: Any) -> str:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+def _validate_sample_artifact_id(artifact_id: Any, *, label: str) -> None:
+    if not isinstance(artifact_id, str) or not artifact_id.strip():
+        raise ValueError(f"test: INVALID_ARGUMENT - {label}_sample_artifact_id is required")
 
 
-def _compute_sample_summary_for_slice(
-    *,
-    label: str,
+def _resolve_sample_frame(
     runtime: MarivoRuntime,
     session_id: str,
-    metric_ref: str,
-    time_scope: dict[str, Any],
-    grain: TimeScopeGrain,
-    scope: dict[str, str] | None,
-) -> SampleSummary:
+    artifact_id: Any,
+    *,
+    label: str,
+) -> dict[str, Any]:
+    _validate_sample_artifact_id(artifact_id, label=label)
+    artifact = runtime.resolve_artifact_by_id(session_id, artifact_id)
+    if not isinstance(artifact, dict):
+        raise ValueError(f"test: INVALID_ARGUMENT - {label}_sample_artifact_id was not found")
+    if artifact.get("artifact_family") != "sample_frame":
+        raise ValueError(
+            f"test: INVALID_ARGUMENT - {label}_sample_artifact_id must point to a sample_frame"
+        )
+    if artifact.get("shape") != "numeric_summary":
+        raise ValueError(
+            f"test: INVALID_ARGUMENT - {label}_sample_artifact_id must be numeric_summary"
+        )
+    _validate_sample_frame_generated_contract(artifact, label=label)
+    _validate_sample_frame_contract(artifact, label=label)
+    return artifact
+
+
+def _validate_sample_frame_generated_contract(artifact: dict[str, Any], *, label: str) -> None:
     try:
-        return compute_numeric_sample_summary(
-            runtime,
-            session_id,
-            metric_ref,
-            time_scope,
-            grain=grain,
-            scope_raw=scope,
+        SampleFrameArtifact.model_validate(artifact)
+    except PydanticValidationError as exc:
+        error_summary = "; ".join(
+            f"{_format_validation_loc(error.get('loc', ()))}: {error.get('msg')}"
+            for error in exc.errors(include_url=False)
         )
-    except ValueError as exc:
-        message = str(exc)
-        if scope is not None and "scope.predicate must not contain time-axis predicates" in message:
-            raise ValueError(f"test: INVALID_ARGUMENT - {label}.filter {message}") from exc
-        raise
+        raise ValueError(
+            f"test: INVALID_ARGUMENT - {label}_sample_artifact_id is not a valid sample_frame: "
+            f"{error_summary}"
+        ) from exc
 
 
-def _validate_slice(value: Any, *, label: str) -> dict[str, Any]:
+def _format_validation_loc(loc: Any) -> str:
+    path = ".".join(str(part) for part in loc)
+    if path.startswith("axes."):
+        return path.replace("axes.0", "sample axis", 1)
+    return path
+
+
+def _validate_sample_frame_contract(artifact: dict[str, Any], *, label: str) -> None:
+    subject = artifact.get("subject")
+    if not isinstance(subject, dict):
+        raise ValueError(f"test: INVALID_ARGUMENT - {label} sample_frame subject is required")
+    if subject.get("kind") != "sample_summary":
+        raise ValueError(
+            f"test: INVALID_ARGUMENT - {label} sample_frame subject.kind must be sample_summary"
+        )
+
+    subject_source = subject.get("source_artifact_id")
+    if not isinstance(subject_source, str) or not subject_source.strip():
+        raise ValueError(
+            f"test: INVALID_ARGUMENT - {label} sample_frame subject.source_artifact_id is required"
+        )
+
+    lineage = artifact.get("lineage")
+    if not isinstance(lineage, dict):
+        raise ValueError(f"test: INVALID_ARGUMENT - {label} sample_frame lineage is required")
+    if lineage.get("operation") != "sample_summary":
+        raise ValueError(
+            "test: INVALID_ARGUMENT - "
+            f"{label} sample_frame lineage.operation must be sample_summary"
+        )
+    source_ids = lineage.get("source_artifact_ids")
+    if not isinstance(source_ids, list) or not source_ids:
+        raise ValueError(
+            "test: INVALID_ARGUMENT - "
+            f"{label} sample_frame lineage.source_artifact_ids must be non-empty"
+        )
+    if any(not isinstance(source_id, str) or not source_id.strip() for source_id in source_ids):
+        raise ValueError(
+            "test: INVALID_ARGUMENT - "
+            f"{label} sample_frame lineage.source_artifact_ids must contain strings"
+        )
+    if subject_source not in source_ids:
+        raise ValueError(
+            "test: INVALID_ARGUMENT - "
+            f"{label} sample_frame subject.source_artifact_id must match lineage.source_artifact_ids"
+        )
+
+
+def _sample_stats(artifact: dict[str, Any]) -> tuple[int | None, float | None, float | None]:
+    payload = artifact.get("payload")
+    summary = payload.get("summary") if isinstance(payload, dict) else None
+    if not isinstance(summary, dict):
+        raise ValueError("test: INVALID_ARGUMENT - sample_frame payload.summary is required")
+    return (
+        _coerce_int(summary.get("n"), field="n"),
+        _coerce_float(summary.get("mean"), field="mean"),
+        _coerce_float(summary.get("standard_deviation"), field="standard_deviation"),
+    )
+
+
+def _validate_sample_quality(artifact: dict[str, Any], *, label: str) -> None:
+    payload = artifact.get("payload")
+    quality = payload.get("quality") if isinstance(payload, dict) else None
+    status = quality.get("status") if isinstance(quality, dict) else None
+    if status != "test_ready":
+        raise ValueError(
+            "test: INVALID_ARGUMENT - "
+            f"{label} sample_frame payload.quality.status must be test_ready"
+        )
+
+
+def _sample_axis(artifact: dict[str, Any]) -> dict[str, Any]:
+    axes = artifact.get("axes")
+    if not isinstance(axes, list):
+        raise ValueError("test: INVALID_ARGUMENT - sample_frame axes are required")
+    for axis in axes:
+        if not isinstance(axis, dict):
+            continue
+        if axis.get("kind") != "sample":
+            raise ValueError("test: INVALID_ARGUMENT - sample axis kind must be sample")
+        source_axis = axis.get("source_axis")
+        grain = axis.get("grain")
+        if source_axis != "time":
+            raise ValueError("test: INVALID_ARGUMENT - sample axis source_axis must be time")
+        if not isinstance(grain, str) or not grain:
+            raise ValueError("test: INVALID_ARGUMENT - sample axis grain is required")
+        if grain not in _VALID_SAMPLE_GRAINS:
+            raise ValueError(
+                "test: INVALID_ARGUMENT - sample axis grain must be one of "
+                f"{sorted(_VALID_SAMPLE_GRAINS)}, got '{grain}'"
+            )
+        return {"source_axis": source_axis, "grain": grain}
+    raise ValueError("test: INVALID_ARGUMENT - sample_frame sample axis is required")
+
+
+def _metric_ref(artifact: dict[str, Any]) -> str:
+    subject = artifact.get("subject")
+    if not isinstance(subject, dict):
+        raise ValueError("test: INVALID_ARGUMENT - sample_frame subject.metric_ref is required")
+    metric_ref = subject.get("metric_ref")
+    if not isinstance(metric_ref, str) or not metric_ref.strip():
+        raise ValueError("test: INVALID_ARGUMENT - sample_frame subject.metric_ref is required")
+    return metric_ref
+
+
+def _source_artifact_id(artifact: dict[str, Any]) -> str:
+    subject = artifact.get("subject")
+    subject_source = subject.get("source_artifact_id") if isinstance(subject, dict) else None
+    if not isinstance(subject_source, str) or not subject_source.strip():
+        raise ValueError(
+            "test: INVALID_ARGUMENT - sample_frame subject.source_artifact_id is required"
+        )
+    return subject_source
+
+
+def _predicate_filter_lineage(artifact: dict[str, Any]) -> dict[str, Any] | None:
+    payload = artifact.get("payload")
+    if isinstance(payload, dict):
+        lineage = payload.get("predicate_filter_lineage")
+        if lineage is None:
+            summary = payload.get("summary")
+            lineage = summary.get("predicate_filter_lineage") if isinstance(summary, dict) else None
+        if lineage is not None:
+            if not isinstance(lineage, dict):
+                raise ValueError("test: INVALID_ARGUMENT - malformed predicate filter lineage")
+            return lineage
+    return None
+
+
+def _coerce_float(value: Any, *, field: str) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise ValueError(f"test: INVALID_ARGUMENT - sample summary {field} must be numeric")
+    if isinstance(value, int | float):
+        result = float(value)
+    else:
+        raise ValueError(f"test: INVALID_ARGUMENT - sample summary {field} must be numeric")
+    if math.isnan(result) or math.isinf(result):
+        raise ValueError(f"test: INVALID_ARGUMENT - sample summary {field} must be finite")
+    if field == "standard_deviation" and result < 0:
+        raise ValueError(
+            "test: INVALID_ARGUMENT - sample summary standard_deviation must be non-negative"
+        )
+    return result
+
+
+def _coerce_int(value: Any, *, field: str) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise ValueError(f"test: INVALID_ARGUMENT - sample summary {field} must be an integer")
+    if isinstance(value, int):
+        if value < 0:
+            raise ValueError("test: INVALID_ARGUMENT - sample summary n must be non-negative")
+        return value
+    if isinstance(value, float):
+        if not value.is_integer():
+            raise ValueError(f"test: INVALID_ARGUMENT - sample summary {field} must be an integer")
+        result = int(value)
+        if result < 0:
+            raise ValueError("test: INVALID_ARGUMENT - sample summary n must be non-negative")
+        return result
+    raise ValueError(f"test: INVALID_ARGUMENT - sample summary {field} must be an integer")
+
+
+def _validate_hypothesis(value: Any) -> tuple[str, str, str, float]:
     if not isinstance(value, dict):
-        raise ValueError(f"test: INVALID_ARGUMENT - {label} must be an object")
-
-    missing_fields = {"time_scope"} - set(value)
-    if missing_fields:
+        raise ValueError("test: INVALID_ARGUMENT - hypothesis must be an object")
+    missing_hypothesis_keys = _HYPOTHESIS_FIELDS - set(value)
+    if missing_hypothesis_keys:
         raise ValueError(
-            f"test: INVALID_ARGUMENT - missing {label} field(s): {sorted(missing_fields)}"
+            "test: INVALID_ARGUMENT - missing hypothesis field(s): "
+            f"{sorted(missing_hypothesis_keys)}"
         )
-    unexpected_fields = set(value) - _SLICE_FIELDS
-    if unexpected_fields:
+    unexpected_hypothesis_keys = set(value) - _HYPOTHESIS_FIELDS
+    if unexpected_hypothesis_keys:
         raise ValueError(
-            f"test: INVALID_ARGUMENT - unsupported {label} field(s): {sorted(unexpected_fields)}"
+            "test: INVALID_ARGUMENT - unsupported hypothesis field(s): "
+            f"{sorted(unexpected_hypothesis_keys)}"
+        )
+    family_raw = value["family"]
+    if not isinstance(family_raw, str):
+        raise ValueError("test: INVALID_ARGUMENT - hypothesis.family must be a string")
+    family = family_raw
+    if family not in _VALID_FAMILIES:
+        raise ValueError(
+            f"test: INVALID_ARGUMENT - hypothesis.family must be one of "
+            f"{sorted(_VALID_FAMILIES)}, got '{family}'"
+        )
+    alternative_raw = value["alternative"]
+    if not isinstance(alternative_raw, str):
+        raise ValueError("test: INVALID_ARGUMENT - hypothesis.alternative must be a string")
+    alternative = alternative_raw
+    if alternative not in _VALID_ALTERNATIVES:
+        raise ValueError(
+            f"test: INVALID_ARGUMENT - hypothesis.alternative must be one of "
+            f"{sorted(_VALID_ALTERNATIVES)}, got '{alternative}'"
         )
 
-    time_scope = value["time_scope"]
-    if not isinstance(time_scope, dict) or not time_scope:
-        raise ValueError(f"test: INVALID_ARGUMENT - {label}.time_scope is required")
-    if "filter" in value and value["filter"] is None:
-        raise ValueError(f"test: INVALID_ARGUMENT - {label}.filter must not be null")
-    return value
+    significance_raw = value["significance"]
+    if not isinstance(significance_raw, str):
+        raise ValueError("test: INVALID_ARGUMENT - hypothesis.significance must be a string")
+    significance = significance_raw
+    try:
+        alpha = _SIGNIFICANCE_ALPHA[significance]
+    except KeyError as exc:
+        raise ValueError(
+            "test: INVALID_ARGUMENT - hypothesis.significance must be one of "
+            f"{sorted(_SIGNIFICANCE_ALPHA)}, got '{significance}'"
+        ) from exc
+    return family, alternative, significance, alpha

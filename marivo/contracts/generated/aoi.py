@@ -16,12 +16,43 @@ class Requests(RootModel[Any]):
     root: Any
 
 
+class Transforms(RootModel[Any]):
+    root: Any
+
+
 class DerivedRequests(RootModel[Any]):
     root: Any
 
 
 class Artifacts(RootModel[Any]):
     root: Any
+
+
+class Measure(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: Literal["n"]
+    value_type: Literal["integer"]
+    nullable: Literal[False]
+
+
+class Measure1(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: Literal["mean"]
+    value_type: Literal["number"]
+    nullable: Literal[True]
+
+
+class Measure2(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: Literal["standard_deviation"]
+    value_type: Literal["number"]
+    nullable: Literal[True]
 
 
 class Dimension(RootModel[str]):
@@ -52,6 +83,14 @@ class Forecast(BaseModel):
     )
     horizon: int = Field(..., ge=1)
     source_artifact_id: str = Field(..., min_length=1)
+
+
+class SampleSummary(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    source_artifact_id: str = Field(..., min_length=1)
+    sample_kind: Literal["numeric"]
 
 
 class PValue(RootModel[float]):
@@ -154,6 +193,56 @@ class MetricFrameMeasure(BaseModel):
     value_type: Literal["number"]
     nullable: Literal[True]
     unit: str | None = None
+
+
+class SampleFrameLineage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    operation: Literal["sample_summary"]
+    source_artifact_ids: list[SourceArtifactId] = Field(..., min_length=1)
+
+
+class SampleFrameSubject(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["sample_summary"]
+    metric_ref: str = Field(..., min_length=1)
+    source_artifact_id: str = Field(..., min_length=1)
+
+
+class Summary(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    n: int = Field(..., ge=0)
+    mean: float | None
+    standard_deviation: float | None
+
+
+class Issue(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    code: str = Field(..., min_length=1)
+    message: str = Field(..., min_length=1)
+
+
+class Quality(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    status: Literal["test_ready", "insufficient_data", "unsupported_source"]
+    issues: list[Issue]
+
+
+class SampleSummaryPayload(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    summary: Summary
+    quality: Quality
 
 
 class AnalysisFailure(BaseModel):
@@ -354,6 +443,15 @@ class MetricFrameAxis1(BaseModel):
     grain: Literal["hour", "day", "week", "month", "quarter", "year"]
 
 
+class SampleAxis(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["sample"]
+    source_axis: Literal["time"]
+    grain: Literal["hour", "day", "week", "month", "quarter", "year"]
+
+
 class Hypothesis(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -423,7 +521,7 @@ class AttributionSubjectScope(BaseModel):
     )
 
 
-class Quality(BaseModel):
+class Quality1(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -506,6 +604,20 @@ class PointAnomalyCandidateItem(BaseModel):
     source_point_ref: FramePointRef
 
 
+class SampleFrameArtifact(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    artifact_id: str = Field(..., min_length=1)
+    artifact_family: Literal["sample_frame"]
+    shape: Literal["numeric_summary"]
+    subject: SampleFrameSubject
+    axes: list[SampleAxis] = Field(..., max_length=1, min_length=1)
+    measures: tuple[Measure, Measure1, Measure2]
+    lineage: SampleFrameLineage
+    payload: SampleSummaryPayload
+
+
 class Diagnose(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -564,6 +676,15 @@ class Observe(BaseModel):
     filter: Expression = None  # type: ignore[assignment]
     granularity: Literal["hour", "day", "week", "month", "quarter", "year"] = None  # type: ignore[assignment]
     dimensions: list[Dimension] = Field(None, min_length=1)  # type: ignore[arg-type]
+
+
+class Test(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    current_sample_artifact_id: str = Field(..., min_length=1)
+    baseline_sample_artifact_id: str = Field(..., min_length=1)
+    hypothesis: Hypothesis
 
 
 class AssociationResult(BaseModel):
@@ -658,7 +779,7 @@ class PeriodShiftCandidateSetPayload(BaseModel):
     items: list[PeriodShiftCandidateItem]
     scan_summary: ScanSummary
     truncation: Truncation
-    quality: Quality
+    quality: Quality1
 
 
 class PointAnomalyCandidateSetPayload(BaseModel):
@@ -668,7 +789,7 @@ class PointAnomalyCandidateSetPayload(BaseModel):
     items: list[PointAnomalyCandidateItem]
     scan_summary: ScanSummary
     truncation: Truncation
-    quality: Quality
+    quality: Quality1
 
 
 class AttributionFrameArtifact(BaseModel):
@@ -705,19 +826,7 @@ class Validate(BaseModel):
     metric: str = Field(..., min_length=1)
     current: Slice
     baseline: Slice
-    grain: Literal["hour", "day", "week", "month", "quarter", "year"]
-    hypothesis: Hypothesis
-
-
-class Test(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    metric: str = Field(..., min_length=1)
-    current: Slice
-    baseline: Slice
-    grain: Literal["hour", "day", "week", "month", "quarter", "year"]
-    kind: Literal["numeric"]
+    granularity: Literal["hour", "day", "week", "month", "quarter", "year"]
     hypothesis: Hypothesis
 
 
@@ -842,12 +951,14 @@ class AoiV02(
         | Detect
         | Test
         | Forecast
+        | SampleSummary
         | Validate
         | Attribute
         | Diagnose
         | MetricFrameArtifact
         | DeltaFrameArtifact
         | AttributionFrameArtifact
+        | SampleFrameArtifact
         | Artifact1
         | Artifact2
         | PointAnomalyCandidateSetArtifact
@@ -862,12 +973,14 @@ class AoiV02(
         | Detect
         | Test
         | Forecast
+        | SampleSummary
         | Validate
         | Attribute
         | Diagnose
         | MetricFrameArtifact
         | DeltaFrameArtifact
         | AttributionFrameArtifact
+        | SampleFrameArtifact
         | Artifact1
         | Artifact2
         | PointAnomalyCandidateSetArtifact

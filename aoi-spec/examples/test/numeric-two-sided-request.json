@@ -1,40 +1,9 @@
 {
-  "metric": "conversion_value",
-  "current": {
-    "time_scope": {
-      "field": "event_time",
-      "start": "2026-01-01T00:00:00Z",
-      "end": "2026-02-01T00:00:00Z"
-    },
-    "filter": {
-      "dialects": [
-        {
-          "dialect": "ANSI_SQL",
-          "expression": "experiment_group = 'treatment'"
-        }
-      ]
-    }
-  },
-  "baseline": {
-    "time_scope": {
-      "field": "event_time",
-      "start": "2026-01-01T00:00:00Z",
-      "end": "2026-02-01T00:00:00Z"
-    },
-    "filter": {
-      "dialects": [
-        {
-          "dialect": "ANSI_SQL",
-          "expression": "experiment_group = 'control'"
-        }
-      ]
-    }
-  },
-  "grain": "day",
-  "kind": "numeric",
+  "current_sample_artifact_id": "art_sample_current",
+  "baseline_sample_artifact_id": "art_sample_baseline",
   "hypothesis": {
     "family": "two_sample_mean",
     "alternative": "two_sided",
-    "significance": "conservative"
+    "significance": "balanced"
   }
 }

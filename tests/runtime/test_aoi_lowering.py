@@ -5,7 +5,10 @@ from datetime import UTC, datetime
 import pytest
 
 from marivo.contracts.generated import aoi
-from marivo.runtime.aoi_lowering import lower_aoi_derived_request, lower_aoi_request
+from marivo.runtime.aoi_lowering import (
+    lower_aoi_derived_request,
+    lower_aoi_request,
+)
 
 
 def _time_scope() -> aoi.TimeScope:
@@ -174,25 +177,24 @@ def test_lowers_detect_request_to_artifact_input_runner_params() -> None:
     }
 
 
-def test_lowers_test_request_to_runner_params() -> None:
+def test_lowers_sample_summary_transform_to_runner_params() -> None:
+    from marivo.runtime.aoi_lowering import lower_aoi_transform_request
+
+    request = aoi.SampleSummary(
+        source_artifact_id="art_metric_frame_current",
+        sample_kind="numeric",
+    )
+
+    assert lower_aoi_transform_request("sample_summary", request) == {
+        "source_artifact_id": "art_metric_frame_current",
+        "sample_kind": "numeric",
+    }
+
+
+def test_lowers_test_request_to_sample_frame_ref_runner_params() -> None:
     request = aoi.Test(
-        metric="view_time",
-        current=aoi.Slice(
-            time_scope=aoi.TimeScope(
-                field="event_time",
-                start=datetime(2026, 5, 1, tzinfo=UTC),
-                end=datetime(2026, 5, 8, tzinfo=UTC),
-            )
-        ),
-        baseline=aoi.Slice(
-            time_scope=aoi.TimeScope(
-                field="event_time",
-                start=datetime(2026, 4, 24, tzinfo=UTC),
-                end=datetime(2026, 5, 1, tzinfo=UTC),
-            )
-        ),
-        grain="day",
-        kind="numeric",
+        current_sample_artifact_id="art_sample_current",
+        baseline_sample_artifact_id="art_sample_baseline",
         hypothesis=aoi.Hypothesis(
             family="two_sample_mean",
             alternative="greater",
@@ -201,87 +203,12 @@ def test_lowers_test_request_to_runner_params() -> None:
     )
 
     assert lower_aoi_request("test", request) == {
-        "metric": "view_time",
-        "current": {
-            "time_scope": {
-                "field": "event_time",
-                "start": "2026-05-01T00:00:00Z",
-                "end": "2026-05-08T00:00:00Z",
-            }
-        },
-        "baseline": {
-            "time_scope": {
-                "field": "event_time",
-                "start": "2026-04-24T00:00:00Z",
-                "end": "2026-05-01T00:00:00Z",
-            }
-        },
-        "grain": "day",
-        "kind": "numeric",
+        "current_sample_artifact_id": "art_sample_current",
+        "baseline_sample_artifact_id": "art_sample_baseline",
         "hypothesis": {
             "family": "two_sample_mean",
             "alternative": "greater",
             "significance": "balanced",
-        },
-    }
-
-
-def test_lowers_test_request_with_filters_to_runner_params() -> None:
-    request = aoi.Test(
-        metric="view_time",
-        current=aoi.Slice(
-            time_scope=aoi.TimeScope(
-                field="event_time",
-                start=datetime(2026, 5, 1, tzinfo=UTC),
-                end=datetime(2026, 5, 8, tzinfo=UTC),
-            ),
-            filter=aoi.Expression(
-                dialects=[aoi.Dialect(dialect="ANSI_SQL", expression="region = 'US'")]
-            ),
-        ),
-        baseline=aoi.Slice(
-            time_scope=aoi.TimeScope(
-                field="event_time",
-                start=datetime(2026, 4, 24, tzinfo=UTC),
-                end=datetime(2026, 5, 1, tzinfo=UTC),
-            ),
-            filter=aoi.Expression(
-                dialects=[aoi.Dialect(dialect="ANSI_SQL", expression="region = 'CA'")]
-            ),
-        ),
-        grain="hour",
-        kind="numeric",
-        hypothesis=aoi.Hypothesis(
-            family="two_sample_mean",
-            alternative="less",
-            significance="aggressive",
-        ),
-    )
-
-    assert lower_aoi_request("test", request) == {
-        "metric": "view_time",
-        "current": {
-            "time_scope": {
-                "field": "event_time",
-                "start": "2026-05-01T00:00:00Z",
-                "end": "2026-05-08T00:00:00Z",
-            },
-            "filter": {"dialects": [{"dialect": "ANSI_SQL", "expression": "region = 'US'"}]},
-        },
-        "baseline": {
-            "time_scope": {
-                "field": "event_time",
-                "start": "2026-04-24T00:00:00Z",
-                "end": "2026-05-01T00:00:00Z",
-            },
-            "filter": {"dialects": [{"dialect": "ANSI_SQL", "expression": "region = 'CA'"}]},
-        },
-        "grain": "hour",
-        "kind": "numeric",
-        "hypothesis": {
-            "family": "two_sample_mean",
-            "alternative": "less",
-            "significance": "aggressive",
         },
     }
 
@@ -306,7 +233,7 @@ def test_lowers_validate_request_to_runner_params() -> None:
                 end=datetime(2026, 5, 1, tzinfo=UTC),
             ),
         ),
-        grain="day",
+        granularity="day",
         hypothesis=aoi.Hypothesis(
             family="two_sample_mean",
             alternative="greater",
@@ -331,7 +258,7 @@ def test_lowers_validate_request_to_runner_params() -> None:
                 "end": "2026-05-01T00:00:00Z",
             }
         },
-        "grain": "day",
+        "granularity": "day",
         "hypothesis": {
             "family": "two_sample_mean",
             "alternative": "greater",

@@ -135,7 +135,7 @@ Marivo 不把分析系统设计成“给 agent 一组工具，让它自己自由
 | `decompose` | “一个已知变化主要由哪些维度成员贡献？” | `compare_artifact_id`、`dimension` | 把总变化拆成结构化贡献项，支持渠道、地区、品类、端类型等归因分析 |
 | `correlate` | “两个序列是否存在统计关联？” | `left_artifact_id`、`right_artifact_id` | 用于发现共变关系，帮助筛选候选解释，但不直接等价于因果结论 |
 | `detect` | “已提交观测或差异 artifact 中，哪些点值得关注？” | `source_artifact_id`、可选 `sensitivity`、`limit` | 扫描 `metric_frame` 或 `delta_frame`，产出候选集合，为后续 `compare` / `diagnose` 固定分析起点 |
-| `test` | “这个明确假设在统计上是否成立？” | `metric`、`left`、`right`、`kind: "numeric"`、`hypothesis` | 把候选解释从直觉判断推进到可检验结论，减少把波动误当成规律 |
+| `test` | “这个明确假设在统计上是否成立？” | `current_sample_artifact_id`、`baseline_sample_artifact_id`、`hypothesis` | 消费 `sample_frame` 样本摘要做假设检验，把候选解释从直觉判断推进到可检验结论 |
 | `forecast` | “基于已有序列，未来一段时间可能如何演化？” | `source_artifact_id`、`horizon` | 用于趋势外推、基线预估或后续偏离识别，不替代因果诊断 |
 
 ### 派生意图
@@ -299,9 +299,10 @@ Marivo 通过 semantic layer 提供的是：
 一个典型链路可能是：
 
 - `observe` 当前周期和上周期的 `metric.gmv`
+- `sample_summary` 基于两个 `observe` 产出的 `metric_frame` 生成 `sample_frame`
 - `compare` 确认差异幅度
 - `decompose` 按 `dimension.region` 和 `dimension.category` 看贡献结构
-- `test` 检查“促销流量下降是否显著影响 GMV”这样的候选假设
+- `test` 基于 `sample_frame` 检查“促销流量下降是否显著影响 GMV”这样的候选假设
 
 这里的区别在于，系统不是让 agent 用自然语言说“帮我看看是不是促销导致的”，然后临时生成一条 SQL 试试，而是把“观察”“比较”“拆解”“验证”都放进明确的类型化分析契约。
 
@@ -347,7 +348,7 @@ Agent 创建 session 后，可以先对 `metric.dau` 或相关 retention metric 
 
 - 用 `correlate` 看 DAU 与版本发布后某行为指标、某渠道流量、某端类型指标之间是否存在统计关联。
 - 用 `decompose` 查看异常主要集中在哪些用户段、渠道或端类型。
-- 用 `test` 对候选解释做进一步检验。
+- 用 `sample_summary` 把相关 `metric_frame` 准备为 `sample_frame`，再用 `test` 对候选解释做进一步检验。
 
 这一串动作的价值，不是“流程更多”，而是“每一步都留下正式可引用的中间结果”。当 agent 进入第四轮第五轮时，不必重新靠提示词记忆“之前哪个渠道已经看过”“哪个相关性只是弱关联”“哪个假设还缺前置证据”。
 
@@ -361,6 +362,9 @@ Marivo 反过来做：
 - findings 由代码确定性抽取。
 - propositions 和 assessments 持续更新。
 - gaps 会显式保留，提示哪些解释仍缺证据。
+
+其中 `sample_frame` 是 `test` 的输入 artifact，通常不直接 seed proposition；`test_result`
+才会进入 hypothesis 的证据链，并推动 proposition / assessment 更新。
 
 于是 agent 消费的是一个不断增长、不断收敛的分析状态，而不是一段越来越模糊的聊天摘要。
 

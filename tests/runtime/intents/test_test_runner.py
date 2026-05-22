@@ -10,32 +10,68 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from marivo.runtime.intents._helpers import (
-    SampleSummary,
     build_scoped_query_for_window,
     compute_numeric_sample_summary,
 )
 from marivo.runtime.intents.test import _betai, _p_value_from_t, _t_sf, run_test_intent
 
 
+def _sample_frame(
+    *,
+    artifact_id: str,
+    metric_ref: str | None = "metric.test_metric",
+    subject_kind: Any = "sample_summary",
+    source_artifact_id: Any = None,
+    lineage_operation: Any = "sample_summary",
+    lineage_source_artifact_ids: Any = None,
+    source_axis: str = "time",
+    grain: str = "day",
+    n: Any = 30,
+    mean: Any = 100.0,
+    standard_deviation: Any = 15.0,
+    quality_status: Any = "test_ready",
+) -> dict[str, Any]:
+    subject: dict[str, Any] = {
+        "kind": subject_kind,
+    }
+    if source_artifact_id is None:
+        source_artifact_id = f"{artifact_id}_source"
+    if lineage_source_artifact_ids is None:
+        lineage_source_artifact_ids = [source_artifact_id]
+    if source_artifact_id != "__missing__":
+        subject["source_artifact_id"] = source_artifact_id
+    if metric_ref is not None:
+        subject["metric_ref"] = metric_ref
+    lineage: dict[str, Any] = {"operation": lineage_operation}
+    if lineage_source_artifact_ids != "__missing__":
+        lineage["source_artifact_ids"] = lineage_source_artifact_ids
+    return {
+        "artifact_id": artifact_id,
+        "artifact_family": "sample_frame",
+        "shape": "numeric_summary",
+        "subject": subject,
+        "axes": [{"kind": "sample", "source_axis": source_axis, "grain": grain}],
+        "measures": [
+            {"id": "n", "value_type": "integer", "nullable": False},
+            {"id": "mean", "value_type": "number", "nullable": True},
+            {"id": "standard_deviation", "value_type": "number", "nullable": True},
+        ],
+        "lineage": lineage,
+        "payload": {
+            "summary": {
+                "n": n,
+                "mean": mean,
+                "standard_deviation": standard_deviation,
+            },
+            "quality": {"status": quality_status, "issues": []},
+        },
+    }
+
+
 def _valid_params() -> dict[str, Any]:
     return {
-        "metric": "metric.test_metric",
-        "current": {
-            "time_scope": {
-                "field": "event_time",
-                "start": "2026-01-01T00:00:00Z",
-                "end": "2026-01-08T00:00:00Z",
-            }
-        },
-        "baseline": {
-            "time_scope": {
-                "field": "event_time",
-                "start": "2026-01-08T00:00:00Z",
-                "end": "2026-01-15T00:00:00Z",
-            }
-        },
-        "grain": "day",
-        "kind": "numeric",
+        "current_sample_artifact_id": "art_sample_current",
+        "baseline_sample_artifact_id": "art_sample_baseline",
         "hypothesis": {
             "family": "two_sample_mean",
             "alternative": "two_sided",
@@ -51,53 +87,41 @@ def _runtime() -> MagicMock:
     return runtime
 
 
-def _sample(
-    *,
-    n: int | None = 30,
-    mean: float | None = 100.0,
-    standard_deviation: float | None = 15.0,
-    predicate_filter_lineage: dict[str, Any] | None = None,
-) -> SampleSummary:
-    return SampleSummary(
-        n=n,
-        mean=mean,
-        standard_deviation=standard_deviation,
-        predicate_filter_lineage=predicate_filter_lineage,
-    )
-
-
 def _run_with_mock_data(
     params: dict[str, Any] | None = None,
     *,
-    left_summary: SampleSummary | None = None,
-    right_summary: SampleSummary | None = None,
+    current_sample: dict[str, Any] | None = None,
+    baseline_sample: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], MagicMock]:
     runtime = _runtime()
     params = deepcopy(params if params is not None else _valid_params())
+    current = current_sample or _sample_frame(artifact_id="art_sample_current")
+    baseline = baseline_sample or _sample_frame(
+        artifact_id="art_sample_baseline",
+        n=25,
+        mean=90.0,
+        standard_deviation=12.0,
+    )
+    runtime.resolve_artifact_by_id.side_effect = [current, baseline]
 
-    with patch("marivo.runtime.intents.test.compute_numeric_sample_summary") as mock_compute:
-        mock_compute.side_effect = [
-            left_summary or _sample(),
-            right_summary or _sample(n=25, mean=90.0, standard_deviation=12.0),
-        ]
-        with patch(
-            "marivo.runtime.intents.test.resolve_predicate_lineage_reuse_for_intent"
-        ) as mock_lineage:
-            mock_lineage.return_value = {
-                "issues": [],
-                "fatal_message": None,
-                "reuse_summary": None,
+    with patch(
+        "marivo.runtime.intents.test.resolve_predicate_lineage_reuse_for_intent"
+    ) as mock_lineage:
+        mock_lineage.return_value = {
+            "issues": [],
+            "fatal_message": None,
+            "reuse_summary": None,
+        }
+        with patch("marivo.runtime.intents.test.commit_step_result") as mock_commit:
+            mock_commit.return_value = {
+                "intent_type": "test",
+                "step_type": "test",
+                "step_ref": {"session_id": "s1", "step_id": "step-1", "step_type": "test"},
+                "artifact_id": "art-1",
             }
-            with patch("marivo.runtime.intents.test.commit_step_result") as mock_commit:
-                mock_commit.return_value = {
-                    "intent_type": "test",
-                    "step_type": "test",
-                    "step_ref": {"session_id": "s1", "step_id": "step-1", "step_type": "test"},
-                    "artifact_id": "art-1",
-                }
-                run_test_intent(runtime, "session-1", params)
-                artifact = mock_commit.call_args[0][6]
-                return artifact, mock_compute
+            run_test_intent(runtime, "session-1", params)
+            artifact = mock_commit.call_args[0][6]
+            return artifact, runtime.resolve_artifact_by_id
 
 
 def test_t_sf_symmetry() -> None:
@@ -167,61 +191,50 @@ def test_artifact_shape_is_current_hypothesis_test_result() -> None:
     assert "sample_kind" not in artifact
 
 
-def test_passes_filters_to_sample_summaries_and_source_lineage() -> None:
-    params = _valid_params()
-    left_filter = {"dialects": [{"dialect": "ANSI_SQL", "expression": "region = 'US'"}]}
-    right_filter = {"dialects": [{"dialect": "ANSI_SQL", "expression": "region = 'CA'"}]}
-    left_scope = {"predicate": "region = 'US'"}
-    right_scope = {"predicate": "region = 'CA'"}
-    params["current"]["filter"] = left_filter
-    params["baseline"]["filter"] = right_filter
+def test_reads_sample_frames_by_artifact_id() -> None:
+    artifact, resolver = _run_with_mock_data()
 
-    artifact, mock_compute = _run_with_mock_data(params)
-
-    assert mock_compute.call_args_list[0].kwargs["scope_raw"] == left_scope
-    assert mock_compute.call_args_list[1].kwargs["scope_raw"] == right_scope
-    assert mock_compute.call_args_list[0].kwargs["grain"] == "day"
-    assert mock_compute.call_args_list[1].kwargs["grain"] == "day"
-    assert artifact["source_lineage"]["grain"] == "day"
-    assert artifact["source_lineage"]["current"]["filter"] == left_filter
-    assert artifact["source_lineage"]["baseline"]["filter"] == right_filter
+    assert resolver.call_args_list[0].args == ("session-1", "art_sample_current")
+    assert resolver.call_args_list[1].args == ("session-1", "art_sample_baseline")
+    assert artifact["source_lineage"]["current_sample_artifact_id"] == "art_sample_current"
+    assert artifact["source_lineage"]["baseline_sample_artifact_id"] == "art_sample_baseline"
+    assert artifact["source_lineage"]["sample_axis"] == {"source_axis": "time", "grain": "day"}
 
 
-def test_query_hash_includes_normalized_slice_filters() -> None:
-    params = _valid_params()
-    params["current"]["filter"] = {
-        "dialects": [{"dialect": "ANSI_SQL", "expression": "region = 'US'"}]
-    }
-    params["baseline"]["filter"] = {
-        "dialects": [{"dialect": "ANSI_SQL", "expression": "region = 'CA'"}]
-    }
-    filtered_artifact, _ = _run_with_mock_data(params)
+def test_does_not_resolve_metric_or_source_execution() -> None:
+    runtime = _runtime()
+    runtime.resolve_artifact_by_id.side_effect = [
+        _sample_frame(artifact_id="art_sample_current"),
+        _sample_frame(artifact_id="art_sample_baseline", mean=90.0),
+    ]
 
-    other_params = deepcopy(params)
-    other_params["current"]["filter"] = {
-        "dialects": [{"dialect": "ANSI_SQL", "expression": "region = 'MX'"}]
-    }
-    other_artifact, _ = _run_with_mock_data(other_params)
+    with (
+        patch("marivo.runtime.intents.test.commit_step_result") as mock_commit,
+        patch(
+            "marivo.runtime.intents.test.resolve_predicate_lineage_reuse_for_intent",
+            return_value={"issues": [], "fatal_message": None, "reuse_summary": None},
+        ),
+    ):
+        mock_commit.return_value = {"artifact_id": "art_test"}
+        run_test_intent(runtime, "session-1", _valid_params())
 
-    assert (
-        filtered_artifact["execution_metadata"]["query_hash"]
-        != other_artifact["execution_metadata"]["query_hash"]
-    )
-
-
-@pytest.mark.parametrize("grain", ["quarter", "year"])
-def test_accepts_time_granularity_grain(grain: str) -> None:
-    params = _valid_params()
-    params["grain"] = grain
-
-    artifact, mock_compute = _run_with_mock_data(params)
-
-    assert mock_compute.call_args_list[0].kwargs["grain"] == grain
-    assert artifact["source_lineage"]["grain"] == grain
+    assert not runtime.core.normalize_intent_metric_ref.called
+    assert not runtime.core.metric_name_from_ref.called
+    assert not runtime.resolve_metric_execution_context.called
+    assert not runtime.resolve_metric.called
+    assert not runtime.resolve_metric_dimensions.called
+    assert not runtime.resolve_engine_for_session.called
+    assert not runtime.resolve_metric_sql_for_execution.called
+    assert not runtime.compile_step.called
 
 
 def test_zero_variance_slice_adds_assumption_note() -> None:
-    artifact, _ = _run_with_mock_data(left_summary=_sample(standard_deviation=0.0))
+    artifact, _ = _run_with_mock_data(
+        current_sample=_sample_frame(
+            artifact_id="art_sample_current",
+            standard_deviation=0.0,
+        )
+    )
 
     assert any("zero variance" in note for note in artifact["assumption_notes"])
 
@@ -500,91 +513,53 @@ def test_sample_summary_rejects_non_sum_semantics_without_sum_shape_requirement(
 
 
 @pytest.mark.parametrize(
-    ("left_summary", "right_summary", "message"),
+    ("current_sample", "baseline_sample", "message"),
     [
-        (_sample(n=1), _sample(n=25, mean=90.0, standard_deviation=12.0), "n >= 2"),
-        (_sample(mean=None), _sample(n=25, mean=90.0, standard_deviation=12.0), "missing"),
-        (_sample(standard_deviation=0.0), _sample(standard_deviation=0.0), "standard error"),
+        (
+            _sample_frame(artifact_id="art_sample_current", n=1),
+            _sample_frame(artifact_id="art_sample_baseline", n=25, mean=90.0),
+            "n >= 2",
+        ),
+        (
+            _sample_frame(artifact_id="art_sample_current", mean=None),
+            _sample_frame(artifact_id="art_sample_baseline", n=25, mean=90.0),
+            "missing",
+        ),
+        (
+            _sample_frame(artifact_id="art_sample_current", standard_deviation=0.0),
+            _sample_frame(artifact_id="art_sample_baseline", standard_deviation=0.0),
+            "standard error",
+        ),
     ],
 )
 def test_rejects_insufficient_data(
-    left_summary: SampleSummary,
-    right_summary: SampleSummary,
+    current_sample: dict[str, Any],
+    baseline_sample: dict[str, Any],
     message: str,
 ) -> None:
     runtime = _runtime()
-
-    with (
-        patch("marivo.runtime.intents.test.compute_numeric_sample_summary") as mock_compute,
-        patch(
-            "marivo.runtime.intents.test.resolve_predicate_lineage_reuse_for_intent",
-            return_value={"issues": [], "fatal_message": None, "reuse_summary": None},
-        ),
-    ):
-        mock_compute.side_effect = [left_summary, right_summary]
-        with pytest.raises(ValueError, match=message):
-            run_test_intent(runtime, "session-1", _valid_params())
-
-
-def test_time_derived_slice_filter_fails_fast_instead_of_running_unfiltered() -> None:
-    params = _valid_params()
-    params["current"]["filter"] = {
-        "dialects": [
-            {
-                "dialect": "ANSI_SQL",
-                "expression": "EXTRACT(DAY_OF_WEEK FROM event_time) BETWEEN 1 AND 5",
-            }
-        ]
-    }
-    runtime = _runtime()
-    runtime.resolve_metric_execution_context.return_value = SimpleNamespace(table_name="orders")
-    runtime.resolve_metric.return_value = SimpleNamespace(
-        semantic_object={"header": {"decomposition_semantics": "sum"}}
-    )
-    runtime.resolve_metric_dimensions.return_value = ["event_time"]
-    runtime.resolve_engine_for_session.return_value = (
-        MagicMock(),
-        "duckdb",
-        {"orders": "q_orders"},
-    )
-    runtime.resolve_metric_sql_for_execution.return_value = "COUNT(*)"
-
-    def _resolve_time_axis(resolved: Any, **_: Any) -> None:
-        resolved.resolved_time_axis.analysis_time_expr = "event_time"
-
-    runtime.resolve_windowed_query_time_axis.side_effect = _resolve_time_axis
+    runtime.resolve_artifact_by_id.side_effect = [current_sample, baseline_sample]
 
     with (
         patch(
             "marivo.runtime.intents.test.resolve_predicate_lineage_reuse_for_intent",
             return_value={"issues": [], "fatal_message": None, "reuse_summary": None},
         ),
-        pytest.raises(
-            ValueError,
-            match=(
-                r"test: INVALID_ARGUMENT - current\.filter "
-                r"scope\.predicate must not contain time-axis predicates"
-            ),
-        ),
+        pytest.raises(ValueError, match=message),
     ):
-        run_test_intent(runtime, "session-1", params)
+        run_test_intent(runtime, "session-1", _valid_params())
 
 
 @pytest.mark.parametrize(
     ("payload_patch", "message"),
     [
         (None, "params"),
-        ({"__remove__": "metric"}, "metric"),
-        ({"__remove__": "kind"}, "kind"),
-        ({"__remove__": "grain"}, "grain"),
+        ({"__remove__": "current_sample_artifact_id"}, "current_sample_artifact_id"),
+        ({"__remove__": "baseline_sample_artifact_id"}, "baseline_sample_artifact_id"),
         ({"__remove__": "hypothesis"}, "hypothesis"),
         ({"method": "welch_t"}, "method"),
-        ({"kind": "Numeric"}, "kind"),
-        ({"kind": "rate"}, "kind"),
-        ({"grain": "minute"}, "grain"),
-        ({"grain": None}, "grain"),
-        ({"current": {"scope": {"predicate": "region = 'US'"}}}, "scope"),
-        ({"current": {"filter": None}}, "filter"),
+        ({"current_sample_artifact_id": ""}, "current_sample_artifact_id"),
+        ({"baseline_sample_artifact_id": None}, "baseline_sample_artifact_id"),
         ({"hypothesis": {"family": "two_sample_proportion"}}, "family"),
         ({"hypothesis": {"alternative": "not_equal"}}, "alternative"),
         ({"hypothesis": {"significance": "loose"}}, "significance"),
@@ -608,6 +583,274 @@ def test_rejects_non_current_request_shapes(
 
     with pytest.raises(ValueError, match=message):
         run_test_intent(runtime, "session-1", params)
+
+
+@pytest.mark.parametrize(
+    ("payload_patch", "message"),
+    [
+        ({"metric": "metric.test_metric"}, "unsupported"),
+        ({"grain": "day"}, "unsupported"),
+        ({"kind": "numeric"}, "unsupported"),
+        (
+            {
+                "current": {
+                    "time_scope": {
+                        "field": "event_time",
+                        "start": "2026-01-01",
+                        "end": "2026-01-02",
+                    }
+                }
+            },
+            "unsupported",
+        ),
+        (
+            {
+                "baseline": {
+                    "time_scope": {
+                        "field": "event_time",
+                        "start": "2026-01-01",
+                        "end": "2026-01-02",
+                    }
+                }
+            },
+            "unsupported",
+        ),
+    ],
+)
+def test_rejects_removed_source_request_fields(
+    payload_patch: dict[str, Any],
+    message: str,
+) -> None:
+    params = _valid_params()
+    params.update(payload_patch)
+
+    with pytest.raises(ValueError, match=message):
+        run_test_intent(_runtime(), "session-1", params)
+
+
+def test_rejects_non_sample_frame_artifacts() -> None:
+    runtime = _runtime()
+    runtime.resolve_artifact_by_id.side_effect = [
+        {"artifact_id": "art_metric", "artifact_family": "metric_frame"},
+        _sample_frame(artifact_id="art_sample_baseline"),
+    ]
+
+    with pytest.raises(ValueError, match="sample_frame"):
+        run_test_intent(runtime, "session-1", _valid_params())
+
+
+@pytest.mark.parametrize(
+    ("artifact_patch", "message"),
+    [
+        ({"axes": [{"kind": "sample", "source_axis": "time", "grain": "day"}] * 2}, "sample_frame"),
+        (
+            {
+                "measures": [
+                    {"id": "n", "value_type": "integer", "nullable": False},
+                    {"id": "mean", "value_type": "number", "nullable": True},
+                ]
+            },
+            "sample_frame",
+        ),
+        (
+            {
+                "measures": [
+                    {"id": "n", "value_type": "number", "nullable": False},
+                    {"id": "mean", "value_type": "number", "nullable": True},
+                    {"id": "standard_deviation", "value_type": "number", "nullable": True},
+                ]
+            },
+            "sample_frame",
+        ),
+    ],
+)
+def test_rejects_generated_sample_frame_contract_violations(
+    artifact_patch: dict[str, Any],
+    message: str,
+) -> None:
+    runtime = _runtime()
+    current = _sample_frame(artifact_id="art_sample_current")
+    current.update(artifact_patch)
+    runtime.resolve_artifact_by_id.side_effect = [
+        current,
+        _sample_frame(artifact_id="art_sample_baseline"),
+    ]
+
+    with pytest.raises(ValueError, match=message):
+        run_test_intent(runtime, "session-1", _valid_params())
+
+
+def test_rejects_mismatched_sample_axes() -> None:
+    runtime = _runtime()
+    runtime.resolve_artifact_by_id.side_effect = [
+        _sample_frame(artifact_id="art_sample_current", grain="day"),
+        _sample_frame(artifact_id="art_sample_baseline", grain="week"),
+    ]
+
+    with pytest.raises(ValueError, match="sample axis"):
+        run_test_intent(runtime, "session-1", _valid_params())
+
+
+@pytest.mark.parametrize(
+    ("axis_patch", "message"),
+    [
+        ({"kind": "bucket", "source_axis": "time", "grain": "day"}, "sample axis"),
+        ({"kind": "sample", "source_axis": "region", "grain": "day"}, "sample axis"),
+        ({"kind": "sample", "source_axis": "time", "grain": "minute"}, "grain"),
+    ],
+)
+def test_rejects_malformed_sample_axis(
+    axis_patch: dict[str, Any],
+    message: str,
+) -> None:
+    runtime = _runtime()
+    current = _sample_frame(artifact_id="art_sample_current")
+    current["axes"] = [axis_patch]
+    runtime.resolve_artifact_by_id.side_effect = [
+        current,
+        _sample_frame(artifact_id="art_sample_baseline"),
+    ]
+
+    with pytest.raises(ValueError, match=message):
+        run_test_intent(runtime, "session-1", _valid_params())
+
+
+def test_rejects_mismatched_sample_metric_refs() -> None:
+    runtime = _runtime()
+    runtime.resolve_artifact_by_id.side_effect = [
+        _sample_frame(artifact_id="art_sample_current", metric_ref="metric.revenue"),
+        _sample_frame(artifact_id="art_sample_baseline", metric_ref="metric.orders"),
+    ]
+
+    with pytest.raises(ValueError, match="metric_ref"):
+        run_test_intent(runtime, "session-1", _valid_params())
+
+
+@pytest.mark.parametrize(
+    ("current_metric_ref", "baseline_metric_ref"),
+    [
+        (None, "metric.test_metric"),
+        ("metric.test_metric", None),
+        (None, None),
+    ],
+)
+def test_rejects_missing_sample_metric_ref(
+    current_metric_ref: str | None,
+    baseline_metric_ref: str | None,
+) -> None:
+    runtime = _runtime()
+    runtime.resolve_artifact_by_id.side_effect = [
+        _sample_frame(artifact_id="art_sample_current", metric_ref=current_metric_ref),
+        _sample_frame(artifact_id="art_sample_baseline", metric_ref=baseline_metric_ref),
+    ]
+
+    with pytest.raises(ValueError, match="metric_ref"):
+        run_test_intent(runtime, "session-1", _valid_params())
+
+
+@pytest.mark.parametrize("source_artifact_id", ["__missing__", "", 123])
+def test_rejects_missing_or_invalid_source_artifact_id(source_artifact_id: Any) -> None:
+    runtime = _runtime()
+    runtime.resolve_artifact_by_id.side_effect = [
+        _sample_frame(
+            artifact_id="art_sample_current",
+            source_artifact_id=source_artifact_id,
+        ),
+        _sample_frame(artifact_id="art_sample_baseline"),
+    ]
+
+    with pytest.raises(ValueError, match="source_artifact_id"):
+        run_test_intent(runtime, "session-1", _valid_params())
+
+
+@pytest.mark.parametrize(
+    ("sample_patch", "message"),
+    [
+        ({"subject_kind": "metric"}, "subject.kind"),
+        ({"lineage_operation": "observe"}, "lineage.operation"),
+        ({"lineage_source_artifact_ids": "__missing__"}, "source_artifact_ids"),
+        ({"lineage_source_artifact_ids": []}, "source_artifact_ids"),
+        (
+            {
+                "source_artifact_id": "art_sample_current_other_source",
+                "lineage_source_artifact_ids": ["art_sample_current_source"],
+            },
+            "source_artifact_id",
+        ),
+    ],
+)
+def test_rejects_malformed_sample_subject_or_lineage(
+    sample_patch: dict[str, Any],
+    message: str,
+) -> None:
+    runtime = _runtime()
+    runtime.resolve_artifact_by_id.side_effect = [
+        _sample_frame(artifact_id="art_sample_current", **sample_patch),
+        _sample_frame(artifact_id="art_sample_baseline"),
+    ]
+
+    with pytest.raises(ValueError, match=message):
+        run_test_intent(runtime, "session-1", _valid_params())
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("n", "30", "n"),
+        ("mean", "100.0", "mean"),
+        ("standard_deviation", "15.0", "standard_deviation"),
+        ("n", True, "n"),
+        ("mean", False, "mean"),
+        ("standard_deviation", True, "standard_deviation"),
+        ("n", -1, "n"),
+        ("standard_deviation", -0.1, "standard_deviation"),
+    ],
+)
+def test_rejects_malformed_sample_summary_stats(
+    field: str,
+    value: Any,
+    message: str,
+) -> None:
+    runtime = _runtime()
+    current = _sample_frame(artifact_id="art_sample_current")
+    current["payload"]["summary"][field] = value
+    runtime.resolve_artifact_by_id.side_effect = [
+        current,
+        _sample_frame(artifact_id="art_sample_baseline"),
+    ]
+
+    with pytest.raises(ValueError, match=message):
+        run_test_intent(runtime, "session-1", _valid_params())
+
+
+@pytest.mark.parametrize(
+    ("current_quality", "baseline_quality"),
+    [
+        ("unsupported_source", "test_ready"),
+        ("test_ready", "insufficient_data"),
+    ],
+)
+def test_rejects_sample_frame_quality_not_test_ready(
+    current_quality: str,
+    baseline_quality: str,
+) -> None:
+    runtime = _runtime()
+    runtime.resolve_artifact_by_id.side_effect = [
+        _sample_frame(
+            artifact_id="art_sample_current",
+            quality_status=current_quality,
+        ),
+        _sample_frame(
+            artifact_id="art_sample_baseline",
+            n=25,
+            mean=90.0,
+            standard_deviation=12.0,
+            quality_status=baseline_quality,
+        ),
+    ]
+
+    with pytest.raises(ValueError, match=r"quality|test_ready"):
+        run_test_intent(runtime, "session-1", _valid_params())
 
 
 def _merge_patch(target: dict[str, Any], patch_value: dict[str, Any]) -> None:

@@ -18,19 +18,19 @@ from marivo.transports.http import (
 def _patch_default_validation_error_schema(openapi_schema: dict[str, Any]) -> None:
     schemas = openapi_schema.setdefault("components", {}).setdefault("schemas", {})
     json_value_schema = {
-        "anyOf": [
-            {"type": "string"},
-            {"type": "integer"},
-            {"type": "number"},
-            {"type": "boolean"},
-            {"type": "null"},
-            {"type": "array", "items": {"$ref": "#/components/schemas/JsonValue"}},
-            {
-                "type": "object",
-                "additionalProperties": {"$ref": "#/components/schemas/JsonValue"},
-            },
-        ],
         "title": "JsonValue",
+        "type": "object",
+        "additionalProperties": {
+            "anyOf": [
+                {"type": "string"},
+                {"type": "integer"},
+                {"type": "number"},
+                {"type": "boolean"},
+                {"type": "null"},
+                {"type": "object"},
+            ],
+        },
+        "description": "Arbitrary JSON value.",
     }
     schemas["JsonValue"] = json_value_schema
     schemas["JsonValidationValue"] = json_value_schema | {"title": "JsonValidationValue"}

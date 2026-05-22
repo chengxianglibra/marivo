@@ -368,6 +368,19 @@ _GUIDED_EXAMPLES: dict[tuple[str, str], list[dict[str, Any]]] = {
             },
         }
     ],
+    (
+        "POST",
+        "/sessions/{session_id}/transforms/sample_summary",
+    ): [
+        {
+            "summary": "Minimal sample_summary transform payload",
+            "complexity": "minimal",
+            "payload": {
+                "source_artifact_id": "art_metric_frame_123",
+                "sample_kind": "numeric",
+            },
+        }
+    ],
 }
 
 _SCHEMA_NAME_BY_ROUTE: dict[tuple[str, str], str] = {
@@ -394,6 +407,7 @@ _SCHEMA_NAME_BY_ROUTE: dict[tuple[str, str], str] = {
     ("POST", "/sessions/{session_id}/intents/decompose"): "Decompose",
     ("POST", "/sessions/{session_id}/intents/correlate"): "Correlate",
     ("POST", "/sessions/{session_id}/intents/detect"): "Detect",
+    ("POST", "/sessions/{session_id}/transforms/sample_summary"): "SampleSummary",
     ("POST", "/sessions/{session_id}/intents/forecast"): "Forecast",
     ("POST", "/sessions/{session_id}/intents/attribute"): "Attribute",
     ("POST", "/sessions/{session_id}/intents/diagnose"): "Diagnose",

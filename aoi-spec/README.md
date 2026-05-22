@@ -8,7 +8,7 @@ Version: 0.2.0
 
 Status: draft
 
-AOI v0.2 defines foundation primitives, seven atomic intents, three derived request contracts (`validate`, `attribute`, `diagnose`), artifact contracts, and failure contracts. It does not define transport, runtime sessions, private metadata, arbitrary DAG composition, capability subsets, or a conformance test suite.
+AOI v0.2 defines foundation primitives, seven atomic intents, one standard transform (`sample_summary`), three derived request contracts (`validate`, `attribute`, `diagnose`), artifact contracts, and failure contracts. It does not define transport, runtime sessions, private metadata, arbitrary DAG composition, capability subsets, or a conformance test suite.
 
 ## Layout
 
@@ -27,6 +27,7 @@ aoi-spec/
     decompose/
     correlate/
     detect/
+    sample_summary/
     test/
     forecast/
     validate/
@@ -46,7 +47,7 @@ npx --yes ajv-cli@5.0.0 validate --spec=draft2020 -s aoi-spec/schema/aoi.schema.
 
 The command validates every JSON example against the AOI v0.2 schema.
 
-Each intent directory contains request examples, successful artifact examples, and blocking failure artifact examples. Intents with multiple parameter or result shapes include separate examples for those shapes, such as scalar/time-series/segmented/panel observe metric frames and compare requests.
+Each operation directory contains request examples, successful artifact examples, and blocking failure artifact examples. Operations with multiple parameter or result shapes include separate examples for those shapes, such as scalar/time-series/segmented/panel observe metric frames and compare requests.
 
 ## Scope
 
@@ -54,8 +55,9 @@ Included:
 
 - Foundation primitives: `Expression`, `TimeScope`, `TimeGranularity`, `CompareType`, `AnalysisFailure`, `Hypothesis`
 - Atomic requests: `observe`, `compare`, `decompose`, `correlate`, `detect`, `test`, `forecast`
+- Standard transforms: `sample_summary`
 - Derived requests: `validate`, `attribute`, `diagnose`
-- Artifact types: `metric_frame`, `scalar_delta`, `time_series_delta`, `segmented_delta`, `attribution_frame`, `candidate_set`, `association_result`, `hypothesis_test_result`, `forecast_series`
+- Artifact types: `metric_frame`, `sample_frame`, `delta_frame`, `attribution_frame`, `candidate_set`, `association_result`, `hypothesis_test_result`, `forecast_series`
 
 Excluded from v0.2:
 

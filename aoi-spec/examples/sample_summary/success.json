@@ -1,0 +1,49 @@
+{
+  "artifact_id": "art_sample_current",
+  "artifact_family": "sample_frame",
+  "shape": "numeric_summary",
+  "subject": {
+    "kind": "sample_summary",
+    "metric_ref": "metric.revenue",
+    "source_artifact_id": "art_metric_frame_current"
+  },
+  "axes": [
+    {
+      "kind": "sample",
+      "source_axis": "time",
+      "grain": "day"
+    }
+  ],
+  "measures": [
+    {
+      "id": "n",
+      "value_type": "integer",
+      "nullable": false
+    },
+    {
+      "id": "mean",
+      "value_type": "number",
+      "nullable": true
+    },
+    {
+      "id": "standard_deviation",
+      "value_type": "number",
+      "nullable": true
+    }
+  ],
+  "lineage": {
+    "operation": "sample_summary",
+    "source_artifact_ids": ["art_metric_frame_current"]
+  },
+  "payload": {
+    "summary": {
+      "n": 7,
+      "mean": 120.0,
+      "standard_deviation": 10.0
+    },
+    "quality": {
+      "status": "test_ready",
+      "issues": []
+    }
+  }
+}

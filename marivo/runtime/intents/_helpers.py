@@ -431,7 +431,11 @@ def commit_aoi_artifact_result(
     """Commit a canonical AOI artifact and return an execution envelope."""
     canonical_artifact = artifact_to_envelope_result(validate_aoi_artifact(artifact_payload))
     artifact_id = ArtifactId(f"art_{uuid4().hex[:12]}")
-    if canonical_artifact.get("artifact_family") in ("metric_frame", "candidate_set"):
+    if canonical_artifact.get("artifact_family") in (
+        "metric_frame",
+        "sample_frame",
+        "candidate_set",
+    ):
         final_artifact = artifact_to_envelope_result(
             validate_aoi_artifact({**canonical_artifact, "artifact_id": artifact_id})
         )
